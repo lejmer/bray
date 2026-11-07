@@ -690,7 +690,12 @@ mod tests {
             )))
         };
 
+        for scalar in [false, true] {
         let storage = |owner| {
+            if scalar {
+                return ExecutionCondition::storage_value(input(owner), input(4)).borrowed();
+            }
+
             ExecutionCondition::Constructed(
                 Arc::new(input(owner)),
                 [(bray_bound_tree::StorageProjection::OwnedTarget, input(4))].into(),
@@ -725,6 +730,7 @@ mod tests {
         assert!(!state.witnesses.contains_key(&input(0)));
         assert!(state.witnesses.contains_key(&input(1)));
         assert!(state.witnesses.contains_key(&input(2)));
+        }
     }
 
     #[test]

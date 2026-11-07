@@ -14,8 +14,8 @@ struct Shape {
     inline_only: bool,
     complete_references: bool,
     // Inline ownership differs from observable referents and protected contents.
-    // None means that this type's possible marker transfers remain unknown.
-    inline_markers: Option<BTreeSet<TypeId>>,
+    // None means that this type's possible inline ownership remains unknown.
+    inline_carriers: Option<BTreeSet<TypeId>>,
 }
 
 impl Shape {
@@ -33,7 +33,7 @@ impl Shape {
             complete_value: false,
             inline_only: false,
             complete_references: false,
-            inline_markers: None,
+            inline_carriers: None,
         }
     }
 }
@@ -54,7 +54,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
             complete_value: !reference,
             inline_only: true,
             complete_references: true,
-            inline_markers: Some(BTreeSet::new()),
+            inline_carriers: Some(BTreeSet::new()),
         });
     }
 
@@ -81,7 +81,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
         complete_value: scalar && !reference,
         inline_only: scalar,
         complete_references: scalar || matches!(observation, Observation::Address),
-        inline_markers: (scalar || matches!(observation, Observation::Address))
+        inline_carriers: (scalar || matches!(observation, Observation::Address))
             .then(BTreeSet::new),
     };
 
@@ -97,7 +97,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
         let element = paths(request, element, visiting, complete_reference_types)?;
 
         shape.complete_references = element.is_reference_free();
-        shape.inline_markers = element.inline_markers;
+        shape.inline_carriers = element.inline_carriers;
 
         // Protected storage exposes no ordinary payload value. A reference-free
         // slot retains its opaque snapshot while its inline bytes are unreachable.
@@ -114,7 +114,7 @@ pub(crate) struct Footprint {
     pub(crate) references: Vec<(StoragePath, TypeId)>,
     pub(crate) complete_reference_types: std::sync::Arc<BTreeMap<TypeId, bool>>,
     pub(crate) owned_observations: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<(StoragePath, Observation)>>,
-    pub(crate) borrowed_observations: BTreeMap<StoragePath, (bray_symbols::BorrowKind, Vec<(StoragePath, Observation)>)>,
+    pub(crate) borrowed_observations: BTreeMap<StoragePath, (bray_symbols::BorrowKind, TypeId, Vec<(StoragePath, Observation)>)>,
     pub(crate) empty_markers: BTreeMap<StoragePath, TypeId>,
     pub(crate) discriminants: BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<StoragePath>>,
     shapes: BTreeMap<TypeId, Shape>,
@@ -288,7 +288,7 @@ impl Footprint {
             })
         });
 
-        let values = borrowed.map(|(_, values)| values)
+        let values = borrowed.map(|(_, _, values)| values)
             .or_else(|| self.owned_observations.get(&path.root));
 
         values.into_iter().flatten()
@@ -313,10 +313,10 @@ impl Footprint {
         )
     }
 
-    /// Marker ownership transported by this already classified value type.
+    /// Nominal carriers transported inline by this already classified value type.
     /// Reachability and mutation authority remain with the resolved operation.
-    pub(crate) fn transfer_markers(&self, ty: TypeId) -> Option<&BTreeSet<TypeId>> {
-        self.shapes.get(&ty)?.inline_markers.as_ref()
+    pub(crate) fn inline_carriers(&self, ty: TypeId) -> Option<&BTreeSet<TypeId>> {
+        self.shapes.get(&ty)?.inline_carriers.as_ref()
     }
 
 }
@@ -432,8 +432,8 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 footprint
                     .borrowed_observations
                     .entry(path.clone())
-                    .or_insert_with(|| (bray_symbols::BorrowKind::Shared, Vec::new()))
-                    .1.push((path, Observation::Mutable));
+                    .or_insert_with(|| (bray_symbols::BorrowKind::Shared, ty, Vec::new()))
+                    .2.push((path, Observation::Mutable));
             } else if identity.is_invocation_owned(storage.kind()) {
                 footprint.owned_observations.entry(root).or_default().push((path, Observation::Mutable));
             }
@@ -448,16 +448,16 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
                 let data = request.semantic_values().type_data(*ty);
 
-                let TypeData::Borrow { kind, .. } = data.as_ref() else {
+                let TypeData::Borrow { kind, target } = data.as_ref() else {
                     return None;
                 };
 
-                Some((path.as_slice(), *kind))
+                Some((path.as_slice(), (*kind, *target)))
             })
             .collect::<BTreeMap<_, _>>();
 
         if shared.is_some() {
-            borrowed_paths.insert(&[], bray_symbols::BorrowKind::Shared);
+            borrowed_paths.insert(&[], (bray_symbols::BorrowKind::Shared, ty));
         }
 
         let paths: Vec<_> = observations
@@ -471,11 +471,11 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 let borrowed = match observation {
                     Observation::Value | Observation::Address | Observation::Identity | Observation::Marker(_) | Observation::Discriminant =>
                         (0..=projections.len()).rev().find_map(|length| {
-                            borrowed_paths.get(&projections[..length]).map(|kind| {
+                            borrowed_paths.get(&projections[..length]).map(|(kind, ty)| {
                                 (StoragePath {
                                     root,
                                     projections: projections[..length].into(),
-                                }, *kind)
+                                }, *kind, *ty)
                             })
                         }),
                     _ => None,
@@ -500,12 +500,12 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                                 footprint.empty_markers.insert(path.clone(), *ty);
                             }
 
-                            if let Some((reference, kind)) = borrowed {
+                            if let Some((reference, kind, ty)) = borrowed {
                                 footprint
                                     .borrowed_observations
                                     .entry(reference)
-                                    .or_insert_with(|| (kind, Vec::new()))
-                                    .1.push((path, *observation));
+                                    .or_insert_with(|| (kind, ty, Vec::new()))
+                                    .2.push((path, *observation));
                             } else {
                                 footprint.owned_observations.entry(root).or_default().push((path, *observation));
                             }
@@ -519,10 +519,10 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                                 .push((path.clone(), Observation::Discriminant));
                         }
 
-                        if let Some((reference, kind)) = borrowed {
+                        if let Some((reference, kind, ty)) = borrowed {
                             footprint.borrowed_observations.entry(reference)
-                                .or_insert_with(|| (kind, Vec::new()))
-                                .1.push((path.clone(), Observation::Discriminant));
+                                .or_insert_with(|| (kind, ty, Vec::new()))
+                                .2.push((path.clone(), Observation::Discriminant));
                         }
 
                         if shared.is_some() || identity.is_invocation_owned(storage.kind()) {
@@ -540,10 +540,10 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                             stable_descriptors.insert(path.clone());
                         }
 
-                        if let Some((reference, kind)) = borrowed {
+                        if let Some((reference, kind, ty)) = borrowed {
                             footprint.borrowed_observations.entry(reference)
-                                .or_insert_with(|| (kind, Vec::new()))
-                                .1.push((path.clone(), *observation));
+                                .or_insert_with(|| (kind, ty, Vec::new()))
+                                .2.push((path.clone(), *observation));
                         } else if identity.is_invocation_owned(storage.kind()) && *observation == Observation::Value {
                             footprint.owned_observations.entry(root).or_default().push((path.clone(), *observation));
                         }
@@ -665,7 +665,7 @@ fn paths<C: CheckerRequestContext + ?Sized>(
 
         // A reference value has one explicit pointer slot, independently of its pointee shape.
         shape.complete_references = true;
-        shape.inline_markers = Some(BTreeSet::new());
+        shape.inline_carriers = Some(BTreeSet::new());
     }
 
     if shape.complete_references {
@@ -695,7 +695,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     let data = request.semantic_values().type_data(ty);
     let mut fields = Vec::new();
     let mut complete_references = true;
-    let mut inline_markers = Some(BTreeSet::new());
+    let mut inline_carriers = Some(BTreeSet::new());
 
     let role = match data.as_ref() {
         TypeData::Callable(_) => Some(bray_compiler_known::RepresentationRole::FunctionPointer),
@@ -759,7 +759,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
             if representation.value().is_recovered() || representation.diagnostics().has_errors() {
                 complete_references = false;
-                inline_markers = None;
+                inline_carriers = None;
             }
 
             let members: Vec<_> = match representation.value().storage() {
@@ -819,7 +819,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
             shape.complete_references = element.is_reference_free();
             shape.complete_value = !reference && element.complete_value;
             shape.inline_only = !nested_borrow && element.inline_only && element.is_reference_free();
-            shape.inline_markers = element.inline_markers;
+            shape.inline_carriers = element.inline_carriers;
 
             if shape.inline_only {
                 shape.observations.push((Vec::new(), Observation::Value));
@@ -851,10 +851,14 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
     let mut result = Vec::new();
 
+    if definition.is_some() && let Some(carriers) = &mut inline_carriers {
+        carriers.insert(ty);
+    }
+
     if matches!(definition, Some(NamedTypeSymbolId::Struct(_)))
         && fields.is_empty()
     {
-        if let Some(markers) = &mut inline_markers {
+        if let Some(markers) = &mut inline_carriers {
             markers.insert(ty);
         }
 
@@ -873,7 +877,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     }
 
     let mut complete_value = !reference;
-    let mut inline_only = !nested_borrow && inline_markers.is_some();
+    let mut inline_only = !nested_borrow && inline_carriers.is_some();
 
     for (field, ty) in fields {
         let shape = paths(request, ty, visiting, complete_reference_types)?;
@@ -892,9 +896,9 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         inline_only &= shape.inline_only && shape.is_reference_free();
         complete_references &= shape.complete_references;
 
-        match (&mut inline_markers, shape.inline_markers) {
+        match (&mut inline_carriers, shape.inline_carriers) {
             (Some(markers), Some(field_markers)) => markers.extend(field_markers),
-            (_, None) => inline_markers = None,
+            (_, None) => inline_carriers = None,
             (None, Some(_)) => {},
         }
 
@@ -919,7 +923,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         complete_value,
         inline_only,
         complete_references,
-        inline_markers,
+        inline_carriers,
     })
 }
 

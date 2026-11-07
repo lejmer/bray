@@ -198,7 +198,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &StorageFlowState,
         memory: &crate::analysis::storage_flow::memory::State,
-        survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind, bool) -> bool,
+        survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind, bray_symbols::TypeId, bool) -> bool,
         invalidation: &mut StorageInvalidation,
     ) {
         let opaque = matches!(invalidation, StorageInvalidation::All { .. });
@@ -226,6 +226,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .expect("active borrow retains its plan");
 
             let referent = memory.borrow_observation(*borrow);
+            let ty = self.storage.access(capability.access())
+                .expect("active borrow retains its checked access").reached_type();
+            let ty = self.request.semantic_values().unborrowed_type(ty);
 
             // A retained shared referent protects its ordinary scalar values and
             // immutable markers. Borrowing a reference slot protects only that slot.
@@ -258,7 +261,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     for (value, observation) in self.input.footprint.observations(path) {
                         if matches!(observation, bray_bound_tree::StorageObservationKind::Marker(_))
                             && memory.borrow_regions(*borrow).is_some_and(|targets| targets.iter().all(|target| {
-                                survives(&target.project(&value.projections[path.projections.len()..]), observation, false)
+                                survives(&target.project(&value.projections[path.projections.len()..]), observation, ty, false)
                             })) {
                             stable_values.insert(value.clone());
                         }
@@ -278,7 +281,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if !exposed_referent {
                     for value in self.input.opaque_values.range(path.clone()..).take_while(|value| path.contains(value)) {
                         if memory.borrow_regions(*borrow).is_some_and(|targets| targets.iter().all(|target| {
-                            survives(&target.project(&value.projections[path.projections.len()..]), bray_bound_tree::StorageObservationKind::Mutable, true)
+                            survives(&target.project(&value.projections[path.projections.len()..]), bray_bound_tree::StorageObservationKind::Mutable, ty, true)
                         })) {
                             stable_values.insert(value.clone());
                             observed = true;
@@ -299,7 +302,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                     let survives = memory.borrow_regions(*borrow).is_some_and(|targets| {
                         targets.iter().all(|target| survives(
-                            &target.project(&value.projections[path.projections.len()..]), observation, true,
+                            &target.project(&value.projections[path.projections.len()..]), observation, ty, true,
                         ))
                     });
 
@@ -331,7 +334,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn preserve_shared_views(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
-        survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind) -> bool,
+        survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind, bray_symbols::TypeId) -> bool,
         invalidation: &mut StorageInvalidation,
     ) {
         let (stable_descriptors, stable_values, changed) = match invalidation {
@@ -347,7 +350,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // Project views after active loans have established preservation of their
         // physical referents. A stored alias forwards those classified facts.
         // Raw exposure still governs payload and pointee observations.
-        for (reference, (kind, observations)) in &self.input.footprint.borrowed_observations {
+        for (reference, (kind, ty, observations)) in &self.input.footprint.borrowed_observations {
             if *kind != bray_symbols::BorrowKind::Shared {
                 continue;
             }
@@ -403,7 +406,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         let target =
                             target.project(&path.projections[reference.projections.len()..]);
 
-                        if target.previous || !survives(&target, *observation) {
+                        if target.previous || !survives(&target, *observation, *ty) {
                             return false;
                         }
 

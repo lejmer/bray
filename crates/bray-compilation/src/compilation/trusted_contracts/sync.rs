@@ -3048,6 +3048,49 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
 }
 
 #[test]
+fn typed_raw_transfers_preserve_only_unmoved_marker_free_owners() {
+    for field in ["u64", "DataPointer<u8>"] {
+        for (pointee, operation, valid) in [
+            ("Owner", "let taken = trusted core.memory.read<$POINTEE>(address);", false),
+            ("Other", "let taken = trusted core.memory.read<$POINTEE>(address);", true),
+            ("Containing", "let taken = trusted core.memory.read<$POINTEE>(address);", false),
+            ("u64", "trusted core.memory.write<u64>(address, 0);", false),
+        ] {
+        let source = r#"trusted module app;
+using core.memory;
+struct Owner { address: $FIELD; }
+struct Other { value: u64; }
+struct Containing { owner: Owner; }
+trusted predicate live(owner: &Owner);
+extern trusted func pointer(pos owner: &Owner) -> DataPointer<$POINTEE>
+    requires(trusted live(owner))
+    ensures(
+        trusted live(owner),
+        trusted core.memory.valid_read<$POINTEE>(pointer = result, count = 1),
+        trusted core.memory.valid_write<$POINTEE>(pointer = result, count = 1),
+        trusted core.memory.initialized_as<$POINTEE>(pointer = result),
+        trusted core.memory.aligned_for<$POINTEE>(pointer = result)
+    )
+    executes(pure, total);
+func observe(pos owner: &Owner) requires(trusted live(owner)) executes(pure, total) {}
+trusted func caller(pos owner: &Owner)
+    requires(trusted live(owner))
+    uses(raw_memory, unchecked_init)
+{
+    let address = pointer(owner);
+    $OPERATION
+    observe(owner);
+}
+"#.replace("$FIELD", field).replace("$OPERATION", operation).replace("$POINTEE", pointee);
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        }
+    }
+}
+
+#[test]
 fn typed_data_transfers_preserve_borrowed_ownership_markers() {
     let mut failures = Vec::new();
 

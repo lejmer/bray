@@ -69,16 +69,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let exposed = memory.raw_exposed_regions();
 
-        let survives = |target: &Target, observation: Observation, shared: bool| {
+        let survives = |target: &Target, observation: Observation, owner: Option<bray_symbols::TypeId>, shared: bool| {
             transfers.iter().all(|(effect, ty, raw)| {
                 // Ordinary code cannot transfer a retained shared loan's inline
                 // owner. Raw operations still retain their actual reached region.
                 if shared && !raw { return true; }
 
                 let transports = match observation {
-                    Observation::Marker(marker) => ty.and_then(|ty| self.input.footprint.transfer_markers(ty))
+                    Observation::Marker(marker) => ty.and_then(|ty| self.input.footprint.inline_carriers(ty))
                         .is_none_or(|markers| markers.contains(&marker)),
-                    Observation::Value | Observation::Mutable | Observation::Identity => true,
+                    Observation::Value | Observation::Mutable | Observation::Identity => {
+                        // A typed move can retire only the nominal carriers it moves.
+                        // Scalar fields alone provide no such ownership bound. Writes
+                        // still change data through aliases of different nominal types.
+                        let moving = matches!(effect, Effect::Mutation(_, Mutation::Consume, _)
+                            | Effect::UnboundedMutation { kind: Mutation::Consume, .. });
+
+                        !moving || !raw || owner.and_then(|owner| self.input.footprint.inline_carriers(owner))
+                            .zip(ty.and_then(|ty| self.input.footprint.inline_carriers(ty)))
+                            .is_none_or(|(owner, transfer)| owner.is_empty() || !owner.is_disjoint(transfer))
+                    },
                     _ => false,
                 };
 
@@ -99,15 +109,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             StorageInvalidation::All { stable_values, .. }
             | StorageInvalidation::Observed { stable_values, .. } => {
                 stable_values.extend(self.input.footprint.empty_markers.iter().filter_map(|(path, marker)| {
-                    survives(&Target::storage(path.clone()), Observation::Marker(*marker), false).then(|| path.clone())
+                    survives(&Target::storage(path.clone()), Observation::Marker(*marker), None, false).then(|| path.clone())
                 }));
             }
             StorageInvalidation::Paths(_) => return,
         }
 
-        let shared = |target: &Target, observation| survives(target, observation, true);
+        let shared = |target: &Target, observation, ty| survives(target, observation, Some(ty), true);
+        let active = |target: &Target, observation, ty, shared| survives(target, observation, Some(ty), shared);
 
-        self.preserve_active_borrows(state, memory, &survives, invalidation);
+        self.preserve_active_borrows(state, memory, &active, invalidation);
         self.preserve_shared_views(memory, &shared, invalidation);
     }
 }

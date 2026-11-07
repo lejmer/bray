@@ -126,7 +126,7 @@ impl ExecutionState {
         };
 
         let borrowed_changed = |condition: &ExecutionCondition| condition.observes_live_where(|value| {
-            let owner = value.storage_contents().map_or(value, |(owner, _)| owner);
+            let owner = value.owner_identity();
 
             observes(value, false) || !retained_observations.contains(value)
                 && matches!(owner, ExecutionCondition::Input(place) if place.overlaps_any(places))
