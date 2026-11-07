@@ -285,8 +285,10 @@ mod tests {
 
         let projection = InterfaceConstantProjection::TupleElement(SymbolOrdinal::new(0));
         let mask = Mask::new(true, [(projection.clone(), Mask::new(false, [(projection, Mask::all())].into()))].into());
+
         let result = DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(InterfaceConstantTermId::new(0), [])
             .with_preservation(mask));
+
         let mut encoder = WireEncoder::new();
 
         encode_owned_result(&mut encoder, &result);

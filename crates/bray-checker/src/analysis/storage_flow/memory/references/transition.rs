@@ -465,6 +465,7 @@ impl State {
             .entry(backing.clone())
             .or_default()
             .storage_type = Some(element);
+
         self.values.insert(pointer, References::one(backing));
     }
 

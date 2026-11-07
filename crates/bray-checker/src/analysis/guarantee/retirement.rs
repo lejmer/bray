@@ -20,15 +20,10 @@ impl ExecutionState {
         values: impl IntoIterator<Item = ExecutionCondition>,
         retained: &BTreeSet<ExecutionCondition>,
     ) {
-        let mut observations = crate::execution_guarantees::ObservationSet::default();
-
-        for value in retained {
-            observations.insert(value.clone());
-        }
-
         self.retire_values(
             values,
-            &observations,
+            &crate::execution_guarantees::ObservationSet::default(),
+            Some(retained),
             &BTreeSet::new(),
             bray_symbols::DependencyMutationKind::Retire,
             &BTreeSet::new(),
@@ -39,11 +34,12 @@ impl ExecutionState {
         &mut self,
         values: impl IntoIterator<Item = ExecutionCondition>,
         retained_observations: &crate::execution_guarantees::ObservationSet,
+        retained_snapshots: Option<&BTreeSet<ExecutionCondition>>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         kind: bray_symbols::DependencyMutationKind,
         places: &BTreeSet<crate::ExecutionPlace>,
     ) {
-        let mut pending = values.into_iter().collect::<Vec<_>>();
+        let pending = values.into_iter().collect::<Vec<_>>();
 
         // A spatial fact survives a contents change, but replacing its actual
         // carrier revokes it. Components reached through that carrier are distinct.
@@ -62,63 +58,24 @@ impl ExecutionState {
 
         self.refine_deferred_witnesses();
 
-        let (dependents, input_dependents) =
-            self.retirement_dependents(kind, retained_observations);
+        let retained_owner = |value: &ExecutionCondition| retained_snapshots.map_or_else(
+            || retained_observations.contains(value),
+            |snapshots| crate::execution_guarantees::ObservationSet::retains_owner(snapshots, value),
+        );
 
-        let mut invalidated = BTreeSet::new();
-        let mut invalidated_observations = crate::execution_guarantees::ObservationSet::default();
+        let retained_data = |value: &ExecutionCondition| retained_snapshots.map_or_else(
+            || retained_observations.contains(value),
+            |snapshots| crate::execution_guarantees::ObservationSet::retains_contents(snapshots, value),
+        );
 
-        while let Some(value) = pending.pop() {
-            // A write changes a storage observation, never the meaning of a constant
-            // also held by an unrelated slot. Borrowed scalars retain their place identity.
-            if kind.is_write()
-                && matches!(
-                    value,
-                    ExecutionCondition::Literal(_)
-                        | ExecutionCondition::Boolean(_)
-                        | ExecutionCondition::Variant(_)
-                )
-            {
-                continue;
-            }
+        let invalidated = self.retired_owners(pending, kind, retained_snapshots.is_some(), &retained_owner);
 
-            if retained_observations.contains(&value) || !invalidated.insert(value.clone()) {
-                continue;
-            }
-
-            pending.extend(value.owned_components().cloned());
-
-            if value.owner_identity() != &value {
-                pending.push(value.owner_identity().clone());
-            }
-
-            invalidated_observations.insert(value.clone());
-
-            if let ExecutionCondition::Input(place) = &value {
-                for length in 0..place.projections.len() {
-                    let mut prefix = place.clone();
-
-                    prefix.projections = place.projections[..length].into();
-
-                    if let Some(carriers) = input_dependents.get(&prefix) {
-                        pending.extend(carriers.iter().cloned());
-                    }
-                }
-
-                for (_, carriers) in input_dependents
-                    .range(place.clone()..)
-                    .take_while(|(observed, _)| place.contains(observed))
-                {
-                    pending.extend(carriers.iter().cloned());
-                }
-            } else if let Some(carriers) = dependents.get(&value) {
-                pending.extend(carriers.iter().cloned());
-            }
-        }
+        let invalidated_observations = invalidated.iter().cloned()
+            .collect::<crate::execution_guarantees::ObservationSet>();
 
         let observes = |condition: &ExecutionCondition, selection: bool| {
             condition
-                .observations_except(|value| retained_observations.contains(value))
+                .observations_except(&retained_data)
                 .any(|observed| invalidated_observations.overlaps(observed)
                     || selection && matches!(observed,
                         ExecutionCondition::Joined(_, _, place) | ExecutionCondition::PostState(_, place)
@@ -128,9 +85,9 @@ impl ExecutionState {
         let borrowed_changed = |condition: &ExecutionCondition| condition.observes_live_where(|value| {
             let owner = value.owner_identity();
 
-            observes(value, false) || !retained_observations.contains(value)
+            observes(value, false) || !retained_data(value)
                 && matches!(owner, ExecutionCondition::Input(place) if place.overlaps_any(places))
-        }, |value| retained_observations.contains(value));
+        }, &retained_data);
 
         let retained_contents = |condition: &ExecutionCondition| {
             kind.is_write()
@@ -168,7 +125,7 @@ impl ExecutionState {
             !kind.is_write() && condition.observations().any(|observed| {
                 matches!(observed, ExecutionCondition::InitializedSnapshot(_, _, owner)
                     if invalidated_observations.contains(owner)
-                        && !retained_observations.contains(owner))
+                        && !retained_owner(owner))
             })
         };
 
@@ -180,7 +137,7 @@ impl ExecutionState {
 
         self.witnesses.retain(|carrier, witness| {
             let retired = invalidated_observations.contains(carrier)
-                && !retained_observations.contains(carrier);
+                && !retained_owner(carrier);
 
             witness.retain_conditions(|condition, guarantee| {
                 let address_expired = !kind.is_write()
@@ -257,10 +214,85 @@ impl ExecutionState {
         });
     }
 
+    fn retired_owners(
+        &self,
+        mut pending: Vec<ExecutionCondition>,
+        kind: bray_symbols::DependencyMutationKind,
+        select_descendants: bool,
+        retained_owner: &impl Fn(&ExecutionCondition) -> bool,
+    ) -> BTreeSet<ExecutionCondition> {
+        if select_descendants {
+            // A retained aggregate must not hide recorded children of its old
+            // actual components, including fields with independent identities.
+            let mut components = pending.clone();
+            let mut owners = BTreeSet::new();
+
+            while let Some(value) = components.pop() {
+                if owners.insert(value.clone()) {
+                    components.extend(value.owned_components().cloned());
+                }
+            }
+
+            pending.extend(self.witnesses.keys().filter(|carrier| {
+                owners.iter().any(|owner| carrier.is_owned_projection_of(owner))
+            }).cloned());
+        }
+
+        let (dependents, input_dependents) = self.retirement_dependents(kind, retained_owner);
+
+        let mut visited = BTreeSet::new();
+        let mut invalidated = BTreeSet::new();
+
+        while let Some(value) = pending.pop() {
+            // A write changes storage observations, not an independently held constant.
+            if kind.is_write() && matches!(value,
+                ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_) | ExecutionCondition::Variant(_))
+                || !select_descendants && retained_owner(&value)
+                || !visited.insert(value.clone())
+            {
+                continue;
+            }
+
+            pending.extend(value.owned_components().cloned());
+
+            if value.owner_identity() != &value {
+                pending.push(value.owner_identity().clone());
+            }
+
+            if retained_owner(&value) {
+                continue;
+            }
+
+            invalidated.insert(value.clone());
+
+            if let ExecutionCondition::Input(place) = &value {
+                for length in 0..place.projections.len() {
+                    let mut prefix = place.clone();
+
+                    prefix.projections = place.projections[..length].into();
+
+                    if let Some(carriers) = input_dependents.get(&prefix) {
+                        pending.extend(carriers.iter().cloned());
+                    }
+                }
+
+                for (_, carriers) in input_dependents.range(place.clone()..)
+                    .take_while(|(observed, _)| place.contains(observed))
+                {
+                    pending.extend(carriers.iter().cloned());
+                }
+            } else if let Some(carriers) = dependents.get(&value) {
+                pending.extend(carriers.iter().cloned());
+            }
+        }
+
+        invalidated
+    }
+
     fn retirement_dependents(
         &self,
         kind: bray_symbols::DependencyMutationKind,
-        retained_observations: &crate::execution_guarantees::ObservationSet,
+        retained_owner: &impl Fn(&ExecutionCondition) -> bool,
     ) -> (
         BTreeMap<ExecutionCondition, BTreeSet<ExecutionCondition>>,
         BTreeMap<crate::ExecutionPlace, BTreeSet<ExecutionCondition>>,
@@ -277,7 +309,7 @@ impl ExecutionState {
             // A retained captured owner also severs its former frame's ownership edge.
             for owner in carrier
                 .ownership_ancestors()
-                .take_while(|value| !retained_observations.contains(value))
+                .take_while(|value| !retained_owner(value))
                 .filter_map(|value| match value {
                     ExecutionCondition::CapturedInput { owner, .. } => Some(owner.owner_identity()),
                     _ => None,
@@ -464,6 +496,7 @@ impl ExecutionState {
         self.retire_values(
             values,
             stable_values,
+            None,
             stable_predicates,
             bray_symbols::DependencyMutationKind::Write,
             places,
@@ -556,5 +589,64 @@ impl ExecutionState {
             .collect::<Vec<_>>();
 
         self.invalidate_trusted_values(dependent);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use super::ExecutionState;
+    use crate::ExecutionCondition;
+    use crate::ExecutionPlace;
+    use bray_bound_tree::StorageProjection;
+    use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
+
+    #[test]
+    fn retained_aggregate_identity_does_not_retain_its_replaced_child() {
+        let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let left = root.clone().component(field);
+        let right = root.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
+        let replacement = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let mut state = ExecutionState::default();
+
+        for value in [&root, &left, &right] {
+            state.carry_guarantee(value.clone(), value.clone());
+            state.trusted_assumptions.insert((value.clone(), true));
+        }
+
+        let mut unchanged = state.clone();
+
+        unchanged.retire_trusted_values([root.clone()], &BTreeSet::from([root.clone()]));
+
+        assert_eq!(unchanged.witnesses, state.witnesses);
+        assert_eq!(unchanged.trusted_assumptions, state.trusted_assumptions);
+
+        let retained = ExecutionCondition::owned_value(root.clone(), ExecutionCondition::constructed(root.clone(), [(
+            StorageProjection::TupleElement(SymbolOrdinal::new(0)), replacement,
+        )].into()));
+
+        state.retire_trusted_values([root.clone()], &BTreeSet::from([retained]));
+
+        assert_eq!(state.witnesses.keys().cloned().collect::<BTreeSet<_>>(), BTreeSet::from([root.clone(), right.clone()]));
+        assert_eq!(state.trusted_assumptions, BTreeSet::from([(root, true), (right, true)]));
+        assert!(!state.witnesses.contains_key(&left));
+    }
+
+    #[test]
+    fn retained_owner_and_retained_projected_contents_are_distinct() {
+        let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let child = root.clone().component(field);
+        let before = ExecutionCondition::owned_value(child.clone(), ExecutionCondition::Boolean(true));
+        let after = ExecutionCondition::owned_value(child, ExecutionCondition::Boolean(false));
+
+        let retained = BTreeSet::from([ExecutionCondition::constructed(root.clone(), [(
+            StorageProjection::TupleElement(SymbolOrdinal::new(0)), after,
+        )].into())]);
+
+        assert!(crate::execution_guarantees::ObservationSet::retains_owner(&retained, &root));
+        assert!(crate::execution_guarantees::ObservationSet::retains_owner(&retained, &before));
+        assert!(!crate::execution_guarantees::ObservationSet::retains_contents(&retained, &before));
     }
 }

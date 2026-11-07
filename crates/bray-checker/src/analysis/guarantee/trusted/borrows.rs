@@ -88,6 +88,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // A checked ownership transfer can extract the value from a borrowed
             // slot. Returning a borrow instead retains its original loan identity.
             let value = if borrowed_result { value } else { value.into_referent() };
+
             let ExecutionCondition::Input(input) = input else {
                 unreachable!("a checked ownership source names an input projection");
             };
@@ -97,10 +98,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.dependencies, &[*projection],
                 )[0])
             }).expect("checked owned data projection mapping is infallible");
+
             let contents = returned_contents(
                 &value, &preservation, invocation, &input,
                 &mut { ExecutionCondition::WORK_LIMIT },
             );
+
             let value = if borrowed_result || is_reference(&value) {
                 ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::Unknown)
             } else {
@@ -241,6 +244,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             BoundExecutionSite::ScopedExit(expression) => BoundExecutionSite::ScopedEnter(expression),
             site => site,
         };
+
         let result_place = self.storage.invocation_result(result_site)
             .and_then(|access| ExecutionPlace::storage(self.storage, access));
 
@@ -455,29 +459,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.refine_witnesses();
 
                 let mut fields = self.returned_owned_values(invocation, arguments, [transfer]);
+
                 let ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
                     self.request.semantic_values(), transfer.input(), dependencies.input_count(),
                 ).expect("checked ownership source decodes in the same semantic store") else {
                     unreachable!("a checked ownership source names an input projection");
                 };
+
                 let ownership = input.value_in(arguments)
                     .map(|value| state.owned_result(&value.into_referent()))
                     .unwrap_or_default()
-                    .try_map(
-                        &mut |transfer| Ok::<_, std::convert::Infallible>(
-                            if transfer.output().is_empty() {
-                                DependencyOwnedResult::Transfer(transfer.clone())
-                            } else {
-                                DependencyOwnedResult::default()
-                            },
-                        ),
-                        &mut |condition| Ok(Some(condition.clone())),
-                    ).expect("top ownership selection is infallible");
+                    .root_layout();
 
                 for (_, value) in &mut fields {
                     let actual = DependencyOwnedResult::all([
                         ownership.clone(), state.owned_result(value),
                     ]);
+
                     let independent = state.witness_projection(value).1
                         && value.ownership_ancestors().skip(1)
                         .filter(|parent| state.directly_carries_witness(parent))
@@ -491,6 +489,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         // identity, contents, evidence and portable lineage travel together.
                         *value = ExecutionCondition::constructed(value.clone(), [].into());
                     }
+
                     // Preserve only the transferred top lineage and actual children.
                     state.owned_results.insert(value.clone(), actual);
                 }
@@ -739,8 +738,10 @@ fn returned_contents(
 
     for (projection, child) in preservation.children() {
         let actual = source.clone().project(*projection);
+
         let place = input.clone().project(&[*projection])
             .expect("owned contents have a checked input projection");
+
         let value = returned_contents(&actual, child, invocation, &place, budget);
 
         contents = contents.with_storage_component(&[*projection], value);

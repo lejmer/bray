@@ -468,6 +468,87 @@ pub(crate) struct Set {
 }
 
 impl Set {
+    /// Tests ownership against actual retained snapshots, without a prefix grant.
+    pub(crate) fn retains_owner(
+        snapshots: &std::collections::BTreeSet<ExecutionCondition>,
+        value: &ExecutionCondition,
+    ) -> bool {
+        Self::retained_snapshot(snapshots, value, |selected| {
+            !selected.is_unknown() && selected.has_same_owner(value)
+        })
+    }
+
+    /// Tests actual selected data independently of the containing owner's identity.
+    pub(crate) fn retains_contents(
+        snapshots: &std::collections::BTreeSet<ExecutionCondition>,
+        value: &ExecutionCondition,
+    ) -> bool {
+        Self::retained_snapshot(snapshots, value, |selected| {
+            !selected.is_unknown() && Self::snapshot_contents(selected) == Self::snapshot_contents(value)
+        })
+    }
+
+    fn snapshot_contents(mut value: &ExecutionCondition) -> &ExecutionCondition {
+        while let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = value {
+            value = contents;
+        }
+
+        value
+    }
+
+    fn retained_snapshot(
+        snapshots: &std::collections::BTreeSet<ExecutionCondition>,
+        value: &ExecutionCondition,
+        matches: impl Fn(&ExecutionCondition) -> bool,
+    ) -> bool {
+        let path = Self::indexed_path(value);
+        let mut pending = snapshots.iter().collect::<Vec<_>>();
+        let mut remaining = ExecutionCondition::WORK_LIMIT;
+
+        while let Some(snapshot) = pending.pop() {
+            if remaining == 0 {
+                return false;
+            }
+
+            remaining -= 1;
+
+            if snapshot.has_same_owner(value) && matches(snapshot) {
+                return true;
+            }
+
+            if let (Some((root, path)), Some((base, prefix))) = (&path, Self::indexed_path(snapshot))
+                && *root == base && path.starts_with(&prefix)
+            {
+                let mut selected = snapshot.clone();
+
+                for projection in &path[prefix.len()..] {
+                    if remaining == 0 {
+                        return false;
+                    }
+
+                    remaining -= 1;
+                    selected = selected.component(*projection);
+                }
+
+                if matches!(snapshot.owner_identity(), ExecutionCondition::Borrowed(_))
+                    && !path[prefix.len()..].is_empty()
+                {
+                    selected = selected.borrowed();
+                }
+
+                if matches(&selected) {
+                    return true;
+                }
+            }
+
+            // The base of a constructed value names its lineage, not another
+            // independently retained copy of its former contents.
+            pending.extend(snapshot.owned_components());
+        }
+
+        false
+    }
+
     pub(crate) fn insert_classified(&mut self, value: ExecutionCondition, kind: bray_bound_tree::StorageObservationKind) {
         if kind == bray_bound_tree::StorageObservationKind::Discriminant {
             self.discriminants.insert(value);

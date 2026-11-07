@@ -6,6 +6,8 @@ use super::{ConstantTermId, DependencyValuePreservation};
 
 /// One owned input embedded wherever its result condition holds.
 /// This records identity rather than equality, borrowing, or a new trusted guarantee.
+/// Contents preservation is separate. The owner's identity alone does not retain
+/// its previous descendants.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyOwnedTransfer<
     Projection = super::ConstantProjectionKind,
@@ -90,6 +92,27 @@ impl<Projection, Input> Default for DependencyOwnedResult<Projection, Input> {
 }
 
 impl<Projection: Clone + Ord, Input: Clone + Ord> DependencyOwnedResult<Projection, Input> {
+    /// Selects only this complete owner's mappings, retaining empty alternatives.
+    /// Guards on discarded descendant mappings do not constrain the owner.
+    /// Actual child mappings must be selected from the current contents separately.
+    pub fn root_layout(&self) -> Self {
+        match self {
+            Self::Transfer(transfer) if transfer.output().is_empty() => self.clone(),
+            Self::Transfer(_) => Self::default(),
+            Self::All(values) => Self::all(values.iter().map(Self::root_layout)),
+            Self::Choice(values) => Self::choice(values.iter().map(Self::root_layout)),
+            Self::Case { condition, result } => {
+                let result = result.root_layout();
+
+                if result.is_empty() {
+                    Self::default()
+                } else {
+                    Self::case(condition.clone(), result)
+                }
+            }
+        }
+    }
+
     /// Retains a complete alternative's ordinary shape, including empty layouts.
     /// Distributes guards over choices and orders them so repeated joins remain canonical.
     pub fn case(condition: Input, result: Self) -> Self {
@@ -197,6 +220,7 @@ impl<Projection, Input> DependencyOwnedResult<Projection, Input> {
 
     /// Returns input identities transferred in every normal owning alternative.
     /// A conditional transfer alone does not establish unconditional ownership.
+    /// Contents are retained only according to each transfer's preservation mask.
     pub fn guaranteed_transfers(&self) -> std::collections::BTreeSet<DependencyOwnedTransfer<Projection, Input>>
     where Projection: Clone + Ord, Input: Clone + Ord {
         match self {
@@ -327,6 +351,23 @@ mod tests {
     use super::{DependencyOwnedResult, DependencyOwnedTransfer};
 
     type Layout = DependencyOwnedResult<u8, u8>;
+
+    #[test]
+    fn root_layout_drops_discarded_child_guards_and_keeps_empty_choices() {
+        let root = Layout::Transfer(DependencyOwnedTransfer::new(1, []));
+        let child = Layout::Transfer(DependencyOwnedTransfer::new(2, [0]));
+        let layout = Layout::all([root.clone(), Layout::case(3, child.clone())]);
+
+        assert_eq!(layout.root_layout(), root);
+        assert_eq!(Layout::case(3, child).root_layout(), Layout::default());
+
+        assert_eq!(
+            Layout::choice([layout, Layout::default()]).root_layout(),
+            Layout::choice([root.clone(), Layout::default()]),
+        );
+
+        assert_eq!(Layout::case(4, root.clone()).root_layout(), Layout::case(4, root));
+    }
 
     #[test]
     fn guaranteed_identity_intersects_contents_in_choices_and_duplicate_mappings() {

@@ -69,6 +69,7 @@ impl CurrentValues {
     pub(super) fn write(&mut self, place: ExecutionPlace, value: CurrentValue,
         storage: Option<&[bray_bound_tree::StorageProjection]>) {
         let root_key = root_place(&place);
+
         let root = self.roots.entry(root_key).or_insert_with(|| CurrentRoot {
             value: ExecutionCondition::Unknown,
             availability: ValueAvailability::Unknown,
@@ -164,6 +165,7 @@ impl CurrentValues {
             let mut candidates = root.components.keys().cloned().collect::<std::collections::BTreeSet<_>>();
 
             collect_owned_places(&root.value, place, &mut candidates, &mut { ExecutionCondition::WORK_LIMIT });
+
             let mut live = Vec::<ExecutionPlace>::new();
 
             for candidate in candidates {
@@ -183,16 +185,11 @@ impl CurrentValues {
         self.roots.values_mut().map(|root| &mut root.value)
     }
 
-    pub(super) fn retain(&mut self, mut retain: impl FnMut(&ExecutionPlace, &ExecutionCondition) -> bool) {
-        self.roots.retain(|place, root| retain(place, &root.value));
-    }
-
     pub(super) fn extend(&mut self, values: impl IntoIterator<Item = (ExecutionPlace, ExecutionCondition)>) {
         for (place, value) in values {
             self.insert(place, value);
         }
     }
-
 
 }
 
@@ -222,6 +219,7 @@ fn collect_owned_places(
         ExecutionCondition::Constructed(_, fields) => {
             for (projection, value) in fields.iter() {
                 let Some(projection) = ExecutionPlace::projection_kind(*projection) else { continue; };
+
                 let child = place.clone().component(projection);
 
                 places.insert(child.clone());
@@ -236,6 +234,7 @@ fn root_place(place: &ExecutionPlace) -> ExecutionPlace {
     let mut root = place.clone();
 
     root.projections = [].into();
+
     root
 }
 
@@ -244,6 +243,7 @@ impl FromIterator<(ExecutionPlace, ExecutionCondition)> for CurrentValues {
         let mut current = Self::default();
 
         current.extend(values);
+
         current
     }
 }
@@ -320,6 +320,7 @@ mod tests {
 
         state.assign(root.clone(), ExecutionCondition::constructed(ExecutionCondition::Input(root.clone()),
             [(left, old), (right, sibling.clone())].into()), None);
+
         let field = root.clone().project(&[left]).expect("tuple field");
 
         state.assign(field.clone(), replacement.clone(), Some(&[left]));
@@ -327,6 +328,7 @@ mod tests {
         assert_eq!(field.value_in(&state.current), Some(replacement.clone()));
         state.current.retire(&field);
         assert_eq!(field.value_in(&state.current), Some(replacement.clone()), "terminal data remains observable");
+
         let live = state.current.live_values().flat_map(|value| state.owned_values(&value)).collect::<Vec<_>>();
 
         assert!(!live.contains(&replacement), "retired field must not retain its former owner");
@@ -336,6 +338,7 @@ mod tests {
     #[test]
     fn available_carrier_does_not_reprove_an_unestablished_clause_after_mutation() {
         let (mut state, place, claim) = retained_owner();
+
         let owner = ExecutionCondition::Input(place);
         let mut stable = crate::execution_guarantees::ObservationSet::default();
 
@@ -344,6 +347,7 @@ mod tests {
         state.trusted_assumptions.clear();
         state.invalidate_cleanup(&stable, &[owner.clone()].into_iter().collect());
         assert!(state.witnesses.contains_key(&owner), "the carrier is still a possible owner");
+
         assert_eq!(claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), None,
             "possible ownership must not establish a predicate clause");
     }

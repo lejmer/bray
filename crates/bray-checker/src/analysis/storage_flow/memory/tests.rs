@@ -2402,6 +2402,7 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
     };
 
     state.entry_owned_buffer(header.clone(), header.project(&[BUFFER_POINTER]), error_type());
+
     state.owned_region(
         &[header.clone()],
         Target::storage(pointer.clone()),
@@ -2496,6 +2497,7 @@ fn displaced_regions_require_a_known_allocation_boundary() {
     let owner = Target::storage(storage);
 
     state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), error_type());
+
     state.owned_region(
         &[owner.clone()],
         Target::storage(pointer.clone()),
@@ -2624,6 +2626,7 @@ fn incoming_aliases_can_reach_allocations_under_invocation_owned_headers() {
     };
 
     state.entry_owned_buffer(header.clone(), header.project(&[BUFFER_POINTER]), error_type());
+
     state.owned_region(
         &[header.clone()],
         Target::storage(pointer.clone()),
@@ -3740,6 +3743,7 @@ fn opaque_owned_values_keep_their_backing_identity_without_claiming_initializati
     let ([owner, pointer, moved, ..], origins) = places();
 
     let call = origins[0].into();
+
     let backing_slot = Place {
         root: owner.root,
         projections: [BUFFER_POINTER].into(),
@@ -3760,6 +3764,7 @@ fn opaque_owned_values_keep_their_backing_identity_without_claiming_initializati
     assert_eq!(state.owned_regions(&owner, BUFFER_POINTER), None);
 
     state.stage_unknown(call, owner.clone());
+
     state.stage_returned_reference(
         call,
         Target::storage(backing_slot.clone()),
@@ -3823,6 +3828,7 @@ fn bounded_address_views_preserve_the_allocation_type_without_initializing_the_r
     let owner = Target::storage(owner);
 
     state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), region_type);
+
     state.owned_region(
         &[owner.clone()],
         Target::storage(pointer.clone()),
@@ -3862,6 +3868,7 @@ fn exact_address_views_reject_a_conflicting_declared_storage_type() {
     let owner = Target::storage(owner);
 
     state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), region_type);
+
     state.owned_region(
         &[owner],
         Target::storage(pointer.clone()),

@@ -226,7 +226,10 @@ ownership-transition composition. The complete runtime Source run finished 3,264
 results do not establish end-to-end acceptance. Logs use the `availability-` prefix in the ignored task directory.
 All subsequent reconstruction, expression-production and owned-result summary changes remain unvalidated.
 
-The reconstruction replacement is implemented and undergoing integration/self-review, without new builds or tests.
+The reconstruction replacement is integrated and in batch validation. Production Rust compilation completed after
+correcting the shared owned-value iterator's lifetime capture. Mutating style passed using the built xtask tool after
+extracting owned-result graph validation from the oversized general interface validator. Explicit `cargo xtask format`
+is running. No new behavioral test or runtime Source result is available yet.
 `CurrentValues` now keeps one root data tree plus component availability, with no independently stored field data.
 Writes update that tree, reads project it, and terminal retirement retains data while live-subtree views exclude
 retired ownership. `aggregate_snapshot`, opaque whole-map reset/restore, witness-filtered nested reconstruction,
@@ -253,6 +256,13 @@ transfer separates unchanged data from owner identity. Its inference and consump
 encoding, validation, substitution and specialization identity. This is an internal semantic contract change, with no
 source-language or native ABI change. It replaces unconditional reuse of frozen argument contents.
 
+Owned-result identity now means the transferred node's own identity. Actual current children have their own mappings,
+and retained contents select unchanged subtrees. A recorded top identity cannot republish descendant mappings from an
+older aggregate. Retirement compares actual retained ownership and data separately, rather than treating a surviving
+owner's spatial prefix as proof that all its old children survive. Old owned children are visited even when their parent
+identity survives. Spatial write invalidation keeps its existing physical semantics. These are temporary transition
+views over actual snapshots, not a second persistent ownership or alias ledger.
+
 Physical buffer regions now bind at declared entry, actual allocation or actual result formation. Queries read those
 records, and transfers preserve them. They do not recreate missing regions or add ownership/freshness. Existing
 physical unit fixtures now set up genuine producers and keep the previous behavioral assertions. The runtime
@@ -268,7 +278,8 @@ The user explicitly authorized implementation subagents at GPT-6.1 low effort, w
 `/root/invocation_results`, `/root/retirement_packet` and `/root/cleanup_snapshots` own expression production and export,
 shared semantic/interface metadata, and owned-return inference/completion respectively. They do not run builds, tests,
 style, format or probes. Root integrates their changes and owns all validation.
-Complete self-review and naming/keyword preflight before the first batch validation of this replacement. Do not
+Self-review and naming/keyword preflight are complete. No changed Bray binding conflicts with a keyword or visible
+module declaration. New Rust methods and types have no declaration/keyword conflicts. Do not
 claim the prior 520 unit/18 control evidence covers these new changes. Native/imported acceptance remains unrun.
 
 The remaining failures include scoped entry/exit and prepared start, whole binding ownership transfer, current
@@ -315,8 +326,9 @@ The shell's GitHub token is invalid. The connected GitHub Git-object API has ver
 `lejmer/bray` destination and authenticated `lejmer` account with push permission. Use create_tree with the current
 base tree, create_commit and update_ref with expected_sha and force=false. Fetch that branch without the invalid
 credential helper outside the sandbox, then `git reset --mixed` the published commit to align history while preserving
-worktree edits. Keep pushing recovery checkpoints. The latest pushed head is `56aeb9d2fa28148dff07b1c59251920b9c4a6aa7`, tree
-`ad8b9536bc5881f902ae5d0fea0ba6ca3de5f18c`. It includes the canonical-value migration before validation. Verify mutable
+worktree edits. Keep pushing recovery checkpoints. The issue branch head saves the canonical-value migration,
+expression production, owned-contents contract and retirement integration. Use `git rev-parse HEAD` and the remote
+issue branch to identify the saved code state. Behavioral validation after the last validated checkpoint remains pending. Verify mutable
 remote PR/base state before final handoff. Parent PR #709
 remains open and ready, base commit `4ac3ad99259cc5bc02e968f830adaa4c521bed6a`.
 

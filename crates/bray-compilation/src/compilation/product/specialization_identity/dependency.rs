@@ -262,6 +262,7 @@ impl StructuralValueEncoder<'_, '_> {
 
         self.dependency_set(&children, |encoder, (projection, child)| {
             encoder.constant_projection_kind(**projection)?;
+
             encoder.dependency_value_preservation(child)
         })
     }

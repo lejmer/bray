@@ -94,10 +94,12 @@ mod tests {
         let marker = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
         let child = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let progress = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+
         let mut value = ExecutionCondition::constructed(ExecutionCondition::Input(root.clone()), [
             (child, ExecutionCondition::constructed(owner.clone(), [(child, marker.clone())].into())),
             (progress, ExecutionCondition::Boolean(true)),
         ].into());
+
         let mut mask = ValuePreservation::default();
 
         mask.descriptor = true;
@@ -109,6 +111,7 @@ mod tests {
 
             value = mask.apply(&value, Some(&root), StorageMutation::Operation(BoundExecutionSite::from(site)),
                 &|_, owner, contents| ExecutionCondition::owned_value(owner, contents));
+
             let retained = value.clone().project(child);
 
             assert_eq!(retained.owner_identity(), &owner);

@@ -78,11 +78,14 @@ impl super::check::TrustedChecks {
                     };
 
                     let source = ExecutionCondition::Input(place);
+
                     let terminal = transfer.output().iter().copied()
                         .fold(result.clone(), ExecutionCondition::project);
+
                     let preservation = returned_preservation(
                         &terminal, &source, &mut { ExecutionCondition::WORK_LIMIT },
                     );
+
                     let input = super::carriers::portable(domain.request, &source);
 
                     Ok::<_, std::convert::Infallible>(
@@ -217,6 +220,7 @@ impl super::check::TrustedChecks {
                         let (canonical, shape) = shapes.iter()
                             .find(|(candidate, _)| candidate.same_identity(transfer))
                             .expect("normal ownership layout retains its inferred shape");
+
                         let shape = *shape;
 
                         Ok::<_, std::convert::Infallible>(DependencyOwnedResult::Transfer(
@@ -270,6 +274,7 @@ fn returned_preservation(
         ExecutionCondition::Constructed(base, fields) => {
             let base = returned_preservation(base, source, budget);
             let mut children = base.children().clone();
+
             let portable = fields.iter().all(|(projection, _)| {
                 ExecutionPlace::projection_kind(*projection).is_some()
             });

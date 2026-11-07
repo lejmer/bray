@@ -102,6 +102,7 @@ func exercise_return(pos callback: func() -> unit, pos choose_high: bool)
     };
 
     let returned_state = update_state(initial_state, choose_high);
+
     let expected_progress: u32 = if choose_high
     {
         yield 9;

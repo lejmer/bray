@@ -65,15 +65,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
     ) -> ExecutionCondition {
         let value = self.value(state, expression);
+
         let Some(flow) = self.checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow) else {
             return value;
         };
+
         let Some(completion) = flow.completion(bray_bound_tree::StorageMutation::Operation(expression.into())) else {
             return value;
         };
 
         let observe = |path: &bray_bound_tree::StoragePath| {
             let target = completion.references().get(path)?;
+
             let target = crate::storage::storage_observation_path(
                 self.storage, self.request.semantic_values(), target,
             )?;
@@ -134,7 +137,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if state.current.availability(&place) == super::super::current::ValueAvailability::Absent {
                     return ExecutionCondition::Unknown;
                 }
-
 
                 place
                     .value_in(&state.current)

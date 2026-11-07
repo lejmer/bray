@@ -98,60 +98,9 @@ impl InterfaceSemantics {
                 }
             }
 
-            let mut pending = vec![(&contract.owned_result, 1_u64)];
-
-            while let Some((result, depth)) = pending.pop() {
-                limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
-
-                match result {
-                    bray_symbols::DependencyOwnedResult::Transfer(transfer) => {
-                        let mut masks = vec![(transfer.preservation(), depth)];
-
-                        while let Some((mask, depth)) = masks.pop() {
-                            limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
-                            limits.check(InterfaceLimit::RecordCount, saturating_u64(mask.children().len()))?;
-
-                            for (projection, child) in mask.children() {
-                                if matches!(projection, InterfaceConstantProjection::ArrayElement(_) | InterfaceConstantProjection::ArraySlice { .. }) {
-                                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
-                                }
-
-                                self.validate_constant_projection(projection, symbol_count, dependency_count)?;
-                                masks.push((child, depth.saturating_add(1)));
-                            }
-                        }
-                    }
-                    bray_symbols::DependencyOwnedResult::Case { result, .. } => {
-                        pending.push((result, depth.saturating_add(1)))
-                    }
-                    bray_symbols::DependencyOwnedResult::All(values)
-                    | bray_symbols::DependencyOwnedResult::Choice(values) => {
-                        pending.extend(values.iter().map(|value| (value, depth.saturating_add(1))))
-                    }
-                }
-            }
-
-            for condition in contract.owned_result.conditions() {
-                validate_index(condition.to_index(), self.constant_terms.len())?;
-            }
-
-            for transfer in contract.owned_result.transfers() {
-                validate_index(transfer.input().to_index(), self.constant_terms.len())?;
-
-                for projection in transfer.output() {
-                    if matches!(
-                        projection,
-                        InterfaceConstantProjection::ArrayElement(_)
-                            | InterfaceConstantProjection::ArraySlice { .. }
-                    ) {
-                        return Err(crate::semantic::codec::invalid_value(
-                            crate::InterfaceValidationField::Reference,
-                        ));
-                    }
-
-                    self.validate_constant_projection(projection, symbol_count, dependency_count)?;
-                }
-            }
+            self.validate_owned_result_graph(
+                &contract.owned_result, symbol_count, dependency_count, limits,
+            )?;
 
             for carrier in &*contract.carriers {
                 validate_index(carrier.guarantee().to_index(), self.constant_terms.len())?;
@@ -270,6 +219,71 @@ impl InterfaceSemantics {
                 self.validate_cleanup_requirement(requirement, symbol_count, dependency_count)?;
             }
         }
+
+        Ok(())
+    }
+
+    fn validate_owned_result_graph(
+        &self,
+        result: &bray_symbols::DependencyOwnedResult<InterfaceConstantProjection, crate::InterfaceConstantTermId>,
+        symbol_count: usize,
+        dependency_count: usize,
+        limits: InterfaceValidationLimits,
+    ) -> Result<(), InterfaceValidationError> {
+    let mut pending = vec![(result, 1_u64)];
+
+    while let Some((result, depth)) = pending.pop() {
+        limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
+
+        match result {
+            bray_symbols::DependencyOwnedResult::Transfer(transfer) => {
+                let mut masks = vec![(transfer.preservation(), depth)];
+
+                while let Some((mask, depth)) = masks.pop() {
+                    limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
+                    limits.check(InterfaceLimit::RecordCount, saturating_u64(mask.children().len()))?;
+
+                    for (projection, child) in mask.children() {
+                        if matches!(projection, InterfaceConstantProjection::ArrayElement(_) | InterfaceConstantProjection::ArraySlice { .. }) {
+                            return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+                        }
+
+                        self.validate_constant_projection(projection, symbol_count, dependency_count)?;
+                        masks.push((child, depth.saturating_add(1)));
+                    }
+                }
+            }
+            bray_symbols::DependencyOwnedResult::Case { result, .. } => {
+                pending.push((result, depth.saturating_add(1)))
+            }
+            bray_symbols::DependencyOwnedResult::All(values)
+            | bray_symbols::DependencyOwnedResult::Choice(values) => {
+                pending.extend(values.iter().map(|value| (value, depth.saturating_add(1))))
+            }
+        }
+    }
+
+    for condition in result.conditions() {
+        validate_index(condition.to_index(), self.constant_terms.len())?;
+    }
+
+    for transfer in result.transfers() {
+        validate_index(transfer.input().to_index(), self.constant_terms.len())?;
+
+        for projection in transfer.output() {
+            if matches!(
+                projection,
+                InterfaceConstantProjection::ArrayElement(_)
+                    | InterfaceConstantProjection::ArraySlice { .. }
+            ) {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
+            }
+
+            self.validate_constant_projection(projection, symbol_count, dependency_count)?;
+        }
+    }
 
         Ok(())
     }
