@@ -173,11 +173,10 @@ trusted internal func run(
     let row = trusted worker(scope);
     let pool = &row.pool;
     let mut argument: u64 = 0;
-    let scheduler = trusted scheduler_reference(pool);
 
     loop
     {
-        let group = trusted bray.runtime.bootstrap.scheduler.register_parking(scheduler);
+        let group = trusted bray.runtime.bootstrap.scheduler.register_parking(trusted scheduler_reference(pool));
 
         if core.atomic.exchange<u32, 3>(&row.detach, 0) != 0
         {
@@ -193,7 +192,7 @@ trusted internal func run(
 
         if stopping
         {
-            trusted bray.runtime.bootstrap.scheduler.withdraw_parking(scheduler, group);
+            trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(pool), group);
             return attachment;
         }
 
@@ -201,7 +200,7 @@ trusted internal func run(
 
         if ready == 1
         {
-            trusted bray.runtime.bootstrap.scheduler.withdraw_parking(scheduler, group);
+            trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(pool), group);
 
             if row.workload == 1
             {
@@ -234,11 +233,11 @@ trusted internal func run(
         argument = trusted invoke(scope, 6, argument) as u64;
 
         trusted bray.runtime.bootstrap.scheduler.park_reference(
-            scheduler,
+            trusted scheduler_reference(pool),
             group,
             std.numeric.truncate_to<u32, u64>(argument)
         );
 
-        trusted bray.runtime.bootstrap.scheduler.withdraw_parking(scheduler, group);
+        trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(pool), group);
     }
 }

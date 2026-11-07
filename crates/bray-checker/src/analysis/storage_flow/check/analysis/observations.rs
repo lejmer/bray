@@ -1006,7 +1006,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if observed
                     .as_ref()
                     .is_some_and(|observed| observed.contains(mutation))
+                    && path.projections.len() == logical.projections.len() + suffix.len()
                 {
+                    // An enclosing invalidation is not a value alias of protected
+                    // contents. Keep their precise target with the mutation only.
                     snapshots.insert(path.clone(), mutation.clone());
                 }
 

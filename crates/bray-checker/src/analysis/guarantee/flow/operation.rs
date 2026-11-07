@@ -15,8 +15,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         path: &bray_bound_tree::StoragePath,
+        ty: bray_symbols::TypeId,
     ) {
         if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path) {
+            if !matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                let value = self.storage_path_value(state, path).into_referent();
+
+                // The successful move owns this transition. A current post-state
+                // or another slot's snapshot cannot invent original input ownership.
+                if value == ExecutionCondition::Input(place.clone()) && place.is_callable_input() {
+                    state.owned_results.entry(value.clone()).or_insert_with(|| bray_symbols::DependencyOwnedResult::Transfer(
+                        bray_symbols::DependencyOwnedTransfer::new(value, []),
+                    ));
+                }
+            }
+
             state.assign(place, ExecutionCondition::Unknown, None);
         }
     }
