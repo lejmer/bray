@@ -397,6 +397,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let right = self.value(incoming, expression);
         let value = super::merge_returned(target, incoming, &left, &right, &root, expression);
 
-        target.expressions.insert(expression, value);
+        self.publish_expression(target, expression, value);
     }
 }

@@ -77,13 +77,15 @@ impl TrustedChecks {
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         operation: crate::analysis::model::AnalysisOperationKind,
+        current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     ) {
         super::transfers::check_witness_transfers(
             domain.request,
             domain.storage,
             domain,
             state,
-            operation.occurrence(),
+            operation,
+            current_access,
             &mut self.transfers,
         );
 

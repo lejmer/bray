@@ -96,6 +96,7 @@ impl ExecutionCondition {
         loop {
             match value {
                 Self::Constructed(base, _) | Self::Observation { owner: base, .. } if **base != Self::Unknown => value = base,
+                Self::Tagged(_, base) | Self::Present(base) => value = base,
                 _ => {
                     if let Some(payload) = value.nullable_payload_snapshot() {
                         value = payload;
@@ -107,6 +108,40 @@ impl ExecutionCondition {
         }
 
         value
+    }
+
+    /// Selects carrier authority independently of general data and physical identity.
+    pub(crate) fn ownership_identity(&self) -> Option<(ObservationKind, &Self)> {
+        let mut value = self;
+        let identity = self.owner_identity();
+        let mut role = ObservationKind::Owned;
+
+        for _ in 0..Self::WORK_LIMIT {
+            match value {
+                Self::Observation { kind: ObservationKind::Scalar, .. } => return None,
+                Self::Observation { owner, kind: ObservationKind::Reference, .. } => {
+                    role = ObservationKind::Reference;
+                    value = owner;
+                }
+                Self::Borrowed(referent) => {
+                    role = ObservationKind::Reference;
+                    value = referent;
+                }
+                Self::Observation { owner, kind: ObservationKind::Owned, .. }
+                | Self::Constructed(owner, _)
+                | Self::Tagged(_, owner)
+                | Self::Present(owner) => value = owner,
+                Self::Projection(_, parent) => {
+                    value = value.nullable_payload_snapshot().unwrap_or(parent);
+                }
+                Self::Input(_) | Self::Expression(_) | Self::ScopedCapability(_)
+                | Self::PostState(_, _) | Self::Joined(_, _, _) | Self::Result
+                | Self::CapturedInput { .. } => return Some((role, identity)),
+                _ => return None,
+            }
+        }
+
+        None
     }
 
     /// Whether current observations belong to the same owned value or loan.
@@ -145,6 +180,7 @@ impl ExecutionCondition {
                     return Some((Self::Input(root), full_path));
                 }
                 Self::Constructed(base, _) | Self::Observation { owner: base, .. } if **base != Self::Unknown => value = base,
+                Self::Tagged(_, base) | Self::Present(base) => value = base,
                 Self::Expression(_)
                 | Self::ScopedCapability(_)
                 | Self::PostState(_, _)
@@ -171,7 +207,17 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn is_owned_projection_of(&self, owner: &Self) -> bool {
-        let owner = owner.owner_identity();
+        let Some((role, owner)) = owner.ownership_identity() else { return false; };
+        let Some((own_role, _)) = self.ownership_identity() else { return false; };
+
+        if role != own_role {
+            return false;
+        }
+
+        if role == ObservationKind::Reference {
+            return matches!((Set::indexed_path(self), Set::indexed_path(owner)),
+                (Some((root, path)), Some((other, prefix))) if root == other && path.starts_with(&prefix));
+        }
 
         self.ownership_ancestors().any(|value| {
             value == owner || matches!((value, owner), (Self::Input(value), Self::Input(owner)) if owner.contains(value))
@@ -183,6 +229,7 @@ impl ExecutionCondition {
         std::iter::successors(Some(self.owner_identity()), |value| match value {
             Self::Projection(_, parent)
             | Self::Tagged(_, parent)
+            | Self::Present(parent)
             | Self::CapturedInput { owner: parent, .. } => Some(parent.owner_identity()),
             _ => None,
         })
@@ -265,9 +312,12 @@ impl ExecutionCondition {
 
     pub(crate) fn owned_components(&self) -> impl Iterator<Item = &Self> {
         let present = match self {
-            Self::Observation { contents: value, kind: ObservationKind::Owned, .. } => Some(value.as_ref()),
+            Self::Observation { contents: value, kind: ObservationKind::Owned, .. }
+                if !self.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Reference) => Some(value.as_ref()),
             Self::Present(value)
-            | Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value) => Some(value.as_ref()),
+            | Self::Tagged(_, value) => Some(value.as_ref()),
+            Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value)
+                if self.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned) => Some(value.as_ref()),
             _ => None,
         };
 
@@ -474,7 +524,8 @@ impl Set {
         value: &ExecutionCondition,
     ) -> bool {
         Self::retained_snapshot(snapshots, value, |selected| {
-            !selected.is_unknown() && selected.has_same_owner(value)
+            !selected.is_unknown() && matches!((selected.ownership_identity(), value.ownership_identity()),
+                (Some((role, owner)), Some((other_role, other))) if role == other_role && owner == other)
         })
     }
 

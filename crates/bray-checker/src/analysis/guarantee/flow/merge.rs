@@ -196,8 +196,10 @@ fn join_observations<'a>(
         let left_available = resolved_availability(target, place);
         let right_available = resolved_availability(incoming, place);
 
-        if value.owner_identity() == other.owner_identity() {
-            stable_identities.insert(value.owner_identity().clone());
+        if let Some((role, owner)) = value.ownership_identity()
+            && other.ownership_identity() == Some((role, owner))
+        {
+            stable_identities.insert(owner.clone());
         }
 
         if value == other {
@@ -217,7 +219,9 @@ fn join_observations<'a>(
             && let ValueAvailability::Guarded(guard) = &available
         {
             availability_facts.push((guard.clone(), left_available, right_available));
-            availability_guards.insert((joined.owner_identity().clone(), guard.clone()));
+            if let Some((_, owner)) = joined.ownership_identity() {
+                availability_guards.insert((owner.clone(), guard.clone()));
+            }
         }
 
         joins |= target.current.availability(place) != available
@@ -413,11 +417,9 @@ fn join_current_value(
         left.1.clone()
     } else if *left.1 == ExecutionCondition::Unknown || *right.1 == ExecutionCondition::Unknown {
         ExecutionCondition::Unknown
-    } else if left.1.has_same_owner(right.1) {
+    } else {
         common_components(left.1, right.1, result(), (&left.0.assumptions, &right.0.assumptions), facts,
             &mut { ExecutionCondition::WORK_LIMIT })
-    } else {
-        result().unwrap_or(ExecutionCondition::Unknown)
     };
 
     let availability = if left.2 == right.2 {
@@ -545,8 +547,8 @@ fn current_replacements(
         // Both predecessors must still establish the predicate after renaming.
         // Snapshots share immutable components, so borrowed keys need no tree copy.
         if value != joined
-            && value.owner_identity().observation_path().is_some()
-            && joined.owner_identity().observation_path().is_some()
+            && value.ownership_identity().is_some_and(|(_, owner)| owner.observation_path().is_some())
+            && joined.ownership_identity().is_some_and(|(_, owner)| owner.observation_path().is_some())
         {
             let borrowed = value.clone().borrowed();
 
@@ -594,10 +596,10 @@ fn current_replacements(
             insert_replacement(map, value, joined);
         }
 
-        let owner = value.owner_identity();
-
-        if owner != joined.owner_identity() && !stable_identities.contains(owner) {
-            insert_replacement(identities, owner, joined.owner_identity());
+        if let (Some((role, owner)), Some((joined_role, joined_owner))) = (value.ownership_identity(), joined.ownership_identity())
+            && role == joined_role && owner != joined_owner && !stable_identities.contains(owner)
+        {
+            insert_replacement(identities, owner, joined_owner);
         }
     }
 
@@ -696,15 +698,18 @@ pub(super) fn result_replacements(
         return;
     }
 
-    if value.current_referent().is_some() || matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) {
-        if value.has_same_owner(joined) {
-            // The loan stays the same while its current observations join.
-            // Renaming those contents does not transfer or rename the loan.
-            result_replacements(
-                &value.clone().into_referent(),
-                &joined.clone().into_referent(),
-                stable_values, stable_identities, values, identities,
-            );
+    if let Some((ObservationKind::Reference, owner)) = value.ownership_identity() {
+        if let Some((ObservationKind::Reference, joined_owner)) = joined.ownership_identity() {
+            if !stable_values.contains(value) {
+                insert_replacement(values, value, joined);
+            }
+
+            if owner != joined_owner && !stable_identities.contains(owner) {
+                insert_replacement(identities, owner, joined_owner);
+            }
+
+            reference_data_replacements(&value.clone().into_referent(), &joined.clone().into_referent(),
+                stable_values, values, &mut { ExecutionCondition::WORK_LIMIT });
         }
 
         return;
@@ -716,18 +721,18 @@ pub(super) fn result_replacements(
 
     // A complete owned snapshot also names its tag through the base observation.
     // Move that observation with its payload, preserving any independently live alias.
-    let owner = value.owner_identity();
-
-    if owner != value
-        && owner != joined.owner_identity()
-        && !stable_values.contains(owner)
-        && !stable_identities.contains(owner)
+    if let (Some((role, owner)), Some((joined_role, joined_owner))) = (value.ownership_identity(), joined.ownership_identity())
+        && role == joined_role
     {
-        insert_replacement(values, owner, joined.owner_identity());
-    }
+        if owner != value && owner != joined_owner
+            && !stable_values.contains(owner) && !stable_identities.contains(owner)
+        {
+            insert_replacement(values, owner, joined_owner);
+        }
 
-    if owner != joined.owner_identity() && !stable_identities.contains(owner) {
-        insert_replacement(identities, owner, joined.owner_identity());
+        if owner != joined_owner && !stable_identities.contains(owner) {
+            insert_replacement(identities, owner, joined_owner);
+        }
     }
 
     match value {
@@ -766,6 +771,41 @@ pub(super) fn result_replacements(
             );
         }
         _ => {}
+    }
+}
+
+fn reference_data_replacements(
+    source: &ExecutionCondition,
+    joined: &ExecutionCondition,
+    stable_values: &std::collections::BTreeSet<ExecutionCondition>,
+    values: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
+    budget: &mut usize,
+) {
+    let Some(remaining) = budget.checked_sub(1) else { return; };
+    *budget = remaining;
+
+    if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = source {
+        let joined = match joined {
+            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => contents.as_ref(),
+            value => value,
+        };
+
+        reference_data_replacements(contents, joined, stable_values, values, budget);
+        return;
+    }
+
+    if source != joined && !stable_values.contains(source)
+        && !matches!(source, ExecutionCondition::Unknown | ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_))
+    {
+        // Rebase actual reached DATA only. Its owner is never entered in the
+        // carrier identity substitution domain of this reference transition.
+        insert_replacement(values, source, joined);
+    }
+
+    if let ExecutionCondition::Constructed(_, fields) = source {
+        for (field, value) in fields.iter() {
+            reference_data_replacements(value, &joined.clone().project(*field), stable_values, values, budget);
+        }
     }
 }
 

@@ -140,7 +140,9 @@ impl ExecutionState {
 
             pending.extend(value.owned_components().cloned());
 
-            if let Some(entries) = self.deferred_entries(&value) {
+            if value.ownership_identity().is_some_and(|(role, _)| role == crate::execution_guarantees::ExecutionObservationKind::Owned)
+                && let Some(entries) = self.deferred_entries(&value)
+            {
                 for (invocation, candidate) in &entries.producers {
                     let entry = &candidate.entry;
 
@@ -291,8 +293,12 @@ impl ExecutionState {
     }
 
     pub(super) fn directly_carries_witness(&self, value: &ExecutionCondition) -> bool {
+        let Some((crate::execution_guarantees::ExecutionObservationKind::Owned, identity)) = value.ownership_identity() else {
+            return false;
+        };
+
         self.witnesses
-            .get(value.owner_identity())
+            .get(identity)
             .is_some_and(|witness| {
                 witness.available && witness.is_owning(&self.trusted_assumptions, &self.assumptions)
             })
@@ -300,7 +306,7 @@ impl ExecutionState {
 
     pub(super) fn owns_witness(&self, value: &ExecutionCondition) -> bool {
         self.witnesses.keys()
-            .filter(|carrier| !matches!(carrier.owner_identity(), ExecutionCondition::Borrowed(_)))
+            .filter(|carrier| carrier.ownership_identity().is_some_and(|(role, _)| role == crate::execution_guarantees::ExecutionObservationKind::Owned))
             .any(|carrier| {
                 self.owned_values(value)
                     .any(|value| carrier.is_owned_projection_of(&value))
@@ -308,25 +314,6 @@ impl ExecutionState {
             })
     }
 
-    pub(super) fn witness_projection(&self, value: &ExecutionCondition) -> (bool, bool) {
-        let mut whole = self.owns_witness(value);
-        let mut partial = false;
-        let mut projected_part = false;
-        let mut value = value;
-
-        while let ExecutionCondition::Projection(projection, parent) = value {
-            projected_part |= *projection != bray_symbols::ConstantProjectionKind::NullableValue;
-
-            if self.directly_carries_witness(parent) {
-                whole |= !projected_part;
-                partial |= projected_part;
-            }
-
-            value = parent;
-        }
-
-        (whole, partial)
-    }
     /// Reusing a finite evaluation identity must not revive a previous iteration's evidence.
     pub(super) fn retire_evaluation(&mut self, mutation: bray_bound_tree::StorageMutation) {
         let stale = |value: &ExecutionCondition| value.depends_on(mutation);
@@ -407,7 +394,7 @@ impl ExecutionState {
         let mut retained = BTreeSet::new();
 
         self.witnesses.retain(|carrier, witness| {
-            if !stable_owners.iter().any(|owner| carrier.is_owned_projection_of(owner)) {
+            if !crate::execution_guarantees::ObservationSet::retains_owner(stable_owners, carrier) {
                 return false;
             }
 
@@ -452,7 +439,7 @@ impl ExecutionState {
 
         self.allocation_owners.retain(|condition, owner| {
             condition.observes_only(|value| stable_values.preserves(value))
-                && stable_owners.iter().any(|stable| owner.is_owned_projection_of(stable))
+                && crate::execution_guarantees::ObservationSet::retains_owner(stable_owners, owner)
         });
 
         for entry in self.pending_entries_mut(&|entry| {

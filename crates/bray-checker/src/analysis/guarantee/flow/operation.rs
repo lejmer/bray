@@ -28,7 +28,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // or another slot's snapshot cannot invent original input ownership.
                 if value == ExecutionCondition::Input(place.clone()) && place.is_callable_input() {
                     state.owned_results.entry(value.clone()).or_insert_with(|| bray_symbols::DependencyOwnedResult::Transfer(
-                        bray_symbols::DependencyOwnedTransfer::new(value, []),
+                        bray_symbols::DependencyOwnedTransfer::new(value, [])
+                            .with_preservation(bray_symbols::DependencyValuePreservation::all()),
                     ));
                 }
             }
@@ -114,6 +115,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         ));
                     }
 
+                    self.vacate_expression_slot(state, expression);
                     state.expressions.remove(&expression);
                     state.pending_results.remove(&expression);
                 }
@@ -141,7 +143,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.vacate(result);
                     }
 
+                    if let Site::CallInput { .. } = invocation {
+                        state.vacate(self.input_place(invocation)
+                            .expect("staged input retains its actual slot"));
+                    }
+
                     if let Site::Node(AnyBoundNodeId::Expression(expression)) = invocation {
+                        self.vacate_expression_slot(state, expression);
                         state.expressions.remove(&expression);
                         state.pending_results.remove(&expression);
                     }
@@ -178,7 +186,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             state.pending_results.insert(expression, observed);
                         }
 
-                        self.expression(state, expression, invalidation, assignment_place);
+                        self.expression(state, expression, invalidation, assignment_place, false);
 
                         if let Some(value) = state.expressions.remove(&expression) {
                             state.pending_results.insert(expression, value);
@@ -247,6 +255,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.retire_evaluation(bray_bound_tree::StorageMutation::Operation(
                             expression.into(),
                         ));
+                        self.vacate_expression_slot(state, expression);
                     }
 
                     if let Some(entry) = self.call_entry(state, expression.into()) {
@@ -257,7 +266,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.pending_results.insert(expression, observed);
                     }
 
-                    self.expression(state, expression, invalidation, assignment_place);
+                    self.expression(state, expression, invalidation, assignment_place,
+                        matches!(operation, super::super::super::model::AnalysisOperationKind::Bound(_)));
                 }
 
                 if self
@@ -326,6 +336,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .entries
                     .get(&occurrence)
                     .is_some_and(|entry| !entry.pending_execution)
+                    && !matches!(edge.refinement(), Some(
+                        crate::analysis::model::AnalysisRefinement::InvocationFailure(failed)
+                    ) if failed == occurrence)
                 {
                     state.entries.remove(&occurrence);
                 }
@@ -344,7 +357,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.deferred_invocations.remove(value.owner_identity());
             }
 
-            state.entries.remove(&invocation);
+            self.retire_failed_call(state, invocation);
 
             if let bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(
                 expression,
@@ -378,16 +391,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        if let super::super::super::model::AnalysisOperationKind::Call {
-            invocation:
-                bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
-            phase: super::super::super::model::AnalysisCallPhase::Completion,
-        } = operation
-            && let Some(value) = state.pending_results.remove(&expression)
-        {
-            state.expressions.insert(expression, value);
-        }
-
         let input = matches!(
             operation.occurrence(),
             bray_bound_tree::BoundExecutionSite::CallInput { .. }
@@ -409,6 +412,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         {
             return;
         }
+
+        let completed_expression = match operation {
+            super::super::super::model::AnalysisOperationKind::Call {
+                invocation: bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
+                phase: super::super::super::model::AnalysisCallPhase::Completion,
+            } => {
+                if let Some(value) = state.pending_results.remove(&expression) {
+                    self.publish_expression(state, expression, value);
+                }
+
+                Some(expression)
+            }
+            super::super::super::model::AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
+            | super::super::super::model::AnalysisOperationKind::Result {
+                expression,
+                phase: super::super::super::model::AnalysisResultPhase::Completion,
+            } => Some(expression),
+            _ => None,
+        };
 
         let empty = Default::default();
 
@@ -432,18 +454,34 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             observations.references(),
         );
 
+        if let Some(expression) = completed_expression
+            && let Some(identity) = self.storage.temporary(expression)
+            && observations.references().keys().any(|path| path.root == identity)
+            && let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, identity)
+            && state.current.availability(&place) != super::super::current::ValueAvailability::Absent
+            && let Some(value) = place.value_in(&state.current)
+        {
+            // Capture this completion's actual reference update once. A moved
+            // result keeps its evaluated snapshot after its storage becomes absent.
+            state.expressions.insert(expression, value);
+        }
+
         if input {
             let invocation = operation.occurrence();
+            let place = self.input_place(invocation)
+                .expect("completed input retains its place");
             let result = self.invocation_value(state, invocation);
+            let result = self.storage.occurrence_plans(invocation)
+                .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Copy)
+                .fold(result, |result, plan| {
+                    self.copied_access_value(ExecutionCondition::PostState(
+                        bray_bound_tree::StorageMutation::Operation(invocation), place.clone(),
+                    ), result, plan)
+                });
 
             let result = self.complete_trusted_call(state, invocation, result, observations);
 
-            state.assign(
-                self.input_place(invocation)
-                    .expect("completed input retains its place"),
-                result,
-                None,
-            );
+            state.assign(place, result, None);
 
             return;
         }
@@ -523,6 +561,36 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.activate_task(state, expression);
         self.complete_memory_write(state, expression);
         self.preserve_integer_value(state, expression);
+        let value = self.value(state, expression);
+
+        self.publish_expression(state, expression, value);
+    }
+
+    fn vacate_expression_slot(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
+        if let Some(identity) = self.storage.temporary(expression) {
+            let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
+                .expect("planned expression value slot has an execution place");
+
+            state.vacate(place);
+        }
+    }
+
+    /// Current storage and the immutable evaluated snapshot have distinct
+    /// lifetimes while sharing the same actually produced symbolic object.
+    pub(in crate::analysis::guarantee) fn publish_expression(
+        &self,
+        state: &mut ExecutionState,
+        expression: BoundExpressionId,
+        value: ExecutionCondition,
+    ) {
+        if let Some(identity) = self.storage.temporary(expression) {
+            let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
+                .expect("planned expression value slot has an execution place");
+
+            state.assign(place, value.clone(), None);
+        }
+
+        state.expressions.insert(expression, value);
     }
 
     fn publish_result(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
@@ -531,7 +599,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .remove(&expression)
             .unwrap_or_else(|| self.value(state, expression));
 
-        state.expressions.insert(expression, value);
+        self.publish_expression(state, expression, value);
     }
 
     fn expression(
@@ -540,6 +608,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
         assignment_place: Option<&crate::ExecutionPlace>,
+        completes: bool,
     ) {
         state.expressions.remove(&expression);
 
@@ -555,6 +624,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .remove(&expression)
             .or_else(|| (!assignment).then(|| machine_value.clone()).flatten())
             .unwrap_or_else(|| self.produce_value(state, expression));
+
+        let value = self.storage.node_plans(expression.into())
+            .filter(|plan| plan.expression() == expression)
+            .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Copy)
+            .fold(value, |value, plan| {
+                self.copied_access_value(ExecutionCondition::Expression(expression), value, plan)
+            });
 
         let transfer = self
             .started_future(state, expression)
@@ -690,6 +766,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
             _ => {}
         }
+
+        if completes {
+            let value = self.value(state, expression);
+
+            self.publish_expression(state, expression, value);
+        }
     }
 
     fn pattern(&self, state: &mut ExecutionState, pattern: bray_bound_tree::BoundPatternId) {
@@ -715,6 +797,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let place = crate::ExecutionPlace::binding(self.storage, binding)
                 .expect("checked pattern binding has an execution place");
+
+            for plan in self.storage.node_plans(pattern.into()).filter(|plan| plan.access() == access) {
+                value = self.copied_access_value(ExecutionCondition::Input(place.clone()), value, plan);
+            }
 
             // Named and discarded owners retain the same committed value and cleanup evidence.
             state.assign(place, value, None);

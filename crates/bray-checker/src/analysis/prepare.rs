@@ -189,7 +189,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
     );
 
     let Some(values) =
-        super::liveness::ValueRetention::prepare(&graph, request.unit(), storage, &request)
+        super::liveness::ValueRetention::prepare(&graph, request.unit(), storage, expressions, &request)
     else {
         return CheckerOutcome::Cancelled;
     };

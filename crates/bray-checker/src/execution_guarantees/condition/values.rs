@@ -128,7 +128,7 @@ impl ExecutionCondition {
     pub(crate) fn matches_variant(self, variant: bray_symbols::UnionVariantSymbolId) -> Self {
         match self {
             Self::Unknown => Self::Unknown,
-            Self::Borrowed(value) | Self::Observation { contents: value, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => value.as_ref().clone().matches_variant(variant),
+            Self::Borrowed(value) | Self::Observation { contents: value, .. } => value.as_ref().clone().matches_variant(variant),
             Self::Literal(ref value)
                 if let bray_symbols::ConstantValueKind::Union {
                     variant: active, ..
@@ -234,7 +234,19 @@ impl ExecutionCondition {
             return self;
         }
 
+        if let Self::Projection(projection, parent) = &self {
+            let selected = parent.as_ref().clone().component(*projection);
+
+            if selected != self {
+                return selected.borrowed();
+            }
+        }
+
         let owner = self.owner_identity();
+
+        if owner.ownership_identity().is_none() {
+            return Self::reference_value(Self::Unknown, self);
+        }
 
         if owner == &self {
             Self::Borrowed(Arc::new(self))
@@ -299,7 +311,7 @@ impl ExecutionCondition {
     pub(crate) fn observation(owner: Self, contents: Self, kind: ObservationKind) -> Self {
         let owner = owner.owner_identity();
 
-        if kind != ObservationKind::Scalar && owner == &contents
+        if kind == ObservationKind::Owned && owner == &contents
             || kind == ObservationKind::Reference && matches!(owner, Self::Borrowed(referent) if referent.as_ref() == &contents)
         {
             return owner.clone();
@@ -346,13 +358,6 @@ impl ExecutionCondition {
         }
     }
 
-    /// Observe the referent without identifying it with the loan that supplies access.
-    fn observe_contents(&mut self) {
-        if self.current_referent().is_some() {
-            *self = Self::Borrowed(Arc::new(self.clone().into_referent()));
-        }
-    }
-
     /// Observe the current reached value. Only checked ownership transitions may move it.
     pub(crate) fn into_referent(self) -> Self {
         match self {
@@ -380,11 +385,9 @@ impl ExecutionCondition {
     pub(crate) fn predicate(
         predicate: bray_symbols::PredicateDefinitionSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
-        mut arguments: Vec<Self>,
+        arguments: Vec<Self>,
     ) -> Self {
-        for argument in &mut arguments {
-            argument.observe_contents();
-
+        for argument in &arguments {
             if argument.contains_unknown() {
                 return Self::Unknown;
             }
@@ -427,8 +430,19 @@ impl ExecutionCondition {
             ));
         }
 
-        if let Self::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } = self {
-            return contents.as_ref().clone().project(projection);
+        if let Self::Observation { owner, contents, kind } = self {
+            let selected = contents.as_ref().clone().project(projection);
+
+            return match kind {
+                ObservationKind::Owned => selected,
+                ObservationKind::Scalar if selected.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Reference) => selected,
+                ObservationKind::Scalar => Self::scalar_observation(owner.as_ref().clone().project(projection), selected),
+                ObservationKind::Reference => Self::reference_value(owner.as_ref().clone().project(projection).borrowed(), selected),
+            };
+        }
+
+        if let Self::Borrowed(value) = self {
+            return value.as_ref().clone().project(projection).borrowed();
         }
 
         let projection = match projection {
@@ -482,8 +496,18 @@ impl ExecutionCondition {
             Self::Input(place) => Self::Input(place.component(projection)),
             // A field access through a borrow observes the referent's field,
             // rather than projecting a field from the borrow value itself.
-            Self::Observation { owner: _, contents: value, .. } => value.as_ref().clone().component(projection),
-            Self::Borrowed(value) => value.as_ref().clone().component(projection),
+            Self::Observation { owner, contents, kind } => {
+                let selected = contents.as_ref().clone().component(projection);
+
+                match kind {
+                    ObservationKind::Owned => selected,
+                    ObservationKind::Scalar if selected.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Reference) => selected,
+                    ObservationKind::Scalar => Self::scalar_observation(owner.as_ref().clone().component(projection), selected),
+                    ObservationKind::Reference => Self::reference_value(owner.as_ref().clone().component(projection).borrowed(), selected),
+                }
+            }
+            Self::Borrowed(value) => value.as_ref().clone().component(projection).borrowed(),
+            Self::Tagged(_, value) => value.as_ref().clone().component(projection),
             // Retain the nullable owner's identity when extracting its payload. Rewrapping
             // that payload can then name the acquisition witness without asserting presence.
             value @ Self::Constructed(_, _)
@@ -658,9 +682,7 @@ impl ExecutionCondition {
 
     pub(crate) fn operation(operator: BoundOperator, mut operands: Vec<Self>) -> Self {
         for operand in &mut operands {
-            operand.observe_contents();
-
-            if matches!(operand, Self::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. }) {
+            if matches!(operand, Self::Observation { kind: ObservationKind::Owned, .. }) {
                 *operand = operand.current_contents().clone();
             }
 
@@ -710,6 +732,13 @@ impl ExecutionCondition {
         }
 
         if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
+            if let [reference @ Self::Observation { kind: ObservationKind::Reference, .. }, Self::Literal(absent)]
+            | [Self::Literal(absent), reference @ Self::Observation { kind: ObservationKind::Reference, .. }] = operands.as_slice()
+                && matches!(absent.kind(), bray_symbols::ConstantValueKind::NullableAbsent)
+            {
+                return Self::operation(operator, vec![reference.clone().into_referent(), Self::Literal(Arc::clone(absent))]);
+            }
+
             if let [Self::Borrowed(subject), Self::Literal(absent)]
             | [Self::Literal(absent), Self::Borrowed(subject)] = operands.as_slice()
                 && matches!(
@@ -790,5 +819,59 @@ impl ExecutionCondition {
             ) => value.clone(),
             _ => Self::Operation(operator, operands.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExecutionCondition, ObservationKind};
+    use crate::ExecutionPlace;
+    use bray_bound_tree::StorageProjection;
+    use bray_symbols::{ConstantProjectionKind, SymbolId, SymbolOrdinal, UnionVariantSymbolId};
+    use std::sync::Arc;
+
+    #[test]
+    fn scalar_and_reference_projections_keep_their_roles() {
+        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let child = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let data = ExecutionCondition::constructed(owner.clone(), [(field, child.clone())].into());
+        let copied = ExecutionCondition::scalar_observation(owner.clone(), data.clone()).project(field);
+
+        assert_eq!(copied.observation_kind(), Some(ObservationKind::Scalar));
+        assert_eq!(copied.storage_contents().map(|(_, contents)| contents), Some(&child));
+        assert_eq!(copied.ownership_identity(), None);
+        assert!(!child.is_owned_projection_of(&copied));
+
+        let loan = data.borrowed().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
+        assert_eq!(loan.ownership_identity().map(|(role, _)| role), Some(ObservationKind::Reference));
+        assert!(!child.is_owned_projection_of(&loan));
+        assert_eq!(loan.into_referent(), child);
+
+        let descriptor = owner.clone().borrowed();
+        let copied_views = ExecutionCondition::scalar_observation(owner, ExecutionCondition::constructed(
+            ExecutionCondition::Unknown, [(field, descriptor.clone())].into(),
+        ));
+
+        assert_eq!(copied_views.project(field), descriptor);
+    }
+
+    #[test]
+    fn shape_decorations_keep_data_out_of_stable_loan_identity() {
+        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let variant = UnionVariantSymbolId::from_symbol_id(SymbolId::new(900));
+        let make = |contents| ExecutionCondition::Tagged(variant, Arc::new(ExecutionCondition::constructed(
+            owner.clone(), [(field, contents)].into(),
+        ))).present().borrowed();
+        let before = make(ExecutionCondition::Boolean(true));
+        let after = make(ExecutionCondition::Boolean(false));
+        let loan = owner.borrowed();
+
+        assert_eq!(before.owner_identity(), loan.owner_identity());
+        assert_eq!(after.owner_identity(), loan.owner_identity());
+        assert_ne!(before, after);
+        assert_eq!(before.into_referent().component(ConstantProjectionKind::NullableValue).matches_variant(variant), ExecutionCondition::Boolean(true));
     }
 }

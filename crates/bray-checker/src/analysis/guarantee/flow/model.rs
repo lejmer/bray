@@ -366,7 +366,8 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                     && !self.borrowed_inputs.iter().any(|borrow| borrow.contains(place))
                 {
                     state.owned_results.insert(input.clone(), bray_symbols::DependencyOwnedResult::Transfer(
-                        bray_symbols::DependencyOwnedTransfer::new(input.clone(), []),
+                        bray_symbols::DependencyOwnedTransfer::new(input.clone(), [])
+                            .with_preservation(bray_symbols::DependencyValuePreservation::all()),
                     ));
                 }
 

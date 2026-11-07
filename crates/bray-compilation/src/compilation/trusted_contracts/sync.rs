@@ -2715,13 +2715,22 @@ fn independent_tuple_carriers_remain_whole_after_destructuring() {
             true,
         ),
         ("let marker = pair().0.marker;", false),
+        ("let original = make_stamp(); let copied = original;", false),
+        ("let original = make_stamp(); let copied = (0, original);", false),
+        ("let original = make_stamp(); discard_stamp(original);", false),
     ] {
         let source = format!(
             r#"
             trusted module app;
             struct Marker {{}}
             struct Guard {{ marker: Marker; }}
+            @copy struct Stamp {{ epoch: u32; }}
             trusted predicate held(marker: &Marker);
+            trusted predicate stamped(owner: &Stamp);
+            trusted func make_stamp() -> Stamp
+                ensures(trusted stamped(&result)) executes(pure, total)
+            {{ return {{ epoch = 1 }}; }}
+            func discard_stamp(pos value: Stamp) {{}}
             trusted func pair() -> (Guard, Guard)
                 ensures(trusted held(&result.0.marker), trusted held(&result.1.marker))
                 executes(pure, total)
@@ -2908,6 +2917,8 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
         {
             marker: Marker;
             const func token() -> &Marker executes(pure, total) { return &self.marker; }
+            func inspect_after_argument(pos sequence: u32)
+                requires(trusted live(&self.marker)) executes(pure, total) {}
         }
         union Backing { Empty; Owned(pos owner: Owner); }
         trusted predicate live(owner: &Marker);
@@ -2923,6 +2934,7 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
         }
         predicate retained(backing: &Backing) = backing matches Backing.Owned(_) && live(owner(backing).token());
         func observe(pos marker: &Marker) requires(trusted live(marker)) executes(pure, total) {}
+        func argument_value() -> u32 executes(pure, total) { return 0; }
         func caller(pos backing: &Backing) requires(trusted retained(backing))
         {
             if backing matches Backing.Owned(_)
@@ -2930,6 +2942,10 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
                 observe(owner(backing).token());
                 let selected = owner(backing);
                 observe(selected.token());
+                owner(backing).inspect_after_argument(argument_value());
+                selected.inspect_after_argument(argument_value());
+                let copied = selected;
+                copied.inspect_after_argument(argument_value());
             }
         }
     "#;

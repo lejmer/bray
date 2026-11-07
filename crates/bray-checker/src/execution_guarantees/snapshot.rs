@@ -34,40 +34,37 @@ pub(crate) fn common_components(
         ExecutionCondition::Observation { owner: left_owner, contents: left_value, kind: ObservationKind::Scalar },
         ExecutionCondition::Observation { owner: right_owner, contents: right_value, kind: ObservationKind::Scalar },
     ) = (left, right) {
-        return if left_owner == right_owner {
-            ExecutionCondition::scalar_observation(
-                left_owner.as_ref().clone(),
-                common_components(left_value, right_value, result, conditions, facts, budget),
-            )
-        } else { ExecutionCondition::Unknown };
+        let identity = if left_owner == right_owner { Some(left_owner.as_ref().clone()) } else { result.clone() };
+
+        return match identity {
+            Some(identity) => ExecutionCondition::scalar_observation(identity,
+                common_components(left_value, right_value, result, conditions, facts, budget)),
+            None => ExecutionCondition::Unknown,
+        };
     }
 
-    let reference = |value: &ExecutionCondition| {
-        value.observation_kind() == Some(ObservationKind::Reference) || matches!(value, ExecutionCondition::Borrowed(_))
-    };
+    let left_owner = left.ownership_identity();
+    let right_owner = right.ownership_identity();
+    let same_owner = matches!((left_owner, right_owner), (Some((role, owner)), Some((other_role, other))) if role == other_role && owner == other);
 
-    if reference(left) || reference(right) {
-        let same_owner = left.has_same_owner(right);
+    if left_owner.map(|(role, _)| role) != right_owner.map(|(role, _)| role) {
+        return mixed_role_components(left, right, result, conditions, facts, budget);
+    }
 
-        // A bare entry value and its refreshed reference have the same value
-        // identity. An owning snapshot is a different semantic role.
-        if (!reference(left) && (left.owner_identity() != left || !same_owner))
-            || (!reference(right) && (right.owner_identity() != right || !same_owner))
-        {
-            return ExecutionCondition::Unknown;
-        }
-
+    if left_owner.is_some_and(|(role, _)| role == ObservationKind::Reference) {
         let contents = common_components(
             &left.clone().into_referent(), &right.clone().into_referent(),
-            if same_owner { result } else { None }, conditions, facts, budget,
+            if same_owner { result.clone() } else { None }, conditions, facts, budget,
         );
 
         return if same_owner {
-            ExecutionCondition::reference_value(left.owner_identity().clone(), contents)
-        } else { contents.borrowed() };
+            ExecutionCondition::reference_value(left_owner.expect("shared reference owner exists").1.clone(), contents)
+        } else if let Some(identity) = result {
+            ExecutionCondition::reference_value(identity, contents)
+        } else { ExecutionCondition::Unknown };
     }
 
-    if left.has_same_owner(right)
+    if same_owner
         && (left.observation_kind() == Some(ObservationKind::Owned)
             || right.observation_kind() == Some(ObservationKind::Owned))
     {
@@ -77,7 +74,7 @@ pub(crate) fn common_components(
         };
 
         return ExecutionCondition::owned_value(
-            left.owner_identity().clone(),
+            left_owner.expect("shared owned context exists").1.clone(),
             common_components(&contents(left), &contents(right), result, conditions, facts, budget),
         );
     }
@@ -156,8 +153,8 @@ pub(crate) fn common_components(
 
     // A changed observation does not replace its existing descriptor or loan.
     // Distinct owners instead acquire the selected result region's identity.
-    let identity = if left.owner_identity() != &ExecutionCondition::Unknown && left.has_same_owner(right) {
-        left.owner_identity().clone()
+    let identity = if same_owner {
+        left_owner.expect("shared owner exists").1.clone()
     } else {
         result.clone().unwrap_or(ExecutionCondition::Unknown)
     };
@@ -233,6 +230,35 @@ pub(crate) fn common_components(
     ExecutionCondition::constructed(identity, fields)
 }
 
+fn mixed_role_components(
+    left: &ExecutionCondition,
+    right: &ExecutionCondition,
+    result: Option<ExecutionCondition>,
+    conditions: (&BTreeSet<(ExecutionCondition, bool)>, &BTreeSet<(ExecutionCondition, bool)>),
+    facts: &mut Vec<(ExecutionCondition, bool)>,
+    budget: &mut usize,
+) -> ExecutionCondition {
+    let Some(identity) = result else { return ExecutionCondition::Unknown; };
+
+    let data = |value: &ExecutionCondition| match value {
+        ExecutionCondition::Observation { contents, .. } => contents.as_ref().clone(),
+        ExecutionCondition::Borrowed(_) => value.clone().into_referent(),
+        value => value.clone(),
+    };
+
+    let common = common_components(&data(left), &data(right), Some(identity.clone()), conditions, facts, budget);
+
+    // This finite phi region owns the selected object. Equal copied data never
+    // makes the original source carrier common to both predecessors.
+    let joined = owned_snapshot(&common, identity.clone(), budget);
+
+    if joined.ownership_identity() == Some((ObservationKind::Owned, &identity)) {
+        joined
+    } else {
+        ExecutionCondition::owned_value(identity, joined)
+    }
+}
+
 /// Reanchor initialized owned components under their destination owner.
 pub(crate) fn owned_snapshot(
     source: &ExecutionCondition,
@@ -249,7 +275,7 @@ pub(crate) fn owned_snapshot(
         return owned_snapshot(snapshot, identity, budget);
     }
 
-    if matches!(source.owner_identity(), ExecutionCondition::Borrowed(_)) {
+    if source.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Reference) {
         return source.clone();
     }
 
@@ -258,9 +284,15 @@ pub(crate) fn owned_snapshot(
         ExecutionCondition::Observation { contents, kind: ObservationKind::Reference, .. } => {
             ExecutionCondition::reference_value(identity, contents.as_ref().clone())
         }
-        ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => owned_snapshot(contents, identity, budget),
+        ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => {
+            let data = owned_snapshot(contents, identity.clone(), budget);
+
+            ExecutionCondition::owned_value(identity, data)
+        }
         ExecutionCondition::Constructed(base, fields) => {
-            let base = owned_snapshot(base, identity, budget);
+            let base = if **base == ExecutionCondition::Unknown { identity } else { owned_snapshot(base, identity, budget) };
+            let parent = base.ownership_identity().filter(|(role, _)| *role == ObservationKind::Owned)
+                .map(|(_, owner)| owner.clone()).unwrap_or(ExecutionCondition::Unknown);
 
             let fields = fields
                 .iter()
@@ -269,7 +301,7 @@ pub(crate) fn owned_snapshot(
                         *field,
                         owned_snapshot(
                             value,
-                            base.owner_identity().clone().project(*field),
+                            parent.clone().project(*field),
                             budget,
                         ),
                     )
@@ -278,15 +310,17 @@ pub(crate) fn owned_snapshot(
 
             ExecutionCondition::constructed(base, fields)
         }
-        ExecutionCondition::Tagged(variant, _) => {
-            ExecutionCondition::Tagged(*variant, std::sync::Arc::new(identity))
+        ExecutionCondition::Tagged(variant, value) => {
+            ExecutionCondition::Tagged(*variant, std::sync::Arc::new(owned_snapshot(value, identity, budget)))
         }
         ExecutionCondition::Present(value) => {
-            ExecutionCondition::Present(std::sync::Arc::new(owned_snapshot(
+            let payload = owned_snapshot(
                 value,
-                identity.project(bray_bound_tree::StorageProjection::NullableValue),
+                identity.clone().project(bray_bound_tree::StorageProjection::NullableValue),
                 budget,
-            )))
+            );
+
+            ExecutionCondition::owned_value(identity, ExecutionCondition::Present(std::sync::Arc::new(payload)))
         }
         ExecutionCondition::Borrowed(_)
         | ExecutionCondition::Boolean(_)

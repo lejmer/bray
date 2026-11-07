@@ -73,6 +73,12 @@ impl ExecutionState {
         let invalidated_observations = invalidated.iter().cloned()
             .collect::<crate::execution_guarantees::ObservationSet>();
 
+        let retired_owner = |value: &ExecutionCondition| if retained_snapshots.is_some() {
+            crate::execution_guarantees::ObservationSet::retains_owner(&invalidated, value)
+        } else {
+            invalidated_observations.contains(value)
+        };
+
         let observes = |condition: &ExecutionCondition, selection: bool| {
             condition
                 .observations_except(&retained_data)
@@ -124,7 +130,7 @@ impl ExecutionState {
         let availability_expired = |condition: &ExecutionCondition| {
             !kind.is_write() && condition.observations().any(|observed| {
                 matches!(observed, ExecutionCondition::InitializedSnapshot(_, _, owner)
-                    if invalidated_observations.contains(owner)
+                    if retired_owner(owner)
                         && !retained_owner(owner))
             })
         };
@@ -136,7 +142,7 @@ impl ExecutionState {
         let mut retired_conditions = BTreeSet::new();
 
         self.witnesses.retain(|carrier, witness| {
-            let retired = invalidated_observations.contains(carrier)
+            let retired = retired_owner(carrier)
                 && !retained_owner(carrier);
 
             witness.retain_conditions(|condition, guarantee| {
@@ -255,7 +261,14 @@ impl ExecutionState {
 
             pending.extend(value.owned_components().cloned());
 
-            if value.owner_identity() != &value {
+            if select_descendants && value.ownership_identity().is_none() {
+                continue;
+            }
+
+            if value.owner_identity() != &value
+                && (!select_descendants || value.ownership_identity().map(|(role, _)| role)
+                    == value.owner_identity().ownership_identity().map(|(role, _)| role))
+            {
                 pending.push(value.owner_identity().clone());
             }
 
@@ -600,6 +613,48 @@ mod tests {
     use crate::ExecutionPlace;
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
+
+    #[test]
+    fn copying_or_retiring_a_loan_does_not_own_or_retire_its_source() {
+        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let mut state = ExecutionState::default();
+
+        state.carry_guarantee(owner.clone(), owner.clone());
+
+        let copied = ExecutionCondition::scalar_observation(owner.clone(), owner.clone());
+        let loan = owner.clone().borrowed();
+
+        assert!(state.owns_witness(&owner));
+        assert!(!state.owns_witness(&copied));
+        assert!(!state.owns_witness(&loan));
+
+        state.retire_trusted_values([copied, loan], &BTreeSet::new());
+
+        assert!(state.owns_witness(&owner));
+    }
+
+    #[test]
+    fn constructor_fields_retain_actual_owned_temporaries() {
+        use bray_bound_tree::{BoundErrorExpression, BoundExpression, BoundUnitId};
+        use crate::test_support::{error_type, expression_unit, push_expression};
+
+        let unit = BoundUnitId::new(41);
+        let (_, expressions) = expression_unit(unit, |tree, origin| (0..2).map(|_| {
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))
+        }).collect::<Vec<_>>());
+
+        let result = ExecutionCondition::Expression(expressions[0]);
+        let child = ExecutionCondition::Expression(expressions[1]);
+        let field = StorageProjection::ElementFromStart(SymbolOrdinal::new(0));
+        let mut state = ExecutionState::default();
+
+        state.carry_guarantee(child.clone(), child.clone());
+
+        let aggregate = ExecutionCondition::constructed(result, [(field, child)].into());
+
+        assert!(state.owns_witness(&aggregate));
+        assert!(state.owns_witness(&aggregate.project(field)));
+    }
 
     #[test]
     fn retained_aggregate_identity_does_not_retain_its_replaced_child() {

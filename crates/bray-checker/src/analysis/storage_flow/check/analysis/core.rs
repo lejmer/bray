@@ -720,8 +720,16 @@ where
                     }
             )
         {
-            self.trusted
-                .before_operation(self.execution, &execution, kind);
+            let input = self.input;
+            let storage = self.storage;
+            let values = self.request.semantic_values();
+            let memory = &state.memory;
+
+            self.trusted.before_operation(self.execution, &execution, kind, &|plan| {
+                let target = input.reference_target(values, memory, storage, plan.access())?;
+
+                crate::storage::storage_observation_path(storage, values, &target)
+            });
         }
 
         self.record_replacements(state, kind);

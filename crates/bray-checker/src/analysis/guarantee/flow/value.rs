@@ -8,11 +8,11 @@ use crate::execution_guarantees::{ExecutionCondition, expression_condition};
 use super::super::state::ExecutionState;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    /// Refresh a reference's reached data without changing the reference value's identity.
+    /// Update actual contents while retaining the source descriptor's role and identity.
     pub(super) fn current_observation(
         &self,
         place: &crate::ExecutionPlace,
-        owner: ExecutionCondition,
+        source: ExecutionCondition,
         contents: ExecutionCondition,
     ) -> ExecutionCondition {
         let reference = self.borrowed_inputs.contains(place)
@@ -20,9 +20,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
             });
 
-        if reference || matches!(owner, ExecutionCondition::Borrowed(_)) {
-            owner.with_referent(contents)
-        } else { ExecutionCondition::owned_value(owner, contents) }
+        let identity = source.ownership_identity().map(|(role, identity)| (role, identity.clone()));
+
+        if reference {
+            return source.borrowed().with_referent(contents);
+        }
+
+        match identity {
+            Some((crate::execution_guarantees::ExecutionObservationKind::Reference, _)) => source.with_referent(contents),
+            Some((crate::execution_guarantees::ExecutionObservationKind::Owned, identity)) => ExecutionCondition::owned_value(identity, contents),
+            _ => ExecutionCondition::scalar_observation(source.owner_identity().clone(), contents),
+        }
     }
 
     pub(in crate::analysis) fn value(
@@ -57,6 +65,44 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             &mut { ExecutionCondition::WORK_LIMIT },
             self.request.trusted_contracts().map(|input| &input.predicates),
         )
+    }
+
+    /// A checked copy forms immutable data with its own evaluation identity.
+    /// Moving a newly produced result still transfers the actual complete owner.
+    pub(in crate::analysis::guarantee) fn copied_access_value(
+        &self,
+        identity: ExecutionCondition,
+        value: ExecutionCondition,
+        plan: bray_bound_tree::StorageAccessPlan,
+    ) -> ExecutionCondition {
+        if self.storage.effective_purpose(plan) != bray_bound_tree::StorageAccessPurpose::Copy {
+            return value;
+        }
+
+        let ty = self.storage.access(plan.access())
+            .expect("checked copy retains its reached type").reached_type();
+
+        if matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+            return value.borrowed();
+        }
+
+        if !matches!(value.ownership_identity(),
+                Some((crate::execution_guarantees::ExecutionObservationKind::Owned, _)))
+        {
+            return value;
+        }
+
+        let source = self.storage.root_identity(plan.access())
+            .and_then(|root| self.storage.identity(root));
+        let produced = source.and_then(bray_bound_tree::StorageIdentity::definition_occurrence)
+            .is_some_and(|occurrence| occurrence.expression() == Some(plan.expression()))
+            && self.storage.resolved_projections(plan.access()).is_some_and(<[_]>::is_empty);
+
+        if plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer && produced {
+            return value;
+        }
+
+        ExecutionCondition::scalar_observation(identity, value)
     }
 
     pub(in crate::analysis::guarantee) fn borrowed_value(
@@ -249,6 +295,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.storage_identity_value(state, path.root),
             |value, projection| value.project(*projection),
         )
+    }
+
+    /// Read the current source selected by the owning storage transition before
+    /// this occurrence defines an evaluated result. The caller resolves borrows.
+    pub(in crate::analysis) fn current_access_value(
+        &self,
+        state: &ExecutionState,
+        path: &bray_bound_tree::StoragePath,
+    ) -> ExecutionCondition {
+        self.storage_path_value(state, path)
     }
 
     pub(in crate::analysis::guarantee) fn storage_value(

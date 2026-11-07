@@ -72,7 +72,7 @@ impl ValuePreservation {
 
         if self.descriptor {
             if let Some(place) = place {
-                return wrap(place, source.owner_identity().clone(), contents);
+                return wrap(place, source.clone(), contents);
             }
         }
 
@@ -83,8 +83,9 @@ impl ValuePreservation {
 #[cfg(test)]
 mod tests {
     use super::ValuePreservation;
+    use crate::test_support::{expression_unit, integer_literal_expression, push_expression};
     use crate::{ExecutionCondition, ExecutionPlace};
-    use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, BoundUnitId, StorageMutation, StorageProjection};
+    use bray_bound_tree::{BoundExecutionSite, BoundUnitId, StorageMutation, StorageProjection};
     use bray_symbols::SymbolOrdinal;
 
     #[test]
@@ -106,8 +107,11 @@ mod tests {
         mask.at_mut(&[child]).descriptor = true;
         mask.at_mut(&[child, child]).value = true;
 
-        for index in [0, 1] {
-            let site = BoundExpressionId::from_slot(BoundUnitId::new(0), index);
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
+        });
+
+        for site in sites {
 
             value = mask.apply(&value, Some(&root), StorageMutation::Operation(BoundExecutionSite::from(site)),
                 &|_, owner, contents| ExecutionCondition::owned_value(owner, contents));

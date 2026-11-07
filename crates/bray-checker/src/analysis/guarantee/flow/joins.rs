@@ -56,8 +56,10 @@ pub(in crate::analysis::guarantee) fn merge_returned(
             continue;
         };
 
-        if value.owner_identity() == other.owner_identity() {
-            stable_identities.insert(value.owner_identity().clone());
+        if let Some((role, owner)) = value.ownership_identity()
+            && other.ownership_identity() == Some((role, owner))
+        {
+            stable_identities.insert(owner.clone());
         }
 
         if value == &other {
@@ -171,8 +173,8 @@ mod tests {
         let refreshed = loan.with_referent(changed.clone());
 
         assert_eq!(refreshed.owner_identity(), loan.owner_identity());
-        assert_eq!(refreshed.clone().component(field), ExecutionCondition::Boolean(false));
-        assert_eq!(loan.clone().component(field), ExecutionCondition::Boolean(true));
+        assert_eq!(refreshed.clone().component(field).into_referent(), ExecutionCondition::Boolean(false));
+        assert_eq!(loan.clone().component(field).into_referent(), ExecutionCondition::Boolean(true));
         assert_eq!(refreshed.clone().borrowed(), refreshed);
         assert_eq!(refreshed.owned_components().count(), 0);
         assert_eq!(refreshed.clone().into_referent(), changed);
@@ -221,7 +223,7 @@ mod tests {
         assert_eq!(joined.owner_identity(), &identity);
 
         assert_eq!(
-            joined.clone().component(component).component(component),
+            joined.clone().component(component).component(component).into_referent(),
             marker
         );
 
@@ -235,7 +237,7 @@ mod tests {
         assert_eq!(
             join_components(&joined, &different)
                 .component(component)
-                .component(component),
+                .component(component).into_referent(),
             ExecutionCondition::Unknown
         );
     }
@@ -278,7 +280,8 @@ mod tests {
 
             let initial = match context {
                 Context::Loan => descriptor.clone().borrowed(),
-                Context::Owned | Context::Reference => descriptor.clone(),
+                Context::Owned => descriptor.clone(),
+                Context::Reference => ExecutionCondition::reference_value(descriptor.clone(), descriptor.clone()),
             };
 
             let left = if unchanged { initial } else { branch(0) };
@@ -290,7 +293,7 @@ mod tests {
             );
 
             assert_eq!(joined.owner_identity(), left.owner_identity());
-            assert_eq!(joined.clone().component(field), current.clone().component(field));
+            assert_eq!(joined.clone().component(field).into_referent(), current.clone().component(field));
             assert_ne!(joined.clone().component(field), descriptor.clone().component(field));
 
             if !matches!(context, Context::Owned) {
@@ -526,6 +529,47 @@ mod nested_guard_tests {
     use crate::test_support::{error_type, expression_unit, push_expression};
     use bray_symbols::{SymbolId, SymbolOrdinal, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
     use std::sync::Arc;
+
+    #[test]
+    fn mixed_copy_and_owned_predecessors_keep_only_guarded_join_authority() {
+        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let guard = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let copied = ExecutionCondition::scalar_observation(owner.clone(), owner.clone());
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let substitution = crate::test_support::empty_substitution(predicate.into());
+        let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.borrowed()]),
+        ));
+
+        let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
+        ]);
+
+        let destination = ExecutionCondition::Expression(expressions[0]);
+        let mut left = ExecutionState::default();
+        let condition = held(owner.clone());
+
+        left.carry_guarantee(owner.clone(), condition.clone());
+        condition.assume(true, &mut left.trusted_assumptions);
+
+        let mut right = left.clone();
+
+        guard.clone().assume(true, &mut left.assumptions);
+        guard.clone().assume(false, &mut right.assumptions);
+
+        let joined = merge_returned(&mut left, &right, &owner, &copied, &destination, expressions[0]);
+
+        assert_eq!(joined.ownership_identity(), Some((crate::execution_guarantees::ExecutionObservationKind::Owned, &destination)));
+        assert!(!owner.is_owned_projection_of(&joined));
+
+        let required = held(joined);
+
+        assert_ne!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions), Some(true));
+
+        guard.assume(true, &mut left.assumptions);
+
+        assert_eq!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions), Some(true));
+    }
 
     #[test]
     fn nested_payload_authority_includes_the_outer_active_case() {
