@@ -11,11 +11,11 @@ using internal bray.runtime.bootstrap.event;
 @layout(c)
 internal struct WaitLink
 {
-    pointer: DataPointer<Slot>;
+    address: usize;
 
     const func empty() -> bool
     {
-        return std.memory.is_null<Slot>(self.pointer);
+        return self.address == 0;
     }
 }
 
@@ -24,18 +24,19 @@ internal func no_wait_link() -> WaitLink
 {
     return
     {
-        pointer = std.memory.null<Slot>()
+        address = 0
     };
 }
 
-internal func wait_link(pos owner: &Reference) -> WaitLink
+trusted internal func wait_link(pos owner: &Reference) -> WaitLink
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
     executes(pure, total)
+    uses(intrinsic)
 {
     return
     {
-        pointer = owner.pointer
+        address = trusted core.target.expose_address<Slot>(owner.pointer)
     };
 }
 
@@ -72,25 +73,6 @@ trusted internal func task_slot_access(
     };
 }
 
-trusted internal func released_slot_access(
-    pos owner: &Reference,
-    pos lease: &bray.runtime.bootstrap.host.HostLease
-) -> LinkAccess
-    requires(
-        trusted released(owner = owner),
-        lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
-    )
-    ensures(trusted released(owner = owner), trusted link_access(owner = &result))
-    executes(pure, total)
-{
-    return
-    {
-        lease = lease,
-        pointer = owner.pointer
-    };
-}
-
 trusted internal func previous_link_access(
     pos owner: &WaitRegistration,
     pos lease: &bray.runtime.bootstrap.host.HostLease
@@ -104,11 +86,12 @@ trusted internal func previous_link_access(
     )
     ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result))
     executes(pure, total)
+    uses(intrinsic)
 {
     return
     {
         lease = lease,
-        pointer = owner.previous.pointer
+        pointer = trusted core.target.from_exposed_address<Slot>(address = owner.previous.address)
     };
 }
 
@@ -125,11 +108,12 @@ trusted internal func next_link_access(
     )
     ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result))
     executes(pure, total)
+    uses(intrinsic)
 {
     return
     {
         lease = lease,
-        pointer = owner.next.pointer
+        pointer = trusted core.target.from_exposed_address<Slot>(address = owner.next.address)
     };
 }
 
@@ -145,11 +129,12 @@ trusted internal func delivery_link_access(
     )
     ensures(trusted delivery_owned(owner = owner), trusted link_access(owner = &result))
     executes(pure, total)
+    uses(intrinsic)
 {
     return
     {
         lease = lease,
-        pointer = owner.next.pointer
+        pointer = trusted core.target.from_exposed_address<Slot>(address = owner.next.address)
     };
 }
 
@@ -165,11 +150,12 @@ trusted internal func event_tail_access(
     )
     ensures(trusted bray.runtime.bootstrap.event.collection_owned(owner = owner), trusted link_access(owner = &result))
     executes(pure, total)
+    uses(intrinsic)
 {
     return
     {
         lease = lease,
-        pointer = owner.tail.pointer
+        pointer = trusted core.target.from_exposed_address<Slot>(address = owner.tail.address)
     };
 }
 
@@ -234,7 +220,7 @@ trusted internal func task_head_access(
     return
     {
         lease = lease,
-        pointer = head.pointer
+        pointer = trusted core.target.from_exposed_address<Slot>(address = head.address)
     };
 }
 

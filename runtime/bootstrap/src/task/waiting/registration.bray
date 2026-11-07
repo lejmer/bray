@@ -155,7 +155,9 @@ trusted internal func publish_wait(
                 yield 3;
             };
 
-            return (status, registration);
+            let rejected: WaitRegistration? = registration;
+
+            return (status, rejected);
         }
     }
 

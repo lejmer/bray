@@ -164,13 +164,13 @@ trusted internal func retain_arena(pos owner: &ArenaReference) -> ArenaReference
             trusted core.target.abort();
         }
 
-        let (observed, retained) = core.atomic.compare_exchange<usize, 3, 1>(
+        let (observed, acquired) = core.atomic.compare_exchange<usize, 3, 1>(
             &value.references,
             expected = count,
             desired = count + 1
         );
 
-        if retained
+        if acquired
         {
             return
             {

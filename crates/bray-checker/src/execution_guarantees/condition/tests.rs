@@ -46,6 +46,7 @@ fn borrowed_scalar_contents_retain_storage_authority_and_const_value_semantics()
 
     for value in [
         ExecutionCondition::Boolean(true),
+        ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))),
         ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))),
     ] {
         let loan = stored(0, value.clone());

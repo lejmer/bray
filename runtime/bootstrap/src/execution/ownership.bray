@@ -7,6 +7,29 @@ using internal bray.runtime.bootstrap.task;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
 
+// Publish the native transport from its actual source owner. Copying ordinary
+// address bits never introduces a source claim or a wake lifetime.
+trusted internal func publish_admission(
+    pos owner: &bray.runtime.bootstrap.task.Reference,
+    pos status: u32
+) -> Admission
+    requires(
+        trusted bray.runtime.bootstrap.task.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = owner)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.task.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = owner),
+        result.status != 0 || trusted resolution_input(owner = &result.task)
+    )
+{
+    return
+    {
+        status = status,
+        task = if status == 0 { yield trusted bray.runtime.bootstrap.task.source_claim(owner); } else { yield 0; }
+    };
+}
+
 trusted internal func admit_source_task(
     pos selected: &Current,
     pos root: bool

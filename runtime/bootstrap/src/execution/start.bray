@@ -134,7 +134,7 @@ trusted internal func root_execution(
             let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
             let token = trusted root_frame(&frame);
             let status = trusted start_frame(selected, &owner, token, lane, outcome);
-            let handle = trusted bray.runtime.bootstrap.task.source_claim(&owner);
+            let admission = trusted publish_admission(&owner, status);
 
             if status != 0
             {
@@ -146,18 +146,7 @@ trusted internal func root_execution(
 
             _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
 
-            break
-            {
-                status = status,
-                task = if status == 0
-                {
-                    yield handle;
-                }
-                else
-                {
-                    yield 0;
-                }
-            };
+            break admission;
         };
     }
     else
@@ -218,11 +207,23 @@ trusted internal func start_frame(
         }
     }
 
-    let prepared = trusted prepare_start(selected, reference, token, driver, outcome);
+    let prepared = trusted prepare_start(selected, reference, token);
 
     return match consume prepared
     {
-        case Ok(owner) { yield trusted commit_start(owner); }
+        case Ok(preparation)
+        {
+            yield with mut owner = preparation
+            {
+                let status = trusted reserve_start(&mut owner, driver, outcome);
+
+                yield if status == 0
+                {
+                    yield trusted commit_start(&mut owner);
+                }
+                else { yield status; };
+            };
+        }
         case Error(status) { yield status; }
     };
 }

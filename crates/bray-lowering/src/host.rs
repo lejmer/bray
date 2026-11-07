@@ -363,12 +363,20 @@ mod tests {
 
         assert_eq!(unit.kind(), &MirUnitKind::ExecutableHost(host));
 
+        let operations = unit.operations().iter().map(bray_ir::MirOperation::kind).collect::<Vec<_>>();
+
         assert!(matches!(
-            unit.operations().get(1).map(bray_ir::MirOperation::kind),
-            Some(MirOperationKind::Host(MirHostOperation::ExecuteRoot {
-                execution: RootExecution::Asynchronous { .. },
-                ..
-            }))
+            operations.as_slice(),
+            [
+                MirOperationKind::Host(MirHostOperation::InitializeRuntime { runtime: startup }),
+                MirOperationKind::Host(MirHostOperation::BeginProductEntry),
+                MirOperationKind::Host(MirHostOperation::ExecuteRoot { execution: RootExecution::Asynchronous { .. }, .. }),
+                MirOperationKind::Host(MirHostOperation::ObserveRootTerminal { .. }),
+                MirOperationKind::Host(MirHostOperation::ResolveRootTerminal { .. }),
+                MirOperationKind::Host(MirHostOperation::BeginStaticCleanup),
+                MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. }),
+                MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. }),
+            ] if startup.role() == RuntimeAbiRole::MainThreadLaneStartup
         ));
     }
 
