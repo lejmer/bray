@@ -20,6 +20,7 @@ trusted internal func root_scope() -> EntryScope
     )
     ensures(
         trusted view_owned(owner = &result.current.acquisition),
+        trusted optional_current(owner = &result.operation),
         (result.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(
             owner = &result.previous
         ))
@@ -82,6 +83,12 @@ trusted internal func root_scope() -> EntryScope
     };
 
     scope.status = trusted commit_driver(allocation, trusted nested_context(&scope.current, attachment));
+
+    if scope.status == 0
+    {
+        scope.operation = trusted current();
+    }
+
     return scope;
 }
 
@@ -147,9 +154,25 @@ trusted internal func retain_owner(pos owner: &Owner) -> Owner
 
 // A storage pin preserves cleanup access after admission closes. Only an open
 // execution can turn that pin into a new service owner.
+internal predicate optional_owner(owner: &(Owner?)) = owner matches none || (
+    service_owner(owner = present_owner(owner)) && retained(owner = &present_owner(owner).execution) &&
+    pinned(owner = &present_owner(owner).execution)
+);
+
+internal const func present_owner(pos owner: &(Owner?)) -> &Owner
+    requires(owner matches ?_)
+    executes(pure, total)
+{
+    return match owner
+    {
+        case ?value { yield &value; }
+        case none { panic("missing execution owner"); }
+    };
+}
+
 trusted internal func try_retain_owner(pos owner: &Reference) -> Owner?
     requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner), trusted optional_owner(owner = &result))
     uses(intrinsic)
 {
     let value = trusted domain(owner);

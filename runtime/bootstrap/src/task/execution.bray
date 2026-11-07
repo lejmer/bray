@@ -45,7 +45,7 @@ internal func snapshot_value(pos owner: &Control) -> Snapshot
         case Phase.Admitted { yield 0; }
         case Phase.Active { yield 1; }
         case Phase.Executing { yield 2; }
-        case Phase.Terminal { yield 3; }
+        case Phase.Terminal(_) { yield 3; }
         case Phase.Resolved { yield 4; }
     };
 
@@ -55,8 +55,8 @@ internal func snapshot_value(pos owner: &Control) -> Snapshot
         callback = owner.callback,
         phase = phase,
         resumable = flag(owner.resumable),
-        retiring = flag(owner.retiring),
-        retired = flag(owner.retired),
+        retiring = flag((owner.retirement matches Retirement.Requested | Retirement.Complete)),
+        retired = flag((owner.retirement matches Retirement.Complete)),
         dispatching = flag(owner.dispatching),
         execution = execution_value(owner)
     };

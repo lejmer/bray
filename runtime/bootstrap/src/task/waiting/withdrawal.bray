@@ -92,11 +92,11 @@ trusted internal func wait_committed(
 
     return if owner.retirement == 0
     {
-        yield child.phase matches Phase.Terminal | Phase.Resolved;
+        yield child.phase matches Phase.Terminal(_) | Phase.Resolved;
     }
     else
     {
-        yield child.retired;
+        yield (child.retirement matches Retirement.Complete);
     };
 }
 

@@ -47,13 +47,16 @@ Maintainability, compile cost, generated execution, product size and retained re
 Progress: step 1 is implemented and undergoing whole-protocol self-review. Its explicit observation variant has owner,
 contents and owned/reference/scalar role fields. Old observation variants and nested reference-data role tags are gone.
 No build or behavioral test has run on the refactor. Temporary production trace branches have been removed.
-Step 1 is pushed as `48de9375c3442474374cc88d5b58c489503d263b`. Step 2 is implemented at the source level
-and awaits the integrated self-review and validation. It includes independently owned arenas retained by domains and
-cells, native arena input/output/disposal, intrusive wait publication/withdrawal/delivery, and a complete retirement
-packet disposed outside the resident lease. The common host no longer owns task slabs. Wait registrations now carry
-their ownership predicate on the whole registration rather than an unrelated empty marker. Native fixtures exercise
-arena release while cells remain live. Process-global unattached event notification remains intact. Steps 3 through 7
-remain pending. No build or test has run on this migration. Keep checkpoints pushed during implementation.
+Step 1 is pushed as `48de9375c3442474374cc88d5b58c489503d263b`. Step 2 is pushed as
+`68ad79a66f8fa7ab64be75efeffceea0cf485570`. Step 3 and the task/root part of step 4 are implemented at the
+source level and await integrated self-review and validation. Startup has a prepared owner with an actual service
+acquisition and exact scheduler reservation, whose destructor rolls back before releasing services. Terminal phase owns
+its outcome and retirement uses one enum. Source claims now identify actual cells, independently of arena coordinates.
+Wake borrows storage without acquiring resolution authority. Nested root scopes retain a distinct operation view and
+the displaced parent's view, drop the operation view before retiring its context, and restore the parent quota through
+the parent view. Helpers borrow these views. The shared host teardown integration, compiler semantic alignment,
+removal/cost audit and all verification in steps 4 through 7 remain pending. No build or behavioral test has run on the
+refactor. Keep checkpoints pushed during implementation.
 
 ### Keep, adjust, replace and remove
 
@@ -169,8 +172,9 @@ restoration rather than selecting which task a numeric coordinate refers to. Bor
 resolution right remain separate contracts.
 
 Use the `Current` already owned by `EntryScope` throughout root start, observation and completion. Short helpers borrow
-that view and its domain; they do not reacquire counted views. Keep the complete displaced execution owner in the scope
-until restoration. Keep native-provider and exact-thread attachment ownership through callback and incident disposal.
+that view and its domain; they do not reacquire counted views. Keep the complete displaced execution owner and its counted view in the scope
+until restoration. When a nested root installs a new context, retain its distinct operation view in the scope and drop
+that view before retiring the nested context. Do not select the displaced parent view as the nested execution view. Keep native-provider and exact-thread attachment ownership through callback and incident disposal.
 Change root APIs, resolution, driver suspension/resumption and worker-context call sites together where needed.
 
 Retain the established host product cleanup engine. Verify the generated host order against frame completion,

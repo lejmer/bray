@@ -62,8 +62,8 @@ impl NativeTaskReference {
 
     /// Returns the task identity without creating another resolution claim.
     pub fn task(&self) -> NativeTaskHandle {
-        NativeTaskHandle::new(self.handle)
-            .expect("a Bray-issued cell reference contains its admitted task handle")
+        NativeTaskHandle::new(self.address as u64)
+            .expect("a Bray-issued cell reference contains its stable task address")
     }
 }
 

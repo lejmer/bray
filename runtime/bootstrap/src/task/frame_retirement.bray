@@ -129,11 +129,11 @@ trusted internal func finish_retirement(pos owner: &Dispatch)
     let mut guard = trusted lock_cell(reference);
     let control = trusted guard.get();
 
-    if !(control.phase matches Phase.Resolved) || !control.retiring || !control.dispatching || control.callback != 0
+    if !(control.phase matches Phase.Resolved) || !(control.retirement matches Retirement.Requested) || !control.dispatching || control.callback != 0
     {
         trusted core.target.abort();
     }
 
     control.root = 0;
-    control.retired = true;
+    control.retirement = Retirement.Complete;
 }
