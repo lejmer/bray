@@ -228,10 +228,25 @@ Temporary traces remain excluded from checkpoints. `transfers.rs` additionally p
 preservation for diagnosis. Update checkpoint filtering or remove it before publishing. The task-owned optional Linux
 resource probe derives from the existing allocation probe and runs separately, so it will not affect product-size receipts.
 
-Next: finish self-review of the owned-context/loan-context distinction, then finalize style and run the checker suite,
-full Source sweep and representative Source negatives. The intermediate experiment keeping the enclosing loan identity
-in predicate terms passed 415 units but caused 50 failures in 3,160 Source checks and is superseded. Do not keep it as a second path.
-Then resolve the physical-effect/guarded-carrier cases coherently and continue imported/native/cost acceptance and final review.
+The pushed owned-referent context batch `159cd8281451bcad6da95081991416b8a729483b` passes all 415 checker units and
+all 16 representative Source controls (captures, genuine/fabricated owners, nested unions, promises, raw owner transfers,
+and exposed mutable markers). The full runtime sweep is 3,160 checks with 21 failures. The extra body failures versus the
+15-failure canonical batch include activation abandonment, entry execution restoration and task dispatch.
+
+The next uncommitted producer correction uses existing checked type/borrowed-input metadata to seed reference values
+as loans and preserve that role during contents invalidation. Formal borrow inputs were seeded as bare values, so their
+refresh could create an owning current context and make equivalent aliases disagree. Owned values continue to retain
+owned referent contexts. This is a representation correction, not a fresh-allocation or immutable-owner framing rule.
+No speculative relaxation of unknown effects has been implemented.
+
+The temporary harness supports `BRA567_SUMMARY=1` to print existing storage-flow body effects and selected call reference
+relations. The focused task-allocation summary shows `current()` has Atomic/Ambient effects, while admission and
+`dispose_reference` still export Unknown among their other effects. Inspect actual reference relations before changing
+scope or reachability. Do not assume a lost type or independent allocation without evidence.
+
+Next: finish the typed loan-introduction batch and self-review, finalize style, then run checker units, full runtime
+Source consumers and affected controls. Resolve remaining physical-effect and guarded-carrier failures together before
+native/imported/cost acceptance and final review.
 
 ## Final acceptance
 

@@ -8,6 +8,20 @@ use crate::execution_guarantees::{ExecutionCondition, expression_condition};
 use super::super::state::ExecutionState;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    /// A reference value retains a loan context even before its first contents refresh.
+    pub(super) fn borrowed_context(
+        &self,
+        place: &crate::ExecutionPlace,
+        value: ExecutionCondition,
+    ) -> ExecutionCondition {
+        let borrowed = self.borrowed_inputs.contains(place)
+            || self.observed_types.get(place).copied().flatten().is_some_and(|ty| {
+                matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
+            });
+
+        if borrowed { value.borrowed() } else { value }
+    }
+
     pub(in crate::analysis) fn value(
         &self,
         state: &ExecutionState,
