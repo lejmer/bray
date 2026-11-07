@@ -133,7 +133,7 @@ pub fn predicate_conditions_with_inputs(
             &literals,
             &patterns,
             inputs,
-            &references,
+            &|expression| references.get(&expression).cloned(),
             root,
             &mut { crate::ExecutionCondition::WORK_LIMIT },
             predicates,

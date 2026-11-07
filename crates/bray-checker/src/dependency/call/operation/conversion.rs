@@ -134,7 +134,8 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     .then_some(bray_symbols::ConstantProjectionKind::NullableValue);
 
                 result = result.with_owned_result(bray_symbols::DependencyOwnedResult::Transfer(
-                    bray_symbols::DependencyOwnedTransfer::new(input, output),
+                    bray_symbols::DependencyOwnedTransfer::new(input, output)
+                        .with_preservation(bray_symbols::DependencyValuePreservation::all()),
                 ));
             }
 

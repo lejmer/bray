@@ -136,6 +136,11 @@ impl InternState {
 
                     Ok(bray_symbols::DependencyOwnedResult::Transfer(
                         bray_symbols::DependencyOwnedTransfer::new(term, output)
+                            .with_preservation(transfer.preservation().try_map_projections(&mut |projection| {
+                                self.convert_constant_projection(projection, symbols)
+                                    .map_err(Some)?
+                                    .ok_or(None)
+                            })?)
                             .with_condition(condition),
                     ))
                 },

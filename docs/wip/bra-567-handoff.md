@@ -160,7 +160,7 @@ record cannot silently recreate the object's original identity, shape, lineage o
 | Whole and targeted mutation in `flow/invalidation.rs` | Checked storage invalidation, physical survival and normal completion observations | Replace clear/reset and restore of roots, nested descriptors and fields with an update of the existing value. Unknown changed contents are necessary. Recovering supposedly surviving owners from witnesses or marker prefixes is avoidable. Preserve typed physical paths and the same survival query. |
 | Parent/component propagation in `state.rs::update_parent_observations`, `set_current`, `ExecutionValues` | The same actual aggregate and field update | Remove independently writable parent and child data copies. Centralize storage writes in one authoritative value tree. Component initialization metadata may remain separate from contents in that same domain, but must not be another data or initialization solver. |
 | Reference refresh in `flow/invalidation.rs::observe_references` and `trusted/observations.rs` | Physical target and reference layer published by `StorageCompletion` | A current view of changed reached storage is necessary. Multiple consumers rediscovering the target, referent and containing shape are avoidable. Resolve from the authoritative target once and capture an entry or completion view explicitly. The reference's own identity and lifetime remain distinct from reached contents. |
-| Returned ownership in `trusted/borrows.rs::complete_owned_result` and `construct` | Checked owned-result layout and captured actual input values | Necessary call-boundary instantiation. Share actual transferred input nodes. Consolidate projection updates with the same value operation used by storage mutation instead of maintaining a second nullable/union assembly policy. No missing-node recovery. |
+| Returned ownership in `trusted/borrows.rs::complete_owned_result` and `construct` | Checked owned-result identity, checked contents preservation and captured actual input values | Necessary call-boundary instantiation. Identity alone cannot preserve mutable inline data. Share only actual input subtrees selected by the checked contents summary, while changed contents become unknown. Apply paths with the shared typed update operation. No missing-node recovery. |
 | Returned borrows in `trusted/borrows.rs::complete_returned_references` | Checked reference-preserving relations, actual input reference and actual result | Necessary boundary substitution. Preserve the same reference identity and target. Do not manufacture a reference from a lifetime anchor or an unknown pointer. Use the shared projection operation. |
 | Returned-carrier matching in `trusted/carriers.rs::returned_owners` | The actual returned value's owned nodes | Remove manufactured nullable aliases such as `owner_identity().present()` and recovery projections used to guess another representation of the same owner. Traverse canonical retained nodes and their declared projection views. |
 | Branch/result joins in `flow/merge.rs`, `flow/joins.rs`, `flow/witnesses.rs`, and `snapshot.rs::common_components` | Both actual predecessor states and proofs | Necessary abstract merge, because paths can contain different objects or different data. This creates new joint knowledge rather than recovering a discarded object. Join authoritative nodes once, retain every possible dependency and only proved guarded clauses. Publish the joined record once. |
@@ -192,9 +192,14 @@ record cannot silently recreate the object's original identity, shape, lineage o
 4. Make current reference views consume the physical target already published by storage completion. Capture actual
    entry values once. Call completion and lifecycle completion use the same stored result and receiver protocol.
    Retire storage/access separately from retaining a terminal value needed for postconditions.
-5. Consolidate returned-path application, nullable/union projection and updates into one operation. Keep actual
-   transferred objects and legitimate contract instantiation. Delete synthesized matching aliases and missing-value
-   fallbacks. Keep phi joins and captured-frame rebinding as explicit operations over actual input snapshots.
+5. Consolidate returned-path application, nullable/union projection and updates into one operation. Extend each checked
+   owned-result transfer with its actual inline contents preservation. The old summary records identity only, and ordinary
+   effects intentionally omit writes to consumed inline inputs. Reusing their frozen data is therefore unsound. Infer a
+   compact subtree mask from actual terminal data against immutable entry observations, intersect it across normal exits,
+   and preserve it through substitution, import validation, encoding and structural identities. The mask has an inherited
+   preservation default and typed child overrides. It contains no object data or authority. Changed contents remain unknown
+   at the caller. Reference handles and reached contents remain separate. Delete synthesized matching aliases and
+   missing-value fallbacks. Keep phi joins and captured-frame rebinding as operations over actual input snapshots.
 6. Move abstract physical-region initialization to its genuine entry/result producer. Reads cannot create a new
    region after losing the old record. Review pruning against retained owners and lifetime roots so it drops only
    data that no consumer still requires. Preserve the existing raw transfer, epoch, fabricated-owner and alias rules.
@@ -219,7 +224,7 @@ Mutating style and explicit format passed. Affected units passed 418 checker, 38
 29 ABI tests, total 520. All 18 Source controls matched, including the corrected fabricated-owner negative and the
 ownership-transition composition. The complete runtime Source run finished 3,264 checks with 69 failures. These
 results do not establish end-to-end acceptance. Logs use the `availability-` prefix in the ignored task directory.
-The implicit invocation result-slot changes after that checkpoint have not been built or tested.
+All subsequent reconstruction, expression-production and owned-result summary changes remain unvalidated.
 
 The reconstruction replacement is implemented and undergoing integration/self-review, without new builds or tests.
 `CurrentValues` now keeps one root data tree plus component availability, with no independently stored field data.
@@ -237,6 +242,17 @@ field data. Returned-owner lookup no longer manufactures nullable aliases, and r
 `with_storage_component` operation, including OwnedTarget/UninitPayload selectors. Formal declaration normalization
 may introduce Input terms, while execution-state reads cannot recover missing formal objects.
 
+Runtime expression reads now select evaluated or pending results only. Syntax normalization is restricted to actual
+defining transitions and formal declaration boundaries. Logical short circuit, negation and condition wrappers publish
+their actual Boolean result after the selected operand path completes. Previously their CFG definition preceded their
+operands and recovery from syntax concealed the missing producer. Reference refresh updates the retained expression or
+pending result in its existing channel and does not recreate dead temporary parents.
+
+The call-boundary review found a missing owned-contents contract. A new typed preservation mask on each owned-result
+transfer separates unchanged data from owner identity. Its inference and consumption are being integrated with portable
+encoding, validation, substitution and specialization identity. This is an internal semantic contract change, with no
+source-language or native ABI change. It replaces unconditional reuse of frozen argument contents.
+
 Physical buffer regions now bind at declared entry, actual allocation or actual result formation. Queries read those
 records, and transfers preserve them. They do not recreate missing regions or add ownership/freshness. Existing
 physical unit fixtures now set up genuine producers and keep the previous behavioral assertions. The runtime
@@ -249,8 +265,9 @@ regressions protect this distinction, canonical component writes, retired-field 
 The existing native composition now includes consuming scoped entry with opaque callbacks and early-return exit.
 
 The user explicitly authorized implementation subagents at GPT-6.1 low effort, with no test runs. Agents
-`/root/invocation_results`, `/root/retirement_packet` and `/root/cleanup_snapshots` completed bounded edits and static
-reviews without builds, tests, style, format or probes. Root integrates their changes and owns all validation.
+`/root/invocation_results`, `/root/retirement_packet` and `/root/cleanup_snapshots` own expression production and export,
+shared semantic/interface metadata, and owned-return inference/completion respectively. They do not run builds, tests,
+style, format or probes. Root integrates their changes and owns all validation.
 Complete self-review and naming/keyword preflight before the first batch validation of this replacement. Do not
 claim the prior 520 unit/18 control evidence covers these new changes. Native/imported acceptance remains unrun.
 
@@ -278,7 +295,9 @@ Required end-to-end evidence remains:
 
 Read root `AGENTS.md`, coding conventions and crates documentation. Skills already read and applied are
 `.agents/skills/work-on-bray-issues/SKILL.md`, `.agents/skills/use-bray-language/SKILL.md`, and
-`.agents/skills/debug-bray-end-to-end/SKILL.md`. The user now explicitly authorizes implementation subagents using GPT-6.1 at low effort, with no test/build/format/style runs by those agents. Three bounded agents own implicit result slots, cleanup/terminal snapshots and physical retirement. Root owns canonical current values, invalidation and integration. Dispatch the required fresh PR reviewer
+`.agents/skills/debug-bray-end-to-end/SKILL.md`. The user explicitly authorizes implementation subagents using GPT-6.1
+at low effort, with no test/build/format/style runs by those agents. Root owns canonical current values, invalidation
+and integration. Dispatch the required fresh PR reviewer
 only after implementation and required validation finish, with direct attributed publication on PR #710.
 
 Before every build, test or executable probe, check new names against keywords, enclosing bindings and visible
@@ -296,8 +315,9 @@ The shell's GitHub token is invalid. The connected GitHub Git-object API has ver
 `lejmer/bray` destination and authenticated `lejmer` account with push permission. Use create_tree with the current
 base tree, create_commit and update_ref with expected_sha and force=false. Fetch that branch without the invalid
 credential helper outside the sandbox, then `git reset --mixed` the published commit to align history while preserving
-worktree edits. Keep pushing recovery checkpoints. The latest pushed head is `55e78af5fba626a43a1a7c4dc3433ddffeba1a0b`, tree
-`660847ac158156c549c28c3a420c51efd04a3685`. It includes the audit and partial implicit-result migration. Verify mutable remote PR/base state before final handoff. Parent PR #709
+worktree edits. Keep pushing recovery checkpoints. The latest pushed head is `56aeb9d2fa28148dff07b1c59251920b9c4a6aa7`, tree
+`ad8b9536bc5881f902ae5d0fea0ba6ca3de5f18c`. It includes the canonical-value migration before validation. Verify mutable
+remote PR/base state before final handoff. Parent PR #709
 remains open and ready, base commit `4ac3ad99259cc5bc02e968f830adaa4c521bed6a`.
 
 All validation processes for that checkpoint finished. No native/imported acceptance or final reviewer has run.

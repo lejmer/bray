@@ -211,7 +211,7 @@ pub use value::{
     ConstantValueData, ConstantValueId, ConstantValueKind, DependencyBorrowRelation,
     DependencyCallInput, DependencyCallOutput, DependencyContractTemplateData,
     DependencyContractTemplateId, DependencyGuard, DependencyMutationKind, DependencyOwnedResult,
-    DependencyOwnedTransfer, DependencyProjection, DependencyReferenceKind,
+    DependencyOwnedTransfer, DependencyValuePreservation, DependencyProjection, DependencyReferenceKind,
     DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
     DependencyStorageEffect, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
     GenericArgument, GenericArgumentKind, GenericBinding, GenericOwnerId, GenericSubstitutionData,

@@ -104,7 +104,23 @@ impl InterfaceSemantics {
                 limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
 
                 match result {
-                    bray_symbols::DependencyOwnedResult::Transfer(_) => {}
+                    bray_symbols::DependencyOwnedResult::Transfer(transfer) => {
+                        let mut masks = vec![(transfer.preservation(), depth)];
+
+                        while let Some((mask, depth)) = masks.pop() {
+                            limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
+                            limits.check(InterfaceLimit::RecordCount, saturating_u64(mask.children().len()))?;
+
+                            for (projection, child) in mask.children() {
+                                if matches!(projection, InterfaceConstantProjection::ArrayElement(_) | InterfaceConstantProjection::ArraySlice { .. }) {
+                                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+                                }
+
+                                self.validate_constant_projection(projection, symbol_count, dependency_count)?;
+                                masks.push((child, depth.saturating_add(1)));
+                            }
+                        }
+                    }
                     bray_symbols::DependencyOwnedResult::Case { result, .. } => {
                         pending.push((result, depth.saturating_add(1)))
                     }

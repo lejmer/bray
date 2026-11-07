@@ -430,6 +430,11 @@ fn validate_template(
 
     for transfer in result_dependencies.owned_result.transfers() {
         semantics.validate_owned_transfer(transfer, template.inputs().len(), surface)?;
+        semantics.validate_owned_preservation(
+            transfer,
+            &template.inputs().iter().map(|input| input.ty()).collect::<Vec<_>>(),
+            surface,
+        )?;
     }
 
     for carrier in &*result_dependencies.carriers {

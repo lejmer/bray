@@ -554,7 +554,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .pending_results
             .remove(&expression)
             .or_else(|| (!assignment).then(|| machine_value.clone()).flatten())
-            .unwrap_or_else(|| self.value(state, expression));
+            .unwrap_or_else(|| self.produce_value(state, expression));
 
         let transfer = self
             .started_future(state, expression)

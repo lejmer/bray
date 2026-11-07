@@ -893,8 +893,8 @@ mod tests {
     use crate::CheckerUnitView;
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
-        AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
-        AnalysisSuspensionKind,
+        AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisResultPhase,
+        AnalysisScopeExitPhase, AnalysisSuspensionKind,
     };
     use crate::test_support::{
         TestCheckerContext, available_compiler_known_symbols, callable_entry, callable_key,
@@ -975,6 +975,23 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(predecessor_kinds, [AnalysisEdgeKind::ConditionalTrue]);
+
+        let result_phases = graph.operations().iter().filter_map(|operation| {
+            let AnalysisOperationKind::Result { expression, phase } = operation.kind() else {
+                return None;
+            };
+
+            (expression == binary).then_some(phase)
+        }).collect::<Vec<_>>();
+
+        assert_eq!(result_phases, [
+            AnalysisResultPhase::Begin,
+            AnalysisResultPhase::Completion,
+            AnalysisResultPhase::Completion,
+        ]);
+        assert!(!graph.operations().iter().any(|operation| matches!(
+            operation.kind(), AnalysisOperationKind::Bound(node) if node == binary.into()
+        )));
     }
 
     #[test]

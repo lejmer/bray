@@ -162,16 +162,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let condition = state
             .expressions
             .get(&expression)
+            .or_else(|| state.pending_results.get(&expression))
             .cloned()
             .unwrap_or_else(|| {
-                if matches!(self.request.view().expression(expression),
+                match self.request.view().expression(expression) {
+                    // These CFG results have begun but do not exist until their
+                    // outcome edge publishes the completed Boolean.
                     Some(BoundExpression::Binary(binary)) if matches!(binary.operator(),
-                        bray_bound_tree::BoundOperator::LogicalAnd | bray_bound_tree::BoundOperator::LogicalOr)) {
-                    // An operand may have changed storage after this compound value was
-                    // captured. Its completed truth never licenses re-reading that storage.
-                    ExecutionCondition::Expression(expression)
-                } else {
-                    self.value(state, expression)
+                        bray_bound_tree::BoundOperator::LogicalAnd | bray_bound_tree::BoundOperator::LogicalOr) => {
+                        ExecutionCondition::Expression(expression)
+                    }
+                    Some(BoundExpression::Unary(unary))
+                        if unary.operator() == bray_bound_tree::BoundOperator::LogicalNot => {
+                        ExecutionCondition::Expression(expression)
+                    }
+                    Some(BoundExpression::Structured(condition))
+                        if condition.kind() == bray_bound_tree::BoundStructuredExpressionKind::Condition => {
+                        ExecutionCondition::Expression(expression)
+                    }
+                    _ => self.value(state, expression),
                 }
             });
 
@@ -276,7 +285,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // Keep both the stable evaluated branch and its checked Boolean meaning.
             // The latter exposes conjunctions carried by completion observations.
             observed.assume(value, &mut state.assumptions);
+            let prospective = condition == ExecutionCondition::Expression(expression);
+
             condition.assume(value, &mut state.assumptions);
+
+            if !state.expressions.contains_key(&expression)
+                && !state.pending_results.contains_key(&expression)
+                && prospective
+            {
+                // A prospective Boolean has no owner or initialized storage.
+                // This outcome is its first actual value, published by Result Completion.
+                state.pending_results.insert(expression, ExecutionCondition::Boolean(value));
+            }
         }
 
         if let Some((condition, value)) = self.branch_condition(state, edge) {

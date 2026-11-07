@@ -80,6 +80,43 @@ func exercise(pos callback: func() -> unit, pos active: bool)
     }
 }
 
+func update_state(pos mut state: State, pos choose_high: bool) -> State
+    requires(trusted retained(marker = &state.owner.marker))
+{
+    if choose_high
+    {
+        state.progress = 9;
+        return state;
+    }
+
+    state.progress = 4;
+    return state;
+}
+
+func exercise_return(pos callback: func() -> unit, pos choose_high: bool)
+{
+    let initial_state: State =
+    {
+        owner = acquire(),
+        progress = 0
+    };
+
+    let returned_state = update_state(initial_state, choose_high);
+    let expected_progress: u32 = if choose_high
+    {
+        yield 9;
+    }
+    else
+    {
+        yield 4;
+    };
+
+    callback();
+    assert(returned_state.progress == expected_progress);
+    assert(returned_state.owner.value == 7);
+    observe(&returned_state.owner);
+}
+
 struct ScopedOwner
 {
     state: State;
@@ -127,6 +164,8 @@ func main() -> i32
 {
     exercise(progress, true);
     exercise(progress, false);
+    exercise_return(progress, false);
+    exercise_return(progress, true);
     exercise_scope(progress, false);
     exercise_scope(progress, true);
     return 0;

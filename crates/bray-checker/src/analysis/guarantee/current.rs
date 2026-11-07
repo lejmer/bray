@@ -210,6 +210,9 @@ fn collect_owned_places(
         ExecutionCondition::Observation { contents, kind: crate::execution_guarantees::ExecutionObservationKind::Owned, .. } => {
             collect_owned_places(contents, place, places, budget);
         }
+        ExecutionCondition::Tagged(_, contents) => {
+            collect_owned_places(contents, place, places, budget);
+        }
         ExecutionCondition::Present(value) => {
             let child = place.clone().component(bray_symbols::ConstantProjectionKind::NullableValue);
 
