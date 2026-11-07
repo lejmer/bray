@@ -329,7 +329,7 @@ pub(super) fn escaping_evaluation_diagnostic<C: CheckerRequestContext + ?Sized>(
 
     let argument = match selection {
         bray_bound_tree::SemanticSelection::Call(call) => {
-            super::result_argument(call.arguments(), call.receiver(), root)
+            super::result_input(call, root).and_then(bray_bound_tree::SelectedInput::expression)
         }
         bray_bound_tree::SemanticSelection::Operation(operation) => {
             super::call::operation_inputs(request.view(), expression, operation)

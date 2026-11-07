@@ -2992,6 +2992,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 r#"
             trusted module app;
             using core.memory;
+            using core.target;
             struct Marker {{}}
             struct OtherMarker {{}}
             struct Data {{ value: u32; }}

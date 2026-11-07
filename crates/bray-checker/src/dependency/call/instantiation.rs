@@ -143,7 +143,7 @@ where
                 Some(expression)
             }
             _ if call.evaluates_defaults() => None,
-            _ => crate::dependency::result_argument(call.arguments(), call.receiver(), root),
+            _ => crate::dependency::result_input(call, root).and_then(bray_bound_tree::SelectedInput::expression),
         }
     }
 
@@ -482,6 +482,14 @@ where
         if requirement == DependencyRequirementKind::ValueDependencies {
             let projections = if frame_access.is_some() {
                 &[][..]
+            } else if staged.is_none()
+                && let CallInstantiationInput::Selected { call, .. } = &self.input
+            {
+                crate::storage::unadapted_projections(
+                    self.request.semantic_values(),
+                    crate::dependency::result_input(call, root).and_then(bray_bound_tree::SelectedInput::conversion),
+                    projections,
+                ).expect("checked dependency selects storage within its input adaptation")
             } else {
                 projections
             };

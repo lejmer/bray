@@ -983,7 +983,7 @@ pub(super) fn invocation_argument(
 
     match selection {
         SemanticSelection::Call(call) => {
-            crate::dependency::result_argument(call.arguments(), call.receiver(), root)
+            crate::dependency::result_input(call, root).and_then(bray_bound_tree::SelectedInput::expression)
         }
         SemanticSelection::Operation(operation) => {
             crate::dependency::operation_inputs(view, occurrence.expression()?, operation)

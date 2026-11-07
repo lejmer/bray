@@ -211,7 +211,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     );
                 }
 
-                self.apply_resolved_effects(&mut memory, effects.as_deref(), &invalidation);
+                memory.apply_effects(effects.as_deref(), &invalidation, self.storage);
 
                 if invocation.as_ref().is_some_and(|call| call.completes) {
                     memory.complete_transition(operation.occurrence());

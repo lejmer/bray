@@ -25,6 +25,33 @@ pub(crate) fn nullable_wrapping(
     Some(projections)
 }
 
+/// Selects caller storage through the wrappers introduced by a checked input conversion.
+/// Selecting the whole new wrapper retains the underlying value's dependencies.
+pub(crate) fn unadapted_projections<'p>(
+    values: &bray_symbols::SemanticValueStore,
+    conversion: Option<&bray_bound_tree::SelectedConversion>,
+    mut projections: &'p [DependencyProjection],
+) -> Option<&'p [DependencyProjection]> {
+    let Some(conversion) = conversion.filter(|conversion| {
+        matches!(conversion.target(), bray_bound_tree::ConversionTarget::NullablePresent)
+    }) else { return Some(projections); };
+
+    let mut target = conversion.target_type();
+
+    while target != conversion.source_type() {
+        let TypeData::Nullable(inner) = *values.type_data(target) else {
+            panic!("checked nullable adaptation retains its introduced layers: {conversion:?}");
+        };
+
+        if projections.is_empty() { return Some(projections); }
+
+        projections = projections.strip_prefix(&[DependencyProjection::NullableValue])?;
+        target = inner;
+    }
+
+    Some(projections)
+}
+
 /// Resolves physical storage only when it denotes a logical value in this plan.
 /// A raw pointer's incoming pointee is distinct from the pointer value itself.
 pub(crate) fn storage_observation_path(

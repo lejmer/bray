@@ -160,6 +160,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .reached_type(),
                 };
 
+                // A checked extraction owns the referent, not the loan descriptor.
+                ty = self.request.semantic_values().unborrowed_type(ty);
+
                 for projection in projections.into_iter().rev() {
                     ty = self.owned_projection_type(ty, projection)?;
                 }
@@ -268,7 +271,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             ConstantProjectionKind::ArrayElementOrdinal(_) => {
                 let data = self.request.semantic_values().type_data(ty);
 
-                let TypeData::Array { element, .. } = data.as_ref() else {
+                let (TypeData::Array { element, .. } | TypeData::Slice(element)) = data.as_ref() else {
                     panic!("checked owned array projection retains its array type: {ty:?}");
                 };
 
@@ -283,7 +286,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         self.diagnostics.add_range(diagnostics);
 
-        Ok(projected.expect("checked owned path retains its projected type"))
+        Ok(projected.unwrap_or_else(|| panic!(
+            "checked owned path retains its projected type: unit {:?}, owner {ty:?} ({:?}), projection {projection:?}",
+            self.request.unit().key(), self.request.semantic_values().type_data(ty),
+        )))
     }
 
     pub(super) fn result_path_condition(

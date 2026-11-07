@@ -444,24 +444,20 @@ fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {
     )
 }
 
-/// Resolves a portable input root to the expression selected at this call site.
-pub(crate) fn result_argument(
-    arguments: &[SelectedArgument],
-    receiver: Option<&bray_bound_tree::SelectedReceiver>,
+/// Resolves a portable input root to its complete checked input adaptation.
+pub(crate) fn result_input(
+    call: &SelectedCall,
     root: DependencySubjectRoot,
-) -> Option<bray_bound_tree::BoundExpressionId> {
+) -> Option<bray_bound_tree::SelectedInput<'_>> {
     match root {
-        DependencySubjectRoot::Parameter(parameter) => {
-            arguments.iter().find_map(|argument| match argument {
-                SelectedArgument::Explicit {
-                    ordinal,
-                    expression,
-                    ..
-                } if *ordinal == parameter.raw() => Some(*expression),
-                _ => None,
-            })
-        }
-        DependencySubjectRoot::Receiver => receiver.map(|receiver| receiver.expression()),
+        DependencySubjectRoot::Parameter(parameter) => call.arguments().iter().find_map(|argument| {
+            let ordinal = match argument {
+                SelectedArgument::Explicit { ordinal, .. } | SelectedArgument::Default { ordinal, .. } => *ordinal,
+            };
+
+            (ordinal == parameter.raw()).then_some(bray_bound_tree::SelectedInput::Argument(argument))
+        }),
+        DependencySubjectRoot::Receiver => call.receiver().map(bray_bound_tree::SelectedInput::Receiver),
         _ => None,
     }
 }
@@ -594,6 +590,10 @@ impl super::ValueInputs {
                 continue;
             };
 
+            if matches!(call.resolution().result(), bray_bound_tree::BoundCallResult::LazyFuture(_)) {
+                continue;
+            }
+
             let template = call_result_template(
                 request,
                 selections
@@ -617,18 +617,20 @@ impl super::ValueInputs {
                     continue;
                 }
 
-                let Some(argument) =
-                    result_argument(call.arguments(), call.receiver(), entry.subject_root())
-                else {
-                    continue;
-                };
+                let Some(input) = result_input(call, entry.subject_root()) else { continue; };
+
+                let Some(argument) = input.expression() else { continue; };
+
+                let Some(projections) = crate::storage::unadapted_projections(
+                    request.semantic_values(), input.conversion(), entry.projections(),
+                ) else { continue; };
 
                 let mut entry_ty = types
                     .expression(argument)
                     .expect("returned borrow origin retains its checked argument")
                     .ty();
 
-                for projection in entry.projections() {
+                for projection in projections {
                     entry_ty =
                         crate::storage::projected_value_type(request, entry_ty, *projection)?
                             .value()
@@ -646,8 +648,7 @@ impl super::ValueInputs {
                 if borrowed_result && relation.exit().projections().is_empty() {
                     sources.insert((
                         argument,
-                        entry
-                            .projections()
+                        projections
                             .iter()
                             .chain(relation.target_projections())
                             .copied()
