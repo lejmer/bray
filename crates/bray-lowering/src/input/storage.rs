@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundExpressionId, StorageAccessPlan, StorageFlow, StorageIdentity, StorageIdentityId,
+    BoundExpressionId, StorageAccessPlan, StorageFlow, StorageIdentityId,
     StorageOperationDecision, StoragePlan,
 };
 
@@ -18,18 +18,7 @@ pub(super) fn storage_operation_indices(flow: &StorageFlow) -> Arc<[usize]> {
 pub(super) fn temporary_storage_indices(
     storage: &StoragePlan,
 ) -> Arc<[(BoundExpressionId, StorageIdentityId)]> {
-    let mut indices = storage
-        .identity_entries()
-        .filter_map(|(identity, model)| match model {
-            StorageIdentity::Temporary(expression) => Some((expression, identity)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    // Stable sorting retains allocation order for duplicate temporary origins.
-    indices.sort_by_key(|(expression, _)| *expression);
-
-    indices.into()
+    storage.value_slots().collect::<Vec<_>>().into()
 }
 
 impl LoweringInput<'_> {

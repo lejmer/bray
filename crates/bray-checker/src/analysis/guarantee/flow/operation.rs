@@ -181,6 +181,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         deferred
                     });
 
+                    // The admitted entry now owns its evaluated inputs. Their
+                    // source slots cannot remain independent outside owners.
+                    let private_inputs = state.entry_witness_inputs(invocation);
+
+                    state.suspend_owned_witnesses(&private_inputs);
+                    self.consume_value_slots(state, invocation, bray_bound_tree::StorageValueConsumptionPhase::Admission);
+
                     if let Site::Node(AnyBoundNodeId::Expression(expression)) = invocation {
                         if let Some(observed) = observed {
                             state.pending_results.insert(expression, observed);
@@ -380,17 +387,43 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         operation: super::super::super::model::AnalysisOperationKind,
         observations: Option<&bray_bound_tree::StorageCompletion>,
     ) {
-        if matches!(
-            operation,
-            super::super::super::model::AnalysisOperationKind::Call {
-                phase: super::super::super::model::AnalysisCallPhase::Input
-                    | super::super::super::model::AnalysisCallPhase::Attempt,
-                ..
-            } | super::super::super::model::AnalysisOperationKind::Suspension { .. }
-        ) {
+        use super::super::super::model::{AnalysisCallPhase, AnalysisOperationKind, AnalysisResultPhase};
+
+        if matches!(operation,
+            AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input | AnalysisCallPhase::Attempt, .. }
+                | AnalysisOperationKind::Result { phase: AnalysisResultPhase::Begin, .. }
+                | AnalysisOperationKind::Suspension { .. })
+        {
             return;
         }
 
+        self.complete_value(state, operation, observations);
+
+        // The destination has published the actual object before its evaluated
+        // source handle ends. Frozen operand snapshots remain readable as data.
+        self.consume_value_slots(state, operation.occurrence(), bray_bound_tree::StorageValueConsumptionPhase::Completion);
+    }
+
+    fn consume_value_slots(
+        &self,
+        state: &mut ExecutionState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        phase: bray_bound_tree::StorageValueConsumptionPhase,
+    ) {
+        for path in self.storage.value_consumptions(occurrence, phase) {
+            let place = crate::ExecutionPlace::storage_path(self.storage, path)
+                .expect("checked evaluated-value consumption selects a produced value slot");
+
+            state.vacate(place);
+        }
+    }
+
+    fn complete_value(
+        &self,
+        state: &mut ExecutionState,
+        operation: super::super::super::model::AnalysisOperationKind,
+        observations: Option<&bray_bound_tree::StorageCompletion>,
+    ) {
         let input = matches!(
             operation.occurrence(),
             bray_bound_tree::BoundExecutionSite::CallInput { .. }
@@ -567,7 +600,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     fn vacate_expression_slot(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
-        if let Some(identity) = self.storage.temporary(expression) {
+        if let Some(identity) = self.storage.value_slot(expression) {
             let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
                 .expect("planned expression value slot has an execution place");
 
@@ -583,7 +616,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
         value: ExecutionCondition,
     ) {
-        if let Some(identity) = self.storage.temporary(expression) {
+        if let Some(identity) = self.storage.value_slot(expression) {
             let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
                 .expect("planned expression value slot has an execution place");
 

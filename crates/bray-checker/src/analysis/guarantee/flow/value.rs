@@ -105,6 +105,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         ExecutionCondition::scalar_observation(identity, value)
     }
 
+    /// Selects the actual output slot, independently of an invocation's source access.
+    pub(in crate::analysis::guarantee) fn invocation_result_place(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+    ) -> Option<crate::ExecutionPlace> {
+        use bray_bound_tree::BoundExecutionSite as Site;
+
+        match invocation {
+            Site::Node(AnyBoundNodeId::Expression(expression)) => self.storage.value_slot(expression)
+                .and_then(|identity| crate::ExecutionPlace::storage_identity(self.storage, identity)),
+            Site::CallInput { .. } | Site::Iterate(_) | Site::Next(_) | Site::ScopedEnter(_) => self.input_place(invocation),
+            _ => None,
+        }
+    }
+
     pub(in crate::analysis::guarantee) fn borrowed_value(
         &self,
         state: &ExecutionState,

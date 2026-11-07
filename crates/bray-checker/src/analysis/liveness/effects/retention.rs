@@ -213,7 +213,11 @@ impl OperationEffects {
     ) where
         C: CheckerRequestContext + ?Sized,
     {
-        let accesses_by_root = index_storage_roots(storage);
+        let mut accesses_by_root = index_storage_roots(storage);
+
+        for (occurrence, _, path) in storage.value_consumption_entries() {
+            accesses_by_root.entry(path.root).or_default().push(occurrence);
+        }
 
         let borrowed_reads = storage
             .access_plans()
@@ -240,6 +244,7 @@ impl OperationEffects {
                     bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)
                 }
                 bray_bound_tree::StorageIdentity::Temporary(expression)
+                | bray_bound_tree::StorageIdentity::Evaluated(expression)
                     if !self.value_inputs.is_independent(expression) =>
                 {
                     expression.into()

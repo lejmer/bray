@@ -2,7 +2,7 @@ use bray_bound_tree::{
     BoundControlTransferKind, BoundExpression, BoundExpressionId, BoundPatternMode,
     BoundReferenceTarget, BoundStructuredExpressionKind, IndexTarget, OperatorTarget,
     SelectedOperation, SemanticSelection, StorageAccessId, StorageAccessPurpose, StorageIdentity,
-    StorageProjection,
+    StorageProjection, StorageValueConsumptionPhase,
 };
 use bray_symbols::{BorrowKind, TypeData};
 
@@ -76,6 +76,8 @@ where
                     let access = self.member_access(id, receiver, projection)?;
 
                     self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
+                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                        member.receiver(), StorageAccessPurpose::Read);
 
                     access
                 }
@@ -93,6 +95,8 @@ where
                     let access = self.member_access(id, receiver, projection)?;
 
                     self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
+                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                        member.receiver(), StorageAccessPurpose::Read);
 
                     access
                 }
@@ -124,26 +128,12 @@ where
 
                 self.plan_structured(id, structured.kind(), structured.operands())?
             }
-            BoundExpression::StructConstruction(construction) => {
-                for field in construction.fields() {
-                    self.plan_expression(
-                        field.expression(),
-                        Some(StorageAccessPurpose::ValueTransfer),
-                    )?;
-                }
-
-                self.temporary_access(id)?
-            }
-            BoundExpression::BoxConstruction(construction) => {
-                for argument in construction.arguments() {
-                    self.plan_expression(
-                        argument.expression(),
-                        Some(StorageAccessPurpose::ValueTransfer),
-                    )?;
-                }
-
-                self.temporary_access(id)?
-            }
+            BoundExpression::StructConstruction(construction) => self.plan_value_construction(
+                id, construction.fields().iter().map(|field| field.expression()),
+            )?,
+            BoundExpression::BoxConstruction(construction) => self.plan_value_construction(
+                id, construction.arguments().iter().map(|argument| argument.expression()),
+            )?,
             BoundExpression::Call(call) => self.plan_call(
                 id,
                 call.callee(),
@@ -159,10 +149,10 @@ where
                     .map(bray_bound_tree::BoundArgument::expression),
             )?,
             BoundExpression::Conversion(expression) => {
-                self.plan_transferred_operand(id, expression.operand())?
+                self.plan_transferred_operand(id, expression.operand(), self.value_consumer_phase(id))?
             }
             BoundExpression::Await(expression) => {
-                self.plan_transferred_operand(id, expression.operand())?
+                self.plan_transferred_operand(id, expression.operand(), StorageValueConsumptionPhase::Admission)?
             }
             BoundExpression::For(expression) => {
                 let element =
@@ -186,50 +176,12 @@ where
 
                 self.temporary_access(id)?
             }
-            BoundExpression::Match(expression) => {
-                let subject = self.plan_expression(expression.subject(), None)?;
-
-                let subject_purpose = match expression.arms().first() {
-                    Some(arm) => {
-                        let pattern = self
-                            .request
-                            .view()
-                            .pattern(arm.pattern())
-                            .unwrap_or_else(|| missing_node(arm.pattern()));
-
-                        match pattern.mode() {
-                            BoundPatternMode::MatchConsume | BoundPatternMode::MatchObserve => {
-                                StorageAccessPurpose::Read
-                            }
-                            BoundPatternMode::Declaration
-                            | BoundPatternMode::Scoped
-                            | BoundPatternMode::Assignment => {
-                                panic!(
-                                    "Storage-planning inputs or constructed records violate the requested unit contract. in plan_expression"
-                                );
-                            }
-                        }
-                    }
-                    None => StorageAccessPurpose::Read,
-                };
-
-                self.record_purpose(expression.subject(), Some(subject_purpose), subject)?;
-
-                for arm in expression.arms() {
-                    self.plan_pattern(arm.pattern(), expression.subject(), subject)?;
-
-                    if let Some(guard) = arm.guard() {
-                        self.plan_expression(guard, Some(StorageAccessPurpose::Read))?;
-                    }
-
-                    self.plan_block(arm.body())?;
-                }
-
-                self.temporary_access(id)?
-            }
+            BoundExpression::Match(expression) => self.plan_match(id, expression)?,
             BoundExpression::ControlTransfer(transfer) => {
                 if let Some(operand) = transfer.operand() {
                     self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
+                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                        operand, StorageAccessPurpose::ValueTransfer);
                 }
 
                 if transfer.kind() == BoundControlTransferKind::Return {
@@ -257,16 +209,68 @@ where
 
         self.expression_accesses.insert(id, access);
         self.record_purpose(id, purpose, access)?;
+        self.plan_value_slot(id, access, None)?;
 
         Ok(access)
+    }
+
+    fn plan_value_construction(
+        &mut self,
+        id: BoundExpressionId,
+        operands: impl IntoIterator<Item = BoundExpressionId>,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let phase = self.value_consumer_phase(id);
+
+        for operand in operands {
+            self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
+            self.consume_expression_value(id.into(), phase, operand, StorageAccessPurpose::ValueTransfer);
+        }
+
+        self.temporary_access(id)
+    }
+
+    fn plan_match(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &bray_bound_tree::BoundMatchExpression,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let subject = self.plan_expression(expression.subject(), None)?;
+        let mode = expression.arms().first().map(|arm| {
+            self.request.view().pattern(arm.pattern())
+                .unwrap_or_else(|| missing_node(arm.pattern())).mode()
+        });
+
+        assert!(matches!(mode, None | Some(BoundPatternMode::MatchConsume | BoundPatternMode::MatchObserve)),
+            "checked match arms retain their consume or observe mode");
+        self.record_purpose(expression.subject(), Some(StorageAccessPurpose::Read), subject)?;
+
+        if mode == Some(BoundPatternMode::MatchConsume) {
+            self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                expression.subject(), StorageAccessPurpose::ValueTransfer);
+        }
+
+        for arm in expression.arms() {
+            self.plan_pattern(arm.pattern(), expression.subject(), subject)?;
+
+            if let Some(guard) = arm.guard() {
+                self.plan_expression(guard, Some(StorageAccessPurpose::Read))?;
+            }
+
+            self.plan_block(arm.body())?;
+        }
+
+        self.temporary_access(id)
     }
 
     fn plan_transferred_operand(
         &mut self,
         expression: BoundExpressionId,
         operand: BoundExpressionId,
+        phase: StorageValueConsumptionPhase,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
+        self.consume_expression_value(expression.into(), phase,
+            operand, StorageAccessPurpose::ValueTransfer);
 
         self.temporary_access(expression)
     }
@@ -277,9 +281,11 @@ where
         operands: &[BoundExpressionId],
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let purpose = self.operator_operand_purpose(id);
+        let phase = self.value_consumer_phase(id);
 
         for operand in operands {
             self.plan_invocation_input((*operand).into(), *operand, purpose)?;
+            self.consume_expression_value(id.into(), phase, *operand, purpose);
         }
 
         self.temporary_access(id)
@@ -329,6 +335,7 @@ where
 
         for value in values {
             self.plan_invocation_input((*value).into(), *value, value_purpose)?;
+            self.consume_expression_value(id.into(), self.value_consumer_phase(id), *value, value_purpose);
         }
 
         self.temporary_access(id)
@@ -385,6 +392,8 @@ where
                 };
 
                 let access = self.plan_expression(operand, None)?;
+                self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                    operand, StorageAccessPurpose::ValueTransfer);
 
                 for operand in &operands[1..] {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::Read))?;
@@ -421,6 +430,8 @@ where
                 )?;
 
                 self.record_purpose(id, Some(StorageAccessPurpose::Borrow(borrow_kind)), access)?;
+                self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                    operand, StorageAccessPurpose::Borrow(borrow_kind));
 
                 for operand in &operands[1..] {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::Read))?;
@@ -436,6 +447,8 @@ where
             | BoundStructuredExpressionKind::ResultPropagation => {
                 for operand in operands {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::ValueTransfer))?;
+                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                        *operand, StorageAccessPurpose::ValueTransfer);
                 }
 
                 // Propagation transfers the selected payload out of its container.
@@ -459,8 +472,16 @@ where
             BoundStructuredExpressionKind::Tuple
             | BoundStructuredExpressionKind::Array
             | BoundStructuredExpressionKind::RepeatedArray => {
+                let operands = if kind == BoundStructuredExpressionKind::RepeatedArray {
+                    operands.get(..1).unwrap_or_default()
+                } else {
+                    operands
+                };
+
                 for operand in operands {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::ValueTransfer))?;
+                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                        *operand, StorageAccessPurpose::ValueTransfer);
                 }
 
                 self.temporary_access(id)
@@ -473,6 +494,15 @@ where
 
                 for operand in operands {
                     self.plan_expression(*operand, Some(purpose))?;
+                    let consumption = if matches!(kind,
+                        BoundStructuredExpressionKind::ArrayGenerator | BoundStructuredExpressionKind::GeneralGenerator)
+                    {
+                        StorageAccessPurpose::ValueTransfer
+                    } else {
+                        purpose
+                    };
+
+                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion, *operand, consumption);
                 }
 
                 // The immutable node is cloned so recursive planning can mutably advance
@@ -598,6 +628,10 @@ where
         } else {
             self.plan_expression(receiver, None)?
         };
+        let phase = self.value_consumer_phase(id);
+
+        self.consume_expression_value(id.into(), phase, receiver,
+            custom_borrow_kind.map_or(StorageAccessPurpose::Read, StorageAccessPurpose::Borrow));
 
         for selector in &operands[1..] {
             let purpose = match (kind, custom) {
@@ -611,6 +645,7 @@ where
             };
 
             self.plan_invocation_input((*selector).into(), *selector, purpose)?;
+            self.consume_expression_value(id.into(), phase, *selector, purpose);
         }
 
         let (projection, purpose) = match kind {

@@ -1065,6 +1065,10 @@ where
             invalidation.as_ref(),
         );
 
+        if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
+            self.retire_consumed_value_slots(state, kind);
+        }
+
         self.complete_operation(state, kind, memory_status);
 
         crate::analysis::refinement::transfer_operation(
@@ -1077,6 +1081,33 @@ where
         );
 
         state.refinements = refinements;
+    }
+
+    fn retire_consumed_value_slots(&self, state: &mut StorageFlowState, kind: AnalysisOperationKind) {
+        let phase = match kind {
+            AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input, .. }
+                | AnalysisOperationKind::Result { phase: crate::analysis::model::AnalysisResultPhase::Begin, .. }
+                | AnalysisOperationKind::ScopeExit { .. }
+                | AnalysisOperationKind::Suspension { .. }
+                | AnalysisOperationKind::PatternObservation(_) => return,
+            AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. } =>
+                bray_bound_tree::StorageValueConsumptionPhase::Admission,
+            _ => bray_bound_tree::StorageValueConsumptionPhase::Completion,
+        };
+
+        for path in self.storage.value_consumptions(kind.occurrence(), phase) {
+            let ty = self.storage.storage_type(path.root)
+                .expect("consumed evaluated slot has its checked type");
+            let origin = self.storage.identity(path.root).and_then(|identity| identity.definition_node())
+                .and_then(|node| match node { AnyBoundNodeId::Expression(expression) => Some(expression), _ => None })
+                .or_else(|| kind.occurrence().expression())
+                .expect("evaluated slot consumption retains its producing expression");
+
+            // Destination transfer has captured the payload. Retire only this output handle;
+            // the reached allocation belongs to the destination and remains initialized.
+            state.record_move(path.clone(), origin, ty, true);
+            state.memory.clear(path);
+        }
     }
 
     fn preserve_operation_values(
@@ -2454,7 +2485,7 @@ where
                 DiagnosticStorageRoot::PostconditionResult
             }
             Some(StorageIdentity::Result(_)) => DiagnosticStorageRoot::Result,
-            Some(StorageIdentity::Temporary(_) | StorageIdentity::InvocationInput { .. }) => {
+            Some(StorageIdentity::Temporary(_) | StorageIdentity::Evaluated(_) | StorageIdentity::InvocationInput { .. }) => {
                 DiagnosticStorageRoot::Temporary
             }
             Some(StorageIdentity::CustomIndexBorrow(_)) => DiagnosticStorageRoot::CustomIndexBorrow,

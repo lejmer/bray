@@ -265,29 +265,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let task = self.value(state, expression);
-        let mut retired = std::collections::BTreeSet::new();
+        let carriers = state.owned_witnesses([task]).map(|(carrier, _)| carrier.clone()).collect();
 
-        // Execution moves captured authority into the child run. Its immutable entry
-        // remains available only to the body's normal Completed result.
-        for (carrier, witness) in &mut state.witnesses {
-            if !carrier.is_owned_projection_of(&task) {
-                continue;
-            }
-
-            for condition in witness.conditions.keys() {
-                condition.clone().assume(true, &mut retired);
-            }
-
-            if witness.available {
-                Arc::make_mut(witness).available = false;
-            }
-        }
-
-        state.exclude_live_witnesses(&mut retired);
-
-        state
-            .trusted_assumptions
-            .retain(|fact| !retired.contains(fact));
+        state.suspend_owned_witnesses(&carriers);
     }
 
     pub(super) fn set_awaited_execution(

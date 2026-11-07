@@ -246,8 +246,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             site => site,
         };
 
-        let result_place = self.storage.invocation_result(result_site)
-            .and_then(|access| ExecutionPlace::storage(self.storage, access));
+        let result_place = self.invocation_result_place(result_site);
 
         state
             .current
@@ -342,9 +341,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.current.retire(&place);
         }
 
-        if let Some(place) = self.storage.invocation_result(invocation)
-            .and_then(|access| ExecutionPlace::storage(self.storage, access))
-        {
+        if let Some(place) = self.invocation_result_place(invocation) {
             state.current.retire(&place);
         }
 

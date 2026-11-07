@@ -127,7 +127,7 @@ pub use storage::{
     StorageCompletion, StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
     StorageIdentity, StorageIdentityId, StorageMutation, StorageObservationKind, StorageOperationDecision,
     StorageOperationStatus, StorageOrigin, StoragePath, StoragePlan, StoragePlanBuildError,
-    StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath,
+    StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath, StorageValueConsumptionPhase,
     StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
     StorageReplacementState, StorageScope, StorageScopeBuildError, StorageScopeOwners,
     StorageStateTarget, StorageSuspensionState, StorageTarget, scoped_exit_completes_result,

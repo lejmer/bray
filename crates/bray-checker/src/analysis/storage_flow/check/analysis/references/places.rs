@@ -2,7 +2,7 @@ use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Place, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, StorageAccessPurpose, StorageIdentity};
+use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, StorageAccessPurpose};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn nullable_is_absent(
@@ -98,20 +98,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         expression: BoundExpressionId,
     ) -> Option<Place> {
-        self.input
-            .expression_places(expression)
-            .first()
-            .cloned()
-            .or_else(|| self.expression_result_storage(expression))
+        self.expression_result_storage(expression).or_else(|| {
+            self.input.expression_places(expression).first().cloned()
+        })
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn expression_result_storage(
         &self,
         expression: BoundExpressionId,
     ) -> Option<Place> {
-        self.input.definitions(expression.into()).iter().copied().find(|identity| {
-            matches!(self.storage.identity(*identity), Some(StorageIdentity::Temporary(candidate) | StorageIdentity::Allocation(candidate)) if candidate == expression)
-        }).map(Place::root)
+        self.storage.value_slot(expression).map(Place::root)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn expression_reference(
@@ -119,11 +115,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &StorageFlowState,
         expression: BoundExpressionId,
     ) -> Option<Source> {
-        if let Some(slot) = self
-            .expression_result_storage(expression)
-            .filter(|storage| state.memory.has_stored_value(storage))
-        {
-            return Some(Source::Value(Target::storage(slot)));
+        if let Some(slot) = self.expression_result_storage(expression) {
+            // Completed evaluated operands use their produced slot, never the consumed source.
+            return state.memory.has_stored_value(&slot)
+                .then(|| Source::Value(Target::storage(slot)));
         }
 
         let borrowed = self.expression_is_borrowed(expression);

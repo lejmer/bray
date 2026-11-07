@@ -34,7 +34,7 @@ pub use parts::{
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageProtocolCall,
 };
 pub use plan::{
-    BorrowCapabilityOrigin, PlannedBorrowCapability, StorageAccessPlan, StorageAccessPurpose,
+    BorrowCapabilityOrigin, PlannedBorrowCapability, StorageAccessPlan, StorageAccessPurpose, StorageValueConsumptionPhase,
     StorageAlternative, StorageBinding, StorageBindingTarget, StoragePlan,
 };
 pub use replacement::{

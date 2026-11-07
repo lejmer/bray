@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundExecutionSite, BoundExpression, BoundExpressionId, SelectedArgument, SelectedInput,
-    SemanticSelection, StorageAccessPurpose, StorageIdentity,
+    SemanticSelection, StorageAccessPurpose, StorageIdentity, StorageValueConsumptionPhase,
 };
 
 use super::super::plan::{PlanError, Planner};
@@ -67,6 +67,16 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 ordinal,
                 input.ty(self.request.semantic_values()),
             )?;
+
+            if let Some(source) = input.expression() {
+                let purpose = match input {
+                    SelectedInput::Receiver(receiver) => Self::call_receiver_purpose(receiver.mode()),
+                    SelectedInput::Argument(SelectedArgument::Explicit { reborrow: Some(kind), .. }) => StorageAccessPurpose::Borrow(*kind),
+                    _ => StorageAccessPurpose::ValueTransfer,
+                };
+
+                self.consume_expression_value(invocation, StorageValueConsumptionPhase::Completion, source, purpose);
+            }
         }
 
         Ok(())
