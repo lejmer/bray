@@ -15,23 +15,21 @@ using internal bray.runtime.bootstrap.activation.callback;
 // The driver owns its actual attachment and scoped execution authority. Async
 // consumers install the two lifetime operations for their execution domain.
 // A driver alone never references scheduler creation or task retirement code.
-internal callable BindingClose = @abi(c) trusted func(pos owner: Owner) -> Owner
+internal callable BindingClose = @abi(c) trusted func(pos owner: Owner) -> Reference
     requires(
         trusted retained(owner = &owner.execution),
         trusted pinned(owner = &owner.execution),
         trusted service_owner(owner = &owner)
     )
     ensures(
-        trusted retained(owner = &result.execution),
-        trusted pinned(owner = &result.execution),
-        trusted !service_owner(owner = &result)
+        trusted retained(owner = &result),
+        trusted pinned(owner = &result)
     );
 
-internal callable BindingRelease = @abi(c) trusted func(pos owner: Owner) -> u32
+internal callable BindingRelease = @abi(c) trusted func(pos owner: Reference) -> u32
     requires(
-        trusted retained(owner = &owner.execution),
-        trusted pinned(owner = &owner.execution),
-        trusted !service_owner(owner = &owner)
+        trusted retained(owner = &owner),
+        trusted pinned(owner = &owner)
     );
 
 // These operations suspend and restore the enclosing dispatch's quota claim.
@@ -44,20 +42,44 @@ internal callable BindingResume = @abi(c) trusted func(pos pointer: DataPointer<
 
 trusted internal predicate driver_binding_entry(context: DataPointer<Context>);
 
+internal union BindingOwnership
+{
+    Open(pos owner: Owner, pos close: BindingClose);
+    Cleanup(pos pin: Reference);
+}
+
 internal struct Binding
 {
-    owner: Owner;
-    close: BindingClose?;
+    ownership: BindingOwnership;
     release: BindingRelease;
     suspend: BindingSuspend;
     resume: BindingResume;
 }
 
-internal predicate kernel_binding(owner: &Binding) = retained(owner = &owner.owner.execution) && pinned(
-    owner = &owner.owner.execution
-) && ((owner.close matches none && !service_owner(owner = &owner.owner)) || (owner.close matches ?_ && service_owner(
-    owner = &owner.owner
-)));
+internal predicate kernel_binding(owner: &Binding) = retained(owner = binding_reference(&owner.ownership)) && pinned(
+    owner = binding_reference(&owner.ownership)
+) && (owner.ownership matches BindingOwnership.Cleanup(_) || service_owner(owner = open_binding_owner(&owner.ownership)));
+
+internal const func binding_reference(pos owner: &BindingOwnership) -> &Reference
+    executes(pure, total)
+{
+    return match owner
+    {
+        case BindingOwnership.Open(value, _) { yield &value.execution; }
+        case BindingOwnership.Cleanup(pin) { yield &pin; }
+    };
+}
+
+internal const func open_binding_owner(pos owner: &BindingOwnership) -> &Owner
+    requires(owner matches BindingOwnership.Open(_, _))
+    executes(pure, total)
+{
+    return match owner
+    {
+        case BindingOwnership.Open(value, _) { yield &value; }
+        case BindingOwnership.Cleanup(_) { panic("cleanup binding has no admission owner"); }
+    };
+}
 
 // Only established root, worker and cleanup scopes install this context. The
 // task and invocation slots borrow their active dispatch stack, without owning

@@ -75,8 +75,10 @@ No reviewer has been launched. Build caches and the untracked local diagnostic r
    uncommitted scheduler registration. Its task reference and inactive frame are borrows from the native input owners,
    which remain live until activation accepts the frame. Commit transfers the registration only after complete cell
    publication. Every other exit withdraws it. Consuming scope exit closes admission and releases the returned pin.
-   Give `EntryScope` consuming scope entry/exit so root execution, observation, completion and result transfer restore
-   their displaced context on abnormal exits too. Native RAII storage retains explicit `finish_entry_scope` because its
+   Use consuming `EntryRestoration` scope entry/exit around `EntryScope` so root execution, observation, completion and
+   result transfer restore their displaced context on abnormal exits too. This scope owns the entry and borrows its
+   completion-status destination so cleanup can preserve the existing status result. It allocates no storage.
+   Native RAII storage retains explicit `finish_entry_scope` because its
    owner is outside Source. Preserve the distinct parent and nested-operation views and release the latter first.
 4. **Make wait mutation use a stable access interval.** `WaitResources` owns retained endpoints and callbacks. Linked
    membership under the resident lease authorizes neighbor access. Derive the necessary current/previous/next accesses
@@ -125,6 +127,10 @@ No reviewer has been launched. Build caches and the untracked local diagnostic r
 - [ ] Source positive and negative controls, complete runtime checking, imported/native execution, provenance and costs
       establish the issue acceptance contract.
 - [ ] Superseded mechanisms and diagnostic infrastructure are removed, checkpoints are pushed and final review is complete.
+
+The runtime transition migration is implemented but unvalidated: tagged open/cleanup bindings and consuming close,
+direct retirement packets, Source entry restoration scopes with native status preservation, and pre-mutation wait
+neighbor access. Compiler transport review and the complete validation/acceptance sequence remain active work.
 
 ## Refactor plan
 

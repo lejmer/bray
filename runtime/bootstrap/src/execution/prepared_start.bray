@@ -44,9 +44,7 @@ internal struct PreparedStart
             trusted withdraw_registration(&owner.execution.execution, registration);
         }
 
-        trusted close_owner(owner.selected, &mut owner.execution);
-
-        _ = trusted release_pin(owner.execution.execution);
+        _ = trusted release_pin(trusted close_owner(owner.selected, owner.execution));
     }
 }
 

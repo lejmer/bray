@@ -73,93 +73,104 @@ trusted internal func root_execution(
     }
 
     let scope = trusted root_scope();
-    let entry_status = scope.status;
+    let mut ended: u32 = 0;
 
-    let result = if entry_status == 0
+    let result = with entered = EntryRestoration
     {
-        // Admission uses the view already owned by this entry scope. Keep the
-        // native frame claim in its actual input slot until admission commits.
-        yield loop
-        {
-            let selected = trusted entry_current(&scope);
-
-            if selected.status != 0
-            {
-                break
-                {
-                    status = selected.status,
-                    task = 0
-                };
-            }
-
-            let active = trusted context(selected);
-
-            if !has_execution(selected)
-            {
-                break
-                {
-                    status = 1,
-                    task = 0
-                };
-            }
-
-            if active.driver.placement != 3
-            {
-                break
-                {
-                    status = 3,
-                    task = 0
-                };
-            }
-
-            // Host cleanup can block and compute on its physical driver. The async
-            // root has only the cooperative Main lane for its entire continuation.
-            let lane: bray.runtime.bootstrap.scheduler.Lane =
-            {
-                placement = 3,
-                workload = 0,
-                thread = active.thread
-            };
-
-            let (reference, admission_status) = trusted admit_source_task(selected, true);
-
-            if reference matches none
-            {
-                break
-                {
-                    status = admission_status,
-                    task = 0
-                };
-            }
-
-            let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
-            let token = trusted root_frame(&frame);
-            let status = trusted start_frame(selected, &owner, token, lane, outcome);
-            let admission = trusted publish_admission(&owner, status);
-
-            if status != 0
-            {
-                if trusted destroy_reference(selected, &owner) != 0
-                {
-                    trusted core.target.abort();
-                }
-            }
-
-            _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
-
-            break admission;
-        };
+        scope = scope,
+        completion = &mut ended
     }
-    else
     {
-        yield Admission
-        {
-            status = entry_status,
-            task = 0
-        };
-    };
+        let scope = &entered.scope;
 
-    let ended = trusted finish_entry_scope(scope);
+        let entry_status = scope.status;
+
+        let result = if entry_status == 0
+        {
+            // Admission uses the view already owned by this entry scope. Keep the
+            // native frame claim in its actual input slot until admission commits.
+            yield loop
+            {
+                let selected = trusted entry_current(scope);
+
+                if selected.status != 0
+                {
+                    break
+                    {
+                        status = selected.status,
+                        task = 0
+                    };
+                }
+
+                let active = trusted context(selected);
+
+                if !has_execution(selected)
+                {
+                    break
+                    {
+                        status = 1,
+                        task = 0
+                    };
+                }
+
+                if active.driver.placement != 3
+                {
+                    break
+                    {
+                        status = 3,
+                        task = 0
+                    };
+                }
+
+                // Host cleanup can block and compute on its physical driver. The async
+                // root has only the cooperative Main lane for its entire continuation.
+                let lane: bray.runtime.bootstrap.scheduler.Lane =
+                {
+                    placement = 3,
+                    workload = 0,
+                    thread = active.thread
+                };
+
+                let (reference, admission_status) = trusted admit_source_task(selected, true);
+
+                if reference matches none
+                {
+                    break
+                    {
+                        status = admission_status,
+                        task = 0
+                    };
+                }
+
+                let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
+                let token = trusted root_frame(&frame);
+                let status = trusted start_frame(selected, &owner, token, lane, outcome);
+                let admission = trusted publish_admission(&owner, status);
+
+                if status != 0
+                {
+                    if trusted destroy_reference(selected, &owner) != 0
+                    {
+                        trusted core.target.abort();
+                    }
+                }
+
+                _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
+                break admission;
+            };
+        }
+        else
+        {
+            yield Admission
+            {
+                status = entry_status,
+                task = 0
+            };
+        };
+
+        yield result;
+    };
 
     // A successful transfer keeps its claim even if entry cleanup reports an
     // independent incident. The native host still resolves the returned handle.

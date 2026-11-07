@@ -133,18 +133,20 @@ trusted internal func publish_wait(
     )
     uses(intrinsic)
 {
-    let parent = trusted wait_link(trusted registration_waiter(&registration));
+    let waiter = trusted registration_waiter(&registration);
+    let child = trusted registration_target(&registration);
+    let parent = trusted wait_link(waiter);
     let retirement = registration.retirement;
 
     {
-        let mut access = trusted task_slot_access(trusted registration_waiter(&registration), lease);
+        let mut access = trusted task_slot_access(waiter, lease);
         let slot = trusted link_slot(&mut access);
 
         if let ?existing = slot.registration
         {
             let status: u32 = if trusted same_task_wait(
                 &existing,
-                trusted registration_target(&registration),
+                child,
                 retirement
             )
             {
@@ -163,7 +165,7 @@ trusted internal func publish_wait(
 
     let head =
     {
-        let mut access = trusted task_slot_access(trusted registration_target(&registration), lease);
+        let mut access = trusted task_slot_access(child, lease);
         let slot = trusted link_slot(&mut access);
 
         yield if retirement == 0
@@ -178,7 +180,7 @@ trusted internal func publish_wait(
 
     if !head.empty()
     {
-        let mut access = trusted task_head_access(trusted registration_target(&registration), lease, retirement);
+        let mut access = trusted task_head_access(child, lease, retirement);
         let slot = trusted link_slot(&mut access);
 
         if let ?prior = slot.registration
@@ -192,7 +194,7 @@ trusted internal func publish_wait(
     }
 
     {
-        let mut access = trusted task_slot_access(trusted registration_target(&registration), lease);
+        let mut access = trusted task_slot_access(child, lease);
         let slot = trusted link_slot(&mut access);
 
         if retirement == 0

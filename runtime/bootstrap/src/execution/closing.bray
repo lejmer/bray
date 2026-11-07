@@ -139,19 +139,15 @@ trusted internal func close_binding(pos owner: Binding) -> Binding
     let suspend = owner.suspend;
     let resume = owner.resume;
 
-    let closed_owner = if let ?close = owner.close
+    let pin = match consume owner.ownership
     {
-        yield trusted close(trusted take_binding_owner(owner));
-    }
-    else
-    {
-        yield trusted take_binding_owner(owner);
+        case BindingOwnership.Open(value, close) { yield trusted close(value); }
+        case BindingOwnership.Cleanup(value) { yield value; }
     };
 
     return
     {
-        owner = closed_owner,
-        close = none,
+        ownership = BindingOwnership.Cleanup(pin),
         release = release,
         suspend = suspend,
         resume = resume

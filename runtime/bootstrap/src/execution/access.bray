@@ -14,7 +14,7 @@ trusted internal func bound_execution(pos selected: &Current) -> &Reference
 
     return match stored
     {
-        case ?binding { yield &binding.owner.execution; }
+        case ?binding { yield binding_reference(&binding.ownership); }
         case none { yield trusted core.target.abort(); }
     };
 }

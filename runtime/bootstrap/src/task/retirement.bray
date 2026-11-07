@@ -152,21 +152,19 @@ trusted internal func dispose_optional_retired_cell(pos owner: RetiredCell?) -> 
     };
 }
 
-// One move extracts the complete final cell. The resident lease excludes every
-// directory lookup and intrusive access until the empty row is recycled.
-trusted internal predicate retired_slot(owner: &Slot);
-
-trusted internal func take_retired_slot(
+// The final-reference protocol and resident lease authorize one physical take.
+// Return the independently owned resources before making the row reusable.
+trusted internal func take_retired_cell(
     pos reference: &Reference,
     pos lease: &bray.runtime.bootstrap.host.HostLease
-) -> Slot
+) -> (usize, RetiredCell)
     requires(
         trusted released(owner = reference),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted retired_slot(owner = &result))
-    uses(raw_memory, intrinsic)
+    ensures(trusted retired_cell(owner = &result.1))
+    uses(raw_memory, unchecked_init, intrinsic)
 {
     let permit = trusted lambda(pos reference: &Reference, pos lease: &bray.runtime.bootstrap.host.HostLease)
         requires(
@@ -192,8 +190,53 @@ trusted internal func take_retired_slot(
         trusted core.target.abort();
     }
 
-    trusted std.memory.write<Slot>(reference.pointer, empty_slot(slot.index, slot.generation, 0));
-    return slot;
+    let index = slot.index;
+    let generation = slot.generation;
+
+    let initialized = trusted lambda(pos reference: &Reference, pos owner: &Slot)
+        requires(trusted released(owner = reference), owner.control matches ?_)
+        ensures(
+            trusted core.memory.uninit_initialized<(ArenaReference?)>(storage = &owner.arena_owner),
+            trusted core.memory.uninit_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
+                storage = &owner.execution_owner
+            ),
+            trusted core.memory.uninit_initialized<std.sync.SpinLock<Control>>(
+                storage = retired_control_storage(owner)
+            )
+        )
+        executes(pure, total) {};
+
+    trusted initialized(reference, &slot);
+
+    let arena_owner = trusted std.memory.assume_initialized<(ArenaReference?)>(slot.arena_owner);
+
+    let execution = trusted std.memory.assume_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
+        slot.execution_owner
+    );
+
+    let storage_owner = match consume arena_owner
+    {
+        case ?value { yield value; }
+        case none { yield trusted core.target.abort(); }
+    };
+
+    let storage = match consume slot.control
+    {
+        case ?value { yield value; }
+        case none { yield trusted core.target.abort(); }
+    };
+
+    let control = trusted std.memory.assume_initialized<std.sync.SpinLock<Control>>(storage);
+
+    let retired: RetiredCell =
+    {
+        control = control,
+        execution = execution,
+        arena = storage_owner
+    };
+
+    trusted std.memory.write<Slot>(reference.pointer, empty_slot(index, generation, 0));
+    return (index, retired);
 }
 
 internal const func retired_control_storage(pos owner: &Slot) -> &Uninit<std.sync.SpinLock<Control>>
@@ -204,54 +247,6 @@ internal const func retired_control_storage(pos owner: &Slot) -> &Uninit<std.syn
     {
         case ?value { yield &value; }
         case none { panic("missing retired task control"); }
-    };
-}
-
-trusted internal func materialize_retired_slot(pos owner: Slot) -> RetiredCell
-    requires(trusted retired_slot(owner = &owner))
-    ensures(trusted retired_cell(owner = &result))
-    uses(unchecked_init, intrinsic)
-{
-    let initialized = trusted lambda(pos owner: &Slot)
-        requires(trusted retired_slot(owner = owner))
-        ensures(
-            trusted core.memory.uninit_initialized<(ArenaReference?)>(storage = &owner.arena_owner),
-            trusted core.memory.uninit_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
-                storage = &owner.execution_owner
-            ),
-            owner.control matches none || trusted core.memory.uninit_initialized<std.sync.SpinLock<Control>>(
-                storage = retired_control_storage(owner)
-            )
-        )
-        executes(pure, total) {};
-
-    trusted initialized(&owner);
-
-    let arena_owner = trusted std.memory.assume_initialized<(ArenaReference?)>(owner.arena_owner);
-
-    let execution = trusted std.memory.assume_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
-        owner.execution_owner
-    );
-
-    let storage_owner = match consume arena_owner
-    {
-        case ?value { yield value; }
-        case none { yield trusted core.target.abort(); }
-    };
-
-    let storage = match consume owner.control
-    {
-        case ?value { yield value; }
-        case none { yield trusted core.target.abort(); }
-    };
-
-    let control = trusted std.memory.assume_initialized<std.sync.SpinLock<Control>>(storage);
-
-    return
-    {
-        control = control,
-        execution = execution,
-        arena = storage_owner
     };
 }
 
@@ -270,9 +265,7 @@ trusted internal func take_released(
     )
     uses(intrinsic)
 {
-    let removed = trusted take_retired_slot(reference, lease);
-    let index = removed.index;
-    let retired = trusted materialize_retired_slot(removed);
+    let (index, retired) = trusted take_retired_cell(reference, lease);
 
     {
         let mut anchor = trusted arena_anchor(&retired.arena, lease);

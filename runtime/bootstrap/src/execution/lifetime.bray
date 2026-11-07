@@ -13,7 +13,7 @@ using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.heap;
 
-internal callable CloseRoot = @abi(c) trusted func(pos owner: Owner) -> Owner
+internal callable CloseRoot = @abi(c) trusted func(pos owner: Owner) -> Reference
     requires(
         trusted retained(owner = &owner.execution),
         trusted pinned(owner = &owner.execution),
@@ -21,9 +21,8 @@ internal callable CloseRoot = @abi(c) trusted func(pos owner: Owner) -> Owner
         blocking_execution()
     )
     ensures(
-        trusted retained(owner = &result.execution),
-        trusted pinned(owner = &result.execution),
-        trusted !service_owner(owner = &result)
+        trusted retained(owner = &result),
+        trusted pinned(owner = &result)
     );
 
 trusted internal func own_binding(pos selected: &Current, pos owner: Owner) -> Binding
@@ -56,8 +55,7 @@ trusted internal func own_binding(pos selected: &Current, pos owner: Owner) -> B
 
     return
     {
-        owner = owner,
-        close = close,
+        ownership = BindingOwnership.Open(owner, close),
         release = release_owned_pin,
         suspend = suspend_binding,
         resume = trusted resume_operation()
@@ -70,14 +68,7 @@ trusted internal func pin_binding(pos owner: bray.runtime.bootstrap.execution.Re
 {
     return
     {
-        owner =
-        {
-            acquisition = Acquisition
-            {
-            },
-            execution = owner
-        },
-        close = none,
+        ownership = BindingOwnership.Cleanup(owner),
         release = release_owned_pin,
         suspend = suspend_binding,
         resume = trusted resume_operation()
@@ -128,7 +119,7 @@ trusted internal func binding_driver(pos context: DataPointer<Context>) -> Curre
 }
 
 @abi(c)
-trusted internal func close_owner_binding(pos mut owner: Owner) -> Owner
+trusted internal func close_owner_binding(pos owner: Owner) -> Reference
     requires(
         blocking_execution(),
         trusted retained(owner = &owner.execution),
@@ -136,9 +127,8 @@ trusted internal func close_owner_binding(pos mut owner: Owner) -> Owner
         trusted service_owner(owner = &owner)
     )
     ensures(
-        trusted retained(owner = &result.execution),
-        trusted pinned(owner = &result.execution),
-        trusted !service_owner(owner = &result)
+        trusted retained(owner = &result),
+        trusted pinned(owner = &result)
     )
 {
     let selected = trusted current();
@@ -148,11 +138,10 @@ trusted internal func close_owner_binding(pos mut owner: Owner) -> Owner
         trusted core.target.abort();
     }
 
-    trusted close_owner(&selected, &mut owner);
-    return owner;
+    return trusted close_owner(&selected, owner);
 }
 
-trusted internal func close_owner(pos selected: &Current, pos owner: &mut Owner)
+trusted internal func close_owner(pos selected: &Current, pos owner: Owner) -> Reference
     requires(
         blocking_execution(),
         trusted view_owned(owner = &selected.acquisition),
@@ -165,11 +154,10 @@ trusted internal func close_owner(pos selected: &Current, pos owner: &mut Owner)
     )
     ensures(
         trusted view_owned(owner = &selected.acquisition),
-        trusted retained(owner = &owner.execution),
-        trusted pinned(owner = &owner.execution),
-        trusted !service_owned(owner = &owner.acquisition)
+        trusted retained(owner = &result),
+        trusted pinned(owner = &result)
     )
-    uses(foreign_call)
+    uses(foreign_call, raw_memory)
 {
     let value = trusted domain(&owner.execution);
     let previous = core.atomic.fetch_sub<usize, 3>(&value.owners, 1);
@@ -207,11 +195,9 @@ trusted internal func close_owner(pos selected: &Current, pos owner: &mut Owner)
         }
     }
 
-    // Retire this service acquisition only after its counter and closing work
-    // commit. The same complete owner retains its pin through later disposal.
-    owner.acquisition = Acquisition
-    {
-    };
+    // Consuming admission leaves only the independent physical pin. No value
+    // of Owner represents a closed service acquisition.
+    return trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.execution));
 }
 
 // The resident host owns product eligibility. This operation only closes the
@@ -250,11 +236,10 @@ trusted internal func finish_services(pos owner: &bray.runtime.bootstrap.executi
 }
 
 @abi(c)
-trusted internal func release_owned_pin(pos owner: Owner) -> u32
+trusted internal func release_owned_pin(pos owner: Reference) -> u32
     requires(
-        trusted retained(owner = &owner.execution),
-        trusted pinned(owner = &owner.execution),
-        trusted !service_owner(owner = &owner)
+        trusted retained(owner = &owner),
+        trusted pinned(owner = &owner)
     )
 {
     let selected = trusted current();
@@ -264,18 +249,18 @@ trusted internal func release_owned_pin(pos owner: Owner) -> u32
         trusted core.target.abort();
     }
 
-    let value = trusted domain(&owner.execution);
+    let value = trusted domain(&owner);
 
     let incidents = if core.atomic.load<u32, 1>(&value.completion) == 3
     {
-        yield trusted drain_reports(&owner.execution);
+        yield trusted drain_reports(&owner);
     }
     else
     {
         yield 0;
     };
 
-    return incidents + trusted retire_pin(&owner.execution);
+    return incidents + trusted retire_pin(&owner);
 }
 
 trusted internal func release_pin(pos owner: Reference) -> u32

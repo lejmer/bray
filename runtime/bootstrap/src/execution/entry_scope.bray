@@ -18,6 +18,31 @@ internal struct EntryScope
     mut status: u32;
 }
 
+// Source entries use graceful scope exit, including during panic/cancellation.
+// The native RAII bridge instead owns an EntryScope in its own admitted storage.
+// Completion is written after the body result is secured and before it escapes.
+internal struct EntryRestoration
+{
+    scope: EntryScope;
+    completion: &mut u32;
+
+    trusted consume enter() -> Self
+        requires(trusted entry_scope_owned(owner = &self.scope))
+        ensures(trusted entry_scope_owned(owner = &result.scope))
+        executes(pure, total)
+    {
+        return self;
+    }
+
+    trusted exit(pos owner: Self)
+        requires(trusted entry_scope_owned(owner = &owner.scope))
+    {
+        let status = trusted finish_entry_scope(owner.scope);
+
+        _ = trusted std.memory.replace_value<u32>(owner.completion, status);
+    }
+}
+
 internal predicate entry_scope_owned(owner: &EntryScope) = view_owned(owner = &owner.current.acquisition) &&
     (owner.previous matches none || bray.runtime.bootstrap.host.execution_option_owned(owner = &owner.previous)) &&
     optional_current(owner = &owner.operation);
