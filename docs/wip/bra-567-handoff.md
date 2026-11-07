@@ -42,6 +42,24 @@ Runtime selection follows all reachable obligations, including cleanup. Synchron
 Absent deadline or worker demand omits the corresponding implementation units, with authenticated provenance evidence.
 Maintainability, compile cost, generated execution, product size and retained resources are acceptance criteria.
 
+## Paused checkpoint
+
+Implementation is paused at the user's request. All implementation is pushed at
+`754dbb2f16817dcbea8440140bdfb96bd41078f2`. Do not resume edits or validation until the user resumes work.
+The user explicitly rejects another loop of fixing individual failures.
+
+On resumption, begin with an architectural assessment of the remaining compiler ownership and contract model against
+the complete agreed runtime protocols. Establish which responsibilities the current representations fail to express,
+which parts remain suitable, and the coherent replacement or adjustment required. Record that design decision before
+implementation. Treat the remaining diagnostics as evidence for that assessment, not as a patch queue. Unit passes and
+lower diagnostic counts do not establish that this design works end to end.
+
+The latest full runtime Source run completed with 3,256 body/certificate checks and 61 failures across 19 bodies.
+The affected unit suites passed 415 checker, 38 lowering, 35 runtime-interface and 29 ABI tests. Mandatory mutating
+style and explicit formatting passed for this checkpoint. Native/imported execution, all representative Source controls
+on the refactor, provenance/cost receipts and final review remain outstanding. End-to-end acceptance is not established.
+No reviewer has been launched. Build caches and the untracked local diagnostic runner are retained.
+
 ## Refactor plan
 
 Progress: step 1 is implemented and undergoing whole-protocol self-review. Its explicit observation variant has owner,
@@ -64,8 +82,7 @@ rather than nesting an allocation-capacity continuation in Result. Existing comp
 outcome/static/shutdown order, and the scalar-context matrix includes data equal to its storage identity.
 
 The follow-on batch passed mutating style and explicit formatting and is undergoing a second integrated validation.
-Follow-on checker/lowering/interface/ABI suites passed 415/38/35/29 respectively. The full runtime Source run is still
-in progress. Its whole-protocol review covers
+Follow-on checker/lowering/interface/ABI suites passed 415/38/35/29 respectively. The full runtime Source run completed with 3,256 checks and 61 failing bodies/certificates across 19 bodies. Its whole-protocol review covers
 prepared-start scope contracts, whole-slot materialization, owned nullable extraction, physical effect framing across
 runtime calls, nested entry view restoration and worker formation's active conditional guarantee. Do not turn failure counts into a sequence of local edit/test loops. Keep checkpoints pushed.
 
@@ -412,7 +429,7 @@ Checkpoint `41cf664` passed mandatory mutating `cargo xtask style` and explicit 
 passed 415 checker units and 37 lowering units, then failed the async host's obsolete fixed-position assertion.
 Later crates were not run in that first command. The follow-on complete unit command added `--no-fail-fast` and passed
 415 checker, 38 lowering, 35 runtime-interface and 29 ABI tests. Follow-on style and explicit formatting passed.
-The follow-on full runtime Source run is in progress. All native/imported acceptance and cost measurements remain
+The follow-on full runtime Source run completed with 3,256 checks and 61 failures across 19 bodies. All native/imported acceptance and cost measurements remain
 pending. Do not start final review before required verification is complete.
 
 Pre-refactor checkpoint `7c7a70ba7c0ff5d153c554bfc49bd926efc5d665` passed 415 checker units and all 16
