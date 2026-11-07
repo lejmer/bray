@@ -5,7 +5,7 @@
 Continue [BRA-567](https://linear.app/bray-lang/issue/BRA-567/implement-async-root-and-main-lane-orchestration-in-bray)
 on draft [PR #710](https://github.com/lejmer/bray/pull/710), branch
 `feature/bra-567-async-root-orchestration`. The implementation checkpoint is
-`e40e37ed0b3bb6784fd2796cd0cfad9ae8e1f9ca`. The comparison baseline is
+`80ed53f08d4ac6751412ba7b858fa6f02e7e39fc`. The comparison baseline is
 `e477f82ce8cdbae354a81c23b6744fb8d68475d6`, which includes the parent implementation and develop integration.
 Inspect current remote branches and issue relations before changing the stack. Parent
 [PR #709](https://github.com/lejmer/bray/pull/709) supplies demanded worker lifetime through
@@ -131,178 +131,62 @@ without implementing those separate outcomes here.
 
 ## Current verification boundary
 
-The current redesign separates scalar `StorageValue` observations from aggregate `Constructed` contents. The old
-single-`OwnedTarget` shape test misclassified refreshed aggregate owners as scalar storage contexts. Scalar data and
-storage identity now have an explicit representation. Ordinary equalities transform data without renaming its storage
-context. The nested conditional ownership collector now traverses both predecessors together and carries enclosing
-active-case guards into each payload, replacing flat inner-tag tests. Both changes are implemented. The checker unit suite reports 414 passing and one failing existing test,
-`known_value_writes_revoke_only_borrowed_authority_on_the_changed_storage`. The new nested guard and scalar/aggregate
-refresh regressions pass. Investigate the existing test before the next batch. The redesign is not yet covered by the
-Source results below. The queued intermediate checker run was
-cancelled while waiting for the Cargo lock so only this completed redesign is checked.
-
 Implementation and end-to-end verification remain in progress. Do not request final review yet.
 
-Stable capture identities accept the same-site inactive numeric guard and reject numeric and Boolean active guards.
-Shared and stored shared-view controls accept the original owner and reject fabricated markers and payload authority.
-Reached raw moves of scalar-only and address-only owners both reject subsequent authority use.
+The checker now distinguishes scalar `StorageValue` context from aggregate `Constructed` contents. Scalar data and
+storage identity have separate representations. Ordinary equalities change data without renaming storage context.
+Observation retirement consistently compares the owner identity for both scalar and aggregate snapshots. Nested
+conditional ownership uses one paired predecessor traversal and carries all enclosing active-case guards.
 
-The canonical refresh batch reduced the extended runtime Source sweep from 53 to 30 failures in 3,160 body and certificate
-checks, including anonymous bodies. Invocation composition and direct invocation now certify. All previously failing
-destructor terminal-effect checks now pass after distinguishing ordinary loans from actual raw publication of owned inline
-storage. Remaining families include mutable cursor forwarding, event registration, dispatch, task result transfer,
-root-frame scalar authority, worker context startup, task retirement, observer rollback and worker formation. Several
-certificate errors are downstream from those bodies. The deadline callback's local name collision is corrected.
+Completed evidence on the pushed checkpoint plus the owner-identity retirement correction:
 
-The current next batch consolidates borrowed markers under physical loan observations, rather than also treating their
-logical reference slots as the marker storage. Mutable loans use the same typed transfer query, while shared protection
-remains restricted to shared loans. This change was made after compiling the canonical refresh sweep and is not covered by it.
-It is building in the temporary public compilation diagnostic binary. Checker units for the combined batch are also queued.
-The previous checker run was 411 passing with one incorrect new assertion, now corrected to assert loss of known value.
+| Check | Result and limit |
+| --- | --- |
+| Checker library unit suite | 415 passed, including scalar/aggregate refresh and nested guarded ownership |
+| Runtime Source bodies and execution certificates | 3,160 checks, 26 failures |
+| Same-site inactive numeric deferred frame | Accepted |
+| Active numeric and Boolean partial extraction | Rejected |
+| Shared and stored owner forwarding | Accepted, fabricated marker and payload authority rejected |
+| Raw moves of scalar-only and address-only owners | Subsequent authority rejected |
+| Nested Source union ownership | Real owner accepted, fabricated owner rejected |
+| Required style and formatting | Passed on earlier batch, must repeat for the completed batch |
+| Native/imported runtime acceptance and comparative costs | Unrun |
 
-Optional services now use per-domain native callbacks. Deadline driving returns one C-layout value. Final destruction
+All previously failing destructor terminal-effect checks pass. Ordinary loans no longer imply publication of owned
+inline storage to ambient raw code. Composition and direct invocation certify. Remaining Source families include
+event registration, dispatch, root admission and resume, task result transfer, worker context initialization, task
+retirement, observer rollback, worker entry and worker formation. Some certificate failures depend on those bodies.
+
+The current batch extends the existing cached inline shape from empty marker types to complete nominal carriers.
+A reached raw move must revoke scalar-only owner authority as well as empty markers. An unrelated typed move cannot
+retire another nominal owner merely because both contain scalar data. Raw writes remain conservative for contents.
+Active loans and stored views retain their referent type for that one shared decision. Matching nested carrier types
+remain potentially affected. The full Source sweep above covers this completed batch and event registration now passes.
+Eight public Source controls accept unrelated moves and reject whole-owner moves, nested-owner moves and raw writes
+for both scalar-only and pointer-only owners. The corresponding compilation test is added but its Rust test binary is unrun.
+The 415 checker unit result predates the carrier-classification extension.
+
+Optional services use per-domain native callbacks. Deadline driving returns one C-layout value. Final destruction
 reuses each provider's existing native destruction entry, which consumes the actual reference slot. Deadline backing
-retirement uses the last execution service owner's pointer protocol, rather than borrowing the pin that it removes.
-No C borrow ABI, extra runtime owner or host-wide function table is introduced.
-
-Temporary traces use `BRA567_TRACE` in `trusted/check.rs` and `terminal.rs`, and `BRA567_TRANSFER_TRACE` in `transfers.rs`.
-They remain only in the working tree and are excluded from checkpoints. Remove them before finalization. The diagnostic harness moved to `xtask/src/bin/bra567.rs` to avoid example dev-dependency
-feature changes. It must not be committed. Use `cargo run --release --bin bra567 -- runtime`, then reuse its binary for
-focused cases. The source files are snapshotted at compilation load. Logs for current batches are under ignored
-`target/bra-567`, with `source-physical.log` and `checker-canonical-unit.log` currently active.
+retirement uses the last execution service owner's pointer protocol, rather than borrowing the pin it removes.
+No C borrow ABI, extra runtime owner or host-wide table is introduced.
 
 Native acceptance shares authenticated runtime provenance auditing between async and synchronous products, once per
 smoke group. It adds a minimal async fixture, optional-service omission checks and preparation/build/startup/size metrics.
-Those checks remain unrun. Required style/format checks passed on the earlier shared-join batch and must repeat after the
-completed current batch. No final review agent has been requested.
+Those checks remain unrun. No final review agent has been requested.
 
-Shell GitHub authentication (`GH_TOKEN`) is invalid. The connected GitHub account is verified as `lejmer`, with admin/push
-access to the public `lejmer/bray` repository. Use its Git object APIs to publish a coherent checkpoint on existing PR #710.
-This checkpoint continues from `73f55623bb25b21bc1f9b87afc97253c87e14c5e`. It preserves the implementation and current
-redesign while validation remains incomplete. Parent #709 remains open with the unchanged stack base. Push coherent
-checkpoints regularly, as explicitly requested by the user, and update this record each time.
+Temporary traces in `trusted/check.rs`, `terminal.rs` and `transfers.rs`, and the diagnostic binary under
+`xtask/src/bin/`, are local only and must be removed before finalization. They are excluded from checkpoints.
+Use normal tooling production artifacts rather than examples or compilation test binaries for diagnosis.
+Do not require temporary artifacts to resume this task.
 
-Use the public compilation API for Source diagnosis without building a `bray-compilation` test binary. Keep essential
-final evidence in this record, rather than only in ignored logs. The native smoke, imported acceptance, comparative
-costs, final review, PR readiness and Linear In Review handoff all remain required.
+The connected GitHub account is verified as `lejmer`, with admin/push access to the public `lejmer/bray` repository.
+Shell GitHub authentication is invalid. Use connected Git object APIs to publish checkpoints on existing PR #710.
+Parent #709 remains open with the unchanged stack base. Push coherent checkpoints regularly as requested by the user.
 
-At the implementation checkpoint:
-
-| Check | Result |
-| --- | --- |
-| Runtime Source bodies and execution certificates | 1,118 checks, 24 failures |
-| Binding, syntax and unverified checks in that sweep | No failures |
-| Focused ownership cases | 37 of 38 pass |
-| Focused deferred and scalar cases | 22 of 23 pass, including all 13 scalar controls |
-| Checker, symbols, package interface and invalidation unit checks | Pass |
-| Selected standard-library memory bodies and certificates | Pass |
-| Required style and formatting | Pass |
-| Native/imported runtime acceptance and final comparative costs | Incomplete |
-
-These results came from focused public compilation consumers and selected unit binaries. They are not a claim that
-all Cargo or CI tests pass. Reconstruct needed checks from repository tools and current sources, rather than trying to
-recover the former ad hoc harness collection. Temporary tracing hooks were removed. No uncommitted production code
-remained when preparing this handoff.
-
-The 24 Source failures are in these declarations. Some certificate failures are downstream consequences rather than
-independent defects.
-
-| Repository path under `runtime/bootstrap/src/` | Declarations |
-| --- | --- |
-| `activation/composition.bray` | `compose` |
-| `activation/execution/invoke.bray` | `invoke`, `invoke_retaining` |
-| `event/delivery.bray` | `notify`, `deliver` |
-| `execution/native_owner.bray` | `owner_entry_scope`, `native_owner_scope_enter` |
-| `execution/resolution.bray` | `task_resolution`, `task_resolution_action`, `transfer_task_result` |
-| `execution/root_scope.bray` | `resume_binding` |
-| `execution/service_borrows.bray` | `release_services` |
-| `execution/start.bray` | `start_root` |
-| `execution/task_entry.bray` | `task_allocation` |
-| `execution/worker_context.bray` | `create_worker_context` |
-| `task/dispatch.bray` | `step_dispatch` |
-| `task/observer/creation.bray` | `create` |
-| `task/runtime_retirement.bray` | `retire_execution` |
-| `worker/entry.bray` | `run` |
-| `worker/formation.bray` | `ensure` |
-| `host/attachment/acquisition.bray` | Destructor |
-| `host/product/cleanup.bray` | Destructor |
-| `host/product/thread_domain.bray` | Destructor |
-| `report/chain.bray` | Destructor |
-
-## Confirmed evidence and remaining uncertainties
-
-### Deferred frame loses a captured argument
-
-The focused numeric case forms two futures at the same call site in a two-iteration loop. Each consumes a sealed
-`Box<Marker>` and captures the current numeric index. The async callee returns the marker field only when the captured
-code equals zero, otherwise it returns `none`. Its postcondition is `code == 0 || result matches none`.
-The whole box carries an opaque trusted `sealed(owner = &result)` guarantee from its producer.
-
-Save the first future when index equals zero and the second otherwise, incrementing the index after storage.
-Awaiting the second future should be accepted because it does not partially extract the sealed owner.
-Awaiting the first should be rejected for separating the whole-owner guarantee. The second case is currently rejected
-with `CheckingTrustedWitnessTransferNotProven`.
-
-The diagnostic showed that the second frame retains a condition saying its captured argument 1 is not zero, but its
-`ExecutionCallEvidence.arguments` map no longer contains argument 1. A copy-origin entry can also remain for the missing
-argument. The trace proves an inconsistent frame context. It does not establish the exact first operation that loses it.
-
-Trace these existing owners together:
-
-- `crates/bray-checker/src/analysis/guarantee/flow/deferred.rs`: capture and execution of the actual frame.
-- `crates/bray-checker/src/analysis/guarantee/deferred.rs`: producer selection and merging.
-- `crates/bray-checker/src/execution_guarantees/model.rs`: argument maps, copy origins, proof projection and intersection.
-- `crates/bray-checker/src/execution_guarantees/witness.rs`: renaming of captured arguments and facts.
-- `crates/bray-checker/src/analysis/guarantee/retirement.rs` and `state.rs`: current observation retirement.
-- `crates/bray-checker/src/analysis/guarantee/trusted/completion.rs`: substitution and use of entry proof.
-
-`ExecutionCallEvidence.intersect` retains an argument only if its representation matches the other argument exactly.
-Investigate this together with renaming and retirement. Losing knowledge of a value must not accidentally erase a live
-frame input or disconnect its surviving facts. Do not restore stale current branch selectors to make the case pass.
-The paired Boolean case, capturing `index != 0`, must continue rejecting the active partial extraction.
-
-### Shared owner loses marker preservation at startup
-
-In `owner_entry_scope`, the no-argument call to `origin_driver_startup` precedes the failure to prove the requirement of
-`domain(&owner.execution)`. At that call, the caller's shared entry borrow remains active but its owner has no stable
-value observations after preservation. The resolved effects include Unknown, Ambient, Atomic and typed unbounded
-transfers with both ambient and input scope. Restricting effects to explicit call arguments alone cannot repair this.
-
-`preserve_storage_values` in `analysis/storage_flow/check/analysis/observations.rs` reduces transfers to marker-type sets
-before applying shared-loan preservation. That discards target and scope distinctions. This is an architectural concern,
-not a proven complete diagnosis of every Source failure. `record_target_effect` in the sibling `effects.rs` also publishes
-an ambient alternative for returned origins before forwarding their known origins. Inspect the actual owner and alias
-contracts before changing that behavior. Do not assume returned storage is fresh or remove raw-transfer rejection broadly.
-
-The existing typed-data transfer matrix forms a raw pointer from the borrowed owner even in variants that later call a
-no-argument helper. Those variants do not establish behavior for an owner that has never been exposed through a raw address.
-
-### Stored shared scalar view across a loop
-
-The committed test `shared_protocol_markers_survive_native_exposure_and_loop_merges` in
-`crates/bray-compilation/src/compilation/trusted_contracts/sync.rs` is the remaining ownership failure.
-It borrows an owner, publishes its address, iterates with an opaque payload operation, and observes both its marker and
-scalar identity. Marker observation survives, but the scalar requirement fails through the stored shared view.
-
-`borrowed_condition` in `execution_guarantees/normalize/values.rs` follows checked reference boundaries but selects
-identity through `into_referent().owner_identity()`. Confusing current contents with the retained loan identity is a
-hypothesis to investigate, not a verified fix.
-
-## Required design deliverable
-
-Before editing the compiler, describe the meaning and lifetime of each existing identity and context. Follow each
-through admission, normal execution, abnormal execution, merging and cleanup. Explain which decisions become unified,
-which remain distinct because they enforce different invariants, and which existing code will be removed.
-
-Pay particular attention to joins: less precise value knowledge must remain separate from ownership, argument existence
-and permission validity. Explain convergence and the treatment of multiple dynamic frames from one source call site.
-For storage effects, preserve the authoritative operation and reached storage context through the validity decision.
-A shared witness store alone does not unify independently implemented preservation policies.
-
-Read the relevant rules in `docs/language/contracts-and-trust/`, `docs/language/ownership-and-borrowing/`,
-`docs/language/targets-layout-abi-and-raw-memory/` and `docs/language/async-and-concurrency/` through the language skill.
-Use `docs/design/compiler-architecture.md` for phase responsibilities. Read `docs/design/AGENTS.md` before modifying
-anything under `docs/design/`.
+Next: finish the ownership-transfer batch, resolve the remaining Source families by their shared contracts, then run
+imported and native acceptance, final required checks, comparative costs and final review. Mark PR ready and Linear
+In Review only after all required evidence is complete.
 
 ## Final acceptance
 
