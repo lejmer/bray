@@ -42,17 +42,14 @@ Runtime selection follows all reachable obligations, including cleanup. Synchron
 Absent deadline or worker demand omits the corresponding implementation units, with authenticated provenance evidence.
 Maintainability, compile cost, generated execution, product size and retained resources are acceptance criteria.
 
-## Paused checkpoint
+## Architectural completion
 
-Implementation is paused at the user's request. All implementation is pushed at
-`754dbb2f16817dcbea8440140bdfb96bd41078f2`. Do not resume edits or validation until the user resumes work.
-The user explicitly rejects another loop of fixing individual failures.
-
-On resumption, begin with an architectural assessment of the remaining compiler ownership and contract model against
-the complete agreed runtime protocols. Establish which responsibilities the current representations fail to express,
-which parts remain suitable, and the coherent replacement or adjustment required. Record that design decision before
-implementation. Treat the remaining diagnostics as evidence for that assessment, not as a patch queue. Unit passes and
-lower diagnostic counts do not establish that this design works end to end.
+Implementation has resumed. The last validated implementation is
+`754dbb2f16817dcbea8440140bdfb96bd41078f2`. Complete the transitions below as one coherent migration.
+The runtime's new containers do not yet establish a complete ownership protocol. In particular, an initialized slot
+does not authorize partitioning a whole witness, a closed service acquisition is not another open owner, and retaining
+an endpoint does not preserve its changing queue membership. The compiler's explicit observation roles are useful but
+do not by themselves establish consistent transport through mutation, joins and cleanup.
 
 The latest full runtime Source run completed with 3,256 body/certificate checks and 61 failures across 19 bodies.
 The affected unit suites passed 415 checker, 38 lowering, 35 runtime-interface and 29 ABI tests. Mandatory mutating
@@ -60,31 +57,81 @@ style and explicit formatting passed for this checkpoint. Native/imported execut
 on the refactor, provenance/cost receipts and final review remain outstanding. End-to-end acceptance is not established.
 No reviewer has been launched. Build caches and the untracked local diagnostic runner are retained.
 
+### Ordered implementation and removals
+
+1. **Make execution closure a consuming transition.** An `Owner` always owns admission and a physical execution pin.
+   `close_owner(Current, Owner)` consumes that admission and returns the remaining `Reference` pin. It does not leave
+   an `Owner` whose meaning depends on a negative service predicate. Represent a binding's open-owner and cleanup-pin
+   alternatives with a tagged union. Close callbacks consume an open owner and return a pin. Release callbacks consume
+   a pin. Update driver closure, native owner destruction, prepared-start rollback and nested pin bindings together.
+   Delete the optional-close/negative-predicate encoding and `take_binding_owner` conditional extraction.
+2. **Transfer retired task resources at their physical ownership boundary.** Under the resident lease and final-reference
+   authority, extract the actual control, optional execution pin and arena reference into `RetiredCell`, then publish the
+   vacant row. The trusted extraction has one complete result contract for those independently owned fields. Do not first
+   introduce an opaque witness for a whole `Slot` and then partially move it. Delete `retired_slot`, its separate
+   initialization premise and `materialize_retired_slot`. Keep one retirement operation for native and execution-domain
+   retirement. Dispose control and incidents before execution and arena release outside synchronization.
+3. **Finish startup and entry scopes as ownership protocols.** `PreparedStart` owns service admission and the exact
+   uncommitted scheduler registration. Its task reference and inactive frame are borrows from the native input owners,
+   which remain live until activation accepts the frame. Commit transfers the registration only after complete cell
+   publication. Every other exit withdraws it. Consuming scope exit closes admission and releases the returned pin.
+   Give `EntryScope` consuming scope entry/exit so root execution, observation, completion and result transfer restore
+   their displaced context on abnormal exits too. Native RAII storage retains explicit `finish_entry_scope` because its
+   owner is outside Source. Preserve the distinct parent and nested-operation views and release the latter first.
+4. **Make wait mutation use a stable access interval.** `WaitResources` owns retained endpoints and callbacks. Linked
+   membership under the resident lease authorizes neighbor access. Derive the necessary current/previous/next accesses
+   before changing membership, then update links and transfer or clear the registration as one operation. Delivery owns
+   its detached remainder. Do not use the registration's former links as evidence after unlinking or mutate the resource
+   owner to encode membership. Keep observational addresses, actual retained collections and callouts outside the lease.
+5. **Complete general compiler transport, without runtime exceptions.** Keep the checked storage-flow collector as the
+   authority for physical targets, effect kinds, access types and scope. Keep current storage observations, immutable data,
+   whole carriers and lifetime roots distinct through its consumers. Review and correct the complete pipeline together:
+   effect inference/export and instantiation, physical survival, guarantee invalidation, consuming moves, conditional
+   carrier transport, joins, implicit cleanup and portable result contracts. An effect on a pointee must not become an
+   effect on its lifetime anchor. A contents update must not silently retire an independent complete owner. A real raw
+   ownership transfer must retire every overlapping matching carrier. A branch's carrier availability cannot establish
+   an unproved active clause. Use the existing finite place/block summaries and shared immutable metadata. Replace any
+   duplicate interpretation found here rather than adding another alias or witness store. No absence-of-input freshness,
+   harmless-unknown rule, trusted-body exemption or runtime-name recognition is permitted.
+6. **Validate and finish the whole composition.** After the migration and self-review, run mandatory style and format,
+   the affected unit suites, all runtime Source bodies/certificates and the representative positive/negative Source
+   controls as a batch. Classify any failure against a violated transition before changing its owner, rather than making
+   each expression a separate work item. Then execute the existing Source/imported/native acceptance and provenance
+   workflows, measure costs, remove diagnostic infrastructure, push and perform final PR review. The finish line is all
+   required evidence and a maintainable complete protocol, not a count of remaining diagnostics.
+
+### Complete lifecycle obligations
+
+| Scenario | Ownership and completion obligation |
+| --- | --- |
+| Successful root and direct await | Native frame owner transfers once at commit. Main authority comes from the validated driver. Direct awaits remain in that frame. Generated lexical cleanup precedes terminal publication. |
+| Partial startup failure | Native input still owns the inactive frame. Prepared scope withdraws its exact registration and closes its service owner. Source admission resolves the task claim and storage. No fallible work occurs between taking a resource and securing its rollback owner. |
+| Panic or cancellation | Generated frame performs shielded lexical cleanup and owns all incidents. Source entry/preparation scopes resolve on abnormal exits. Native boundaries contain the resulting incident owners. |
+| Terminal observation and payload disposal | Observer takes the outcome once. It never resumes a terminal frame. Execution, exact-thread attachment and providers survive outcome/report disposal and selected static cleanup. |
+| Nested foreign entry | Parent owner and counted view survive isolation. Nested work uses the installed operation view. That view ends before nested context retirement, then the previous owner and quota are restored. |
+| Wait publication, withdrawal and delivery | Endpoint ownership survives list mutation. Neighbor permission is valid under the actual resident lease. Detached delivery retains the remaining chain and invokes callbacks after unlocking. |
+| Final task storage release | Final-reference authority and the lease protect extraction. The vacant row is published only after its old resources have one retirement owner. Recycling cannot release arena backing before the retired control and reports finish. |
+| Closed admission and blocked shutdown | Existing pins and the resident host retain cleanup access. A blocked attempt returns unresolved ownership. The shared teardown state drains consumers and incidents before provider/service release. |
+| Imported consumer and minimal demand | Exported contracts preserve the same effects, transfers, guards and dependencies. Ordinary reachable cleanup selects implementation units. Sync products do not acquire an executor and absent worker/deadline demand does not retain those units. |
+
+### Architecture acceptance checklist
+
+- [ ] Open service ownership and closed cleanup retention are different binding alternatives with consuming transitions.
+- [ ] Startup rollback, root entry restoration and native entry storage each have one identified owner on every exit.
+- [ ] Task retirement returns independent resource owners directly, with no invalid whole-witness partition.
+- [ ] Queue resources and live membership have separate contracts and one lease-bounded mutation protocol.
+- [ ] Compiler effects retain their physical target and type through inference, use and export. Moves, mutation, guarded
+      joins and cleanup agree on the carrier and dependency that survive.
+- [ ] Source positive and negative controls, complete runtime checking, imported/native execution, provenance and costs
+      establish the issue acceptance contract.
+- [ ] Superseded mechanisms and diagnostic infrastructure are removed, checkpoints are pushed and final review is complete.
+
 ## Refactor plan
 
-Progress: step 1 is implemented and undergoing whole-protocol self-review. Its explicit observation variant has owner,
-contents and owned/reference/scalar role fields. Old observation variants and nested reference-data role tags are gone.
-No build or behavioral test has run on the refactor. Temporary production trace branches have been removed.
-The observation model, arena migration and initial startup/claim changes are pushed in `48de937`, `68ad79a` and
-`aaf3caaf`. The integrated protocol checkpoint is `41cf664435530e6db41509d73e4217674b18f19d`.
-Its mandatory style and formatting passed. The complete Source run found 69 failing bodies/certificates in 3,254 checks.
-Checker units passed 415. Lowering passed 37 and failed one stale instruction-position assertion. The combined Cargo run
-stopped there, leaving interface/ABI suites unrun. Native/imported acceptance and comparative costs remain unrun.
-
-A related contract/representation batch is pushed through `e82986f7d5d86c321cc7fc1afbac62d7c1adf1b6`,
-with final self-review refinements and no additional test run. It adds the missing arena component
-contract to the execution-domain borrow, uses address words for observational wait links, transports source claims in a
-noncopy native admission record, and moves prepared startup rollback to consuming scope entry/exit so graceful closure
-precedes destruction. Final cell recycling now moves the complete slot into a retirement packet, replacing individual
-field-detachment helpers. It preserves actual arena/execution retention through disposal. Namespace/borrow/nullable
-wiring errors from the first batch are addressed together. Worker formation now uses one decision enum including Grow,
-rather than nesting an allocation-capacity continuation in Result. Existing complete publication/disposal is preserved. The lowering test now checks Main startup through
-outcome/static/shutdown order, and the scalar-context matrix includes data equal to its storage identity.
-
-The follow-on batch passed mutating style and explicit formatting and is undergoing a second integrated validation.
-Follow-on checker/lowering/interface/ABI suites passed 415/38/35/29 respectively. The full runtime Source run completed with 3,256 checks and 61 failing bodies/certificates across 19 bodies. Its whole-protocol review covers
-prepared-start scope contracts, whole-slot materialization, owned nullable extraction, physical effect framing across
-runtime calls, nested entry view restoration and worker formation's active conditional guarantee. Do not turn failure counts into a sequence of local edit/test loops. Keep checkpoints pushed.
+The initial observation and arena migration is implemented. Its latest evidence is recorded above. The architectural
+completion checklist governs remaining work. The original component migration below records what remains useful and
+the full acceptance scope. Where its representation details differ, the explicit consuming transitions above supersede
+the intermediate design.
 
 ### Keep, adjust, replace and remove
 
