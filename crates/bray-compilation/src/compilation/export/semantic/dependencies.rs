@@ -189,7 +189,10 @@ impl<'a> SemanticExporter<'a> {
                         .condition()
                         .map(|condition| self.constant_term_id(condition))
                         .transpose()?,
-                ),
+                )
+                .with_preservation(transfer.preservation().try_map_projections(
+                    &mut |projection| self.constant_projection_kind(*projection),
+                )?),
             )),
             DependencyOwnedResult::All(values) | DependencyOwnedResult::Choice(values) => {
                 let values = self

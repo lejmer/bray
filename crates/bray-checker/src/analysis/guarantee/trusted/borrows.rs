@@ -88,6 +88,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // A checked ownership transfer can extract the value from a borrowed
             // slot. Returning a borrow instead retains its original loan identity.
             let value = if borrowed_result { value } else { value.into_referent() };
+            let ExecutionCondition::Input(input) = input else {
+                unreachable!("a checked ownership source names an input projection");
+            };
+
+            let preservation = transfer.preservation().try_map_projections(&mut |projection| {
+                Ok::<_, std::convert::Infallible>(crate::storage::owned_storage_projections(
+                    self.dependencies, &[*projection],
+                )[0])
+            }).expect("checked owned data projection mapping is infallible");
+            let contents = returned_contents(
+                &value, &preservation, invocation, &input,
+                &mut { ExecutionCondition::WORK_LIMIT },
+            );
+            let value = if borrowed_result || is_reference(&value) {
+                ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::Unknown)
+            } else {
+                ExecutionCondition::owned_value(value.owner_identity().clone(), contents)
+            };
 
             fields.push((path, value));
         }
@@ -136,7 +154,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .map(decode)
                 .unwrap_or(ExecutionCondition::Boolean(true));
 
-            for value in state.owned_values(&decode(transfer.input())) {
+            for value in self.returned_owned_values(invocation, arguments, [transfer])
+                .iter().flat_map(|(_, value)| state.owned_values(value))
+            {
                 let owner = value.owner_identity().clone();
 
                 guards
@@ -435,19 +455,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.refine_witnesses();
 
                 let mut fields = self.returned_owned_values(invocation, arguments, [transfer]);
+                let ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+                    self.request.semantic_values(), transfer.input(), dependencies.input_count(),
+                ).expect("checked ownership source decodes in the same semantic store") else {
+                    unreachable!("a checked ownership source names an input projection");
+                };
+                let ownership = input.value_in(arguments)
+                    .map(|value| state.owned_result(&value.into_referent()))
+                    .unwrap_or_default()
+                    .try_map(
+                        &mut |transfer| Ok::<_, std::convert::Infallible>(
+                            if transfer.output().is_empty() {
+                                DependencyOwnedResult::Transfer(transfer.clone())
+                            } else {
+                                DependencyOwnedResult::default()
+                            },
+                        ),
+                        &mut |condition| Ok(Some(condition.clone())),
+                    ).expect("top ownership selection is infallible");
 
                 for (_, value) in &mut fields {
-                    if !state.witness_projection(value).1 {
-                        continue;
-                    }
-
-                    let ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
-                        self.request.semantic_values(), transfer.input(), dependencies.input_count(),
-                    ).expect("checked ownership source decodes in the same semantic store") else {
-                        unreachable!("a checked ownership source names an input projection");
-                    };
-
-                    let independent = value.ownership_ancestors().skip(1)
+                    let actual = DependencyOwnedResult::all([
+                        ownership.clone(), state.owned_result(value),
+                    ]);
+                    let independent = state.witness_projection(value).1
+                        && value.ownership_ancestors().skip(1)
                         .filter(|parent| state.directly_carries_witness(parent))
                         .all(|parent| super::transfers::independent_result_owner(
                             self, invocation, &state.entries[&invocation], transfer, &input,
@@ -457,17 +489,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     if independent {
                         // The checked transition publishes a complete child. Its existing
                         // identity, contents, evidence and portable lineage travel together.
-                        let ownership = state.owned_result(value);
-
                         *value = ExecutionCondition::constructed(value.clone(), [].into());
-                        state.owned_results.insert(value.clone(), ownership);
                     }
+                    // Preserve only the transferred top lineage and actual children.
+                    state.owned_results.insert(value.clone(), actual);
                 }
 
                 Some(construct(result, fields.into_iter().collect(), transfer.condition().is_none()))
             }
             DependencyOwnedResult::All(values) => {
-                for (index, value) in values.iter().enumerate() {
+                // Install containing owners first so explicit surviving child
+                // transfers refine their data rather than being overwritten.
+                let mut ordered = values.iter().enumerate().collect::<Vec<_>>();
+
+                ordered.sort_by_key(|(_, value)| {
+                    value.transfers().map(|transfer| transfer.output().len()).min().unwrap_or(usize::MAX)
+                });
+
+                for (index, value) in ordered {
                     let mut retained = outside.clone();
 
                     retained.extend(
@@ -667,6 +706,80 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         construct(result, fields, false)
+    }
+}
+
+fn is_reference(value: &ExecutionCondition) -> bool {
+    matches!(value, ExecutionCondition::Borrowed(_))
+        || value.observation_kind() == Some(crate::execution_guarantees::ExecutionObservationKind::Reference)
+}
+
+fn returned_contents(
+    source: &ExecutionCondition,
+    preservation: &bray_symbols::DependencyValuePreservation<StorageProjection>,
+    invocation: BoundExecutionSite,
+    input: &ExecutionPlace,
+    budget: &mut usize,
+) -> ExecutionCondition {
+    let Some(remaining) = budget.checked_sub(1) else {
+        return ExecutionCondition::Unknown;
+    };
+
+    *budget = remaining;
+
+    if is_reference(source) && preservation.preserves_value() {
+        return ExecutionCondition::reference_value(source.owner_identity().clone(), ExecutionCondition::Unknown);
+    }
+
+    let mut contents = if preservation.preserves_value() {
+        without_reached_contents(source, budget)
+    } else {
+        ExecutionCondition::PostState(bray_bound_tree::StorageMutation::Operation(invocation), input.clone())
+    };
+
+    for (projection, child) in preservation.children() {
+        let actual = source.clone().project(*projection);
+        let place = input.clone().project(&[*projection])
+            .expect("owned contents have a checked input projection");
+        let value = returned_contents(&actual, child, invocation, &place, budget);
+
+        contents = contents.with_storage_component(&[*projection], value);
+    }
+
+    contents
+}
+
+/// Entry reference descriptors survive transport independently of mutable reached data.
+fn without_reached_contents(value: &ExecutionCondition, budget: &mut usize) -> ExecutionCondition {
+    let Some(remaining) = budget.checked_sub(1) else {
+        return ExecutionCondition::Unknown;
+    };
+
+    *budget = remaining;
+
+    if is_reference(value) {
+        return ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::Unknown);
+    }
+
+    if let Some(payload) = value.nullable_payload_snapshot() {
+        return without_reached_contents(payload, budget);
+    }
+
+    match value {
+        ExecutionCondition::Observation { owner, contents, kind } => ExecutionCondition::observation(
+            owner.as_ref().clone(), without_reached_contents(contents, budget), *kind,
+        ),
+        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::constructed(
+            without_reached_contents(base, budget),
+            fields.iter().map(|(projection, value)| {
+                (*projection, without_reached_contents(value, budget))
+            }).collect(),
+        ),
+        ExecutionCondition::Present(value) => without_reached_contents(value, budget).present(),
+        ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
+            *variant, std::sync::Arc::new(without_reached_contents(value, budget)),
+        ),
+        _ => value.clone(),
     }
 }
 

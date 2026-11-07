@@ -25,7 +25,7 @@ pub(super) fn selected_condition(
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
     current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
-    evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    evaluated: &impl Fn(BoundExpressionId) -> Option<ExecutionCondition>,
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
@@ -238,7 +238,7 @@ fn call_argument_conditions(
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
     current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
-    evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    evaluated: &impl Fn(BoundExpressionId) -> Option<ExecutionCondition>,
     budget: &mut usize,
     predicates: Option<
         &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,

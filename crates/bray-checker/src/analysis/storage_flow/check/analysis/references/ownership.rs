@@ -111,7 +111,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let transfer = bray_symbols::DependencyOwnedTransfer::new(
                     input,
                     candidate.output().iter().copied(),
-                );
+                ).with_preservation(candidate.preservation().clone());
 
                 use crate::analysis::guarantee::OwnedReturnCondition;
 
@@ -221,7 +221,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                 .iter()
                                 .copied()
                                 .chain([bray_bound_tree::StorageProjection::NullableValue]),
-                        )
+                        ).with_preservation(transfer.preservation().projected(
+                            &bray_bound_tree::StorageProjection::NullableValue,
+                        ))
                     } else {
                         transfer
                     };
@@ -234,7 +236,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                     .expect("owned result retains a portable output projection")
                             }),
                         )
-                        .with_condition(condition),
+                        .with_condition(condition)
+                        .with_preservation(transfer.preservation().try_map_projections(&mut |projection| {
+                            Ok::<_, std::convert::Infallible>(crate::ExecutionPlace::projection_kind(*projection)
+                                .expect("owned retained data has a portable projection"))
+                        }).expect("checked owned data projection mapping is infallible")),
                     ));
                 }
 

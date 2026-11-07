@@ -30,33 +30,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         expression: BoundExpressionId,
     ) -> ExecutionCondition {
-        let value = expression_condition(
-            self.request.unit(),
-            self.semantics,
-            self.request.semantic_values(),
-            self.request.available_compiler_known_symbols(),
-            Some(self.storage),
-            self.literals,
-            self.pattern_conditions,
-            &state.current,
-            &state.expressions,
-            expression,
-            &mut { crate::ExecutionCondition::WORK_LIMIT },
-            self.request
-                .trusted_contracts()
-                .map(|input| &input.predicates),
-        );
-
-        value
+        state.expressions.get(&expression)
+            .or_else(|| state.pending_results.get(&expression))
+            .cloned()
+            .unwrap_or(ExecutionCondition::Unknown)
     }
 
-    pub(in crate::analysis::guarantee) fn borrowed_value(
+    /// Form one expression result at its defining execution transition. Every
+    /// operand is an actual evaluated result, never another syntax evaluation.
+    pub(super) fn produce_value(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
     ) -> ExecutionCondition {
-        // Borrow checking keeps the evaluated access path valid through this call.
-        // Completion reads its current contents, without the cached entry snapshot.
         expression_condition(
             self.request.unit(),
             self.semantics,
@@ -66,13 +52,48 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.literals,
             self.pattern_conditions,
             &state.current,
-            &Default::default(),
+            &|source| (source != expression).then(|| self.value(state, source)),
             expression,
             &mut { ExecutionCondition::WORK_LIMIT },
-            self.request
-                .trusted_contracts()
-                .map(|input| &input.predicates),
+            self.request.trusted_contracts().map(|input| &input.predicates),
         )
+    }
+
+    pub(in crate::analysis::guarantee) fn borrowed_value(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> ExecutionCondition {
+        let value = self.value(state, expression);
+        let Some(flow) = self.checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow) else {
+            return value;
+        };
+        let Some(completion) = flow.completion(bray_bound_tree::StorageMutation::Operation(expression.into())) else {
+            return value;
+        };
+
+        let observe = |path: &bray_bound_tree::StoragePath| {
+            let target = completion.references().get(path)?;
+            let target = crate::storage::storage_observation_path(
+                self.storage, self.request.semantic_values(), target,
+            )?;
+
+            crate::ExecutionPlace::storage_path(self.storage, &target)
+                .and_then(|place| place.value_in(&state.current))
+        };
+
+        let contents = self.storage.node_plans(expression.into())
+            .filter_map(|plan| self.storage.logical_path(plan.access()))
+            .find_map(observe)
+            .or_else(|| self.storage.temporary(expression)
+                .and_then(|root| observe(&bray_bound_tree::StoragePath::root(root))));
+
+        // The evaluated reference retains its identity even if its source binding
+        // was replaced. Physical completion names the storage it still reaches.
+        match contents {
+            Some(contents) => value.with_referent(contents),
+            None => value,
+        }
     }
 
     pub(in crate::analysis::guarantee) fn invocation_value(
@@ -201,14 +222,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             bray_bound_tree::StorageIdentity::Temporary(expression)
             | bray_bound_tree::StorageIdentity::Allocation(expression)
             | bray_bound_tree::StorageIdentity::Result(AnyBoundNodeId::Expression(expression)) => {
-                let owner = ExecutionCondition::Expression(expression);
-
-                // Physical frame storage names the formed owner after its expression cache expires.
-                if state.deferred_entries(&owner).is_some() {
-                    owner
-                } else {
-                    self.value(state, expression)
-                }
+                // Physical frame storage can find the actual retained frame after
+                // its expression-cache lifetime ends. A missing frame is not recreated.
+                state.deferred_invocations.keys().find(|owner| {
+                    matches!(owner, ExecutionCondition::Expression(source) if *source == expression)
+                }).cloned().unwrap_or_else(|| self.value(state, expression))
             }
             _ => ExecutionCondition::Unknown,
         }

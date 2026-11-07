@@ -525,7 +525,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let bray_bound_tree::StorageMutation::Operation(site) = mutation
             && let Some(entry) = state.entries.get(&site)
             && let Some(contracts) = self.dependencies.calls().get(&site) {
-            owners.extend(self.returned_owned_values(site, &entry.arguments, contracts.owned_result().guaranteed_transfers())
+            let transfers = contracts.owned_result().guaranteed_transfers();
+
+            owners.extend(self.returned_owned_values(site, &entry.arguments, &transfers)
                 .iter().flat_map(|(_, value)| state.owned_values(value))
                 .filter(|value| !matches!(value.owner_identity(), ExecutionCondition::Borrowed(_) | ExecutionCondition::Unknown))
                 .map(|value| value.owner_identity().clone()));
@@ -918,16 +920,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             } else if let Some(bray_bound_tree::StorageIdentity::Temporary(expression)) =
                 self.storage.identity(path.root)
             {
-                // A getter result has expression lifetime even when no binding names it.
+                // Refresh the retained result in its current publication phase.
+                // A dead temporary is not recreated from its source identity.
+                let Some(previous) = state.expressions.get_mut(&expression)
+                    .or_else(|| state.pending_results.get_mut(&expression)) else {
+                    continue;
+                };
+
                 let value = if path.projections.is_empty() {
                     value
                 } else {
-                    let previous = state
-                        .expressions
-                        .get(&expression)
-                        .cloned()
-                        .unwrap_or(ExecutionCondition::Expression(expression));
-
                     let Some(projections) = path
                         .projections
                         .iter()
@@ -941,7 +943,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     previous.with_component(&projections, value, Some(&path.projections))
                 };
 
-                state.expressions.insert(expression, value);
+                *previous = value;
             }
         }
     }

@@ -320,38 +320,21 @@ where
         operator: BoundOperator,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        let Some(left) = operands.first().copied() else {
+        if operands.len() != 2 {
             self.push_recovery(current, id.into());
 
             return Some(Some(current));
-        };
+        }
 
-        self.push_bound(current, id.into());
+        if !matches!(operator, BoundOperator::LogicalAnd | BoundOperator::LogicalOr) {
+            return Some(Some(current));
+        }
 
         let join = self.push_block();
-        let right_entry = self.push_block();
 
-        let (matched, unmatched) = match operator {
-            BoundOperator::LogicalAnd => (right_entry, join),
-            BoundOperator::LogicalOr => (join, right_entry),
-            _ => return Some(Some(current)),
-        };
-
-        self.build_condition(
-            left,
-            current,
-            (matched, AnalysisEdgeKind::ConditionalTrue),
-            (unmatched, AnalysisEdgeKind::ConditionalFalse),
-        )?;
-
-        if let Some(right) = operands.get(1).copied() {
-            if let Some(completion) = self.build_expression(right, right_entry)? {
-                self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
-            }
-        } else {
-            self.push_recovery(right_entry, id.into());
-            self.push_edge(right_entry, join, AnalysisEdgeKind::Recovery, None);
-        }
+        self.build_condition(id, current,
+            (join, AnalysisEdgeKind::ConditionalTrue),
+            (join, AnalysisEdgeKind::ConditionalFalse))?;
 
         Some(Some(join))
     }

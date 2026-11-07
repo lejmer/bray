@@ -248,7 +248,22 @@ impl StructuralValueEncoder<'_, '_> {
             self.constant_projection_kind(*projection)?;
         }
 
-        Ok(())
+        self.dependency_value_preservation(transfer.preservation())
+    }
+
+    fn dependency_value_preservation(
+        &mut self,
+        preservation: &bray_symbols::DependencyValuePreservation<bray_symbols::ConstantProjectionKind>,
+    ) -> Result<(), FactQueryError> {
+        self.boolean(preservation.preserves_value());
+
+        // Selector symbols have structural identities independent of interning order.
+        let children = preservation.children().iter().collect::<Vec<_>>();
+
+        self.dependency_set(&children, |encoder, (projection, child)| {
+            encoder.constant_projection_kind(**projection)?;
+            encoder.dependency_value_preservation(child)
+        })
     }
 
     pub(in crate::compilation) fn dependency_carrier(

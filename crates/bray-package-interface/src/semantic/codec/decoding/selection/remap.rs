@@ -287,6 +287,7 @@ fn remap_dependency_contract(
                     maps.constant_term_id(transfer.input())?,
                     transfer.output().iter().cloned(),
                 )
+                .with_preservation(transfer.preservation().clone())
                 .with_condition(
                     transfer
                         .condition()

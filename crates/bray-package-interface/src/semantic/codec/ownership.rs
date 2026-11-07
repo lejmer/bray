@@ -38,6 +38,8 @@ pub(super) fn encode_owned_result(
                 for projection in transfer.output() {
                     super::encoding::value::encode_constant_projection(encoder, projection);
                 }
+
+                encode_preservation(encoder, transfer.preservation());
             }
             DependencyOwnedResult::All(values) | DependencyOwnedResult::Choice(values) => {
                 encoder.write_u32(if matches!(result, DependencyOwnedResult::All(_)) {
@@ -91,8 +93,13 @@ pub(super) fn decode_owned_result(
                     )?);
                 }
 
+                let depth = u64::try_from(pending.len()).expect("ownership nesting fits the target").saturating_add(1);
+                let preservation = decode_preservation(reader, limits, context, depth)?;
+
                 DependencyOwnedResult::Transfer(
-                    DependencyOwnedTransfer::new(input, output).with_condition(condition),
+                    DependencyOwnedTransfer::new(input, output)
+                        .with_condition(condition)
+                        .with_preservation(preservation),
                 )
             }
             3 => {
@@ -155,6 +162,59 @@ pub(super) fn decode_owned_result(
     }
 }
 
+fn encode_preservation(
+    encoder: &mut WireEncoder,
+    mask: &bray_symbols::DependencyValuePreservation<crate::InterfaceConstantProjection>,
+) {
+    let mut pending = vec![(None, mask)];
+
+    while let Some((projection, mask)) = pending.pop() {
+        if let Some(projection) = projection {
+            super::encoding::value::encode_constant_projection(encoder, projection);
+        }
+
+        encoder.write_u32(u32::from(mask.preserves_value()));
+        write_count(encoder, mask.children().len());
+        pending.extend(mask.children().iter().rev().map(|(projection, child)| (Some(projection), child)));
+    }
+}
+
+fn decode_preservation(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+    depth: u64,
+) -> Result<bray_symbols::DependencyValuePreservation<crate::InterfaceConstantProjection>, InterfaceValidationError> {
+    limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
+
+    let preserved = match read_u32(reader)? {
+        0 => false,
+        1 => true,
+        flag => return Err(super::invalid_discriminant(crate::InterfaceValidationField::Dependency, flag)),
+    };
+
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut children = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        let projection = super::decoding::value::decode_constant_projection(reader, context)?;
+
+        if children.last().is_some_and(|(previous, _)| previous >= &projection) {
+            return Err(super::invalid_value(crate::InterfaceValidationField::Dependency));
+        }
+
+        let child = decode_preservation(reader, limits, context, depth.saturating_add(1))?;
+
+        if child.preserves_value() == preserved && child.children().is_empty() {
+            return Err(super::invalid_value(crate::InterfaceValidationField::Dependency));
+        }
+
+        children.push((projection, child));
+    }
+
+    Ok(bray_symbols::DependencyValuePreservation::new(preserved, children.into_iter().collect()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{decode_owned_result, encode_owned_result};
@@ -174,7 +234,10 @@ mod tests {
                 [InterfaceConstantProjection::TupleElement(
                     SymbolOrdinal::new(output),
                 )],
-            ))
+            ).with_preservation(bray_symbols::DependencyValuePreservation::new(true, [(
+                InterfaceConstantProjection::TupleElement(SymbolOrdinal::new(0)),
+                bray_symbols::DependencyValuePreservation::none(),
+            )].into())))
         };
 
         let result = DependencyOwnedResult::choice([
@@ -214,6 +277,33 @@ mod tests {
                 .is_err()
             );
         }
+    }
+
+    #[test]
+    fn preservation_nesting_is_bounded_and_flags_are_validated() {
+        use bray_symbols::DependencyValuePreservation as Mask;
+
+        let projection = InterfaceConstantProjection::TupleElement(SymbolOrdinal::new(0));
+        let mask = Mask::new(true, [(projection.clone(), Mask::new(false, [(projection, Mask::all())].into()))].into());
+        let result = DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(InterfaceConstantTermId::new(0), [])
+            .with_preservation(mask));
+        let mut encoder = WireEncoder::new();
+
+        encode_owned_result(&mut encoder, &result);
+
+        let mut bytes = encoder.into_bytes();
+        let limits = InterfaceValidationLimits::default().with_semantic_type_depth(2);
+
+        assert!(matches!(decode_owned_result(&mut WireReader::new(&bytes), limits, &mut SemanticDecodeContext::new(limits)),
+            Err(InterfaceValidationError::ResourceLimitExceeded { limit: InterfaceLimit::SemanticTypeDepth, .. })));
+
+        let flag = bytes.len() - 8;
+
+        bytes[flag..flag + 4].copy_from_slice(&2_u32.to_le_bytes());
+
+        let limits = InterfaceValidationLimits::default();
+
+        assert!(decode_owned_result(&mut WireReader::new(&bytes), limits, &mut SemanticDecodeContext::new(limits)).is_err());
     }
 
     #[test]

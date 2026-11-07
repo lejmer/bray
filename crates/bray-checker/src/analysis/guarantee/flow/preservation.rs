@@ -39,6 +39,23 @@ impl ValuePreservation {
         mutation: StorageMutation,
         wrap: &impl Fn(&ExecutionPlace, ExecutionCondition, ExecutionCondition) -> ExecutionCondition,
     ) -> ExecutionCondition {
+        self.apply_bounded(source, place, mutation, wrap, &mut { ExecutionCondition::WORK_LIMIT })
+    }
+
+    fn apply_bounded(
+        &self,
+        source: &ExecutionCondition,
+        place: Option<&ExecutionPlace>,
+        mutation: StorageMutation,
+        wrap: &impl Fn(&ExecutionPlace, ExecutionCondition, ExecutionCondition) -> ExecutionCondition,
+        budget: &mut usize,
+    ) -> ExecutionCondition {
+        let Some(remaining) = budget.checked_sub(1) else {
+            return ExecutionCondition::Unknown;
+        };
+
+        *budget = remaining;
+
         if self.value { return source.clone(); }
 
         let mut contents = place.map_or(ExecutionCondition::Unknown, |place| {
@@ -48,7 +65,7 @@ impl ValuePreservation {
         for (projection, preservation) in &self.children {
             let child = source.clone().project(*projection);
             let child_place = place.and_then(|place| place.clone().project(&[*projection]));
-            let next = preservation.apply(&child, child_place.as_ref(), mutation, wrap);
+            let next = preservation.apply_bounded(&child, child_place.as_ref(), mutation, wrap, budget);
 
             contents = contents.with_storage_component(&[*projection], next);
         }

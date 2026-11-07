@@ -214,8 +214,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .clone()
         }));
 
-        let owners = if (!guarantees.is_empty() || !postconditions.is_empty())
-            && let Some((_, call)) = self.observation_call(invocation)
+        let owners = if let Some((_, call)) = self.observation_call(invocation)
         {
             // Completion clauses observe final contents, independently of trusted authority.
             self.prepare_call_observations(

@@ -27,7 +27,7 @@ pub(crate) fn expression_condition(
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
     current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
-    evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    evaluated: &impl Fn(BoundExpressionId) -> Option<ExecutionCondition>,
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
@@ -48,10 +48,11 @@ pub(crate) fn expression_condition(
         return ExecutionCondition::Unknown;
     };
 
-    if let Some(literal) = evaluated
-        .get(&expression)
-        .or_else(|| literals.get(&expression))
-    {
+    if let Some(value) = evaluated(expression) {
+        return value;
+    }
+
+    if let Some(literal) = literals.get(&expression) {
         // Literal payloads are immutable and shared by the expression and flow state.
         return literal.clone();
     }

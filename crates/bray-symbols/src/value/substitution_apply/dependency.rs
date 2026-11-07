@@ -305,6 +305,7 @@ impl SemanticValueStore {
                                     )?,
                                     transfer.output().iter().copied(),
                                 )
+                                .with_preservation(transfer.preservation().clone())
                                 .with_condition(
                                     transfer
                                         .condition()

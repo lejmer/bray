@@ -5902,6 +5902,39 @@ fn forwarding_a_union_owner_preserves_the_checked_payload_projection() {
 }
 
 #[test]
+fn owned_return_does_not_preserve_changed_boolean_contents() {
+    for (mutation, valid) in [("", true), ("flags.ready = false;", false)] {
+        let source = format!(
+            r#"
+            module app;
+            struct Flags {{ mut ready: bool; }}
+            func clear_flags(pos mut flags: Flags) -> Flags executes(total) {{
+                {mutation}
+                return flags;
+            }}
+            func require_old_ready() executes(total) {{
+                let flags: Flags = {{ ready = true }};
+                let changed_flags = clear_flags(flags);
+                assert(changed_flags.ready);
+            }}
+            "#,
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}
+
+#[test]
 fn returned_owner_facts_follow_only_the_active_result_payload() {
     for (mutation, valid) in [("", true), ("if change { owner.active = false; }", false)] {
         let source = format!(

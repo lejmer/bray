@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::{flow::ExecutionFlowDomain, state::ExecutionState};
-use crate::{CheckerRequestContext, ExecutionCondition};
+use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 use bray_bound_tree::StorageProjection;
-use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer};
+use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation};
 
 /// The output shape under which a checked identity transfer is available.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -77,7 +77,13 @@ impl super::check::TrustedChecks {
                         unreachable!("owned input lineage retains its formal place");
                     };
 
-                    let input = super::carriers::portable(domain.request, &ExecutionCondition::Input(place));
+                    let source = ExecutionCondition::Input(place);
+                    let terminal = transfer.output().iter().copied()
+                        .fold(result.clone(), ExecutionCondition::project);
+                    let preservation = returned_preservation(
+                        &terminal, &source, &mut { ExecutionCondition::WORK_LIMIT },
+                    );
+                    let input = super::carriers::portable(domain.request, &source);
 
                     Ok::<_, std::convert::Infallible>(
                         input
@@ -85,7 +91,7 @@ impl super::check::TrustedChecks {
                                 DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
                                     input,
                                     transfer.output().iter().copied(),
-                                ))
+                                ).with_preservation(preservation))
                             })
                             .unwrap_or_default(),
                     )
@@ -137,12 +143,17 @@ impl super::check::TrustedChecks {
         StorageProjection,
         (bray_symbols::ConstantTermId, OwnedReturnCondition),
     > {
-        let candidates = self
-            .owned_returns
-            .iter()
-            .flat_map(|returned| returned.transfers.transfers())
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let mut candidates: Vec<DependencyOwnedTransfer<StorageProjection>> = Vec::new();
+
+        for transfer in self.owned_returns.iter().flat_map(|returned| returned.transfers.transfers()) {
+            if let Some(previous) = candidates.iter_mut().find(|previous| previous.same_identity(transfer)) {
+                *previous = previous.clone().with_preservation(
+                    previous.preservation().intersection(transfer.preservation()),
+                );
+            } else {
+                candidates.push(transfer.clone());
+            }
+        }
 
         let mut shared = BTreeMap::new();
         let mut shapes = BTreeMap::new();
@@ -160,7 +171,7 @@ impl super::check::TrustedChecks {
                 let contains = returned
                     .transfers
                     .transfers()
-                    .any(|candidate| candidate == &transfer);
+                    .any(|candidate| candidate.same_identity(&transfer));
 
                 if active == Some(false) {
                     conditional = true;
@@ -199,17 +210,20 @@ impl super::check::TrustedChecks {
                 .transfers
                 .try_map(
                     &mut |transfer| {
-                        if shared.contains_key(transfer) {
+                        if shared.keys().any(|candidate| candidate.same_identity(transfer)) {
                             return Ok(DependencyOwnedResult::default());
                         }
 
-                        let shape = shapes[transfer];
+                        let (canonical, shape) = shapes.iter()
+                            .find(|(candidate, _)| candidate.same_identity(transfer))
+                            .expect("normal ownership layout retains its inferred shape");
+                        let shape = *shape;
 
                         Ok::<_, std::convert::Infallible>(DependencyOwnedResult::Transfer(
                             DependencyOwnedTransfer::new(
                                 (transfer.input(), shape),
                                 transfer.output().iter().copied(),
-                            ),
+                            ).with_preservation(canonical.preservation().clone()),
                         ))
                     },
                     &mut |condition| Ok(Some((*condition, OwnedReturnCondition::Unconditional))),
@@ -221,10 +235,71 @@ impl super::check::TrustedChecks {
                     DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
                         (transfer.input(), *shape),
                         transfer.output().iter().copied(),
-                    ))
+                    ).with_preservation(transfer.preservation().clone()))
                 },
             )))
         }))
+    }
+}
+
+fn returned_preservation(
+    terminal: &ExecutionCondition,
+    source: &ExecutionCondition,
+    budget: &mut usize,
+) -> DependencyValuePreservation<StorageProjection> {
+    let Some(remaining) = budget.checked_sub(1) else {
+        return DependencyValuePreservation::none();
+    };
+
+    *budget = remaining;
+
+    if let Some(payload) = terminal.nullable_payload_snapshot() {
+        return returned_preservation(payload, source, budget);
+    }
+
+    match terminal {
+        ExecutionCondition::Observation { owner, kind: crate::execution_guarantees::ExecutionObservationKind::Reference, .. } => {
+            // Reference equality preserves the descriptor, never reached data.
+            if owner.as_ref() == source.owner_identity() {
+                DependencyValuePreservation::all()
+            } else {
+                DependencyValuePreservation::none()
+            }
+        }
+        ExecutionCondition::Observation { contents, .. } => returned_preservation(contents, source, budget),
+        ExecutionCondition::Constructed(base, fields) => {
+            let base = returned_preservation(base, source, budget);
+            let mut children = base.children().clone();
+            let portable = fields.iter().all(|(projection, _)| {
+                ExecutionPlace::projection_kind(*projection).is_some()
+            });
+
+            for (projection, value) in fields.iter() {
+                // The mask describes inline data. Reached storage and private
+                // representation selectors cannot become portable input data.
+                if ExecutionPlace::projection_kind(*projection).is_none() {
+                    continue;
+                }
+
+                let original = source.clone().project(*projection);
+
+                children.insert(*projection, returned_preservation(value, &original, budget));
+            }
+
+            DependencyValuePreservation::new(portable && base.preserves_value(), children)
+        }
+        ExecutionCondition::Present(value) => DependencyValuePreservation::new(false, BTreeMap::from([
+            (StorageProjection::NullableValue, returned_preservation(
+                value, &source.clone().project(StorageProjection::NullableValue), budget,
+            )),
+        ])),
+        ExecutionCondition::Tagged(_, value) => {
+            let payload = returned_preservation(value, source, budget);
+
+            DependencyValuePreservation::new(false, payload.children().clone())
+        }
+        value if value == source && *value != ExecutionCondition::Unknown => DependencyValuePreservation::all(),
+        _ => DependencyValuePreservation::none(),
     }
 }
 
@@ -304,7 +379,7 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
     }
 
     match result {
-        DependencyOwnedResult::Transfer(candidate) => candidate == transfer,
+        DependencyOwnedResult::Transfer(candidate) => candidate.same_identity(transfer),
         DependencyOwnedResult::All(values) => values
             .iter()
             .any(|value| every_active_layout_transfers(domain, value, transfer, assumptions)),
