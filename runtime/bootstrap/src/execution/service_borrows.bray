@@ -1,0 +1,275 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using std.memory;
+using std.sync;
+using internal std.sync.once;
+using internal bray.runtime.bootstrap.worker;
+using internal bray.runtime.bootstrap.deadline;
+
+internal func workers(
+    pos owner: &bray.runtime.bootstrap.execution.Reference
+) -> (&bray.runtime.bootstrap.worker.Reference)?
+    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(
+        result matches none || trusted bray.runtime.bootstrap.worker.retained(
+            owner = &bray.runtime.bootstrap.worker.optional_view(&result).marker
+        )
+    )
+    executes(total)
+{
+    let cell = &(trusted domain(owner)).workers;
+
+    if let ?stored = trusted cell.try_get()
+    {
+        let project = trusted lambda(
+            pos owner: &bray.runtime.bootstrap.execution.Reference,
+            pos stored: &bray.runtime.bootstrap.worker.Reference
+        ) -> &bray.runtime.bootstrap.worker.Reference
+            requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+            ensures(trusted bray.runtime.bootstrap.worker.retained(owner = &result.marker))
+            executes(pure, total)
+        {
+            return stored;
+        };
+
+        // This execution owns the published service until its last pin retires.
+        return trusted project(owner, stored);
+    }
+
+    return none;
+}
+
+internal func deadlines(
+    pos owner: &bray.runtime.bootstrap.execution.Reference
+) -> (&bray.runtime.bootstrap.deadline.Reference)?
+    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(
+        result matches none || trusted bray.runtime.bootstrap.deadline.retained(
+            owner = bray.runtime.bootstrap.deadline.optional_view(&result)
+        )
+    )
+    executes(total)
+{
+    let cell = &(trusted domain(owner)).deadlines;
+
+    if let ?stored = trusted cell.try_get()
+    {
+        let project = trusted lambda(
+            pos owner: &bray.runtime.bootstrap.execution.Reference,
+            pos stored: &bray.runtime.bootstrap.deadline.Reference
+        ) -> &bray.runtime.bootstrap.deadline.Reference
+            requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+            ensures(trusted bray.runtime.bootstrap.deadline.retained(owner = result))
+            executes(pure, total)
+        {
+            return stored;
+        };
+
+        // This execution owns the published service until its last pin retires.
+        return trusted project(owner, stored);
+    }
+
+    return none;
+}
+
+// Retirement owns the initialized cell while its complete execution remains live.
+// Establish its value contract at extraction, before later replacement can fail.
+trusted internal func read_service<T>(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos pointer: DataPointer<std.sync.Once<T>>
+) -> std.sync.Once<T>
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.retiring(owner = owner),
+        trusted core.memory.valid_read<std.sync.Once<T>>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<std.sync.Once<T>>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<std.sync.Once<T>>(pointer = pointer),
+        trusted core.memory.aligned_for<std.sync.Once<T>>(pointer = pointer)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.retiring(owner = owner),
+        trusted std.sync.once.valid(&result.prepared.instance),
+        trusted core.memory.valid_write<std.sync.Once<T>>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<std.sync.Once<T>>(pointer = pointer)
+    )
+    uses(raw_memory)
+{
+    return trusted std.memory.read<std.sync.Once<T>>(pointer);
+}
+
+trusted internal func release_services(pos owner: &bray.runtime.bootstrap.execution.Reference)
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.retiring(owner = owner)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.retiring(owner = owner)
+    )
+    uses(raw_memory, unchecked_init)
+{
+    {
+        let take = trusted lambda(pos owner: &bray.runtime.bootstrap.execution.Reference) -> std.sync.Once<
+            bray.runtime.bootstrap.deadline.Reference
+        >
+            requires(
+                trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+                trusted bray.runtime.bootstrap.execution.retiring(owner = owner)
+            )
+            ensures(trusted std.sync.once.valid(&result.prepared.instance))
+            uses(raw_memory, unchecked_init)
+        {
+            let pointer = std.memory.address_of<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(
+                &(trusted domain(owner)).deadlines
+            );
+
+            let permit = trusted lambda(
+                pos owner: &bray.runtime.bootstrap.execution.Reference,
+                pos pointer: DataPointer<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>
+            )
+                requires(
+                    trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+                    trusted bray.runtime.bootstrap.execution.retiring(owner = owner)
+                )
+                ensures(
+                    trusted core.memory.valid_read<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(
+                        pointer = pointer,
+                        count = 1
+                    ),
+                    trusted core.memory.valid_write<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(
+                        pointer = pointer,
+                        count = 1
+                    ),
+                    trusted core.memory.initialized_as<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(
+                        pointer = pointer
+                    ),
+                    trusted core.memory.aligned_for<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(
+                        pointer = pointer
+                    )
+                )
+                executes(pure, total) {};
+
+            trusted permit(owner, pointer);
+
+            let cell = trusted read_service<bray.runtime.bootstrap.deadline.Reference>(owner, pointer);
+
+            trusted std.memory.write<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(
+                pointer,
+                trusted std.sync.Once<bray.runtime.bootstrap.deadline.Reference>.empty()
+            );
+
+            return cell;
+        };
+
+        let mut cell = trusted take(owner);
+
+        match consume trusted cell.into_inner()
+        {
+            case none {}
+            case ?service
+            {
+                let retire = trusted lambda(
+                    pos owner: &bray.runtime.bootstrap.execution.Reference,
+                    pos reference: &bray.runtime.bootstrap.deadline.Reference
+                )
+                    requires(
+                        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+                        trusted bray.runtime.bootstrap.execution.retiring(owner = owner)
+                    )
+                    ensures(
+                        trusted bray.runtime.bootstrap.deadline.retained(owner = reference),
+                        trusted bray.runtime.bootstrap.deadline.retiring(owner = reference)
+                    )
+                    executes(pure, total) {};
+
+                trusted retire(owner, &service);
+                trusted bray.runtime.bootstrap.deadline.destroy_reference(service);
+            }
+        }
+    }
+
+    {
+        let take = trusted lambda(pos owner: &bray.runtime.bootstrap.execution.Reference) -> std.sync.Once<
+            bray.runtime.bootstrap.worker.Reference
+        >
+            requires(
+                trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+                trusted bray.runtime.bootstrap.execution.retiring(owner = owner)
+            )
+            ensures(trusted std.sync.once.valid(&result.prepared.instance))
+            uses(raw_memory, unchecked_init)
+        {
+            let pointer = std.memory.address_of<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(
+                &(trusted domain(owner)).workers
+            );
+
+            let permit = trusted lambda(
+                pos owner: &bray.runtime.bootstrap.execution.Reference,
+                pos pointer: DataPointer<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>
+            )
+                requires(
+                    trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+                    trusted bray.runtime.bootstrap.execution.retiring(owner = owner)
+                )
+                ensures(
+                    trusted core.memory.valid_read<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(
+                        pointer = pointer,
+                        count = 1
+                    ),
+                    trusted core.memory.valid_write<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(
+                        pointer = pointer,
+                        count = 1
+                    ),
+                    trusted core.memory.initialized_as<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(
+                        pointer = pointer
+                    ),
+                    trusted core.memory.aligned_for<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(
+                        pointer = pointer
+                    )
+                )
+                executes(pure, total) {};
+
+            trusted permit(owner, pointer);
+
+            let cell = trusted read_service<bray.runtime.bootstrap.worker.Reference>(owner, pointer);
+
+            trusted std.memory.write<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(
+                pointer,
+                trusted std.sync.Once<bray.runtime.bootstrap.worker.Reference>.empty()
+            );
+
+            return cell;
+        };
+
+        let mut cell = trusted take(owner);
+
+        match consume trusted cell.into_inner()
+        {
+            case none {}
+            case ?service
+            {
+                let retire = trusted lambda(
+                    pos owner: &bray.runtime.bootstrap.execution.Reference,
+                    pos reference: &bray.runtime.bootstrap.worker.Reference
+                )
+                    requires(
+                        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+                        trusted bray.runtime.bootstrap.execution.retiring(owner = owner)
+                    )
+                    ensures(
+                        trusted bray.runtime.bootstrap.worker.retained(owner = &reference.marker),
+                        trusted bray.runtime.bootstrap.worker.retiring(owner = reference)
+                    )
+                    executes(pure, total) {};
+
+                trusted retire(owner, &service);
+                trusted bray.runtime.bootstrap.worker.destroy_reference(service);
+            }
+        }
+    }
+}

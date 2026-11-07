@@ -1,22 +1,25 @@
 use std::collections::BTreeSet;
 
+use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
     BorrowCapabilityId, BoundDependencyRequirement, BoundDependencySubject, StorageAccessRoot,
     StoragePlan,
 };
 
-pub(in crate::analysis) fn dependency_subjects(
+pub(in crate::analysis) fn dependency_subjects<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     requirements: &[BoundDependencyRequirement],
     storage: &StoragePlan,
 ) -> BTreeSet<BoundDependencySubject> {
     let mut subjects = BTreeSet::new();
 
-    collect_dependency_subjects(requirements, storage, &mut subjects);
+    collect_dependency_subjects(request, requirements, storage, &mut subjects);
 
     subjects
 }
 
-pub(super) fn collect_dependency_subjects(
+pub(super) fn collect_dependency_subjects<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     requirements: &[BoundDependencyRequirement],
     storage: &StoragePlan,
     subjects: &mut BTreeSet<BoundDependencySubject>,
@@ -26,11 +29,25 @@ pub(super) fn collect_dependency_subjects(
             BoundDependencyRequirement::Direct { subject, .. } => {
                 collect_subject(*subject, storage, subjects);
             }
+            BoundDependencyRequirement::Value { source, ty, .. } => {
+                // Address copies carry the source value's dependencies, not the
+                // loan used to read its container. Resolve those carried loans
+                // in the existing ownership fixed point, with the complete requirement.
+                if crate::representation::reference_kind(request, *ty)
+                    != Some(bray_symbols::DependencyReferenceKind::Address)
+                {
+                    collect_subject(
+                        BoundDependencySubject::StorageAccess(*source),
+                        storage,
+                        subjects,
+                    );
+                }
+            }
             BoundDependencyRequirement::Guarded(requirement) => {
                 let guard = requirement.guard().subject();
 
                 collect_subject(guard, storage, subjects);
-                collect_dependency_subjects(requirement.requirements(), storage, subjects);
+                collect_dependency_subjects(request, requirement.requirements(), storage, subjects);
             }
         }
     }

@@ -536,6 +536,17 @@ pub(crate) fn independent_value_type<C: CheckerRequestContext + ?Sized>(
             return Ok(false);
         }
 
+        // Logical clauses observe their enclosing context. Keep aggregate
+        // observations correlated with it instead of classifying escaping
+        // owned values, which would demand unrelated member contracts.
+        if matches!(
+            request.view().kind(),
+            bray_bound_tree::BoundUnitKind::ContractClause
+                | bray_bound_tree::BoundUnitKind::PredicateDefinition
+        ) {
+            return Ok(false);
+        }
+
         let representation = request.declared_type_representation(definition)?;
 
         if representation.value().is_recovered() || representation.diagnostics().has_errors() {

@@ -734,6 +734,16 @@ mod tests {
         );
 
         let effects = [
+            DependencyStorageEffect::UnboundedMutation {
+                kind: DependencyMutationKind::Consume,
+                access_type: Some(crate::InterfaceTypeId::new(0)),
+                ambient: true,
+            },
+            DependencyStorageEffect::UnboundedMutation {
+                kind: DependencyMutationKind::Replace(crate::InterfaceTypeId::new(0)),
+                access_type: Some(crate::InterfaceTypeId::new(0)),
+                ambient: false,
+            },
             DependencyStorageEffect::Ambient,
             DependencyStorageEffect::Unknown,
             DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(0)),
@@ -741,31 +751,38 @@ mod tests {
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Escape,
+                access_type: None,
             },
             DependencyStorageEffect::Indirect {
                 reference: subject.clone(),
                 projections: [].into(),
                 kind: DependencyMutationKind::Escape,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Write,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Clear,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Consume,
+                access_type: Some(crate::InterfaceTypeId::new(0)),
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Atomic,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(crate::InterfaceTypeId::new(0)),
+                access_type: Some(crate::InterfaceTypeId::new(0)),
             },
             DependencyStorageEffect::Indirect {
                 reference: subject.clone(),
@@ -774,6 +791,7 @@ mod tests {
                 )]
                 .into(),
                 kind: DependencyMutationKind::Retire,
+                access_type: None,
             },
         ];
 
@@ -822,7 +840,11 @@ mod tests {
 
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
-        assert_eq!(template.effects().len(), 12);
+        assert_eq!(template.effects().len(), 14);
+
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Consume, access_type: Some(ty), ambient: true }
+                if *ty == imported.types()[0])));
 
         assert_eq!(
             template.synchronous_cleanup(),

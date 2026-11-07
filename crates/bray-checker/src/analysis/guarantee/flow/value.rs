@@ -8,6 +8,23 @@ use crate::execution_guarantees::{ExecutionCondition, expression_condition};
 use super::super::state::ExecutionState;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    /// Refresh a reference's reached data without changing the reference value's identity.
+    pub(super) fn current_observation(
+        &self,
+        place: &crate::ExecutionPlace,
+        owner: ExecutionCondition,
+        contents: ExecutionCondition,
+    ) -> ExecutionCondition {
+        let reference = self.borrowed_inputs.contains(place)
+            || self.observed_types.get(place).copied().flatten().is_some_and(|ty| {
+                matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
+            });
+
+        if reference || matches!(owner, ExecutionCondition::Borrowed(_)) {
+            owner.with_referent(contents)
+        } else { ExecutionCondition::owned_value(owner, contents) }
+    }
+
     pub(in crate::analysis) fn value(
         &self,
         state: &ExecutionState,
@@ -17,6 +34,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.request.unit(),
             self.semantics,
             self.request.semantic_values(),
+            self.request.available_compiler_known_symbols(),
+            Some(self.storage),
             self.literals,
             self.pattern_conditions,
             &state.current,
@@ -46,6 +65,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.request.unit(),
             self.semantics,
             self.request.semantic_values(),
+            self.request.available_compiler_known_symbols(),
+            Some(self.storage),
             self.literals,
             self.pattern_conditions,
             &state.current,
@@ -105,8 +126,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Mutation retires the old whole-value identity. The new snapshot carries
         // only observed component values, never the retired owner's witnesses.
         (!fields.is_empty()).then(|| {
-            ExecutionCondition::Constructed(
-                std::sync::Arc::new(ExecutionCondition::Unknown),
+            ExecutionCondition::constructed(ExecutionCondition::Unknown,
                 fields.into(),
             )
         })
@@ -345,7 +365,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        let Some(path) = target.observation_path() else {
+        let Some(path) = crate::storage::storage_observation_path(
+            self.storage,
+            self.request.semantic_values(),
+            target,
+        ) else {
             return;
         };
 
@@ -360,7 +384,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        state.assign(place, value);
+        state.assign(place, value, None);
     }
 
     pub(in crate::analysis) fn task_invocations(
@@ -411,12 +435,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         call: &bray_bound_tree::SelectedCall,
     ) -> ExecutionCondition {
         if call.evaluates_defaults() {
-            self.invocation_value(state, bray_bound_tree::BoundExecutionSite::CallInput {
-                expression,
-                ordinal: bray_symbols::SymbolOrdinal::new(0),
-            })
+            self.invocation_value(
+                state,
+                bray_bound_tree::BoundExecutionSite::CallInput {
+                    expression,
+                    ordinal: bray_symbols::SymbolOrdinal::new(0),
+                },
+            )
         } else {
-            self.value(state, call.receiver().expect("selected receiver operation retains its receiver").expression())
+            self.value(
+                state,
+                call.receiver()
+                    .expect("selected receiver operation retains its receiver")
+                    .expression(),
+            )
         }
     }
 

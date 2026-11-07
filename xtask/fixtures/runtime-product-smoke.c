@@ -188,7 +188,7 @@ extern uint32_t bray_runtime_product_host_control(uintptr_t, uint32_t, HostObser
 
 static void check_shutdown_during_product_admission(void)
 {
-    static const HostDescriptor descriptor = { .abi_version = 2, .identity = {7} };
+    static const HostDescriptor descriptor = { .abi_version = 3, .identity = {7} };
     HostObservation result = {0};
 
     assert(bray_runtime_thread_attachment_enter() == 0);

@@ -27,7 +27,10 @@ mod temporal;
 pub use event::{NativeEventCallback, NativeEventReference};
 pub use task::{NativeTaskObservationGlue, NativeValueCleanupFactory};
 
-pub use activation::{NativeActivationDescriptor, NativeActivationExecution};
+pub use activation::{
+    NativeActivationDescriptor, NativeActivationExecution, NativeActivationInvocation,
+    NativeActivationOperation,
+};
 pub use numeric::{NativeComplexBits, NativeRealBits};
 pub use panic::{
     NativePanicCause, NativePanicMessage, NativePanicMessageCopy, NativePanicMessageRelease,
@@ -63,10 +66,9 @@ pub use provider::{
 pub use records::{NativeReportRecords, NativeReportSegment};
 pub use run_result::NativeRunResultLayout;
 pub use runtime::{
-    MAX_PERFORMANCE_OBSERVATION_RECORDS, NativeExecutionLane, NativeExecutionLaneResult,
-    NativeFrameActionCallback, NativeFrameAffinity, NativeFrameCancellationCallback,
-    NativeFrameCompletionMoveCallback, NativeFrameComposition, NativeFrameExit,
-    NativeFrameProgress, NativeFrameProgressKind, NativeFrameResolveCallback,
+    MAX_PERFORMANCE_OBSERVATION_RECORDS, NativeFrameActionCallback, NativeFrameAffinity,
+    NativeFrameCancellationCallback, NativeFrameCompletionMoveCallback, NativeFrameComposition,
+    NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeFrameResolveCallback,
     NativeFrameResumeCallback, NativeFrameState, NativeFrameStateCallback, NativeInactiveFrame,
     NativeInactiveFrameTransfer, NativeLaneRequirements, NativeRootHandle, NativeRootStart,
     NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback,

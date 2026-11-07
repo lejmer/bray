@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::ExecutionCondition;
 use bray_bound_tree::BoundOperator;
 use std::sync::Arc;
@@ -27,84 +28,62 @@ impl ExecutionCondition {
         }
     }
 
-    /// Identifies the complete nominal carrier within tuple, array and nullable wrappers.
-    /// The supplied type is the checked type of the root input or completion result.
-    pub fn witness_carrier(
-        &self,
-        values: &bray_symbols::SemanticValueStore,
-        mut ty: bray_symbols::TypeId,
-    ) -> Option<(Self, bray_symbols::TypeId)> {
-        let mut path = Vec::new();
-        let mut subject = self;
+    /// Retains the predicate's checked subject, or the value containing its marker or address field.
+    /// Enclosing aggregates do not replace an independently typed child owner.
+    pub fn witness_carrier(&self, containing_value: bool) -> Self {
+        let subject = self.clone().into_referent();
 
-        let mut carrier = loop {
-            match subject {
-                Self::Projection(projection, parent) => {
-                    path.push(*projection);
-                    subject = parent;
-                }
-                Self::Borrowed(parent) => subject = parent,
-                Self::Result => break Self::Result,
-                Self::Input(place) => {
-                    path.extend(place.projections.iter().rev().copied());
-
-                    let mut root = place.clone();
-
-                    root.projections = Arc::new([]);
-                    break Self::Input(root);
-                }
-                _ => return None,
-            }
-        };
-
-        for projection in path.into_iter().rev() {
-            while let bray_symbols::TypeData::Borrow { target, .. } = values.type_data(ty).as_ref()
-            {
-                ty = *target;
-            }
-
-            let data = values.type_data(ty);
-
-            ty = match (data.as_ref(), projection) {
-                (
-                    bray_symbols::TypeData::Tuple(elements),
-                    bray_symbols::ConstantProjectionKind::TupleElement(index),
-                ) => *elements
-                    .get(usize::try_from(index.raw()).expect("checked tuple ordinal fits usize"))
-                    .expect("checked carrier projection retains a tuple element"),
-                (
-                    bray_symbols::TypeData::Nullable(inner),
-                    bray_symbols::ConstantProjectionKind::NullableValue,
-                )
-                | (
-                    bray_symbols::TypeData::Array { element: inner, .. },
-                    bray_symbols::ConstantProjectionKind::ArrayElementOrdinal(_),
-                ) => *inner,
-                _ => break,
-            };
-
-            carrier = carrier.component(projection);
+        if !containing_value {
+            return subject;
         }
 
-        Some((carrier, ty))
+        match &subject {
+            Self::Input(place) if place.projections.last().is_some_and(|projection| matches!(
+                projection,
+                bray_symbols::ConstantProjectionKind::ProductField(_)
+                    | bray_symbols::ConstantProjectionKind::UnionPayloadField(_)
+            )) => {
+                let mut owner = place.clone();
+
+                owner.projections = owner.projections[..owner.projections.len() - 1].into();
+
+                Self::Input(owner)
+            }
+            Self::Projection(
+                bray_symbols::ConstantProjectionKind::ProductField(_)
+                    | bray_symbols::ConstantProjectionKind::UnionPayloadField(_),
+                parent,
+            ) => parent.as_ref().clone(),
+            value => value.clone(),
+        }
     }
 
     pub(crate) fn call(
         callable: bray_symbols::CallableInstanceData,
         implementation: Option<bray_symbols::ImplementationInstanceData>,
         witnesses: impl IntoIterator<Item = bray_symbols::ImplementationInstanceData>,
-        arguments: Vec<Self>,
+        mut arguments: Vec<Self>,
     ) -> Self {
-        if arguments.iter().any(Self::contains_unknown) {
-            Self::Unknown
-        } else {
-            Self::Call(
-                callable,
-                implementation,
-                bray_base::shared_slice(witnesses),
-                arguments.into(),
-            )
+        for argument in &mut arguments {
+            // Const calls compute from current values, independently of the
+            // loan that supplies them. Flow values retain that loan separately.
+            let value = std::mem::replace(argument, Self::Unknown).into_referent();
+
+            let value = value.current_contents().clone();
+
+            *argument = value.storage_contents().map(|(_, contents)| contents.clone()).unwrap_or(value);
+
+            if argument.contains_unknown() {
+                return Self::Unknown;
+            }
         }
+
+        Self::Call(
+            callable,
+            implementation,
+            bray_base::shared_slice(witnesses),
+            arguments.into(),
+        )
     }
 
     pub(crate) fn coerce(
@@ -113,10 +92,26 @@ impl ExecutionCondition {
         source: bray_symbols::TypeId,
         target: bray_symbols::TypeId,
     ) -> Self {
+        if matches!(values.type_data(target).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+            return self.borrowed();
+        }
+
         if source != target
             && matches!(values.type_data(target).as_ref(), bray_symbols::TypeData::Nullable(element) if *element == source)
         {
-            self.present()
+            // The nullable owns a borrow value, not the reached witness carrier.
+            // Retain that distinction when the same view is stored or forwarded.
+            let value = if matches!(
+                values.type_data(source).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            ) && !matches!(self, Self::Borrowed(_))
+            {
+                self.borrowed()
+            } else {
+                self
+            };
+
+            value.present()
         } else {
             self
         }
@@ -133,7 +128,7 @@ impl ExecutionCondition {
     pub(crate) fn matches_variant(self, variant: bray_symbols::UnionVariantSymbolId) -> Self {
         match self {
             Self::Unknown => Self::Unknown,
-            Self::Borrowed(value) => value.as_ref().clone().matches_variant(variant),
+            Self::Borrowed(value) | Self::Observation { contents: value, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => value.as_ref().clone().matches_variant(variant),
             Self::Literal(ref value)
                 if let bray_symbols::ConstantValueKind::Union {
                     variant: active, ..
@@ -142,9 +137,7 @@ impl ExecutionCondition {
                 Self::Boolean(*active == variant)
             }
             Self::Tagged(active, _) => Self::Boolean(active == variant),
-            Self::Constructed(base, fields) => Self::component_base(&base, &fields)
-                .clone()
-                .matches_variant(variant),
+            Self::Constructed(base, _) => base.as_ref().clone().matches_variant(variant),
             value => {
                 if let Some(snapshot) = value.nullable_payload_snapshot() {
                     snapshot.clone().matches_variant(variant)
@@ -206,12 +199,17 @@ impl ExecutionCondition {
             Self::Unknown => Self::Unknown,
             payload @ Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _) => {
                 if let Some(snapshot) = payload.nullable_payload_snapshot()
-                    && (matches!(snapshot, Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _))
-                        || matches!(snapshot, Self::Input(place) if place.projections.last() == Some(&bray_symbols::ConstantProjectionKind::NullableValue))) {
+                    && (matches!(
+                        snapshot,
+                        Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _)
+                    ) || matches!(snapshot, Self::Input(place) if place.projections.last() == Some(&bray_symbols::ConstantProjectionKind::NullableValue)))
+                {
                     return snapshot.clone().present();
                 }
 
-                let Self::Projection(_, value) = payload else { unreachable!() };
+                let Self::Projection(_, value) = payload else {
+                    unreachable!()
+                };
 
                 value.as_ref().clone()
             }
@@ -232,10 +230,136 @@ impl ExecutionCondition {
             return payload.clone().borrowed();
         }
 
-        if self == Self::Unknown {
-            self
-        } else {
+        if self == Self::Unknown || matches!(self, Self::Borrowed(_)) || self.current_referent().is_some() {
+            return self;
+        }
+
+        let owner = self.owner_identity();
+
+        if owner == &self {
             Self::Borrowed(Arc::new(self))
+        } else {
+            Self::reference_value(Self::Borrowed(Arc::new(owner.clone())), self)
+        }
+    }
+
+    /// Refresh reached data while retaining the reference value and its existing access.
+    pub(crate) fn with_referent(&self, contents: Self) -> Self {
+        if self == &contents { return self.clone(); }
+
+        let identity = self.owner_identity();
+
+        if *identity == Self::Unknown { return Self::Unknown; }
+
+        // The observed physical context survives a contents update. The enclosing
+        // reference retains access to that context without acquiring ownership.
+        let previous = self.clone().into_referent();
+
+        let contents = match previous {
+            Self::Observation { owner, kind: kind @ (ObservationKind::Owned | ObservationKind::Scalar), .. } => {
+                Self::observation(owner.as_ref().clone(), contents, kind)
+            }
+            _ => contents,
+        };
+
+        Self::reference_value(identity.clone(), contents)
+    }
+
+    /// Structural overlays retain the existing value's identity and ownership role.
+    pub(crate) fn constructed(
+        base: Self,
+        fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
+    ) -> Self {
+        match base {
+            Self::Observation { owner, contents, kind } => Self::observation(
+                owner.as_ref().clone(), Self::constructed(contents.as_ref().clone(), fields), kind,
+            ),
+            Self::Borrowed(contents) => Self::reference_value(
+                Self::Borrowed(Arc::clone(&contents)),
+                Self::Constructed(contents, fields),
+            ),
+            base => Self::Constructed(Arc::new(base), fields),
+        }
+    }
+
+    pub(crate) fn owned_value(owner: Self, contents: Self) -> Self {
+        Self::observation(owner, contents, ObservationKind::Owned)
+    }
+
+    pub(crate) fn reference_value(owner: Self, contents: Self) -> Self {
+        Self::observation(owner, contents, ObservationKind::Reference)
+    }
+
+    pub(crate) fn scalar_observation(owner: Self, contents: Self) -> Self {
+        let owner = owner.owner_identity().clone().into_referent().owner_identity().clone();
+
+        Self::observation(owner, contents, ObservationKind::Scalar)
+    }
+
+    pub(crate) fn observation(owner: Self, contents: Self, kind: ObservationKind) -> Self {
+        let owner = owner.owner_identity();
+
+        if kind != ObservationKind::Scalar && owner == &contents
+            || kind == ObservationKind::Reference && matches!(owner, Self::Borrowed(referent) if referent.as_ref() == &contents)
+        {
+            return owner.clone();
+        }
+
+        if matches!(&contents, Self::Observation { owner: current, kind: current_kind, .. } if current.as_ref() == owner && *current_kind == kind) {
+            return contents;
+        }
+
+        Self::Observation { owner: Arc::new(owner.clone()), contents: Arc::new(contents), kind }
+    }
+
+    pub(crate) fn observation_kind(&self) -> Option<ObservationKind> {
+        match self {
+            Self::Observation { kind, .. } => Some(*kind),
+            _ => None,
+        }
+    }
+
+    /// Reached data does not own storage. The reference value retains its access capability.
+    pub(crate) fn current_referent(&self) -> Option<&Self> {
+        match self {
+            Self::Observation { contents, kind: ObservationKind::Reference, .. } => Some(contents),
+            _ => None,
+        }
+    }
+
+    /// Value observations carry contents independently of storage identity.
+    fn current_contents(&self) -> &Self {
+        let mut current = self;
+
+        while let Self::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } = current {
+            current = contents;
+        }
+
+        current
+    }
+
+    /// A scalar storage context and its current copied contents are distinct observations.
+    pub(crate) fn storage_contents(&self) -> Option<(&Self, &Self)> {
+        match self {
+            Self::Observation { owner, contents, kind: ObservationKind::Scalar } => Some((owner, contents)),
+            _ => None,
+        }
+    }
+
+    /// Observe the referent without identifying it with the loan that supplies access.
+    fn observe_contents(&mut self) {
+        if self.current_referent().is_some() {
+            *self = Self::Borrowed(Arc::new(self.clone().into_referent()));
+        }
+    }
+
+    /// Observe the current reached value. Only checked ownership transitions may move it.
+    pub(crate) fn into_referent(self) -> Self {
+        match self {
+            Self::Borrowed(value) | Self::Observation { contents: value, kind: ObservationKind::Reference, .. } => {
+                value.as_ref().clone().into_referent()
+            }
+            value => value,
         }
     }
 
@@ -256,13 +380,17 @@ impl ExecutionCondition {
     pub(crate) fn predicate(
         predicate: bray_symbols::PredicateDefinitionSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
-        arguments: Vec<Self>,
+        mut arguments: Vec<Self>,
     ) -> Self {
-        if arguments.iter().any(Self::contains_unknown) {
-            Self::Unknown
-        } else {
-            Self::Predicate(predicate, substitution, arguments.into())
+        for argument in &mut arguments {
+            argument.observe_contents();
+
+            if argument.contains_unknown() {
+                return Self::Unknown;
+            }
         }
+
+        Self::Predicate(predicate, substitution, arguments.into())
     }
 
     pub(crate) fn field(field: bray_symbols::AnySymbolId, value: Self) -> Self {
@@ -297,6 +425,10 @@ impl ExecutionCondition {
             return self.project(StorageProjection::ElementFromStart(
                 bray_symbols::SymbolOrdinal::new(index),
             ));
+        }
+
+        if let Self::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } = self {
+            return contents.as_ref().clone().project(projection);
         }
 
         let projection = match projection {
@@ -350,6 +482,7 @@ impl ExecutionCondition {
             Self::Input(place) => Self::Input(place.component(projection)),
             // A field access through a borrow observes the referent's field,
             // rather than projecting a field from the borrow value itself.
+            Self::Observation { owner: _, contents: value, .. } => value.as_ref().clone().component(projection),
             Self::Borrowed(value) => value.as_ref().clone().component(projection),
             // Retain the nullable owner's identity when extracting its payload. Rewrapping
             // that payload can then name the acquisition witness without asserting presence.
@@ -366,9 +499,7 @@ impl ExecutionCondition {
                     .find(|(field, _)| *field == StorageProjection::NullableValue)
                     .map(|(_, value)| value.clone().component(projection))
                     .unwrap_or_else(|| {
-                        Self::component_base(base, fields)
-                            .clone()
-                            .component(ConstantProjectionKind::NullableValue)
+                        base.as_ref().clone().component(ConstantProjectionKind::NullableValue)
                             .component(projection)
                     })
             }
@@ -397,30 +528,18 @@ impl ExecutionCondition {
                 })
                 .map(|(_, value)| value.clone())
                 .unwrap_or_else(|| {
-                    Self::component_base(&base, &fields)
-                        .clone()
-                        .component(projection)
+                    base.as_ref().clone().component(projection)
                 }),
             Self::Unknown => Self::Unknown,
             value => Self::Projection(projection, Arc::new(value)),
         }
     }
 
-    fn component_base<'a>(
-        base: &'a Self,
-        fields: &'a [(bray_bound_tree::StorageProjection, Self)],
-    ) -> &'a Self {
-        fields
-            .iter()
-            .find(|(projection, _)| *projection == bray_bound_tree::StorageProjection::OwnedTarget)
-            .map(|(_, contents)| contents)
-            .unwrap_or(base)
-    }
-
     pub(crate) fn with_component(
         &self,
         path: &[bray_symbols::ConstantProjectionKind],
         value: Self,
+        storage: Option<&[bray_bound_tree::StorageProjection]>,
     ) -> Self {
         use bray_bound_tree::StorageProjection;
         use bray_symbols::ConstantProjectionKind;
@@ -429,8 +548,16 @@ impl ExecutionCondition {
             return value;
         };
 
+        if let Some(data) = self.current_referent() {
+            return self.with_referent(data.with_component(path, value, storage));
+        }
+
+        if let Self::Observation { owner, contents, kind } = self {
+            return Self::observation(owner.as_ref().clone(), contents.with_component(path, value, storage), *kind);
+        }
+
         if let Some(snapshot) = self.nullable_payload_snapshot() {
-            let updated = snapshot.with_component(path, value);
+            let updated = snapshot.with_component(path, value, storage);
 
             if updated == *snapshot {
                 return self.clone();
@@ -441,7 +568,7 @@ impl ExecutionCondition {
             };
 
             return owner
-                .with_component(&[ConstantProjectionKind::NullableValue], updated)
+                .with_component(&[ConstantProjectionKind::NullableValue], updated, storage)
                 .component(ConstantProjectionKind::NullableValue);
         }
 
@@ -453,13 +580,21 @@ impl ExecutionCondition {
             }
             ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
             ConstantProjectionKind::UnionPayloadField(field) => {
-                let Self::Constructed(_, fields) = self else {
+                // The checked storage path retains the variant even when this
+                // observation has not materialized an active payload yet.
+                let projection = storage.into_iter().flatten().find(|projection|
+                    matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field)
+                ).or_else(|| {
+                    let Self::Constructed(_, fields) = self else { return None; };
+
+                    fields.iter().find_map(|(projection, _)|
+                        matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field).then_some(projection)
+                    )
+                });
+
+                let Some(projection) = projection else {
                     return Self::Unknown;
                 };
-
-                let Some((projection, _)) = fields.iter().find(|(projection, _)|
-                    matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field)
-                ) else { return Self::Unknown; };
 
                 *projection
             }
@@ -471,7 +606,7 @@ impl ExecutionCondition {
         // Stored components contain payload data. The extraction view retains
         // its owner separately and must not become its own payload's backing.
         let previous = previous.nullable_payload_snapshot().unwrap_or(&previous);
-        let child = previous.with_component(rest, value);
+        let child = previous.with_component(rest, value, storage);
 
         if child == *previous {
             return self.clone();
@@ -489,18 +624,22 @@ impl ExecutionCondition {
             fields.sort_by_key(|(projection, _)| *projection);
         }
 
-        Self::Constructed(base, fields.into())
+        Self::constructed(base.as_ref().clone(), fields.into())
     }
 
     pub(crate) fn operation(operator: BoundOperator, mut operands: Vec<Self>) -> Self {
         for operand in &mut operands {
-            if let Self::Constructed(base, fields) = operand {
-                let contents = Self::component_base(base, fields);
+            operand.observe_contents();
 
-                if matches!(contents, Self::Literal(_) | Self::Boolean(_)) {
-                    *operand = contents.clone();
-                }
+            if matches!(operand, Self::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. }) {
+                *operand = operand.current_contents().clone();
             }
+
+            if let Self::Observation { contents: value, kind: ObservationKind::Scalar, .. } = operand
+                && matches!(value.as_ref(), Self::Literal(_) | Self::Boolean(_)) {
+                *operand = value.as_ref().clone();
+            }
+
         }
 
         if !matches!(

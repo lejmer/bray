@@ -8,6 +8,7 @@ mod owned;
 mod proof;
 mod transfers;
 
+pub(in crate::analysis) use carriers::portable_path as portable_carrier_path;
 pub(in crate::analysis) use check::TrustedChecks;
 pub(in crate::analysis) use owned::OwnedReturnCondition;
 

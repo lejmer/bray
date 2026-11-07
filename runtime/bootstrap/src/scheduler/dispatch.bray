@@ -45,8 +45,90 @@ trusted internal func acquisition(
 ) -> u32
     requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
+    let selected = acquire(&owner, thread, lanes);
+
+    if let ?chosen = selected
+    {
+        trusted bray.runtime.bootstrap.host.product.publish_provider<Observation>(output, chosen);
+        return 1;
+    }
+
+    return 0;
+}
+
+@abi(c)
+trusted internal func release(
+    pos pointer: DataPointer<Reference>,
+    pos registration: u64,
+    pos lane_pointer: DataPointer<Lane>,
+    pos cancellation: u32,
+    pos now: u64
+) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted lane_slot(pointer = lane_pointer))
+    uses(intrinsic)
+{
+    let lane = trusted read_lane(lane_pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
+
+    return trusted release_registration(&owner, registration, lane, cancellation, now);
+}
+
+@abi(c)
+trusted internal func snapshot(
+    pos pointer: DataPointer<Reference>,
+    pos registration: u64,
+    pos output: DataPointer<Observation>
+) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let owner = trusted borrow_reference(&pointer, pointer);
     let value = trusted domain(&owner);
+
+    let result =
+    {
+        let mut guard = trusted lock(value);
+        let state = trusted guard.get();
+        let index = trusted index_of(state, registration);
+
+        if index == 0
+        {
+            return 2;
+        }
+
+        yield trusted observation(state, index);
+    };
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<Observation>(output, result);
+    return 0;
+}
+
+// The native caller lends one initialized immutable lane value through return.
+trusted internal predicate lane_slot(pointer: DataPointer<Lane>);
+
+trusted internal func read_lane(pos pointer: DataPointer<Lane>) -> Lane
+    requires(trusted lane_slot(pointer = pointer))
+    executes(pure, total)
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos pointer: DataPointer<Lane>)
+        requires(trusted lane_slot(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Lane>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Lane>(pointer = pointer),
+            trusted core.memory.initialized_as<Lane>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer);
+    return trusted std.memory.read<Lane>(pointer);
+}
+
+internal func acquire(pos owner: &Reference, pos thread: u64, pos lanes: u32) -> Observation?
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    let value = trusted domain(owner);
 
     let selected: Observation? =
     {
@@ -55,7 +137,7 @@ trusted internal func acquisition(
 
         if state.running == value.limit
         {
-            return 0;
+            return none;
         }
 
         let mut queue_index = state.head;
@@ -101,29 +183,21 @@ trusted internal func acquisition(
         yield completed;
     };
 
-    if let ?chosen = selected
-    {
-        trusted bray.runtime.bootstrap.host.product.publish_provider<Observation>(output, chosen);
-        return 1;
-    }
-
-    return 0;
+    return selected;
 }
 
-@abi(c)
-trusted internal func release(
-    pos pointer: DataPointer<Reference>,
+trusted internal func release_registration(
+    pos owner: &Reference,
     pos registration: u64,
-    pos lane_pointer: DataPointer<Lane>,
+    pos lane: Lane,
     pos cancellation: u32,
     pos now: u64
 ) -> u32
-    requires(trusted reference_slot(pointer = pointer), trusted lane_slot(pointer = lane_pointer))
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
     uses(intrinsic)
 {
-    let lane = trusted read_lane(lane_pointer);
-    let owner = trusted read_reference(pointer);
-    let value = trusted domain(&owner);
+    let value = trusted domain(owner);
 
     let notifications: u32 =
     {
@@ -169,54 +243,4 @@ trusted internal func release(
 
     trusted notify(value, notifications);
     return 0;
-}
-
-@abi(c)
-trusted internal func snapshot(
-    pos pointer: DataPointer<Reference>,
-    pos registration: u64,
-    pos output: DataPointer<Observation>
-) -> u32
-    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
-{
-    let owner = trusted read_reference(pointer);
-    let value = trusted domain(&owner);
-
-    let result =
-    {
-        let mut guard = trusted lock(value);
-        let state = trusted guard.get();
-        let index = trusted index_of(state, registration);
-
-        if index == 0
-        {
-            return 2;
-        }
-
-        yield trusted observation(state, index);
-    };
-
-    trusted bray.runtime.bootstrap.host.product.publish_provider<Observation>(output, result);
-    return 0;
-}
-
-// The native caller lends one initialized immutable lane value through return.
-trusted internal predicate lane_slot(pointer: DataPointer<Lane>);
-
-trusted internal func read_lane(pos pointer: DataPointer<Lane>) -> Lane
-    requires(trusted lane_slot(pointer = pointer))
-    executes(pure, total)
-    uses(raw_memory)
-{
-    let permit = trusted lambda(pos pointer: DataPointer<Lane>)
-        requires(trusted lane_slot(pointer = pointer))
-        ensures(
-            trusted core.memory.valid_read<Lane>(pointer = pointer, count = 1),
-            trusted core.memory.aligned_for<Lane>(pointer = pointer),
-            trusted core.memory.initialized_as<Lane>(pointer = pointer)
-        )
-        executes(pure, total) {};
-
-    trusted permit(pointer);
-    return trusted std.memory.read<Lane>(pointer);
 }

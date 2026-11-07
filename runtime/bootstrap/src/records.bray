@@ -8,6 +8,7 @@ using std.memory;
 using std.memory.function;
 using internal bray.runtime.bootstrap.pool;
 using internal bray.runtime.bootstrap.provider;
+using internal bray.runtime.bootstrap.host;
 
 @layout(c)
 internal struct ReportPrimary
@@ -132,6 +133,9 @@ trusted internal func stored_primary(pos primary: ReportPrimary) -> StoredReport
         release_message = release,
         provider =
         {
+            acquisition = bray.runtime.bootstrap.provider.Acquisition
+            {
+            },
             context = primary.provider_context,
             callbacks = trusted core.target.from_exposed_address<bray.runtime.bootstrap.provider.Callbacks>(
                 address = primary.provider_callbacks

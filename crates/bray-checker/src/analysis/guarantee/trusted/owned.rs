@@ -21,6 +21,12 @@ pub(super) struct OwnedReturn {
     transfers: DependencyOwnedResult<StorageProjection>,
 }
 
+impl OwnedReturn {
+    pub(super) fn excludes(&self, path: &[StorageProjection]) -> bool {
+        activity(&self.value, path, &self.assumptions).0 == Some(false)
+    }
+}
+
 impl super::check::TrustedChecks {
     pub(super) fn collect_owned_return<C: CheckerRequestContext + ?Sized>(
         &mut self,
@@ -35,6 +41,18 @@ impl super::check::TrustedChecks {
         {
             return;
         }
+
+        let result_type = domain.semantics.types().callable_result_type().unwrap_or_else(|| {
+            let crate::CheckerUnitRoot::Expression(root) = domain.request.root() else {
+                unreachable!("a non-callable value producer retains its expression root");
+            };
+
+            domain.semantics.types().expression(root)
+                .expect("checked default or constant producer retains its result type").ty()
+        });
+
+        let result = result.clone().coerce(domain.request.semantic_values(), result_type, result_type);
+        let result = &result;
 
         let mut returned = OwnedReturn {
             value: result.clone(),
@@ -59,14 +77,7 @@ impl super::check::TrustedChecks {
                         unreachable!("owned input lineage retains its formal place");
                     };
 
-                    let input = (!domain
-                        .borrowed_inputs
-                        .iter()
-                        .any(|borrow| borrow.contains(&place)))
-                    .then(|| {
-                        super::carriers::portable(domain.request, &ExecutionCondition::Input(place))
-                    })
-                    .flatten();
+                    let input = super::carriers::portable(domain.request, &ExecutionCondition::Input(place));
 
                     Ok::<_, std::convert::Infallible>(
                         input
@@ -218,7 +229,7 @@ impl super::check::TrustedChecks {
 }
 
 /// An inactive alternative owns no payload and imposes no input-identity requirement.
-fn activity(
+pub(super) fn activity(
     result: &ExecutionCondition,
     path: &[StorageProjection],
     assumptions: &BTreeSet<(ExecutionCondition, bool)>,

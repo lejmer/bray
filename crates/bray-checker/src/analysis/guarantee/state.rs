@@ -51,6 +51,7 @@ pub(super) fn update_parent_observations(
     observations: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     place: &crate::ExecutionPlace,
     value: &ExecutionCondition,
+    storage: Option<&[bray_bound_tree::StorageProjection]>,
 ) {
     for length in 0..place.projections.len() {
         let mut parent = place.clone();
@@ -58,7 +59,8 @@ pub(super) fn update_parent_observations(
         parent.projections = place.projections[..length].into();
 
         if let Some(snapshot) = observations.get_mut(&parent) {
-            *snapshot = snapshot.with_component(&place.projections[length..], value.clone());
+            *snapshot =
+                snapshot.with_component(&place.projections[length..], value.clone(), storage);
         }
     }
 }
@@ -296,16 +298,18 @@ impl ExecutionState {
             })
     }
 
-    pub(super) fn is_witness(&self, value: &ExecutionCondition) -> bool {
-        self.witnesses.keys().any(|carrier| {
-            self.owned_values(value)
-                .any(|value| carrier.is_owned_projection_of(&value))
-                && self.directly_carries_witness(carrier)
-        })
+    pub(super) fn owns_witness(&self, value: &ExecutionCondition) -> bool {
+        self.witnesses.keys()
+            .filter(|carrier| !matches!(carrier.owner_identity(), ExecutionCondition::Borrowed(_)))
+            .any(|carrier| {
+                self.owned_values(value)
+                    .any(|value| carrier.is_owned_projection_of(&value))
+                    && self.directly_carries_witness(carrier)
+            })
     }
 
     pub(super) fn witness_projection(&self, value: &ExecutionCondition) -> (bool, bool) {
-        let mut whole = self.is_witness(value);
+        let mut whole = self.owns_witness(value);
         let mut partial = false;
         let mut projected_part = false;
         let mut value = value;
@@ -417,7 +421,11 @@ impl ExecutionState {
                     })
                     .collect();
 
-                *value = ExecutionCondition::Constructed(std::sync::Arc::clone(identity), fields);
+                *value = ExecutionCondition::constructed(identity.as_ref().clone(), fields);
+            } else if let ExecutionCondition::Observation { owner, kind, .. } = value
+                && !stale(owner)
+            {
+                *value = ExecutionCondition::observation(owner.as_ref().clone(), ExecutionCondition::Unknown, *kind);
             } else {
                 *value = ExecutionCondition::Unknown;
             }
@@ -431,32 +439,29 @@ impl ExecutionState {
         // Ordered paths visit parents before children. Keep containing snapshots
         // consistent with surviving fields before a later whole-value capture.
         for (place, value) in updated_places {
-            update_parent_observations(&mut self.current, &place, &value);
+            update_parent_observations(&mut self.current, &place, &value, None);
         }
     }
 
     pub(super) fn invalidate_cleanup(
         &mut self,
-        stable_values: &BTreeSet<ExecutionCondition>,
+        stable_values: &crate::execution_guarantees::ObservationSet,
         stable_owners: &BTreeSet<ExecutionCondition>,
     ) {
         self.refine_witnesses();
 
         self.assumptions.retain(|(condition, _)| {
-            !condition.observes_live(None) || condition.observes_only(stable_values)
+            !condition.observes_live(None) || condition.observes_only(|value| stable_values.preserves(value))
         });
 
         let mut retained = BTreeSet::new();
 
         self.witnesses.retain(|carrier, witness| {
-            if !stable_owners
-                .iter()
-                .any(|owner| carrier.is_owned_projection_of(owner))
-            {
+            if !stable_owners.iter().any(|owner| carrier.is_owned_projection_of(owner)) {
                 return false;
             }
 
-            witness.retain_conditions(|condition, _| condition.observes_only(stable_values));
+            witness.retain_conditions(|condition, _| condition.observes_only(|value| stable_values.preserves(value)));
 
             for condition in witness.conditions.keys().filter(|_| witness.available) {
                 condition.clone().assume(true, &mut retained);
@@ -466,18 +471,22 @@ impl ExecutionState {
         });
 
         // Opaque predicates cannot observe mutable state absent from their arguments.
-        // Preserve established facts with no observations, without creating new evidence.
-        let no_values = BTreeSet::new();
-
+        // Preserve established facts with no observations and unchanged ordinary
+        // guards. A predicate observing a value still needs its complete witness.
         let preserves = |fact: &(ExecutionCondition, bool)| {
-            retained.contains(fact) || fact.0.observes_only(&no_values)
+            retained.contains(fact) || fact.0.observes_only(|_| false)
+                || (fact.0.observes_only(|value| stable_values.preserves(value))
+                    && fact.0.observations().all(|value| {
+                        !matches!(value, ExecutionCondition::Predicate(_, _, _) | ExecutionCondition::Call(_, _, _, _))
+                            || value.observes_only(|_| false)
+                    }))
         };
 
         // Private moved inputs retain historical entry facts while child execution
         // owns their authority. Completion still requires their surviving live witness.
         let preserves_owned = |fact: &(ExecutionCondition, bool), owners: &[ExecutionCondition]| {
             preserves(fact)
-                || (fact.0.observes_only(stable_values)
+                || (fact.0.observes_only(|value| stable_values.preserves(value))
                     && fact.0.observations().any(|value| {
                         owners
                             .iter()
@@ -488,10 +497,8 @@ impl ExecutionState {
         self.trusted_assumptions.retain(preserves);
 
         self.allocation_owners.retain(|condition, owner| {
-            condition.observes_only(stable_values)
-                && stable_owners
-                    .iter()
-                    .any(|stable| owner.is_owned_projection_of(stable))
+            condition.observes_only(|value| stable_values.preserves(value))
+                && stable_owners.iter().any(|stable| owner.is_owned_projection_of(stable))
         });
 
         for entry in self.pending_entries_mut(&|entry| {
@@ -501,11 +508,11 @@ impl ExecutionState {
                 || entry
                     .copy_sources
                     .values()
-                    .any(|value| !value.observes_only(stable_values))
+                    .any(|value| !value.observes_only(|value| stable_values.preserves(value)))
                 || entry
                     .assumptions
                     .iter()
-                    .any(|(condition, _)| !condition.observes_only(stable_values))
+                    .any(|(condition, _)| !condition.observes_only(|value| stable_values.preserves(value)))
                 || entry
                     .trusted_assumptions
                     .iter()
@@ -515,11 +522,11 @@ impl ExecutionState {
 
             entry
                 .copy_sources
-                .retain(|_, value| value.observes_only(stable_values));
+                .retain(|_, value| value.observes_only(|value| stable_values.preserves(value)));
 
             entry
                 .assumptions
-                .retain(|(condition, _)| condition.observes_only(stable_values));
+                .retain(|(condition, _)| condition.observes_only(|value| stable_values.preserves(value)));
 
             entry
                 .trusted_assumptions
@@ -542,7 +549,7 @@ impl ExecutionState {
             |value: &ExecutionCondition| value.with_joined_values(replacements, identities);
 
         let rename_identity =
-            |value: &ExecutionCondition| value.with_joined_values(identities, identities);
+            |value: &ExecutionCondition| value.with_joined_owners(replacements, identities);
 
         for facts in [&mut self.assumptions, &mut self.trusted_assumptions] {
             let mut renamed = BTreeSet::new();
@@ -624,7 +631,12 @@ impl ExecutionState {
         }
     }
 
-    pub(super) fn assign(&mut self, place: crate::ExecutionPlace, value: ExecutionCondition) {
+    pub(super) fn assign(
+        &mut self,
+        place: crate::ExecutionPlace,
+        value: ExecutionCondition,
+        storage: Option<&[bray_bound_tree::StorageProjection]>,
+    ) {
         let replaced = self
             .current
             .range(place.clone()..)
@@ -636,7 +648,7 @@ impl ExecutionState {
             self.current.remove(&observed);
         }
 
-        update_parent_observations(&mut self.current, &place, &value);
+        update_parent_observations(&mut self.current, &place, &value, storage);
 
         self.current.insert(place, value);
     }
@@ -652,8 +664,179 @@ mod tests {
     use super::ExecutionState;
     use crate::{ExecutionCondition, ExecutionPlace};
 
+    #[test]
+    fn retirement_respects_the_retained_loan_context() {
+        let owner = input(0);
+        let loan = owner.clone().borrowed();
+        let mut state = ExecutionState::default();
+
+        state.assumptions.insert((loan.clone(), true));
+        state.retire_trusted_values([owner.clone()], &BTreeSet::from([loan.clone()]));
+
+        assert!(state.assumptions.contains(&(loan.clone(), true)));
+
+        state.retire_trusted_values([owner], &BTreeSet::new());
+
+        assert!(!state.assumptions.contains(&(loan, true)));
+    }
+
+    #[test]
+    fn known_value_writes_revoke_only_borrowed_authority_on_the_changed_storage() {
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
+            "ValidRead",
+        );
+
+        let condition = |value| {
+            ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
+                symbol.into(),
+                crate::test_support::empty_substitution(symbol.into()),
+                vec![value],
+            )))
+        };
+
+        for scalar in [false, true] {
+        let storage = |owner| {
+            if scalar {
+                return ExecutionCondition::scalar_observation(input(owner), input(4)).borrowed();
+            }
+
+            ExecutionCondition::owned_value(input(owner), input(4)).borrowed()
+        };
+
+        let observed = condition(storage(0));
+        let other = condition(storage(1));
+        let copied_value = condition(input(0));
+        let mut state = ExecutionState::default();
+
+        for (owner, condition) in [
+            (input(0), &observed),
+            (input(1), &other),
+            (input(2), &copied_value),
+        ] {
+            state.carry_guarantee(owner, condition.clone());
+            state.trusted_assumptions.insert((condition.clone(), true));
+        }
+
+        state.invalidate_contents(
+            &[ExecutionPlace::argument(SymbolOrdinal::new(0))].into(),
+            [ExecutionCondition::Boolean(true)],
+            &BTreeSet::new(),
+            &crate::execution_guarantees::ObservationSet::default(),
+        );
+
+        assert!(!state.trusted_assumptions.contains(&(observed, true)));
+        assert!(state.trusted_assumptions.contains(&(other, true)));
+        assert!(state.trusted_assumptions.contains(&(copied_value, true)));
+        assert!(!state.witnesses.contains_key(&input(0)));
+        assert!(state.witnesses.contains_key(&input(1)));
+        assert!(state.witnesses.contains_key(&input(2)));
+        }
+    }
+
+    #[test]
+    fn a_transferred_tag_preserves_guards_without_preserving_mutable_payloads() {
+        let owner = input(0);
+        let observed = owner.clone().borrowed();
+
+        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            crate::test_support::error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+
+        let guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual, vec![observed.clone(), absent]);
+        let payload = observed.clone().component(ConstantProjectionKind::NullableValue).borrowed();
+        let mut state = ExecutionState::default();
+
+        state.assumptions.extend([(guard.clone(), true), (payload.clone(), true)]);
+        state.trusted_assumptions.extend([(guard.clone(), true), (payload.clone(), true)]);
+        state.carry_guarantee(owner.clone(), guard.clone());
+        state.carry_guarantee(owner.clone(), payload.clone());
+
+        let mut retained = crate::execution_guarantees::ObservationSet::default();
+
+        retained.insert_classified(observed, bray_bound_tree::StorageObservationKind::Discriminant);
+        state.invalidate_contents(&BTreeSet::new(), [owner.clone()], &BTreeSet::new(), &retained);
+        assert!(state.assumptions.contains(&(guard.clone(), true)));
+        assert_eq!(guard.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
+        assert!(!state.assumptions.contains(&(payload.clone(), true)));
+        assert!(!state.trusted_assumptions.contains(&(payload, true)));
+    }
+
+    #[test]
+    fn cleanup_keeps_observation_free_guarantees_with_unchanged_guards() {
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
+            "ValidWrite",
+        );
+
+        let substitution = crate::test_support::empty_substitution(symbol.into());
+
+        let predicate = |arguments: Vec<_>| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::Predicate(symbol.into(), substitution, arguments.into()),
+        ));
+
+        let guard = input(0);
+        let independent = predicate(Vec::new());
+
+        let guarded = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr,
+            vec![guard.clone(), independent.clone()]);
+
+        let observed = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr,
+            vec![guard.clone(), predicate(vec![input(1).borrowed()])]);
+
+        for unchanged in [false, true] {
+            let mut state = ExecutionState::default();
+
+            state.trusted_assumptions.extend([
+                (independent.clone(), true), (guarded.clone(), true), (observed.clone(), true),
+            ]);
+
+            let stable = if unchanged {
+                BTreeSet::from([guard.clone(), input(1).borrowed()])
+            } else { BTreeSet::new() };
+
+            state.invalidate_cleanup(
+                &stable.iter().cloned().collect(), &BTreeSet::new());
+
+            assert!(state.trusted_assumptions.contains(&(independent.clone(), true)));
+            assert_eq!(state.trusted_assumptions.contains(&(guarded.clone(), true)), unchanged);
+            assert!(!state.trusted_assumptions.contains(&(observed.clone(), true)));
+        }
+    }
+
     fn input(ordinal: u32) -> ExecutionCondition {
         ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)))
+    }
+
+    #[test]
+    fn cleanup_requires_the_complete_carrier_to_survive() {
+        let owner = input(0);
+        let marker = owner.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+
+        let condition = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+            symbol.into(),
+            crate::test_support::empty_substitution(symbol.into()),
+            [marker.clone().borrowed()].into(),
+        )));
+
+        for complete in [false, true] {
+            let mut state = ExecutionState::default();
+
+            state.carry_guarantee(owner.clone(), condition.clone());
+            state.trusted_assumptions.insert((condition.clone(), true));
+
+            state.invalidate_cleanup(
+                &[marker.clone(), marker.clone().borrowed()].into_iter().collect(),
+                &BTreeSet::from([if complete { owner.clone() } else { marker.clone() }]),
+            );
+
+            assert_eq!(state.witnesses.contains_key(&owner), complete);
+            assert_eq!(state.trusted_assumptions.contains(&(condition.clone(), true)), complete);
+
+            state.invalidate_trusted(&owner);
+
+            assert!(state.witnesses.is_empty());
+            assert!(!state.trusted_assumptions.contains(&(condition.clone(), true)));
+        }
     }
 
     fn permission(ordinal: u32) -> ExecutionCondition {
@@ -907,6 +1090,56 @@ mod tests {
     }
 
     #[test]
+    fn referent_writes_preserve_nullable_owner_guards_and_retire_access_claims() {
+        let carrier = input(0);
+        let payload = carrier.clone().component(ConstantProjectionKind::NullableValue);
+        let marker = payload.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+        let pointer = payload.component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
+
+        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            crate::test_support::error_type(),
+            bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+
+        let guard = ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::Equal,
+            vec![carrier.clone(), absent],
+        );
+
+        let guarded = |subject| ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::LogicalOr,
+            vec![guard.clone(), permission(1).with_equalities(&[(input(1), subject)].into())],
+        );
+
+        let ownership = guarded(ExecutionCondition::Borrowed(Arc::new(marker)));
+        let access = guarded(pointer.clone());
+        let mut state = ExecutionState::default();
+
+        for condition in [&ownership, &access] {
+            condition.clone().assume(true, &mut state.trusted_assumptions);
+            state.carry_guarantee(carrier.clone(), condition.clone());
+        }
+
+        state.invalidate_referents(
+            &[pointer],
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+                &Default::default(),
+        );
+
+        assert!(state.trusted_assumptions.contains(&(ownership.clone(), true)));
+        assert!(state.witnesses[&carrier].conditions.contains_key(&ownership));
+        assert!(!state.trusted_assumptions.contains(&(access.clone(), true)));
+        assert!(!state.witnesses[&carrier].conditions.contains_key(&access));
+
+        state.invalidate_contents(&BTreeSet::new(), [carrier], &BTreeSet::new(),
+                &Default::default());
+
+        assert!(!state.trusted_assumptions.contains(&(ownership, true)));
+    }
+
+    #[test]
     fn guarded_refinement_preserves_only_the_derived_clauses_address_dependencies() {
         for select_marker in [false, true] {
             let carrier = input(20);
@@ -1133,8 +1366,7 @@ mod tests {
 
         state.current.insert(
             place.clone(),
-            ExecutionCondition::Constructed(
-                Arc::new(old.clone()),
+            ExecutionCondition::constructed(old.clone(),
                 [(marker, unchanged.clone()), (payload, old.clone())].into(),
             ),
         );
@@ -1175,11 +1407,11 @@ mod tests {
         assert_eq!(current.clone().project(marker), unchanged);
         assert_eq!(current.project(payload), ExecutionCondition::Unknown);
 
-        state.assign(place, old.clone());
+        state.assign(place, old.clone(), None);
 
-        assert!(!state.is_witness(&old));
+        assert!(!state.owns_witness(&old));
         assert!(!state.trusted_assumptions.contains(&(old, true)));
-        assert!(state.is_witness(&sibling));
+        assert!(state.owns_witness(&sibling));
         assert!(state.trusted_assumptions.contains(&(sibling, true)));
         assert!(state.entries[&occurrence].arguments.is_empty());
         assert!(state.entries[&occurrence].trusted_assumptions.is_empty());
@@ -1219,7 +1451,7 @@ mod tests {
             &BTreeSet::from([owner]),
             [carrier.clone()],
             &BTreeSet::new(),
-            &BTreeSet::from([marker]),
+                &[marker].into_iter().collect(),
         );
 
         assert_eq!(
@@ -1274,7 +1506,7 @@ mod tests {
             &BTreeSet::from([owner.clone()]),
             [input(0)],
             &stable,
-            &BTreeSet::new(),
+                &Default::default(),
         );
 
         assert_eq!(
@@ -1302,7 +1534,10 @@ mod tests {
 
         state.witnesses.clear();
         state.carry_guarantee(external.clone(), spatial.clone());
-        state.invalidate_contents(&BTreeSet::new(), [external], &stable, &BTreeSet::new());
+
+        state.invalidate_contents(&BTreeSet::new(), [external], &stable,
+                &Default::default());
+
         assert!(state.trusted_assumptions.is_empty());
 
         assert!(
@@ -1316,7 +1551,10 @@ mod tests {
 
         overwritten.carry_guarantee(carrier.clone(), spatial.clone());
         overwritten.trusted_assumptions.insert((spatial, true));
-        overwritten.invalidate_contents(&BTreeSet::new(), [carrier], &stable, &BTreeSet::new());
+
+        overwritten.invalidate_contents(&BTreeSet::new(), [carrier], &stable,
+                &Default::default());
+
         assert!(overwritten.trusted_assumptions.is_empty());
     }
 
@@ -1355,7 +1593,7 @@ mod tests {
             &BTreeSet::from([owner.clone()]),
             [input(0)],
             &BTreeSet::from([symbol.into()]),
-            &BTreeSet::new(),
+                &Default::default(),
         );
 
         assert_eq!(state.trusted_assumptions, BTreeSet::from([(spatial, true)]));
@@ -1480,7 +1718,7 @@ mod tests {
                     ]),
                     [input(1), input(256)],
                     &BTreeSet::new(),
-                    &BTreeSet::new(),
+                &Default::default(),
                 );
 
                 assert!(state.trusted_assumptions.contains(&(input(2), true)));
@@ -1631,12 +1869,12 @@ mod tests {
         state.carry_guarantee(child.clone(), parent.clone());
         state.trusted_assumptions.insert((parent.clone(), true));
 
-        assert!(state.is_witness(&child));
-        assert!(!state.is_witness(&sibling));
+        assert!(state.owns_witness(&child));
+        assert!(!state.owns_witness(&sibling));
 
         state.assumptions.insert((parent.clone(), true));
 
-        assert!(!state.is_witness(&child));
+        assert!(!state.owns_witness(&child));
 
         state.assumptions.clear();
 
@@ -1648,7 +1886,7 @@ mod tests {
             true,
         )]);
 
-        assert!(!state.is_witness(&child));
+        assert!(!state.owns_witness(&child));
 
         let live = ExecutionCondition::Entry {
             condition: Arc::new(parent),
@@ -1662,14 +1900,13 @@ mod tests {
         state.carry_guarantee(child.clone(), live.clone());
         state.trusted_assumptions = BTreeSet::from([(live, true)]);
 
-        assert!(state.is_witness(&child));
+        assert!(state.owns_witness(&child));
     }
     #[test]
     fn retiring_a_carrier_revokes_its_unobserved_guarantee_but_keeps_moved_children() {
         let child = input(1);
 
-        let owner = ExecutionCondition::Constructed(
-            Arc::new(input(0)),
+        let owner = ExecutionCondition::constructed(input(0),
             [(
                 bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)),
                 child.clone(),
@@ -1698,7 +1935,7 @@ mod tests {
                 .is_none_or(|witness| witness.conditions.is_empty())
         );
 
-        assert!(state.is_witness(&child));
+        assert!(state.owns_witness(&child));
         assert!(!state.trusted_assumptions.contains(&(owner_condition, true)));
         assert!(state.trusted_assumptions.contains(&(child_condition, true)));
     }

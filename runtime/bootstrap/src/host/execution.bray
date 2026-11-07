@@ -1,0 +1,205 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal std.thread;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host.attachment;
+
+// Execution uses the resident host's key. Creating it is demand driven, so an
+// ordinary synchronous product never acquires an execution TLS resource.
+trusted internal func prepare_execution_key(pos attachment: &bray.runtime.bootstrap.host.attachment.Owner) -> u32
+    requires(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment), attachment.status == 0)
+    ensures(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment))
+    uses(raw_memory, unchecked_init, unchecked_alias)
+{
+    let authorize = trusted lambda(pos attachment: &bray.runtime.bootstrap.host.attachment.Owner)
+        requires(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment), attachment.status == 0)
+        ensures(trusted execution_key_access())
+        executes(pure, total) {};
+
+    trusted authorize(attachment);
+    return trusted prepare_execution_storage();
+}
+
+trusted internal predicate execution_key_access();
+
+trusted internal func prepare_execution_storage() -> u32
+    requires(trusted execution_key_access())
+    uses(raw_memory, unchecked_init, unchecked_alias)
+{
+    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+        trusted bray.runtime.bootstrap.domain.synchronization_storage(),
+        trusted synchronization_pointer()
+    );
+
+    if core.atomic.load<u64, 1>(&synchronization.execution_key) != 0
+    {
+        return 0;
+    }
+
+    let lease = trusted host_access();
+
+    if !lease.active
+    {
+        return 4;
+    }
+
+    let mut anchor = trusted host_anchor(&lease);
+    let host = trusted host_value(&lease, &mut anchor);
+
+    if let ?storage = host.storage
+    {
+        if storage.execution_key matches ?_
+        {
+            return if core.atomic.load<u64, 1>(&synchronization.execution_key) != 0
+            {
+                yield 0;
+            }
+            else
+            {
+                yield 4;
+            };
+        }
+
+        // This platform operation neither allocates Bray values nor invokes
+        // callbacks. Serialize creation here, without speculative spare keys.
+        let mut key: u64 = 0;
+
+        let created = trusted internal std.thread.platform_thread_storage_create(
+            trusted bray.runtime.bootstrap.thread.destruction.context_destructor_address(),
+            std.memory.address_of_mut<u64>(&mut key)
+        );
+
+        if created.category != 0
+        {
+            return 4;
+        }
+
+        storage.execution_key = key;
+
+        if key == std.numeric.U64_MAX
+        {
+            return 4;
+        }
+
+        core.atomic.store<u64, 2>(&synchronization.execution_key, key + 1);
+        return 0;
+    }
+
+    return 4;
+}
+
+// The reader count also protects an unattached foreign entry while it clears
+// or restores an enclosing execution slot. Host retirement never waits on it.
+trusted internal func execution_context(pos replacement: DataPointer<u8>?) -> Result<DataPointer<u8>, u32>
+    uses(raw_memory, unchecked_init, unchecked_alias)
+{
+    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+        trusted bray.runtime.bootstrap.domain.synchronization_storage(),
+        trusted synchronization_pointer()
+    );
+
+    if core.atomic.load<u64, 4>(&synchronization.execution_key) == 0
+    {
+        return trusted execution_context_key(0, replacement);
+    }
+
+    _ = core.atomic.fetch_add<u64, 4>(&synchronization.control_readers, 1);
+
+    let key = core.atomic.load<u64, 4>(&synchronization.execution_key);
+    let result = trusted execution_context_key(key, replacement);
+
+    _ = core.atomic.fetch_sub<u64, 4>(&synchronization.control_readers, 1);
+
+    return result;
+}
+
+trusted internal func execution_context_key(
+    pos key: u64,
+    pos replacement: DataPointer<u8>?
+) -> Result<DataPointer<u8>, u32>
+    uses(raw_memory, unchecked_init)
+{
+    if key == 0
+    {
+        if let ?pointer = replacement
+        {
+            if !std.memory.is_null<u8>(pointer)
+            {
+                return Error(1);
+            }
+        }
+
+        return Ok(std.memory.null<u8>());
+    }
+
+    let mut previous: DataPointer<u8> = std.memory.null<u8>();
+
+    let loaded = trusted internal std.thread.platform_thread_storage_load(
+        key - 1,
+        std.memory.address_of_mut<DataPointer<u8>>(&mut previous)
+    );
+
+    if loaded.category != 0
+    {
+        return Error(4);
+    }
+
+    if let ?pointer = replacement
+    {
+        let stored = trusted internal std.thread.platform_thread_storage_store(key - 1, pointer);
+
+        if stored.category != 0
+        {
+            return Error(4);
+        }
+    }
+
+    return Ok(previous);
+}
+
+trusted internal func acquire_execution_domain() -> bool
+{
+    let lease = trusted host_access();
+
+    if !lease.active
+    {
+        return false;
+    }
+
+    let mut anchor = trusted host_anchor(&lease);
+    let host = trusted host_value(&lease, &mut anchor);
+
+    if host.transitioning || host.storage matches none || host.executions == std.numeric.USIZE_MAX
+    {
+        return false;
+    }
+
+    host.executions += 1;
+    return true;
+}
+
+trusted internal func release_execution_domain()
+{
+    let lease = trusted host_access();
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    let mut anchor = trusted host_anchor(&lease);
+    let host = trusted host_value(&lease, &mut anchor);
+
+    if host.executions == 0
+    {
+        trusted core.target.abort();
+    }
+
+    host.executions -= 1;
+}

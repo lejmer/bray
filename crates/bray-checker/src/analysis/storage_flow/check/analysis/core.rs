@@ -886,7 +886,7 @@ where
                 .as_ref()
                 .zip(assignment_mutation)
                 .map(|(target, kind)| {
-                    crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind)
+                    crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind, None)
                 });
 
         let assignment_roots = assignment_mutation.map(|_| self.assignment_roots(state, kind));
@@ -932,9 +932,6 @@ where
             })
             .unwrap_or_default();
 
-        let marker_exposure = (!escaped.is_empty() && !self.input.borrowed_identities.is_empty())
-            .then(|| state.memory.raw_exposed_regions());
-
         if preserve_normal_storage {
             // Opaque effects can reach the whole exposed allocation on abnormal return.
             // Resolve that region now, while all invocation inputs still exist.
@@ -965,17 +962,21 @@ where
                     assignment.as_ref(),
                     call_effects.as_deref(),
                     invocation_roots.as_deref(),
-                    marker_exposure.as_ref(),
                 )
             })
             .flatten();
 
-        if let Some(invalidation) = &mut invalidation {
-            self.preserve_borrowed_values(state, &state.memory, invalidation);
+        if !completing {
+            self.observe_memory_read(state, &mut execution, kind, invalidation.as_mut());
+        }
 
-            if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
-                self.preserve_assignment_values(&state.memory, invalidation, *contents);
-            }
+        if let Some(invalidation) = &mut invalidation {
+            self.preserve_operation_values(
+                state,
+                kind,
+                call_effects.as_deref().or_else(|| assignment_effect.as_ref().map(std::slice::from_ref)),
+                invalidation,
+            );
         }
 
         if !completing {
@@ -1064,10 +1065,30 @@ where
             universe,
             self.storage,
             invalidation.as_ref(),
-            &self.input.discriminants,
+            &self.input.footprint.discriminants,
         );
 
         state.refinements = refinements;
+    }
+
+    fn preserve_operation_values(
+        &mut self,
+        state: &StorageFlowState,
+        kind: AnalysisOperationKind,
+        effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
+        invalidation: &mut bray_bound_tree::StorageInvalidation,
+    ) {
+        let occurrence = kind.occurrence();
+
+        self.preserve_returned_observations(occurrence, invalidation);
+
+        let operation = occurrence.expression().and_then(|expression| self.memory.operation(expression));
+
+        self.preserve_storage_values(state, &state.memory, operation, effects, invalidation);
+
+        if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
+            self.preserve_store_values(&state.memory, invalidation, true, *contents);
+        }
     }
 
     fn apply_invocation_inputs(
@@ -1415,7 +1436,7 @@ where
             state.invalidate_observed_absence(
                 invalidation,
                 self.storage,
-                &self.input.discriminants,
+                &self.input.footprint.discriminants,
             );
         }
 
@@ -1624,7 +1645,7 @@ where
         if matches!(status, StorageOperationStatus::Valid) {
             let target = self
                 .input
-                .reference_target(&state.memory, self.storage, plan.access());
+                .reference_target(self.request.semantic_values(), &state.memory, self.storage, plan.access());
 
             if self.publish {
                 // The transition and publication share immutable target paths.
@@ -1783,7 +1804,9 @@ where
                         state.record_move(place.clone(), plan.expression(), ty, true);
 
                         if let Some(execution) = state.execution.as_mut() {
-                            self.execution.observe_move(execution, place);
+                            let observed = self.execution.value(execution, plan.expression());
+
+                            self.execution.observe_move(execution, place, ty, &observed);
                         }
                     } else {
                         state.initialize_path(place);
@@ -1826,7 +1849,7 @@ where
 
                         if let Some(source) =
                             self.input
-                                .reference_target(&state.memory, self.storage, access)
+                                .reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
                         {
                             let ty = self
                                 .storage
@@ -1850,7 +1873,7 @@ where
                                     .memory
                                     .reborrow_value(borrow, &source, capability.parent());
                             } else {
-                                state.memory.borrow_target_storage(borrow, source, ty);
+                                state.memory.borrow_target_storage(self.request.semantic_values(), borrow, source, ty);
                             }
                         }
                     }

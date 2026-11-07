@@ -172,11 +172,25 @@ trusted internal func lookup(pos runtime: u64, pos identity: usize, pos remove: 
     ensures(trusted optional_reference(owner = &result))
     uses(raw_memory)
 {
+    return (trusted lookup_from(runtime, identity, remove, 0)).0;
+}
+
+// Shutdown advances through the existing directory once, including across
+// callback-driven removals. Closing runtimes reject new event publication.
+trusted internal func lookup_from(
+    pos runtime: u64,
+    pos identity: usize,
+    pos remove: bool,
+    pos cursor: usize
+) -> (Reference?, usize)
+    ensures(trusted optional_reference(owner = &result.0))
+    uses(raw_memory)
+{
     let lease = trusted bray.runtime.bootstrap.host.host_access();
 
     if !lease.active
     {
-        return none;
+        return (none, std.numeric.USIZE_MAX);
     }
 
     let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
@@ -185,7 +199,7 @@ trusted internal func lookup(pos runtime: u64, pos identity: usize, pos remove: 
     if let ?buffer = host.events
     {
         let rows = trusted std.memory.initialized_slice_mut<DirectoryEntry>(&mut buffer);
-        let mut index: usize = 0;
+        let mut index: usize = cursor;
 
         while index < rows.length()
         {
@@ -194,17 +208,19 @@ trusted internal func lookup(pos runtime: u64, pos identity: usize, pos remove: 
             {
                 if remove
                 {
-                    return trusted std.memory.replace_value<(Reference?)>(&mut rows[index].owner, none);
+                    return (trusted std.memory.replace_value<(Reference?)>(&mut rows[index].owner, none), index + 1);
                 }
 
-                return trusted retain_entry(&rows[index], &lease);
+                let acquired: Reference? = trusted retain_entry(&rows[index], &lease);
+
+                return (acquired, index + 1);
             }
 
             index += 1;
         }
     }
 
-    return none;
+    return (none, std.numeric.USIZE_MAX);
 }
 
 // The actual resident entry and its live acquisition keep this allocation alive
@@ -221,32 +237,26 @@ trusted internal func retain_entry(
     ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
 {
     let borrow_entry = trusted lambda(pos entry: &DirectoryEntry, pos lease: &bray.runtime.bootstrap.host.HostLease) ->
-        Reference
+        &Reference
         requires(
             entry.owner matches ?_,
             lease.active,
             trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
         )
-        ensures(trusted retained(owner = &result))
+        ensures(trusted retained(owner = result))
         executes(pure, total)
         uses(intrinsic)
     {
         return match entry.owner
         {
-            case ?owner
-            {
-                yield
-                {
-                    address = owner.address
-                };
-            }
+            case ?owner { yield &owner; }
             case none { yield trusted core.target.abort(); }
         };
     };
 
     let borrowed = trusted borrow_entry(entry, lease);
 
-    return trusted retain_event(&borrowed);
+    return trusted retain_event(borrowed);
 }
 
 @abi(c)
@@ -321,9 +331,13 @@ trusted internal func destruction(pos runtime: u64, pos identity: usize) -> u32
 trusted internal func clear(pos runtime: u64)
     requires(runtime != 0, trusted bray.runtime.bootstrap.host.product.native_host())
 {
+    let mut cursor: usize = 0;
+
     while true
     {
-        let acquired = trusted lookup(runtime, 0, true);
+        let (acquired, next) = trusted lookup_from(runtime, 0, true, cursor);
+
+        cursor = next;
 
         if acquired matches none
         {

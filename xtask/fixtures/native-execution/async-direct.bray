@@ -1,0 +1,6 @@
+module async_direct;
+
+async func main() -> i32
+{
+    return 0;
+}

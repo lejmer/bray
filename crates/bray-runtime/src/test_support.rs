@@ -156,25 +156,6 @@ impl TestFrame {
         )
     }
 
-    pub(crate) fn main_thread_self_waking(value: i32) -> Self {
-        Self {
-            descriptor: descriptor_with(
-                2,
-                [ExecutionLaneRequirement::MainThread],
-                ProtectedFrameAffinity::MainThread,
-            ),
-            behavior: TestFrameBehavior::Sequence(
-                [
-                    FrameProgress::Suspended(FrameSuspension::new(ProtectedFrameStateId::new(1))),
-                    FrameProgress::Completed(value),
-                ]
-                .into(),
-            ),
-            cleanup_panics: false,
-            wake_on_suspension: true,
-        }
-    }
-
     pub(crate) fn panicking() -> Self {
         Self::panicking_with_cleanup(false)
     }
@@ -197,41 +178,6 @@ impl TestFrame {
             behavior: TestFrameBehavior::Sequence([FrameProgress::Completed(value)].into()),
             cleanup_panics: false,
             wake_on_suspension: false,
-        }
-    }
-
-    pub(crate) fn main_thread_cancellation_aware() -> Self {
-        Self {
-            descriptor: descriptor_with(
-                1,
-                [ExecutionLaneRequirement::MainThread],
-                ProtectedFrameAffinity::MainThread,
-            ),
-            behavior: TestFrameBehavior::CancellationAware,
-            cleanup_panics: false,
-            wake_on_suspension: false,
-        }
-    }
-
-    pub(crate) fn main_thread_then_movable(value: i32) -> Self {
-        Self {
-            descriptor: descriptor_from_states([
-                state_descriptor(
-                    0,
-                    [ExecutionLaneRequirement::MainThread],
-                    ProtectedFrameAffinity::MainThread,
-                ),
-                state_descriptor(1, [], ProtectedFrameAffinity::Movable),
-            ]),
-            behavior: TestFrameBehavior::Sequence(
-                [
-                    FrameProgress::Suspended(FrameSuspension::new(ProtectedFrameStateId::new(1))),
-                    FrameProgress::Completed(value),
-                ]
-                .into(),
-            ),
-            cleanup_panics: false,
-            wake_on_suspension: true,
         }
     }
 

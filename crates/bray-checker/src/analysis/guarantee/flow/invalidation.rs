@@ -213,6 +213,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &'state self,
         state: &'state ExecutionState,
         path: bray_bound_tree::StoragePath,
+        mutation: bray_bound_tree::StorageMutation,
     ) -> impl Iterator<Item = ExecutionCondition> + 'state {
         let mut places = self.storage_places(state, path.clone()).peekable();
 
@@ -224,6 +225,63 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         places
             .filter_map(|place| place.value_in(&state.current))
             .chain(temporary)
+            .chain(self.entry_storage_value(state, &path, mutation))
+    }
+
+    fn entry_storage_value(
+        &self,
+        state: &ExecutionState,
+        path: &bray_bound_tree::StoragePath,
+        mutation: bray_bound_tree::StorageMutation,
+    ) -> Option<ExecutionCondition> {
+        let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
+
+        if place.value_in(&state.current).is_some_and(|value| value != ExecutionCondition::Unknown) {
+            return None;
+        }
+
+        let bray_bound_tree::StorageMutation::Operation(invocation) = mutation else {
+            return None;
+        };
+
+        let entry = state.entries.get(&invocation)?;
+        let selection = self.semantics.selections().expression(invocation.expression()?)?;
+
+        entry.owned_inputs.iter().find_map(|ordinal| {
+            let root = selection.invocation_input_root(invocation, *ordinal)?;
+            let input = selection.invocation_input_site(invocation, root)?;
+            let source = self.input_place(input)?;
+
+            if !source.contains(&place) {
+                return None;
+            }
+
+            // Argument transfer has retired the old path. Its complete value now
+            // belongs to this entry, whose result contract will transfer or retire it.
+            let mut value = crate::ExecutionPlace::argument(*ordinal).value_in(&entry.arguments)?;
+
+            if !selection.evaluates_defaults() {
+                let input = selection.input(*ordinal)?;
+
+                if input.conversion().is_some_and(|conversion| {
+                    matches!(conversion.target(), bray_bound_tree::ConversionTarget::NullablePresent)
+                }) {
+                    let ty = self.semantics.types().expression(input.expression()?)?.ty();
+
+                    for projection in crate::storage::nullable_wrapping(
+                        self.request.semantic_values(), ty, input.ty(self.request.semantic_values()),
+                    ).expect("a checked nullable input retains its wrapping") {
+                        value = value.project(projection);
+                    }
+                }
+            }
+
+            for projection in &path.projections[source.projections.len()..] {
+                value = value.project(*projection);
+            }
+
+            Some(value)
+        })
     }
 
     pub(in crate::analysis) fn call_preserves_normal_storage(
@@ -355,25 +413,103 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         paths: &BTreeSet<bray_bound_tree::StoragePath>,
+        mutation: bray_bound_tree::StorageMutation,
     ) -> (
-        BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-        BTreeSet<ExecutionCondition>,
+        BTreeMap<crate::ExecutionPlace, (ExecutionCondition, bray_bound_tree::StoragePath)>,
+        crate::execution_guarantees::ObservationSet,
     ) {
         let values = paths
             .iter()
-            .flat_map(|path| self.storage_places(state, path.clone()))
-            .filter_map(|place| place.value_in(&state.current).map(|value| (place, value)))
+            .flat_map(|path| {
+                self.storage_places(state, path.clone())
+                    .into_iter()
+                    .map(move |place| (place, path.clone()))
+            })
+            .filter_map(|(place, path)| {
+                place
+                    .value_in(&state.current)
+                    .map(|value| (place, (value, path)))
+            })
             .collect();
 
         let snapshots = paths
             .iter()
-            .flat_map(|path| self.storage_path_values(state, path.clone()))
+            .flat_map(|path| self.storage_path_values(state, path.clone(), mutation))
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| *value != ExecutionCondition::Unknown)
-            .flat_map(|value| [value.owner_identity().clone(), value])
-            .collect();
+            .flat_map(|value| {
+                // An unchanged storage value also retains observations through
+                // its existing loans. The loan does not establish ownership.
+                let owner = value.owner_identity().clone();
 
-        (values, snapshots)
+                [owner.clone(), owner.borrowed(), value.clone(), value.borrowed()]
+            })
+            .collect::<Vec<_>>();
+
+        let mut observations = crate::execution_guarantees::ObservationSet::default();
+
+        for value in snapshots { observations.insert(value); }
+
+        (values, observations)
+    }
+
+    fn preserve_normal_snapshots(
+        &self,
+        state: &ExecutionState,
+        mutation: bray_bound_tree::StorageMutation,
+        snapshots: &BTreeMap<(bray_symbols::DependencySubjectRoot, std::sync::Arc<[bray_bound_tree::StorageProjection]>), bray_bound_tree::StorageObservationKind>,
+        observations: &mut crate::execution_guarantees::ObservationSet,
+    ) {
+        let bray_bound_tree::StorageMutation::Operation(site) = mutation else { return; };
+
+        let Some(expression) = site.expression() else { return; };
+
+        let selection = self.semantics.selections().expression(expression);
+        let entry = state.entries.get(&site);
+
+        for ((root, projections), kind) in snapshots {
+            let value = if *root == bray_symbols::DependencySubjectRoot::Result {
+                state.pending_results.get(&expression).or_else(|| state.expressions.get(&expression)).cloned()
+            } else {
+                selection.and_then(|selection| selection.invocation_input_ordinal(site, *root))
+                    .and_then(|ordinal| crate::ExecutionPlace::argument(ordinal).value_in(&entry?.arguments))
+            };
+
+            let Some(mut value) = value else { continue; };
+
+            // The snapshot owns inline contents extracted from the old loan. It
+            // does not preserve the source slot or the loan's mutable referents.
+            value = value.into_referent();
+
+            for projection in projections.iter().copied() {
+                value = value.project(projection);
+            }
+
+            observations.insert_classified(value.clone(), *kind);
+            observations.insert_classified(value.borrowed(), *kind);
+        }
+    }
+
+    fn preserve_contents_owners<'place>(
+        &self,
+        state: &ExecutionState,
+        retained: &crate::execution_guarantees::ObservationSet,
+        places: impl IntoIterator<Item = &'place crate::ExecutionPlace>,
+        descriptors: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    ) {
+        for place in places {
+            if descriptors.contains_key(place) {
+                continue;
+            }
+
+            if let Some(value) = place.value_in(&state.current)
+                && retained.overlaps(&value) {
+                // Retained observations name this same value through every alias.
+                // A surviving component belongs to this same complete owner.
+                // The separate post-state still replaces its contents observation.
+                descriptors.insert(place.clone(), value.owner_identity().clone());
+            }
+        }
     }
 
     fn invalidate_all_observations(
@@ -382,8 +518,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         mutation: bray_bound_tree::StorageMutation,
         descriptors: &BTreeSet<bray_bound_tree::StoragePath>,
         stable_values: &BTreeSet<bray_bound_tree::StoragePath>,
+        normal_snapshots: &BTreeMap<(bray_symbols::DependencySubjectRoot, std::sync::Arc<[bray_bound_tree::StorageProjection]>), bray_bound_tree::StorageObservationKind>,
     ) {
-        let descriptors = descriptors
+        let mut descriptors = descriptors
             .iter()
             .flat_map(|path| self.storage_places(state, path.clone()))
             .filter_map(|place| {
@@ -393,22 +530,33 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let (mut retained, snapshots) = self.preserved_storage_values(state, stable_values);
+        let (mut retained, mut snapshots) = self.preserved_storage_values(state, stable_values, mutation);
+
+        self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
         let stable_roots = stable_values
             .iter()
             .map(|path| path.root)
             .collect::<BTreeSet<_>>();
 
-        let owners = stable_roots
+        let mut owners: BTreeSet<_> = stable_roots
             .into_iter()
             .flat_map(|root| {
-                self.storage_path_values(state, bray_bound_tree::StoragePath::root(root))
+                self.storage_path_values(state, bray_bound_tree::StoragePath::root(root), mutation)
             })
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| *value != ExecutionCondition::Unknown)
             .map(|value| value.owner_identity().clone())
             .collect();
+
+        if let bray_bound_tree::StorageMutation::Operation(site) = mutation
+            && let Some(entry) = state.entries.get(&site)
+            && let Some(contracts) = self.dependencies.calls().get(&site) {
+            owners.extend(self.returned_owned_values(site, &entry.arguments, contracts.owned_result().guaranteed_transfers())
+                .iter().flat_map(|(_, value)| state.owned_values(value))
+                .filter(|value| !matches!(value.owner_identity(), ExecutionCondition::Borrowed(_) | ExecutionCondition::Unknown))
+                .map(|value| value.owner_identity().clone()));
+        }
 
         state.invalidate_cleanup(&snapshots, &owners);
 
@@ -432,10 +580,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .cloned()
             .collect::<BTreeSet<_>>();
 
+        self.preserve_contents_owners(state, &snapshots, &roots, &mut descriptors);
+
         state.current.clear();
 
         for place in roots {
-            if let Some(value) = retained.remove(&place) {
+            if let Some((value, _)) = retained.remove(&place) {
                 // A whole stable root needs no intermediate post-state or reconstruction.
                 state.current.insert(place, value);
                 continue;
@@ -446,22 +596,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let value = descriptors.get(&place).map_or_else(
                 || contents.clone(),
                 |identity| {
-                    ExecutionCondition::Constructed(
-                        std::sync::Arc::new(identity.clone()),
-                        [(
-                            bray_bound_tree::StorageProjection::OwnedTarget,
-                            contents.clone(),
-                        )]
-                        .into(),
-                    )
+                    self.current_observation(&place, identity.clone(), contents.clone())
                 },
             );
 
-            state.assign(place, value);
+            state.assign(place, value, None);
         }
 
-        for (place, value) in retained {
-            state.assign(place, value);
+        for (place, (value, path)) in retained {
+            state.assign(place, value, Some(&path.projections));
         }
     }
 
@@ -480,36 +623,65 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let StorageInvalidation::All {
             stable_descriptors: descriptors,
             stable_values,
+            normal_snapshots,
         } = invalidation
         {
-            self.invalidate_all_observations(state, mutation, descriptors, stable_values);
+            self.invalidate_all_observations(state, mutation, descriptors, stable_values, normal_snapshots);
 
             return;
         }
 
-        let (mut stable_places, stable_values) = match invalidation {
+        let (mut stable_places, mut stable_values) = match invalidation {
             StorageInvalidation::Observed { stable_values, .. } => {
-                self.preserved_storage_values(state, stable_values)
+                self.preserved_storage_values(state, stable_values, mutation)
             }
-            _ => (BTreeMap::new(), BTreeSet::new()),
+            _ => (BTreeMap::new(), crate::execution_guarantees::ObservationSet::default()),
         };
 
+        if let Some(snapshots) = invalidation.normal_snapshots() {
+            self.preserve_normal_snapshots(state, mutation, snapshots, &mut stable_values);
+        }
+
         if !transfers && let StorageInvalidation::Observed { referents, .. } = invalidation {
-            let observed = referents
-                .iter()
-                .filter_map(|path| {
-                    crate::ExecutionPlace::storage_path(self.storage, path)?
-                        .value_in(&state.current)
-                })
-                .collect::<Vec<_>>();
+            let mut observed = Vec::new();
+            let mut address_slots = BTreeSet::new();
+
+            for path in referents {
+                let Some(value) = crate::ExecutionPlace::storage_path(self.storage, path)
+                    .and_then(|place| place.value_in(&state.current))
+                else {
+                    continue;
+                };
+
+                let ty = path
+                    .access_id(self.storage)
+                    .and_then(|access| self.storage.access(access))
+                    .map(|access| access.reached_type())
+                    .or_else(|| {
+                        path.projections
+                            .is_empty()
+                            .then(|| self.storage.storage_type(path.root))
+                            .flatten()
+                    });
+
+                if ty.is_some_and(|ty| {
+                    crate::representation::reference_kind(self.request, ty)
+                        == Some(bray_symbols::DependencyReferenceKind::Address)
+                }) {
+                    address_slots.insert(value.owner_identity().clone());
+                }
+
+                observed.push(value);
+            }
 
             let unstable = BTreeSet::new();
             let preserved = self.disjoint_initialized_values(state, mutation);
 
             state.invalidate_referents(
                 &observed,
+                &address_slots,
                 if content_only {
-                    &self.spatial_predicates
+                    &self.content_predicates
                 } else {
                     &unstable
                 },
@@ -518,7 +690,130 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
+        let (mut changed_places, mut changed_paths) = self.invalidated_places(invalidation);
+
+        self.extend_static_changes(state, invalidation, &mut changed_places, &mut changed_paths);
+
+        // Disjoint values already retain their complete snapshot. Reconstructing
+        // their fields can erase a joined variant or revive old loop inputs.
+        stable_places.retain(|place, _| place.overlaps_any(&changed_places));
+
+        // Storage flow distinguishes the descriptor slot from its reached elements.
+        // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
+        // and predicates from equating the old contents with the new contents.
+        let mut descriptors = match invalidation {
+            StorageInvalidation::Observed {
+                stable_descriptors, ..
+            } => stable_descriptors
+                .iter()
+                .filter_map(|path| {
+                    let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
+                    let value = place.value_in(&state.current)?;
+
+                    Some((place, value.owner_identity().clone()))
+                })
+                .collect::<BTreeMap<_, _>>(),
+            _ => BTreeMap::new(),
+        };
+
+        let mut scalar_places = BTreeSet::new();
+
+        let invalidated_values = if transfers {
+            Vec::new()
+        } else {
+            changed_places
+                .iter()
+                .filter(|place| !descriptors.contains_key(*place))
+                .filter_map(|place| {
+                    if self.observed_types.get(place).copied().flatten()
+                        .and_then(|ty| crate::representation::type_representation(self.request, ty))
+                        .is_some_and(crate::representation::is_scalar)
+                    {
+                        // A write retires this slot's borrowed observation, not
+                        // the immutable value also held by another scalar copy.
+                        scalar_places.insert(place.clone());
+
+                        return None;
+                    }
+
+                    Some(place.value_in(&state.current)
+                        .unwrap_or_else(|| ExecutionCondition::Input(place.clone())))
+                })
+                .collect()
+        };
+
+        if !transfers {
+            self.preserve_contents_owners(state, &stable_values, &changed_places, &mut descriptors);
+        }
+
+        let no_predicates = BTreeSet::new();
+
+        state.invalidate_contents(
+            &scalar_places,
+            invalidated_values,
+            if content_only { &self.content_predicates } else { &no_predicates },
+            &stable_values,
+        );
+
+        // Preserve observations of disjoint components before retiring the containing snapshot.
+        let retained = self
+            .observed_types
+            .keys()
+            .filter(|place| !place.overlaps_any(&changed_places))
+            .filter_map(|place| {
+                place
+                    .value_in(&state.current)
+                    .map(|value| (place.clone(), value))
+            })
+            .collect::<Vec<_>>();
+
+        state.current.extend(retained);
+
+        for place in changed_places {
+            let value = descriptors
+                .get(&place)
+                .map(|identity| {
+                    self.current_observation(
+                        &place, identity.clone(),
+                        ExecutionCondition::PostState(mutation, place.clone()),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    if transfers {
+                        ExecutionCondition::Unknown
+                    } else {
+                        // A possible write retires the old contents, not this live place's
+                        // identity. Distinct post-state terms assert no equality between aliases.
+                        ExecutionCondition::PostState(mutation, place.clone())
+                    }
+                });
+
+            let path = changed_paths.get(&place).map(|path| path.as_ref());
+
+            state.assign(place, value, path);
+        }
+
+        // Restore unchanged components before refreshing aliases to the new snapshot.
+        for (place, (value, path)) in stable_places {
+            state.assign(place, value, Some(&path.projections));
+        }
+
+        if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
+            self.observe_references(state, mutation, snapshots);
+        }
+    }
+    fn invalidated_places(
+        &self,
+        invalidation: &StorageInvalidation,
+    ) -> (
+        BTreeSet<crate::ExecutionPlace>,
+        BTreeMap<crate::ExecutionPlace, std::sync::Arc<[bray_bound_tree::StorageProjection]>>,
+    ) {
         let mut changed_places = BTreeSet::new();
+
+        // Execution places omit union discriminants. Keep the checked physical
+        // path while rebuilding affected parents, including unselected variants.
+        let mut changed_paths = BTreeMap::new();
 
         match invalidation {
             StorageInvalidation::Observed { accesses, .. } => {
@@ -527,6 +822,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         crate::ExecutionPlace::storage_observation(self.storage, path)
                     {
                         // An unresolved selector invalidates its observable enclosing value.
+                        changed_paths.insert(place.clone(), std::sync::Arc::clone(&path.projections));
                         changed_places.insert(place);
                     }
                 }
@@ -565,6 +861,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .project(&invalidated.projections)
                             .unwrap_or_else(|| place.clone());
 
+                        changed_paths.insert(changed.clone(), std::sync::Arc::clone(&invalidated.projections));
                         changed_places.insert(changed);
                     }
                 }
@@ -572,6 +869,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
         }
 
+        (changed_places, changed_paths)
+    }
+
+    fn extend_static_changes(
+        &self,
+        state: &ExecutionState,
+        invalidation: &StorageInvalidation,
+        changed_places: &mut BTreeSet<crate::ExecutionPlace>,
+        changed_paths: &mut BTreeMap<crate::ExecutionPlace, std::sync::Arc<[bray_bound_tree::StorageProjection]>>,
+    ) {
         // Storage aliasing conservatively groups specializations by declaration. Revoke
         // each selected instance affected by that storage path, without merging identities.
         let mut changed_static = |path: &bray_bound_tree::StoragePath| {
@@ -584,12 +891,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             for place in state.current.keys().filter(|place| {
                 place.projections.is_empty() && place.selected_static() == Some(declaration)
             }) {
-                changed_places.insert(
-                    place
-                        .clone()
-                        .project(&path.projections)
-                        .unwrap_or_else(|| place.clone()),
-                );
+                let place = place.clone().project(&path.projections).unwrap_or_else(|| place.clone());
+
+                changed_paths.insert(place.clone(), std::sync::Arc::clone(&path.projections));
+                changed_places.insert(place);
             }
         };
 
@@ -608,144 +913,93 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             StorageInvalidation::Paths(paths) => paths.iter().for_each(&mut changed_static),
             StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
         }
-
-        // Disjoint values already retain their complete snapshot. Reconstructing
-        // their fields can erase a joined variant or revive old loop inputs.
-        stable_places.retain(|place, _| place.overlaps_any(&changed_places));
-
-        // Storage flow distinguishes the descriptor slot from its reached elements.
-        // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
-        // and predicates from equating the old contents with the new contents.
-        let descriptors = match invalidation {
-            StorageInvalidation::Observed {
-                stable_descriptors, ..
-            } => stable_descriptors
-                .iter()
-                .filter_map(|path| {
-                    let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
-                    let value = place.value_in(&state.current)?;
-
-                    Some((place, value.owner_identity().clone()))
-                })
-                .collect::<BTreeMap<_, _>>(),
-            _ => BTreeMap::new(),
-        };
-
-        let invalidated_values = if transfers {
-            Vec::new()
-        } else {
-            changed_places
-                .iter()
-                .filter(|place| !descriptors.contains_key(*place))
-                .flat_map(|place| {
-                    [
-                        place
-                            .value_in(&state.current)
-                            .unwrap_or_else(|| ExecutionCondition::Input(place.clone())),
-                        ExecutionCondition::Input(place.clone()),
-                    ]
-                })
-                .collect()
-        };
-
-        if content_only {
-            state.invalidate_contents(
-                &changed_places,
-                invalidated_values,
-                &self.spatial_predicates,
-                &stable_values,
-            );
-        } else {
-            state.invalidate_contents(
-                &changed_places,
-                invalidated_values,
-                &BTreeSet::new(),
-                &stable_values,
-            );
-        }
-
-        // Preserve observations of disjoint components before retiring the containing snapshot.
-        let retained = self
-            .observed_types
-            .keys()
-            .filter(|place| !place.overlaps_any(&changed_places))
-            .filter_map(|place| {
-                place
-                    .value_in(&state.current)
-                    .map(|value| (place.clone(), value))
-            })
-            .collect::<Vec<_>>();
-
-        state.current.extend(retained);
-
-        for place in changed_places {
-            let value = descriptors
-                .get(&place)
-                .map(|identity| {
-                    ExecutionCondition::Constructed(
-                        std::sync::Arc::new(identity.clone()),
-                        [(
-                            bray_bound_tree::StorageProjection::OwnedTarget,
-                            ExecutionCondition::PostState(mutation, place.clone()),
-                        )]
-                        .into(),
-                    )
-                })
-                .unwrap_or_else(|| {
-                    if transfers {
-                        ExecutionCondition::Unknown
-                    } else {
-                        // A possible write retires the old contents, not this live place's
-                        // identity. Distinct post-state terms assert no equality between aliases.
-                        ExecutionCondition::PostState(mutation, place.clone())
-                    }
-                });
-
-            state.assign(place, value);
-        }
-
-        // Restore unchanged components before refreshing aliases to the new snapshot.
-        for (place, value) in stable_places {
-            state.assign(place, value);
-        }
-
-        if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
-            self.observe_references(state, snapshots);
-        }
     }
+
     pub(in crate::analysis) fn observe_references(
         &self,
         state: &mut ExecutionState,
-        observations: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StoragePath>,
+        mutation: bray_bound_tree::StorageMutation,
+        observations: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageTarget>,
     ) {
         // Read all targets before assigning aliases, so map order cannot change the result.
         let aliases = observations
             .iter()
-            .filter(|(path, target)| path != target)
             .filter_map(|(path, target)| {
-                let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
-                let target = crate::ExecutionPlace::storage_path(self.storage, target)?;
+                let target = crate::storage::storage_observation_path(
+                    self.storage,
+                    self.request.semantic_values(),
+                    target,
+                )?;
 
-                let value = target
-                    .value_in(&state.current)
-                    .unwrap_or(ExecutionCondition::Input(target));
+                if *path == target {
+                    return None;
+                }
 
-                let value = if matches!(
-                    place.value_in(&state.current),
-                    Some(ExecutionCondition::Borrowed(_))
-                ) {
-                    // Refresh the referent without turning a borrowed field into an owned field.
-                    value.borrowed()
+                let place = crate::ExecutionPlace::storage_path(self.storage, path);
+                let previous = self.storage_path_value(state, path);
+                let value = self.storage_path_value(state, &target);
+
+                // The completed call owns a fresh symbolic result even when its
+                // protected backing has no ordinary value projection. Existing
+                // aliases still refresh to unknown after their contents change.
+                if value == ExecutionCondition::Unknown
+                    && matches!((self.storage.identity(path.root), mutation), (
+                        Some(bray_bound_tree::StorageIdentity::Temporary(expression)),
+                        bray_bound_tree::StorageMutation::Operation(bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(completed)))
+                    ) if expression == completed)
+                {
+                    return None;
+                }
+
+                let value = if matches!(previous.owner_identity(), ExecutionCondition::Borrowed(_)) || path.projections.is_empty()
+                    && self.storage.storage_type(path.root).is_some_and(|ty| {
+                        matches!(
+                            self.request.semantic_values().type_data(ty).as_ref(),
+                            bray_symbols::TypeData::Borrow { .. }
+                        )
+                    }) {
+                    // The target supplies current contents, not a replacement loan.
+                    // An actual slot replacement has already retired its prior context.
+                    previous.with_referent(value)
                 } else {
                     value
                 };
 
-                Some((place, value))
+                Some((path, place, value))
             })
             .collect::<Vec<_>>();
 
-        for (place, value) in aliases {
-            state.assign(place, value);
+        for (path, place, value) in aliases {
+            if let Some(place) = place {
+                state.assign(place, value, Some(&path.projections));
+            } else if let Some(bray_bound_tree::StorageIdentity::Temporary(expression)) =
+                self.storage.identity(path.root)
+            {
+                // A getter result has expression lifetime even when no binding names it.
+                let value = if path.projections.is_empty() {
+                    value
+                } else {
+                    let previous = state
+                        .expressions
+                        .get(&expression)
+                        .cloned()
+                        .unwrap_or(ExecutionCondition::Expression(expression));
+
+                    let Some(projections) = path
+                        .projections
+                        .iter()
+                        .copied()
+                        .map(crate::ExecutionPlace::projection_kind)
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        continue;
+                    };
+
+                    previous.with_component(&projections, value, Some(&path.projections))
+                };
+
+                state.expressions.insert(expression, value);
+            }
         }
     }
 }

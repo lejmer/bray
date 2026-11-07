@@ -23,23 +23,6 @@ trusted internal func progress(
     };
 }
 
-trusted internal func transport(pos owner: &Invocation, pos operation: u32) -> u32
-    requires(
-        trusted invoked(owner = &owner.acquisition.claim),
-        trusted bray.runtime.bootstrap.host.product.native_host()
-    )
-    ensures(trusted invoked(owner = &owner.acquisition.claim))
-    uses(foreign_call)
-{
-    let mut output: u64 = 0;
-
-    return trusted native_service(
-        (trusted read_state(&owner)).reference.handle,
-        operation,
-        std.memory.address_of_mut<u64>(&mut output)
-    );
-}
-
 trusted internal func request_cancel(pos owner: &mut Invocation)
     requires(
         trusted invoked(owner = &owner.acquisition.claim),
@@ -50,9 +33,12 @@ trusted internal func request_cancel(pos owner: &mut Invocation)
 {
     trusted set_request_cancellation(owner, false);
 
-    if trusted native_cancel((trusted read_state(&owner)).reference.handle) != 0
+    let reference = trusted task_reference(&owner);
+    let requested = trusted bray.runtime.bootstrap.task.cancellation_change(reference, 1);
+
+    if (requested & 2) != 0
     {
-        trusted core.target.abort();
+        _ = trusted bray.runtime.bootstrap.execution.wake_reference(reference, 3);
     }
 }
 
@@ -64,32 +50,23 @@ trusted internal func wait_terminal(pos owner: &Invocation) -> u32
     ensures(trusted invoked(owner = &owner.acquisition.claim))
     uses(intrinsic)
 {
-    let (status, output) = trusted parent_reference(owner);
+    let selected = trusted bray.runtime.bootstrap.execution.current();
 
-    if status != 0
+    if selected.status != 0
     {
-        return status;
+        return 3;
     }
 
-    // The cached native execution owner lends this reference for the enclosing
-    // producer invocation, including nested native callbacks.
-    let parent = trusted core.target.from_exposed_address<bray.runtime.bootstrap.task.Reference>(
-        address = std.numeric.truncate_to<usize, u64>(output)
-    );
+    let task = trusted bray.runtime.bootstrap.execution.current_task(&selected);
 
-    let child = std.memory.address_of<bray.runtime.bootstrap.task.Reference>(&(trusted read_state(&owner)).reference);
+    if task matches none
+    {
+        return 3;
+    }
 
-    let permit = trusted lambda(
-        pos owner: &Invocation,
-        pos child: DataPointer<bray.runtime.bootstrap.task.Reference>,
-        pos parent: DataPointer<bray.runtime.bootstrap.task.Reference>
-    )
-        requires(trusted invoked(owner = &owner.acquisition.claim))
-        ensures(trusted bray.runtime.bootstrap.task.wait_entry(child = child, parent = parent))
-        executes(pure, total) {};
+    let parent = trusted bray.runtime.bootstrap.execution.take_task_view(&task);
 
-    trusted permit(owner, child, parent);
-    return trusted bray.runtime.bootstrap.task.wait(child, parent, 0);
+    return trusted bray.runtime.bootstrap.task.wait_references(trusted task_reference(owner), parent, 0);
 }
 
 trusted internal func stage(
@@ -118,8 +95,8 @@ trusted internal func stage(
         )
         ensures(
             trusted bray.runtime.bootstrap.task.result.transfer_entry(
-                outcome = outcome,
-                destination = destination,
+                outcome = &outcome,
+                destination = &destination,
                 layout = layout
             )
         )
@@ -143,7 +120,15 @@ trusted internal func observe_into(
         result != 0 || trusted bray.runtime.bootstrap.task.terminal_output(pointer = output)
     )
 {
-    return trusted bray.runtime.bootstrap.task.observation(trusted task_pointer(owner), output);
+    match consume bray.runtime.bootstrap.task.observe_reference(trusted task_reference(owner))
+    {
+        case Ok(outcome)
+        {
+            trusted bray.runtime.bootstrap.task.publish_terminal(output, outcome);
+            return 0;
+        }
+        case Error(status) { return status; }
+    }
 }
 
 trusted internal func observe(pos owner: &mut Invocation) -> bool
@@ -216,7 +201,7 @@ trusted internal func poll(pos owner: &mut Invocation) -> bray.runtime.bootstrap
 
     if (trusted read_state(&owner)).phase == READY || (trusted read_state(&owner)).phase == FAILED
     {
-        let status = trusted transport(&owner, 2);
+        let status = bray.runtime.bootstrap.task.retire_reference(trusted task_reference(&owner));
 
         if status == 6
         {
@@ -246,23 +231,4 @@ trusted internal func poll(pos owner: &mut Invocation) -> bray.runtime.bootstrap
     }
 
     return progress(1, payload = (trusted read_state(&owner)).result);
-}
-
-trusted internal func parent_reference(pos owner: &Invocation) -> (u32, u64)
-    requires(
-        trusted invoked(owner = &owner.acquisition.claim),
-        trusted bray.runtime.bootstrap.host.product.native_host()
-    )
-    ensures(trusted invoked(owner = &owner.acquisition.claim))
-    uses(foreign_call)
-{
-    let mut output: u64 = 0;
-
-    let status = trusted native_service(
-        (trusted read_state(owner)).reference.handle,
-        1,
-        std.memory.address_of_mut<u64>(&mut output)
-    );
-
-    return (status, output);
 }

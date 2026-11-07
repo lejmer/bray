@@ -157,10 +157,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
         result: ExecutionCondition,
-        observations: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
+        observations: &bray_bound_tree::StorageCompletion,
     ) -> ExecutionCondition {
         // Calls without trusted clauses still establish checked result identities.
         // An empty contract contributes no authority or preservation guarantees.
@@ -227,6 +224,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         self.retire_consumed_inputs(state, invocation, &entry.arguments, &result, &outside);
 
+        // Ownership leaves with the entry value. Borrowed completion clauses below
+        // instead observe the storage contents left by the call.
+        let result = self.complete_returned_values(invocation, state, result, &entry.arguments, &outside);
+
         let mut arguments = entry.arguments;
 
         state.invalidate_trusted_values(contract.transferred_inputs.iter().map(|input| {
@@ -237,15 +238,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .clone()
         }));
 
-        let (carriers, owners) = if (!guarantees.is_empty() || !postconditions.is_empty())
-            && let Some((expression, call)) = self.observation_call(invocation)
+        let owners = if (!guarantees.is_empty() || !postconditions.is_empty())
+            && let Some((_, call)) = self.observation_call(invocation)
         {
             // Completion clauses observe final contents, independently of trusted authority.
-            self.refresh_borrowed_arguments(state, invocation, &mut arguments);
-
             self.prepare_call_observations(
                 state,
-                expression,
+                invocation,
                 call,
                 &mut arguments,
                 &entry.addresses,
@@ -256,7 +255,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Default::default()
         };
 
-        let result = self.complete_returned_values(invocation, state, result, &arguments, &outside);
+        let result = self.complete_returned_references(invocation, result, &arguments);
 
         let instantiate = |condition: &ExecutionCondition| {
             let condition = condition.substitute(
@@ -306,46 +305,44 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for (template, subject) in &subjects {
             let guarantee = instantiate(template);
+            let condition = instantiate(subject);
 
             // A guarantee discharged solely by its ordinary guard carries no trusted authority.
-            if guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                == Some(true)
+            if condition == ExecutionCondition::Unknown
+                || guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true)
             {
                 continue;
             }
 
-            let condition = instantiate(subject);
+            if subject.observes_completion_result() {
+                let carrier = self.borrowed_result_carrier(&result, subject).unwrap_or(condition);
 
-            if condition == ExecutionCondition::Unknown {
+                carry_result(state, template, &guarantee, &carrier, true);
                 continue;
             }
 
-            if subject.observes_completion_result() {
-                carry_result(state, template, &guarantee, &condition, true);
-            }
+            let Some(owner) = self.input_witness_owner(
+                template, subject, &condition, &arguments, &address_subjects,
+            ) else { continue; };
 
-            for carrier in &carriers {
-                if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
-                    let addresses = self.input_guarantee_addresses(
-                        invocation,
-                        &state
-                            .entries
-                            .get(&invocation)
-                            .expect("completed invocation retains its captured arguments")
-                            .arguments,
-                        template,
-                        &owners,
-                        &address_subjects,
-                        &instantiate,
-                    );
+            let addresses = self.input_guarantee_addresses(
+                invocation,
+                &state
+                    .entries
+                    .get(&invocation)
+                    .expect("completed invocation retains its captured arguments")
+                    .arguments,
+                template,
+                &owners,
+                &address_subjects,
+                &instantiate,
+            );
 
-                    state
-                        .witnesses
-                        .entry(carrier.owner_identity().clone())
-                        .or_default()
-                        .carry(&guarantee, true, &addresses);
-                }
-            }
+            state
+                .witnesses
+                .entry(owner.owner_identity().clone())
+                .or_default()
+                .carry(&guarantee, true, &addresses);
         }
 
         self.carry_input_access_guarantees(
@@ -434,7 +431,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 {
                     state
                         .allocation_owners
-                        .insert(predicate.clone(), carrier.clone());
+                        .insert(predicate.clone(), carrier.owner_identity().clone());
                 }
                 _ => {}
             }

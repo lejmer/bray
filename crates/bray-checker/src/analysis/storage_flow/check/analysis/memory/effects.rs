@@ -101,10 +101,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return self.buffer_release_effects(state, operation);
             }
             CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
-                return Some(self.expression_reference(state, operation.arguments()[0])?
-                    .regions(&state.memory)?.into_iter().map(|target| {
-                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Retire)
-                    }).collect());
+                let argument = operation.arguments()[0];
+
+                let ty = self.execution.semantics.types().expression(argument)
+                    .expect("checked deallocation retains its pointer type").ty();
+
+                let kind = bray_symbols::DependencyMutationKind::Retire;
+                let targets = self.expression_reference(state, argument).and_then(|source| source.regions(&state.memory));
+
+                return Some(match targets {
+                    Some(targets) => targets.into_iter().map(|target| Effect::Mutation(target, kind, Some(ty))).collect(),
+                    None => vec![Effect::unbounded(kind, Some(ty), false)],
+                });
             }
             CheckedMemoryOperationKind::InlineAssembly { .. }
             | CheckedMemoryOperationKind::DebuggerTrap
@@ -132,7 +140,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 targets
                     .into_iter()
                     .map(|target| {
-                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic)
+                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic, None)
                     })
                     .collect(),
             );
@@ -148,33 +156,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 | CheckedMemoryOperationKind::UninitWrite { .. }
         );
 
-        let targets = if protected && !self.expression_is_borrowed(argument) {
-            vec![self.uninit_target(state, argument)?]
-        } else {
-            // An unknown element offset still bounds effects to its backing.
-            // Bounds grant neither exact value identity nor initialization evidence.
-            let targets = self.expression_reference(state, argument)?.regions(&state.memory)?;
-
-            if protected {
-                targets.into_iter().map(|target| target.project(&[
-                    bray_bound_tree::StorageProjection::UninitPayload
-                ])).collect()
-            } else {
-                targets
-            }
-        };
-
         let kind = if purpose == StorageAccessPurpose::Move {
             bray_symbols::DependencyMutationKind::Consume
         } else {
             bray_symbols::DependencyMutationKind::Replace(element)
         };
 
-        Some(
-            targets
-                .into_iter()
-                .map(|target| Effect::Mutation(target, kind))
-                .collect(),
-        )
+        let access_type = (!protected).then(|| self.execution.semantics.types()
+            .expression(argument).expect("checked memory access retains its argument type").ty());
+
+        let targets = if protected && !self.expression_is_borrowed(argument) {
+            self.uninit_target(state, argument).map(|target| vec![target])
+        } else {
+            self.expression_reference(state, argument).and_then(|source| source.regions(&state.memory))
+                .map(|targets| if protected {
+                    targets.into_iter().map(|target| target.project(&[
+                        bray_bound_tree::StorageProjection::UninitPayload
+                    ])).collect()
+                } else { targets })
+        };
+
+        Some(match targets {
+            Some(targets) => targets.into_iter().map(|target| Effect::Mutation(target, kind, access_type)).collect(),
+            None => vec![Effect::unbounded(kind, access_type, false)],
+        })
     }
 }

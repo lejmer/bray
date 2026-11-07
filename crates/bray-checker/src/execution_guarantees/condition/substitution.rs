@@ -127,8 +127,12 @@ impl ExecutionCondition {
                 invocation: *invocation,
                 ordinal: *ordinal,
             },
-            Self::Constructed(base, fields) => Self::Constructed(
-                Arc::new(base.substitute_values(replace, budget)),
+            Self::Observation { owner, contents, kind } => Self::observation(
+                owner.substitute_values(replace, budget),
+                contents.substitute_values(replace, budget),
+                *kind,
+            ),
+            Self::Constructed(base, fields) => Self::constructed(base.substitute_values(replace, budget),
                 fields
                     .iter()
                     .map(|(field, value)| (*field, value.substitute_values(replace, budget)))
@@ -248,6 +252,22 @@ impl ExecutionCondition {
         rewrite_equalities(self, replacements, None, &mut { Self::WORK_LIMIT })
     }
 
+    /// Rename a carrier through a join. Component owners follow the current
+    /// containing value; complete roots and retained loans follow owner transfers.
+    pub(crate) fn with_joined_owners(
+        &self,
+        values: &BTreeMap<Self, Self>,
+        identities: &BTreeMap<Self, Self>,
+    ) -> Self {
+        let owner = self.owner_identity();
+
+        let components = matches!(owner, Self::Projection(_, _))
+            || matches!(owner, Self::Input(place) if !place.projections.is_empty());
+
+        owner.with_joined_values(if components { values } else { identities }, identities)
+            .owner_identity().clone()
+    }
+
     pub(crate) fn with_joined_values(
         &self,
         replacements: &BTreeMap<Self, Self>,
@@ -336,7 +356,7 @@ fn rewrite_equalities(
             rewrite_equalities(&value, replacements, identities, budget).present()
         }
         ExecutionCondition::Borrowed(value) if let Some(identities) = identities => {
-            rewrite_equalities(&value, identities, Some(identities), budget).borrowed()
+            rewrite_equalities(&value, replacements, Some(identities), budget).borrowed()
         }
         ExecutionCondition::Entry { captured: true, .. } if identities.is_some() => value,
         ExecutionCondition::Borrowed(value) => {
@@ -399,8 +419,14 @@ fn rewrite_equalities(
             invocation,
             ordinal,
         },
-        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
-            Arc::new(rewrite_equalities(&base, replacements, identities, budget)),
+        ExecutionCondition::Observation { owner, contents, kind } => ExecutionCondition::observation(
+            identities.map_or_else(|| owner.as_ref().clone(), |identities| {
+                rewrite_equalities(&owner, identities, Some(identities), budget)
+            }),
+            rewrite_equalities(&contents, replacements, identities, budget),
+            kind,
+        ),
+        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::constructed(rewrite_equalities(&base, replacements, identities, budget),
             fields
                 .iter()
                 .map(|(field, value)| {

@@ -44,13 +44,13 @@ trusted internal func retained_worker_value(pos owner: &WorkerReference) -> &Wor
 // Its low-level formation wait cannot depend on that service or a timer.
 @abi(c)
 trusted internal func demand(
-    pos pointer: DataPointer<DataPointer<Domain>>,
+    pos pointer: DataPointer<Reference>,
     pos workload: u32,
     pos failure: DataPointer<Failure>
 ) -> u32
     requires(trusted formation_entry(), blocking_execution())
 {
-    let authorize = trusted lambda(pos pointer: DataPointer<DataPointer<Domain>>)
+    let authorize = trusted lambda(pos pointer: DataPointer<Reference>)
         requires(trusted formation_entry())
         ensures(
             trusted bray.runtime.bootstrap.host.product.native_host(),
@@ -61,8 +61,8 @@ trusted internal func demand(
 
     trusted authorize(pointer);
 
-    let reference = trusted read_reference(pointer);
-    let result = trusted ensure(reference, workload);
+    let reference = trusted borrow_reference(&pointer, pointer);
+    let result = trusted ensure(&reference, workload);
     let failed = result.stage != 0;
 
     trusted bray.runtime.bootstrap.host.product.publish_provider<Failure>(failure, result);
@@ -77,13 +77,14 @@ trusted internal func demand(
     };
 }
 
-trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Failure
+trusted internal func ensure(pos reference: &Reference, pos workload: u32) -> Failure
     requires(
         trusted retained(owner = &reference.marker),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         blocking_execution()
     )
+    ensures(trusted retained(owner = &reference.marker))
     uses(intrinsic)
 {
     if workload > 2
@@ -98,10 +99,10 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
     {
         let selected: Result<FormationChoice, usize> =
         {
-            let mut guard = trusted lock(&reference);
-            let state = trusted locked_state(&reference, &mut guard);
+            let mut guard = trusted lock(reference);
+            let state = trusted locked_state(reference, &mut guard);
 
-            let scheduler = trusted scheduler_reference(&reference);
+            let scheduler = trusted scheduler_reference(reference);
             let accepting = trusted bray.runtime.bootstrap.scheduler.worker_admission(scheduler);
 
             if state.stopping || !accepting
@@ -127,7 +128,10 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
 
             yield if available != 0
             {
-                let select = trusted lambda(pos state: &State, pos workload: u32) -> DataPointer<Worker>
+                let select = trusted lambda(pos owner: &Reference, pos state: &State, pos workload: u32) ->
+                    WorkerReference
+                    requires(trusted retained(owner = &owner.marker))
+                    ensures(trusted retained(owner = &owner.marker), trusted retained_worker(owner = &result.marker))
                     uses(intrinsic)
                 {
                     if let ?entries = state.entries
@@ -146,7 +150,13 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
 
                             if workers[0].workload == workload
                             {
-                                return std.memory.pointer<Worker>(&rows[index]);
+                                return
+                                {
+                                    marker = WorkerMarker
+                                    {
+                                    },
+                                    pointer = std.memory.pointer<Worker>(&rows[index])
+                                };
                             }
                         }
                     }
@@ -154,7 +164,7 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
                     return trusted core.target.abort();
                 };
 
-                yield Ok(FormationChoice.Existing(trusted select(&state, workload)));
+                yield Ok(FormationChoice.Existing(trusted select(reference, &state, workload)));
             }
             else
             {
@@ -183,11 +193,13 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
                         else
                         {
                             let publish = trusted lambda(
+                                pos owner: &Reference,
                                 pos state: &mut State,
                                 pos node: std.memory.RawBuffer<Worker>
                             ) -> Descriptor
-                                requires(node.initialized == 1)
+                                requires(trusted retained(owner = &owner.marker), node.initialized == 1)
                                 ensures(
+                                    trusted retained(owner = &owner.marker),
                                     trusted forming(owner = &result.marker),
                                     trusted retained_worker(owner = &result.reference.marker)
                                 )
@@ -208,12 +220,12 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
 
                                 return
                                 {
-                                    marker = Marker
+                                    marker = FormationMarker
                                     {
                                     },
                                     reference =
                                     {
-                                        marker = Marker
+                                        marker = WorkerMarker
                                         {
                                         },
                                         pointer = pointer
@@ -229,7 +241,7 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
                                 case none { yield trusted core.target.abort(); }
                             };
 
-                            let row = trusted publish(state, storage);
+                            let row = trusted publish(reference, state, storage);
 
                             state.count[workload as usize] += 1;
                             state.live += 1;
@@ -250,7 +262,7 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
         {
             case Error(capacity)
             {
-                prepared = trusted prepare_collection(&reference, capacity);
+                prepared = trusted prepare_collection(reference, capacity);
 
                 if prepared matches none
                 {
@@ -268,7 +280,7 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
                 {
                     case FormationChoice.Backing
                     {
-                        node = trusted prepare_worker(&reference, workload);
+                        node = trusted prepare_worker(reference, workload);
 
                         if node matches none
                         {
@@ -280,32 +292,7 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
                             };
                         }
                     }
-                    case FormationChoice.Existing(pointer)
-                    {
-                        // The retained pool owns the row after the queue guard ends.
-                        let retain = trusted lambda(pos owner: &Reference, pos pointer: DataPointer<Worker>) ->
-                            WorkerReference
-                            requires(trusted retained(owner = &owner.marker))
-                            ensures(
-                                trusted retained(owner = &owner.marker),
-                                trusted retained_worker(owner = &result.marker)
-                            )
-                            executes(pure, total)
-                            uses(intrinsic)
-                        {
-                            return
-                            {
-                                marker = Marker
-                                {
-                                },
-                                pointer = pointer
-                            };
-                        };
-
-                        let row = trusted retain(&reference, pointer);
-
-                        break trusted await_worker(&row);
-                    }
+                    case FormationChoice.Existing(row) { break trusted await_worker(&row); }
                     case FormationChoice.Created(formation) { break trusted create_worker(formation); }
                 }
             }
@@ -314,7 +301,7 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
 
     if outcome.stage != 0
     {
-        let pointer = trusted scheduler_pointer(&reference);
+        let pointer = trusted scheduler_pointer(reference);
 
         let authorize = trusted lambda(
             pos reference: &Reference,
@@ -324,7 +311,7 @@ trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Fai
             ensures(trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = pointer))
             executes(pure, total) {};
 
-        trusted authorize(&reference, pointer);
+        trusted authorize(reference, pointer);
 
         _ = trusted bray.runtime.bootstrap.scheduler.worker_admission_state(pointer, 1);
     }
@@ -446,13 +433,13 @@ trusted internal func await_worker(pos reference: &WorkerReference) -> Failure
     return no_failure();
 }
 
-trusted internal func install_failure(pos scope: &ScopeReference, pos failure: &Failure)
+trusted internal func install_failure(pos scope: &Scope, pos failure: &Failure)
     requires(trusted scope_live(owner = &scope.marker))
     ensures(trusted scope_live(owner = &scope.marker))
 {
     let mut outcome = trusted failure_outcome(failure);
     let mut argument: u64 = 0;
-    _ = trusted invoke_owned(scope, 7, &mut argument, &mut outcome);
+    _ = trusted invoke_owned(scope, 7, argument, &mut outcome);
 }
 
 trusted internal func prepare_collection(

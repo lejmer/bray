@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundDependencyGuard, BoundDependencySubject, BoundExpressionId,
+    BoundDependencyGuard, BoundDependencyRequirement, BoundDependencySubject, BoundExpressionId,
     DependencyContractInstantiationContext, SelectedArgument, SelectedCall, StorageAccessId,
     StorageIdentity, StoragePlan,
 };
@@ -10,6 +10,7 @@ use bray_symbols::{
 
 use crate::{CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerUnitView};
 
+#[derive(Debug)]
 enum CallInstantiationInput<'check> {
     Selected {
         expression: BoundExpressionId,
@@ -111,19 +112,13 @@ where
         &mut self,
         subject: &DependencySubject,
     ) -> CheckerQueryResult<StorageAccessId, C::UpstreamError> {
-        match self.resolve_subject(subject, DependencyRequirementKind::StorageAlive)? {
-            BoundDependencySubject::StorageAccess(access) => Ok(access),
-            BoundDependencySubject::Storage(_)
-            | BoundDependencySubject::BorrowCapability(_)
-            | BoundDependencySubject::ScopedCapability(_)
-            | BoundDependencySubject::ImplementationWitness(_)
-            | BoundDependencySubject::ImplementationRequirement(_)
-            | BoundDependencySubject::ProductStatic(_)
-            | BoundDependencySubject::ExactThreadStatic(_)
-            | BoundDependencySubject::LifecycleObligation(_) => {
-                panic!(
-                    "Semantic-selection inputs do not describe the requested bound unit or operation category. in resolve_guard_access"
-                )
+        match self.resolve_requirement(subject, DependencyRequirementKind::StorageAlive)? {
+            BoundDependencyRequirement::Direct {
+                subject: BoundDependencySubject::StorageAccess(access),
+                ..
+            } => Ok(access),
+            _ => {
+                panic!("checked dependency guard requires its planned storage access: {subject:?}")
             }
         }
     }
@@ -148,7 +143,7 @@ where
                 Some(expression)
             }
             _ if call.evaluates_defaults() => None,
-            _ => crate::dependency::result_argument(call.arguments(), call.receiver(), root),
+            _ => crate::dependency::result_input(call, root).and_then(bray_bound_tree::SelectedInput::expression),
         }
     }
 
@@ -364,13 +359,17 @@ where
         self.request.unit().unit()
     }
 
-    fn resolve_subject(
+    fn resolve_requirement(
         &mut self,
         subject: &DependencySubject,
         requirement: DependencyRequirementKind,
-    ) -> Result<BoundDependencySubject, Self::Error> {
+    ) -> Result<BoundDependencyRequirement, Self::Error> {
+        let direct = |subject| BoundDependencyRequirement::direct(subject, requirement.into());
+
         if let DependencySubjectRoot::ImplementationWitness(witness) = subject.subject_root() {
-            return Ok(BoundDependencySubject::ImplementationWitness(witness));
+            return Ok(direct(BoundDependencySubject::ImplementationWitness(
+                witness,
+            )));
         }
 
         if let DependencySubjectRoot::ImplementationRequirement(requirement) =
@@ -381,20 +380,20 @@ where
                 .context()
                 .implementation_selection(requirement, &[])?;
 
-            return Ok(match selected.value() {
+            return Ok(direct(match selected.value() {
                 bray_symbols::ImplementationSelection::Selected(witness) => {
                     BoundDependencySubject::ImplementationWitness(*witness)
                 }
                 _ => BoundDependencySubject::ImplementationRequirement(requirement),
-            });
+            }));
         }
 
         match subject.subject_root() {
             DependencySubjectRoot::ProductStatic(id) => {
-                return Ok(BoundDependencySubject::ProductStatic(id));
+                return Ok(direct(BoundDependencySubject::ProductStatic(id)));
             }
             DependencySubjectRoot::ExactThreadStatic(id) => {
-                return Ok(BoundDependencySubject::ExactThreadStatic(id));
+                return Ok(direct(BoundDependencySubject::ExactThreadStatic(id)));
             }
             _ => {}
         }
@@ -427,14 +426,14 @@ where
                         })
                     })
         {
-            return Ok(BoundDependencySubject::BorrowCapability(capability));
+            return Ok(direct(BoundDependencySubject::BorrowCapability(capability)));
         }
 
         if requirement == DependencyRequirementKind::ValueDependencies
             && subject.projections().is_empty()
             && let Some(capability) = self.input_borrow(root)
         {
-            return Ok(BoundDependencySubject::BorrowCapability(capability));
+            return Ok(direct(BoundDependencySubject::BorrowCapability(capability)));
         }
 
         let staged = match &self.input {
@@ -460,7 +459,7 @@ where
                 DependencyRequirementKind::BorrowCapabilityActive(_)
             )
         {
-            return Ok(BoundDependencySubject::StorageAccess(staged));
+            return Ok(direct(BoundDependencySubject::StorageAccess(staged)));
         }
 
         let frame_access = self.deferred_frame_access(root);
@@ -471,13 +470,59 @@ where
             .or_else(|| {
                 expression.and_then(|expression| expression_access(self.storage, expression))
             })
-            .or_else(|| self.hidden_access(root)).unwrap_or_else(|| panic!("resolve_subject requires dependency storage access, root: {root:?}, expression: {expression:?}, requirement: {requirement:?}"));
+            .or_else(|| self.hidden_access(root)).unwrap_or_else(|| panic!("dependency subject requires planned storage access: unit {:?}, input {:?}, subject {subject:?}, expression {expression:?}, requirement {requirement:?}", self.request.unit().key(), self.input));
 
         if let DependencyRequirementKind::BorrowCapabilityActive(kind) = requirement {
             let capability = self
                 .borrow_capability(expression, base, kind).unwrap_or_else(|| panic!("resolve_subject requires planned borrow capability, subject: {subject:?}, expression: {expression:?}, requirement: {requirement:?}"));
 
-            return Ok(BoundDependencySubject::BorrowCapability(capability));
+            return Ok(direct(BoundDependencySubject::BorrowCapability(capability)));
+        }
+
+        if requirement == DependencyRequirementKind::ValueDependencies {
+            let projections = if frame_access.is_some() {
+                &[][..]
+            } else if staged.is_none()
+                && let CallInstantiationInput::Selected { call, .. } = &self.input
+            {
+                crate::storage::unadapted_projections(
+                    self.request.semantic_values(),
+                    crate::dependency::result_input(call, root).and_then(bray_bound_tree::SelectedInput::conversion),
+                    projections,
+                ).expect("checked dependency selects storage within its input adaptation")
+            } else {
+                projections
+            };
+
+            let ty = self
+                .storage
+                .access(base)
+                .expect("dependency source access exists")
+                .reached_type();
+
+            if projections.is_empty()
+                && crate::representation::reference_kind(self.request, ty)
+                    != Some(bray_symbols::DependencyReferenceKind::Address)
+            {
+                return Ok(direct(BoundDependencySubject::StorageAccess(base)));
+            }
+
+            let projections =
+                crate::storage::resolve_storage_projections(self.request, projections)?
+                    .expect("checked value dependency retains its selected projections");
+
+            let (ty, path) =
+                crate::storage::reference_path(self.request, ty, projections.into(), None)?
+                    .unwrap_or_else(|| panic!(
+                        "checked value dependency retains its typed reference path: unit {:?}, input {:?}, subject {subject:?}, source {base:?}, source type {ty:?}",
+                        self.request.unit().key(), self.input,
+                    ));
+
+            return Ok(BoundDependencyRequirement::Value {
+                source: base,
+                path,
+                ty,
+            });
         }
 
         let access = if frame_access.is_some() {
@@ -486,7 +531,7 @@ where
             projected_access(self.request, self.storage, base, projections)?.unwrap_or(base)
         };
 
-        Ok(BoundDependencySubject::StorageAccess(access))
+        Ok(direct(BoundDependencySubject::StorageAccess(access)))
     }
 
     fn resolve_guard(
@@ -533,9 +578,12 @@ pub(super) fn identity_access(
     storage: &StoragePlan,
     identity: StorageIdentity,
 ) -> Option<StorageAccessId> {
-    let identity = storage
-        .identity_entries()
-        .find_map(|(id, candidate)| (candidate == identity).then_some(id))?;
+    let identity = match identity {
+        StorageIdentity::Temporary(expression) => storage.temporary(expression)?,
+        _ => storage
+            .identity_entries()
+            .find_map(|(id, candidate)| (candidate == identity).then_some(id))?,
+    };
 
     storage.root_access(identity)
 }

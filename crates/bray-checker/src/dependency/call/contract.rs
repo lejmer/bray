@@ -305,6 +305,7 @@ where
         request,
         root,
         ty,
+        result.map(|access| storage.access(access).expect("implicit result retains its checked access").reached_type()),
         source_site,
         occurrence,
         instantiated,
@@ -1008,6 +1009,10 @@ mod tests {
                     subject: BoundDependencySubject::StorageAccess(access),
                     kind,
                 } if *access == expected_access && *kind == expected_kind
+            ) || matches!(requirement,
+                BoundDependencyRequirement::Value { source, path, .. }
+                    if *source == expected_access && path.projections().is_empty()
+                        && expected_kind == BoundDependencyRequirementKind::ValueDependencies
             )
         }));
     }

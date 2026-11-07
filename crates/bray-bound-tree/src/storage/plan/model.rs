@@ -19,6 +19,7 @@ pub struct StoragePlan {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
+    temporaries: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
     identity_types: BTreeMap<StorageIdentityId, TypeId>,
     copyable_types: BTreeSet<TypeId>,
     owned_borrows: BTreeMap<(TypeId, BorrowKind), crate::StorageProtocolCall>,
@@ -59,6 +60,7 @@ impl StoragePlan {
             unit,
             kind,
             identities,
+            temporaries,
             identity_types,
             owned_borrows,
             accesses,
@@ -130,6 +132,7 @@ impl StoragePlan {
             kind,
             copyable_types: BTreeSet::new(),
             identities: identities.into(),
+            temporaries,
             identity_types,
             owned_borrows,
             accesses: accesses.into(),
@@ -185,6 +188,11 @@ impl StoragePlan {
 
                 Some((id, identity))
             })
+    }
+
+    /// Returns the first temporary slot introduced for one explicit expression result.
+    pub fn temporary(&self, expression: crate::BoundExpressionId) -> Option<StorageIdentityId> {
+        self.temporaries.get(&expression).copied()
     }
 
     /// Returns the checked type stored by one persistent storage origin, when recorded.

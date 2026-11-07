@@ -111,9 +111,7 @@ impl State {
         let opaque_bounds = references
             .iter()
             .any(|(_, _, bounds)| bounds.is_none())
-            .then(|| {
-                self.unbounded_reference_regions(self.transitive_regions(inputs, |_| true).0)
-            });
+            .then(|| self.unbounded_reference_regions(self.transitive_regions(inputs, |_| true).0));
 
         for (destination, ty, forwarded) in references {
             let bounds = match forwarded {
@@ -162,8 +160,12 @@ impl State {
         // An external result can reach inline storage already published at its
         // introduction. Later publication cannot change an older reference's origins.
         let exposed = self.contents.iter().filter_map(|(target, contents)| {
-            (!target.previous && contents.escaped && target.storage_path().is_some_and(|path| self.is_owned_inline_storage(path)))
-                .then(|| target.clone())
+            (!target.previous
+                && contents.escaped
+                && target
+                    .storage_path()
+                    .is_some_and(|path| self.is_owned_inline_storage(path)))
+            .then(|| target.clone())
         });
 
         let mut bounds = self.expand_returned_regions(inputs.into_iter().chain(exposed));
@@ -345,10 +347,23 @@ impl State {
         call: bray_bound_tree::BoundExecutionSite,
         source: Target,
         destination: Target,
-        ty: TypeId,
-        kind: bray_symbols::DependencyReferenceKind,
+        reference: &bray_bound_tree::BoundCallReference,
     ) {
-        let references = self.addressed_target(source, ty, kind);
+        let relation = reference.relation();
+        let ty = reference.addressed_type().expect("address formation retains its checked target type");
+
+        let mut references = if relation.is_exact() {
+            self.addressed_target(source, ty, relation.kind())
+        } else {
+            // A widened target bounds an allocation, not one declared cell.
+            // Retain exposure without assigning the bound's view type to its storage.
+            self.contents.entry(source.clone()).or_default().exposed |=
+                relation.kind() == bray_symbols::DependencyReferenceKind::Address;
+
+            References::one(source)
+        };
+
+        references.inexact |= !relation.is_exact();
 
         self.pending
             .entry(call)
@@ -384,110 +399,6 @@ impl State {
             }
 
             self.commit_value(transfer);
-        }
-    }
-
-    pub(in crate::analysis::storage_flow::memory) fn stable_reference_slot(
-        target: &Target,
-        invalidation: &bray_bound_tree::StorageInvalidation,
-    ) -> bool {
-        let descriptors = match invalidation {
-            bray_bound_tree::StorageInvalidation::All {
-                stable_descriptors, ..
-            }
-            | bray_bound_tree::StorageInvalidation::Observed {
-                stable_descriptors, ..
-            } => stable_descriptors,
-            bray_bound_tree::StorageInvalidation::Paths(_) => return false,
-        };
-
-        // A retained whole descriptor protects its inline reference values. It does
-        // not protect the storage reached through those references or owned backing.
-        target.observation_path().is_some_and(|slot| {
-            !slot
-                .projections
-                .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                && descriptors.contains(&Place::root(slot.root))
-        })
-    }
-
-    pub(in crate::analysis::storage_flow) fn invalidate_target(
-        &mut self,
-        target: &Target,
-        kind: bray_symbols::DependencyMutationKind,
-        invalidation: &bray_bound_tree::StorageInvalidation,
-    ) {
-        let references = References::one(target.clone());
-
-        for affected in self.affected_targets(&references) {
-            // Atomic effects change protected payload observations, not ordinary
-            // reference slots that merely may alias the atomic's address.
-            if kind != bray_symbols::DependencyMutationKind::Atomic
-                && !Self::stable_reference_slot(&affected, invalidation)
-            {
-                self.values.remove(&affected);
-            }
-
-            if let Some(contents) = self.contents.get_mut(&affected) {
-                contents.initialized.retain(|ty| {
-                    matches!(
-                        kind,
-                        bray_symbols::DependencyMutationKind::Write
-                            | bray_symbols::DependencyMutationKind::Clear
-                            | bray_symbols::DependencyMutationKind::Replace(_)
-                            | bray_symbols::DependencyMutationKind::Atomic
-                    ) && contents.storage_type == Some(*ty)
-                });
-            }
-        }
-    }
-
-    pub(in crate::analysis::storage_flow) fn invalidate(
-        &mut self,
-        invalidation: &bray_bound_tree::StorageInvalidation,
-        storage: &bray_bound_tree::StoragePlan,
-        kind: bray_symbols::DependencyMutationKind,
-    ) {
-        // An opaque operation can change the referent without replacing a reference
-        // stored in an unexposed owner or reached through a protected shared entry borrow.
-        // The established observation identifies the slot independently of its referent.
-        self.values.retain(|target, _| {
-            kind == bray_symbols::DependencyMutationKind::Atomic
-                || Self::stable_reference_slot(target, invalidation)
-                || match target.observation_path() {
-                    Some(slot) => !invalidation.invalidates_path(&slot, storage),
-                    None => !matches!(
-                        invalidation,
-                        bray_bound_tree::StorageInvalidation::All { .. }
-                    ),
-                }
-        });
-
-        for (target, contents) in &mut self.contents {
-            let affected = match &target.origin {
-                Origin::Storage(path) => invalidation.invalidates_path(path, storage),
-                Origin::Entry { .. } | Origin::Returned { .. } | Origin::Allocation(_)
-                | Origin::Static { .. } => {
-                    matches!(
-                        invalidation,
-                        bray_bound_tree::StorageInvalidation::All { .. }
-                    )
-                }
-            };
-
-            if affected {
-                // A checked typed write preserves valid contents of the declared type.
-                // Reinterpreted views and consumed contents have no such guarantee.
-                contents.initialized.retain(|ty| {
-                    matches!(
-                        kind,
-                        bray_symbols::DependencyMutationKind::Write
-                            | bray_symbols::DependencyMutationKind::Clear
-                            | bray_symbols::DependencyMutationKind::Replace(_)
-                            | bray_symbols::DependencyMutationKind::Atomic
-                    ) && contents.storage_type == Some(*ty)
-                });
-            }
         }
     }
 
@@ -534,7 +445,11 @@ impl State {
         owner: &Target,
         pointer: bray_bound_tree::StorageProjection,
     ) -> std::borrow::Cow<'_, References> {
-        if let Some(references) = self.values.get(owner).filter(|references| !references.unknown) {
+        if let Some(references) = self
+            .values
+            .get(owner)
+            .filter(|references| !references.unknown)
+        {
             return std::borrow::Cow::Borrowed(references);
         }
 
@@ -542,10 +457,12 @@ impl State {
         let declared_backing = backing.observation_path();
 
         let pointer = self.values.get(&backing).filter(|references| {
-            !references.unknown && (references.targets.is_empty() || !references.targets.iter().all(|target| {
-                matches!(&target.origin, Origin::Entry { reference, layer: 1, projections }
+            !references.unknown
+                && (references.targets.is_empty()
+                    || !references.targets.iter().all(|target| {
+                        matches!(&target.origin, Origin::Entry { reference, layer: 1, projections }
                     if declared_backing.as_ref() == Some(reference) && projections.is_empty())
-            }))
+                    }))
         });
 
         // An entry descriptor's own pointer snapshot denotes its owned region.
@@ -574,7 +491,10 @@ impl State {
         pointer: bray_bound_tree::StorageProjection,
         inexact: bool,
     ) {
-        let mut references = References { inexact, ..References::default() };
+        let mut references = References {
+            inexact,
+            ..References::default()
+        };
 
         for owner in owners {
             let materialized = self.values.get(owner).is_some_and(|value| !value.unknown);
@@ -660,13 +580,15 @@ impl State {
             // Older instances share a summary target, so no definite contents survive.
             contents.initialized.clear();
 
+            let previous = Target {
+                previous: true,
+                ..target
+            };
+
             self.contents
-                .entry(Target {
-                    previous: true,
-                    ..target
-                })
+                .entry(previous.clone())
                 .or_default()
-                .merge(&contents);
+                .merge(&contents, &previous);
         }
     }
 

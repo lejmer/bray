@@ -64,9 +64,7 @@ impl AnalysisOperationKind {
             Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
             Self::Call { invocation, .. } => invocation.node(),
             Self::Suspension { occurrence, .. } => occurrence.node(),
-            Self::Result { expression, .. } => {
-                AnyBoundNodeId::Expression(expression)
-            }
+            Self::Result { expression, .. } => AnyBoundNodeId::Expression(expression),
             Self::ScopeExit { scope, .. } => scope.node(),
         }
     }
@@ -235,6 +233,10 @@ pub(crate) enum AnalysisRefinement {
         value: bool,
     },
     PropagationOutcome {
+        expression: BoundExpressionId,
+        succeeded: bool,
+    },
+    CaughtResult {
         expression: BoundExpressionId,
         succeeded: bool,
     },
@@ -679,6 +681,7 @@ impl ControlFlowGraph {
             Some(
                 AnalysisRefinement::Condition { expression, .. }
                 | AnalysisRefinement::PropagationOutcome { expression, .. }
+                | AnalysisRefinement::CaughtResult { expression, .. }
                 | AnalysisRefinement::GeneratorStorageFailure(expression)
                 | AnalysisRefinement::TrustBoundary(expression),
             ) => expression.unit() == self.unit,

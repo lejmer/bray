@@ -1,0 +1,370 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using std.memory.function;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.activation.callback;
+using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap.scheduler;
+using internal bray.runtime.bootstrap.host;
+
+trusted internal func task_services() -> bray.runtime.bootstrap.task.Services
+    ensures(trusted bray.runtime.bootstrap.task.native_services(owner = &result))
+    uses(intrinsic)
+{
+    let invoke: bray.runtime.bootstrap.activation.callback.Invoke = invoke_task;
+    let ready: bray.runtime.bootstrap.activation.callback.Ready = action_readiness;
+    let transfer: bray.runtime.bootstrap.task.TransferService = transfer_task_reports;
+    let wake: bray.runtime.bootstrap.task.WakeService = wake_task;
+    let cancel_wait: bray.runtime.bootstrap.task.CancelWaitService = cancel_task_wait;
+
+    return
+    {
+        invoke = trusted std.memory.function_address<bray.runtime.bootstrap.activation.callback.Invoke>(invoke),
+        ready = trusted std.memory.function_address<bray.runtime.bootstrap.activation.callback.Ready>(ready),
+        transfer = trusted std.memory.function_address<bray.runtime.bootstrap.task.TransferService>(transfer),
+        wake = trusted std.memory.function_address<bray.runtime.bootstrap.task.WakeService>(wake),
+        cancel_wait = trusted std.memory.function_address<bray.runtime.bootstrap.task.CancelWaitService>(cancel_wait)
+    };
+}
+
+@abi(c)
+trusted internal func invoke_task(pos pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer)
+    )
+    ensures(trusted bray.runtime.bootstrap.activation.callback.native_invocation_returned(pointer = pointer))
+{
+    let mut address = pointer;
+    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut address, pointer);
+    let (selected, previous, callback, resumable) = trusted enter_producer(&owner);
+
+    if selected.status != 0
+    {
+        // A synchronous producer outside a runtime retains no task metadata.
+        trusted bray.runtime.bootstrap.activation.callback.execute_producer(owner);
+
+        return;
+    }
+
+    if has_execution(&selected)
+    {
+        let native = trusted native_invocation(trusted bound_execution(&selected));
+
+        if let ?invoke = native
+        {
+            trusted bray.runtime.bootstrap.activation.callback.execute_native(
+                owner,
+                invoke,
+                trusted current_native_context(&selected),
+                trusted selected_lane(&selected)
+            );
+
+            trusted leave_producer(&selected, previous, callback, resumable);
+            return;
+        }
+    }
+
+    trusted bray.runtime.bootstrap.activation.callback.execute_producer(owner);
+
+    trusted leave_producer(&selected, previous, callback, resumable);
+}
+
+trusted internal func enter_producer(
+    pos owner: &bray.runtime.bootstrap.activation.callback.Invocation
+) -> (Current, usize, usize, bool)
+    requires(
+        trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)
+    )
+    ensures(
+        trusted view_owned(owner = &result.0.acquisition),
+        trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)
+    )
+    uses(intrinsic)
+{
+    let execution = trusted bray.runtime.bootstrap.activation.callback.execution(owner);
+    let resumable = bray.runtime.bootstrap.activation.callback.resumable(owner.operation);
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return (selected, 0, 0, false);
+    }
+
+    let value = trusted context(&selected);
+
+    let address = trusted core.target.expose_address<bray.runtime.bootstrap.activation.callback.Invocation>(
+        std.memory.address_of<bray.runtime.bootstrap.activation.callback.Invocation>(owner)
+    );
+
+    let previous = core.atomic.exchange<usize, 0>(&value.invocation, address);
+    let task = trusted current_task(&selected);
+
+    if task matches ?_
+    {
+        let reference = trusted take_task_view(&task);
+
+        let (callback, was_resumable) = trusted bray.runtime.bootstrap.task.enter_callback(
+            reference,
+            execution,
+            resumable
+        );
+
+        return (selected, previous, callback, was_resumable);
+    }
+
+    return (selected, previous, 0, false);
+}
+
+trusted internal func leave_producer(
+    pos selected: &Current,
+    pos previous: usize,
+    pos callback: usize,
+    pos resumable: bool
+)
+    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
+    ensures(trusted view_owned(owner = &selected.acquisition))
+    uses(intrinsic)
+{
+    let task = trusted current_task(selected);
+
+    if task matches ?_
+    {
+        trusted bray.runtime.bootstrap.task.leave_callback(trusted take_task_view(&task), callback, resumable);
+    }
+
+    core.atomic.store<usize, 0>(&(trusted context(selected)).invocation, previous);
+}
+
+@abi(c)
+trusted internal func action_readiness(pos pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer)
+    )
+    ensures(trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer))
+{
+    let mut address = pointer;
+    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut address, pointer);
+
+    owner.admission = trusted readiness_status(&owner);
+}
+
+trusted internal func readiness_status(pos owner: &bray.runtime.bootstrap.activation.callback.Invocation) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)
+    )
+{
+    let snapshot = trusted bray.runtime.bootstrap.activation.callback.execution(owner);
+    let selected = trusted current();
+
+    let lane = if selected.status == 0
+    {
+        // Synchronous disposal deliberately installs no task continuation. Its
+        // actual enclosing driver still retains cleanup execution authority.
+        yield if !bray.runtime.bootstrap.activation.callback.resumable(owner.operation)
+        {
+            yield (trusted context(&selected)).driver;
+        }
+        else
+        {
+            yield trusted selected_lane(&selected);
+        };
+    }
+    else
+    {
+        yield bray.runtime.bootstrap.scheduler.Lane
+        {
+            placement = 0,
+            workload = 0,
+            thread = 0
+        };
+    };
+
+    let thread = if selected.status == 0
+    {
+        yield (trusted context(&selected)).thread;
+    }
+    else
+    {
+        yield trusted bray.runtime.bootstrap.host.current_native_thread_identity();
+    };
+
+    let required: bray.runtime.bootstrap.scheduler.Requirements =
+    {
+        affinity = snapshot.requirements.affinity,
+        workloads = snapshot.requirements.lanes,
+        origin = snapshot.origin
+    };
+
+    let current_lane_pointer = std.memory.address_of<bray.runtime.bootstrap.scheduler.Lane>(&lane);
+    let requirements = std.memory.address_of<bray.runtime.bootstrap.scheduler.Requirements>(&required);
+
+    let authorize = trusted lambda(
+        pos current: DataPointer<bray.runtime.bootstrap.scheduler.Lane>,
+        pos requirements: DataPointer<bray.runtime.bootstrap.scheduler.Requirements>
+    )
+        ensures(
+            trusted bray.runtime.bootstrap.scheduler.lane_slot(pointer = current),
+            trusted bray.runtime.bootstrap.scheduler.requirements_slot(pointer = requirements)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(current_lane_pointer, requirements);
+
+    return if trusted bray.runtime.bootstrap.scheduler.compatibility(current_lane_pointer, requirements, thread) != 0
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 6;
+    };
+}
+
+@abi(c)
+trusted internal func transfer_task_reports(
+    pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    pos unused: DataPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos incidents: DataPointer<bray.runtime.bootstrap.ReportRecords>
+)
+    requires(
+        trusted core.memory.non_overlapping<bray.runtime.bootstrap.ReportRecords>(
+            left = unused,
+            left_count = 1,
+            right = incidents,
+            right_count = 1
+        ),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.requirements.Execution>(
+            pointer = execution,
+            count = 1
+        ),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = execution),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.requirements.Execution>(
+            pointer = execution
+        ),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = unused, count = 1),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = unused, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = unused),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = unused),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = incidents, count = 1),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = incidents, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = incidents),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = incidents)
+    )
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let snapshot = trusted std.memory.read<bray.runtime.bootstrap.activation.requirements.Execution>(execution);
+    let spare = trusted std.memory.read<bray.runtime.bootstrap.ReportRecords>(unused);
+    let mut records = trusted std.memory.read<bray.runtime.bootstrap.ReportRecords>(incidents);
+
+    trusted std.memory.write<bray.runtime.bootstrap.ReportRecords>(unused, bray.runtime.bootstrap.empty_records());
+    trusted std.memory.write<bray.runtime.bootstrap.ReportRecords>(incidents, bray.runtime.bootstrap.empty_records());
+
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let pool_permit = trusted lambda(pos selected: &Current)
+        requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
+        ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
+        executes(pure, total) {};
+
+    trusted pool_permit(&selected);
+
+    _ = trusted bray.runtime.bootstrap.consume_record_values(spare, 0);
+
+    let task = trusted current_task(&selected);
+
+    let identity = if task matches ?_
+    {
+        yield (trusted take_task_view(&task)).handle;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let owner = bound_execution(&selected);
+
+    let metadata: bray.runtime.bootstrap.ReportSegment =
+    {
+        ordinal = 0,
+        task = identity,
+        frame = snapshot.identity,
+        state = snapshot.state
+    };
+
+    trusted transfer_reports(owner, &mut records, metadata);
+}
+
+@abi(c)
+trusted internal func wake_task(
+    pos reference: DataPointer<bray.runtime.bootstrap.task.Reference>,
+    pos cause: u32
+) -> u32
+    requires(trusted bray.runtime.bootstrap.task.reference_slot(owner = &reference))
+{
+    return trusted wake_reference(trusted bray.runtime.bootstrap.task.borrow_reference(&reference), cause);
+}
+
+@abi(c)
+trusted internal func cancel_task_wait()
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(intrinsic)
+{
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let permitted = trusted lambda(pos selected: &Current)
+        requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
+        ensures(trusted bray.runtime.bootstrap.host.product.native_host())
+        executes(pure, total) {};
+
+    trusted permitted(&selected);
+
+    let task = trusted current_task(&selected);
+
+    if task matches ?_
+    {
+        _ = trusted bray.runtime.bootstrap.task.withdraw_wait(trusted take_task_view(&task), false);
+    }
+}
+
+trusted internal func current_native_context(pos selected: &Current) -> usize
+    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
+    ensures(trusted view_owned(owner = &selected.acquisition))
+{
+    let task = trusted current_task(selected);
+
+    if task matches ?_
+    {
+        let reference = trusted take_task_view(&task);
+        let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
+
+        return trusted guard.get().native_context;
+    }
+
+    return 0;
+}

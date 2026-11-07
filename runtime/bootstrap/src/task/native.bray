@@ -49,15 +49,30 @@ trusted internal func admission(pos runtime: u64) -> u64
     // the source start operation still owns and resolves its inactive frame.
     let admitted = catch trusted admit(runtime);
 
-    return match consume admitted
+    let reference = match consume admitted
     {
-        case Ok(handle) { yield handle; }
-        case Error(_) { yield 0; }
+        case Ok(value) { yield value; }
+        case Error(_) { return 0; }
     };
+
+    if reference matches none
+    {
+        return 0;
+    }
+
+    let owner = trusted take_retained(reference);
+    let handle = owner.handle;
+
+    // The native handle receives the source claim. It does not retain the
+    // additional storage reference used by ordinary Source admission.
+    _ = trusted dispose_reference(owner);
+
+    return handle;
 }
 
-trusted internal func admit(pos runtime: u64) -> u64
+trusted internal func admit(pos runtime: u64) -> Reference?
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted retained_option(owner = &result), trusted resolution_owner_option(owner = &result))
 {
     // This report allowance belongs to the task, independently of any frame's
     // body panic. Admission and recycling happen outside the host acquisition.
@@ -65,7 +80,7 @@ trusted internal func admit(pos runtime: u64) -> u64
 
     if failure_records.status != 0
     {
-        return 0;
+        return none;
     }
 
     let protocol = trusted lambda(pos owner: &bray.runtime.bootstrap.report.chain.Owner)
@@ -89,7 +104,7 @@ trusted internal func admit(pos runtime: u64) -> u64
 
             if !lease.active
             {
-                return 0;
+                return none;
             }
 
             let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
@@ -97,21 +112,21 @@ trusted internal func admit(pos runtime: u64) -> u64
 
             if host.transitioning
             {
-                return 0;
+                return none;
             }
 
             yield match consume trusted admit_locked(&mut host.tasks, &mut prepared, failure_records.records, runtime)
             {
-                case Ok(handle)
+                case Ok(reference)
                 {
                     // Commit the admitted allowance before releasing host access.
                     // Growth borrows no report owner and cannot consume its witness.
-                    if handle != 0
+                    if reference matches ?_
                     {
                         _ = trusted bray.runtime.bootstrap.report.chain.take(&mut failure_records);
                     }
 
-                    return handle;
+                    return reference;
                 }
                 case Error(request) { yield request; }
             };
@@ -119,17 +134,17 @@ trusted internal func admit(pos runtime: u64) -> u64
 
         if !trusted prepare_growth(&mut prepared, request)
         {
-            return 0;
+            return none;
         }
     }
 }
 
-trusted internal func admit_locked(
+internal func admit_locked(
     pos entries: &mut Entries,
     pos prepared: &mut Prepared,
     pos failure_records: bray.runtime.bootstrap.ReportRecords,
     pos runtime: u64
-) -> Result<u64, Growth>
+) -> Result<(Reference?), Growth>
 {
     while true
     {
@@ -139,7 +154,7 @@ trusted internal func admit_locked(
             {
                 if !ready
                 {
-                    return Ok(0);
+                    return Ok(none);
                 }
             }
             case Error(request) { return Error(request); }
@@ -173,6 +188,55 @@ trusted internal func admit_locked(
         entries.free = next;
         entries.active += 1;
 
-        return Ok((std.numeric.truncate_to<u64, u32>(generation) << 32) | std.numeric.truncate_to<u64, usize>(index));
+        let committed = trusted slot_at(entries, index);
+        let handle = (std.numeric.truncate_to<u64, u32>(generation) << 32) | std.numeric.truncate_to<u64, usize>(index);
+
+        let commit = trusted lambda(pos slot: &Slot, pos runtime: u64, pos handle: u64) -> Reference
+            ensures(
+                trusted retained(owner = &result),
+                trusted owned_reference(owner = &result),
+                trusted resolution_owner(owner = &result)
+            )
+        {
+            return
+            {
+                acquisition = bray.runtime.bootstrap.task.Marker
+                {
+                },
+                pointer = std.memory.address_of<Slot>(slot),
+                runtime = runtime,
+                handle = handle
+            };
+        };
+
+        // Initialization commits both the source claim and this storage pin.
+        // Forward their actual canonical reference out of the host acquisition.
+        let reference: Reference? = trusted commit(&committed, runtime, handle);
+
+        return Ok(reference);
     }
+}
+
+// The native provider transfers its admitted owner only when its complete task
+// context is installed. The task cell then owns release of that provider gate.
+trusted internal predicate native_context_transfer(owner: &DataPointer<Reference>, context: usize);
+
+@abi(c)
+trusted internal func native_context_publication(pos pointer: DataPointer<Reference>, pos context: usize)
+    requires(
+        trusted reference_slot(owner = &pointer),
+        trusted native_context_transfer(owner = &pointer, context = context),
+        context != 0
+    )
+{
+    let reference = trusted borrow_reference(&pointer);
+    let mut guard = trusted lock_cell(reference);
+    let control = trusted guard.get();
+
+    if !(control.phase matches Phase.Admitted) || control.registration != 0 || control.native_context != 0
+    {
+        trusted core.target.abort();
+    }
+
+    control.native_context = context;
 }

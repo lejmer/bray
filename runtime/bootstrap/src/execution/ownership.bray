@@ -1,0 +1,133 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+
+// This is the source claim borrowed from the actual native owner or created by
+// admission. Ordinary retention only pins storage and never issues this claim.
+trusted internal func borrow_resolution(
+    pos execution: &bray.runtime.bootstrap.execution.Reference,
+    pos source: &u64
+) -> (bray.runtime.bootstrap.task.Reference?, u32)
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+        trusted resolution_input(owner = source)
+    )
+    ensures(
+        trusted resolution_input(owner = source),
+        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+        trusted bray.runtime.bootstrap.task.retained_option(owner = &result.0),
+        trusted bray.runtime.bootstrap.task.resolution_owner_option(owner = &result.0)
+    )
+    uses(intrinsic, raw_memory)
+{
+    let handle = trusted std.memory.read<u64>(std.memory.address_of<u64>(source));
+
+    return trusted retain_task(execution, handle);
+}
+
+trusted internal func admit_source_task(
+    pos selected: &Current,
+    pos root: bool
+) -> (bray.runtime.bootstrap.task.Reference?, u32)
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained_option(owner = &result.0),
+        trusted bray.runtime.bootstrap.task.resolution_owner_option(owner = &result.0)
+    )
+    uses(intrinsic)
+{
+    let runtime = (trusted domain(bound_execution(selected))).identity;
+    let admitted = catch trusted bray.runtime.bootstrap.task.admit(runtime);
+
+    let reference = match consume admitted
+    {
+        case Ok(acquired) { yield acquired; }
+        case Error(_) { return (none, 4); }
+    };
+
+    if reference matches none
+    {
+        return (none, 4);
+    }
+
+    let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
+
+    let status = trusted admit_task_context(selected, &owner, root);
+
+    if status != 0
+    {
+        _ = trusted bray.runtime.bootstrap.task.destroy_claim(&owner);
+        _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
+        return (none, status);
+    }
+
+    let source: bray.runtime.bootstrap.task.Reference? = owner;
+
+    return (source, 0);
+}
+
+trusted internal func admit_task_context(
+    pos selected: &Current,
+    pos reference: &bray.runtime.bootstrap.task.Reference,
+    pos root: bool
+) -> u32
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
+    )
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
+    uses(foreign_call, intrinsic)
+{
+    trusted bray.runtime.bootstrap.task.attach_execution(reference, trusted pin(bound_execution(selected)));
+
+    let execution = trusted bray.runtime.bootstrap.task.execution_reference(reference);
+    let admission = trusted context_admission(execution);
+
+    if let ?accept = admission
+    {
+        let (storage, storage_status) = trusted retain_task(execution, reference.handle);
+
+        if storage matches none
+        {
+            trusted core.target.abort();
+        }
+
+        let owner = trusted bray.runtime.bootstrap.task.take_retained(storage);
+
+        return trusted accept(
+            owner,
+            if root
+            {
+                yield 1;
+            }
+            else
+            {
+                yield 0;
+            }
+        );
+    }
+
+    return 0;
+}

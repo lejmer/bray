@@ -1,0 +1,109 @@
+module async_root_cleanup;
+
+using core.atomic;
+using std.run;
+using std.task;
+using std.thread;
+
+internal static CHILD_STARTED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static CHILD_FINALIZED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static CHILD_DESTROYED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static BODY_RETURNED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static LEXICAL_CLEANUP: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+struct ChildCleanup
+{
+    async finalize()
+        requires(main_thread_execution())
+    {
+        assert(std.thread.is_main());
+        assert(std.run.cancellation_requested());
+        await std.task.yield_now();
+        core.atomic.store<u32, 2>(&CHILD_FINALIZED, 1);
+    }
+
+    destruct()
+        requires(main_thread_execution())
+    {
+        assert(core.atomic.load<u32, 1>(&CHILD_FINALIZED) == 1);
+        core.atomic.store<u32, 2>(&CHILD_DESTROYED, 1);
+    }
+}
+
+struct RootCleanup
+{
+    destruct()
+        requires(main_thread_execution())
+    {
+        assert(std.thread.is_main());
+        assert(core.atomic.load<u32, 1>(&BODY_RETURNED) == 1);
+        assert(core.atomic.load<u32, 1>(&CHILD_DESTROYED) == 1);
+        core.atomic.store<u32, 2>(&LEXICAL_CLEANUP, 1);
+    }
+}
+
+struct StaticCleanup
+{
+    value: u32;
+
+    destruct()
+        requires(main_thread_execution())
+    {
+        assert(std.thread.is_main());
+        assert(core.atomic.load<u32, 1>(&LEXICAL_CLEANUP) == self.value);
+    }
+}
+
+static FINAL_OBSERVER: StaticCleanup =
+{
+    value = 1
+};
+
+async func child()
+    requires(main_thread_execution())
+{
+    let cleanup = ChildCleanup
+    {
+    };
+
+    core.atomic.store<u32, 2>(&CHILD_STARTED, 1);
+
+    loop
+    {
+        assert(std.thread.is_main());
+        await std.task.yield_now();
+    }
+}
+
+async func direct()
+    requires(main_thread_execution())
+{
+    assert(std.thread.is_main());
+    await std.task.yield_now();
+    assert(std.thread.is_main());
+}
+
+async func main() -> i32
+{
+    assert(FINAL_OBSERVER.value == 1);
+
+    let cleanup = RootCleanup
+    {
+    };
+
+    let pending = child().start();
+
+    await direct();
+
+    while core.atomic.load<u32, 1>(&CHILD_STARTED) == 0
+    {
+        await std.task.yield_now();
+    }
+
+    core.atomic.store<u32, 2>(&BODY_RETURNED, 1);
+    return 0;
+}

@@ -95,7 +95,6 @@ fn infer_reachable_results(
     }
 
     // A declaration without a body has explicit arguments and an explicit receiver.
-    // Unlike an opaque callable value, it has no hidden captured environment.
     let empty = context
         .semantic_values()
         .intern_dependency_contract_template(

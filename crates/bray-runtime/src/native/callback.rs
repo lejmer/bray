@@ -5,7 +5,7 @@ use bray_runtime_abi::{
 
 use crate::{RunOutcome, execute_synchronous_root};
 
-use super::state::runtime_failure;
+use super::outgoing::runtime_failure;
 
 native_export! {
     pub extern "C" fn bray_runtime_native_thread_execution(
@@ -31,7 +31,7 @@ fn execute_native_thread(
     cancellation: NativeThreadCancellationCallback,
     cancellation_context: usize,
 ) -> NativeRunOutcome {
-    super::state::with_independent_execution_context(|| {
+    crate::context::with_independent_execution_context(|| {
         crate::context::with_native_thread_cancellation(cancellation, cancellation_context, || {
             execute_callback_boundary(|outcome| callback(context, outcome), |_| {}, false)
         })
@@ -54,8 +54,15 @@ fn execute_callback_boundary(
 
     let thread = super::bridge::Scope::enter();
 
-    let outcome = match &thread {
-        Ok(_) if !main_thread || crate::bootstrap::mark_current_runtime_thread_as_main() => {
+    let execution = thread
+        .as_ref()
+        .map_err(|status| *status)
+        .and_then(|_| super::scope::Scope::enter(true));
+
+    let outcome = match (&thread, &execution) {
+        (Ok(_), Ok(_))
+            if !main_thread || crate::bootstrap::mark_current_runtime_thread_as_main() =>
+        {
             execute_synchronous_root(
                 || {
                     published = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
@@ -65,7 +72,12 @@ fn execute_callback_boundary(
                 &mut admitted,
             )
         }
-        Ok(_) | Err(_) => RunOutcome::Completed(()),
+        (Err(status), _) | (_, Err(status)) => {
+            published = runtime_failure(*status);
+
+            RunOutcome::Completed(())
+        }
+        _ => RunOutcome::Completed(()),
     };
 
     let mut outcome = match outcome {
@@ -79,7 +91,13 @@ fn execute_callback_boundary(
         }
     };
 
-    let cleanup_incidents = thread.map_or(0, super::bridge::Scope::finish);
+    // Restore the complete Source context while this bridge still owns the
+    // attachment and native callbacks needed by its terminal cleanup.
+    let execution_incidents = execution
+        .map(|scope| usize::from(!scope.finish().is_success()))
+        .unwrap_or(0);
+
+    let cleanup_incidents = execution_incidents + thread.map_or(0, super::bridge::Scope::finish);
 
     if cleanup_incidents != 0 {
         super::host::record_cleanup_failure(cleanup_incidents);
@@ -94,9 +112,7 @@ fn execute_callback_boundary(
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_abi::{
-        NativeRunOutcome, NativeRunState, NativeTaskHandle, NativeThreadOperationCallback,
-    };
+    use bray_runtime_abi::{NativeRunOutcome, NativeRunState, NativeThreadOperationCallback};
 
     use super::{bray_runtime_native_thread_execution, execute_native_thread};
 
@@ -114,7 +130,7 @@ mod tests {
     }
 
     extern "C-unwind" fn assert_independent_native_task(_: usize, outcome: &mut NativeRunOutcome) {
-        assert_eq!(super::super::state::current_native_task(), None);
+        assert!(crate::current_task_execution_context().is_none());
         assert!(!crate::current_run_cancellation_requested());
 
         #[cfg(feature = "test-output")]
@@ -126,7 +142,6 @@ mod tests {
     fn assert_reentrant_entry_isolates_and_restores_outer_context(
         execute: extern "C" fn(NativeThreadOperationCallback, usize) -> NativeRunOutcome,
     ) {
-        let task = NativeTaskHandle::new(7).expect("fixed task handle is nonzero");
         let cancellation = crate::CancellationContext::root();
 
         assert!(cancellation.request());
@@ -140,21 +155,19 @@ mod tests {
         crate::context::with_native_thread_cancellation(cancellation_requested, 0, || {
             crate::context::with_run_cancellation_context(cancellation, || {
                 crate::context::with_task_output(output, || {
-                    super::super::state::with_current_task(task, || {
-                        let outcome = execute(assert_independent_native_task, 0);
+                    let outcome = execute(assert_independent_native_task, 0);
 
-                        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
-                        assert_eq!(super::super::state::current_native_task(), Some(task));
-                        assert!(crate::current_run_cancellation_requested());
+                    assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+                    assert!(crate::current_task_execution_context().is_none());
+                    assert!(crate::current_run_cancellation_requested());
 
-                        #[cfg(feature = "test-output")]
-                        assert!(crate::context::current_task_output().is_some());
-                    });
+                    #[cfg(feature = "test-output")]
+                    assert!(crate::context::current_task_output().is_some());
                 });
             });
         });
 
-        assert_eq!(super::super::state::current_native_task(), None);
+        assert!(crate::current_task_execution_context().is_none());
     }
 
     #[test]

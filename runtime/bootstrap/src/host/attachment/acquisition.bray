@@ -22,7 +22,7 @@ internal struct Owner
         requires(self.status != bray.runtime.bootstrap.STATUS_SUCCESS || trusted acquired(owner = &self))
         when(self.status != bray.runtime.bootstrap.STATUS_SUCCESS)
         {
-            executes(total)
+            executes(pure, total)
         }
     {
         if self.status == bray.runtime.bootstrap.STATUS_SUCCESS
@@ -38,6 +38,7 @@ trusted internal func retire(pos owner: &mut Owner) -> bray.runtime.bootstrap.th
     requires(trusted acquired(owner = &owner), owner.status == bray.runtime.bootstrap.STATUS_SUCCESS)
     ensures(
         trusted acquired(owner = &owner),
+        owner.status == bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE,
         trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = &result)
     )
     executes(total)

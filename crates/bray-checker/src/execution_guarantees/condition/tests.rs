@@ -5,6 +5,112 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[test]
+fn const_calls_observe_current_values_without_loan_identity() {
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+    let input = ExecutionCondition::Input(place.clone());
+    let call = |value| ExecutionCondition::call(callable, None, [], vec![value]);
+    let loan = input.clone().borrowed();
+    let contents = ExecutionCondition::Joined(bray_bound_tree::BoundUnitId::new(0), 1, place);
+    let current = loan.with_referent(contents.clone());
+
+    assert_eq!(call(loan.clone()), call(input));
+    assert_eq!(call(current.clone()), call(contents));
+    assert_ne!(call(current.clone()), call(loan.clone()));
+    assert_eq!(current.owner_identity(), loan.owner_identity());
+    assert_eq!(current.owned_components().count(), 0);
+}
+
+#[test]
+fn borrowed_scalar_contents_retain_storage_authority_and_const_value_semantics() {
+    let definition =
+        bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+
+    let callable = crate::test_support::callable_instance(definition.into());
+
+    let symbol =
+        crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+
+    let condition =
+        |value| ExecutionCondition::predicate(symbol.into(), callable.substitution(), vec![value]);
+
+    let call = |value| ExecutionCondition::call(callable, None, [], vec![value]);
+
+    let stored = |ordinal, value| {
+        ExecutionCondition::scalar_observation(
+            ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))),
+            value,
+        ).borrowed()
+    };
+
+    for value in [
+        ExecutionCondition::Boolean(true),
+        ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))),
+    ] {
+        let loan = stored(0, value.clone());
+        let unchanged = loan.with_referent(value.clone());
+        let changed = loan.with_referent(ExecutionCondition::Boolean(false));
+        let forwarded = loan.with_referent(changed.clone().into_referent());
+
+        assert_eq!(forwarded, changed);
+
+        let unrelated = stored(1, value);
+
+        assert_eq!(condition(unchanged), condition(loan.clone()));
+
+        assert_eq!(
+            condition(changed.clone()),
+            condition(stored(0, ExecutionCondition::Boolean(false)))
+        );
+
+        assert_ne!(condition(loan.clone()), condition(unrelated.clone()));
+        assert_eq!(call(loan.clone()), call(unrelated));
+        assert_ne!(call(loan.clone()), call(changed.clone()));
+        assert_eq!(changed.owner_identity(), loan.owner_identity());
+        assert_eq!(changed.owned_components().count(), 0);
+    }
+}
+
+#[test]
+fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
+    let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let current = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+    let changed = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+    let aggregate = ExecutionCondition::owned_value(owner, current);
+
+    assert_eq!(aggregate.storage_contents(), None);
+
+    let inline = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(3)));
+    let backing = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(4)));
+
+    let allocated = ExecutionCondition::constructed(inline.clone(),
+        [(bray_bound_tree::StorageProjection::OwnedTarget, backing.clone())].into());
+
+    let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+
+    assert_eq!(allocated.clone().project(bray_bound_tree::StorageProjection::OwnedTarget), backing);
+    assert_eq!(allocated.component(field), inline.component(field));
+
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+    let observe = |value| ExecutionCondition::predicate(predicate.into(), callable.substitution(), vec![value]);
+
+    let alias = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(5)))
+        .borrowed().with_referent(aggregate.clone());
+
+    assert_eq!(observe(alias), observe(aggregate.clone().borrowed()));
+
+    let loan = aggregate.borrowed();
+    let refreshed = loan.with_referent(changed.clone());
+
+    assert_eq!(refreshed.owner_identity(), loan.owner_identity());
+    assert_eq!(refreshed.storage_contents(), None);
+    assert_ne!(observe(refreshed), observe(changed.borrowed()));
+}
+
+#[test]
 fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
     let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
 
@@ -12,8 +118,7 @@ fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
         .clone()
         .component(ConstantProjectionKind::NullableValue);
 
-    let snapshot = ExecutionCondition::Constructed(
-        Arc::new(identity.clone()),
+    let snapshot = ExecutionCondition::constructed(identity.clone(),
         [(
             bray_bound_tree::StorageProjection::NullableValue,
             payload.clone(),
@@ -37,19 +142,14 @@ fn changed_contents_do_not_reuse_unlisted_components_from_carrier_identity() {
     let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
     let marker = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
 
-    let value = ExecutionCondition::Constructed(
-        Arc::new(identity.clone()),
-        [
-            (
-                bray_bound_tree::StorageProjection::OwnedTarget,
-                contents.clone(),
-            ),
-            (
+    let value = ExecutionCondition::owned_value(
+        identity.clone(),
+        ExecutionCondition::constructed(contents.clone(),
+            [(
                 bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)),
                 marker.clone(),
-            ),
-        ]
-        .into(),
+            )].into(),
+        ),
     );
 
     assert_eq!(value.owner_identity(), &identity);
@@ -82,8 +182,7 @@ fn partial_aggregate_snapshots_keep_unlisted_component_identity() {
     let first = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
     let second = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
 
-    let value = ExecutionCondition::Constructed(
-        Arc::new(root.clone()),
+    let value = ExecutionCondition::constructed(root.clone(),
         [(first, ExecutionCondition::Unknown)].into(),
     );
 
@@ -156,6 +255,25 @@ fn observation_paths_distinguish_contents_from_containing_identity() {
             .observes(&root)
         );
     }
+}
+
+#[test]
+fn retained_borrow_paths_do_not_retain_the_referents_ownership() {
+    let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+
+    let field = owner
+        .clone()
+        .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
+    let mut retained = super::ObservationSet::default();
+
+    retained.insert(owner.clone().borrowed());
+    assert!(retained.contains(&owner.clone().borrowed()));
+    assert!(retained.contains(&field.clone().borrowed()));
+    assert!(!retained.contains(&owner));
+    assert!(!retained.contains(&field));
+    assert!(!retained.overlaps(&owner));
+    assert!(!retained.overlaps(&field));
 }
 
 #[test]
@@ -239,9 +357,9 @@ fn repeated_component_observation_keeps_the_original_snapshot() {
         let path = [first, nested];
         let value = original.clone().component(first).component(nested);
 
-        assert_eq!(original.with_component(&path, value), original);
+        assert_eq!(original.with_component(&path, value, None), original);
 
-        let changed = original.with_component(&path, ExecutionCondition::Boolean(true));
+        let changed = original.with_component(&path, ExecutionCondition::Boolean(true), None);
 
         assert_ne!(changed, original);
 
@@ -250,14 +368,16 @@ fn repeated_component_observation_keeps_the_original_snapshot() {
             ExecutionCondition::Boolean(true)
         );
 
-        let updated = changed.with_component(&path, ExecutionCondition::Boolean(false));
-        let expected = original.with_component(&path, ExecutionCondition::Boolean(false));
+        let updated = changed.with_component(&path, ExecutionCondition::Boolean(false), None);
+        let expected = original.with_component(&path, ExecutionCondition::Boolean(false), None);
 
         assert_eq!(updated, expected);
 
         if first == ConstantProjectionKind::NullableValue {
             let payload = changed.component(first);
-            let updated = payload.with_component(&[nested], ExecutionCondition::Boolean(false));
+
+            let updated =
+                payload.with_component(&[nested], ExecutionCondition::Boolean(false), None);
 
             assert_eq!(updated.present(), expected);
         }
@@ -266,8 +386,7 @@ fn repeated_component_observation_keeps_the_original_snapshot() {
 
 #[test]
 fn anonymous_aggregate_contents_do_not_establish_an_observation_identity() {
-    let anonymous = ExecutionCondition::Constructed(
-        Arc::new(ExecutionCondition::Unknown),
+    let anonymous = ExecutionCondition::constructed(ExecutionCondition::Unknown,
         [(
             bray_bound_tree::StorageProjection::OwnedTarget,
             ExecutionCondition::Boolean(true),
@@ -275,8 +394,7 @@ fn anonymous_aggregate_contents_do_not_establish_an_observation_identity() {
         .into(),
     );
 
-    let changed = ExecutionCondition::Constructed(
-        Arc::new(anonymous.clone()),
+    let changed = ExecutionCondition::constructed(anonymous.clone(),
         [(
             bray_bound_tree::StorageProjection::OwnedTarget,
             ExecutionCondition::Boolean(false),
@@ -450,8 +568,7 @@ fn predecessor_snapshots_do_not_expand_their_surviving_owner_recursively() {
     let second = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
     let unchanged = owner.clone().component(second);
 
-    let snapshot = ExecutionCondition::Constructed(
-        Arc::new(owner.clone()),
+    let snapshot = ExecutionCondition::constructed(owner.clone(),
         [
             (
                 bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)),
@@ -475,4 +592,35 @@ fn predecessor_snapshots_do_not_expand_their_surviving_owner_recursively() {
     );
 
     assert_eq!(unchanged.with_snapshots(&snapshots), unchanged);
+}
+
+#[test]
+fn carrier_implication_preserves_trusted_provenance_through_negated_guards() {
+    use bray_bound_tree::BoundOperator;
+
+    let tag = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let present = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+    let ordinary = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+    let trusted = ExecutionCondition::Trusted(Arc::new(ordinary.clone()));
+    let not = |value| ExecutionCondition::operation(BoundOperator::LogicalNot, vec![value]);
+
+    let or =
+        |left, right| ExecutionCondition::operation(BoundOperator::LogicalOr, vec![left, right]);
+
+    let active = ExecutionCondition::operation(
+        BoundOperator::LogicalAnd,
+        vec![tag.clone(), present.clone()],
+    );
+
+    let published = or(not(active), trusted.clone());
+    let declared = or(not(tag), or(not(present), trusted.clone()));
+
+    assert!(published.implies(&declared));
+    assert!(declared.implies(&published));
+    assert!(trusted.implies(&ordinary));
+    assert!(!ordinary.implies(&trusted));
+
+    let unresolved = or(ordinary, ExecutionCondition::Unknown);
+
+    assert!(!unresolved.implies(&unresolved));
 }

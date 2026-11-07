@@ -1,0 +1,100 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+
+// The attachment owns retirement. Rejection returns that actual unpublished
+// owner so startup can acknowledge failure before retiring its descriptor.
+trusted internal func publish_scope(pos owner: &mut Scope) -> (u32, bray.runtime.bootstrap.host.ExecutionOwner?)
+    requires(trusted scope_owned(owner = &owner.marker))
+    ensures(
+        trusted scope_live(owner = &owner.marker),
+        result.0 == 0 || result.1 matches ?_,
+        result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1)
+    )
+{
+    let acquire = trusted lambda(pos owner: &Scope) -> bray.runtime.bootstrap.host.ExecutionOwner
+        requires(trusted scope_owned(owner = &owner.marker))
+        ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = &result))
+    {
+        return
+        {
+            acquisition = bray.runtime.bootstrap.host.ExecutionAcquisition
+            {
+            },
+            resource = std.memory.byte_address<Scope>(std.memory.address_of<Scope>(owner)),
+            bind = enter_scope,
+            retire = retire_scope
+        };
+    };
+
+    let (status, installed) = trusted bray.runtime.bootstrap.host.exchange_attachment_execution(
+        trusted acquire(&owner)
+    );
+
+    if status == 0 && installed matches ?_
+    {
+        trusted core.target.abort();
+    }
+
+    return (status, installed);
+}
+
+// These callbacks are installed together with this exact Scope resource. The
+// full host owner keeps its OS-entry storage live while the callback runs.
+trusted internal func owned_scope(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> &Scope
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted scope_live(owner = &result.marker),
+        trusted native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias, layout_reinterpret)
+{
+    let pointer = trusted std.memory.reinterpret<Scope, u8>(owner.resource);
+
+    let permit = trusted lambda(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner, pos pointer: DataPointer<Scope>)
+        requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Scope>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Scope>(pointer = pointer),
+            trusted core.memory.initialized_as<Scope>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Scope>(pointer = pointer),
+            trusted core.memory.epoch_current<Scope>(pointer = pointer),
+            trusted core.memory.synchronized_access<Scope>(pointer = pointer),
+            trusted core.memory.movement_stable<Scope>(pointer = pointer),
+            trusted core.memory.finalization_pending<Scope>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+    return trusted std.memory.borrow_from<Scope, bray.runtime.bootstrap.host.ExecutionOwner>(owner, pointer);
+}
+
+@abi(c)
+trusted internal func enter_scope(
+    pos owner: bray.runtime.bootstrap.host.ExecutionOwner
+) -> bray.runtime.bootstrap.host.ExecutionOwner
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner))
+    ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = &result))
+{
+    trusted enter_scope_execution(trusted owned_scope(&owner));
+    return owner;
+}
+
+@abi(c)
+trusted internal func retire_scope(pos owner: bray.runtime.bootstrap.host.ExecutionOwner, pos identity: u64) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner),
+        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
+    )
+{
+    return trusted release_scope(owner);
+}

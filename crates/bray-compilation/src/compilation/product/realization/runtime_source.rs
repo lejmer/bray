@@ -34,6 +34,8 @@ const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
     fields
 };
 const PANIC_REPORT: AbiField = AbiField::Struct(&PANIC_REPORT_FIELDS);
+const RUN_OUTCOME: AbiField = AbiField::Struct(&[U32, USIZE, PANIC_REPORT]);
+const FRAME_PROGRESS: AbiField = AbiField::Struct(&[U32, U32, USIZE, PANIC_REPORT]);
 const PRODUCT_IDENTITY_FIELDS: &[AbiField] = &[AbiField::Array {
     element: RepresentationRole::ScalarU8,
     length: 32,
@@ -81,6 +83,14 @@ macro_rules! define_runtime_source_fields {
     (@field PanicReportPointer) => { AbiField::NativePointer };
     (@field PanicReport) => { PANIC_REPORT };
     (@field FrameState) => { AbiField::Struct(&[U32, U32]) };
+    (@field Configuration) => { AbiField::Struct(&[
+        AbiField::Struct(&[]), USIZE, USIZE, U32,
+        AbiField::NativePointer, AbiField::NativePointer, AbiField::NativePointer, USIZE, USIZE,
+    ]) };
+    (@field RootStart) => { AbiField::Struct(&[U32, U64]) };
+    (@field TaskAllocation) => { AbiField::Struct(&[U32, U64]) };
+    (@field RunOutcome) => { RUN_OUTCOME };
+    (@field FrameProgress) => { FRAME_PROGRESS };
     (@field InactiveFrame) => { AbiField::Struct(&[
         AbiField::Struct(&[USIZE, USIZE, USIZE, U64, USIZE]), AbiField::NativePointer,
     ]) };
@@ -171,7 +181,7 @@ pub(super) fn runtime_source_contract_matches(
             | RuntimeAbiRole::WorkerPointerEntry
             | RuntimeAbiRole::WorkerWordEntry
             | RuntimeAbiRole::ThreadStorageExit
-            | RuntimeAbiRole::ControlStorageExit
+            | RuntimeAbiRole::ContextStorageExit
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentEnter
             | RuntimeAbiRole::ThreadAttachmentMarkMain
@@ -345,7 +355,7 @@ pub(super) fn runtime_role_abi(
     if matches!(
         role,
         RuntimeAbiRole::ThreadStorageExit
-            | RuntimeAbiRole::ControlStorageExit
+            | RuntimeAbiRole::ContextStorageExit
             | RuntimeAbiRole::WorkerWordEntry
     ) && compilation
         .selected_target()
@@ -434,7 +444,7 @@ mod tests {
                 "thread_attachment_mark_main",
             ),
             (RuntimeAbiRole::ThreadStorageExit, "thread_storage_exit"),
-            (RuntimeAbiRole::ControlStorageExit, "control_storage_exit"),
+            (RuntimeAbiRole::ContextStorageExit, "context_storage_exit"),
             (
                 RuntimeAbiRole::ThreadAttachmentLeave,
                 "thread_attachment_leave",
@@ -644,7 +654,7 @@ mod tests {
     }
 
     #[test]
-    fn source_initialization_requires_native_abi_and_pointer_width_parameters() {
+    fn source_initialization_requires_native_abi_without_capacity_parameters() {
         let compilation = compilation("module app;\n");
 
         let usize = compilation
@@ -655,17 +665,17 @@ mod tests {
             .codegen_representation_type(RepresentationRole::ScalarU32)
             .expect("fixture type must have a code-generation representation");
 
-        for (abi, parameter, context, expected) in [
-            (CallableAbi::C, usize, true, true),
-            (CallableAbi::C, usize, false, false),
-            (CallableAbi::C, u32, true, false),
-            (CallableAbi::Bray, usize, true, false),
+        for (abi, parameters, context, expected) in [
+            (CallableAbi::C, &[][..], true, true),
+            (CallableAbi::C, &[][..], false, false),
+            (CallableAbi::C, &[usize, usize][..], true, false),
+            (CallableAbi::Bray, &[][..], true, false),
         ] {
             let signature = CodegenCallableSignature::new(
-                [
-                    CodegenParameterMapping::direct(parameter, None, []),
-                    CodegenParameterMapping::direct(parameter, None, []),
-                ],
+                parameters
+                    .iter()
+                    .copied()
+                    .map(|parameter| CodegenParameterMapping::direct(parameter, None, [])),
                 CodegenResultMapping::direct(u32, None, []),
                 abi,
                 false,
@@ -711,36 +721,42 @@ mod tests {
             .expect("fixture unary representation must resolve")
             .expect("successful fixture query must contain its expected result");
 
-        for (parameter, result, expected) in [
-            (pointer, CodegenResultMapping::Void, true),
-            (usize, CodegenResultMapping::Void, false),
-            (
-                pointer,
-                CodegenResultMapping::direct(usize, None, []),
-                false,
-            ),
+        for role in [
+            RuntimeAbiRole::ReportRecordAppend,
+            RuntimeAbiRole::ActivationCallback,
+            RuntimeAbiRole::ActivationActionReadiness,
         ] {
-            let signature = CodegenCallableSignature::new(
-                [
-                    CodegenParameterMapping::direct(parameter, None, []),
-                    CodegenParameterMapping::direct(pointer, None, []),
-                ],
-                result,
-                CallableAbi::C,
-                false,
-            );
+            for (parameter, result, expected) in [
+                (pointer, CodegenResultMapping::Void, true),
+                (usize, CodegenResultMapping::Void, false),
+                (
+                    pointer,
+                    CodegenResultMapping::direct(usize, None, []),
+                    false,
+                ),
+            ] {
+                let signature = CodegenCallableSignature::new(
+                    std::iter::once(CodegenParameterMapping::direct(parameter, None, [])).chain(
+                        (role == RuntimeAbiRole::ReportRecordAppend)
+                            .then(|| CodegenParameterMapping::direct(pointer, None, [])),
+                    ),
+                    result,
+                    CallableAbi::C,
+                    false,
+                );
 
-            assert_eq!(
-                runtime_source_signature_matches(
-                    &compilation,
-                    RuntimeAbiRole::ReportRecordAppend,
-                    &signature,
-                    &CancellationToken::new(),
-                    &mut bray_diagnostics::DiagnosticBag::new(),
-                )
-                .expect("fixture runtime signature must be checked"),
-                Some(expected)
-            );
+                assert_eq!(
+                    runtime_source_signature_matches(
+                        &compilation,
+                        role,
+                        &signature,
+                        &CancellationToken::new(),
+                        &mut bray_diagnostics::DiagnosticBag::new(),
+                    )
+                    .expect("fixture runtime signature must be checked"),
+                    Some(expected)
+                );
+            }
         }
     }
 
@@ -761,8 +777,8 @@ mod tests {
                 "thread_attachment_leave",
                 "thread_storage_exit",
                 "attachment_destructor_address",
-                "control_storage_exit",
-                "control_destructor_address",
+                "context_storage_exit",
+                "context_destructor_address",
                 "load_control",
                 "store_control",
                 "invoke_control",
@@ -943,7 +959,7 @@ mod tests {
 
                 for role in [
                     RuntimeAbiRole::ThreadStorageExit,
-                    RuntimeAbiRole::ControlStorageExit,
+                    RuntimeAbiRole::ContextStorageExit,
                 ] {
                     assert_eq!(
                         runtime_source_signature_matches(

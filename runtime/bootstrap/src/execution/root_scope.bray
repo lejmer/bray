@@ -1,0 +1,247 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using std.memory.function;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+
+// A nested call retains the complete parent context. No active task fields move
+// out of it, and the suspended parent keeps its exclusive dispatch reservation.
+trusted internal func root_scope() -> EntryScope
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(
+        trusted view_owned(owner = &result.current.acquisition),
+        (result.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(
+            owner = &result.previous
+        ))
+    )
+    uses(intrinsic)
+{
+    let nested =
+    {
+        let selected = trusted current();
+
+        yield selected.status == 0 && core.atomic.load<usize, 0>(&(trusted context(&selected)).task) != 0;
+    };
+
+    let mut scope = trusted entry_scope(nested);
+
+    if !nested || scope.status != 0
+    {
+        return scope;
+    }
+
+    let access = trusted lambda(pos scope: &EntryScope)
+        requires(
+            trusted view_owned(owner = &scope.current.acquisition),
+            (scope.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(
+                owner = &scope.previous
+            ))
+        )
+        ensures(
+            trusted view_owned(owner = &scope.current.acquisition),
+            trusted bray.runtime.bootstrap.host.attachment.native_acquisition()
+        )
+        executes(pure, total) {};
+
+    trusted access(&scope);
+
+    if scope.current.status != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let attachment = trusted bray.runtime.bootstrap.host.attachment.acquire();
+
+    if attachment.status != 0
+    {
+        scope.status = attachment.status;
+        return scope;
+    }
+
+    let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
+        std.memory.stride_of<Context>(),
+        align = std.memory.align_of<Context>()
+    )
+    {
+        case ?owner { yield owner; }
+        case none
+        {
+            scope.status = 4;
+            return scope;
+        }
+    };
+
+    scope.status = trusted commit_driver(allocation, trusted nested_context(&scope.current, attachment));
+    return scope;
+}
+
+trusted internal func nested_context(
+    pos parent: &Current,
+    pos attachment: bray.runtime.bootstrap.host.attachment.Owner
+) -> Context
+    requires(
+        trusted view_owned(owner = &parent.acquisition),
+        parent.status == 0,
+        trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &attachment),
+        attachment.status == 0
+    )
+    ensures(
+        trusted view_owned(owner = &parent.acquisition),
+        trusted context_owned(owner = &result),
+        result.allocation matches none
+    )
+{
+    let active = trusted context(parent);
+    let lane = trusted selected_lane(parent);
+    let mut value = trusted origin_context(attachment);
+
+    if value.thread != active.thread
+    {
+        trusted core.target.abort();
+    }
+
+    value.driver =
+    {
+        placement = active.driver.placement,
+        workload = lane.workload,
+        thread = value.thread
+    };
+
+    value.lanes = active.lanes;
+    value.worker = active.worker;
+    value.binding = core.memory.uninit_from<(Binding?)>(trusted pin_binding(trusted pin(bound_execution(parent))));
+    return value;
+}
+
+trusted internal func retain_owner(pos owner: &Owner) -> Owner
+    requires(
+        trusted service_owner(owner = owner),
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution)
+    )
+    ensures(
+        trusted service_owner(owner = owner),
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution),
+        trusted retained(owner = &result.execution),
+        trusted service_owner(owner = &result),
+        trusted pinned(owner = &result.execution)
+    )
+{
+    return match consume trusted try_retain_owner(&owner.execution)
+    {
+        case ?acquired { yield acquired; }
+        case none { yield trusted core.target.abort(); }
+    };
+}
+
+// A storage pin preserves cleanup access after admission closes. Only an open
+// execution can turn that pin into a new service owner.
+trusted internal func try_retain_owner(pos owner: &Reference) -> Owner?
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+    uses(intrinsic)
+{
+    let value = trusted domain(owner);
+    let mut previous = core.atomic.load<usize, 1>(&value.owners);
+
+    loop
+    {
+        if previous == 0
+        {
+            return none;
+        }
+
+        if previous == std.numeric.USIZE_MAX
+        {
+            trusted core.target.abort();
+        }
+
+        let (observed, exchanged) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.owners,
+            expected = previous,
+            desired = previous + 1
+        );
+
+        if exchanged
+        {
+            return
+            {
+                acquisition = Acquisition
+                {
+                },
+                execution = trusted pin(owner)
+            };
+        }
+
+        previous = observed;
+    }
+}
+
+@abi(c)
+trusted internal func suspend_binding(pos pointer: DataPointer<Context>) -> u32
+    requires(trusted driver_binding_entry(context = pointer))
+{
+    let selected = trusted binding_driver(pointer);
+    let value = trusted context(&selected);
+    let registration = core.atomic.load<u64, 0>(&value.registration);
+
+    if registration == 0
+    {
+        return 0;
+    }
+
+    return trusted bray.runtime.bootstrap.scheduler.release_slot(
+        trusted scheduler_reference(bound_execution(&selected)),
+        registration
+    );
+}
+
+internal callable ResumeRoot = @abi(c) trusted func(pos pointer: DataPointer<Context>)
+    requires(trusted driver_binding_entry(context = pointer), blocking_execution());
+
+trusted internal func resume_operation() -> BindingResume
+    uses(layout_reinterpret)
+{
+    let callback: ResumeRoot = resume_binding;
+
+    let pointer = trusted std.memory.function.reinterpret<BindingResume, ResumeRoot>(
+        trusted std.memory.function_address<ResumeRoot>(callback)
+    );
+
+    let authorize = trusted lambda(pos pointer: FunctionPointer<BindingResume>)
+        ensures(trusted core.memory.callable_address_valid<BindingResume>(pointer = pointer))
+        executes(pure, total) {};
+
+    trusted authorize(pointer);
+    return trusted std.memory.callable_from_pointer<BindingResume>(pointer);
+}
+
+@abi(c)
+trusted internal func resume_binding(pos pointer: DataPointer<Context>)
+    requires(trusted driver_binding_entry(context = pointer), blocking_execution())
+{
+    let selected = trusted binding_driver(pointer);
+    let owner = bound_execution(&selected);
+    let registration = core.atomic.load<u64, 0>(&(trusted context(&selected)).registration);
+
+    loop
+    {
+        match trusted bray.runtime.bootstrap.scheduler.acquire_slot(trusted scheduler_reference(owner), registration)
+        {
+            case 1 { return; }
+            case 0 { trusted wait_ready(&selected, owner); }
+            case _ { trusted core.target.abort(); }
+        }
+    }
+}

@@ -1,0 +1,174 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.scheduler;
+
+trusted internal func select_lane(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos registration: u64,
+    pos execution: &bray.runtime.bootstrap.activation.requirements.Execution,
+    pos driver: bray.runtime.bootstrap.scheduler.Lane?
+) -> (bray.runtime.bootstrap.scheduler.Lane, u32)
+    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+{
+    let requirements: bray.runtime.bootstrap.scheduler.Requirements =
+    {
+        affinity = execution.requirements.affinity,
+        workloads = execution.requirements.lanes,
+        origin = execution.origin
+    };
+
+    let (mut lane, status) = trusted bray.runtime.bootstrap.scheduler.select(
+        trusted scheduler_reference(owner),
+        registration,
+        requirements
+    );
+
+    if status == 0
+    {
+        if let ?selected = driver
+        {
+            if (selected.workload & lane.workload) != lane.workload || (lane.placement != 0 && lane.thread !=
+                selected.thread) || (lane.placement == 3 && selected.placement != 3)
+            {
+                return (lane, 4);
+            }
+
+            lane =
+            {
+                placement = selected.placement,
+                workload = lane.workload,
+                thread = selected.thread
+            };
+        }
+    }
+
+    return (lane, status);
+}
+
+trusted internal func register_task(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos task: u64,
+    pos lane: bray.runtime.bootstrap.scheduler.Lane,
+    pos driver: bray.runtime.bootstrap.scheduler.Lane?
+) -> u64
+    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+{
+    let mut prepared: bray.runtime.bootstrap.scheduler.Prepared =
+    {
+        entries = none,
+        queues = none
+    };
+
+    loop
+    {
+        let request = match consume trusted bray.runtime.bootstrap.scheduler.try_admit(
+            trusted scheduler_reference(owner),
+            &mut prepared,
+            task,
+            lane,
+            driver
+        )
+        {
+            case Ok(registration) { return registration; }
+            case Error(request) { yield request; }
+        };
+
+        if !trusted bray.runtime.bootstrap.scheduler.prepare_growth(
+            trusted scheduler_reference(owner),
+            &mut prepared,
+            request
+        )
+        {
+            return 0;
+        }
+    }
+}
+
+trusted internal func scheduler_slot(pos owner: &Reference) -> DataPointer<bray.runtime.bootstrap.scheduler.Reference>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner), trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = result))
+    executes(pure, total)
+{
+    return std.memory.address_of<bray.runtime.bootstrap.scheduler.Reference>(trusted scheduler_reference(owner));
+}
+
+trusted internal func withdraw_registration(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos registration: u64
+)
+    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+{
+    trusted bray.runtime.bootstrap.scheduler.withdraw_registration(trusted scheduler_reference(owner), registration);
+}
+
+trusted internal func wake_reference(pos reference: &bray.runtime.bootstrap.task.Reference, pos cause: u32) -> u32
+    requires(trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    ensures(trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
+    when(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    }
+{
+    let execution = trusted bray.runtime.bootstrap.task.execution_reference(reference);
+
+    let registration =
+    {
+        let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
+
+        yield trusted guard.get().registration;
+    };
+
+    if registration == 0
+    {
+        return 0;
+    }
+
+    // Queue timestamps are optional diagnostic metadata. Waking a task must
+    // not acquire a clock or retain the optional deadline service.
+    return trusted bray.runtime.bootstrap.scheduler.wake_registration(
+        trusted scheduler_reference(execution),
+        registration,
+        cause,
+        0
+    );
+}
+
+trusted internal func demand_lane(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos lane: bray.runtime.bootstrap.scheduler.Lane
+) -> bray.runtime.bootstrap.worker.Failure
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    uses(foreign_call)
+{
+    if lane.placement != 0
+    {
+        return bray.runtime.bootstrap.worker.no_failure();
+    }
+
+    if let ?service = trusted workers(owner)
+    {
+        return bray.runtime.bootstrap.worker.request(service, lane);
+    }
+
+    // Task start installs the selected worker provider before publishing any
+    // migratable registration. Root dispatch uses its retained main driver.
+    trusted core.target.abort();
+}

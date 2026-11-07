@@ -20,20 +20,28 @@ impl ExecutionState {
         values: impl IntoIterator<Item = ExecutionCondition>,
         retained: &BTreeSet<ExecutionCondition>,
     ) {
+        let mut observations = crate::execution_guarantees::ObservationSet::default();
+
+        for value in retained {
+            observations.insert(value.clone());
+        }
+
         self.retire_values(
             values,
-            retained,
+            &observations,
             &BTreeSet::new(),
             bray_symbols::DependencyMutationKind::Retire,
+            &BTreeSet::new(),
         );
     }
 
     fn retire_values(
         &mut self,
         values: impl IntoIterator<Item = ExecutionCondition>,
-        retained: &BTreeSet<ExecutionCondition>,
+        retained_observations: &crate::execution_guarantees::ObservationSet,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         kind: bray_symbols::DependencyMutationKind,
+        places: &BTreeSet<crate::ExecutionPlace>,
     ) {
         let mut pending = values.into_iter().collect::<Vec<_>>();
 
@@ -48,20 +56,14 @@ impl ExecutionState {
                 .collect()
         };
 
-        if pending.is_empty() {
+        if pending.is_empty() && places.is_empty() {
             return;
         }
 
         self.refine_deferred_witnesses();
 
-        let mut retained_observations = crate::execution_guarantees::ObservationSet::default();
-
-        for value in retained {
-            retained_observations.insert(value.clone());
-        }
-
         let (dependents, input_dependents) =
-            self.retirement_dependents(kind, &retained_observations);
+            self.retirement_dependents(kind, retained_observations);
 
         let mut invalidated = BTreeSet::new();
         let mut invalidated_observations = crate::execution_guarantees::ObservationSet::default();
@@ -114,10 +116,28 @@ impl ExecutionState {
             }
         }
 
-        let observes = |condition: &ExecutionCondition| {
+        let observes = |condition: &ExecutionCondition, selection: bool| {
             condition
                 .observations_except(|value| retained_observations.contains(value))
-                .any(|observed| invalidated_observations.overlaps(observed))
+                .any(|observed| invalidated_observations.overlaps(observed)
+                    || selection && matches!(observed,
+                        ExecutionCondition::Joined(_, _, place) | ExecutionCondition::PostState(_, place)
+                            if place.overlaps_any(places)))
+        };
+
+        let borrowed_changed = |condition: &ExecutionCondition| condition.observes_live_where(|value| {
+            let owner = value.owner_identity();
+
+            observes(value, false) || !retained_observations.contains(value)
+                && matches!(owner, ExecutionCondition::Input(place) if place.overlaps_any(places))
+        }, |value| retained_observations.contains(value));
+
+        let retained_contents = |condition: &ExecutionCondition| {
+            kind.is_write()
+                && condition.observes_only(|value| retained_observations.preserves(value))
+                && condition
+                    .observations()
+                    .any(|value| retained_observations.preserves(value))
         };
 
         let stable = |condition: &ExecutionCondition| {
@@ -130,24 +150,22 @@ impl ExecutionState {
             // the slot that supplied that value. Contents writes neither free nor resize
             // allocations. A changed slot receives a new observation below its caller.
             matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
-                || kind.is_write()
-                    && condition.observes_only(retained)
-                    && condition
-                        .observations()
-                        .any(|value| retained_observations.contains(value))
+                || retained_contents(condition)
         };
 
         // A surviving carrier keeps facts about immutable captured contents after
         // their former container ends. Borrowed observations and physical bounds
         // still expire. Writes also invalidate affected by-value observations.
-        let revokes = |condition: &ExecutionCondition| observes(condition) && !stable(condition);
+        let revokes = |condition: &ExecutionCondition| {
+            (observes(condition, false) || borrowed_changed(condition)) && !stable(condition)
+        };
 
         let revokes_guarantee = |condition: &ExecutionCondition| {
-            revokes(condition) && (kind.is_write() || condition.observes_live_where(observes))
+            revokes(condition) && (kind.is_write() || borrowed_changed(condition))
         };
 
         self.assumptions
-            .retain(|(condition, _)| !condition.observes_live_where(observes));
+            .retain(|(condition, _)| retained_contents(condition) || !borrowed_changed(condition));
 
         let mut retired_conditions = BTreeSet::new();
 
@@ -170,7 +188,10 @@ impl ExecutionState {
                         })
                     });
 
+                // Explicitly preserved components still belong to this live
+                // carrier. Only replacement or retirement can end their owner.
                 if (retired
+                    && !retained_contents(condition)
                     && (directly_changed.contains(carrier.owner_identity()) || !stable(condition)))
                     || revokes_guarantee(condition)
                     || address_expired
@@ -210,7 +231,9 @@ impl ExecutionState {
         self.retire_pending_conditions(&revokes, &retired_conditions);
 
         for entries in self.deferred_invocations.values_mut() {
-            entries.retire_selection(observes);
+            // Current branch selectors can outlive a slot's loop incarnation.
+            // Frozen call-entry arguments remain owned by their captured frame.
+            entries.retire_selection(|condition| observes(condition, true));
         }
 
         // A destroyed frame cannot participate in a later incarnation's ownership join.
@@ -329,12 +352,19 @@ impl ExecutionState {
     pub(super) fn invalidate_referents(
         &mut self,
         values: &[ExecutionCondition],
+        address_slots: &BTreeSet<ExecutionCondition>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         preserved: &BTreeSet<ExecutionCondition>,
-        stable_values: &BTreeSet<ExecutionCondition>,
+        stable_values: &crate::execution_guarantees::ObservationSet,
     ) {
         if values.is_empty() {
             return;
+        }
+
+        let mut referents = crate::execution_guarantees::ObservationSet::default();
+
+        for value in values {
+            referents.insert(value.clone());
         }
 
         let revokes = |condition: &ExecutionCondition| {
@@ -344,16 +374,35 @@ impl ExecutionState {
             };
 
             !preserved.contains(condition)
-                && !condition.observes_only(stable_values)
+                && !condition.observes_only(|value| stable_values.preserves(value))
                 && !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
-                && values.iter().any(|value| condition.observes(value))
+                && condition
+                    .observations_except(|observation| {
+                        // A borrow of an address slot observes the descriptor itself.
+                        // Pointee mutation still revokes claims on the unborrowed address.
+                        matches!(observation, ExecutionCondition::Borrowed(value)
+                        if address_slots.contains(value.owner_identity()))
+                    })
+                    .any(|observation| referents.overlaps(observation))
         };
 
+        // A referent write changes observations through borrows and callable or
+        // predicate contracts. A by-value guard, including a nullable tag, still
+        // describes the same live owner. Physical replacement retires its observations separately.
         let revokes_observation = |condition: &ExecutionCondition| {
-            condition.observations().any(|observation| {
+            if preserved.contains(condition) || condition.observes_only(|value| stable_values.preserves(value)) {
+                return false;
+            }
+
+            condition.observations_except(|observation| {
+                preserved.contains(observation)
+                    || matches!(observation, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
+            }).any(|observation| {
                 matches!(
                     observation,
-                    ExecutionCondition::Borrowed(_) | ExecutionCondition::Predicate(_, _, _)
+                    ExecutionCondition::Borrowed(_)
+                        | ExecutionCondition::Predicate(_, _, _)
+                        | ExecutionCondition::Call(_, _, _, _)
                 ) && revokes(observation)
             })
         };
@@ -362,16 +411,16 @@ impl ExecutionState {
             .retain(|(condition, _)| !revokes_observation(condition));
 
         self.trusted_assumptions
-            .retain(|(condition, _)| !revokes(condition));
+            .retain(|(condition, _)| !revokes_observation(condition));
 
         self.witnesses.retain(|_, witness| {
-            witness.retain_conditions(|condition, _| !revokes(condition));
+            witness.retain_conditions(|condition, _| !revokes_observation(condition));
 
             !witness.conditions.is_empty() || !witness.dependencies.is_empty()
         });
 
         self.allocation_owners
-            .retain(|condition, _| !revokes(condition));
+            .retain(|condition, _| !revokes_observation(condition));
 
         for entry in self.pending_entries_mut(&|entry| {
             entry
@@ -381,7 +430,7 @@ impl ExecutionState {
                 || entry
                     .trusted_assumptions
                     .iter()
-                    .any(|(condition, _)| revokes(condition))
+                    .any(|(condition, _)| revokes_observation(condition))
         }) {
             entry
                 .assumptions
@@ -389,7 +438,7 @@ impl ExecutionState {
 
             entry
                 .trusted_assumptions
-                .retain(|(condition, _)| !revokes(condition));
+                .retain(|(condition, _)| !revokes_observation(condition));
         }
     }
 
@@ -398,18 +447,8 @@ impl ExecutionState {
         places: &BTreeSet<crate::ExecutionPlace>,
         values: impl IntoIterator<Item = ExecutionCondition>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
-        stable_values: &BTreeSet<ExecutionCondition>,
+        stable_values: &crate::execution_guarantees::ObservationSet,
     ) {
-        self.assumptions.retain(|(condition, _)| {
-            condition.observes_only(stable_values)
-                || !condition.observes_live_where(|value| {
-                    value.observations().any(|observed| {
-                        matches!(observed,
-                ExecutionCondition::Input(place) if place.overlaps_any(places))
-                    })
-                })
-        });
-
         // Writes revoke observed contents. A live carrier's lifetime dependencies
         // are retired only when the physical owner or capability ends.
         self.retire_values(
@@ -417,6 +456,7 @@ impl ExecutionState {
             stable_values,
             stable_predicates,
             bray_symbols::DependencyMutationKind::Write,
+            places,
         );
     }
 
@@ -489,7 +529,7 @@ impl ExecutionState {
     ) {
         self.assumptions.retain(|(condition, _)| !condition.observes_live_where(|value| {
             value.observations().any(|observed| matches!(observed, ExecutionCondition::Input(place) if roots.contains(&place.root)))
-        }));
+        }, |_| false));
 
         self.retire_address_roots(roots);
 

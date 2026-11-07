@@ -15,9 +15,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         path: &bray_bound_tree::StoragePath,
+        ty: bray_symbols::TypeId,
+        observed: &ExecutionCondition,
     ) {
         if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path) {
-            state.assign(place, ExecutionCondition::Unknown);
+            if !matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                // The checked transition can follow semantic consumption. Its
+                // evaluated source still owns the value that actually moved.
+                let value = observed.clone().into_referent();
+
+                // The successful move owns this transition. A current post-state
+                // or another slot's snapshot cannot invent original input ownership.
+                if value == ExecutionCondition::Input(place.clone()) && place.is_callable_input() {
+                    state.owned_results.entry(value.clone()).or_insert_with(|| bray_symbols::DependencyOwnedResult::Transfer(
+                        bray_symbols::DependencyOwnedTransfer::new(value, []),
+                    ));
+                }
+            }
+
+            state.assign(place, ExecutionCondition::Unknown, None);
         }
     }
 
@@ -76,6 +92,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
         assignment_place: Option<&crate::ExecutionPlace>,
     ) {
+        if matches!(operation,
+            crate::analysis::model::AnalysisOperationKind::Call {
+                phase: crate::analysis::model::AnalysisCallPhase::Attempt, ..
+            } | crate::analysis::model::AnalysisOperationKind::Bound(_))
+            && let Some(expression) = operation.occurrence().expression()
+            && let Some(target) = self.checked_body
+                .and_then(|body| body.storage_flow().memory_read_target(expression))
+        {
+            self.observe_memory_read(state, expression, Some(target));
+        }
+
         if let super::super::super::model::AnalysisOperationKind::Result { expression, phase } =
             operation
         {
@@ -397,23 +424,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .unwrap_or(&empty);
 
-        self.observe_references(state, observations.references());
+        // Mutation refreshes only current contents. The completion retains entry
+        // layers and returned origins for consumers that can interpret them.
+        self.observe_references(
+            state,
+            bray_bound_tree::StorageMutation::Operation(operation.occurrence()),
+            observations.references(),
+        );
 
         if input {
             let invocation = operation.occurrence();
             let result = self.invocation_value(state, invocation);
 
-            let result = self.complete_trusted_call(
-                state,
-                invocation,
-                result,
-                observations.borrow_origins(),
-            );
+            let result = self.complete_trusted_call(state, invocation, result, observations);
 
             state.assign(
                 self.input_place(invocation)
                     .expect("completed input retains its place"),
                 result,
+                None,
             );
 
             return;
@@ -450,15 +479,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .input_place(invocation)
                     .expect("completed protocol invocation retains its result slot");
 
-                state.assign(place, result.clone());
+                state.assign(place, result.clone(), None);
             }
 
-            let result = self.complete_trusted_call(
-                state,
-                invocation,
-                result,
-                observations.borrow_origins(),
-            );
+            let result = self.complete_trusted_call(state, invocation, result, observations);
 
             if matches!(
                 invocation,
@@ -469,6 +493,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.input_place(invocation)
                         .expect("completed protocol invocation retains its result slot"),
                     result,
+                    None,
                 );
             }
 
@@ -479,8 +504,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        if !self.complete_deferred(state, expression, observations.borrow_origins()) {
-            self.complete_call(state, expression, observations.borrow_origins());
+        if !self.complete_deferred(state, expression, observations) {
+            self.complete_call(state, expression, observations);
             self.capture_deferred(state, expression.into(), &self.value(state, expression));
         }
 
@@ -521,9 +546,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .or_else(|| (!assignment).then(|| machine_value.clone()).flatten())
             .unwrap_or_else(|| self.value(state, expression));
 
-        let transfer = self.started_future(state, expression)
+        let transfer = self
+            .started_future(state, expression)
             .filter(|_| value != ExecutionCondition::Unknown)
-            .map(|source| (source.owner_identity().clone(), value.owner_identity().clone()));
+            .map(|source| {
+                (
+                    source.owner_identity().clone(),
+                    value.owner_identity().clone(),
+                )
+            });
 
         state.expressions.insert(expression, value);
 
@@ -586,10 +617,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     if let Some(owner) = assignment_place
                         && *owner != place
                     {
-                        state.assign(owner.clone(), value.clone());
+                        state.assign(owner.clone(), value.clone(), None);
                     }
 
-                    state.assign(place, value);
+                    state.assign(place, value, None);
                 }
             }
             Some(BoundExpression::ControlTransfer(transfer))
@@ -676,7 +707,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .expect("checked pattern binding has an execution place");
 
             // Named and discarded owners retain the same committed value and cleanup evidence.
-            state.assign(place, value);
+            state.assign(place, value, None);
         }
     }
 }

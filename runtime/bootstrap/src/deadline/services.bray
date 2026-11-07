@@ -1,0 +1,177 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.deadline;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal std.platform;
+using internal bray.runtime.bootstrap.execution;
+using internal bray.runtime.bootstrap.host.product;
+using internal bray.runtime.bootstrap.entry;
+using internal bray.runtime.bootstrap.pool;
+
+@copy
+@layout(c)
+internal struct DrivingResult
+{
+    status: std.platform.PlatformStatus;
+    value: u32;
+}
+
+internal callable Poll = @abi(c) trusted func(pos owner: DataPointer<Reference>) -> DrivingResult
+    requires(trusted reference_slot(pointer = owner));
+
+internal callable Wait = @abi(c) trusted func(pos owner: DataPointer<Reference>, pos maximum: u32) -> DrivingResult
+    requires(trusted reference_slot(pointer = owner));
+
+internal callable Destroy = @abi(c) trusted func(pos pointer: DataPointer<Reference>)
+    requires(trusted reference_slot(pointer = pointer), trusted retirement_entry(pointer = pointer));
+
+// The last execution service owner authorizes this exact broker's backing pin.
+trusted internal predicate backing_retirement(pointer: DataPointer<Reference>);
+
+internal callable Retire = @abi(c) trusted func(pos pointer: DataPointer<Reference>)
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted backing_retirement(pointer = pointer),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    );
+
+internal func poll(pos owner: &Reference) -> Result<u32, std.platform.PlatformStatus>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+    uses(foreign_call)
+{
+    let operation = (trusted domain(owner)).poll_service;
+    let output = trusted operation(trusted service_pointer(owner));
+
+    return if output.status.category == 0
+    {
+        yield Ok(output.value);
+    }
+    else
+    {
+        yield Error(output.status);
+    };
+}
+
+internal func wait(pos owner: &Reference, pos maximum: u32) -> Result<u32, std.platform.PlatformStatus>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+    uses(foreign_call)
+{
+    let operation = (trusted domain(owner)).wait_service;
+    let output = trusted operation(trusted service_pointer(owner), maximum);
+
+    return if output.status.category == 0
+    {
+        yield Ok(output.value);
+    }
+    else
+    {
+        yield Error(output.status);
+    };
+}
+
+trusted internal func destroy_reference(pos owner: Reference)
+    requires(trusted retained(owner = &owner), trusted retiring(owner = &owner))
+    uses(foreign_call)
+{
+    let operation = (trusted domain(&owner)).destroy_service;
+
+    let authorize = trusted lambda(pos owner: &Reference) -> DataPointer<Reference>
+        requires(trusted retained(owner = owner), trusted retiring(owner = owner))
+        ensures(trusted reference_slot(pointer = result), trusted retirement_entry(pointer = result))
+        executes(pure, total)
+    {
+        return std.memory.address_of<Reference>(owner);
+    };
+
+    trusted operation(trusted authorize(&owner));
+}
+
+// Keep the closed broker allocation in its execution owner. This transition
+// retires its backing pin while the caller's independent owner remains live.
+trusted internal func retire_execution_backing(pos execution: &bray.runtime.bootstrap.execution.Reference)
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+        trusted bray.runtime.bootstrap.execution.services_retiring(owner = &execution.acquisition),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = execution))
+    uses(foreign_call)
+{
+    let service = trusted bray.runtime.bootstrap.execution.deadlines(execution);
+
+    if let ?owner = service
+    {
+        let operation = (trusted domain(owner)).retire_service;
+
+        let authorize = trusted lambda(
+            pos execution: &bray.runtime.bootstrap.execution.Reference,
+            pos owner: &Reference
+        ) -> DataPointer<Reference>
+            requires(
+                trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+                trusted bray.runtime.bootstrap.execution.services_retiring(owner = &execution.acquisition),
+                trusted retained(owner = owner)
+            )
+            ensures(trusted reference_slot(pointer = result), trusted backing_retirement(pointer = result))
+            executes(pure, total)
+        {
+            return std.memory.address_of<Reference>(owner);
+        };
+
+        trusted operation(trusted authorize(execution, owner));
+    }
+}
+
+trusted internal func service_pointer(pos owner: &Reference) -> DataPointer<Reference>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner), trusted reference_slot(pointer = result))
+    executes(pure, total)
+{
+    return std.memory.address_of<Reference>(owner);
+}
+
+internal const func optional_view(pos owner: &((&Reference)?)) -> &Reference
+    requires(owner matches ?_)
+    executes(pure, total)
+{
+    return match owner
+    {
+        case ?value { yield value; }
+        case none { panic("missing retained service"); }
+    };
+}
+
+trusted internal func borrow_reference(
+    pos input: &DataPointer<Reference>,
+    pos pointer: DataPointer<Reference>
+) -> &Reference
+    requires(trusted reference_slot(pointer = pointer))
+    ensures(trusted retained(owner = result))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let permit = trusted lambda(pos input: &DataPointer<Reference>, pos pointer: DataPointer<Reference>)
+        requires(trusted reference_slot(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Reference>(pointer = pointer),
+            trusted core.memory.initialized_as<Reference>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Reference>(pointer = pointer),
+            trusted core.memory.epoch_current<Reference>(pointer = pointer),
+            trusted core.memory.synchronized_access<Reference>(pointer = pointer),
+            trusted core.memory.movement_stable<Reference>(pointer = pointer),
+            trusted core.memory.finalization_pending<Reference>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(input, pointer);
+    return trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(input, pointer);
+}

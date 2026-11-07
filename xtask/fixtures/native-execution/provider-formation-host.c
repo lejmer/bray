@@ -37,7 +37,7 @@ static void verify_rejected_bindings(const product_host_descriptor* descriptor, 
     binding.version = 1;
     assert(descriptor->provider->form((uintptr_t)descriptor, &binding, &rejected) == 0);
     assert(rejected.observation.status == 3);
-    binding.version = 2;
+    binding.version = 3;
     binding.domain = NULL;
     assert(descriptor->provider->form((uintptr_t)descriptor, &binding, &rejected) == 0);
     assert(rejected.observation.status == 3);
@@ -246,7 +246,7 @@ static static_host_entry invalid_second_static(size_t ordinal)
 {
     static_host_entry entry = {0};
 
-    entry.abi_version = ordinal == 0 ? 2 : 0;
+    entry.abi_version = ordinal == 0 ? 3 : 0;
     entry.identity.bytes[0] = (uint8_t)(ordinal + 1);
     entry.order = ordinal;
     entry.access = fake_access;

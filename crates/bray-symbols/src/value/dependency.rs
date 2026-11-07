@@ -648,7 +648,8 @@ impl DependencyContractTemplateData {
                     .chain(std::iter::once(relation.exit()))
             })
             .chain(self.effects().iter().filter_map(|effect| match effect {
-                DependencyStorageEffect::Atomic
+                DependencyStorageEffect::UnboundedMutation { .. }
+                | DependencyStorageEffect::Atomic
                 | DependencyStorageEffect::Ambient
                 | DependencyStorageEffect::Unknown
                 | DependencyStorageEffect::Escape
@@ -889,6 +890,7 @@ mod tests {
             .with_effects([crate::DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: crate::DependencyMutationKind::Write,
+                access_type: None,
             }])
             .with_completion_reports([])
             .with_abnormal_reports([DependencyRequirement::direct(

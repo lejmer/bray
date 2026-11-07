@@ -13,6 +13,64 @@ use std::sync::Arc;
 const BUFFER_POINTER: StorageProjection =
     StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
+fn addressed_reference(
+    ty: bray_symbols::TypeId,
+    kind: bray_symbols::DependencyReferenceKind,
+) -> bray_bound_tree::BoundCallReference {
+    let entry = bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
+        bray_symbols::SymbolOrdinal::new(0),
+    ));
+
+    let exit = bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result);
+
+    bray_bound_tree::BoundCallReference::new(
+        bray_symbols::DependencyBorrowRelation::new(Some(entry), exit, kind),
+        false,
+        Some(ty),
+    )
+}
+
+#[test]
+fn projected_region_types_keep_array_elements_distinct_from_array_valued_cells() {
+    use crate::test_support::{
+        TestCheckerContext, array_type, callable_entry, semantic_values, tuple_type,
+    };
+
+    let values = semantic_values();
+    let element = tuple_type([]);
+    let array = array_type(element, 2);
+    let generator = values.intern_type(bray_symbols::TypeData::Generator(array)).unwrap();
+
+    let ([owner, ..], _, capability) = borrowed_places();
+
+    let (unit, _) = expression_unit(owner.root.unit(), |_, _| Vec::new());
+
+    let context = TestCheckerContext::new(false);
+    let entry = callable_entry(unit.key());
+    let request = crate::CheckerUnitView::new(&unit, &entry, &context);
+    let mut state = State::default();
+    let owner = Target::storage(owner);
+
+    state.borrow_target_storage(values, capability, owner.clone(), generator);
+
+    let backing = owner.project(&[StorageProjection::OwnedTarget]);
+
+    state.observe_effect_types(&[super::Effect::Mutation(backing.clone(), bray_symbols::DependencyMutationKind::Replace(array), None)]);
+
+    let cell = backing.project(&[StorageProjection::ElementFromStart(
+        bray_symbols::SymbolOrdinal::new(0),
+    )]);
+
+    let member = cell.project(&[StorageProjection::ElementFromStart(
+        bray_symbols::SymbolOrdinal::new(1),
+    )]);
+
+    assert_eq!(state.projected_type(request, &backing).expect("checked backing type"), Some(array));
+    assert_eq!(state.projected_type(request, &cell).expect("checked array-valued cell type"), Some(array));
+    assert_eq!(state.projected_type(request, &member).expect("checked array member type"), Some(element));
+    assert_eq!(state.declared_type(&cell), None);
+}
+
 fn places() -> ([Place; 4], Vec<BoundExpressionId>) {
     let (places, expressions, _) = borrowed_places();
 
@@ -1108,6 +1166,8 @@ fn reinterpreted_views_do_not_relabel_the_original_typed_storage() {
     );
 
     state.retain_borrow(capability, alias.clone());
+    state.borrow_view(&alias, other);
+    state.expose_address(&alias, other, origins[0]);
     assert_eq!(state.referent(&alias, other), None);
 
     assert_eq!(
@@ -1484,7 +1544,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
 
     state.entry_reference_at(slot.clone(), 1, target.clone(), Some(ty));
     state.transfer_value(&target, field_reference.clone());
-    state.borrow_target_storage(capability, target, ty);
+    state.borrow_target_storage(crate::test_support::semantic_values(), capability, target, ty);
     state.retain_borrow(capability, address.clone());
     state.transfer_value(&Target::storage(address.clone()), copied.clone());
 
@@ -1605,7 +1665,7 @@ fn projected_entry_selectors_do_not_establish_exact_initialization() {
         .expect("fixture `borrow_target` call must succeed")
         .project(&[StorageProjection::Element(origins[0])]);
 
-    state.borrow_target_storage(capability, selected, error_type());
+    state.borrow_target_storage(crate::test_support::semantic_values(), capability, selected, error_type());
     state.retain_borrow(capability, pointer.clone());
     state.expose_address(&pointer, error_type(), origins[1]);
     assert_eq!(state.exact_references(&pointer).count(), 0);
@@ -1636,10 +1696,10 @@ fn aggregate_mutation_revokes_reference_fields_without_address_metadata() {
             .contains_key(&super::model::Target::storage(field.clone()))
     );
 
-    state.invalidate_target(
-        &super::model::Target::storage(aggregate),
-        bray_symbols::DependencyMutationKind::Write,
+    state.apply_effects(
+        Some(&[super::Effect::Mutation(super::model::Target::storage(aggregate), bray_symbols::DependencyMutationKind::Write, None)]),
         &bray_bound_tree::StorageInvalidation::unknown(),
+        &StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish(),
     );
 
     assert!(!state.has_stored_value(&field));
@@ -2093,7 +2153,127 @@ fn repeated_dereferences_have_distinct_entry_snapshots() {
 
     let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, ty), (0, ty)].into());
 
-    assert_eq!(state.reference_location(slot, &path, None), Some(second));
+    assert_eq!(state.reference_location(crate::test_support::semantic_values(), slot, &path, None), Some(second));
+}
+
+#[test]
+fn slice_projection_retains_the_element_allocation_without_retyping_it() {
+    let values = crate::test_support::semantic_values();
+
+    let ([owner, view, nested, _], selectors) = places();
+
+    let element = error_type();
+    let slice = values.intern_type(bray_symbols::TypeData::Slice(element)).unwrap();
+    let mut state = State::default();
+    let owner = Target::storage(owner);
+    let view = Target::storage(view);
+
+    state.owned_region(&[owner.clone()], view.clone(), element, BUFFER_POINTER, false);
+
+    let projection = StorageProjection::Element(selectors[0]);
+
+    let path = bray_bound_tree::StorageReferencePath::new(
+        [projection, BUFFER_POINTER].into(),
+        [(0, slice)].into(),
+    );
+
+    let backing = owner.project(&[StorageProjection::OwnedTarget]);
+    let selected = backing.project(&[projection, BUFFER_POINTER]);
+
+    assert_eq!(
+        state.reference_location(values, view.clone(), &path, None),
+        Some(selected.clone())
+    );
+
+    assert!(!selected.is_exact());
+    assert_eq!(state.contents[&backing].storage_type, Some(element));
+    assert!(state.value_target(&view, slice).is_none());
+
+    let (_, _, capability) = borrowed_places();
+
+    let mut alternate = State::default();
+
+    alternate.borrow_target_storage(values, capability, backing.clone(), slice);
+
+    assert_eq!(alternate.declared_type(&backing), Some(element));
+
+    let mut merged = state.clone();
+
+    merged.merge(&alternate, &Default::default(), &Default::default());
+
+    assert_eq!(merged.declared_type(&backing), Some(element));
+
+    let nested = Target::storage(nested);
+
+    state.owned_region(&[selected.clone()], nested.clone(), element, BUFFER_POINTER, true);
+
+    assert_eq!(
+        state.reference_location(values, nested.clone(), &path, None),
+        Some(selected.project(&[StorageProjection::OwnedTarget, projection, BUFFER_POINTER]))
+    );
+
+    assert!(state.value_targets(&nested).is_none());
+
+    let wrong_slice = values.intern_type(bray_symbols::TypeData::Slice(slice)).unwrap();
+    let wrong = bray_bound_tree::StorageReferencePath::new([].into(), [(0, wrong_slice)].into());
+
+    assert!(state.reference_location(values, view.clone(), &wrong, None).is_none());
+
+    state.values.get_mut(&view).unwrap().inexact = true;
+
+    assert!(state.reference_location(values, view.clone(), &path, None).is_none());
+
+    let reference = state.values.get_mut(&view).unwrap();
+
+    reference.inexact = false;
+    reference.unknown = true;
+
+    assert!(state.reference_location(values, view, &path, None).is_none());
+}
+
+#[test]
+fn bounded_returned_regions_do_not_declare_or_initialize_a_cell() {
+    use bray_symbols::{DependencyProjection, DependencyReferenceKind, TypeData};
+
+    let values = crate::test_support::semantic_values();
+
+    let ([owner, output, view, _], calls) = places();
+
+    let element = error_type();
+    let slice = values.intern_type(TypeData::Slice(element)).unwrap();
+    let exact = addressed_reference(slice, DependencyReferenceKind::Address);
+
+    let bounded = bray_bound_tree::BoundCallReference::new(
+        exact.relation().clone().with_exactness(false)
+            .with_target_projections([DependencyProjection::OwnedTarget]),
+        false,
+        Some(slice),
+    );
+
+    let owner = Target::storage(owner);
+    let backing = owner.project(&[StorageProjection::OwnedTarget]);
+    let output = Target::storage(output);
+    let mut state = State::default();
+
+    state.stage_address(calls[0].into(), backing.clone(), output.clone(), &bounded);
+    state.complete_transition(calls[0].into());
+
+    assert_eq!(state.declared_type(&backing), None);
+    assert_eq!(state.referenced_regions(&output), Some(vec![backing.clone()]));
+    assert!(state.value_targets(&output).is_none());
+    assert_eq!(state.raw_exposed_regions(), BTreeSet::from([backing.clone()]));
+
+    assert_eq!(
+        state.read(&output, element, MemoryReadKind::Copy, None, None),
+        MemoryOperationStatus::UninitializedRawStorage
+    );
+
+    let mut actual = State::default();
+
+    actual.owned_region(&[owner], Target::storage(view), element, BUFFER_POINTER, false);
+    state.merge(&actual, &Default::default(), &Default::default());
+
+    assert_eq!(state.declared_type(&backing), Some(element));
 }
 
 #[test]
@@ -2114,18 +2294,42 @@ fn returned_references_snapshot_previously_published_inline_storage() {
     state.stage_returned_reference(calls[0].into(), first_slot.clone(), first, error_type(), []);
     state.complete_transition(calls[0].into());
 
-    let before = state.value_targets(&first_slot).expect("returned reference has its origin")[0].clone();
+    let before = state
+        .value_targets(&first_slot)
+        .expect("returned reference has its origin")[0]
+        .clone();
 
     state.escape_regions(BTreeSet::from([allocation.clone()]));
 
-    state.stage_returned_reference(calls[1].into(), second_slot.clone(), second, error_type(), []);
+    state.stage_returned_reference(
+        calls[1].into(),
+        second_slot.clone(),
+        second,
+        error_type(),
+        [],
+    );
+
     state.complete_transition(calls[1].into());
 
-    let after = state.value_targets(&second_slot).expect("returned reference has its origin")[0].clone();
+    let after = state
+        .value_targets(&second_slot)
+        .expect("returned reference has its origin")[0]
+        .clone();
 
-    assert_eq!(state.target_relationship(&before, &allocation), StorageRelationship::Disjoint);
-    assert_eq!(state.target_relationship(&after, &allocation), StorageRelationship::PotentiallyOverlapping);
-    assert_eq!(state.target_relationship(&before, &after), StorageRelationship::PotentiallyOverlapping);
+    assert_eq!(
+        state.target_relationship(&before, &allocation),
+        StorageRelationship::Disjoint
+    );
+
+    assert_eq!(
+        state.target_relationship(&after, &allocation),
+        StorageRelationship::PotentiallyOverlapping
+    );
+
+    assert_eq!(
+        state.target_relationship(&before, &after),
+        StorageRelationship::PotentiallyOverlapping
+    );
 }
 
 #[test]
@@ -2143,16 +2347,37 @@ fn bounded_owned_views_keep_alternative_regions_without_exact_pointer_identity()
 
     let destination = Target::storage(view);
 
-    state.owned_region(&owners, destination.clone(), error_type(), BUFFER_POINTER, true);
+    state.owned_region(
+        &owners,
+        destination.clone(),
+        error_type(),
+        BUFFER_POINTER,
+        true,
+    );
 
-    let regions = state.referenced_regions(&destination).expect("bounded view retains both possible allocations");
+    let regions = state
+        .referenced_regions(&destination)
+        .expect("bounded view retains both possible allocations");
 
     assert_eq!(regions.len(), 2);
     assert!(state.value_targets(&destination).is_none());
 
-    state.owned_region(&owners[..1], destination.clone(), error_type(), BUFFER_POINTER, true);
+    state.owned_region(
+        &owners[..1],
+        destination.clone(),
+        error_type(),
+        BUFFER_POINTER,
+        true,
+    );
 
-    assert_eq!(state.referenced_regions(&destination).expect("bounded view retains its allocation").len(), 1);
+    assert_eq!(
+        state
+            .referenced_regions(&destination)
+            .expect("bounded view retains its allocation")
+            .len(),
+        1
+    );
+
     assert!(state.value_targets(&destination).is_none());
 }
 
@@ -2169,7 +2394,14 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
         previous: false,
     };
 
-    state.owned_region(&[header.clone()], Target::storage(pointer.clone()), error_type(), BUFFER_POINTER, false);
+    state.owned_region(
+        &[header.clone()],
+        Target::storage(pointer.clone()),
+        error_type(),
+        BUFFER_POINTER,
+        false,
+    );
+
     state.offset(&Target::storage(pointer.clone()), pointer.clone());
 
     let regions = state
@@ -2201,7 +2433,15 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
     );
 
     state.transfer_value(&header, moved.clone());
-    state.owned_region(&[Target::storage(moved)], Target::storage(other.clone()), error_type(), BUFFER_POINTER, false);
+
+    state.owned_region(
+        &[Target::storage(moved)],
+        Target::storage(other.clone()),
+        error_type(),
+        BUFFER_POINTER,
+        false,
+    );
+
     state.offset(&Target::storage(other.clone()), other.clone());
 
     assert_eq!(
@@ -2247,7 +2487,14 @@ fn displaced_regions_require_a_known_allocation_boundary() {
 
     let owner = Target::storage(storage);
 
-    state.owned_region(&[owner.clone()], Target::storage(pointer.clone()), error_type(), BUFFER_POINTER, false);
+    state.owned_region(
+        &[owner.clone()],
+        Target::storage(pointer.clone()),
+        error_type(),
+        BUFFER_POINTER,
+        false,
+    );
+
     state.offset(&Target::storage(pointer), displaced.clone());
 
     assert_eq!(
@@ -2367,7 +2614,13 @@ fn incoming_aliases_can_reach_allocations_under_invocation_owned_headers() {
         previous: false,
     };
 
-    state.owned_region(&[header.clone()], Target::storage(pointer.clone()), error_type(), BUFFER_POINTER, false);
+    state.owned_region(
+        &[header.clone()],
+        Target::storage(pointer.clone()),
+        error_type(),
+        BUFFER_POINTER,
+        false,
+    );
 
     let region = state
         .referenced_regions(&Target::storage(pointer))
@@ -2451,6 +2704,7 @@ fn opaque_effects_preserve_unexposed_reference_slots_but_revoke_contents() {
             &bray_bound_tree::StorageInvalidation::All {
                 stable_descriptors,
                 stable_values: Default::default(),
+                normal_snapshots: Default::default(),
             },
             &storage,
             bray_symbols::DependencyMutationKind::Retire,
@@ -2526,6 +2780,7 @@ fn typed_writes_keep_protected_reference_slots_until_exact_replacement() {
     let invalidation = bray_bound_tree::StorageInvalidation::All {
         stable_descriptors: [parameter].into(),
         stable_values: Default::default(),
+        normal_snapshots: Default::default(),
     };
 
     let other = Target {
@@ -2577,13 +2832,14 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
         let invalidation = bray_bound_tree::StorageInvalidation::All {
             stable_descriptors: protected.then_some(parameter).into_iter().collect(),
             stable_values: Default::default(),
+            normal_snapshots: Default::default(),
         };
 
         if resolved {
-            state.invalidate_target(
-                &target,
-                bray_symbols::DependencyMutationKind::Retire,
+            state.apply_effects(
+                Some(&[super::Effect::Mutation(target.clone(), bray_symbols::DependencyMutationKind::Retire, None)]),
                 &invalidation,
+                &storage,
             );
         } else {
             state.invalidate(
@@ -2840,20 +3096,109 @@ fn retired_local_reference_slots_do_not_expose_their_former_targets() {
 }
 
 #[test]
-fn unknown_references_cannot_reach_unaddressed_inline_storage() {
-    let ([local, borrowed, _, _], _) = places();
+fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
+    let ([owner, pointer, _, _], origins) = places();
 
-    let state = State {
+    let target = Target::storage(owner.clone());
+
+    let mut state = State {
+        owned_storage: [owner.root].into(),
+        ..State::default()
+    };
+
+    assert!(!state.unknown_reference_may_reach(&target));
+
+    state.address(owner, pointer, error_type(), origins[0]);
+
+    assert!(state.unknown_reference_may_reach(&target));
+}
+
+#[test]
+fn unknown_references_cannot_reach_unaddressed_inline_storage() {
+    let ([local, borrowed, pointer, backing], origins) = places();
+
+    let mut state = State {
         unaddressed_storage: [local.root].into(),
         ..State::default()
     };
 
     assert!(!state.unknown_reference_may_reach(&Target::storage(local.clone())));
-    assert!(state.unknown_reference_may_reach(&Target::storage(borrowed)));
+    assert!(state.unknown_reference_may_reach(&Target::storage(borrowed.clone())));
 
     assert!(state.unknown_reference_may_reach(
-        &Target::storage(local).project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
+        &Target::storage(local.clone()).project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
     ));
+
+    let retained = super::model::References::one(Target::storage(backing));
+
+    state
+        .values
+        .insert(Target::storage(local.clone()), retained.clone());
+
+    state
+        .values
+        .insert(Target::storage(borrowed.clone()), retained.clone());
+
+    state.values.insert(
+        Target::storage(pointer.clone()),
+        super::model::References {
+            unknown: true,
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(
+        state.write(
+            &Target::storage(pointer.clone()),
+            error_type(),
+            origins[0],
+            None
+        ),
+        MemoryOperationStatus::Valid,
+    );
+
+    assert_eq!(
+        state.values.get(&Target::storage(local.clone())),
+        Some(&retained)
+    );
+
+    assert!(state.values[&Target::storage(borrowed)].unknown);
+
+    let storage =
+        StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
+
+    state.invalidate(
+        &bray_bound_tree::StorageInvalidation::unknown(),
+        &storage,
+        bray_symbols::DependencyMutationKind::Write,
+    );
+
+    assert_eq!(
+        state.values.get(&Target::storage(local.clone())),
+        Some(&retained)
+    );
+
+    state.values.insert(
+        Target::storage(pointer.clone()),
+        super::model::References {
+            unknown: true,
+            ..super::model::References::one(Target::storage(local.clone()))
+        },
+    );
+
+    state.write(&Target::storage(pointer), error_type(), origins[0], None);
+
+    assert!(state.values[&Target::storage(local.clone())].unknown);
+
+    // A known target remains authoritative even when its slot is otherwise private.
+    state.write_value(
+        Target::storage(local.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
+
+    assert!(!state.values.contains_key(&Target::storage(local)));
 }
 
 #[test]
@@ -2865,20 +3210,11 @@ fn local_mutation_does_not_publish_an_invocation_address() {
         ..State::default()
     };
 
-    let local_write = super::model::Effect::Mutation(
-        Target::storage(local.clone()),
-        bray_symbols::DependencyMutationKind::Replace(error_type()),
-    );
+    let local_write = super::model::Effect::Mutation(Target::storage(local.clone()), bray_symbols::DependencyMutationKind::Replace(error_type()), None);
 
-    let external_write = super::model::Effect::Mutation(
-        Target::storage(external),
-        bray_symbols::DependencyMutationKind::Replace(error_type()),
-    );
+    let external_write = super::model::Effect::Mutation(Target::storage(external), bray_symbols::DependencyMutationKind::Replace(error_type()), None);
 
-    let heap_write = super::model::Effect::Mutation(
-        Target::storage(local.clone()).project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
-        bray_symbols::DependencyMutationKind::Write,
-    );
+    let heap_write = super::model::Effect::Mutation(Target::storage(local.clone()).project(&[bray_bound_tree::StorageProjection::OwnedTarget]), bray_symbols::DependencyMutationKind::Write, None);
 
     assert!(!local_write.may_retain_address(&state));
     assert!(external_write.may_retain_address(&state));
@@ -2901,18 +3237,18 @@ fn targeted_atomic_effects_preserve_reference_slots_under_possible_aliasing() {
         previous: false,
     };
 
-    state.invalidate_target(
-        &external,
-        bray_symbols::DependencyMutationKind::Atomic,
+    state.apply_effects(
+        Some(&[super::Effect::Mutation(external.clone(), bray_symbols::DependencyMutationKind::Atomic, None)]),
         &bray_bound_tree::StorageInvalidation::unknown(),
+        &StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish(),
     );
 
     assert_eq!(state.referent(&slot, error_type()), Some(source));
 
-    state.invalidate_target(
-        &external,
-        bray_symbols::DependencyMutationKind::Write,
+    state.apply_effects(
+        Some(&[super::Effect::Mutation(external.clone(), bray_symbols::DependencyMutationKind::Write, None)]),
         &bray_bound_tree::StorageInvalidation::unknown(),
+        &StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish(),
     );
 
     assert_eq!(state.referent(&slot, error_type()), None);
@@ -2930,10 +3266,7 @@ fn normal_completion_discards_captured_failure_effects() {
     state.capture_failure_effects(
         occurrence,
         super::CapturedEffects {
-            mutations: [super::Effect::Mutation(
-                Target::storage(source.clone()),
-                bray_symbols::DependencyMutationKind::Write,
-            )]
+            mutations: [super::Effect::Mutation(Target::storage(source.clone()), bray_symbols::DependencyMutationKind::Write, None)]
             .into(),
             escaped: [Target::storage(source)].into(),
             invalidation: bray_bound_tree::StorageInvalidation::unknown(),
@@ -2965,14 +3298,8 @@ fn captured_failure_targets_follow_storage_retirement() {
         occurrence,
         super::CapturedEffects {
             mutations: [
-                super::Effect::Mutation(
-                    previous.clone(),
-                    bray_symbols::DependencyMutationKind::Write,
-                ),
-                super::Effect::Mutation(
-                    Target::storage(source.clone()),
-                    bray_symbols::DependencyMutationKind::Write,
-                ),
+                super::Effect::Mutation(previous.clone(), bray_symbols::DependencyMutationKind::Write, None),
+                super::Effect::Mutation(Target::storage(source.clone()), bray_symbols::DependencyMutationKind::Write, None),
             ]
             .into(),
             escaped: [previous, Target::storage(source.clone())].into(),
@@ -2993,10 +3320,7 @@ fn captured_failure_targets_follow_storage_retirement() {
 
     assert_eq!(
         effects.mutations.as_slice(),
-        &[super::Effect::Mutation(
-            previous.clone(),
-            bray_symbols::DependencyMutationKind::Write
-        )]
+        &[super::Effect::Mutation(previous.clone(), bray_symbols::DependencyMutationKind::Write, None)]
     );
 
     assert_eq!(effects.escaped.as_slice(), &[previous]);
@@ -3035,23 +3359,30 @@ fn null_join_retains_bounds_without_exact_identity_or_initialization() {
 fn raw_exposure_of_an_entry_referent_revokes_its_shared_protection() {
     let ([parameter, pointer, ..], origins, capability) = borrowed_places();
 
-    let field = bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+    let field =
+        bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
-    for reference in [parameter.clone(), Place { root: parameter.root, projections: [field].into() }] {
+    for reference in [
+        parameter.clone(),
+        Place {
+            root: parameter.root,
+            projections: [field].into(),
+        },
+    ] {
         let ty = error_type();
         let mut state = State::default();
 
         state.begin_entry_borrow(capability, reference, ty);
 
-        let target = state.borrow_target(capability, ty)
+        let target = state
+            .borrow_target(capability, ty)
             .expect("fixture entry borrow retains its physical reference identity");
 
         state.stage_address(
             origins[0].into(),
             target.clone(),
             Target::storage(pointer.clone()),
-            ty,
-            bray_symbols::DependencyReferenceKind::Address,
+            &addressed_reference(ty, bray_symbols::DependencyReferenceKind::Address),
         );
 
         assert_eq!(state.raw_exposed_regions(), BTreeSet::from([target]));
@@ -3098,10 +3429,15 @@ fn returned_references_capture_external_exposure_when_they_are_created() {
     state.stage_returned_references(call, [(later_result.clone(), error_type())], []);
     state.complete_transition(call);
 
-    let later = state.value_target(&Target::storage(later_result), error_type())
+    let later = state
+        .value_target(&Target::storage(later_result), error_type())
         .expect("a later opaque reference retains the current exposure bound");
 
-    assert_ne!(state.target_relationship(&later, &local), bray_bound_tree::StorageRelationship::Disjoint);
+    assert_ne!(
+        state.target_relationship(&later, &local),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
     assert!(state.effect_origins(&later).any(|target| target == &local));
 }
 
@@ -3114,23 +3450,33 @@ fn published_returned_aliases_survive_repeated_reference_reads() {
 
     state.observe_reference(slot.clone(), reference.clone(), error_type(), []);
 
-    let original = state.value_target(&slot, error_type())
+    let original = state
+        .value_target(&slot, error_type())
         .expect("the first read retains an established reference");
 
-    state.stage_address(origins[0].into(), original.clone(), Target::storage(pointer), error_type(),
-        bray_symbols::DependencyReferenceKind::Address);
+    state.stage_address(
+        origins[0].into(),
+        original.clone(),
+        Target::storage(pointer),
+        &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Address),
+    );
 
     state.observe_reference(slot.clone(), reference, error_type(), []);
 
-    let current = state.value_target(&slot, error_type())
+    let current = state
+        .value_target(&slot, error_type())
         .expect("the repeated read retains a current reference");
 
     let exposed = state.raw_exposed_regions();
 
     assert!(exposed.iter().any(|target| target.previous));
 
-    assert!(exposed.iter().any(|target|
-        state.target_relationship(target, &current) != bray_bound_tree::StorageRelationship::Disjoint));
+    assert!(
+        exposed
+            .iter()
+            .any(|target| state.target_relationship(target, &current)
+                != bray_bound_tree::StorageRelationship::Disjoint)
+    );
 }
 
 #[test]
@@ -3358,8 +3704,7 @@ fn independent_returned_references_may_alias_and_merge_with_input_alternatives()
         call,
         Target::storage(owner.clone()),
         Target::storage(first.clone()),
-        error_type(),
-        bray_symbols::DependencyReferenceKind::Address,
+        &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Address),
     );
 
     state.complete_transition(call);
@@ -3392,23 +3737,48 @@ fn opaque_owned_values_keep_their_backing_identity_without_claiming_initializati
 
     state.stage_unknown(call, owner.clone());
     state.complete_transition(call);
-    state.owned_region(&[owner.clone()], Target::storage(pointer.clone()), ty, BUFFER_POINTER, false);
 
-    let regions = state.owned_regions(&owner, BUFFER_POINTER)
+    state.owned_region(
+        &[owner.clone()],
+        Target::storage(pointer.clone()),
+        ty,
+        BUFFER_POINTER,
+        false,
+    );
+
+    let regions = state
+        .owned_regions(&owner, BUFFER_POINTER)
         .expect("an owning value retains its physical backing region");
 
     assert_eq!(regions.len(), 1);
-    assert_eq!(state.target_relationship(&owner, &regions[0]), bray_bound_tree::StorageRelationship::Disjoint);
+
+    assert_eq!(
+        state.target_relationship(&owner, &regions[0]),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
     assert!(!state.initialized(&regions[0], ty));
 
     state.stage_value(call, &owner, moved.clone());
     state.stage_null(call, owner.clone());
     state.complete_transition(call);
 
-    assert_eq!(state.owned_regions(&moved, BUFFER_POINTER), Some(regions.clone()));
-    assert_eq!(state.owned_regions(&owner, BUFFER_POINTER), Some(Vec::new()));
+    assert_eq!(
+        state.owned_regions(&moved, BUFFER_POINTER),
+        Some(regions.clone())
+    );
+
+    assert_eq!(
+        state.owned_regions(&owner, BUFFER_POINTER),
+        Some(Vec::new())
+    );
+
     assert!(!state.initialized(&regions[0], ty));
-    assert_eq!(state.referenced_regions(&Target::storage(pointer)), Some(regions));
+
+    assert_eq!(
+        state.referenced_regions(&Target::storage(pointer)),
+        Some(regions)
+    );
 }
 
 #[test]
@@ -3420,7 +3790,14 @@ fn bounded_address_views_preserve_the_allocation_type_without_initializing_the_r
     let mut state = State::default();
     let owner = Target::storage(owner);
 
-    state.owned_region(&[owner.clone()], Target::storage(pointer.clone()), region_type, BUFFER_POINTER, false);
+    state.owned_region(
+        &[owner.clone()],
+        Target::storage(pointer.clone()),
+        region_type,
+        BUFFER_POINTER,
+        false,
+    );
+
     state.offset(&Target::storage(pointer.clone()), pointer.clone());
     state.expose_address(&pointer, view_type, origins[0]);
 
@@ -3450,7 +3827,14 @@ fn exact_address_views_reject_a_conflicting_declared_storage_type() {
     let view_type = crate::test_support::nullable_type(region_type);
     let mut state = State::default();
 
-    state.owned_region(&[Target::storage(owner)], Target::storage(pointer.clone()), region_type, BUFFER_POINTER, false);
+    state.owned_region(
+        &[Target::storage(owner)],
+        Target::storage(pointer.clone()),
+        region_type,
+        BUFFER_POINTER,
+        false,
+    );
+
     state.expose_address(&pointer, view_type, origins[0]);
 }
 
@@ -3473,8 +3857,7 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
         call,
         payload.clone(),
         destination.clone(),
-        region_type,
-        bray_symbols::DependencyReferenceKind::Borrow,
+        &addressed_reference(region_type, bray_symbols::DependencyReferenceKind::Borrow),
     );
 
     state.bound_staged_reference(call, &destination);
@@ -3499,7 +3882,10 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
 
     state.escape_targets([owner.clone()]);
 
-    assert_eq!(state.target_relationship(&target, &owner), bray_bound_tree::StorageRelationship::Disjoint);
+    assert_eq!(
+        state.target_relationship(&target, &owner),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
 
     assert!(!state.initialized(&destination, view_type));
 
@@ -3638,8 +4024,7 @@ fn staged_future_moves_retain_completion_effects_and_references() {
         producer,
         Target::storage(payload.clone()),
         Target::storage(frame.clone()),
-        error_type(),
-        bray_symbols::DependencyReferenceKind::Borrow,
+        &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Borrow),
     );
 
     state.capture_deferred_transition(producer, frame.clone());
@@ -3680,19 +4065,44 @@ fn fresh_allocation_publication_follows_only_the_references_stored_in_it() {
 
     memory.entry_reference(input.clone());
 
-    let entry = memory.value_targets(&Target::storage(input.clone())).unwrap()[0].clone();
+    let entry = memory
+        .value_targets(&Target::storage(input.clone()))
+        .unwrap()[0]
+        .clone();
+
     let allocation = memory.fresh(owner, origins[0]);
 
-    assert_eq!(allocation.relationship(&entry), bray_bound_tree::StorageRelationship::Disjoint);
-    assert_eq!(entry.relationship(&allocation), bray_bound_tree::StorageRelationship::Disjoint);
-    assert_eq!(memory.escaped_regions([allocation.clone()]), BTreeSet::from([allocation.clone()]));
+    assert_eq!(
+        allocation.relationship(&entry),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
+    assert_eq!(
+        entry.relationship(&allocation),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
+    assert_eq!(
+        memory.escaped_regions([allocation.clone()]),
+        BTreeSet::from([allocation.clone()])
+    );
 
     let call = origins[1].into();
 
-    memory.stage_value(call, &Target::storage(input), allocation.project(&[StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0))]));
+    memory.stage_value(
+        call,
+        &Target::storage(input),
+        allocation.project(&[StorageProjection::TupleElement(
+            bray_symbols::SymbolOrdinal::new(0),
+        )]),
+    );
+
     memory.complete_transition(call);
 
-    assert_eq!(memory.escaped_regions([allocation.clone()]), BTreeSet::from([allocation, entry]));
+    assert_eq!(
+        memory.escaped_regions([allocation.clone()]),
+        BTreeSet::from([allocation, entry])
+    );
 }
 
 #[test]
@@ -3704,41 +4114,157 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
     let mut memory = State::default();
 
     memory.complete_reference_types = Arc::new([(scalar, true), (container, false)].into());
-    memory.entry_reference_at(left.clone(), 1, Target::storage(left.clone()), Some(container));
-    memory.entry_reference_at(right.clone(), 1, Target::storage(right.clone()), Some(container));
+
+    memory.entry_reference_at(
+        left.clone(),
+        1,
+        Target::storage(left.clone()),
+        Some(container),
+    );
+
+    memory.entry_reference_at(
+        right.clone(),
+        1,
+        Target::storage(right.clone()),
+        Some(container),
+    );
 
     let left = memory.value_targets(&Target::storage(left)).unwrap()[0].clone();
     let right = memory.value_targets(&Target::storage(right)).unwrap()[0].clone();
     let allocation = memory.fresh(owner.clone(), origins[0]);
     let call = origins[1].into();
 
-    memory.stage_value(call, &Target::storage(owner.clone()), left.project(&[
-        StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0))
-    ]));
+    memory.stage_value(
+        call,
+        &Target::storage(owner.clone()),
+        left.project(&[StorageProjection::TupleElement(
+            bray_symbols::SymbolOrdinal::new(0),
+        )]),
+    );
 
     memory.complete_transition(call);
 
     // Aliased pointer-containing inputs still expose newly stored allocations.
-    assert!(memory.escaped_regions([right.clone()]).contains(&allocation));
+    assert!(
+        memory
+            .escaped_regions([right.clone()])
+            .contains(&allocation)
+    );
 
-    let word = right.project(&[StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(1))]);
+    let word = right.project(&[StorageProjection::TupleElement(
+        bray_symbols::SymbolOrdinal::new(1),
+    )]);
 
-    memory.contents.entry(word.clone()).or_default().storage_type = Some(scalar);
-    assert_eq!(memory.escaped_regions([word.clone()]), BTreeSet::from([word.clone()]));
+    memory
+        .contents
+        .entry(word.clone())
+        .or_default()
+        .storage_type = Some(scalar);
+
+    assert_eq!(
+        memory.escaped_regions([word.clone()]),
+        BTreeSet::from([word.clone()])
+    );
 
     // Known stored references remain authoritative across typed layout views.
     let call = origins[2].into();
 
     memory.stage_value(call, &Target::storage(owner), word.clone());
     memory.complete_transition(call);
-    memory.contents.entry(word.clone()).or_default().storage_type = Some(scalar);
+
+    memory
+        .contents
+        .entry(word.clone())
+        .or_default()
+        .storage_type = Some(scalar);
+
     assert!(memory.escaped_regions([word]).contains(&allocation));
 
     // Explicit raw exposure retains conservative allocation reachability.
-    let other = right.project(&[StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(2))]);
+    let other = right.project(&[StorageProjection::TupleElement(
+        bray_symbols::SymbolOrdinal::new(2),
+    )]);
 
-    memory.contents.entry(other.clone()).or_default().storage_type = Some(scalar);
-    assert_eq!(memory.escaped_regions([other.clone()]), BTreeSet::from([other.clone()]));
-    memory.point_at(other.clone(), raw, scalar, bray_symbols::DependencyReferenceKind::Address);
+    memory
+        .contents
+        .entry(other.clone())
+        .or_default()
+        .storage_type = Some(scalar);
+
+    assert_eq!(
+        memory.escaped_regions([other.clone()]),
+        BTreeSet::from([other.clone()])
+    );
+
+    memory.point_at(
+        other.clone(),
+        raw,
+        scalar,
+        bray_symbols::DependencyReferenceKind::Address,
+    );
+
     assert!(memory.escaped_regions([other]).contains(&allocation));
+}
+
+#[test]
+fn mutation_summaries_preserve_initialization_only_for_complete_typed_cells() {
+    use super::{Effect, Origin};
+    use bray_symbols::DependencyMutationKind as Mutation;
+
+    let ([cell, alias, ..], origins) = places();
+
+    let ty = error_type();
+    let other = crate::test_support::nullable_type(ty);
+
+    let target = Target {
+        previous: false,
+        origin: Origin::Entry {
+            reference: cell,
+            layer: 1,
+            projections: Arc::from([]),
+        },
+    };
+
+    let alias = Target {
+        previous: false,
+        origin: Origin::Entry {
+            reference: alias,
+            layer: 1,
+            projections: Arc::from([]),
+        },
+    };
+
+    let storage = StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
+    let invalidation = bray_bound_tree::StorageInvalidation::unknown();
+
+    // Identical types do not imply that two possible aliases name a complete cell.
+    for (effect, valid) in [
+        (Effect::Mutation(target.clone(), Mutation::Replace(ty), None), true),
+        (Effect::Mutation(alias.clone(), Mutation::Replace(ty), None), false),
+        (Effect::Mutation(target.clone(), Mutation::Replace(ty), Some(other)), false),
+        (Effect::Mutation(target.clone(), Mutation::Replace(other), Some(other)), false),
+        (Effect::UnboundedMutation { kind: Mutation::Replace(ty), access_type: Some(other), ambient: false }, false),
+        (Effect::UnboundedMutation { kind: Mutation::Replace(other), access_type: Some(other), ambient: true }, false),
+        (Effect::Mutation(target.clone(), Mutation::Consume, None), false),
+        (Effect::Atomic, true),
+    ] {
+        let mut state = State::default();
+        let contents = state.contents.entry(target.clone()).or_default();
+
+        contents.storage_type = Some(ty);
+        contents.initialized.insert(ty);
+        state.escape_regions([target.clone()]);
+
+        assert_eq!(state.target_relationship(&target, &alias), bray_bound_tree::StorageRelationship::PotentiallyOverlapping);
+        state.apply_effects(Some(&[effect.clone()]), &invalidation, &storage);
+
+        assert_eq!(
+            state.read_value(target.clone(), ty, MemoryReadKind::Copy, None, None),
+            if valid { MemoryOperationStatus::Valid } else { MemoryOperationStatus::UninitializedRawStorage },
+            "a read without a new proof must respect the complete update: {effect:?}",
+        );
+
+        // A fresh checked proof can establish initialization after a raw write.
+        assert_eq!(state.read_value(target.clone(), ty, MemoryReadKind::Copy, Some(origins[0]), None), MemoryOperationStatus::Valid);
+    }
 }

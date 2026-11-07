@@ -5,14 +5,14 @@ using core.memory;
 using internal bray.runtime.bootstrap.host;
 
 trusted internal func wait_entry_access(
-    pos child: DataPointer<Reference>,
-    pos parent: DataPointer<Reference>
+    pos child: &Reference,
+    pos parent: &Reference
 ) -> bray.runtime.bootstrap.host.HostLease
-    requires(trusted wait_entry(child = child, parent = parent))
+    requires(trusted retained(owner = child), trusted retained(owner = parent))
     ensures(
-        trusted wait_entry(child = child, parent = parent),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted retained(owner = child),
+        trusted retained(owner = parent),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();
@@ -22,19 +22,17 @@ trusted internal func registration_access(pos parent: &Reference) -> bray.runtim
     requires(trusted retained(owner = parent))
     ensures(
         trusted retained(owner = parent),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();
 }
 
 trusted internal func dispatch_wait_access(pos owner: &Dispatch) -> bray.runtime.bootstrap.host.HostLease
-    requires(trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition))
+    requires(trusted dispatch_acquired(owner = &owner.acquisition))
     ensures(
         trusted dispatch_acquired(owner = &owner.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();
@@ -43,30 +41,25 @@ trusted internal func dispatch_wait_access(pos owner: &Dispatch) -> bray.runtime
 // Reading native slots and checking task state cannot revoke the independently
 // held resident acquisition. Only scalar coordinates leave the borrowed views.
 trusted internal func wait_coordinates(
-    pos child: DataPointer<Reference>,
-    pos parent: DataPointer<Reference>,
+    pos child: &Reference,
+    pos parent: &Reference,
     pos retirement: u8,
     pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> (u32, (u64, u64, u64)?)
     requires(
-        trusted wait_entry(child = child, parent = parent),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted retained(owner = child),
+        trusted retained(owner = parent),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
 {
-    let (observed, waiter) = trusted read_wait_inputs(child, parent);
-
-    if retirement > 1 || observed.runtime != waiter.runtime || observed.handle == waiter.handle
+    if retirement > 1 || child.runtime != parent.runtime || child.handle == parent.handle
     {
         return (3, none);
     }
 
-    let coordinates: (u64, u64, u64)? = (observed.runtime, observed.handle, waiter.handle);
-    let (status, register) = trusted check_wait(&observed, retirement);
+    let coordinates: (u64, u64, u64)? = (child.runtime, child.handle, parent.handle);
+    let (status, register) = trusted check_wait(child, retirement);
 
     if !register
     {
@@ -88,15 +81,19 @@ trusted internal func retain_waiter(
         lease.active,
         trusted retained(owner = observed),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
     ensures(
         trusted retained_option(owner = &result.0),
         trusted retained(owner = observed),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
 {
     return trusted retain_locked(lease, anchor, runtime, handle);

@@ -11,8 +11,11 @@ use bray_bound_tree::{
 };
 
 impl StorageFlowInput {
-    pub(in crate::analysis::storage_flow) fn prepare_report_dependencies(
+    pub(in crate::analysis::storage_flow) fn prepare_report_dependencies<
+        C: CheckerRequestContext + ?Sized,
+    >(
         &mut self,
+        request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
         liveness: &bray_bound_tree::Liveness,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
@@ -34,7 +37,11 @@ impl StorageFlowInput {
                             .then_some(call.result()),
                     )
             })
-            .flat_map(|contract| dependency_subjects(contract.requirements(), storage))
+            .flat_map(|contract| {
+                dependency_subjects(request, contract.requirements(), storage)
+                    .into_iter()
+                    .chain(contract.required_subjects())
+            })
             .collect::<BTreeSet<_>>();
 
         let mut roots = subjects
@@ -270,7 +277,11 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
 
         let contract = self.dependencies.calls()[&invocation].result();
 
-        state.retain_reports(self.report_boundary, self.report_subjects(contract), pending);
+        state.retain_reports(
+            self.report_boundary,
+            self.report_subjects(contract),
+            pending,
+        );
 
         let transfer = crate::dependency::ResultTransfer::new(
             self.request,
@@ -296,8 +307,14 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         output: CallReportOutput,
         pending: bool,
     ) {
-        let Some(dependencies) = state.result_dependencies.report_candidate(occurrence, output) else {
-            state.result_dependencies.discard_report_candidates(occurrence);
+        let Some(dependencies) = state
+            .result_dependencies
+            .report_candidate(occurrence, output)
+        else {
+            state
+                .result_dependencies
+                .discard_report_candidates(occurrence);
+
             return;
         };
 
@@ -306,8 +323,13 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
 
         state.retain_reports(self.report_boundary, subjects, pending);
 
-        if !output.is_abnormal() { self.reporting_completions.insert(occurrence); }
-        state.result_dependencies.commit_reports(occurrence, output, self.report_boundary);
+        if !output.is_abnormal() {
+            self.reporting_completions.insert(occurrence);
+        }
+
+        state
+            .result_dependencies
+            .commit_reports(occurrence, output, self.report_boundary);
     }
 
     fn prepare_await_reports(
@@ -354,12 +376,17 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
 
             // Frame identity and entry snapshots travel with the consumed value. Several
             // frames may originate at one factory site, so that site cannot own this snapshot.
-            let dependencies = if !unknown && !known.is_empty() && known.iter().all(|contract| {
-                contract.is_some_and(|contract| contract.requirements().is_empty())
-            }) {
+            let dependencies = if !unknown
+                && !known.is_empty()
+                && known.iter().all(|contract| {
+                    contract.is_some_and(|contract| contract.requirements().is_empty())
+                }) {
                 std::sync::Arc::new(crate::dependency::ReportDependencies::default())
             } else {
-                let Some(dependencies) = self.execution.awaited_report_dependencies(execution, expression) else {
+                let Some(dependencies) = self
+                    .execution
+                    .awaited_report_dependencies(execution, expression)
+                else {
                     // A consumed operand has no frame. Storage checking reports the invalid use.
                     return;
                 };
@@ -367,7 +394,9 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                 dependencies
             };
 
-            state.result_dependencies.prepare_reports(occurrence, output, dependencies);
+            state
+                .result_dependencies
+                .prepare_reports(occurrence, output, dependencies);
         }
     }
 
@@ -396,14 +425,17 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             );
 
             match transfer.report_values(occurrence, output) {
-                Ok(Some(requirements)) => {
-                    state
-                        .result_dependencies
-                        .prepare_reports(occurrence, output, std::sync::Arc::new(crate::dependency::ReportDependencies {
-                            subjects: self.report_subjects(call.report(output).expect("prepared report has its bound output contract")),
-                            requirements,
-                        }))
-                }
+                Ok(Some(requirements)) => state.result_dependencies.prepare_reports(
+                    occurrence,
+                    output,
+                    std::sync::Arc::new(crate::dependency::ReportDependencies {
+                        subjects: self.report_subjects(
+                            call.report(output)
+                                .expect("prepared report has its bound output contract"),
+                        ),
+                        requirements,
+                    }),
+                ),
                 Ok(None) => panic!("bound report output retains its portable dependency summary"),
                 Err(error) => self.query_failure = Some(error),
             }
@@ -457,7 +489,11 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             }
         };
 
-        state.retain_reports(self.report_boundary, self.report_subjects(&contract), pending);
+        state.retain_reports(
+            self.report_boundary,
+            self.report_subjects(&contract),
+            pending,
+        );
 
         let root = self
             .storage
@@ -528,13 +564,27 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                         );
                     } else {
                         subjects.extend(dependency_subjects(
+                            self.request,
                             std::slice::from_ref(requirement),
                             self.storage,
                         ));
                     }
                 }
+                bray_bound_tree::BoundDependencyRequirement::Value { source, .. } => {
+                    if let Some(root) = self.storage.root_identity(*source) {
+                        subjects.extend(
+                            self.input
+                                .value_dependencies
+                                .get(&root)
+                                .into_iter()
+                                .flatten()
+                                .copied(),
+                        );
+                    }
+                }
                 bray_bound_tree::BoundDependencyRequirement::Direct { .. } => {
                     subjects.extend(dependency_subjects(
+                        self.request,
                         std::slice::from_ref(requirement),
                         self.storage,
                     ));

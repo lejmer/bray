@@ -90,6 +90,8 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     >,
     pub(in crate::analysis::guarantee) spatial_predicates:
         BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
+    pub(in crate::analysis::guarantee) content_predicates:
+        BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
     pub(in crate::analysis::guarantee) owned_allocation:
         Option<bray_symbols::PredicateDefinitionSymbolId>,
     pub(in crate::analysis::guarantee) initialized_range:
@@ -296,6 +298,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.propagate_result(state, expression);
         }
 
+        if let Some(AnalysisRefinement::CaughtResult {
+            expression,
+            succeeded,
+        }) = edge.refinement()
+        {
+            self.complete_caught_result(state, expression, !succeeded);
+        }
+
         state.refine_witnesses();
         self.retain_successor_values(state, edge);
 
@@ -328,6 +338,16 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 let input = ExecutionCondition::Input(place.clone());
 
                 state.current.insert(place.clone(), input.clone());
+
+                // Only the formal value owns storage at entry. Observations of
+                // its components can cross loans and do not establish ownership.
+                if place.is_callable_input() && place.projections.is_empty()
+                    && !self.borrowed_inputs.iter().any(|borrow| borrow.contains(place))
+                {
+                    state.owned_results.insert(input.clone(), bray_symbols::DependencyOwnedResult::Transfer(
+                        bray_symbols::DependencyOwnedTransfer::new(input.clone(), []),
+                    ));
+                }
 
                 if self.unsigned_value(&input) {
                     let ty = self.observed_types[place]
@@ -457,21 +477,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
 
             for (condition, subject) in &contracts.required_witnesses {
-                let mut root = subject.clone();
-
-                root.projections = std::sync::Arc::new([]);
-
-                let subject = ExecutionCondition::Input(subject.clone());
-
-                let carrier = self
-                    .observed_types
-                    .get(&root)
-                    .copied()
-                    .flatten()
-                    .and_then(|ty| subject.witness_carrier(self.request.semantic_values(), ty))
-                    .map_or(subject, |(carrier, _)| carrier);
-
-                state.carry_guarantee(carrier, condition.clone());
+                state.carry_guarantee(ExecutionCondition::Input(subject.clone()), condition.clone());
             }
 
             for (condition, owner) in self.allocation_subjects(&contracts.requirements) {

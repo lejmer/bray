@@ -215,6 +215,12 @@ where
     type_representation_for_context(request.context(), ty)
 }
 
+/// Whether a representation carries an immutable scalar value rather than storage identity.
+pub(crate) fn is_scalar(role: RepresentationRole) -> bool {
+    role.numeric_kind().is_some()
+        || matches!(role, RepresentationRole::ScalarBool | RepresentationRole::ScalarChar)
+}
+
 pub(crate) fn type_representation_for_context<C>(
     request: &C,
     ty: TypeId,

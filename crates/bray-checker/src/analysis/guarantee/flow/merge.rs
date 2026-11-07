@@ -1,6 +1,7 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::BTreeMap;
 
-use super::joins::common_components;
+use crate::execution_guarantees::common_components;
 
 use crate::execution_guarantees::ExecutionCondition;
 
@@ -161,34 +162,28 @@ fn join_observations<'a>(
             stable_identities.insert(value.owner_identity().clone());
         }
 
+        let result = || block.map(|block| joined_observation(block, place));
+
         let joined = if value == other {
             stable_values.insert(value.clone());
             stable_values.insert(value.clone().borrowed());
-            stable_identities.insert(value.clone());
 
             value.clone()
         } else if value == ExecutionCondition::Unknown || other == ExecutionCondition::Unknown {
             ExecutionCondition::Unknown
-        } else if value.owner_identity() == other.owner_identity()
+        } else if value.has_same_owner(&other)
             && value.owner_identity() != &ExecutionCondition::Unknown
         {
             common_components(
                 &value,
                 &other,
-                None,
+                result(),
                 (&target.assumptions, &incoming.assumptions),
                 &mut joined_facts,
                 &mut { ExecutionCondition::WORK_LIMIT },
             )
         } else {
-            block.map_or(ExecutionCondition::Unknown, |block| {
-                ExecutionCondition::Joined(
-                    block.unit(),
-                    u32::try_from(block.to_index().expect("flow block has an index"))
-                        .expect("flow block index fits"),
-                    place.clone(),
-                )
-            })
+            result().unwrap_or(ExecutionCondition::Unknown)
         };
 
         if value != other && joined != ExecutionCondition::Unknown {
@@ -219,7 +214,7 @@ fn join_observations<'a>(
     let mut joined_values = places.iter().cloned().collect::<BTreeMap<_, _>>();
 
     for (place, value) in &places {
-        super::super::state::update_parent_observations(&mut joined_values, place, value);
+        super::super::state::update_parent_observations(&mut joined_values, place, value, None);
     }
 
     if block.is_none() {
@@ -234,27 +229,27 @@ fn join_observations<'a>(
     }
 
     for (place, joined) in &joined_values {
-        if *joined != ExecutionCondition::Unknown {
-            let left = place
-                .value_in(&target.current)
-                .unwrap_or(ExecutionCondition::Unknown);
+        if *joined == ExecutionCondition::Unknown { continue; }
 
-            let right = place
-                .value_in(&incoming.current)
-                .unwrap_or(ExecutionCondition::Unknown);
+        let left = place
+            .value_in(&target.current)
+            .unwrap_or(ExecutionCondition::Unknown);
 
-            if left != right
-                || target.owned_results.get(&left) != incoming.owned_results.get(&right)
-            {
-                owned_results.insert(
-                    joined.clone(),
-                    super::witnesses::owned_alternatives(
-                        (target, &left),
-                        (incoming, &right),
-                        joined,
-                    ),
-                );
-            }
+        let right = place
+            .value_in(&incoming.current)
+            .unwrap_or(ExecutionCondition::Unknown);
+
+        if left != right
+            || target.owned_results.get(&left) != incoming.owned_results.get(&right)
+        {
+            owned_results.insert(
+                joined.clone(),
+                super::witnesses::owned_alternatives(
+                    (target, &left),
+                    (incoming, &right),
+                    joined,
+                ),
+            );
         }
     }
 
@@ -371,12 +366,32 @@ fn join_observations<'a>(
     (incoming_joined, changed)
 }
 
+fn joined_observation(block: AnalysisBlockId, place: &crate::ExecutionPlace) -> ExecutionCondition {
+    ExecutionCondition::Joined(
+        block.unit(),
+        u32::try_from(block.to_index().expect("flow block has an index"))
+            .expect("flow block index fits"),
+        place.clone(),
+    )
+}
+
 fn common_truth(
-    left: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
-    right: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
+    left: (
+        &ExecutionCondition,
+        &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    ),
+    right: (
+        &ExecutionCondition,
+        &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    ),
 ) -> Option<bool> {
-    let left = left.0.prove(left.1, &mut { ExecutionCondition::WORK_LIMIT })?;
-    let right = right.0.prove(right.1, &mut { ExecutionCondition::WORK_LIMIT })?;
+    let left = left
+        .0
+        .prove(left.1, &mut { ExecutionCondition::WORK_LIMIT })?;
+
+    let right = right
+        .0
+        .prove(right.1, &mut { ExecutionCondition::WORK_LIMIT })?;
 
     (left == right).then_some(left)
 }
@@ -446,7 +461,7 @@ fn current_replacements(
         // Literal payloads are shared by unrelated places and contract constants.
         // Joining their slots must not rename the constant itself.
         if value == joined
-            || value == joined.owner_identity()
+            || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. })
             || matches!(
                 value,
                 ExecutionCondition::Literal(_)
@@ -459,7 +474,7 @@ fn current_replacements(
 
         if matches!(
             value,
-            ExecutionCondition::Constructed(_, _) | ExecutionCondition::Present(_)
+            ExecutionCondition::Constructed(_, _) | ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. } | ExecutionCondition::Borrowed(_) | ExecutionCondition::Present(_)
         ) {
             result_replacements(
                 value,
@@ -480,10 +495,10 @@ fn current_replacements(
             insert_replacement(map, value, joined);
         }
 
-        for identity in [value, value.owner_identity()] {
-            if identity != joined.owner_identity() && !stable_identities.contains(identity) {
-                insert_replacement(identities, identity, joined.owner_identity());
-            }
+        let owner = value.owner_identity();
+
+        if owner != joined.owner_identity() && !stable_identities.contains(owner) {
+            insert_replacement(identities, owner, joined.owner_identity());
         }
     }
 
@@ -570,16 +585,29 @@ pub(super) fn result_replacements(
     identities: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
 ) {
     if value == joined
-        || value == joined.owner_identity()
+        || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. })
         || joined == &ExecutionCondition::Unknown
         || matches!(
             value,
-            ExecutionCondition::Borrowed(_)
-                | ExecutionCondition::Literal(_)
+            ExecutionCondition::Literal(_)
                 | ExecutionCondition::Boolean(_)
                 | ExecutionCondition::Unknown
         )
     {
+        return;
+    }
+
+    if value.current_referent().is_some() || matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) {
+        if value.has_same_owner(joined) {
+            // The loan stays the same while its current observations join.
+            // Renaming those contents does not transfer or rename the loan.
+            result_replacements(
+                &value.clone().into_referent(),
+                &joined.clone().into_referent(),
+                stable_values, stable_identities, values, identities,
+            );
+        }
+
         return;
     }
 
@@ -599,13 +627,21 @@ pub(super) fn result_replacements(
         insert_replacement(values, owner, joined.owner_identity());
     }
 
-    for identity in [value, value.owner_identity()] {
-        if identity != joined.owner_identity() && !stable_identities.contains(identity) {
-            insert_replacement(identities, identity, joined.owner_identity());
-        }
+    if owner != joined.owner_identity() && !stable_identities.contains(owner) {
+        insert_replacement(identities, owner, joined.owner_identity());
     }
 
     match value {
+        ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => {
+            let source = value.current_referent().unwrap_or(contents);
+
+            let joined = joined.current_referent().unwrap_or_else(|| match joined {
+                ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => contents.as_ref(),
+                value => value,
+            });
+
+            result_replacements(source, joined, stable_values, stable_identities, values, identities);
+        }
         ExecutionCondition::Constructed(_, fields) => {
             for (field, component) in fields.iter() {
                 result_replacements(

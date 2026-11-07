@@ -1,0 +1,205 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.heap;
+
+trusted internal func withdraw_inactive_driver(pos owner: &Current) -> bray.runtime.bootstrap.host.ExecutionOwner?
+    requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
+    ensures(
+        trusted view_owned(owner = &owner.acquisition),
+        (result matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result))
+    )
+    uses(intrinsic)
+{
+    if trusted driver_start_status(owner) != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let mut withdrawn = trusted take_previous(owner);
+
+    trusted bray.runtime.bootstrap.host.enter_attachment_execution(&mut withdrawn);
+
+    let (status, returned) = trusted bray.runtime.bootstrap.host.exchange_attachment_execution(withdrawn);
+
+    if status != 0
+    {
+        trusted core.target.abort();
+    }
+
+    return returned;
+}
+
+trusted internal func take_retiring_resources(
+    pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
+    pos identity: u64
+) -> (bray.runtime.bootstrap.host.attachment.Owner?, bray.runtime.bootstrap.host.ExecutionOwner?)
+    requires(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted acquired_attachment_option(owner = &result.0),
+        result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1),
+        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
+    )
+    uses(intrinsic)
+{
+    let selected = trusted borrow_execution(owner);
+
+    if !trusted driver_idle(&selected)
+    {
+        trusted core.target.abort();
+    }
+
+    if identity != 0
+    {
+        let value = trusted context(&selected);
+
+        if value.thread != identity
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    _ = trusted begin_driver_close(&selected);
+
+    // Move each remaining obligation out of its actual context slot. Both take
+    // operations replace the slot with none and preserve the counted view.
+    let attachment = trusted take_driver_attachment(&selected);
+
+    let previous = trusted take_previous(&selected);
+
+    return (attachment, previous);
+}
+
+trusted internal func prepare_retirement(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> u32
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+    uses(intrinsic)
+{
+    trusted close_driver_binding(owner);
+
+    // The actual binding retains native code until the exact-thread provider
+    // scope has finished restoring its callbacks.
+    trusted finish_native_provider_option(trusted take_native_provider(owner));
+
+    let incidents = trusted release_driver_binding(owner);
+
+    // An explicit withdrawal may already have restored an enclosing context.
+    // Clear only this actual owner's borrowed address before freeing it.
+    let installed = match consume trusted bray.runtime.bootstrap.host.execution_context(none)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { yield trusted core.target.abort(); }
+    };
+
+    if trusted core.target.address_equal<u8>(installed, owner.resource)
+    {
+        match consume trusted bray.runtime.bootstrap.host.execution_context(std.memory.null<u8>())
+        {
+            case Ok(_) {}
+            case Error(_) { trusted core.target.abort(); }
+        }
+    }
+
+    return incidents;
+}
+
+internal func retire_driver_resources(
+    pos attachment: bray.runtime.bootstrap.host.attachment.Owner?,
+    pos mut previous: bray.runtime.bootstrap.host.ExecutionOwner?,
+    pos identity: u64
+) -> u32
+    requires(
+        trusted acquired_attachment_option(owner = &attachment),
+        previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous),
+        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
+    )
+{
+    if identity != 0
+    {
+        trusted disarm_driver_attachment(attachment);
+
+        if previous matches ?_
+        {
+            trusted bray.runtime.bootstrap.host.enter_attachment_execution(&mut previous);
+            return trusted bray.runtime.bootstrap.host.retire_execution(previous, identity);
+        }
+
+        return 0;
+    }
+
+    if previous matches ?_
+    {
+        trusted core.target.abort();
+    }
+
+    return trusted finish_driver_attachment(attachment);
+}
+
+@abi(c)
+trusted internal func retire_driver(pos owner: bray.runtime.bootstrap.host.ExecutionOwner, pos identity: u64) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner),
+        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
+    )
+    uses(raw_memory, unchecked_alias, layout_reinterpret, intrinsic)
+{
+    let (attachment, previous) = trusted take_retiring_resources(&owner, identity);
+    let incidents = trusted prepare_retirement(&owner);
+    let remaining = retire_driver_resources(attachment, previous, identity);
+
+    let storage = trusted lambda(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> DataPointer<Context>
+        requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Context>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<Context>(pointer = result),
+            trusted core.memory.aligned_for<Context>(pointer = result),
+            trusted core.memory.shared_alias_valid<Context>(pointer = result),
+            trusted core.memory.epoch_current<Context>(pointer = result),
+            trusted core.memory.synchronized_access<Context>(pointer = result),
+            trusted core.memory.movement_stable<Context>(pointer = result),
+            trusted core.memory.finalization_pending<Context>(pointer = result)
+        )
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.reinterpret<Context, u8>(owner.resource);
+    };
+
+    let pointer = trusted storage(&owner);
+
+    {
+        let value = trusted std.memory.borrow_from<Context, bray.runtime.bootstrap.host.ExecutionOwner>(
+            &owner,
+            pointer
+        );
+
+        if core.atomic.load<u32, 0>(&value.phase) != 2 || core.atomic.load<usize, 0>(&value.views) != 0 ||
+            core.atomic.load<usize, 0>(&value.task) != 0 || core.atomic.load<usize, 0>(&value.invocation) != 0
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    // The temporary inspection borrow ends before the context packet moves.
+    // Its binding, provider, attachment and predecessor slots are already empty.
+    let retired = trusted std.memory.read<Context>(pointer);
+
+    let allocation = match consume retired.allocation
+    {
+        case ?allocation { yield allocation; }
+        case none { yield trusted core.target.abort(); }
+    };
+
+    _ = allocation;
+
+    return incidents + remaining;
+}

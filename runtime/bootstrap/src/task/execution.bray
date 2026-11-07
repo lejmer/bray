@@ -77,13 +77,13 @@ internal func flag(pos value: bool) -> u8
 
 @abi(c)
 trusted internal func snapshot(pos pointer: DataPointer<Reference>, pos output: DataPointer<Snapshot>) -> u32
-    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(trusted reference_slot(owner = &pointer), trusted bray.runtime.bootstrap.host.product.native_host())
 {
-    let reference = trusted read_reference(pointer);
+    let reference = trusted borrow_reference(&pointer);
 
     let value =
     {
-        let mut guard = trusted lock_cell(&reference);
+        let mut guard = trusted lock_cell(reference);
         let control = trusted guard.get();
 
         yield snapshot_value(&control);
@@ -97,7 +97,7 @@ trusted internal func snapshot(pos pointer: DataPointer<Reference>, pos output: 
 // has retained its frame, immutable description and callback provider through
 // final retirement. Rejection before this point keeps the inactive input owner.
 trusted internal predicate publication_entry(
-    reference: DataPointer<Reference>,
+    reference: &DataPointer<Reference>,
     root: usize,
     execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
 );
@@ -109,13 +109,15 @@ trusted internal func publication(
     pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
 ) -> u32
     requires(
-        trusted reference_slot(pointer = pointer),
-        trusted publication_entry(reference = pointer, root = root, execution = execution)
+        trusted reference_slot(owner = &pointer),
+        trusted publication_entry(reference = &pointer, root = root, execution = execution)
     )
     uses(raw_memory)
 {
+    let reference = trusted borrow_reference(&pointer);
+
     let permit = trusted lambda(
-        pos pointer: DataPointer<Reference>,
+        pos pointer: &DataPointer<Reference>,
         pos root: usize,
         pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
     )
@@ -134,11 +136,10 @@ trusted internal func publication(
         )
         executes(pure, total) {};
 
-    trusted permit(pointer, root, execution);
+    trusted permit(&pointer, root, execution);
 
     let value = trusted std.memory.read<bray.runtime.bootstrap.activation.requirements.Execution>(execution);
-    let reference = trusted read_reference(pointer);
-    let mut guard = trusted lock_cell(&reference);
+    let mut guard = trusted lock_cell(reference);
 
     trusted publish(trusted guard.get(), root, value);
     return 0;
@@ -150,16 +151,17 @@ trusted internal func publication(
 // Like a lock acquisition, this noncopy marker is issued only after acquiring
 // the actual cell reservation. It stays within the complete Dispatch carrier.
 // No operation accepts it with an independently supplied storage pointer.
-internal struct DispatchClaim
+@layout(c)
+internal struct DispatchAcquisition
 {
 }
 
-trusted internal predicate dispatch_acquired(owner: &DispatchClaim);
+trusted internal predicate dispatch_acquired(owner: &DispatchAcquisition);
 
 internal struct Dispatch
 {
-    acquisition: DispatchClaim;
-    reference: Reference;
+    acquisition: DispatchAcquisition;
+    reference: &Reference;
     services: &Services;
     root: usize;
     active: bool;
@@ -168,7 +170,7 @@ internal struct Dispatch
 // Producer callbacks contain abnormal outcomes in Progress. This claim stays
 // inside dispatch and is released once after every returned scheduling outcome.
 // Explicit release avoids admitting a fallible local destructor during cleanup.
-trusted internal func release_dispatch(pos owner: Dispatch)
+trusted internal func release_dispatch(pos owner: Dispatch, pos failure: &bray.runtime.bootstrap.worker.Failure)
     requires(trusted dispatch_acquired(owner = &owner.acquisition))
     uses(intrinsic)
 {
@@ -177,7 +179,16 @@ trusted internal func release_dispatch(pos owner: Dispatch)
         let reference = trusted dispatch_reference(&owner);
         let mut guard = trusted lock_cell(reference);
 
-        if trusted end_dispatch(trusted guard.get())
+        let control = trusted guard.get();
+
+        control.failure =
+        {
+            stage = failure.stage,
+            category = failure.category,
+            native_code = failure.native_code
+        };
+
+        if trusted end_dispatch(control)
         {
             // The enclosing native reference remains owned through return.
             trusted core.target.abort();
@@ -185,14 +196,12 @@ trusted internal func release_dispatch(pos owner: Dispatch)
     }
 }
 
-trusted internal predicate dispatch_owner(owner: &Dispatch);
-
 trusted internal func dispatch_reference(pos owner: &Dispatch) -> &Reference
-    requires(trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition))
+    requires(trusted dispatch_acquired(owner = &owner.acquisition))
     ensures(trusted retained(owner = result))
     executes(pure, total)
 {
-    return &owner.reference;
+    return owner.reference;
 }
 
 trusted internal func acquire_dispatch(
@@ -207,7 +216,6 @@ trusted internal func acquire_dispatch(
     )
     ensures(
         trusted retained(owner = reference),
-        trusted dispatch_owner(owner = &result),
         trusted dispatch_acquired(owner = &result.acquisition),
         !result.active || result.root != 0
     )
@@ -224,15 +232,10 @@ trusted internal func acquire_dispatch(
         {
             return
             {
-                acquisition = DispatchClaim
+                acquisition = DispatchAcquisition
                 {
                 },
-                reference =
-                {
-                    pointer = reference.pointer,
-                    runtime = reference.runtime,
-                    handle = reference.handle
-                },
+                reference = reference,
                 services = services,
                 root = 0,
                 active = false
@@ -249,15 +252,10 @@ trusted internal func acquire_dispatch(
 
     return
     {
-        acquisition = DispatchClaim
+        acquisition = DispatchAcquisition
         {
         },
-        reference =
-        {
-            pointer = reference.pointer,
-            runtime = reference.runtime,
-            handle = reference.handle
-        },
+        reference = reference,
         services = services,
         root = root,
         active = true
@@ -265,7 +263,7 @@ trusted internal func acquire_dispatch(
 }
 
 trusted internal func cursor(pos owner: &Dispatch) -> bray.runtime.bootstrap.activation.run.Cursor
-    requires(owner.active, owner.root != 0, trusted dispatch_owner(owner = owner))
+    requires(owner.active, owner.root != 0, trusted dispatch_acquired(owner = &owner.acquisition))
     ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result))
     uses(intrinsic)
 {
@@ -281,7 +279,7 @@ trusted internal func cursor(pos owner: &Dispatch) -> bray.runtime.bootstrap.act
 }
 
 trusted internal func dispatch_services(pos owner: &Dispatch) -> &Services
-    requires(trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition))
+    requires(trusted dispatch_acquired(owner = &owner.acquisition))
     ensures(trusted native_services(owner = result))
     executes(pure, total)
 {

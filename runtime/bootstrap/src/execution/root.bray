@@ -1,0 +1,336 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.scheduler;
+
+@layout(c)
+internal struct Configuration
+{
+    acquisition: Acquisition;
+    tasks: usize;
+    timers: usize;
+    capabilities: u32;
+    invoke: DataPointer<u8>;
+    admit_context: DataPointer<u8>;
+    release_context: DataPointer<u8>;
+    scope_enter: usize;
+    scope_finish: usize;
+}
+
+@copy
+@layout(c)
+internal struct Admission
+{
+    status: u32;
+    task: u64;
+}
+
+// Native metadata callbacks, when selected, belong to the retained native host
+// provider for the execution lifetime. Source-only roots leave these hooks absent.
+trusted internal predicate configuration_owned(owner: &Acquisition);
+
+internal predicate native_configuration(owner: &Configuration) = configuration_owned(owner = &owner.acquisition);
+
+// The native host retains its issued root's single source-resolution claim.
+// A retained storage reference or copied task identity cannot establish it.
+trusted internal predicate resolution_input(owner: &u64);
+
+internal func runtime_failure(pos status: u32) -> bray.runtime.bootstrap.ReportOutcome
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+{
+    return
+    {
+        state = 3,
+        payload = status as usize,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
+}
+
+trusted internal func retain_task(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos handle: u64
+) -> (bray.runtime.bootstrap.task.Reference?, u32)
+    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.retained_option(owner = &result.0)
+    )
+{
+    let value = trusted domain(owner);
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return (none, 4);
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+    return trusted bray.runtime.bootstrap.task.retain_locked(&lease, &mut anchor, value.identity, handle);
+}
+
+@abi(c)
+trusted internal func root_observation(pos handle: u64) -> bray.runtime.bootstrap.ReportOutcome
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted resolution_input(owner = &handle),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let scope = trusted root_scope();
+    let status = scope.status;
+
+    let result = if status == 0
+    {
+        yield trusted root_observation_action(&handle);
+    }
+    else
+    {
+        yield runtime_failure(status);
+    };
+
+    let ended = trusted finish_entry_scope(scope);
+
+    // Terminal outcome ownership leaves before its task's final completion.
+    // Entry incidents remain independently represented by their report sink.
+    _ = ended;
+
+    return result;
+}
+
+trusted internal func root_observation_action(pos handle: &u64) -> bray.runtime.bootstrap.ReportOutcome
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted resolution_input(owner = handle),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return runtime_failure(selected.status);
+    }
+
+    if !has_execution(&selected)
+    {
+        return runtime_failure(1);
+    }
+
+    let execution = trusted bound_execution(&selected);
+    let (reference, status) = trusted borrow_resolution(execution, handle);
+
+    if reference matches none
+    {
+        return runtime_failure(status);
+    }
+
+    let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
+    let outcome = trusted observe_reference(&selected, &owner);
+
+    _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
+    return outcome;
+}
+
+trusted internal func observe_reference(
+    pos selected: &Current,
+    pos reference: &bray.runtime.bootstrap.task.Reference
+) -> bray.runtime.bootstrap.ReportOutcome
+    requires(
+        blocking_execution(),
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report)
+    )
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
+{
+    loop
+    {
+        trusted fail_observed_task(reference);
+
+        match consume bray.runtime.bootstrap.task.observe_reference(reference)
+        {
+            case Ok(outcome) { return outcome; }
+            case Error(status)
+            {
+                if status != 6
+                {
+                    return runtime_failure(status);
+                }
+            }
+        }
+
+        trusted wait_for_task(selected, reference);
+    }
+}
+
+@abi(c)
+trusted internal func root_completion(pos handle: u64) -> u32
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted resolution_input(owner = &handle),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let scope = trusted root_scope();
+    let status = scope.status;
+
+    let result = if status == 0
+    {
+        yield trusted root_completion_action(&handle);
+    }
+    else
+    {
+        yield status;
+    };
+
+    let ended = trusted finish_entry_scope(scope);
+
+    return if result != 0
+    {
+        yield result;
+    }
+    else
+    {
+        yield ended;
+    };
+}
+
+trusted internal func root_completion_action(pos handle: &u64) -> u32
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted resolution_input(owner = handle),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    if !has_execution(&selected)
+    {
+        return 1;
+    }
+
+    let execution = trusted bound_execution(&selected);
+    let (reference, status) = trusted borrow_resolution(execution, handle);
+
+    if reference matches none
+    {
+        return status;
+    }
+
+    let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
+    let resolved = trusted retire_reference(&selected, &owner);
+
+    let result = if resolved == 0
+    {
+        yield trusted destroy_reference(&selected, &owner);
+    }
+    else
+    {
+        yield resolved;
+    };
+
+    _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
+    return result;
+}
+
+trusted internal func retire_reference(
+    pos selected: &Current,
+    pos reference: &bray.runtime.bootstrap.task.Reference
+) -> u32
+    requires(
+        blocking_execution(),
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
+    )
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
+{
+    loop
+    {
+        trusted fail_observed_task(reference);
+
+        let status = bray.runtime.bootstrap.task.retire_reference(reference);
+
+        if status != 6
+        {
+            return status;
+        }
+
+        _ = trusted wake_reference(reference, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
+
+        trusted wait_for_task(selected, reference);
+    }
+}
+
+// The waiter borrows the source claim while driving its retained execution.
+// Dispatch can advance the task without consuming this caller's resolution right.
+trusted internal func wait_for_task(pos selected: &Current, pos reference: &bray.runtime.bootstrap.task.Reference)
+    requires(
+        blocking_execution(),
+        selected.status == 0,
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
+    )
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
+{
+    trusted wait_ready(selected, trusted bray.runtime.bootstrap.task.execution_reference(reference));
+}

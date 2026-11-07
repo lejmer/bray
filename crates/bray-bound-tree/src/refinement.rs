@@ -28,26 +28,30 @@ pub enum StorageInvalidation {
         stable_descriptors: BTreeSet<crate::StoragePath>,
         /// Unexposed owned observations with no mutable or reachable payload retain their value.
         stable_values: BTreeSet<crate::StoragePath>,
+        /// Classified unchanged values held by this invocation's entry or normal result.
+        normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
     },
     /// Only the listed paths and overlapping storage may change.
     Paths(Vec<crate::StoragePath>),
-    /// Flow-resolved accesses and logical component observations changed through them.
-    /// Alias resolution is complete. Consumers must not reinterpret these as physical roots.
+    /// Flow-resolved access paths and their current physical observations.
+    /// Access paths are logical. Snapshot targets retain their established origins.
     Observed {
         /// Mutation confinement established while resolving the actual target identities.
         scope: StorageMutationScope,
         /// Logical paths whose contents may change, indexed by their checked access.
         accesses: BTreeMap<StorageAccessId, Vec<crate::StoragePath>>,
         /// Exact current observations mapped to their physical representative.
-        /// Self mappings start fresh contents; aliases read that updated snapshot.
+        /// Keep the origin, epoch and borrow layer until the consumer interprets them.
         /// These identities preserve no entry facts and establish no guarantees.
-        snapshots: BTreeMap<crate::StoragePath, crate::StoragePath>,
+        snapshots: BTreeMap<crate::StoragePath, crate::StorageTarget>,
         /// References whose reachable contents may change while their address value survives.
         referents: BTreeSet<crate::StoragePath>,
         /// Slice descriptors proven disjoint from all writes to their reachable elements.
         stable_descriptors: BTreeSet<crate::StoragePath>,
         /// Immutable component observations proven unchanged by these writes.
         stable_values: BTreeSet<crate::StoragePath>,
+        /// Classified unchanged values held by this invocation's entry or normal result.
+        normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
     },
 }
 
@@ -66,20 +70,32 @@ impl StorageInvalidation {
         Self::All {
             stable_descriptors: BTreeSet::new(),
             stable_values: BTreeSet::new(),
+            normal_snapshots: Default::default(),
         }
     }
 
     /// Retains every target that either incoming execution can mutate.
     pub fn merge(&mut self, incoming: &Self) {
+        let mut normal_snapshots = match &mut *self {
+            Self::All { normal_snapshots, .. } | Self::Observed { normal_snapshots, .. } =>
+                std::mem::take(normal_snapshots),
+            Self::Paths(_) => BTreeMap::new(),
+        };
+
+        normal_snapshots.retain(|subject, kind| incoming.normal_snapshots()
+            .is_some_and(|incoming| incoming.get(subject) == Some(kind)));
+
         match (&mut *self, incoming) {
             (
                 Self::All {
                     stable_descriptors,
                     stable_values,
+                    ..
                 },
                 Self::All {
                     stable_descriptors: descriptors,
                     stable_values: values,
+                    ..
                 },
             ) => {
                 stable_descriptors.retain(|path| descriptors.contains(path));
@@ -89,31 +105,31 @@ impl StorageInvalidation {
                 Self::All {
                     stable_descriptors,
                     stable_values,
+                    ..
                 },
                 Self::Observed {
+                    accesses,
+                    referents,
                     stable_descriptors: descriptors,
                     stable_values: values,
                     ..
-                },
-            )
-            | (
-                Self::Observed {
-                    stable_descriptors,
-                    stable_values,
-                    ..
-                },
-                Self::All {
-                    stable_descriptors: descriptors,
-                    stable_values: values,
                 },
             ) => {
-                stable_descriptors.retain(|path| descriptors.contains(path));
-                stable_values.retain(|path| values.contains(path));
+                // A resolved effect preserves paths outside its closed write set.
+                let unchanged = |path: &crate::StoragePath| accesses.values().flatten()
+                    .all(|changed| changed.relationship(path) == StorageRelationship::Disjoint);
 
-                *self = Self::All {
-                    stable_descriptors: std::mem::take(stable_descriptors),
-                    stable_values: std::mem::take(stable_values),
-                };
+                stable_descriptors.retain(|path| descriptors.contains(path) || unchanged(path));
+
+                stable_values.retain(|path| values.contains(path) || unchanged(path)
+                    && referents.iter().all(|changed| changed.relationship(path) == StorageRelationship::Disjoint));
+            }
+            (Self::Observed { .. }, Self::All { .. }) => {
+                // Start from the opaque frame, including paths the finite effect
+                // preserves implicitly rather than listing as explicit evidence.
+                let resolved = std::mem::replace(self, incoming.clone());
+
+                self.merge(&resolved);
             }
             (_, Self::All { .. }) | (Self::All { .. }, _) => *self = Self::unknown(),
             (
@@ -124,6 +140,7 @@ impl StorageInvalidation {
                     referents,
                     stable_descriptors,
                     stable_values,
+                    ..
                 },
                 Self::Observed {
                     scope: incoming_scope,
@@ -132,11 +149,27 @@ impl StorageInvalidation {
                     referents: incoming_referents,
                     stable_descriptors: incoming_descriptors,
                     stable_values: incoming_values,
+                    ..
                 },
             ) => {
                 *scope = (*scope).max(*incoming_scope);
-                stable_descriptors.retain(|path| incoming_descriptors.contains(path));
-                stable_values.retain(|path| incoming_values.contains(path));
+
+                let disjoint = |path: &crate::StoragePath, accesses: &BTreeMap<StorageAccessId, Vec<crate::StoragePath>>| {
+                    accesses.values().flatten().all(|changed| changed.relationship(path) == StorageRelationship::Disjoint)
+                };
+
+                let descriptors = incoming_descriptors.iter().filter(|path| !stable_descriptors.contains(*path) && disjoint(path, current)).cloned().collect::<Vec<_>>();
+
+                let values = incoming_values.iter().filter(|path| !stable_values.contains(*path) && disjoint(path, current)
+                    && referents.iter().all(|changed| changed.relationship(path) == StorageRelationship::Disjoint)).cloned().collect::<Vec<_>>();
+
+                stable_descriptors.retain(|path| incoming_descriptors.contains(path) || disjoint(path, incoming));
+
+                stable_values.retain(|path| incoming_values.contains(path) || disjoint(path, incoming)
+                    && incoming_referents.iter().all(|changed| changed.relationship(path) == StorageRelationship::Disjoint));
+
+                stable_descriptors.extend(descriptors);
+                stable_values.extend(values);
                 snapshots.retain(|path, target| incoming_snapshots.get(path) == Some(target));
                 referents.extend(incoming_referents.iter().cloned());
 
@@ -156,6 +189,19 @@ impl StorageInvalidation {
                 current.sort_unstable();
                 current.dedup();
             }
+        }
+
+        if let Self::All { normal_snapshots: preserved, .. }
+            | Self::Observed { normal_snapshots: preserved, .. } = self {
+            *preserved = normal_snapshots;
+        }
+    }
+
+    /// Returns the original observation kinds of captured invocation snapshots.
+    pub fn normal_snapshots(&self) -> Option<&BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>> {
+        match self {
+            Self::All { normal_snapshots, .. } | Self::Observed { normal_snapshots, .. } => Some(normal_snapshots),
+            Self::Paths(_) => None,
         }
     }
 
@@ -360,6 +406,7 @@ impl CheckedRefinements {
                     StorageInvalidation::All {
                         stable_descriptors,
                         stable_values,
+                        ..
                     } => stable_descriptors
                         .iter()
                         .chain(stable_values)
@@ -618,22 +665,28 @@ mod tests {
             scope: super::StorageMutationScope::Unbounded,
             accesses: [(access, vec![first.clone()])].into(),
             snapshots: [
-                (first.clone(), first.clone()),
-                (alias.clone(), first.clone()),
+                (first.clone(), crate::StorageTarget::storage(first.clone())),
+                (alias.clone(), crate::StorageTarget::storage(first.clone())),
             ]
             .into(),
             referents: [first.clone()].into(),
             stable_descriptors: [first.clone(), second.clone()].into(),
             stable_values: [first.clone(), second.clone()].into(),
+            normal_snapshots: Default::default(),
         };
 
         let right = super::StorageInvalidation::Observed {
             scope: super::StorageMutationScope::Unbounded,
             accesses: [(access, vec![second.clone()])].into(),
-            snapshots: [(first.clone(), first.clone()), (alias, second.clone())].into(),
+            snapshots: [
+                (first.clone(), crate::StorageTarget::storage(first.clone())),
+                (alias, crate::StorageTarget::storage(second.clone())),
+            ]
+            .into(),
             referents: [second.clone()].into(),
             stable_descriptors: [first.clone()].into(),
             stable_values: [first.clone()].into(),
+            normal_snapshots: Default::default(),
         };
 
         left.merge(&right);
@@ -641,6 +694,7 @@ mod tests {
         let opaque = super::StorageInvalidation::All {
             stable_descriptors: [first.clone()].into(),
             stable_values: [first.clone()].into(),
+            normal_snapshots: Default::default(),
         };
 
         let mut global = opaque.clone();
@@ -656,13 +710,77 @@ mod tests {
             super::StorageInvalidation::Observed {
                 scope: super::StorageMutationScope::Unbounded,
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
-                snapshots: [(first.clone(), first.clone())].into(),
+                snapshots: [(first.clone(), crate::StorageTarget::storage(first.clone()))].into(),
                 stable_descriptors: [first.clone()].into(),
                 stable_values: [first.clone()].into(),
+                normal_snapshots: Default::default(),
                 referents: [first, second].into(),
             }
         );
     }
+    #[test]
+    fn closed_effect_merges_preserve_disjoint_observations_in_both_orders() {
+        let unit = BoundUnitId::new(4);
+        let owner = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 0));
+
+        let field = |ordinal| crate::StoragePath {
+            root: owner.root,
+            projections: [crate::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(ordinal))].into(),
+        };
+
+        let changed = field(0);
+        let sibling = field(1);
+        let other = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 1));
+        let retained = [owner, changed.clone(), sibling.clone(), other.clone()].into_iter().collect::<BTreeSet<_>>();
+
+        let precise = super::StorageInvalidation::Observed {
+            scope: super::StorageMutationScope::Unbounded,
+            accesses: [(StorageAccessId::from_slot(unit, 0), vec![changed])].into(),
+            snapshots: Default::default(),
+            referents: [other.clone()].into(),
+            stable_descriptors: Default::default(),
+            stable_values: Default::default(),
+            normal_snapshots: Default::default(),
+        };
+
+        for opaque in [false, true] {
+            let frame = if opaque {
+                super::StorageInvalidation::All {
+                    stable_descriptors: retained.clone(),
+                    stable_values: retained.clone(),
+                    normal_snapshots: Default::default(),
+                }
+            } else {
+                super::StorageInvalidation::Observed {
+                    scope: super::StorageMutationScope::Unbounded,
+                    accesses: Default::default(),
+                    snapshots: Default::default(),
+                    referents: Default::default(),
+                    stable_descriptors: retained.clone(),
+                    stable_values: retained.clone(),
+                    normal_snapshots: Default::default(),
+                }
+            };
+
+            let mut left = frame.clone();
+            let mut right = precise.clone();
+
+            left.merge(&precise);
+            right.merge(&frame);
+            assert_eq!(left, right);
+
+            let (super::StorageInvalidation::All { stable_descriptors, stable_values, .. }
+                | super::StorageInvalidation::Observed { stable_descriptors, stable_values, .. }) = left else {
+                panic!("resolved merges retain an observation frame");
+            };
+
+            let expected = [sibling.clone(), other.clone()].into_iter().collect::<BTreeSet<_>>();
+
+            assert_eq!(stable_descriptors, expected);
+            assert_eq!(stable_values, [sibling.clone()].into());
+        }
+    }
+
     #[test]
     fn opaque_effects_intersect_descriptor_preservation() {
         let unit = BoundUnitId::new(4);
@@ -672,18 +790,21 @@ mod tests {
         let mut effects = super::StorageInvalidation::All {
             stable_descriptors: [first.clone(), second].into(),
             stable_values: BTreeSet::new(),
+            normal_snapshots: Default::default(),
         };
 
         effects.merge(&super::StorageInvalidation::All {
             stable_descriptors: [first.clone()].into(),
             stable_values: BTreeSet::new(),
+            normal_snapshots: Default::default(),
         });
 
         assert_eq!(
             effects,
             super::StorageInvalidation::All {
                 stable_descriptors: [first.clone()].into(),
-                stable_values: BTreeSet::new()
+                stable_values: BTreeSet::new(),
+                normal_snapshots: Default::default()
             }
         );
 

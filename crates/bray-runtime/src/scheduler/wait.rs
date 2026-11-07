@@ -37,7 +37,7 @@ impl Scheduler {
 
             self.promote_elapsed_timers()?;
 
-            if let Some(task) = dispatch::pop_ready(&self.data, thread, lanes, None)? {
+            if let Some(task) = dispatch::pop_ready(&self.data, thread, lanes)? {
                 return Ok(Some(task));
             }
 
@@ -47,7 +47,10 @@ impl Scheduler {
 
             let timer_remaining = self.timer_remaining()?;
 
-            let wait_deadline = match (deadline.map(|deadline| deadline.remaining()), timer_remaining) {
+            let wait_deadline = match (
+                deadline.map(|deadline| deadline.remaining()),
+                timer_remaining,
+            ) {
                 (Some(first), Some(second)) => Some(first.min(second)),
                 (deadline, None) | (None, deadline) => deadline,
             };

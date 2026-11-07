@@ -1,0 +1,114 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using internal std.platform;
+using internal bray.runtime.bootstrap.worker;
+using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap.scheduler;
+
+trusted internal func record_task_failure(
+    pos reference: &bray.runtime.bootstrap.task.Reference,
+    pos failure: bray.runtime.bootstrap.worker.Failure
+)
+    requires(trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    ensures(trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
+    when(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    }
+{
+    let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
+    let control = trusted guard.get();
+
+    if control.failure.stage == 0
+    {
+        control.failure = failure;
+    }
+}
+
+trusted internal func record_clock_failure(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos status: std.platform.PlatformStatus
+)
+    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+{
+    let value = trusted domain(owner);
+
+    {
+        let mut guard = trusted value.failure.lock();
+        let failure = trusted guard.get();
+
+        if failure.stage == 0
+        {
+            failure =
+            {
+                stage = 9,
+                category = status.category,
+                native_code = status.native_code
+            };
+        }
+    }
+
+    bray.runtime.bootstrap.scheduler.notify_ready(trusted scheduler_reference(owner));
+}
+
+trusted internal func execution_failure(
+    pos owner: &bray.runtime.bootstrap.execution.Reference
+) -> bray.runtime.bootstrap.worker.Failure
+    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+{
+    let mut guard = trusted (trusted domain(owner)).failure.lock();
+    let failure = trusted guard.get();
+
+    return
+    {
+        stage = failure.stage,
+        category = failure.category,
+        native_code = failure.native_code
+    };
+}
+
+trusted internal func fail_observed_task(pos reference: &bray.runtime.bootstrap.task.Reference)
+    requires(trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    ensures(trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    when(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    }
+{
+    let failure = trusted execution_failure(trusted bray.runtime.bootstrap.task.execution_reference(reference));
+
+    if failure.stage == 0
+    {
+        return;
+    }
+
+    let pending =
+    {
+        let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
+        let control = trusted guard.get();
+
+        if control.phase matches bray.runtime.bootstrap.task.Phase.Resolved
+        {
+            return;
+        }
+
+        if control.failure.stage == 0
+        {
+            control.failure = failure;
+        }
+
+        yield control.registration != 0;
+    };
+
+    if pending
+    {
+        _ = trusted wake_reference(reference, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
+    }
+}

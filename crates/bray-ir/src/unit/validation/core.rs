@@ -83,23 +83,28 @@ fn validate_host_sequence(unit: &MirUnit) -> Option<()> {
         return None;
     }
 
-    let preceding = if host
-        .requirements()
-        .requires_role(bray_runtime_interface::RuntimeAbiRole::RuntimeInitialization)
-    {
-        let (initialization, preceding) = preceding.split_first()?;
+    let mut preceding = preceding;
 
-        if !matches!(
-            initialization,
-            crate::MirOperationKind::Host(crate::MirHostOperation::InitializeRuntime { .. })
-        ) {
-            return None;
+    for role in [
+        bray_runtime_interface::RuntimeAbiRole::RuntimeInitialization,
+        bray_runtime_interface::RuntimeAbiRole::MainThreadLaneStartup,
+        bray_runtime_interface::RuntimeAbiRole::ExecutionWorkersStartup,
+        bray_runtime_interface::RuntimeAbiRole::ExecutionDeadlinesStartup,
+    ] {
+        if host.requirements().requires_role(role) {
+            let (initialization, remaining) = preceding.split_first()?;
+
+            if !matches!(
+                initialization,
+                crate::MirOperationKind::Host(crate::MirHostOperation::InitializeRuntime { runtime })
+                    if runtime.role() == role
+            ) {
+                return None;
+            }
+
+            preceding = remaining;
         }
-
-        preceding
-    } else {
-        preceding
-    };
+    }
 
     let (admission, preceding) = preceding.split_first()?;
 

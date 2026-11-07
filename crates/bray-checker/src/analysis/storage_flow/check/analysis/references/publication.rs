@@ -3,7 +3,10 @@ use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::{dependency_projection, dependency_projections};
-use bray_symbols::{DependencySubjectRoot, TypeData};
+use bray_symbols::{
+    ConstantBinaryOperation, ConstantTermData, ConstantUnaryOperation, DependencySubjectRoot,
+    TypeData,
+};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn collect_exit_references(
@@ -32,6 +35,48 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateData, C::UpstreamError>
     {
         let carriers = self.trusted.result_carriers(self.request);
+        let mut guards = std::collections::BTreeMap::new();
+        let mut published = Vec::with_capacity(carriers.len());
+
+        for carrier in carriers {
+            let guard = if let Some(guard) = guards.get(carrier.path()) {
+                *guard
+            } else {
+                let guard = self.result_path_condition(carrier.path(), true)?;
+
+                guards.insert(carrier.path().to_vec(), guard);
+
+                guard
+            };
+
+            let condition = if let Some(guard) = guard {
+                // Both terms already retain their checked portable subjects.
+                // Compose them directly rather than reconstructing local places.
+                let values = self.request.semantic_values();
+
+                let inactive = values
+                    .intern_constant_term(ConstantTermData::Unary {
+                        operation: ConstantUnaryOperation::LogicalNot,
+                        operand: guard,
+                    })
+                    .expect("a checked result guard belongs to this semantic store");
+
+                values
+                    .intern_constant_term(ConstantTermData::Binary {
+                        operation: ConstantBinaryOperation::LogicalOr,
+                        left: inactive,
+                        right: carrier.guarantee(),
+                    })
+                    .expect("checked returned witness terms belong to this semantic store")
+            } else {
+                carrier.guarantee()
+            };
+
+            published.push(bray_symbols::DependencyWitnessCarrier::new(
+                condition,
+                crate::analysis::guarantee::portable_carrier_path(self.request, carrier.path()),
+            ));
+        }
 
         let observed_result = self.trusted.observed_result.flatten();
 
@@ -128,7 +173,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_requirements(requirements)
             .with_borrows(relations)
             .with_normal_completion(self.references.is_some())
-            .with_carriers(carriers)
+            .with_carriers(published)
             .with_owned_result(owned_result)
             .with_observed_result(observed_result)
             .with_normal_storage_preservation(!self.has_normal_effects))
@@ -212,7 +257,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             {
                 Some((path, false))
             }
-            Origin::Storage(_) | Origin::Allocation(_) | Origin::Returned { .. }
+            Origin::Storage(_)
+            | Origin::Allocation(_)
+            | Origin::Returned { .. }
             | Origin::Static { .. } => None,
         };
 

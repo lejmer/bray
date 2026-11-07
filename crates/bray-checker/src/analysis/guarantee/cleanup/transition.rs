@@ -322,6 +322,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             false,
             false,
         );
+
+        if let Some(completion) = flow.completion(mutation) {
+            self.observe_references(state, mutation, completion.references());
+        }
     }
 
     #[expect(
@@ -430,7 +434,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .as_ref()
                         .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
                     {
-                        state.assign(place, crate::ExecutionCondition::Unknown);
+                        state.assign(place, crate::ExecutionCondition::Unknown, None);
                     }
 
                     let retained = std::iter::once(&state.result)

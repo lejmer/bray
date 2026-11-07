@@ -45,13 +45,13 @@ trusted internal predicate retained(owner: &Reference);
 
 trusted internal predicate callback_owned(owner: &Callback);
 
-trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
+trusted internal predicate reference_slot(owner: &DataPointer<Reference>);
 
 trusted internal predicate callback_slot(pointer: DataPointer<Callback>);
 
 trusted internal predicate owned_reference(owner: &Reference);
 
-trusted internal predicate release_entry(pointer: DataPointer<Reference>);
+trusted internal predicate release_entry(pointer: &DataPointer<Reference>);
 
 // Native names are owned by the resident host, separately from event state.
 internal struct DirectoryEntry
@@ -64,8 +64,8 @@ internal struct DirectoryEntry
 trusted internal predicate final_reference(owner: &Reference);
 
 trusted internal predicate registration_entry(
-    event: DataPointer<Reference>,
-    task: DataPointer<bray.runtime.bootstrap.task.Reference>,
+    event: &DataPointer<Reference>,
+    task: &DataPointer<bray.runtime.bootstrap.task.Reference>,
     callback: DataPointer<Callback>
 );
 

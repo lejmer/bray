@@ -19,6 +19,8 @@ pub(crate) fn expression_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    storage: Option<&bray_bound_tree::StoragePlan>,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     patterns: &BTreeMap<
         bray_bound_tree::BoundPatternId,
@@ -67,7 +69,7 @@ pub(crate) fn expression_condition(
     }
 
     if let Some(condition) = selected_condition(
-        unit, semantics, values, literals, patterns, current, evaluated, expression, budget,
+        unit, semantics, values, known, storage, literals, patterns, current, evaluated, expression, budget,
         predicates,
     ) {
         return condition;
@@ -76,7 +78,7 @@ pub(crate) fn expression_condition(
     if let Some(constructed) =
         constructed_condition(expression, bound, semantics, values, &mut |source| {
             expression_condition(
-                unit, semantics, values, literals, patterns, current, evaluated, source, budget,
+                unit, semantics, values, known, storage, literals, patterns, current, evaluated, source, budget,
                 predicates,
             )
         })
@@ -92,7 +94,7 @@ pub(crate) fn expression_condition(
         bound,
         &mut |source| {
             expression_condition(
-                unit, semantics, values, literals, patterns, current, evaluated, source, budget,
+                unit, semantics, values, known, storage, literals, patterns, current, evaluated, source, budget,
                 predicates,
             )
         },
@@ -100,12 +102,14 @@ pub(crate) fn expression_condition(
         return condition;
     }
 
-    if let Some(condition) = conversion_condition(expression, bound, semantics, &mut |source| {
-        expression_condition(
-            unit, semantics, values, literals, patterns, current, evaluated, source, budget,
-            predicates,
-        )
-    }) {
+    if let Some(condition) =
+        conversion_condition(expression, bound, semantics, values, &mut |source| {
+            expression_condition(
+                unit, semantics, values, known, storage, literals, patterns, current, evaluated, source, budget,
+                predicates,
+            )
+        })
+    {
         return condition;
     }
 
@@ -135,6 +139,8 @@ pub(crate) fn expression_condition(
                     unit,
                     semantics,
                     values,
+                    known,
+                    storage,
                     literals,
                     patterns,
                     current,
@@ -159,18 +165,25 @@ pub(crate) fn expression_condition(
                 return value.clone();
             }
 
-            let Some(place) = expression_place(unit, semantics, values, expression) else {
-                return ExecutionCondition::Unknown;
-            };
-
-            if let Some(value) = current.get(&place) {
+            if let Some(value) = expression_place(unit, semantics, values, expression)
+                .and_then(|place| current.get(&place))
+            {
                 return value.clone();
+            }
+
+            if !matches!(
+                target.member(),
+                AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_)
+            ) {
+                return ExecutionCondition::Unknown;
             }
 
             let receiver = expression_condition(
                 unit,
                 semantics,
                 values,
+                known,
+                storage,
                 literals,
                 patterns,
                 current,
@@ -217,7 +230,7 @@ pub(crate) fn expression_condition(
                 .iter()
                 .map(|operand| {
                     expression_condition(
-                        unit, semantics, values, literals, patterns, current, evaluated, *operand,
+                        unit, semantics, values, known, storage, literals, patterns, current, evaluated, *operand,
                         budget, predicates,
                     )
                 })
@@ -229,11 +242,14 @@ pub(crate) fn expression_condition(
             unit,
             semantics,
             values,
+            known,
+            storage,
+            current,
             expression,
             operation,
             &mut |source| {
                 expression_condition(
-                    unit, semantics, values, literals, patterns, current, evaluated, source,
+                    unit, semantics, values, known, storage, literals, patterns, current, evaluated, source,
                     budget, predicates,
                 )
             },

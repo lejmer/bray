@@ -1,0 +1,104 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.scheduler;
+
+using core.atomic;
+using core.target;
+using std.numeric;
+using internal bray.runtime.bootstrap.host;
+
+internal const func optional_reference(pos owner: &(Reference?)) -> &Reference
+    requires(owner matches ?_)
+    executes(pure, total)
+{
+    return match owner
+    {
+        case ?value { yield &value; }
+        case none { panic("missing queue owner"); }
+    };
+}
+
+// This increment is the ownership change. Copying a native slot or its pointer
+// cannot create an independent queue-storage lifetime.
+trusted internal func retain_reference(pos owner: &Reference) -> Reference
+    requires(trusted retained(owner = owner))
+    ensures(
+        trusted retained(owner = owner),
+        trusted retained(owner = &result),
+        trusted owned_reference(owner = &result)
+    )
+    uses(intrinsic)
+{
+    let value = trusted domain(owner);
+    let mut count = core.atomic.load<usize, 1>(&value.references);
+
+    loop
+    {
+        if count == 0 || count == std.numeric.USIZE_MAX
+        {
+            trusted core.target.abort();
+        }
+
+        let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.references,
+            expected = count,
+            desired = count + 1
+        );
+
+        if acquired
+        {
+            return
+            {
+                acquisition = Acquisition
+                {
+                },
+                pointer = owner.pointer
+            };
+        }
+
+        count = previous;
+    }
+}
+
+// The last count becomes exclusive allocation ownership. Its fresh acquisition
+// carries retirement permission, while the consumed count claim has ended.
+trusted internal func release_reference(pos reference: Reference) -> Reference?
+    requires(trusted retained(owner = &reference), trusted owned_reference(owner = &reference))
+    ensures(
+        result matches none || (trusted retained(owner = optional_reference(&result)) && trusted retiring(
+            owner = optional_reference(&result)
+        ))
+    )
+    uses(intrinsic)
+{
+    let transition = trusted lambda(pos reference: Reference) -> Reference?
+        requires(trusted retained(owner = &reference), trusted owned_reference(owner = &reference))
+        ensures(
+            result matches none || (trusted retained(owner = optional_reference(&result)) && trusted retiring(
+                owner = optional_reference(&result)
+            ))
+        )
+        uses(intrinsic)
+    {
+        let previous = core.atomic.fetch_sub<usize, 3>(&(trusted domain(&reference)).references, 1);
+
+        if previous == 0
+        {
+            trusted core.target.abort();
+        }
+
+        if previous == 1
+        {
+            return
+            {
+                acquisition = Acquisition
+                {
+                },
+                pointer = reference.pointer
+            };
+        }
+
+        return none;
+    };
+
+    return trusted transition(reference);
+}

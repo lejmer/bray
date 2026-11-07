@@ -9,6 +9,7 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.attachment;
 using internal bray.runtime.bootstrap.report.chain;
 using internal bray.runtime.bootstrap.entry.bridge;
+using internal bray.runtime.bootstrap.execution;
 
 internal callable Continuation = @abi(c) trusted func(
     pos callback: DataPointer<u8>,
@@ -132,7 +133,18 @@ trusted internal func invoke(
         }
     }
 
-    let records_status = trusted bray.runtime.bootstrap.report.chain.invoke(admitted, selected, context, outcome);
+    let scope = trusted bray.runtime.bootstrap.execution.entry_scope(main == 0);
+
+    let records_status = trusted bray.runtime.bootstrap.report.chain.invoke(
+        &attachment,
+        &scope,
+        admitted,
+        selected,
+        context,
+        outcome
+    );
+
+    let execution_status = trusted bray.runtime.bootstrap.execution.finish_entry_scope(scope);
     let attachment_status = trusted bray.runtime.bootstrap.host.attachment.finish(attachment);
 
     if records_status != bray.runtime.bootstrap.STATUS_SUCCESS
@@ -140,5 +152,12 @@ trusted internal func invoke(
         return records_status;
     }
 
-    return attachment_status;
+    return if execution_status != 0
+    {
+        yield execution_status;
+    }
+    else
+    {
+        yield attachment_status;
+    };
 }

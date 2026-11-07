@@ -266,7 +266,13 @@ impl StructuralValueEncoder<'_, '_> {
     ) -> Result<(), FactQueryError> {
         use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 
-        let kind = match effect {
+        let (kind, access_type) = match effect {
+            DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
+                self.tag(7);
+                self.tag(u8::from(*ambient));
+
+                (kind, access_type)
+            }
             DependencyStorageEffect::Cleanup(ty) => {
                 self.tag(3);
 
@@ -292,24 +298,29 @@ impl StructuralValueEncoder<'_, '_> {
 
                 return Ok(());
             }
-            DependencyStorageEffect::Direct { subject, kind } => {
+            DependencyStorageEffect::Direct { subject, kind, access_type } => {
                 self.tag(1);
                 self.dependency_subject(subject)?;
 
-                kind
+                (kind, access_type)
             }
             DependencyStorageEffect::Indirect {
                 reference,
                 projections,
                 kind,
+                access_type,
             } => {
                 self.tag(2);
                 self.dependency_subject(reference)?;
                 self.dependency_projections(projections)?;
 
-                kind
+                (kind, access_type)
             }
         };
+
+        self.tag(u8::from(access_type.is_some()));
+
+        if let Some(ty) = access_type { self.ty(*ty)?; }
 
         self.tag(match kind {
             DependencyMutationKind::Write => 1,

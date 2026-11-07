@@ -11,7 +11,7 @@ using internal bray.runtime.bootstrap.host.product;
 // The current native producer invocation retains its exact checked frame and
 // disjoint metadata slot. This permission is independent of numeric frame IDs.
 trusted internal predicate callback_invocation(
-    reference: DataPointer<Reference>,
+    reference: &DataPointer<Reference>,
     execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
 );
 
@@ -23,14 +23,16 @@ trusted internal func callback_enter(
     pos previous_resumable: DataPointer<u8>
 ) -> usize
     requires(
-        trusted reference_slot(pointer = pointer),
-        trusted callback_invocation(reference = pointer, execution = execution),
+        trusted reference_slot(owner = &pointer),
+        trusted callback_invocation(reference = &pointer, execution = execution),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     uses(raw_memory, intrinsic)
 {
+    let reference = trusted borrow_reference(&pointer);
+
     let permit = trusted lambda(
-        pos pointer: DataPointer<Reference>,
+        pos pointer: &DataPointer<Reference>,
         pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
     )
         requires(trusted callback_invocation(reference = pointer, execution = execution))
@@ -48,46 +50,66 @@ trusted internal func callback_enter(
         )
         executes(pure, total) {};
 
-    trusted permit(pointer, execution);
+    trusted permit(&pointer, execution);
 
     let value = trusted std.memory.read<bray.runtime.bootstrap.activation.requirements.Execution>(execution);
-    let reference = trusted read_reference(pointer);
 
-    let (previous, was_resumable) =
+    let (previous, was_resumable) = trusted enter_callback(reference, &value, resumable != 0);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<u8>(previous_resumable, flag(was_resumable));
+    return previous;
+}
+
+trusted internal func enter_callback(
+    pos reference: &Reference,
+    pos execution: &bray.runtime.bootstrap.activation.requirements.Execution,
+    pos resumable: bool
+) -> (usize, bool)
+    requires(trusted retained(owner = reference))
+    ensures(trusted retained(owner = reference))
+    uses(intrinsic)
+{
+    return
     {
-        let mut guard = trusted lock_cell(&reference);
+        let mut guard = trusted lock_cell(reference);
         let control = trusted guard.get();
 
-        if value.address == 0 || (resumable != 0 && (!control.dispatching || control.callback != 0))
+        if execution.address == 0 || (resumable && (!control.dispatching || control.callback != 0))
         {
             trusted core.target.abort();
         }
 
         let previous = control.callback;
-        let was_resumable = flag(control.resumable);
+        let was_resumable = control.resumable;
 
         // Nested synchronous cleanup masks the outer callback's permission to
         // compose. Exit restores the exact previous callback, including zero.
-        control.callback = value.address;
+        control.callback = execution.address;
 
-        control.resumable = resumable != 0;
+        control.resumable = resumable;
 
         yield (previous, was_resumable);
     };
-
-    trusted bray.runtime.bootstrap.host.product.publish_provider<u8>(previous_resumable, was_resumable);
-    return previous;
 }
 
 trusted internal predicate callback_restoration(reference: DataPointer<Reference>);
 
 @abi(c)
 trusted internal func callback_exit(pos pointer: DataPointer<Reference>, pos previous: usize, pos was_resumable: u8)
-    requires(trusted reference_slot(pointer = pointer), trusted callback_restoration(reference = pointer))
+    requires(trusted reference_slot(owner = &pointer), trusted callback_restoration(reference = pointer))
     uses(intrinsic)
 {
-    let reference = trusted read_reference(pointer);
-    let mut guard = trusted lock_cell(&reference);
+    let reference = trusted borrow_reference(&pointer);
+
+    trusted leave_callback(reference, previous, was_resumable != 0);
+}
+
+trusted internal func leave_callback(pos reference: &Reference, pos previous: usize, pos was_resumable: bool)
+    requires(trusted retained(owner = reference))
+    ensures(trusted retained(owner = reference))
+    uses(intrinsic)
+{
+    let mut guard = trusted lock_cell(reference);
     let control = trusted guard.get();
 
     if control.callback == 0
@@ -96,5 +118,5 @@ trusted internal func callback_exit(pos pointer: DataPointer<Reference>, pos pre
     }
 
     control.callback = previous;
-    control.resumable = was_resumable != 0;
+    control.resumable = was_resumable;
 }

@@ -58,9 +58,14 @@ impl StorageTarget {
         match &self.origin {
             StorageOrigin::Static { root, projections } => {
                 !self.previous
-                    && matches!(root, bray_symbols::DependencySubjectRoot::ProductStatic(_)
-                        | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_))
-                    && projections.iter().all(|projection| projection.is_valid_for(unit))
+                    && matches!(
+                        root,
+                        bray_symbols::DependencySubjectRoot::ProductStatic(_)
+                            | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
+                    )
+                    && projections
+                        .iter()
+                        .all(|projection| projection.is_valid_for(unit))
             }
             StorageOrigin::Storage(path) | StorageOrigin::Allocation(path) => {
                 path.is_valid_for(unit)
@@ -201,7 +206,9 @@ impl StorageTarget {
             }
     }
 
-    /// Returns the value observation supplied by a direct slot or one entry borrow layer.
+    /// Returns a direct slot or first incoming-reference layer structurally.
+    /// Interpreting an entry as a logical value also requires its declared storage type.
+    /// A raw pointer's pointee is distinct from the pointer descriptor.
     pub fn observation_path(&self) -> Option<StoragePath> {
         if self.previous || self.projections().contains(&StorageProjection::OwnedTarget) {
             return None;
@@ -317,8 +324,14 @@ impl StorageTarget {
                 StorageRelationship::PotentiallyOverlapping
             }
             (
-                StorageOrigin::Static { root: left, projections: left_path },
-                StorageOrigin::Static { root: right, projections: right_path },
+                StorageOrigin::Static {
+                    root: left,
+                    projections: left_path,
+                },
+                StorageOrigin::Static {
+                    root: right,
+                    projections: right_path,
+                },
             ) if left == right => region_relationship(left_path, right_path),
             (StorageOrigin::Storage(left), StorageOrigin::Storage(right))
             | (StorageOrigin::Allocation(left), StorageOrigin::Allocation(right)) => {
@@ -366,8 +379,14 @@ impl StorageTarget {
                 left.contains(right)
             }
             (
-                StorageOrigin::Static { root: left, projections: prefix },
-                StorageOrigin::Static { root: right, projections },
+                StorageOrigin::Static {
+                    root: left,
+                    projections: prefix,
+                },
+                StorageOrigin::Static {
+                    root: right,
+                    projections,
+                },
             ) => left == right && projections.starts_with(prefix),
             _ => false,
         }
@@ -403,7 +422,10 @@ impl StorageTarget {
             },
             StorageOrigin::Storage(place) => StorageOrigin::Storage(path(place)),
             StorageOrigin::Allocation(place) => StorageOrigin::Allocation(path(place)),
-            StorageOrigin::Static { root, projections: prefix } => StorageOrigin::Static {
+            StorageOrigin::Static {
+                root,
+                projections: prefix,
+            } => StorageOrigin::Static {
                 root: *root,
                 projections: append(prefix),
             },
@@ -561,7 +583,12 @@ mod tests {
         assert!(root.contains(&field));
         assert_eq!(payload.allocation_region(), Some(payload.clone()));
         assert_eq!(root.relationship(&thread), StorageRelationship::Disjoint);
-        assert_eq!(root.relationship(&StorageTarget::storage(slot(0))), StorageRelationship::Disjoint);
+
+        assert_eq!(
+            root.relationship(&StorageTarget::storage(slot(0))),
+            StorageRelationship::Disjoint
+        );
+
         assert_eq!(root.relationship(&payload), StorageRelationship::Disjoint);
 
         let borrowed = StorageTarget {
@@ -569,7 +596,10 @@ mod tests {
             origin: StorageOrigin::entry(slot(0)),
         };
 
-        assert_eq!(root.relationship(&borrowed), StorageRelationship::PotentiallyOverlapping);
+        assert_eq!(
+            root.relationship(&borrowed),
+            StorageRelationship::PotentiallyOverlapping
+        );
     }
 
     #[test]

@@ -12,22 +12,29 @@ using internal bray.runtime.bootstrap.heap;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.product;
 
-trusted internal func read_reference(pos pointer: DataPointer<Reference>) -> Reference
-    requires(trusted reference_slot(pointer = pointer))
-    ensures(trusted retained(owner = &result))
-    uses(raw_memory)
+trusted internal func borrow_reference(pos owner: &DataPointer<Reference>) -> &Reference
+    requires(trusted reference_slot(owner = owner))
+    ensures(trusted retained(owner = result))
+    uses(raw_memory, unchecked_alias)
 {
-    let permit = trusted lambda(pos pointer: DataPointer<Reference>)
-        requires(trusted reference_slot(pointer = pointer))
+    let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(owner));
+
+    let permit = trusted lambda(pos owner: &DataPointer<Reference>, pos pointer: DataPointer<Reference>)
+        requires(trusted reference_slot(owner = owner))
         ensures(
             trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
             trusted core.memory.aligned_for<Reference>(pointer = pointer),
-            trusted core.memory.initialized_as<Reference>(pointer = pointer)
+            trusted core.memory.initialized_as<Reference>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Reference>(pointer = pointer),
+            trusted core.memory.epoch_current<Reference>(pointer = pointer),
+            trusted core.memory.synchronized_access<Reference>(pointer = pointer),
+            trusted core.memory.movement_stable<Reference>(pointer = pointer),
+            trusted core.memory.finalization_pending<Reference>(pointer = pointer)
         )
         executes(pure, total) {};
 
-    trusted permit(pointer);
-    return trusted std.memory.read<Reference>(pointer);
+    trusted permit(owner, pointer);
+    return trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(owner, pointer);
 }
 
 trusted internal func domain(pos owner: &Reference) -> &Domain
@@ -69,8 +76,7 @@ trusted internal func event_anchor(pos owner: &Reference, pos lease: &bray.runti
         trusted anchored(owner = &result),
         trusted anchor_matches(anchor = &result, lease = lease),
         trusted retained(owner = owner),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
 {
     return
@@ -91,23 +97,19 @@ trusted internal func event_state(
     )
     ensures(
         trusted collection_owned(owner = &result),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(raw_memory, unchecked_alias)
 {
-    let borrow_owner = trusted lambda(pos anchor: &Anchor) -> Reference
+    let borrow_owner = trusted lambda(pos anchor: &Anchor) -> &Reference
         requires(trusted anchored(owner = anchor))
-        ensures(trusted retained(owner = &result))
+        ensures(trusted retained(owner = result))
     {
-        return
-        {
-            address = anchor.owner.address
-        };
+        return anchor.owner;
     };
 
     let owner = trusted borrow_owner(&anchor);
-    let value = trusted domain(&owner);
+    let value = trusted domain(owner);
     let pointer = std.memory.uninit_pointer<State>(&value.state);
 
     let permit = trusted lambda(pos anchor: &Anchor, pos pointer: DataPointer<State>)
@@ -150,8 +152,7 @@ trusted internal func event_access(pos owner: &Reference) -> bray.runtime.bootst
     requires(trusted retained(owner = owner))
     ensures(
         trusted retained(owner = owner),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
     when(trusted owned_reference(owner = owner))
     {

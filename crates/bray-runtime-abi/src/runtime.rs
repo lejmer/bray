@@ -34,6 +34,11 @@ impl NativeRuntimeStatus {
     /// Required outgoing cleanup storage could not be admitted.
     pub const OUTGOING_STORAGE_UNAVAILABLE: Self = Self(9);
 
+    /// Preserves a status received from a native ABI result field.
+    pub const fn from_code(code: u32) -> Self {
+        Self(code)
+    }
+
     /// Returns whether the operation completed successfully.
     pub const fn is_success(self) -> bool {
         self.0 == Self::SUCCESS.0
@@ -45,12 +50,24 @@ impl NativeRuntimeStatus {
     }
 }
 
-/// Target-sized capacities selected when runtime infrastructure starts.
+/// Execution limits and the optional native callback provider retained by the host.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub struct NativeRuntimeConfiguration {
     task_capacity: usize,
     timer_capacity: usize,
+    capabilities: u32,
+    invoke: Option<
+        extern "C" fn(
+            &mut crate::NativeActivationInvocation<'_>,
+            usize,
+            crate::NativeSchedulerLane,
+        ),
+    >,
+    admit_context: Option<extern "C" fn(crate::NativeTaskReference, u32) -> u32>,
+    release_context: Option<extern "C" fn(usize)>,
+    scope_enter: usize,
+    scope_finish: usize,
 }
 
 impl NativeRuntimeConfiguration {
@@ -59,7 +76,40 @@ impl NativeRuntimeConfiguration {
         Self {
             task_capacity,
             timer_capacity,
+            capabilities: 63,
+            invoke: None,
+            admit_context: None,
+            release_context: None,
+            scope_enter: 0,
+            scope_finish: 0,
         }
+    }
+
+    /// Retains these native code hooks through execution and terminal cleanup.
+    pub fn with_native_callbacks<Scope>(
+        mut self,
+        invoke: extern "C" fn(
+            &mut crate::NativeActivationInvocation<'_>,
+            usize,
+            crate::NativeSchedulerLane,
+        ),
+        admit_context: extern "C" fn(crate::NativeTaskReference, u32) -> u32,
+        release_context: extern "C" fn(usize),
+        scope_enter: extern "C" fn(&mut std::mem::MaybeUninit<Scope>, usize, usize) -> u32,
+        scope_finish: extern "C" fn(&mut Scope),
+    ) -> Self {
+        assert!(
+            size_of::<Scope>() <= 128 && align_of::<Scope>() <= 8,
+            "native provider scope fits its private Source storage"
+        );
+
+        self.invoke = Some(invoke);
+        self.admit_context = Some(admit_context);
+        self.release_context = Some(release_context);
+        self.scope_enter = scope_enter as *const u8 as usize;
+        self.scope_finish = scope_finish as *const u8 as usize;
+
+        self
     }
 
     /// Returns the maximum simultaneously executing task count.
@@ -588,73 +638,17 @@ impl NativeInactiveFrame {
 /// Callback waking a generated task observer.
 pub type NativeWakeCallback = extern "C" fn(context: usize);
 
-/// ABI-safe selected execution-lane category.
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativeExecutionLane(u32);
-
-impl NativeExecutionLane {
-    /// Cooperative work on a movable or pinned worker lane.
-    pub const COOPERATIVE: Self = Self(0);
-    /// Work on an origin-thread lane.
-    pub const ORIGIN_THREAD: Self = Self(1);
-    /// Work on the distinguished main-thread lane.
-    pub const MAIN_THREAD: Self = Self(2);
-    /// Work on a blocking lane.
-    pub const BLOCKING: Self = Self(3);
-    /// Work on a compute lane.
-    pub const COMPUTE: Self = Self(4);
-    /// Work requiring both blocking and compute execution authority.
-    pub const BLOCKING_COMPUTE: Self = Self(5);
-}
-
-/// Result of selecting a compatible execution lane.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativeExecutionLaneResult {
-    status: NativeRuntimeStatus,
-    lane: NativeExecutionLane,
-}
-
-impl NativeExecutionLaneResult {
-    /// Creates one successful lane selection.
-    pub const fn success(lane: NativeExecutionLane) -> Self {
-        Self {
-            status: NativeRuntimeStatus::SUCCESS,
-            lane,
-        }
-    }
-
-    /// Creates one failed lane selection.
-    pub const fn failure(status: NativeRuntimeStatus) -> Self {
-        Self {
-            status,
-            lane: NativeExecutionLane::COOPERATIVE,
-        }
-    }
-
-    /// Returns the operation status.
-    pub const fn status(self) -> NativeRuntimeStatus {
-        self.status
-    }
-
-    /// Returns the selected lane after success.
-    pub const fn lane(self) -> NativeExecutionLane {
-        self.lane
-    }
-}
-
 /// Runtime event callback accepted by the native artifact.
 pub type NativeRuntimeEventCallback = extern "C" fn(context: usize) -> NativeRuntimeStatus;
 
 #[cfg(test)]
 mod tests {
     use super::{
-        NativeExecutionLane, NativeExecutionLaneResult, NativeFrameAffinity, NativeFrameExit,
-        NativeFrameProgress, NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame,
-        NativeInactiveFrameTransfer, NativeLaneRequirements, NativeRootHandle, NativeRootStart,
-        NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus,
-        NativeStringView, NativeTaskAllocation, NativeTaskHandle,
+        NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
+        NativeFrameState, NativeInactiveFrame, NativeInactiveFrameTransfer, NativeLaneRequirements,
+        NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunState,
+        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeStringView, NativeTaskAllocation,
+        NativeTaskHandle,
     };
     use crate::NativePanicCause;
 
@@ -670,14 +664,19 @@ mod tests {
         assert_abi_layout!(NativeFrameProgressKind, size: 4, align: 4, fields: {});
         assert_abi_layout!(NativeFrameExit, size: 4, align: 4, fields: {});
         assert_abi_layout!(NativeInactiveFrameTransfer, size: 8, align: 8, fields: {});
-        assert_abi_layout!(NativeExecutionLane, size: 4, align: 4, fields: {});
     }
 
     #[test]
     fn runtime_records_have_the_native_abi_layout() {
-        assert_abi_layout!(NativeRuntimeConfiguration, size: 16, align: 8, fields: {
+        assert_abi_layout!(NativeRuntimeConfiguration, size: 64, align: 8, fields: {
             task_capacity: 0,
             timer_capacity: 8,
+            capabilities: 16,
+            invoke: 24,
+            admit_context: 32,
+            release_context: 40,
+            scope_enter: 48,
+            scope_finish: 56,
         });
 
         assert_abi_layout!(NativeRunOutcome, size: 184, align: 8, fields: {
@@ -716,11 +715,6 @@ mod tests {
         assert_abi_layout!(NativeInactiveFrame, size: 48, align: 8, fields: {
             lease: 0,
             descriptor: 40,
-        });
-
-        assert_abi_layout!(NativeExecutionLaneResult, size: 8, align: 4, fields: {
-            status: 0,
-            lane: 4,
         });
     }
 }

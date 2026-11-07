@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.task;
 
+using internal bray.runtime.bootstrap.scheduler;
 using core.target;
 using std.memory;
 using internal bray.runtime.bootstrap.host;
@@ -17,7 +18,7 @@ internal struct Delivery
 trusted internal predicate delivery_owned(owner: &Delivery);
 
 trusted internal func take_waiters(pos owner: &Dispatch, pos retirement: u8) -> Delivery
-    requires(trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition))
+    requires(trusted dispatch_acquired(owner = &owner.acquisition))
     ensures(trusted delivery_owned(owner = &result), trusted dispatch_acquired(owner = &owner.acquisition))
     uses(intrinsic)
 {
@@ -53,8 +54,7 @@ trusted internal func delivery_access(pos owner: &Delivery) -> bray.runtime.boot
     requires(trusted delivery_owned(owner = owner))
     ensures(
         trusted delivery_owned(owner = owner),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();
@@ -94,7 +94,7 @@ trusted internal func pop_delivery(pos owner: Delivery) -> (WaitRegistration, De
 
 trusted internal func notify_waiters(pos owner: &Dispatch, pos retirement: u8)
     requires(
-        trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition),
+        trusted dispatch_acquired(owner = &owner.acquisition),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
 {
@@ -140,96 +140,155 @@ trusted internal func wake_waiter(
         trusted dispatch_acquired(owner = &owner.acquisition)
     )
 {
-    trusted wake_service(trusted dispatch_services(owner), registration.waiter.handle);
+    trusted wake_service(
+        trusted dispatch_services(owner),
+        trusted registration_waiter(registration),
+        bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT
+    );
+
     return remaining;
 }
 
+// Splitting this consumed registration transfers its independently retained
+// components. Borrowed projections never create another component owner.
 trusted internal func release_wait(pos owner: WaitRegistration)
     requires(
         trusted registration_owned(owner = &owner.marker),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
 {
-    let release_target = trusted lambda(pos owner: WaitRegistration) -> Reference
-        requires(
-            trusted registration_owned(owner = &owner.marker),
-            trusted bray.runtime.bootstrap.host.product.native_host()
-        )
-        ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
-    {
-        match owner.target
-        {
-            case WaitTarget.Task(_)
-            {
-                let take = trusted lambda(pos owner: &WaitRegistration) -> Reference
-                    requires(trusted registration_owned(owner = &owner.marker))
-                    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
-                {
-                    let reference = trusted registration_target(owner);
+    let waiter = trusted release_wait_target(owner);
 
-                    return
-                    {
-                        pointer = reference.pointer,
-                        runtime = reference.runtime,
-                        handle = reference.handle
-                    };
-                };
-
-                _ = trusted dispose_reference(trusted take(&owner));
-            }
-            case WaitTarget.Event(_, _, _)
-            {
-                let event = trusted take_event_reference(&owner);
-                let callback = trusted take_event_callback(&owner);
-
-                trusted bray.runtime.bootstrap.event.release_callback(callback);
-                trusted bray.runtime.bootstrap.event.release_event(event);
-            }
-        }
-
-        return
-        {
-            pointer = owner.waiter.pointer,
-            runtime = owner.waiter.runtime,
-            handle = owner.waiter.handle
-        };
-    };
-
-    _ = trusted dispose_reference(trusted release_target(owner));
+    _ = trusted dispose_reference(waiter);
 }
 
-// These projections consume the independently retained components only while
-// release_wait owns the whole registration, after any entered callback drains.
-trusted internal func take_event_reference(pos owner: &WaitRegistration) -> bray.runtime.bootstrap.event.Reference
-    requires(trusted registration_owned(owner = &owner.marker))
-    ensures(
-        trusted bray.runtime.bootstrap.event.retained(owner = &result),
-        trusted bray.runtime.bootstrap.event.owned_reference(owner = &result)
+// Retire the selected target and transfer the remaining independent task
+// storage owner. Target release cannot consume that retained count.
+trusted internal func release_wait_target(pos owner: WaitRegistration) -> Reference
+    requires(
+        trusted registration_owned(owner = &owner.marker),
+        trusted bray.runtime.bootstrap.host.product.native_host()
     )
+    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
     uses(intrinsic)
 {
     return match owner.target
     {
-        case WaitTarget.Event(reference, _, _)
+        case WaitTarget.Task(_)
         {
-            yield
+            let take = trusted lambda(pos owner: WaitRegistration) -> (Reference, Reference)
+                requires(trusted registration_owned(owner = &owner.marker), owner.target matches WaitTarget.Task(_))
+                ensures(
+                    trusted retained(owner = &result.0),
+                    trusted owned_reference(owner = &result.0),
+                    trusted retained(owner = &result.1),
+                    trusted owned_reference(owner = &result.1)
+                )
+                uses(raw_memory, intrinsic)
             {
-                address = reference.address
+                return match owner.target
+                {
+                    case WaitTarget.Task(reference)
+                    {
+                        yield (
+                            trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&reference)),
+                            trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.waiter))
+                        );
+                    }
+                    case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _)
+                    {
+                        yield trusted core.target.abort();
+                    }
+                };
             };
+
+            let (observed, waiter) = trusted take(owner);
+
+            _ = trusted dispose_reference(observed);
+
+            yield waiter;
         }
-        case WaitTarget.Task(_) { yield trusted core.target.abort(); }
-    };
-}
+        case WaitTarget.Event(_, _, _)
+        {
+            let take = trusted lambda(pos owner: WaitRegistration) -> (
+                bray.runtime.bootstrap.event.Reference,
+                bray.runtime.bootstrap.event.Callback,
+                Reference
+            )
+                requires(
+                    trusted registration_owned(owner = &owner.marker),
+                    owner.target matches WaitTarget.Event(_, _, _)
+                )
+                ensures(
+                    trusted bray.runtime.bootstrap.event.retained(owner = &result.0),
+                    trusted bray.runtime.bootstrap.event.owned_reference(owner = &result.0),
+                    trusted bray.runtime.bootstrap.event.callback_owned(owner = &result.1),
+                    trusted retained(owner = &result.2),
+                    trusted owned_reference(owner = &result.2)
+                )
+                uses(raw_memory, intrinsic)
+            {
+                return match owner.target
+                {
+                    case WaitTarget.Event(reference, _, callback)
+                    {
+                        yield (
+                            trusted std.memory.read<bray.runtime.bootstrap.event.Reference>(
+                                std.memory.address_of<bray.runtime.bootstrap.event.Reference>(&reference)
+                            ),
+                            trusted std.memory.read<bray.runtime.bootstrap.event.Callback>(
+                                std.memory.address_of<bray.runtime.bootstrap.event.Callback>(&callback)
+                            ),
+                            trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.waiter))
+                        );
+                    }
+                    case WaitTarget.Task(_) | WaitTarget.ExecutionEvent(_, _) { yield trusted core.target.abort(); }
+                };
+            };
 
-trusted internal func take_event_callback(pos owner: &WaitRegistration) -> bray.runtime.bootstrap.event.Callback
-    requires(trusted registration_owned(owner = &owner.marker))
-    ensures(trusted bray.runtime.bootstrap.event.callback_owned(owner = &result))
-{
-    let callback = trusted event_callback(owner);
+            let (event, callback, waiter) = trusted take(owner);
 
-    return
-    {
-        context = callback.context,
-        call = callback.call
+            trusted bray.runtime.bootstrap.event.release_callback(callback);
+            trusted bray.runtime.bootstrap.event.release_event(event);
+            yield waiter;
+        }
+        case WaitTarget.ExecutionEvent(_, _)
+        {
+            let take = trusted lambda(pos owner: WaitRegistration) -> (
+                bray.runtime.bootstrap.event.Reference,
+                Reference
+            )
+                requires(
+                    trusted registration_owned(owner = &owner.marker),
+                    owner.target matches WaitTarget.ExecutionEvent(_, _)
+                )
+                ensures(
+                    trusted bray.runtime.bootstrap.event.retained(owner = &result.0),
+                    trusted bray.runtime.bootstrap.event.owned_reference(owner = &result.0),
+                    trusted retained(owner = &result.1),
+                    trusted owned_reference(owner = &result.1)
+                )
+                uses(raw_memory, intrinsic)
+            {
+                return match owner.target
+                {
+                    case WaitTarget.ExecutionEvent(reference, _)
+                    {
+                        yield (
+                            trusted std.memory.read<bray.runtime.bootstrap.event.Reference>(
+                                std.memory.address_of<bray.runtime.bootstrap.event.Reference>(&reference)
+                            ),
+                            trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.waiter))
+                        );
+                    }
+                    case WaitTarget.Task(_) | WaitTarget.Event(_, _, _) { yield trusted core.target.abort(); }
+                };
+            };
+
+            let (event, waiter) = trusted take(owner);
+
+            trusted bray.runtime.bootstrap.event.release_event(event);
+            yield waiter;
+        }
     };
 }

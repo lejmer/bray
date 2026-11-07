@@ -100,6 +100,12 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 use bray_symbols::DependencyStorageEffect;
 
                 match effect {
+                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
+                        encoder.write_u32(7);
+                        encode_mutation(encoder, *kind);
+                        write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
+                        encoder.write_u32(u32::from(*ambient));
+                    }
                     DependencyStorageEffect::Unknown => encoder.write_u32(0),
                     DependencyStorageEffect::Ambient => encoder.write_u32(6),
                     DependencyStorageEffect::Escape => encoder.write_u32(5),
@@ -108,20 +114,23 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                         encoder.write_u32(3);
                         encoder.write_u32(ty.raw());
                     }
-                    DependencyStorageEffect::Direct { subject, kind } => {
+                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
                         encoder.write_u32(1);
                         encode_dependency_subject(encoder, subject);
                         encode_mutation(encoder, *kind);
+                        write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
                     }
                     DependencyStorageEffect::Indirect {
                         reference,
                         projections,
                         kind,
+                        access_type,
                     } => {
                         encoder.write_u32(2);
                         encode_dependency_subject(encoder, reference);
                         encode_dependency_projections(encoder, projections);
                         encode_mutation(encoder, *kind);
+                        write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
                     }
                 }
             }

@@ -276,7 +276,11 @@ impl StorageFlowState {
         });
     }
 
-    pub(super) fn entry(storage: &StoragePlan, input: &StorageFlowInput) -> Self {
+    pub(super) fn entry(
+        values: &bray_symbols::SemanticValueStore,
+        storage: &StoragePlan,
+        input: &StorageFlowInput,
+    ) -> Self {
         let initialized = storage
             .identity_entries()
             .filter_map(|(id, identity)| {
@@ -293,7 +297,7 @@ impl StorageFlowState {
         let mut memory = crate::analysis::storage_flow::memory::State::for_storage(
             storage,
             &input.cleanup_free_storage,
-            &input.complete_reference_types,
+            &input.footprint.complete_reference_types,
         );
 
         for capability in &active_borrows {
@@ -313,7 +317,7 @@ impl StorageFlowState {
 
         for ((slot, layer), (path, ty)) in &input.entry_references {
             if let Some(target) =
-                StorageFlowInput::reference_location(&memory, slot.root, path, None)
+                StorageFlowInput::reference_location(values, &memory, slot.root, path, None)
             {
                 memory.entry_reference_at(slot.clone(), *layer, target, *ty);
             }

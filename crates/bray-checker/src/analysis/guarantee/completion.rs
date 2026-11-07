@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, StorageAccessId};
@@ -201,8 +202,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             if normal_exit_blocks.contains(&block.id()) {
                 let mut result = &state.result;
 
-                while let ExecutionCondition::Constructed(base, _) = result {
-                    result = base;
+                loop {
+                    match result {
+                        ExecutionCondition::Constructed(base, _) => result = base,
+                        ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => result = contents,
+                        _ => break,
+                    }
                 }
 
                 results.insert(match result {
@@ -279,7 +284,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .cloned()
             .unwrap_or_else(|| self.value(state, expression));
 
-        converted_argument(value, conversion)
+        converted_argument(self.request.semantic_values(), value, conversion)
     }
 
     fn implicit_call_entry(
@@ -419,7 +424,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<crate::ExecutionCallEvidence> {
         let mut entry = self.invocation_entry(state, invocation)?;
 
-        entry.witness_inputs = state.owned_witnesses(entry.owned_arguments())
+        entry.witness_inputs = state
+            .owned_witnesses(entry.owned_arguments())
             .filter(|(_, witness)| witness.available)
             .map(|(owner, _)| owner.clone())
             .collect();
@@ -723,10 +729,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
-        observations: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
+        observations: &bray_bound_tree::StorageCompletion,
     ) {
         let result = self.invocation_value(state, expression.into());
 
@@ -803,13 +806,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 }
 
 pub(super) fn converted_argument(
+    values: &bray_symbols::SemanticValueStore,
     value: ExecutionCondition,
     conversion: &bray_bound_tree::SelectedConversion,
 ) -> ExecutionCondition {
     match conversion.target() {
         bray_bound_tree::ConversionTarget::Identity
-        | bray_bound_tree::ConversionTarget::CallableContract => value,
-        bray_bound_tree::ConversionTarget::NullablePresent => value.present(),
+        | bray_bound_tree::ConversionTarget::CallableContract
+        | bray_bound_tree::ConversionTarget::NullablePresent => value.coerce(
+            values, conversion.source_type(), conversion.target_type()),
         _ => ExecutionCondition::Unknown,
     }
 }

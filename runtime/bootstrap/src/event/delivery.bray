@@ -8,13 +8,15 @@ using std.numeric;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.product;
 using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap.execution;
+using internal bray.runtime.bootstrap.scheduler;
 
 @abi(c)
 trusted internal func observation(pos pointer: DataPointer<Reference>, pos output: DataPointer<u64>) -> u32
-    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(trusted reference_slot(owner = &pointer), trusted bray.runtime.bootstrap.host.product.native_host())
 {
-    let mut owner = trusted read_reference(pointer);
-    let (generation, closed) = trusted observe(&owner);
+    let owner = trusted borrow_reference(&pointer);
+    let (generation, closed) = trusted observe(owner);
 
     trusted bray.runtime.bootstrap.host.product.publish_provider<u64>(output, generation);
 
@@ -57,10 +59,10 @@ trusted internal func notification(
     pos output: DataPointer<u64>,
     pos changed: DataPointer<u32>
 ) -> u32
-    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(trusted reference_slot(owner = &pointer), trusted bray.runtime.bootstrap.host.product.native_host())
 {
-    let mut owner = trusted read_reference(pointer);
-    let (generation, transition, status) = trusted notify(&owner, close != 0);
+    let owner = trusted borrow_reference(&pointer);
+    let (generation, transition, status) = trusted notify(owner, close != 0);
 
     trusted bray.runtime.bootstrap.host.product.publish_provider<u64>(output, generation);
 
@@ -163,7 +165,6 @@ trusted internal func commit_locked(
     )
     ensures(
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted optional_delivery(owner = &result.2)
     )
 {
@@ -269,6 +270,16 @@ trusted internal func wake_waiter(pos owner: &bray.runtime.bootstrap.task.WaitRe
     requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker))
     ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker))
 {
+    if owner.target matches bray.runtime.bootstrap.task.WaitTarget.ExecutionEvent(_, _)
+    {
+        _ = trusted bray.runtime.bootstrap.execution.wake_reference(
+            trusted bray.runtime.bootstrap.task.registration_waiter(owner),
+            bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT
+        );
+
+        return 0;
+    }
+
     let callback = trusted bray.runtime.bootstrap.task.event_callback(owner);
 
     return trusted invoke_callback(callback, 1);

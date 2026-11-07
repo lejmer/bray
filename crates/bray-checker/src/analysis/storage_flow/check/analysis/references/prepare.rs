@@ -29,7 +29,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 .and_then(|access| storage.access(access).map(|access| access.reached_type()))
         };
 
-        self.complete_reference_types.get(&ty?).copied()
+        self.footprint.complete_reference_types.get(&ty?).copied()
     }
 
     pub(in crate::analysis::storage_flow) fn inline_regions(
@@ -125,8 +125,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             }
 
-            let mut types = std::collections::BTreeMap::new();
-
             for subject in
                 dependencies.lifecycle_dependencies()[&lifecycle.call.callable].reference_subjects()
             {
@@ -155,8 +153,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                         .or_default()
                         .insert((std::sync::Arc::from(path.projections()), ty));
 
-                    types.insert(subject.clone(), ty);
-                    self.lifecycle_paths.insert(key, path);
+                    self.lifecycle_paths.insert(key, (ty, path));
                 }
             }
 
@@ -174,10 +171,12 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     relation.entry().unwrap_or_else(|| relation.exit())
                 };
 
-                if relation
-                    .entry()
-                    .is_none_or(|entry| types.contains_key(entry))
-                    && let Some(ty) = types.get(subject)
+                if relation.entry().is_none_or(|entry| {
+                    self.lifecycle_paths
+                        .contains_key(&(lifecycle.call.callable, entry.clone()))
+                }) && let Some((ty, _)) = self
+                    .lifecycle_paths
+                    .get(&(lifecycle.call.callable, subject.clone()))
                     && let Some(reference) =
                         crate::dependency::prepare_reference(request, relation, *ty)?
                 {
@@ -198,6 +197,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
     pub(in crate::analysis::storage_flow) fn reference_target(
         &self,
+        values: &bray_symbols::SemanticValueStore,
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
@@ -216,10 +216,11 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     .is_some_and(|borrow| borrow.entry_binding().is_some())
             });
 
-        Self::reference_location(memory, logical.root, path, entry)
+        Self::reference_location(values, memory, logical.root, path, entry)
     }
 
     pub(in crate::analysis::storage_flow) fn reference_location(
+        values: &bray_symbols::SemanticValueStore,
         memory: &crate::analysis::storage_flow::memory::State,
         root: bray_bound_tree::StorageIdentityId,
         path: &bray_bound_tree::StorageReferencePath,
@@ -231,6 +232,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         };
 
         memory.reference_location(
+            values,
             crate::analysis::storage_flow::memory::Target::storage(Place::root(root)),
             path,
             root_borrow,
@@ -404,21 +406,10 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
                 continue;
             };
 
-            let Some(mut logical) = self.invocation_place(occurrence, subject.subject_root())
+            let Some(logical) = self.invocation_logical_path(occurrence, subject)
             else {
                 continue;
             };
-
-            let path = contracts
-                .reference_path(subject)
-                .expect("checked reference input retains its prepared path");
-
-            logical.projections = logical
-                .projections
-                .iter()
-                .chain(path.projections())
-                .copied()
-                .collect();
 
             let Some(sources) = self.invocation_sources(state, occurrence, subject) else {
                 continue;
@@ -449,7 +440,8 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             let mut container = location.clone();
 
             match &mut container.origin {
-                Origin::Entry { projections, .. } | Origin::Returned { projections, .. }
+                Origin::Entry { projections, .. }
+                | Origin::Returned { projections, .. }
                 | Origin::Static { projections, .. } => {
                     *projections = std::sync::Arc::from([]);
                 }

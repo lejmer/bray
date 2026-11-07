@@ -52,8 +52,7 @@ fn validate_exports(
         .chain(
             kind.platform_services()
                 .map(PlatformServiceRole::native_symbol),
-        )
-        .chain(support_exports(kind));
+        );
 
     crate::native_symbols::validate_role_exports(strong, required)
         .map_err(|error| CommandError::RuntimeRoleExports { kind, error })?;
@@ -84,16 +83,6 @@ fn validate_exports(
     Ok(())
 }
 
-pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = &'static str> {
-    matches!(
-        kind,
-        RuntimeArchiveKind::Host | RuntimeArchiveKind::TestHost
-    )
-    .then_some(["bray_runtime_substrate_initialization"])
-    .into_iter()
-    .flatten()
-}
-
 fn is_fallback(
     kind: RuntimeArchiveKind,
     symbol: &crate::native_symbols::DefinedExternalSymbol,
@@ -111,7 +100,7 @@ fn is_fallback(
 
 #[cfg(test)]
 mod tests {
-    use super::{support_exports, validate_exports};
+    use super::validate_exports;
     use crate::runtime_artifact::command::{CommandError, RuntimeArchiveKind};
     use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiRole};
 
@@ -122,7 +111,6 @@ mod tests {
                 kind.platform_services()
                     .map(PlatformServiceRole::native_symbol),
             )
-            .chain(support_exports(kind))
             .map(str::to_owned)
             .collect()
     }
@@ -186,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unprojected_exports_and_misplaced_support() {
+    fn rejects_unprojected_and_source_owned_exports() {
         for symbol in [
             "bray_runtime_unprojected_operation",
             "bray_platform_unprojected_operation",
@@ -200,9 +188,9 @@ mod tests {
                 if error.unexpected == [symbol]));
         }
 
-        let misplaced = support_exports(RuntimeArchiveKind::Host)
-            .next()
-            .expect("fixture iterator must provide its expected item");
+        let misplaced = RuntimeAbiRole::RootExecution
+            .native_symbol()
+            .expect("root execution has a Source-owned native symbol");
 
         let mut callback = exports(RuntimeArchiveKind::Callback);
 
@@ -214,16 +202,12 @@ mod tests {
     }
 
     #[test]
-    fn each_archive_requires_owned_and_inherited_support_once() {
+    fn each_archive_requires_its_projected_roles_once() {
         for kind in RuntimeArchiveKind::ALL {
-            let owners = match kind {
-                RuntimeArchiveKind::TestHost => {
-                    vec![RuntimeArchiveKind::Host, RuntimeArchiveKind::Callback]
-                }
-                _ => vec![kind],
-            };
-
-            for symbol in owners.into_iter().flat_map(support_exports) {
+            for symbol in kind
+                .runtime_roles()
+                .filter_map(RuntimeAbiRole::native_symbol)
+            {
                 let mut missing = exports(kind);
 
                 missing.retain(|candidate| candidate != symbol);

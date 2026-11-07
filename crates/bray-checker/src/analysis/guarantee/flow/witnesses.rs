@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExpressionId, BoundOperator};
@@ -25,33 +26,34 @@ pub(super) fn conditional_guarantees(
     }
 
     let mut guards = BTreeSet::new();
-    let mut left_inputs = BTreeMap::new();
-    let mut right_inputs = BTreeMap::new();
+    let mut inputs = [BTreeMap::new(), BTreeMap::new()];
+    let absent = [left.0, right.0].map(absent_observations);
 
-    for (state, inputs) in [(left.0, &mut left_inputs), (right.0, &mut right_inputs)] {
-        let absent = state
-            .assumptions
-            .iter()
-            .filter_map(|(condition, holds)| condition.nullable_absence(*holds))
-            .map(|(subject, absent)| (subject.clone(), std::sync::Arc::clone(absent)))
-            .collect::<BTreeMap<_, _>>();
+    for (place, joined) in current {
+        let source = [left.0, right.0].map(|state| {
+            place.value_in(&state.current).unwrap_or(ExecutionCondition::Unknown)
+        });
 
-        for (place, joined) in current {
-            if let Some(value) = place.value_in(&state.current) {
-                collect_observations(&value, joined, inputs, &mut guards, &absent, &mut {
-                    ExecutionCondition::WORK_LIMIT
-                });
-            }
-        }
-
-        for (expression, joined) in results {
-            if let Some(value) = state.pending_results.get(expression) {
-                collect_observations(value, joined, inputs, &mut guards, &absent, &mut {
-                    ExecutionCondition::WORK_LIMIT
-                });
-            }
-        }
+        collect_observations(
+            [&source[0], &source[1]], joined, &mut inputs, &mut guards,
+            [&absent[0], &absent[1]], &ExecutionCondition::Boolean(true),
+            &mut { ExecutionCondition::WORK_LIMIT },
+        );
     }
+
+    for (expression, joined) in results {
+        let source = [left.0, right.0].map(|state| {
+            state.pending_results.get(expression).unwrap_or(&ExecutionCondition::Unknown)
+        });
+
+        collect_observations(
+            source, joined, &mut inputs, &mut guards,
+            [&absent[0], &absent[1]], &ExecutionCondition::Boolean(true),
+            &mut { ExecutionCondition::WORK_LIMIT },
+        );
+    }
+
+    let [left_inputs, right_inputs] = inputs;
 
     let ordinary = [left, right].map(|(state, values, identities)| {
         state
@@ -92,7 +94,7 @@ pub(super) fn conditional_guarantees(
                         ) == Some(true))
                         .then(|| {
                             (
-                                owner.with_joined_values(identities, identities),
+                                owner.with_joined_owners(values, identities),
                                 condition.with_joined_values(values, identities),
                             )
                         })
@@ -243,19 +245,13 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
 ) -> bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition> {
     let mut guards = BTreeSet::new();
     let mut inputs = [BTreeMap::new(), BTreeMap::new()];
+    let absent = [left.0, right.0].map(absent_observations);
 
-    for ((state, source), inputs) in [left, right].into_iter().zip(&mut inputs) {
-        let absent = state
-            .assumptions
-            .iter()
-            .filter_map(|(condition, holds)| condition.nullable_absence(*holds))
-            .map(|(subject, absent)| (subject.clone(), std::sync::Arc::clone(absent)))
-            .collect();
-
-        collect_observations(source, joined, inputs, &mut guards, &absent, &mut {
-            ExecutionCondition::WORK_LIMIT
-        });
-    }
+    collect_observations(
+        [left.1, right.1], joined, &mut inputs, &mut guards,
+        [&absent[0], &absent[1]], &ExecutionCondition::Boolean(true),
+        &mut { ExecutionCondition::WORK_LIMIT },
+    );
 
     bray_symbols::DependencyOwnedResult::choice([(left, right.0), (right, left.0)].into_iter().zip(inputs).map(
         |(((state, source), other), inputs)| {
@@ -284,111 +280,128 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     ))
 }
 
+fn absent_observations(state: &ExecutionState) -> BTreeMap<ExecutionCondition, std::sync::Arc<bray_symbols::ConstantValueData>> {
+    state.assumptions.iter()
+        .filter_map(|(condition, holds)| condition.nullable_absence(*holds))
+        .map(|(subject, absent)| (subject.clone(), std::sync::Arc::clone(absent)))
+        .collect()
+}
+
 fn collect_observations(
-    source: &ExecutionCondition,
+    sources: [&ExecutionCondition; 2],
     joined: &ExecutionCondition,
-    inputs: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
+    inputs: &mut [BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
     guards: &mut BTreeSet<(ExecutionCondition, ExecutionCondition)>,
-    absent: &BTreeMap<ExecutionCondition, std::sync::Arc<bray_symbols::ConstantValueData>>,
+    absent: [&BTreeMap<ExecutionCondition, std::sync::Arc<bray_symbols::ConstantValueData>>; 2],
+    active: &ExecutionCondition,
     budget: &mut usize,
 ) {
-    let Some(remaining) = budget.checked_sub(1) else {
-        return;
-    };
+    let Some(remaining) = budget.checked_sub(1) else { return; };
 
     *budget = remaining;
 
-    if source == &ExecutionCondition::Unknown || joined == &ExecutionCondition::Unknown {
+    if joined == &ExecutionCondition::Unknown { return; }
+
+    let owner = joined.owner_identity().clone();
+
+    for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
+        if source.owner_identity() != &owner
+            && !matches!(owner, ExecutionCondition::Unknown | ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
+            inputs.entry(owner.clone()).and_modify(|previous| {
+                if previous != source { *previous = ExecutionCondition::Unknown; }
+            }).or_insert_with(|| source.clone());
+        }
+    }
+
+    if let Some(data) = joined.current_referent() {
+        let sources = sources.map(|source| source.current_referent().cloned().unwrap_or_else(|| source.clone().into_referent()));
+
+        collect_observations([&sources[0], &sources[1]], data, inputs, guards, absent, active, budget);
         return;
     }
 
-    // A snapshot supplies predecessor contents. Paths identify the joined owner.
-    let owner = joined.owner_identity().clone();
+    if matches!(joined.owner_identity(), ExecutionCondition::Borrowed(_)) {
+        let sources = sources.map(|source| source.clone().into_referent());
 
-    if source.owner_identity() != &owner
-        && !matches!(
-            owner,
-            ExecutionCondition::Unknown
-                | ExecutionCondition::Boolean(_)
-                | ExecutionCondition::Literal(_)
-        )
-    {
-        inputs
-            .entry(owner.clone())
-            .and_modify(|previous| {
-                if previous != source {
-                    *previous = ExecutionCondition::Unknown;
-                }
-            })
-            .or_insert_with(|| source.clone());
-    }
-
-    let absence = match source {
-        ExecutionCondition::Literal(value)
-            if matches!(
-                value.kind(),
-                bray_symbols::ConstantValueKind::NullableAbsent
-            ) =>
-        {
-            Some(value)
-        }
-        _ => absent
-            .get(source)
-            .or_else(|| absent.get(source.owner_identity())),
-    };
-
-    if let Some(absent) = absence {
-        insert_guard(
-            guards,
-            &owner,
-            ExecutionCondition::operation(
-                BoundOperator::NotEqual,
-                vec![
-                    joined.clone(),
-                    ExecutionCondition::Literal(std::sync::Arc::clone(absent)),
-                ],
-            ),
+        collect_observations(
+            [&sources[0], &sources[1]], &joined.clone().into_referent(),
+            inputs, guards, absent, active, budget,
         );
+
+        return;
     }
 
-    match source {
-        ExecutionCondition::Tagged(variant, _) => {
-            insert_guard(guards, &owner, joined.clone().matches_variant(*variant))
-        }
-        ExecutionCondition::Constructed(base, fields) => {
-            if let ExecutionCondition::Tagged(variant, _) = base.as_ref() {
-                insert_guard(guards, &owner, joined.clone().matches_variant(*variant));
-            }
+    if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } = joined {
+        let sources = sources.map(|source| match source {
+            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => contents.as_ref(),
+            value => value,
+        });
 
-            for (field, value) in fields.iter() {
-                if let bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                    variant, ..
-                } = field
-                {
-                    insert_guard(guards, &owner, joined.clone().matches_variant(*variant));
+        collect_observations(sources, contents, inputs, guards, absent, active, budget);
+        return;
+    }
+
+    // Payload authority is conditional on every enclosing active case. A test
+    // of an inner tag alone has no meaning on an inactive outer payload.
+    let presence = sources.into_iter().zip(absent).find_map(|(source, absent)| {
+        match source {
+            ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) => Some(value),
+            _ => absent.get(source).or_else(|| absent.get(source.owner_identity())),
+        }
+    }).map(|absent| ExecutionCondition::operation(
+        BoundOperator::LogicalAnd,
+        vec![active.clone(), ExecutionCondition::operation(
+            BoundOperator::NotEqual,
+            vec![joined.clone(), ExecutionCondition::Literal(std::sync::Arc::clone(absent))],
+        )],
+    ));
+
+    if let Some(presence) = &presence { insert_guard(guards, &owner, presence.clone()); }
+
+    let mut fields = BTreeSet::new();
+
+    for source in sources {
+        match source {
+            ExecutionCondition::Tagged(variant, _) => insert_guard(
+                guards, &owner, ExecutionCondition::operation(
+                    BoundOperator::LogicalAnd, vec![active.clone(), joined.clone().matches_variant(*variant)],
+                ),
+            ),
+            ExecutionCondition::Constructed(base, components) => {
+                if let ExecutionCondition::Tagged(variant, _) = base.as_ref() {
+                    insert_guard(guards, &owner, ExecutionCondition::operation(
+                        BoundOperator::LogicalAnd, vec![active.clone(), joined.clone().matches_variant(*variant)],
+                    ));
                 }
 
-                collect_observations(
-                    value,
-                    &joined.clone().project(*field),
-                    inputs,
-                    guards,
-                    absent,
-                    budget,
-                );
+                fields.extend(components.iter().map(|(field, _)| *field));
             }
+            ExecutionCondition::Present(_) => { fields.insert(bray_bound_tree::StorageProjection::NullableValue); }
+            _ => {}
         }
-        ExecutionCondition::Present(value) => collect_observations(
-            value,
-            &joined
-                .clone()
-                .project(bray_bound_tree::StorageProjection::NullableValue),
-            inputs,
-            guards,
-            absent,
-            budget,
-        ),
-        _ => {}
+    }
+
+    for field in fields {
+        let active = match field {
+            bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, .. } => {
+                ExecutionCondition::operation(
+                    BoundOperator::LogicalAnd, vec![active.clone(), joined.clone().matches_variant(variant)],
+                )
+            }
+            bray_bound_tree::StorageProjection::NullableValue => presence.clone().unwrap_or_else(|| active.clone()),
+            _ => active.clone(),
+        };
+
+        if matches!(field, bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }) {
+            insert_guard(guards, &owner, active.clone());
+        }
+
+        let values = sources.map(|source| source.clone().project(field));
+
+        collect_observations(
+            [&values[0], &values[1]], &joined.clone().project(field), inputs, guards, absent,
+            &active, budget,
+        );
     }
 }
 
@@ -397,15 +410,8 @@ fn insert_guard(
     owner: &ExecutionCondition,
     guard: ExecutionCondition,
 ) {
-    if !matches!(
-        guard,
-        ExecutionCondition::Boolean(_) | ExecutionCondition::Unknown
-    ) {
+    if !matches!(guard, ExecutionCondition::Boolean(_) | ExecutionCondition::Unknown) {
         guards.insert((owner.clone(), guard.clone()));
-
-        guards.insert((
-            owner.clone(),
-            ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard]),
-        ));
+        guards.insert((owner.clone(), ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard])));
     }
 }

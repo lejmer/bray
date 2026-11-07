@@ -38,10 +38,22 @@ pub enum DependencyStorageEffect<
     Unknown,
     /// Addresses reachable through any invocation input may be retained externally.
     Escape,
+    /// A known transition whose affected region has no finite entry-relative description.
+    UnboundedMutation {
+        /// Possible transition.
+        kind: DependencyMutationKind<Type>,
+        /// Original checked access type, independent of the unknown region.
+        access_type: Option<Type>,
+        /// Only externally reachable storage can be affected.
+        ambient: bool,
+    },
     /// Mutate the value slot named by the formal subject.
     Direct {
         /// Entry value slot.
         subject: Subject,
+        /// Original checked access type, independent of the region that bounds aliases.
+        /// Forwarding a raw access through a borrowed owner preserves this type.
+        access_type: Option<Type>,
         /// Possible transition.
         kind: DependencyMutationKind<Type>,
     },
@@ -51,12 +63,32 @@ pub enum DependencyStorageEffect<
         reference: Subject,
         /// Checked projections after dereferencing the entry reference.
         projections: Arc<[Projection]>,
+        /// Original checked access type, independent of the region that bounds aliases.
+        /// Forwarding a raw access through a borrowed owner preserves this type.
+        access_type: Option<Type>,
         /// Possible transition.
         kind: DependencyMutationKind<Type>,
     },
 }
 
 impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
+    /// Types required to retain and interpret this effect across semantic boundaries.
+    pub fn referenced_types(&self) -> impl Iterator<Item = &Type> {
+        match self {
+            Self::Cleanup(ty) => [Some(ty), None],
+            Self::Direct { access_type, kind, .. }
+            | Self::Indirect { access_type, kind, .. }
+            | Self::UnboundedMutation { access_type, kind, .. } => [
+                access_type.as_ref(),
+                match kind {
+                    DependencyMutationKind::Replace(ty) => Some(ty),
+                    _ => None,
+                },
+            ],
+            Self::Atomic | Self::Ambient | Self::Unknown | Self::Escape => [None, None],
+        }.into_iter().flatten()
+    }
+
     /// Conservative effects when the callable can have an unknown captured environment.
     pub const fn opaque_call() -> [Self; 2] {
         [Self::Unknown, Self::Escape]
@@ -69,7 +101,7 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
 
     /// Describes a transition whose particular storage target is unresolved.
     /// Atomic updates and address escape retain their distinct meanings.
-    pub fn unresolved(kind: DependencyMutationKind<Type>) -> Self {
+    pub fn unresolved(kind: DependencyMutationKind<Type>, access_type: Option<Type>) -> Self {
         match kind {
             DependencyMutationKind::Atomic => Self::Atomic,
             DependencyMutationKind::Escape => Self::Escape,
@@ -77,7 +109,7 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
             | DependencyMutationKind::Replace(_)
             | DependencyMutationKind::Clear
             | DependencyMutationKind::Consume
-            | DependencyMutationKind::Retire => Self::Unknown,
+            | DependencyMutationKind::Retire => Self::UnboundedMutation { kind, access_type, ambient: false },
         }
     }
 }
@@ -139,11 +171,13 @@ mod tests {
         let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
             subject: subject.clone(),
             kind: DependencyMutationKind::Write,
+            access_type: None,
         };
 
         let atomic = DependencyStorageEffect::Direct {
             subject,
             kind: DependencyMutationKind::Atomic,
+            access_type: None,
         };
 
         assert_eq!(
@@ -172,6 +206,7 @@ mod tests {
         let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
             subject: DependencySubject::root(super::super::DependencySubjectRoot::Receiver),
             kind: DependencyMutationKind::Write,
+            access_type: None,
         };
 
         assert_eq!(
@@ -186,19 +221,25 @@ mod tests {
         );
     }
     #[test]
-    fn unresolved_targets_preserve_atomic_and_escape_effects() {
+    fn unresolved_targets_preserve_known_transitions() {
         type Effect = DependencyStorageEffect<(), (), ()>;
 
-        for (kind, expected) in [
-            (DependencyMutationKind::Atomic, Effect::Atomic),
-            (DependencyMutationKind::Escape, Effect::Escape),
-            (DependencyMutationKind::Write, Effect::Unknown),
-            (DependencyMutationKind::Replace(()), Effect::Unknown),
-            (DependencyMutationKind::Clear, Effect::Unknown),
-            (DependencyMutationKind::Consume, Effect::Unknown),
-            (DependencyMutationKind::Retire, Effect::Unknown),
+        for kind in [
+            DependencyMutationKind::Atomic,
+            DependencyMutationKind::Escape,
+            DependencyMutationKind::Write,
+            DependencyMutationKind::Replace(()),
+            DependencyMutationKind::Clear,
+            DependencyMutationKind::Consume,
+            DependencyMutationKind::Retire,
         ] {
-            assert_eq!(Effect::unresolved(kind), expected);
+            let expected = match kind {
+                DependencyMutationKind::Atomic => Effect::Atomic,
+                DependencyMutationKind::Escape => Effect::Escape,
+                _ => Effect::UnboundedMutation { kind, access_type: Some(()), ambient: false },
+            };
+
+            assert_eq!(Effect::unresolved(kind, Some(())), expected);
         }
     }
 }

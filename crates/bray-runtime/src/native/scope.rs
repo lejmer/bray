@@ -1,0 +1,133 @@
+use std::marker::PhantomData;
+use std::mem::MaybeUninit;
+use std::rc::Rc;
+
+use bray_runtime_abi::NativeRuntimeStatus;
+
+#[expect(
+    unsafe_code,
+    reason = "Source initializes and consumes its complete entry scope in native-owned storage"
+)]
+unsafe extern "C" {
+    safe fn bray_runtime_execution_scope_enter(
+        storage: *mut u8,
+        bytes: usize,
+        align: usize,
+        isolate: u32,
+    ) -> u64;
+    safe fn bray_runtime_execution_scope_finish(storage: *mut u8) -> NativeRuntimeStatus;
+    safe fn bray_runtime_execution_owner_release(
+        owner: &mut super::state::RetainedRuntime,
+        scope: *const u8,
+    ) -> u32;
+    safe fn bray_runtime_execution_owner_scope_enter(
+        storage: *mut u8,
+        bytes: usize,
+        align: usize,
+        owner: &super::state::RetainedRuntime,
+    ) -> u64;
+}
+
+// The private boundary checks Source's actual layout before changing ownership.
+// Native code never interprets these bytes. In particular, it does not mirror
+// nullable Source owners or rebuild a context from a task and lane snapshot.
+#[repr(C, align(16))]
+struct Storage([MaybeUninit<u8>; 128]);
+
+/// Owns the complete displaced Source context through a native call and unwind.
+/// The attachment and its nesting order make this owner thread-bound.
+pub(super) struct Scope {
+    storage: Storage,
+    active: bool,
+    _thread: PhantomData<Rc<()>>,
+}
+
+impl Scope {
+    pub(super) fn enter(isolate: bool) -> Result<Self, NativeRuntimeStatus> {
+        Self::acquire(|storage| {
+            bray_runtime_execution_scope_enter(
+                storage,
+                size_of::<Storage>(),
+                align_of::<Storage>(),
+                u32::from(isolate),
+            )
+        })
+    }
+
+    pub(super) fn borrow_owner(
+        owner: &super::state::RetainedRuntime,
+    ) -> Result<Self, NativeRuntimeStatus> {
+        Self::acquire(|storage| {
+            bray_runtime_execution_owner_scope_enter(
+                storage,
+                size_of::<Storage>(),
+                align_of::<Storage>(),
+                owner,
+            )
+        })
+    }
+
+    fn acquire(enter: impl FnOnce(*mut u8) -> u64) -> Result<Self, NativeRuntimeStatus> {
+        let mut scope = Self {
+            storage: Storage([MaybeUninit::uninit(); 128]),
+            active: false,
+            _thread: PhantomData,
+        };
+
+        let entered = enter(scope.storage.0.as_mut_ptr().cast());
+
+        // A contained construction failure has not initialized Source storage.
+        // An entry that merely could not isolate still commits an actual scope.
+        if entered >> 32 != 1 {
+            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
+        }
+
+        let status = NativeRuntimeStatus::from_code(
+            u32::try_from(entered & u64::from(u32::MAX))
+                .expect("the entry status occupies its ABI low word"),
+        );
+
+        scope.active = true;
+
+        if !status.is_success() {
+            let retired = scope.retire();
+
+            if !retired.is_success() && retired != status {
+                super::host::record_cleanup_failure(1);
+            }
+
+            return Err(status);
+        }
+
+        Ok(scope)
+    }
+
+    pub(super) fn finish(mut self) -> NativeRuntimeStatus {
+        self.retire()
+    }
+
+    pub(super) fn release_owner(&self, owner: &mut super::state::RetainedRuntime) -> u32 {
+        assert!(
+            self.active,
+            "execution release borrows its complete live entry scope"
+        );
+
+        bray_runtime_execution_owner_release(owner, self.storage.0.as_ptr().cast())
+    }
+
+    fn retire(&mut self) -> NativeRuntimeStatus {
+        if !std::mem::replace(&mut self.active, false) {
+            return NativeRuntimeStatus::SUCCESS;
+        }
+
+        bray_runtime_execution_scope_finish(self.storage.0.as_mut_ptr().cast())
+    }
+}
+
+impl Drop for Scope {
+    fn drop(&mut self) {
+        if !self.retire().is_success() {
+            super::host::record_cleanup_failure(1);
+        }
+    }
+}

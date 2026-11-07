@@ -42,8 +42,9 @@ internal callable Observer = @abi(c) trusted func(
     );
 
 // The selected execution scope retains this provider through exact-thread cleanup.
+// Host completion runs after driver retirement and consumes the selected native host.
 internal callable Control = @abi(c) trusted func(pos operation: u32) -> u32
-    requires(trusted bray.runtime.bootstrap.pool.protocol_access());
+    requires(operation == 3 || trusted bray.runtime.bootstrap.pool.protocol_access());
 
 internal callable Callback = @abi(c) trusted func(
     pos continuation: DataPointer<u8>,
@@ -158,13 +159,12 @@ trusted internal func exchange(
         trusted native_provider(),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     executes(total)
     uses(raw_memory, unchecked_init, intrinsic)
 {
@@ -305,13 +305,12 @@ trusted internal func read(
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     executes(total)
 {
     // Native TLS is empty during final cleanup. The host retains one closing row
@@ -400,9 +399,9 @@ trusted internal func observe(
     );
 }
 
-trusted internal func invoke_control(pos operation: u32) -> u32
+trusted internal func current_control() -> Control?
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
-    uses(raw_memory, unchecked_alias, intrinsic, layout_reinterpret, foreign_call)
+    uses(raw_memory, unchecked_alias, intrinsic, layout_reinterpret)
 {
     let native_address = trusted lambda(pos value: usize) -> FunctionPointer<Control>
         requires(trusted bray.runtime.bootstrap.pool.protocol_access(), value != 0)
@@ -424,7 +423,7 @@ trusted internal func invoke_control(pos operation: u32) -> u32
     // monotonic domain flag avoids TLS and key-retirement traffic in that case.
     if core.atomic.load<u64, 4>(&synchronization.control_used) == 0
     {
-        return 0;
+        return none;
     }
 
     _ = core.atomic.fetch_add<u64, 4>(&synchronization.control_readers, 1);
@@ -442,10 +441,20 @@ trusted internal func invoke_control(pos operation: u32) -> u32
 
     if address == 0
     {
-        return 0;
+        return none;
     }
 
-    let callback = trusted std.memory.callable_from_pointer<Control>(trusted native_address(address));
+    return trusted std.memory.callable_from_pointer<Control>(trusted native_address(address));
+}
 
-    return trusted callback(operation);
+trusted internal func invoke_control(pos operation: u32) -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(foreign_call)
+{
+    if let ?callback = trusted current_control()
+    {
+        return trusted callback(operation);
+    }
+
+    return 0;
 }

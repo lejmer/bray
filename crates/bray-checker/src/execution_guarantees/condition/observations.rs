@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::ExecutionCondition;
 
 impl ExecutionCondition {
@@ -46,7 +47,7 @@ impl ExecutionCondition {
 
         loop {
             match value {
-                Self::Constructed(base, _) if **base != Self::Unknown => value = base,
+                Self::Constructed(base, _) | Self::Observation { owner: base, .. } if **base != Self::Unknown => value = base,
                 _ => {
                     if let Some(payload) = value.nullable_payload_snapshot() {
                         value = payload;
@@ -58,6 +59,16 @@ impl ExecutionCondition {
         }
 
         value
+    }
+
+    /// Whether current observations belong to the same owned value or loan.
+    pub(crate) fn has_same_owner(&self, other: &Self) -> bool {
+        match (self.owner_identity(), other.owner_identity()) {
+            (Self::Borrowed(left), Self::Borrowed(right)) => {
+                left.owner_identity() == right.owner_identity()
+            }
+            (left, right) => left == right,
+        }
     }
 
     pub(crate) fn observation_path(
@@ -85,7 +96,7 @@ impl ExecutionCondition {
 
                     return Some((Self::Input(root), full_path));
                 }
-                Self::Constructed(base, _) if **base != Self::Unknown => value = base,
+                Self::Constructed(base, _) | Self::Observation { owner: base, .. } if **base != Self::Unknown => value = base,
                 Self::Expression(_)
                 | Self::ScopedCapability(_)
                 | Self::PostState(_, _)
@@ -122,9 +133,9 @@ impl ExecutionCondition {
     /// Traverses containing value observations and captured frame identities.
     pub(crate) fn ownership_ancestors(&self) -> impl Iterator<Item = &Self> {
         std::iter::successors(Some(self.owner_identity()), |value| match value {
-            Self::Projection(_, parent) | Self::Tagged(_, parent) | Self::CapturedInput { owner: parent, .. } => {
-                Some(parent.owner_identity())
-            }
+            Self::Projection(_, parent)
+            | Self::Tagged(_, parent)
+            | Self::CapturedInput { owner: parent, .. } => Some(parent.owner_identity()),
             _ => None,
         })
     }
@@ -150,6 +161,7 @@ impl ExecutionCondition {
                     condition: value, ..
                 }
                 | Self::CapturedInput { owner: value, .. } => pending.push(value),
+                Self::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
                 Self::Constructed(base, fields) => {
                     pending.push(base);
 
@@ -176,6 +188,7 @@ impl ExecutionCondition {
                 Self::PostState(site, _) if *site == mutation => {
                     return true;
                 }
+                Self::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
                 Self::Constructed(base, fields) => {
                     pending.push(base);
 
@@ -203,10 +216,9 @@ impl ExecutionCondition {
 
     pub(crate) fn owned_components(&self) -> impl Iterator<Item = &Self> {
         let present = match self {
+            Self::Observation { contents: value, kind: ObservationKind::Owned, .. } => Some(value.as_ref()),
             Self::Present(value)
-            | Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value) => {
-                Some(value.as_ref())
-            }
+            | Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value) => Some(value.as_ref()),
             _ => None,
         };
 
@@ -240,17 +252,25 @@ impl ExecutionCondition {
     }
 
     /// Whether every observed value is in the established unchanged set.
-    pub(crate) fn observes_only(&self, stable: &std::collections::BTreeSet<Self>) -> bool {
+    pub(crate) fn observes_only(&self, stable: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![self];
 
         while let Some(value) = pending.pop() {
-            if stable.contains(value) {
+            if stable(value) {
                 continue;
             }
 
             match value {
-                Self::Boolean(_) | Self::Literal(_) | Self::Variant(_) => {}
+                Self::Boolean(_)
+                | Self::Literal(_)
+                | Self::Variant(_)
+                | Self::Entry { captured: true, .. } => {}
+                Self::Entry {
+                    condition,
+                    captured: false,
+                } => pending.push(condition),
                 Self::CapturedInput { owner, .. } => pending.push(owner),
+                Self::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Projection(_, value)
@@ -302,6 +322,7 @@ impl ExecutionCondition {
                         condition,
                         captured: false,
                     } => pending.push(condition),
+                    Self::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
                     Self::Constructed(base, fields) => {
                         pending.push(base);
                         pending.extend(fields.iter().map(|(_, value)| value));
@@ -334,14 +355,16 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn observes_live(&self, changed: Option<&Self>) -> bool {
-        self.observes_live_where(|value| changed.is_none_or(|changed| value.observes(changed)))
+        self.observes_live_where(|value| changed.is_none_or(|changed| value.observes(changed)), |_| false)
     }
 
-    /// Inspect live borrowed observations and entry guards that are not captured yet.
-    pub(crate) fn observes_live_where(&self, observes: impl Fn(&Self) -> bool) -> bool {
+    /// Inspect live borrowed observations and uncaptured entry guards, retaining excluded contexts.
+    pub(crate) fn observes_live_where(&self, observes: impl Fn(&Self) -> bool, exclude: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![(self, false)];
 
         while let Some((condition, live)) = pending.pop() {
+            if exclude(condition) { continue; }
+
             if live && condition.observation_path().is_some() {
                 if observes(condition) {
                     return true;
@@ -366,8 +389,13 @@ impl ExecutionCondition {
                 | Self::Trusted(value)
                 | Self::Projection(_, value)
                 | Self::Present(value) => pending.push((value, live)),
+                Self::Observation { owner, contents, kind } => {
+                    pending.push((owner, live));
+                    pending.push((contents, live || *kind == ObservationKind::Reference));
+                }
                 Self::Constructed(base, fields) => {
                     pending.push((base, live));
+
                     pending.extend(fields.iter().map(|(_, value)| (value, live)));
                 }
                 _ => {}
@@ -381,6 +409,7 @@ impl ExecutionCondition {
 /// Indexed changed values and their observed component paths.
 #[derive(Default)]
 pub(crate) struct Set {
+    discriminants: std::collections::BTreeSet<ExecutionCondition>,
     values: std::collections::BTreeSet<ExecutionCondition>,
     paths: std::collections::BTreeMap<
         ExecutionCondition,
@@ -389,8 +418,30 @@ pub(crate) struct Set {
 }
 
 impl Set {
+    pub(crate) fn insert_classified(&mut self, value: ExecutionCondition, kind: bray_bound_tree::StorageObservationKind) {
+        if kind == bray_bound_tree::StorageObservationKind::Discriminant {
+            self.discriminants.insert(value);
+        } else if kind.is_immutable_inline() {
+            self.insert(value);
+        }
+    }
+
+    /// A retained tag supports only presence and variant observations, not payload facts.
+    pub(crate) fn preserves(&self, value: &ExecutionCondition) -> bool {
+        if self.contains(value) {
+            return true;
+        }
+
+        let subject = match value {
+            ExecutionCondition::VariantTest(_, subject) => Some(subject.as_ref()),
+            value => value.nullable_absence(true).or_else(|| value.nullable_absence(false)).map(|(subject, _)| subject),
+        };
+
+        subject.is_some_and(|subject| self.discriminants.contains(subject))
+    }
+
     pub(crate) fn insert(&mut self, value: ExecutionCondition) {
-        if let Some((root, path)) = value.observation_path() {
+        if let Some((root, path)) = Self::indexed_path(&value) {
             self.paths.entry(root).or_default().insert(path);
         }
 
@@ -402,7 +453,7 @@ impl Set {
             return true;
         }
 
-        let Some((root, path)) = value.observation_path() else {
+        let Some((root, path)) = Self::indexed_path(value) else {
             return false;
         };
 
@@ -418,7 +469,7 @@ impl Set {
             return true;
         }
 
-        let Some((root, path)) = value.observation_path() else {
+        let Some((root, path)) = Self::indexed_path(value) else {
             return false;
         };
 
@@ -428,5 +479,36 @@ impl Set {
                 .next()
                 .is_some_and(|candidate| candidate.starts_with(&path))
         })
+    }
+
+    fn indexed_path(
+        value: &ExecutionCondition,
+    ) -> Option<(
+        ExecutionCondition,
+        Vec<bray_symbols::ConstantProjectionKind>,
+    )> {
+        match value {
+            // Retaining a borrow preserves that view and its projections. It
+            // cannot retain or retire the referent's ownership on its own.
+            ExecutionCondition::Borrowed(referent) => {
+                let (root, path) = referent.observation_path()?;
+
+                Some((root.borrowed(), path))
+            }
+            value if matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) => {
+                Self::indexed_path(value.owner_identity())
+            }
+            value => value.observation_path(),
+        }
+    }
+}
+
+impl FromIterator<ExecutionCondition> for Set {
+    fn from_iter<T: IntoIterator<Item = ExecutionCondition>>(values: T) -> Self {
+        let mut set = Self::default();
+
+        for value in values { set.insert(value); }
+
+        set
     }
 }

@@ -93,14 +93,7 @@ impl BrayDeadlines {
             registration(&self.reference, deadline, scope, callback, &mut identity)
         });
 
-        match status {
-            0 => Ok(identity),
-            1 => Err(SchedulerError::TimerBackingUnavailable),
-            2 => Err(SchedulerError::TimerCapacityReached),
-            4 => Err(SchedulerError::TimersClosed),
-            8 => Err(SchedulerError::TimerIdentityExhausted),
-            _ => panic!("Bray deadline registration returned unknown status {status}"),
-        }
+        registration_result(status, identity)
     }
 
     // Indirect service entry keeps optional deadline/clock policy out of callers
@@ -123,6 +116,17 @@ impl BrayDeadlines {
 
     pub(super) fn count(&self) -> usize {
         (self.count)(&self.reference)
+    }
+}
+
+pub(crate) fn registration_result(status: u32, identity: u64) -> Result<u64, SchedulerError> {
+    match status {
+        0 => Ok(identity),
+        1 => Err(SchedulerError::TimerBackingUnavailable),
+        2 => Err(SchedulerError::TimerCapacityReached),
+        4 => Err(SchedulerError::TimersClosed),
+        8 => Err(SchedulerError::TimerIdentityExhausted),
+        _ => panic!("Bray deadline registration returned unknown status {status}"),
     }
 }
 

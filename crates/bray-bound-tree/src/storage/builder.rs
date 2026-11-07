@@ -32,6 +32,7 @@ pub struct StoragePlanBuilder {
     pub(super) unit: BoundUnitId,
     pub(super) kind: BoundUnitKind,
     pub(super) identities: Vec<StorageIdentity>,
+    pub(super) temporaries: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
     pub(super) identity_types: BTreeMap<StorageIdentityId, TypeId>,
     pub(super) owned_borrows: BTreeMap<(TypeId, BorrowKind), crate::StorageProtocolCall>,
     pub(super) accesses: Vec<StorageAccess>,
@@ -54,6 +55,7 @@ impl StoragePlanBuilder {
             unit,
             kind,
             identities: Vec::new(),
+            temporaries: BTreeMap::new(),
             identity_types: BTreeMap::new(),
             owned_borrows: BTreeMap::new(),
             accesses: Vec::new(),
@@ -78,6 +80,10 @@ impl StoragePlanBuilder {
         let id = StorageIdentityId::from_storage_slot(self.unit, slot);
 
         self.identities.push(identity);
+
+        if let StorageIdentity::Temporary(expression) = identity {
+            self.temporaries.entry(expression).or_insert(id);
+        }
 
         Ok(id)
     }

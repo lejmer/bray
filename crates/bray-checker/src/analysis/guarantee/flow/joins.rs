@@ -3,8 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::super::state::ExecutionState;
 use super::merge::result_replacements;
 use crate::ExecutionCondition;
-use bray_bound_tree::BoundOperator;
-use bray_symbols::ConstantValueKind;
+use crate::execution_guarantees::common_components;
 
 pub(in crate::analysis::guarantee) fn returned_condition(
     condition: &ExecutionCondition,
@@ -64,7 +63,6 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         if value == &other {
             stable_values.insert(value.clone());
             stable_values.insert(value.clone().borrowed());
-            stable_identities.insert(value.clone());
         }
     }
 
@@ -138,242 +136,6 @@ pub(in crate::analysis::guarantee) fn merge_returned(
     joined
 }
 
-pub(super) fn common_components(
-    left: &ExecutionCondition,
-    right: &ExecutionCondition,
-    result: Option<ExecutionCondition>,
-    conditions: (
-        &BTreeSet<(ExecutionCondition, bool)>,
-        &BTreeSet<(ExecutionCondition, bool)>,
-    ),
-    facts: &mut Vec<(ExecutionCondition, bool)>,
-    budget: &mut usize,
-) -> ExecutionCondition {
-    if left == right {
-        return left.clone();
-    }
-
-    let Some(next) = budget.checked_sub(1) else {
-        return ExecutionCondition::Unknown;
-    };
-
-    *budget = next;
-
-    if left == &ExecutionCondition::Unknown || right == &ExecutionCondition::Unknown {
-        return ExecutionCondition::Unknown;
-    }
-
-    if let (ExecutionCondition::Borrowed(left), ExecutionCondition::Borrowed(right)) = (left, right)
-    {
-        // Joining an owned result does not identify different borrowed referents.
-        return common_components(left, right, None, conditions, facts, budget).borrowed();
-    }
-
-    if matches!(left, ExecutionCondition::Borrowed(_))
-        || matches!(right, ExecutionCondition::Borrowed(_))
-    {
-        return ExecutionCondition::Unknown;
-    }
-
-    let fields = |mut value: &ExecutionCondition| {
-        while let Some(snapshot) = value.nullable_payload_snapshot() {
-            value = snapshot;
-        }
-
-        match value {
-            ExecutionCondition::Constructed(_, fields) => fields
-                .iter()
-                .map(|(field, _)| *field)
-                .collect::<std::collections::BTreeSet<_>>(
-            ),
-            ExecutionCondition::Present(_) => {
-                [bray_bound_tree::StorageProjection::NullableValue].into()
-            }
-            ExecutionCondition::Literal(value)
-                if matches!(value.kind(), ConstantValueKind::NullableAbsent) =>
-            {
-                [bray_bound_tree::StorageProjection::NullableValue].into()
-            }
-            _ => Default::default(),
-        }
-    };
-
-    let mut projections = fields(left);
-
-    projections.extend(fields(right));
-
-    if projections.is_empty() {
-        let joined = result.unwrap_or(ExecutionCondition::Unknown);
-
-        if joined != ExecutionCondition::Unknown
-            && let (ExecutionCondition::Literal(left), ExecutionCondition::Literal(right)) =
-                (left, right)
-            && matches!(
-                (left.kind(), right.kind()),
-                (ConstantValueKind::Integer(_), ConstantValueKind::Integer(_))
-            )
-            && let Ok(ConstantValueKind::Boolean(ordered)) = crate::constant::fold_binary(
-                BoundOperator::LessEqual,
-                left.kind(),
-                right.kind(),
-                crate::ConstantEvaluationLimits::default().integer_bits(),
-            )
-        {
-            // A yielded result keeps these bounds for this evaluation. Literals
-            // remain independent values and are never renamed to the result.
-            let (lower, upper) = if ordered {
-                (left, right)
-            } else {
-                (right, left)
-            };
-
-            for (operator, bound) in [
-                (BoundOperator::GreaterEqual, lower),
-                (BoundOperator::LessEqual, upper),
-            ] {
-                facts.push((
-                    ExecutionCondition::operation(
-                        operator,
-                        vec![
-                            joined.clone(),
-                            ExecutionCondition::Literal(std::sync::Arc::clone(bound)),
-                        ],
-                    ),
-                    true,
-                ));
-            }
-        }
-
-        return joined;
-    }
-
-    // Ordinary observations retain only a shared identity. Yielded owners instead
-    // move their initialized components under the result region's identity.
-    let identity = result.clone().unwrap_or_else(|| {
-        if left.owner_identity() == right.owner_identity() {
-            left.owner_identity().clone()
-        } else {
-            ExecutionCondition::Unknown
-        }
-    });
-
-    let fields = projections
-        .into_iter()
-        .map(|projection| {
-            let inactive =
-                |value: &ExecutionCondition, conditions: &BTreeSet<(ExecutionCondition, bool)>| {
-                    match projection {
-                        bray_bound_tree::StorageProjection::NullableValue => {
-                            matches!(value, ExecutionCondition::Literal(value)
-                    if matches!(value.kind(), ConstantValueKind::NullableAbsent))
-                                || conditions.iter().any(|(condition, holds)| {
-                                    condition.nullable_absence(*holds).is_some_and(
-                                        |(subject, _)| {
-                                            subject == value || subject == value.owner_identity()
-                                        },
-                                    )
-                                })
-                        }
-                        bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                            variant,
-                            ..
-                        } => {
-                            value
-                                .clone()
-                                .matches_variant(variant)
-                                .prove(conditions, &mut { ExecutionCondition::WORK_LIMIT })
-                                == Some(false)
-                        }
-                        _ => false,
-                    }
-                };
-
-            let left_inactive = inactive(left, conditions.0);
-            let right_inactive = inactive(right, conditions.1);
-
-            if left_inactive != right_inactive {
-                // Only the active predecessor initializes this payload. Retain
-                // its components under the joined conditional owner.
-                let initialized = if left_inactive { right } else { left };
-
-                return (
-                    projection,
-                    owned_snapshot(
-                        &initialized.clone().project(projection),
-                        identity.clone().project(projection),
-                        budget,
-                    ),
-                );
-            }
-
-            let left = left.clone().project(projection);
-            let right = right.clone().project(projection);
-
-            let result = result
-                .as_ref()
-                .or_else(|| (identity != ExecutionCondition::Unknown).then_some(&identity))
-                .map(|result| result.clone().project(projection));
-
-            (
-                projection,
-                common_components(&left, &right, result, conditions, facts, budget),
-            )
-        })
-        .collect();
-
-    ExecutionCondition::Constructed(std::sync::Arc::new(identity), fields)
-}
-
-/// Reanchor initialized owned components under their destination owner.
-pub(super) fn owned_snapshot(
-    source: &ExecutionCondition,
-    identity: ExecutionCondition,
-    budget: &mut usize,
-) -> ExecutionCondition {
-    let Some(remaining) = budget.checked_sub(1) else {
-        return ExecutionCondition::Unknown;
-    };
-
-    *budget = remaining;
-
-    if let Some(snapshot) = source.nullable_payload_snapshot() {
-        return owned_snapshot(snapshot, identity, budget);
-    }
-
-    match source {
-        ExecutionCondition::Constructed(base, fields) => {
-            let base = owned_snapshot(base, identity, budget);
-
-            let fields = fields
-                .iter()
-                .map(|(field, value)| {
-                    (
-                        *field,
-                        owned_snapshot(value, base.owner_identity().clone().project(*field), budget),
-                    )
-                })
-                .collect();
-
-            ExecutionCondition::Constructed(std::sync::Arc::new(base), fields)
-        }
-        ExecutionCondition::Tagged(variant, _) => {
-            ExecutionCondition::Tagged(*variant, std::sync::Arc::new(identity))
-        }
-        ExecutionCondition::Present(value) => {
-            ExecutionCondition::Present(std::sync::Arc::new(owned_snapshot(
-                value,
-                identity.project(bray_bound_tree::StorageProjection::NullableValue),
-                budget,
-            )))
-        }
-        ExecutionCondition::Borrowed(_)
-        | ExecutionCondition::Boolean(_)
-        | ExecutionCondition::Literal(_)
-        | ExecutionCondition::Unknown => source.clone(),
-        _ => identity,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::common_components;
@@ -399,6 +161,38 @@ mod tests {
     }
 
     #[test]
+    fn refreshing_and_joining_a_loan_preserves_its_context_without_owning_contents() {
+        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let original = owner.with_component(&[field], ExecutionCondition::Boolean(true), None);
+        let loan = original.clone().borrowed();
+        let changed = original.with_component(&[field], ExecutionCondition::Boolean(false), None);
+        let refreshed = loan.with_referent(changed.clone());
+
+        assert_eq!(refreshed.owner_identity(), loan.owner_identity());
+        assert_eq!(refreshed.clone().component(field), ExecutionCondition::Boolean(false));
+        assert_eq!(loan.clone().component(field), ExecutionCondition::Boolean(true));
+        assert_eq!(refreshed.clone().borrowed(), refreshed);
+        assert_eq!(refreshed.owned_components().count(), 0);
+        assert_eq!(refreshed.clone().into_referent(), changed);
+
+        let observation = |value| ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::Equal,
+            vec![value, ExecutionCondition::Result],
+        );
+
+        assert_eq!(observation(refreshed.clone()), observation(changed.borrowed()));
+        assert_ne!(observation(refreshed.clone()), observation(loan.clone()));
+
+        let joined = join_components(&loan, &refreshed);
+
+        assert_eq!(joined.owner_identity(), loan.owner_identity());
+        assert_eq!(joined.owned_components().count(), 0);
+        assert_ne!(joined.clone().component(field), ExecutionCondition::Boolean(true));
+        assert_ne!(joined.component(field), ExecutionCondition::Boolean(false));
+    }
+
+    #[test]
     fn joins_keep_matching_nested_observations_without_inventing_identity() {
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let component = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
@@ -407,19 +201,18 @@ mod tests {
         let marker = ExecutionCondition::Boolean(true);
 
         let nested = |version| {
-            ExecutionCondition::Constructed(
-                Arc::new(ExecutionCondition::Joined(
+            ExecutionCondition::constructed(ExecutionCondition::Joined(
                     BoundUnitId::new(0),
                     version,
                     place.clone(),
-                )),
+                ),
                 [(field, marker.clone())].into(),
             )
             .borrowed()
         };
 
         let owner = |value| {
-            ExecutionCondition::Constructed(Arc::new(identity.clone()), [(field, value)].into())
+            ExecutionCondition::constructed(identity.clone(), [(field, value)].into())
         };
 
         let joined = join_components(&owner(nested(1)), &owner(nested(2)));
@@ -432,8 +225,7 @@ mod tests {
         );
 
         let different = owner(
-            ExecutionCondition::Constructed(
-                Arc::new(ExecutionCondition::Unknown),
+            ExecutionCondition::constructed(ExecutionCondition::Unknown,
                 [(field, ExecutionCondition::Boolean(false))].into(),
             )
             .borrowed(),
@@ -445,6 +237,102 @@ mod tests {
                 .component(component),
             ExecutionCondition::Unknown
         );
+    }
+
+    #[test]
+    fn joined_contents_keep_the_descriptor_and_a_distinct_current_identity() {
+        use crate::analysis::guarantee::state::ExecutionState;
+        use crate::analysis::id::AnalysisBlockId;
+
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let descriptor = ExecutionCondition::Input(place.clone());
+        let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let current = ExecutionCondition::Joined(BoundUnitId::new(0), 2, place.clone());
+        let conditions = Default::default();
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+        let substitution = crate::test_support::empty_substitution(symbol.into());
+
+        let guarantee = |value: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(symbol.into(), substitution, vec![value.component(field).borrowed()]),
+        ));
+
+        #[derive(Clone, Copy, Debug)]
+        enum Context { Owned, Loan, Reference }
+
+        for (context, unchanged, component_carrier) in [Context::Owned, Context::Loan, Context::Reference].into_iter()
+            .flat_map(|context| [false, true].into_iter().flat_map(move |unchanged|
+                [false, true].map(move |component| (context, unchanged, component))))
+        {
+            let branch = |version| {
+                let data = ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone());
+
+                match context {
+                    Context::Owned => ExecutionCondition::owned_value(descriptor.clone(), data),
+                    Context::Loan => descriptor.clone().borrowed().with_referent(
+                        ExecutionCondition::owned_value(descriptor.clone(), data),
+                    ),
+                    Context::Reference => descriptor.with_referent(data),
+                }
+            };
+
+            let initial = match context {
+                Context::Loan => descriptor.clone().borrowed(),
+                Context::Owned | Context::Reference => descriptor.clone(),
+            };
+
+            let left = if unchanged { initial } else { branch(0) };
+            let right = branch(1);
+
+            let joined = common_components(
+                &left, &right, Some(current.clone()), (&conditions, &conditions),
+                &mut Vec::new(), &mut { ExecutionCondition::WORK_LIMIT },
+            );
+
+            assert_eq!(joined.owner_identity(), left.owner_identity());
+            assert_eq!(joined.clone().component(field), current.clone().component(field));
+            assert_ne!(joined.clone().component(field), descriptor.clone().component(field));
+
+            if !matches!(context, Context::Owned) {
+                assert_eq!(joined.owned_components().count(), 0);
+                assert_eq!(joined.clone().borrowed(), joined);
+
+                let substituted = joined.with_snapshots(&Default::default());
+
+                assert_eq!(substituted, joined);
+                assert_eq!(substituted.owned_components().count(), 0);
+            }
+
+            let state = |value: ExecutionCondition| {
+                let mut state = ExecutionState::default();
+                let condition = guarantee(value.clone());
+
+                state.current.insert(place.clone(), value.clone());
+                condition.clone().assume(true, &mut state.trusted_assumptions);
+
+                let carrier = if component_carrier {
+                    value.clone().component(field)
+                } else { value.clone().into_referent() };
+
+                state.carry_guarantee(carrier, condition);
+
+                state
+            };
+
+            let mut merged = Some(state(left));
+
+            super::super::merge::merge(
+                &mut merged, &Some(state(right)), Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 2)),
+            );
+
+            let merged = merged.expect("both current observations remain reachable");
+            let condition = guarantee(merged.current[&place].clone());
+
+            assert_eq!(condition.prove_trusted(&merged.trusted_assumptions, &merged.assumptions), Some(true),
+                "context={context:?} unchanged={unchanged} component={component_carrier} facts={:?} witnesses={:?}",
+                merged.trusted_assumptions, merged.witnesses);
+
+            assert_ne!(condition, guarantee(descriptor.clone()));
+        }
     }
 
     #[test]
@@ -491,10 +379,21 @@ mod tests {
         let mut left = ExecutionState::default();
         let mut right = ExecutionState::default();
 
-        left.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
-        left.assign(marker_place.clone(), shared.clone());
-        right.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
-        right.assign(marker_place.clone(), shared.clone());
+        left.assign(
+            owner.clone(),
+            ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))),
+            None,
+        );
+
+        left.assign(marker_place.clone(), shared.clone(), None);
+
+        right.assign(
+            owner.clone(),
+            ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))),
+            None,
+        );
+
+        right.assign(marker_place.clone(), shared.clone(), None);
 
         let mut merged = Some(left);
 
@@ -533,6 +432,10 @@ mod tests {
 
         state.current.insert(place, value.clone());
 
+        state.owned_results.insert(value.clone(), bray_symbols::DependencyOwnedResult::Transfer(
+            bray_symbols::DependencyOwnedTransfer::new(value.clone(), []),
+        ));
+
         let mut target = Some(state);
 
         for _ in 0..16 {
@@ -549,7 +452,7 @@ mod tests {
 
         let state = target.expect("reachable loop header");
 
-        assert!(state.owned_results.is_empty());
+        assert_eq!(state.owned_results.len(), 1);
 
         assert_eq!(
             state.owned_result(&value),
@@ -609,6 +512,75 @@ mod tests {
                     .owned_results
                     .is_empty()
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod nested_guard_tests {
+    use super::merge_returned;
+    use crate::analysis::guarantee::state::ExecutionState;
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_bound_tree::{BoundErrorExpression, BoundExpression, BoundUnitId, StorageProjection};
+    use crate::test_support::{error_type, expression_unit, push_expression};
+    use bray_symbols::{SymbolId, SymbolOrdinal, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
+    use std::sync::Arc;
+
+    #[test]
+    fn nested_payload_authority_includes_the_outer_active_case() {
+        let variant = |id| UnionVariantSymbolId::from_symbol_id(SymbolId::new(id));
+        let field = |id| UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(id));
+        let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
+        let outer = variant(900);
+        let rejected = variant(901);
+        let inner = variant(902);
+        let outer_field = StorageProjection::ActiveUnionPayloadField { variant: outer, field: field(903) };
+        let inner_field = StorageProjection::ActiveUnionPayloadField { variant: inner, field: field(904) };
+        let definition = bray_symbols::FunctionSymbolId::from_symbol_id(SymbolId::new(905));
+        let callable = crate::test_support::callable_instance(definition.into());
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+
+        let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), callable.substitution(), vec![owner.borrowed()]),
+        ));
+
+        let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
+        ]);
+
+        for valid in [true, false] {
+            let marker = input(0);
+
+            let payload = ExecutionCondition::constructed(ExecutionCondition::Tagged(inner, Arc::new(input(1))),
+                [(inner_field, marker.clone())].into(),
+            );
+
+            let accepted = ExecutionCondition::constructed(ExecutionCondition::Tagged(outer, Arc::new(input(2))),
+                [(outer_field, payload)].into(),
+            );
+
+            let failure = ExecutionCondition::Tagged(rejected, Arc::new(input(3)));
+            let mut left = ExecutionState::default();
+            let owner = if valid { marker } else { input(4) };
+            let guarantee = held(owner.clone());
+
+            left.carry_guarantee(owner, guarantee.clone());
+            guarantee.assume(true, &mut left.trusted_assumptions);
+
+            let joined = merge_returned(
+                &mut left, &ExecutionState::default(), &accepted, &failure,
+                &ExecutionCondition::Result, expressions[0],
+            );
+
+            let active = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, vec![
+                joined.clone().matches_variant(outer), joined.clone().project(outer_field).matches_variant(inner),
+            ]);
+
+            active.assume(true, &mut left.assumptions);
+
+            let required = held(joined.project(outer_field).project(inner_field));
+
+            assert_eq!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions) == Some(true), valid);
         }
     }
 }

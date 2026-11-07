@@ -27,7 +27,7 @@ pub(in crate::native) fn record_returned_error() -> NativeRuntimeStatus {
     NativeRuntimeStatus::NOT_INITIALIZED
 }
 
-pub(in crate::native) fn record_cleanup_failure(_count: usize) {}
+pub(crate) fn record_cleanup_failure(_count: usize) {}
 
 pub(in crate::native) const fn finish() -> Result<(), Infallible> {
     Ok(())

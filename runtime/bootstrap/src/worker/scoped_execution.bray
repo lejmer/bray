@@ -1,0 +1,240 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.memory;
+using core.atomic;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+
+// The stack scope owns its descriptor through attachment and service cleanup.
+trusted internal func scope_descriptor(pos owner: &Scope) -> &Descriptor
+    requires(trusted scope_live(owner = &owner.marker))
+    ensures(
+        trusted scope_live(owner = &owner.marker),
+        trusted native_entry(),
+        trusted descriptor_owned(owner = &result.marker),
+        trusted retained_worker(owner = &result.reference.marker)
+    )
+    executes(pure, total)
+{
+    return &owner.worker;
+}
+
+trusted internal func execution_storage(pos owner: &Scope) -> DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>
+    requires(trusted scope_live(owner = &owner.marker))
+    ensures(
+        trusted scope_live(owner = &owner.marker),
+        trusted core.memory.valid_read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = result, count = 1),
+        trusted core.memory.valid_write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = result, count = 1),
+        trusted core.memory.initialized_as<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = result),
+        trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = result)
+    )
+    executes(pure, total)
+{
+    return std.memory.uninit_pointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&owner.execution);
+}
+
+trusted internal func install_execution(pos owner: &Scope, pos execution: bray.runtime.bootstrap.host.ExecutionOwner)
+    requires(
+        trusted scope_live(owner = &owner.marker),
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = &execution)
+    )
+    ensures(trusted scope_live(owner = &owner.marker))
+    uses(raw_memory, unchecked_init)
+{
+    let pointer = trusted execution_storage(owner);
+    let previous = trusted std.memory.read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer);
+
+    if previous matches ?_
+    {
+        trusted core.target.abort();
+    }
+
+    let installed: bray.runtime.bootstrap.host.ExecutionOwner? = execution;
+
+    trusted std.memory.write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer, installed);
+}
+
+// Entry transfers the actual context through its native callback, then restores
+// the same owner to the OS scope before any producer callback can run.
+trusted internal func enter_scope_execution(pos owner: &Scope)
+    requires(trusted scope_live(owner = &owner.marker))
+    ensures(trusted scope_live(owner = &owner.marker))
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let take = trusted lambda(pos owner: &Scope) -> bray.runtime.bootstrap.host.ExecutionOwner?
+        requires(trusted scope_live(owner = &owner.marker))
+        ensures(
+            trusted scope_live(owner = &owner.marker),
+            result matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result)
+        )
+        uses(raw_memory, unchecked_init, intrinsic)
+    {
+        let pointer = trusted execution_storage(owner);
+        let previous = trusted std.memory.read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer);
+
+        trusted std.memory.write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer, none);
+        return previous;
+    };
+
+    let mut entered = trusted take(owner);
+
+    trusted bray.runtime.bootstrap.host.enter_attachment_execution(&mut entered);
+
+    trusted std.memory.write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(trusted execution_storage(owner), entered);
+}
+
+trusted internal predicate scope_descriptor_retired(owner: &bray.runtime.bootstrap.host.ExecutionOwner);
+
+trusted internal func retire_scope_descriptor(
+    pos owner: bray.runtime.bootstrap.host.ExecutionOwner
+) -> bray.runtime.bootstrap.host.ExecutionOwner
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner))
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = &result),
+        trusted scope_descriptor_retired(owner = &result)
+    )
+{
+    let retire = trusted lambda(pos owner: bray.runtime.bootstrap.host.ExecutionOwner) ->
+        bray.runtime.bootstrap.host.ExecutionOwner
+        requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner))
+        ensures(
+            trusted bray.runtime.bootstrap.host.execution_owned(owner = &result),
+            trusted scope_descriptor_retired(owner = &result)
+        )
+    {
+        let scope = trusted owned_scope(&owner);
+        let row = trusted worker(scope);
+
+        if core.atomic.load<u32, 1>(&row.startup) == 1
+        {
+            _ = trusted invoke(scope, 5, 0);
+        }
+
+        core.atomic.store<u32, 2>(&row.terminal, 1);
+        core.atomic.notify_all<u32>(&row.terminal);
+
+        trusted release_descriptor_resources(trusted scope_descriptor(scope));
+        return owner;
+    };
+
+    return trusted retire(owner);
+}
+
+trusted internal func take_scope_execution(
+    pos owner: &bray.runtime.bootstrap.host.ExecutionOwner
+) -> bray.runtime.bootstrap.host.ExecutionOwner?
+    requires(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted scope_descriptor_retired(owner = owner)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted scope_descriptor_retired(owner = owner),
+        result matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result)
+    )
+    uses(raw_memory, unchecked_init, layout_reinterpret, unchecked_alias)
+{
+    // Only the initialized execution slot remains accessible after descriptor
+    // retirement. The original OS-entry stack keeps its backing through return.
+    let pointer = trusted lambda(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> DataPointer<
+        (bray.runtime.bootstrap.host.ExecutionOwner?)
+    >
+        requires(
+            trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+            trusted scope_descriptor_retired(owner = owner)
+        )
+        ensures(
+            trusted core.memory.valid_read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = result, count = 1),
+            trusted core.memory.valid_write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = result),
+            trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = result)
+        )
+        uses(raw_memory, layout_reinterpret, unchecked_alias)
+    {
+        let address = trusted std.memory.reinterpret<Scope, u8>(owner.resource);
+
+        let permit = trusted lambda(
+            pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
+            pos address: DataPointer<Scope>
+        )
+            requires(
+                trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+                trusted scope_descriptor_retired(owner = owner)
+            )
+            ensures(
+                trusted core.memory.valid_read<Scope>(pointer = address, count = 1),
+                trusted core.memory.aligned_for<Scope>(pointer = address),
+                trusted core.memory.initialized_as<Scope>(pointer = address),
+                trusted core.memory.shared_alias_valid<Scope>(pointer = address),
+                trusted core.memory.epoch_current<Scope>(pointer = address),
+                trusted core.memory.synchronized_access<Scope>(pointer = address),
+                trusted core.memory.movement_stable<Scope>(pointer = address),
+                trusted core.memory.finalization_pending<Scope>(pointer = address)
+            )
+            executes(pure, total) {};
+
+        trusted permit(owner, address);
+
+        let scope = trusted std.memory.borrow_from<Scope, bray.runtime.bootstrap.host.ExecutionOwner>(owner, address);
+
+        return std.memory.uninit_pointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&scope.execution);
+    };
+
+    let storage = trusted pointer(owner);
+    let execution = trusted std.memory.read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(storage);
+
+    trusted std.memory.write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(storage, none);
+    return execution;
+}
+
+trusted internal func release_scope(pos owner: bray.runtime.bootstrap.host.ExecutionOwner) -> u32
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner))
+{
+    let retired = trusted retire_scope_descriptor(owner);
+    let execution = trusted take_scope_execution(&retired);
+
+    return trusted bray.runtime.bootstrap.host.retire_execution(execution, 0);
+}
+
+// Publish the precise rejection before startup acknowledgement releases the
+// creating thread. No execution scope or service pin transfers on failure.
+trusted internal func startup_failure(pos scope: &Scope, pos failure: &Failure)
+    requires(trusted scope_live(owner = &scope.marker))
+    ensures(trusted scope_live(owner = &scope.marker))
+{
+    let value = trusted worker(scope);
+
+    core.atomic.store<u32, 0>(&value.failure_stage, failure.stage);
+    core.atomic.store<u32, 0>(&value.failure_category, failure.category);
+    core.atomic.store<i64, 0>(&value.failure_code, failure.native_code);
+}
+
+trusted internal func scope_execution(pos owner: &Scope) -> &(bray.runtime.bootstrap.host.ExecutionOwner?)
+    requires(trusted scope_live(owner = &owner.marker))
+    ensures(
+        trusted scope_live(owner = &owner.marker),
+        (result matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result))
+    )
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted execution_storage(owner);
+
+    let permit = trusted lambda(
+        pos owner: &Scope,
+        pos pointer: DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>
+    )
+        requires(trusted scope_live(owner = &owner.marker))
+        ensures(
+            trusted core.memory.shared_alias_valid<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer),
+            trusted core.memory.epoch_current<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer),
+            trusted core.memory.synchronized_access<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer),
+            trusted core.memory.movement_stable<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer),
+            trusted core.memory.finalization_pending<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+    return trusted std.memory.borrow_from<(bray.runtime.bootstrap.host.ExecutionOwner?), Scope>(owner, pointer);
+}

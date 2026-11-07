@@ -7,11 +7,11 @@ use bray_runtime_abi::{
     NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus,
 };
 
-use crate::native::{activation, bridge, fixtures, implementation, state};
+use crate::native::{activation, fixtures, implementation, state};
 use crate::report_provider;
 use crate::{TaskExecutionContext, context};
 
-use super::NativeTaskServices;
+use crate::event::Resources;
 
 thread_local! {
     static CALLBACK_ADMISSION: Cell<Option<bray_runtime_abi::NativeTaskHandle>> = const { Cell::new(None) };
@@ -19,18 +19,20 @@ thread_local! {
 
 #[test]
 fn cancellation_before_dispatch_is_idempotent_and_does_not_publish_completion() {
+    let _isolation = state::test_runtime_isolation();
+
     startup();
 
     let task = start();
 
-    assert!(task.cancellation.request());
-    assert!(!task.cancellation.request());
-    assert_eq!(task.snapshot().phase, 1);
-    assert!(task.cancellation.observation().requested());
+    assert!(task.cancellation().request());
+    assert!(!task.cancellation().request());
+    assert_eq!(fixtures::snapshot(&task).phase, 1);
+    assert!(task.cancellation().observation().requested());
 
     finish(&task);
-    assert!(!task.cancellation.request());
-    assert!(!task.cancellation.is_requested());
+    assert!(!task.cancellation().request());
+    assert!(!task.cancellation().is_requested());
     drop(task);
 
     assert_eq!(
@@ -41,6 +43,8 @@ fn cancellation_before_dispatch_is_idempotent_and_does_not_publish_completion() 
 
 #[test]
 fn cancellation_requested_by_a_running_callback_survives_dispatch_release() {
+    let _isolation = state::test_runtime_isolation();
+
     extern "C-unwind" fn request(output: &mut NativeFrameProgress, context: usize) {
         let current = crate::current_task_execution_context().expect("producer has a task context");
 
@@ -58,8 +62,8 @@ fn cancellation_requested_by_a_running_callback_survives_dispatch_release() {
         NativeRuntimeStatus::SUCCESS
     );
 
-    assert_eq!(task.snapshot().phase, 1);
-    assert!(task.cancellation.is_requested());
+    assert_eq!(fixtures::snapshot(&task).phase, 1);
+    assert!(task.cancellation().is_requested());
 
     finish(&task);
     drop(task);
@@ -72,6 +76,8 @@ fn cancellation_requested_by_a_running_callback_survives_dispatch_release() {
 
 #[test]
 fn nested_native_shields_preserve_requests_until_the_outer_leave() {
+    let _isolation = state::test_runtime_isolation();
+
     startup();
 
     let task = start();
@@ -81,13 +87,13 @@ fn nested_native_shields_preserve_requests_until_the_outer_leave() {
         NativeRuntimeStatus::SUCCESS
     );
 
-    let outer = task.cancellation.shield();
-    let inner = task.cancellation.shield();
+    let outer = task.cancellation().shield();
+    let inner = task.cancellation().shield();
 
-    assert!(task.cancellation.request());
-    assert!(task.cancellation.observation().requested());
-    assert!(!task.cancellation.is_requested());
-    assert_eq!(task.snapshot().phase, 1);
+    assert!(task.cancellation().request());
+    assert!(task.cancellation().observation().requested());
+    assert!(!task.cancellation().is_requested());
+    assert_eq!(fixtures::snapshot(&task).phase, 1);
 
     assert_eq!(
         implementation::bray_runtime_main_thread_lane_drive(),
@@ -95,7 +101,7 @@ fn nested_native_shields_preserve_requests_until_the_outer_leave() {
     );
 
     drop(inner);
-    assert!(!task.cancellation.is_requested());
+    assert!(!task.cancellation().is_requested());
 
     assert_eq!(
         implementation::bray_runtime_main_thread_lane_drive(),
@@ -103,7 +109,7 @@ fn nested_native_shields_preserve_requests_until_the_outer_leave() {
     );
 
     drop(outer);
-    assert!(task.cancellation.is_requested());
+    assert!(task.cancellation().is_requested());
 
     finish(&task);
     drop(task);
@@ -116,18 +122,22 @@ fn nested_native_shields_preserve_requests_until_the_outer_leave() {
 
 #[test]
 fn terminal_delivery_between_registration_and_suspension_retains_the_wake() {
+    let _isolation = state::test_runtime_isolation();
+
     extern "C-unwind" fn register_then_resolve(output: &mut NativeFrameProgress, context: usize) {
         if let Some(handle) = CALLBACK_ADMISSION.take() {
-            let parent = state::current_services().expect("producer retains its parent services");
+            let parent = crate::current_task_execution_context()
+                .expect("producer retains its parent context");
 
-            let child = state::with_runtime(|runtime| runtime.retained_task(handle))
-                .expect("producer retains its runtime")
-                .expect("fixture child remains live");
+            let child = fixtures::task(handle);
 
             assert_eq!(
                 report_provider::bray_runtime_task_control_wait(
-                    child.control(),
-                    parent.control(),
+                    child.reference(),
+                    parent
+                        .native_owner()
+                        .expect("Source native task is retained")
+                        .reference(),
                     0
                 ),
                 NativeRuntimeStatus::PENDING
@@ -143,7 +153,7 @@ fn terminal_delivery_between_registration_and_suspension_retains_the_wake() {
 
     let child = start();
 
-    CALLBACK_ADMISSION.set(Some(child.handle()));
+    CALLBACK_ADMISSION.set(Some(child.reference().task()));
 
     let parent = start_with_resume(register_then_resolve);
 
@@ -154,8 +164,8 @@ fn terminal_delivery_between_registration_and_suspension_retains_the_wake() {
         );
     }
 
-    assert_eq!(parent.snapshot().phase, 1);
-    assert!(!parent.cancellation.is_requested());
+    assert_eq!(fixtures::snapshot(&parent).phase, 1);
+    assert!(!parent.cancellation().is_requested());
 
     assert_eq!(
         implementation::bray_runtime_main_thread_lane_drive(),
@@ -179,6 +189,8 @@ fn terminal_delivery_between_registration_and_suspension_retains_the_wake() {
 
 #[test]
 fn committed_delivery_prevents_an_unpopped_waiter_from_withdrawing() {
+    let _isolation = state::test_runtime_isolation();
+
     extern "C" fn reenter_dispatch(identity: u64) {
         let Some(waiter) = CALLBACK_ADMISSION.take() else {
             return;
@@ -186,41 +198,37 @@ fn committed_delivery_prevents_an_unpopped_waiter_from_withdrawing() {
 
         assert_ne!(identity, waiter.raw());
 
-        let parent = state::with_runtime(|runtime| runtime.retained_task(waiter))
-            .expect("delivery retains its runtime")
-            .expect("the unpopped waiter remains live");
+        let parent = fixtures::task(waiter);
 
         // Another notification is already committed to this parent. Its
         // registration must survive this attempted resumption until its pop.
-        let (status, _, _) = parent.dispatch();
-
-        assert_eq!(status, NativeRuntimeStatus::PENDING.code());
-        assert_eq!(parent.snapshot().phase, 1);
-
-        let shield = parent.cancellation.shield();
-
-        let services = bray_runtime_abi::NativeTaskDispatchServices {
-            invoke: activation::bray_runtime_activation_callback,
-            ready: activation::readiness,
-            transfer: super::dispatch::transfer,
-            wake: reenter_dispatch,
-            cancel_wait: super::dispatch::cancel_wait,
-        };
-
-        let mut failure = bray_runtime_abi::NativeWorkerFailure {
-            stage: 1, category: 1, native_code: 0,
-        };
-
-        let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
-        let mut execution = bray_runtime_abi::NativeActivationExecution::default();
-
-        let status = report_provider::bray_runtime_task_control_dispatch(
-            parent.control(), &services, &mut failure, &mut progress, &mut execution,
+        let (status, _) = dispatch(
+            &parent,
+            reenter_dispatch,
+            &mut bray_runtime_abi::NativeWorkerFailure::default(),
         );
 
         assert_eq!(status, NativeRuntimeStatus::PENDING.code());
-        assert_eq!(parent.snapshot().phase, 1);
-        assert_eq!(failure.stage, 1, "an unacquired dispatch cannot consume failure");
+        assert_eq!(fixtures::snapshot(&parent).phase, 1);
+
+        let shield = parent.cancellation().shield();
+
+        let mut failure = bray_runtime_abi::NativeWorkerFailure {
+            stage: 1,
+            category: 1,
+            native_code: 0,
+        };
+
+        let (status, _) = dispatch(&parent, reenter_dispatch, &mut failure);
+
+        assert_eq!(status, NativeRuntimeStatus::PENDING.code());
+        assert_eq!(fixtures::snapshot(&parent).phase, 1);
+
+        assert_eq!(
+            failure.stage, 1,
+            "an unacquired dispatch cannot consume failure"
+        );
+
         drop(shield);
     }
 
@@ -238,13 +246,17 @@ fn committed_delivery_prevents_an_unpopped_waiter_from_withdrawing() {
 
     for parent in &parents {
         assert_eq!(
-            report_provider::bray_runtime_task_control_wait(child.control(), parent.control(), 0),
+            report_provider::bray_runtime_task_control_wait(
+                child.reference(),
+                parent.reference(),
+                0
+            ),
             NativeRuntimeStatus::PENDING
         );
     }
 
-    CALLBACK_ADMISSION.set(Some(parents[0].handle()));
-    assert!(child.cancellation.request());
+    CALLBACK_ADMISSION.set(Some(parents[0].reference().task()));
+    assert!(child.cancellation().request());
     drive_with_wake(&child, reenter_dispatch);
     assert!(CALLBACK_ADMISSION.get().is_none());
 
@@ -264,6 +276,8 @@ fn committed_delivery_prevents_an_unpopped_waiter_from_withdrawing() {
 
 #[test]
 fn unobserved_retirement_does_not_claim_the_parents_wait_link() {
+    let _isolation = state::test_runtime_isolation();
+
     startup();
 
     let child = start();
@@ -277,12 +291,12 @@ fn unobserved_retirement_does_not_claim_the_parents_wait_link() {
     }
 
     assert_eq!(
-        report_provider::bray_runtime_task_control_wait(child.control(), parent.control(), 1),
+        report_provider::bray_runtime_task_control_wait(child.reference(), parent.reference(), 1),
         NativeRuntimeStatus::PENDING
     );
 
     assert_eq!(
-        report_provider::bray_runtime_task_control_wait(child.control(), parent.control(), 0),
+        report_provider::bray_runtime_task_control_wait(child.reference(), parent.reference(), 0),
         NativeRuntimeStatus::PENDING
     );
 
@@ -299,6 +313,8 @@ fn unobserved_retirement_does_not_claim_the_parents_wait_link() {
 
 #[test]
 fn resumption_withdraws_head_middle_and_tail_links_before_reusing_the_owner() {
+    let _isolation = state::test_runtime_isolation();
+
     startup();
 
     let first = start();
@@ -314,7 +330,11 @@ fn resumption_withdraws_head_middle_and_tail_links_before_reusing_the_owner() {
 
     for parent in &parents {
         assert_eq!(
-            report_provider::bray_runtime_task_control_wait(first.control(), parent.control(), 0),
+            report_provider::bray_runtime_task_control_wait(
+                first.reference(),
+                parent.reference(),
+                0
+            ),
             NativeRuntimeStatus::PENDING
         );
     }
@@ -323,7 +343,7 @@ fn resumption_withdraws_head_middle_and_tail_links_before_reusing_the_owner() {
     // immediately wait on a different child, while the remaining link delivers.
     for index in [2, 0, 3] {
         assert_eq!(
-            implementation::bray_runtime_wake(parents[index].handle()),
+            implementation::bray_runtime_wake(parents[index].reference().task()),
             NativeRuntimeStatus::SUCCESS
         );
 
@@ -334,8 +354,8 @@ fn resumption_withdraws_head_middle_and_tail_links_before_reusing_the_owner() {
 
         assert_eq!(
             report_provider::bray_runtime_task_control_wait(
-                second.control(),
-                parents[index].control(),
+                second.reference(),
+                parents[index].reference(),
                 0
             ),
             NativeRuntimeStatus::PENDING
@@ -361,19 +381,19 @@ fn resumption_withdraws_head_middle_and_tail_links_before_reusing_the_owner() {
 
 #[test]
 fn committed_delivery_retains_the_cell_after_reentrant_source_resolution() {
+    let _isolation = state::test_runtime_isolation();
+
     extern "C" fn resolve_during_wake(identity: u64) {
         let handle =
             bray_runtime_abi::NativeTaskHandle::new(identity).expect("waiter identity is live");
 
-        let task = state::with_runtime(|runtime| runtime.retained_task(handle))
-            .expect("callback retains its runtime")
-            .expect("registered parent remains live");
+        let task = fixtures::task(handle);
 
         finish(&task);
         drop(task);
 
-        let replacement = state::with_runtime(|runtime| runtime.allocate().task())
-            .expect("callback retains its runtime")
+        let replacement = implementation::bray_runtime_task_allocation()
+            .task()
             .expect("callback can admit another task");
 
         assert_ne!(replacement.raw() & 0xffffffff, identity & 0xffffffff);
@@ -385,7 +405,7 @@ fn committed_delivery_retains_the_cell_after_reentrant_source_resolution() {
 
     let child = start();
     let parent = start();
-    let parent_handle = parent.handle();
+    let parent_handle = parent.reference().task();
 
     for _ in 0..2 {
         assert_eq!(
@@ -395,39 +415,31 @@ fn committed_delivery_retains_the_cell_after_reentrant_source_resolution() {
     }
 
     assert_eq!(
-        report_provider::bray_runtime_task_control_wait(child.control(), parent.control(), 0),
+        report_provider::bray_runtime_task_control_wait(child.reference(), parent.reference(), 0),
         NativeRuntimeStatus::PENDING
     );
 
     drop(parent);
-    assert!(child.cancellation.request());
+    assert!(child.cancellation().request());
     drive_with_wake(&child, resolve_during_wake);
 
-    state::with_runtime(|runtime| {
-        let replacement = runtime
-            .allocate()
-            .task()
-            .expect("returned delivery releases its last cell reference");
+    let replacement = implementation::bray_runtime_task_allocation()
+        .task()
+        .expect("returned delivery releases its last cell reference");
 
-        assert_eq!(
-            replacement.raw() & 0xffffffff,
-            parent_handle.raw() & 0xffffffff
-        );
+    assert_eq!(
+        replacement.raw() & 0xffffffff,
+        parent_handle.raw() & 0xffffffff
+    );
 
-        assert_ne!(replacement, parent_handle);
+    assert_ne!(replacement, parent_handle);
+    assert!(implementation::bray_runtime_task_destruction(replacement).is_success());
 
-        assert_eq!(
-            runtime.destroy_task(replacement),
-            NativeRuntimeStatus::SUCCESS
-        );
+    let admitted = CALLBACK_ADMISSION
+        .take()
+        .expect("callback records its temporary admission");
 
-        let admitted = CALLBACK_ADMISSION
-            .take()
-            .expect("callback records its temporary admission");
-
-        assert_eq!(runtime.destroy_task(admitted), NativeRuntimeStatus::SUCCESS);
-    })
-    .expect("fixture runtime remains active");
+    assert!(implementation::bray_runtime_task_destruction(admitted).is_success());
 
     finish(&child);
     drop(child);
@@ -438,78 +450,117 @@ fn committed_delivery_retains_the_cell_after_reentrant_source_resolution() {
     );
 }
 
-fn drive_with_wake(task: &Arc<NativeTaskServices>, wake: extern "C" fn(u64)) {
-    state::with_runtime(|runtime| {
-        let lane = task.registration.lane().expect("fixture has a main lane");
+// Exercise the Source task-control boundary with a deliberately reentrant wake
+// service. The complete retained Source resource owns the native callback context.
+fn dispatch(
+    task: &Arc<Resources>,
+    wake: extern "C" fn(u64),
+    failure: &mut bray_runtime_abi::NativeWorkerFailure,
+) -> (u32, NativeFrameProgress) {
+    thread_local! { static WAKE: Cell<Option<extern "C" fn(u64)>> = const { Cell::new(None) }; }
 
-        let ready = runtime
-            .scheduler
-            .take_ready(runtime.thread.runtime(), [lane])
-            .expect("ready queue is available")
-            .expect("cancellation enqueues the fixture");
+    extern "C" fn invoke(invocation: &mut bray_runtime_abi::NativeActivationInvocation<'_>) {
+        activation::invoke_producer(invocation);
+    }
 
-        assert_eq!(ready.task(), task.id());
+    extern "C" fn ready(invocation: &mut bray_runtime_abi::NativeActivationInvocation<'_>) {
+        invocation.admission = 0;
+    }
 
-        let context = TaskExecutionContext::new(
-            task.id(),
-            ready.state(),
-            task.cancellation.clone(),
-            &task.output,
-            ready.lane(),
-            task.registration.wake_handle(),
+    extern "C" fn transfer(
+        _: &bray_runtime_abi::NativeActivationExecution,
+        unused: &mut bray_runtime_abi::NativeReportRecords,
+        incidents: &mut bray_runtime_abi::NativeReportRecords,
+    ) {
+        assert_eq!(
+            incidents.count, 0,
+            "these cancellation callbacks emit no incidents"
         );
 
-        let _bridge = bridge::Scope::enter().expect("fixture owns its entry scope");
+        let records = std::mem::take(unused);
 
-        let services = bray_runtime_abi::NativeTaskDispatchServices {
-            invoke: activation::bray_runtime_activation_callback,
-            ready: activation::readiness,
-            transfer: super::dispatch::transfer,
-            wake,
-            cancel_wait: super::dispatch::cancel_wait,
-        };
+        drop(crate::outgoing::OutgoingRecords::from_parts(
+            records.head,
+            records.tail,
+            records.count,
+        ));
+    }
 
-        let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
-        let mut execution = bray_runtime_abi::NativeActivationExecution::default();
+    extern "C" fn deliver(reference: &bray_runtime_abi::NativeTaskReference, _: u32) -> u32 {
+        WAKE.get().expect("dispatch retains its wake service")(reference.task().raw());
 
-        let status = state::with_task_services(Arc::clone(task), || {
-            context::with_task_execution_context(context, || {
-                report_provider::bray_runtime_task_control_dispatch(
-                    task.control(),
-                    &services,
-                    &mut bray_runtime_abi::NativeWorkerFailure::default(),
-                    &mut progress,
-                    &mut execution,
-                )
-            })
-        });
+        0
+    }
 
-        assert_eq!(status, 1);
-        assert_eq!(progress.kind(), NativeFrameProgressKind::CANCELLED);
+    extern "C" fn cancel_wait() {}
 
-        ready
-            .suspend(activation::execution(&execution))
-            .expect("dispatch publishes its terminal scheduling state");
-    })
-    .expect("fixture runtime remains active");
+    let previous = WAKE.replace(Some(wake));
+
+    let services = bray_runtime_abi::NativeTaskDispatchServices {
+        invoke,
+        ready,
+        transfer,
+        wake: deliver,
+        cancel_wait,
+    };
+
+    let thread =
+        crate::bootstrap::current_runtime_thread().expect("fixture retains its Main attachment");
+
+    let lane = crate::ExecutionLane::new(
+        crate::ExecutionLanePlacement::MainThread(thread.id()),
+        crate::ExecutionWorkload::Cooperative,
+    );
+
+    let context = TaskExecutionContext::source(
+        Arc::clone(task),
+        bray_runtime_model::ProtectedFrameStateId::new(fixtures::snapshot(task).execution.state),
+        lane,
+    );
+
+    let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
+    let mut execution = bray_runtime_abi::NativeActivationExecution::default();
+
+    let status = context::with_task_execution_context(context, || {
+        report_provider::bray_runtime_task_control_dispatch(
+            task.reference(),
+            &services,
+            failure,
+            &mut progress,
+            &mut execution,
+        )
+    });
+
+    WAKE.set(previous);
+
+    (status, progress)
+}
+
+fn drive_with_wake(task: &Arc<Resources>, wake: extern "C" fn(u64)) {
+    let (status, progress) = dispatch(
+        task,
+        wake,
+        &mut bray_runtime_abi::NativeWorkerFailure::default(),
+    );
+
+    assert_eq!(status, 1);
+    assert_eq!(progress.kind(), NativeFrameProgressKind::CANCELLED);
 }
 
 fn startup() {
     assert_eq!(
-        implementation::bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(
-            8, 1
-        )),
+        fixtures::startup(NativeRuntimeConfiguration::new(8, 1)),
         NativeRuntimeStatus::SUCCESS
     );
 }
 
-fn start() -> Arc<NativeTaskServices> {
+fn start() -> Arc<Resources> {
     start_with_resume(suspend)
 }
 
 fn start_with_resume(
     resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
-) -> Arc<NativeTaskServices> {
+) -> Arc<Resources> {
     let frame = fixtures::admit(
         0,
         NativeActivationDescriptor {
@@ -529,51 +580,33 @@ fn start_with_resume(
         },
     );
 
-    state::with_runtime(|runtime| {
-        let handle = runtime
-            .allocate()
-            .task()
-            .expect("fixture task admission succeeds");
+    let handle = implementation::bray_runtime_task_allocation()
+        .task()
+        .expect("fixture task admission succeeds");
 
-        assert_eq!(
-            runtime.start(
-                handle,
-                &frame,
-                &mut bray_runtime_abi::NativeRunOutcome::new(
-                    bray_runtime_abi::NativeRunState::COMPLETED,
-                    0
-                )
-            ),
-            NativeRuntimeStatus::SUCCESS
-        );
+    let mut outcome = bray_runtime_abi::NativeRunOutcome::new(NativeRunState::PENDING, 0);
 
-        runtime
-            .retained_task(handle)
-            .expect("started fixture remains registered")
-    })
-    .expect("fixture runtime is active")
+    assert!(
+        implementation::bray_runtime_task_start(
+            handle,
+            std::ptr::from_ref(&frame).addr(),
+            &mut outcome
+        )
+        .is_success()
+    );
+
+    fixtures::task(handle)
 }
 
-fn finish(task: &NativeTaskServices) {
-    task.cancellation.request();
+fn finish(task: &Resources) {
+    task.cancellation().request();
 
-    state::with_runtime(|runtime| {
-        assert_eq!(
-            runtime.resolve_task(task.handle()).state(),
-            NativeRunState::CANCELLED
-        );
+    assert_eq!(
+        fixtures::observe(task.reference().task()).state(),
+        NativeRunState::CANCELLED
+    );
 
-        assert_eq!(
-            runtime.resolve_task_retirement(task.handle()),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        assert_eq!(
-            runtime.destroy_task(task.handle()),
-            NativeRuntimeStatus::SUCCESS
-        );
-    })
-    .expect("fixture runtime is active through source resolution");
+    assert!(fixtures::complete(task.reference().task()).is_success());
 }
 
 extern "C" fn frame_state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {

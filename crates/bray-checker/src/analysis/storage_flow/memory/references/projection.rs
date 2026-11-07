@@ -11,16 +11,32 @@ impl State {
         let borrowed = storage
             .borrow_capabilities()
             .iter()
+            .filter(|borrow| {
+                // Borrowing an entry referent or reborrowing through a capability
+                // does not form an address of the slot holding its reference.
+                borrow.entry_binding().is_none()
+                    && storage.access(borrow.access()).is_some_and(|access| {
+                        matches!(
+                            access.root(),
+                            bray_bound_tree::StorageAccessRoot::Storage(_)
+                        )
+                    })
+            })
             .flat_map(|borrow| storage.retained_roots(borrow.access()))
             .collect::<std::collections::BTreeSet<_>>();
 
-        let entry_borrows = storage.borrow_capabilities().iter().filter(|borrow| {
-            borrow.entry_binding().is_some() && borrow.parent().is_none()
-        }).filter_map(|borrow| {
-            let path = storage.logical_path(borrow.access())?;
+        let entry_borrows = storage
+            .borrow_capabilities()
+            .iter()
+            .filter(|borrow| borrow.entry_binding().is_some() && borrow.parent().is_none())
+            .filter_map(|borrow| {
+                let path = storage.logical_path(borrow.access())?;
 
-            path.projections.is_empty().then_some((path.root, borrow.kind()))
-        }).collect::<std::collections::BTreeMap<_, _>>();
+                path.projections
+                    .is_empty()
+                    .then_some((path.root, borrow.kind()))
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
 
         let owned_storage = storage
             .identity_entries()
@@ -46,12 +62,34 @@ impl State {
         &self,
         target: &Target,
     ) -> bool {
+        if Self::unaddressed_inline_slot(&self.unaddressed_storage, target) {
+            return false;
+        }
+
+        let Some(path) = target.storage_path().filter(|path| self.is_owned_inline_storage(path)) else {
+            return true;
+        };
+
+        // A language loan alone does not publish an address to ambient code.
+        // Actual raw exposure or an escaping call does. Explicit call inputs are
+        // reached separately, including during the call that first publishes them.
+        let root = Target::storage(Place::root(path.root));
+
+        self.contents.range(root.clone()..)
+            .take_while(|(candidate, _)| root.contains(candidate))
+            .any(|(_, contents)| contents.exposed || contents.escaped)
+    }
+
+    pub(super) fn unaddressed_inline_slot(
+        unaddressed: &[StorageIdentityId],
+        target: &Target,
+    ) -> bool {
         // Even an unknown pointer cannot reach invocation-local inline storage whose
         // address is never formed, including implicit lifecycle receivers. Heap
         // payloads can have aliases from before entry.
-        target.storage_path().is_none_or(|path| {
-            self.unaddressed_storage.binary_search(&path.root).is_err()
-                || path.projections.contains(&StorageProjection::OwnedTarget)
+        target.storage_path().is_some_and(|path| {
+            unaddressed.binary_search(&path.root).is_ok()
+                && !path.projections.contains(&StorageProjection::OwnedTarget)
         })
     }
 
@@ -105,17 +143,32 @@ impl State {
         left: &Target,
         right: &Target,
     ) -> bray_bound_tree::StorageRelationship {
-        if !left.previous && !right.previous
+        if !left.previous
+            && !right.previous
             && let (
-                Origin::Entry { reference: left, layer: 1, projections: left_path },
-                Origin::Entry { reference: right, layer: 1, projections: right_path },
+                Origin::Entry {
+                    reference: left,
+                    layer: 1,
+                    projections: left_path,
+                },
+                Origin::Entry {
+                    reference: right,
+                    layer: 1,
+                    projections: right_path,
+                },
             ) = (&left.origin, &right.origin)
             && left.root != right.root
-            && left.projections.is_empty() && right.projections.is_empty()
-            && let (Some(left), Some(right)) = (self.entry_borrows.get(&left.root), self.entry_borrows.get(&right.root))
-            && (*left == bray_symbols::BorrowKind::Mutable || *right == bray_symbols::BorrowKind::Mutable)
+            && left.projections.is_empty()
+            && right.projections.is_empty()
+            && let (Some(left), Some(right)) = (
+                self.entry_borrows.get(&left.root),
+                self.entry_borrows.get(&right.root),
+            )
+            && (*left == bray_symbols::BorrowKind::Mutable
+                || *right == bray_symbols::BorrowKind::Mutable)
             && (*left == bray_symbols::BorrowKind::Mutable || Place::inline_projections(left_path))
-            && (*right == bray_symbols::BorrowKind::Mutable || Place::inline_projections(right_path))
+            && (*right == bray_symbols::BorrowKind::Mutable
+                || Place::inline_projections(right_path))
         {
             // Mutable owners exclude aliases through their owned storage. Shared
             // owners can contain interior mutable storage, so their non-inline
@@ -177,6 +230,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn reference_location(
         &self,
+        values: &bray_symbols::SemanticValueStore,
         mut target: Target,
         path: &bray_bound_tree::StorageReferencePath,
         mut root_borrow: Option<Target>,
@@ -188,7 +242,30 @@ impl State {
 
             target = match root_borrow.take().filter(|_| step == 0 && *index == 0) {
                 Some(root) => root,
-                None => self.value_target(&target, *ty)?,
+                None => self.value_target(&target, *ty).or_else(|| {
+                    let data = values.type_data(*ty);
+
+                    let bray_symbols::TypeData::Slice(element) = data.as_ref() else {
+                        return None;
+                    };
+
+                    let reference = self.values.get(&target)?;
+
+                    if reference.unknown || reference.displaced || reference.targets.len() != 1 {
+                        return None;
+                    }
+
+                    let reached = reference.targets.first().expect("one bounded slice target");
+                    let declared = self.contents.get(reached)?.storage_type;
+
+                    // A buffer view reaches its existing element allocation. A
+                    // dynamic owner projection remains inexact in the target itself.
+                    // Never turn a merely inexact view into an exact cell identity.
+                    (!reached.previous
+                        && (!reference.inexact || !reached.is_exact())
+                        && (declared == Some(*ty) || declared == Some(*element)))
+                    .then(|| reached.clone())
+                })?,
             };
 
             copied = *index;
@@ -283,7 +360,10 @@ impl State {
             .range(target.clone()..)
             .next()
             .is_some_and(|(candidate, _)| target.contains(candidate))
-            || self.deferred.range(target.clone()..).next()
+            || self
+                .deferred
+                .range(target.clone()..)
+                .next()
                 .is_some_and(|(candidate, _)| target.contains(candidate))
             || self
                 .contents
@@ -333,6 +413,74 @@ impl State {
         self.typed_target(self.values.get(location)?, ty)
     }
 
+    pub(in crate::analysis::storage_flow) fn declared_type(&self, target: &Target) -> Option<TypeId> {
+        self.contents.get(target)?.storage_type
+    }
+
+    pub(in crate::analysis::storage_flow) fn projected_type<C: crate::CheckerRequestContext + ?Sized>(
+        &self,
+        request: crate::CheckerUnitView<'_, C>,
+        target: &Target,
+    ) -> crate::CheckerQueryResult<Option<TypeId>, C::UpstreamError> {
+        // A projection keeps its containing storage's checked type even when no
+        // operation has declared that component as a separate memory cell.
+        let mut ancestor = target.clone();
+
+        loop {
+            // An enclosing element region stores its element type. Resolve a
+            // longer route from its owner so an array element is not mistaken
+            // for an element of an array-valued cell.
+            if let Some(mut ty) = self.declared_type(&ancestor)
+                && (ancestor == *target || !matches!(ancestor.projections().last(),
+                    Some(StorageProjection::OwnedTarget | StorageProjection::SliceRange { .. })))
+            {
+                let mut element_region = false;
+
+                for projection in &target.projections()[ancestor.projections().len()..] {
+                    if element_region && !matches!(projection,
+                        StorageProjection::Element(_) | StorageProjection::ElementFromStart(_)
+                            | StorageProjection::ElementFromEnd(_) | StorageProjection::SliceRange { .. }) {
+                        ty = Self::owned_element_type(request.semantic_values(), ty);
+                    }
+
+                    let projected = crate::storage::projected_storage_type(request, ty, *projection)?;
+
+                    let Some(projected) = *projected.value() else {
+                        return Ok(None);
+                    };
+
+                    element_region = matches!(projection,
+                        StorageProjection::OwnedTarget | StorageProjection::SliceRange { .. })
+                        && matches!(request.semantic_values().type_data(projected).as_ref(),
+                            bray_symbols::TypeData::Slice(_));
+
+                    ty = projected;
+                }
+
+                return Ok(Some(if element_region {
+                    Self::owned_element_type(request.semantic_values(), ty)
+                } else { ty }));
+            }
+
+            let length = ancestor.projections().len();
+
+            if length == 0 {
+                return Ok(None);
+            }
+
+            match &mut ancestor.origin {
+                Origin::Entry { projections, .. }
+                | Origin::Returned { projections, .. }
+                | Origin::Static { projections, .. } => {
+                    *projections = projections[..length - 1].into();
+                }
+                Origin::Storage(path) | Origin::Allocation(path) => {
+                    path.projections = path.projections[..length - 1].into();
+                }
+            }
+        }
+    }
+
     fn typed_target(&self, references: &References, ty: TypeId) -> Option<Target> {
         if !references.is_exact() {
             return None;
@@ -348,10 +496,17 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn borrow_target_storage(
         &mut self,
+        values: &bray_symbols::SemanticValueStore,
         capability: BorrowCapabilityId,
         target: Target,
         ty: TypeId,
     ) {
+        let ty = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
+            Self::owned_element_type(values, ty)
+        } else {
+            ty
+        };
+
         self.contents
             .entry(target.clone())
             .or_default()
@@ -359,6 +514,15 @@ impl State {
             .get_or_insert(ty);
 
         self.borrows.insert(capability, References::one(target));
+    }
+
+    fn owned_element_type(values: &bray_symbols::SemanticValueStore, ty: TypeId) -> TypeId {
+        // An owned slice denotes an element region in physical memory, rather
+        // than a separately stored slice descriptor.
+        match values.type_data(ty).as_ref() {
+            bray_symbols::TypeData::Slice(element) => *element,
+            _ => ty,
+        }
     }
 }
 

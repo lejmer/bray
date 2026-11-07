@@ -1,7 +1,74 @@
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::{DeclaredStorageShape, DependencyProjection, TypeData, TypeId};
+use bray_symbols::{DependencyProjection, TypeData, TypeId};
+
+/// The present-value projections introduced by a checked nullable adaptation.
+pub(crate) fn nullable_wrapping(
+    values: &bray_symbols::SemanticValueStore,
+    source: TypeId,
+    mut target: TypeId,
+) -> Option<Vec<StorageProjection>> {
+    let mut projections = Vec::new();
+
+    while target != source {
+        let data = values.type_data(target);
+
+        let TypeData::Nullable(inner) = data.as_ref() else {
+            return None;
+        };
+
+        projections.push(StorageProjection::NullableValue);
+        target = *inner;
+    }
+
+    Some(projections)
+}
+
+/// Selects caller storage through the wrappers introduced by a checked input conversion.
+/// Selecting the whole new wrapper retains the underlying value's dependencies.
+pub(crate) fn unadapted_projections<'p>(
+    values: &bray_symbols::SemanticValueStore,
+    conversion: Option<&bray_bound_tree::SelectedConversion>,
+    mut projections: &'p [DependencyProjection],
+) -> Option<&'p [DependencyProjection]> {
+    let Some(conversion) = conversion.filter(|conversion| {
+        matches!(conversion.target(), bray_bound_tree::ConversionTarget::NullablePresent)
+    }) else { return Some(projections); };
+
+    let mut target = conversion.target_type();
+
+    while target != conversion.source_type() {
+        let TypeData::Nullable(inner) = *values.type_data(target) else {
+            panic!("checked nullable adaptation retains its introduced layers: {conversion:?}");
+        };
+
+        if projections.is_empty() { return Some(projections); }
+
+        projections = projections.strip_prefix(&[DependencyProjection::NullableValue])?;
+        target = inner;
+    }
+
+    Some(projections)
+}
+
+/// Resolves physical storage only when it denotes a logical value in this plan.
+/// A raw pointer's incoming pointee is distinct from the pointer value itself.
+pub(crate) fn storage_observation_path(
+    storage: &bray_bound_tree::StoragePlan,
+    values: &bray_symbols::SemanticValueStore,
+    target: &bray_bound_tree::StorageTarget,
+) -> Option<bray_bound_tree::StoragePath> {
+    if let bray_bound_tree::StorageOrigin::Entry { reference, .. } = &target.origin
+        && !storage
+            .storage_type(reference.root)
+            .is_some_and(|ty| matches!(values.type_data(ty).as_ref(), TypeData::Borrow { .. }))
+    {
+        return None;
+    }
+
+    target.observation_path()
+}
 
 /// Resolves one checked value projection while preserving declaration diagnostics and substitution.
 pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
@@ -71,30 +138,52 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
             },
             projection,
         ) => {
-            let representation = request.declared_type_representation(*definition)?;
-
-            let (representation, declaration_diagnostics) = representation.into_parts();
-
-            diagnostics.add_range(declaration_diagnostics);
-
-            let template = match (representation.storage(), projection) {
+            let member = match (*definition, projection) {
                 (
-                    DeclaredStorageShape::Structure(members),
+                    bray_symbols::NamedTypeSymbolId::Struct(structure),
                     DependencyProjection::ProductField(field),
-                ) => members
-                    .iter()
-                    .find(|member| member.field() == Some(field))
-                    .map(|member| member.ty()),
+                ) if request
+                    .context()
+                    .struct_field(field)?
+                    .is_some_and(|field| field.containing_symbol() == structure.into()) =>
+                {
+                    Some(field.into())
+                }
                 (
-                    DeclaredStorageShape::Union(variants),
+                    bray_symbols::NamedTypeSymbolId::Union(union),
                     DependencyProjection::UnionPayloadField(field),
-                ) => variants
-                    .iter()
-                    .flat_map(|variant| variant.members())
-                    .find(|member| member.field() == Some(field))
-                    .map(|member| member.ty()),
+                ) => {
+                    let variant = request
+                        .context()
+                        .union_payload_field(field)?
+                        .and_then(|field| match field.containing_symbol() {
+                            bray_symbols::AnySymbolId::UnionVariant(variant) => Some(variant),
+                            _ => None,
+                        });
+
+                    match variant {
+                        Some(variant)
+                            if request.context().union_variant(variant)?.is_some_and(
+                                |variant| variant.containing_symbol() == union.into(),
+                            ) =>
+                        {
+                            Some(field.into())
+                        }
+                        _ => None,
+                    }
+                }
                 _ => None,
             };
+
+            let queried = member
+                .map(|member| request.context().storage_member_type(member))
+                .transpose()?;
+
+            let template = queried.as_ref().map(|queried| {
+                diagnostics.add_range(queried.diagnostics().iter().cloned());
+
+                queried.value()
+            });
 
             if let Some(template) = template {
                 let checked =
@@ -174,16 +263,26 @@ pub(crate) fn owned_storage_projections(
 ) -> Vec<StorageProjection> {
     use bray_symbols::ConstantProjectionKind;
 
-    projections.iter().map(|projection| match *projection {
-        ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(field),
-        ConstantProjectionKind::UnionPayloadField(field) => StorageProjection::ActiveUnionPayloadField {
-            variant: dependencies.projection_variant(field), field,
-        },
-        ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
-        ConstantProjectionKind::TupleElement(ordinal) => StorageProjection::TupleElement(ordinal),
-        ConstantProjectionKind::ArrayElementOrdinal(ordinal) => StorageProjection::ElementFromStart(ordinal),
-        _ => unreachable!("checked transfer contains only owning projections"),
-    }).collect()
+    projections
+        .iter()
+        .map(|projection| match *projection {
+            ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(field),
+            ConstantProjectionKind::UnionPayloadField(field) => {
+                StorageProjection::ActiveUnionPayloadField {
+                    variant: dependencies.projection_variant(field),
+                    field,
+                }
+            }
+            ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
+            ConstantProjectionKind::TupleElement(ordinal) => {
+                StorageProjection::TupleElement(ordinal)
+            }
+            ConstantProjectionKind::ArrayElementOrdinal(ordinal) => {
+                StorageProjection::ElementFromStart(ordinal)
+            }
+            _ => unreachable!("checked transfer contains only owning projections"),
+        })
+        .collect()
 }
 
 pub(crate) fn storage_projections(
@@ -222,8 +321,7 @@ fn convert_projections<E>(
             DependencyProjection::Element(term) => {
                 let term = values.constant_term_data(term);
 
-                let bray_symbols::ConstantTermData::Value(value) = term.as_ref()
-                else {
+                let bray_symbols::ConstantTermData::Value(value) = term.as_ref() else {
                     return Ok(None);
                 };
 

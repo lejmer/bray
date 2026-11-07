@@ -933,6 +933,25 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         Ok(DiagnosticResult::new(ty, diagnostics))
     }
 
+    fn storage_member_type(
+        &self,
+        member: AnySymbolId,
+    ) -> CheckerQueryResult<Arc<DiagnosticResult<bray_symbols::TypeExpressionTemplate>>> {
+        match member {
+            AnySymbolId::StructField(field) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::StructFieldTypeQuery,
+                >::new(field))
+            }
+            AnySymbolId::UnionPayloadField(field) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::UnionPayloadFieldTypeQuery,
+                >::new(field))
+            }
+            _ => panic!("storage member type requires a checked field: {member:?}"),
+        }
+    }
+
     fn declared_type_representation(
         &self,
         subject: NamedTypeSymbolId,

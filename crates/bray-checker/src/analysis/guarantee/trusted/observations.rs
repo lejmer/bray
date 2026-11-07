@@ -42,15 +42,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         visible.then_some((expression, call))
     }
 
-    pub(super) fn refresh_borrowed_arguments(
+    fn refresh_borrowed_arguments(
         &self,
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+        completion: &bray_bound_tree::StorageCompletion,
     ) {
-        let Some(selection) = invocation.expression().and_then(|expression| {
-            self.semantics.selections().expression(expression)
-        }) else {
+        let Some(selection) = invocation
+            .expression()
+            .and_then(|expression| self.semantics.selections().expression(expression))
+        else {
             return;
         };
 
@@ -59,39 +61,164 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         for subject in contracts.reference_subjects() {
-            if subject.projections().is_empty()
-                || contracts.reference_type(subject).and_then(|ty| {
-                    crate::representation::reference_kind(self.request, ty)
-                }) != Some(bray_symbols::DependencyReferenceKind::Borrow)
+            if contracts
+                .reference_type(subject)
+                .and_then(|ty| crate::representation::reference_kind(self.request, ty))
+                != Some(bray_symbols::DependencyReferenceKind::Borrow)
             {
                 continue;
             }
 
-            let prepared = contracts.reference_path(subject)
+            let prepared = contracts
+                .reference_path(subject)
                 .expect("prepared reference subject retains its path");
 
-            let Some(input) = selection.invocation_input_site(invocation, subject.subject_root()) else {
+            let Some(input) = selection.invocation_input_site(invocation, subject.subject_root())
+            else {
                 continue;
             };
 
-            let Some(value) = self.input_place(input)
-                .and_then(|place| place.project(prepared.projections()))
-                .and_then(|place| place.value_in(&state.current)) else {
+            let observe = |base: &bray_bound_tree::StoragePath| {
+                let projected;
+
+                let path = if prepared.projections().is_empty() {
+                    base
+                } else {
+                    projected = bray_bound_tree::StoragePath {
+                        root: base.root,
+                        projections: base
+                            .projections
+                            .iter()
+                            .chain(prepared.projections())
+                            .copied()
+                            .collect(),
+                    };
+
+                    &projected
+                };
+
+                let target = completion.references().get(path)?;
+
+                let target = crate::storage::storage_observation_path(
+                    self.storage,
+                    self.request.semantic_values(),
+                    target,
+                )?;
+
+                if let Some(bray_bound_tree::StorageIdentity::Static(declaration)) =
+                    self.storage.identity(target.root)
+                {
+                    // Physical storage paths group a static declaration's instances.
+                    // Keep the exact selected instance from the evaluated input.
+                    let input = self.current_input(state, input);
+
+                    let (ExecutionCondition::Input(mut place), _) = input.observation_path()?
+                    else {
+                        return None;
+                    };
+
+                    if place.selected_static() != Some(declaration) {
+                        return None;
+                    }
+
+                    place.projections = std::sync::Arc::new([]);
+
+                    let place = place.project(&target.projections)?;
+
+                    return Some(
+                        place
+                            .value_in(&state.current)
+                            .unwrap_or(ExecutionCondition::Input(place)),
+                    );
+                }
+
+                Some(self.storage_path_value(state, &target))
+            };
+
+            let observed = match input {
+                bray_bound_tree::BoundExecutionSite::Node(
+                    bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                ) => self
+                    .storage
+                    .node_plans(expression.into())
+                    .filter_map(|plan| self.storage.logical_path(plan.access()))
+                    .find_map(observe)
+                    .or_else(|| {
+                        self.storage
+                            .temporary(expression)
+                            .and_then(|root| observe(&bray_bound_tree::StoragePath::root(root)))
+                    }),
+                bray_bound_tree::BoundExecutionSite::CallInput {
+                    expression,
+                    ordinal,
+                } => self
+                    .storage
+                    .invocation_input(expression, ordinal)
+                    .and_then(|access| self.storage.logical_path(access))
+                    .and_then(observe),
+                bray_bound_tree::BoundExecutionSite::Iterate(_)
+                | bray_bound_tree::BoundExecutionSite::Next(_) => self
+                    .storage
+                    .invocation_result(input)
+                    .and_then(|access| self.storage.logical_path(access))
+                    .and_then(observe),
+                _ => None,
+            };
+
+            let value = observed
+                .or_else(|| {
+                    self.input_place(input)
+                        .and_then(|place| place.project(prepared.projections()))
+                        .and_then(|place| place.value_in(&state.current))
+                })
+                .or_else(|| {
+                    prepared
+                        .projections()
+                        .is_empty()
+                        .then(|| self.current_input(state, input))
+                });
+
+            let Some(mut value) = value else {
                 continue;
             };
 
-            let ordinal = selection.invocation_input_ordinal(invocation, subject.subject_root())
+            let ordinal = selection
+                .invocation_input_ordinal(invocation, subject.subject_root())
                 .expect("prepared input reference retains its ordinal");
 
-            let Some(place) = crate::ExecutionPlace::argument(ordinal).project(prepared.projections()) else {
+            let Some(place) =
+                crate::ExecutionPlace::argument(ordinal).project(prepared.projections())
+            else {
                 continue;
             };
 
+            let context = if prepared.projections().is_empty() {
+                // The evaluated input loan survives independently of its binding.
+                place.value_in(arguments)
+            } else {
+                // A reached reference field can itself have been replaced.
+                Some(prepared.projections().iter().copied().fold(
+                    self.current_input(state, input),
+                    ExecutionCondition::project,
+                ))
+            };
+
+            value = context
+                .unwrap_or(ExecutionCondition::Unknown)
+                .with_referent(value);
+
             // Consuming the carrier does not freeze the contents of its borrowed fields.
-            super::super::state::update_parent_observations(arguments, &place, &value);
+            super::super::state::update_parent_observations(
+                arguments,
+                &place,
+                &value,
+                Some(prepared.projections()),
+            );
+
             arguments.insert(place, value);
 
-            if let Some(reference) = selection.inputs()
+            if let Some(reference) = selection
+                .inputs()
                 .find(|input| input.root() == subject.subject_root())
                 .and_then(|input| input.reference())
                 && let Some(value) = arguments.get(&crate::ExecutionPlace::argument(ordinal))
@@ -99,28 +226,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 arguments.insert(reference.into(), value.clone());
             }
         }
+
     }
 
     pub(super) fn prepare_call_observations(
         &self,
         state: &mut ExecutionState,
-        expression: BoundExpressionId,
+        invocation: bray_bound_tree::BoundExecutionSite,
         call: &bray_bound_tree::SelectedCall,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         address_sources: &BTreeMap<
             crate::ExecutionPlace,
             crate::execution_guarantees::AddressDependencies,
         >,
-        origins: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
-        retain_carriers: bool,
-    ) -> (
-        Vec<ExecutionCondition>,
-        BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
-    ) {
-        let mut carriers = Vec::new();
+        completion: &bray_bound_tree::StorageCompletion,
+        retain_authority: bool,
+    ) -> BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource> {
+        self.refresh_borrowed_arguments(state, invocation, arguments, completion);
+
+        let expression = invocation
+            .expression()
+            .expect("visible selected call retains its expression");
+
         let mut owners = BTreeMap::<_, GuaranteeSource>::new();
 
         for argument in call.arguments() {
@@ -193,13 +320,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let Some(place) = self.input_place(operand) else {
+            let place = self.input_place(operand);
+
+            if place.is_none() {
                 // Indexed storage has no scalar field path. Its enclosing owner still bounds
                 // the lifetime of a returned address or capability.
                 for access in self
                     .storage
                     .occurrence_plans(operand)
-                    .filter(|_| retain_carriers)
+                    .filter(|_| retain_authority)
                 {
                     if let Some(owner) =
                         crate::ExecutionPlace::storage_owner(self.storage, access.access())
@@ -207,28 +336,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         owners.entry(operand).or_default().borrowed.insert(owner);
                     }
                 }
+            }
 
-                continue;
-            };
-
-            let input = self.current_input(state, operand);
+            let input = arguments
+                .get(&ordinal)
+                .expect("prepared call retains its refreshed argument")
+                .clone();
 
             // A local borrow alias retains the referent, rather than the slot holding
             // the alias. Its returned view can outlive that slot while the input lives.
-            if retain_carriers {
+            if retain_authority {
                 self.retain_trusted_borrow_owners(
                     &mut owners.entry(operand).or_default().borrowed,
                     operand,
-                    &place,
-                    origins,
+                    place.as_ref(),
+                    completion.borrow_origins(),
                 );
             }
 
             let value = input;
-
-            if retain_carriers {
-                carriers.push(value.clone());
-            }
 
             if let Some(parameter) = parameter {
                 arguments.insert(
@@ -255,24 +381,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
             && let Some(input) =
                 call.input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
-            && let Some(place) = self.input_place(input)
         {
             let reference =
                 bray_bound_tree::BoundReferenceTarget::Surface(receiver.parameter().into());
 
-            let value = self.current_input(state, input);
+            let value = arguments
+                .get(&crate::ExecutionPlace::argument(
+                    bray_symbols::SymbolOrdinal::new(0),
+                ))
+                .expect("prepared receiver retains its refreshed argument")
+                .clone();
 
-            if retain_carriers {
+            if retain_authority {
                 self.retain_trusted_borrow_owners(
                     &mut owners.entry(input).or_default().borrowed,
                     input,
-                    &place,
-                    origins,
+                    self.input_place(input).as_ref(),
+                    completion.borrow_origins(),
                 );
-            }
-
-            if retain_carriers {
-                carriers.push(value.clone());
             }
 
             arguments.insert(reference.into(), value.clone());
@@ -283,14 +409,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
-        (carriers, owners)
+        owners
     }
 
     fn retain_trusted_borrow_owners(
         &self,
         owners: &mut BTreeSet<crate::ExecutionPlace>,
         expression: bray_bound_tree::BoundExecutionSite,
-        place: &crate::ExecutionPlace,
+        place: Option<&crate::ExecutionPlace>,
         origins: &BTreeMap<
             bray_bound_tree::BoundExecutionSite,
             BTreeSet<bray_bound_tree::StoragePath>,
@@ -302,7 +428,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .iter()
                     .filter_map(|path| crate::ExecutionPlace::storage_path(self.storage, path)),
             );
-        } else {
+        } else if let Some(place) = place {
             // Provisional execution analysis has no completed storage transition yet.
             owners.insert(place.clone());
         }

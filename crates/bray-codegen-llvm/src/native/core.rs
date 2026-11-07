@@ -366,7 +366,21 @@ pub(crate) fn runtime_configuration_type<'context>(
 ) -> StructType<'context> {
     let usize = pointer_integer_type(context, target);
 
-    context.struct_type(&[usize.into(), usize.into()], false)
+    let pointer = context.ptr_type(AddressSpace::default());
+
+    context.struct_type(
+        &[
+            usize.into(),
+            usize.into(),
+            context.i32_type().into(),
+            pointer.into(),
+            pointer.into(),
+            pointer.into(),
+            usize.into(),
+            usize.into(),
+        ],
+        false,
+    )
 }
 
 pub(super) fn frame_state_type(context: &Context) -> StructType<'_> {
@@ -469,7 +483,7 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::TaskAllocation => task_allocation_type(context).into(),
         RuntimeAbiType::InactiveFrame => inactive_frame_type(context, target).into(),
         RuntimeAbiType::FrameProgress => frame_progress_type(context).into(),
-        RuntimeAbiType::LaneResult | RuntimeAbiType::FrameState => context
+        RuntimeAbiType::FrameState => context
             .struct_type(
                 &[context.i32_type().into(), context.i32_type().into()],
                 false,
@@ -630,19 +644,16 @@ mod tests {
         )
         .expect("native cancellation signature exists");
 
-        let lane = super::runtime_function_type(
-            &context,
-            &target,
-            RuntimeAbiRole::CompatibleLaneSelection,
-        )
-        .expect("native lane signature exists");
+        let state =
+            super::runtime_function_type(&context, &target, RuntimeAbiRole::TaskObservationQuery)
+                .expect("native state signature exists");
 
         assert_eq!(
             cancellation.get_return_type(),
             Some(context.i8_type().into())
         );
 
-        assert_eq!(lane.get_return_type(), Some(context.i64_type().into()));
+        assert_eq!(state.get_return_type(), Some(context.i64_type().into()));
 
         assert_eq!(
             RuntimeAbiRole::SuspensionRegistration
@@ -812,7 +823,7 @@ mod tests {
             .unwrap_or_else(|| panic!("root execution must have a native ABI"));
 
         assert_eq!(root.get_return_type(), None);
-        assert_eq!(root.count_param_types(), 4);
+        assert_eq!(root.count_param_types(), 3);
 
         let resume =
             super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);
@@ -872,7 +883,7 @@ mod tests {
             Some(super::root_start_type(&context).into())
         );
 
-        assert_eq!(root.count_param_types(), 4);
+        assert_eq!(root.count_param_types(), 2);
 
         let resume =
             super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);

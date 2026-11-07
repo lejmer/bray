@@ -10,48 +10,20 @@ using internal bray.runtime.bootstrap.host.product;
 
 // Both native slots lend their actual retained cells through registration.
 // Their ordinary field values do not grant a source observation claim.
-trusted internal predicate wait_entry(child: DataPointer<Reference>, parent: DataPointer<Reference>);
-
-trusted internal func read_wait_inputs(
-    pos child: DataPointer<Reference>,
-    pos parent: DataPointer<Reference>
-) -> (Reference, Reference)
-    requires(trusted wait_entry(child = child, parent = parent))
-    ensures(trusted retained(owner = &result.0), trusted retained(owner = &result.1))
-{
-    let observed = trusted read_wait_child(child, parent);
-    let waiter = trusted read_reference(parent);
-
-    return (observed, waiter);
-}
-
-trusted internal func read_wait_child(
-    pos child: DataPointer<Reference>,
-    pos parent: DataPointer<Reference>
-) -> Reference
-    requires(trusted wait_entry(child = child, parent = parent))
-    ensures(trusted retained(owner = &result), trusted reference_slot(pointer = parent))
-    uses(raw_memory)
-{
-    let permit = trusted lambda(pos child: DataPointer<Reference>, pos parent: DataPointer<Reference>)
-        requires(trusted wait_entry(child = child, parent = parent))
-        ensures(
-            trusted core.memory.valid_read<Reference>(pointer = child, count = 1),
-            trusted core.memory.aligned_for<Reference>(pointer = child),
-            trusted core.memory.initialized_as<Reference>(pointer = child)
-        )
-        executes(pure, total) {};
-
-    trusted permit(child, parent);
-    return trusted std.memory.read<Reference>(child);
-}
-
 @abi(c)
 trusted internal func request_retirement(pos pointer: DataPointer<Reference>) -> u32
-    requires(trusted reference_slot(pointer = pointer), trusted resolution_entry(reference = pointer))
+    requires(trusted reference_slot(owner = &pointer), trusted resolution_slot(owner = &pointer))
 {
-    let reference = trusted read_reference(pointer);
-    let mut guard = trusted lock_cell(&reference);
+    let reference = trusted borrow_resolution_reference(&pointer);
+
+    return retire_reference(reference);
+}
+
+internal func retire_reference(pos reference: &Reference) -> u32
+    requires(trusted retained(owner = reference), trusted resolution_owner(owner = reference))
+    ensures(trusted retained(owner = reference), trusted resolution_owner(owner = reference))
+{
+    let mut guard = trusted lock_cell(reference);
     let control = trusted guard.get();
 
     if !control.source_owner

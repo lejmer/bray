@@ -11,11 +11,25 @@ fn production_buffer_views_keep_nested_allocations_bounded() {
     for name in ["slot_at", "record"] {
         let key = source_function_body_key(&compilation, name);
 
-        let flow = compilation.storage_flow(key).expect("production getter retains its storage analysis");
+        let flow = compilation
+            .storage_flow(key)
+            .expect("production getter retains its storage analysis");
 
-        assert!(!flow.diagnostics().has_errors(), "{name}: {:?}", flow.diagnostics());
+        assert!(
+            !flow.diagnostics().has_errors(),
+            "{name}: {:?}",
+            flow.diagnostics()
+        );
+
         assert!(!flow.value().is_recovered(), "{name}: {:?}", flow.value());
-        assert!(flow.value().dependencies().preserves_storage_on_normal_return(), "{name}: {:?}", flow.value().dependencies());
+
+        assert!(
+            flow.value()
+                .dependencies()
+                .preserves_storage_on_normal_return(),
+            "{name}: {:?}",
+            flow.value().dependencies()
+        );
     }
 }
 
@@ -2548,111 +2562,52 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
 #[test]
 #[ignore = "tier:proof"]
 fn activation_callback_requires_one_exact_authorized_invocation() {
-    for (execution, descriptor, context, operation, argument, progress, records, repeat, valid) in [
+    let authorized =
+        "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition)";
+
+    let outputs = "trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)";
+
+    let other_authorized =
+        "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &other.acquisition)";
+
+    let other_outputs = "trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &other.acquisition)";
+    let invoke = "_ = trusted callback(owner);";
+
+    for (requirements, body, valid) in [
+        (String::new(), invoke, false),
+        (authorized.to_owned(), invoke, false),
+        (outputs.to_owned(), invoke, false),
+        (format!("{other_authorized}, {outputs}"), invoke, false),
+        (format!("{authorized}, {other_outputs}"), invoke, false),
+        (format!("{authorized}, {outputs}"), invoke, true),
         (
-            "other_execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            false,
+            format!("{authorized}, {outputs}"),
+            r#"
+                let reconstructed: bray.runtime.bootstrap.activation.callback.Invocation = {
+                    acquisition = owner.acquisition,
+                    execution = other.execution,
+                    descriptor = owner.descriptor,
+                    context = owner.context,
+                    operation = owner.operation,
+                    progress = owner.progress,
+                    records = owner.records,
+                };
+
+                _ = trusted callback(reconstructed);
+            "#,
             false,
         ),
         (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            false,
-            true,
-        ),
-        (
-            "execution",
-            "other_descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "other_context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "1",
-            "0",
-            "progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "1",
-            "progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "other_progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "other_records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            true,
+            format!("{authorized}, {outputs}"),
+            "let returned = trusted callback(owner); _ = trusted callback(returned);",
             false,
         ),
     ] {
-        let invocation =
-            "trusted callback(execution, descriptor, context, 0, 0, progress, records);";
-
-        let repeated = if repeat { invocation } else { "" };
+        let requirements = if requirements.is_empty() {
+            requirements
+        } else {
+            format!(", {requirements}")
+        };
 
         let caller = format!(
             r#"
@@ -2662,32 +2617,12 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             using internal bray.runtime.bootstrap.entry;
             trusted func production_probe(
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
-                pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
-                pos other_execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
-                pos descriptor: DataPointer<bray.runtime.bootstrap.activation.Descriptor>,
-                pos other_descriptor: DataPointer<bray.runtime.bootstrap.activation.Descriptor>,
-                pos context: usize,
-                pos other_context: usize,
-                pos progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
-                pos other_progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
-                pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
-                pos other_records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
+                pos owner: bray.runtime.bootstrap.activation.callback.Invocation,
+                pos other: bray.runtime.bootstrap.activation.callback.Invocation,
             )
-                requires(
-                    trusted bray.runtime.bootstrap.entry.native_entry(),
-                    trusted bray.runtime.bootstrap.activation.callback.authorized(
-                        execution = {execution},
-                        descriptor = {descriptor},
-                        context = {context},
-                        operation = {operation},
-                        argument = {argument},
-                        progress = {progress},
-                        records = {records},
-                    ),
-                )
+                requires(trusted bray.runtime.bootstrap.entry.native_entry(){requirements})
             {{
-                {invocation}
-                {repeated}
+                {body}
             }}
             "#
         );
@@ -2709,6 +2644,54 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             bray_testing::assert_goal_state_diagnostic_kind(
                 lowered.diagnostics(),
                 DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "tier:proof"]
+fn driver_view_keeps_its_source_acquisition_with_the_complete_owner() {
+    for (body, valid) in [
+        ("return owner;", true),
+        (
+            "return { acquisition = owner.acquisition, pointer = pointer, status = 0 };",
+            false,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+
+            trusted func production_probe(
+                pos owner: bray.runtime.bootstrap.execution.Current,
+                pos pointer: DataPointer<bray.runtime.bootstrap.execution.Context>,
+            ) -> bray.runtime.bootstrap.execution.Current
+                requires(trusted bray.runtime.bootstrap.execution.view_owned(owner = &owner.acquisition))
+                ensures(trusted bray.runtime.bootstrap.execution.view_owned(owner = &result.acquisition))
+            {{
+                {body}
+            }}
+            "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .expect("fixture callable must lower successfully");
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
             );
         }
     }

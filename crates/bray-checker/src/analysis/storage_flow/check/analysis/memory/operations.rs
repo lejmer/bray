@@ -31,6 +31,46 @@ const fn memory_status_rank(status: MemoryOperationStatus) -> u8 {
 }
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow::check::analysis) fn observe_memory_read(
+        &mut self,
+        state: &StorageFlowState,
+        execution: &mut crate::analysis::guarantee::ExecutionState,
+        kind: crate::analysis::model::AnalysisOperationKind,
+        invalidation: Option<&mut bray_bound_tree::StorageInvalidation>,
+    ) {
+        if !matches!(kind,
+            crate::analysis::model::AnalysisOperationKind::Call {
+                phase: crate::analysis::model::AnalysisCallPhase::Attempt, ..
+            } | crate::analysis::model::AnalysisOperationKind::Bound(_)) {
+            return;
+        }
+
+        let Some(expression) = kind.occurrence().expression() else {
+            return;
+        };
+
+        let Some(operation) = self.memory.operation(expression) else {
+            return;
+        };
+
+        let Some(pointee) = operation.kind().moving_read_type() else {
+            return;
+        };
+
+        let target = self.expression_target(state, operation.arguments()[0])
+            .and_then(|slot| state.memory.value_target(&slot, pointee));
+
+        if let Some(source) = self.execution.observe_memory_read(execution, expression, target.as_ref())
+            && !matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. })
+            && let Some(invalidation) = invalidation {
+            self.preserve_snapshot_observations(&source, bray_symbols::DependencySubjectRoot::Result, &[], invalidation);
+        }
+
+        if self.publish {
+            self.record_state_target(bray_bound_tree::StorageStateTarget::MemoryRead(expression), target);
+        }
+    }
+
     pub(in crate::analysis::storage_flow::check::analysis) fn apply_memory_operation<
         'refinements,
     >(
@@ -205,7 +245,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // Unknown physical provenance remains unknown after a checked conversion.
                     // It is not syntax recovery and does not erase the body's other facts.
                     if let Some(source) = self.expression_reference(state, arguments[pointer]) {
-                        source.transfer(&mut state.memory, result);
+                        if let CheckedMemoryOperationKind::BorrowFrom { pointee, .. } =
+                            operation.kind()
+                        {
+                            source.transfer(&mut state.memory, result.clone());
+                            state.memory.borrow_view(&result, *pointee);
+                        } else {
+                            source.transfer(&mut state.memory, result);
+                        }
                     } else {
                         state.memory.clear(&result);
                     }
