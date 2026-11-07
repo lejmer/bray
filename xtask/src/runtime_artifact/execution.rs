@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::time::Instant;
 use subprocess::Exec;
 
 use bray_base::NonEmptySharedStr;
@@ -25,8 +26,14 @@ pub(super) fn smoke_test(
     directory: &Path,
 ) -> Result<(), CommandError> {
     let probe = allocation_probe(target, directory)?;
+    let (bray_units, runtime_units) = super::provenance::load_runtime_provenance(runtime, target)?;
 
     for (name, source, expected) in [
+        (
+            "async-direct",
+            include_str!("../../fixtures/native-execution/async-direct.bray"),
+            0,
+        ),
         (
             "async-values",
             include_str!("../../fixtures/native-execution/async-i32.bray"),
@@ -78,6 +85,7 @@ pub(super) fn smoke_test(
             0,
         ),
     ] {
+        let preparing = Instant::now();
         let package = PackageIdentity::try_new("bray.runtime.execution.smoke")
             .expect("fixture package identity is valid");
 
@@ -123,6 +131,8 @@ pub(super) fn smoke_test(
             )));
         }
 
+        let preparation_seconds = preparing.elapsed().as_secs_f64();
+
         // Development instantiates imported MIR. Release reuses the standard
         // library's native constructors and must retain their companion backing.
         for (mode, configuration) in [
@@ -132,7 +142,8 @@ pub(super) fn smoke_test(
             let output = directory.join(format!("{name}-{mode}"));
             let map = output.with_extension("map");
 
-            crate::native_product::emit_executable_with_configuration(
+            let building = Instant::now();
+            let native = crate::native_product::emit_executable_with_configuration(
                 &compilation,
                 product.clone(),
                 target,
@@ -146,6 +157,27 @@ pub(super) fn smoke_test(
                 configuration,
             )
             .map_err(CommandError::EntrySmoke)?;
+
+            let build_seconds = building.elapsed().as_secs_f64();
+
+            super::provenance::audit_product_runtime(
+                &native,
+                &bray_units,
+                &output,
+            ).map_err(CommandError::EntrySmoke)?;
+
+            super::provenance::audit_runtime_units(&runtime_units, &bray_units, target, &map)?;
+
+            if name == "async-direct" {
+                let host = native.executable_host().expect("async executable retains its host");
+
+                for role in [
+                    bray_runtime_interface::RuntimeAbiRole::ExecutionWorkersStartup,
+                    bray_runtime_interface::RuntimeAbiRole::ExecutionDeadlinesStartup,
+                ] {
+                    assert!(!host.requirements().requires_role(role), "minimal async root demanded optional service {role:?}");
+                }
+            }
 
             // Development deliberately preserves unused linked content. Optional
             // service omission is a property of the final release executable.
@@ -164,6 +196,17 @@ pub(super) fn smoke_test(
                     ],
                 )
                 .map_err(CommandError::EntrySmoke)?;
+
+                if name == "async-direct" || name == "async-values" {
+                    super::smoke::audit_link_symbols(&symbols, &[], &[
+                        bray_runtime_abi::symbols::EXECUTION_WORKERS_STARTUP_SYMBOL,
+                        bray_runtime_abi::symbols::WORKER_CREATION_SYMBOL,
+                        bray_runtime_abi::symbols::WORKER_POINTER_ENTRY_SYMBOL,
+                        bray_runtime_abi::symbols::WORKER_WORD_ENTRY_SYMBOL,
+                        bray_runtime_interface::PlatformServiceRole::ThreadCreate.native_symbol(),
+                        "pthread_create", "_beginthreadex",
+                    ]).map_err(CommandError::EntrySmoke)?;
+                }
             }
 
             let destination = crate::native_product::managed_destination(&output)
@@ -175,7 +218,9 @@ pub(super) fn smoke_test(
                         CommandError::EntrySmoke(format!("could not resolve {name}: {error:?}"))
                     })?;
 
+            let starting = Instant::now();
             let result = command_output(Exec::cmd(executable.path()), "generated async execution")?;
+            let startup_seconds = starting.elapsed().as_secs_f64();
 
             let expected_stderr = if name == "scoped-cleanup" {
                 let stderr = String::from_utf8_lossy(&result.stderr);
@@ -201,7 +246,10 @@ pub(super) fn smoke_test(
                 )));
             }
 
-            println!("{name} {mode}: exit={expected}");
+            let bytes = fs::metadata(executable.path())
+                .map_err(|error| CommandError::read(executable.path(), error))?.len();
+
+            println!("asynchronous_product name={name} mode={mode} bytes={bytes} preparation_seconds={preparation_seconds:.6} build_seconds={build_seconds:.6} startup_seconds={startup_seconds:.6} exit={expected}");
         }
     }
 

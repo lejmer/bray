@@ -11,9 +11,55 @@ Inspect current remote branches and issue relations before changing the stack. P
 [PR #709](https://github.com/lejmer/bray/pull/709) supplies demanded worker lifetime through
 [BRA-566](https://linear.app/bray-lang/issue/BRA-566).
 
-The next step is a coherent design of the affected ownership and evidence mechanism, followed by implementation.
+The current batch completes the evidence model described below before validating the runtime end to end.
 The user authorizes rewriting unsuitable mechanisms when that produces a simpler, more maintainable result.
-A completed design has not yet been established. Do not resume by applying another local preservation exception.
+
+### Design commitments
+
+`ExecutionPlace` identifies a checked storage path. `ExecutionState.current` maps that path to its current value,
+including independently versioned contents. A `Borrowed` owner identifies a retained loan. Refreshing its referent
+or joining current contents must not replace the loan identity. A scalar observation reached through a stored view
+uses that loan's established storage context, not a current contents version as a new storage identity.
+
+`ExecutionCallEvidence` owns an invocation's entry snapshot. An inactive frame retains that context independently
+of later caller mutation. Each copied capture uses the existing frame-relative `CapturedInput` identity, including
+constant inputs. Ordinary facts describe its value. Copy origins only correlate still-unchanged caller observations,
+and expire without deleting captured inputs. Owned captures transfer their complete carriers. Borrowed inputs retain
+access dependencies without acquiring ownership. Normal completion can use entry proof, while abnormal cleanup
+receives no normal-completion guarantees.
+
+Joins intersect proven facts and merge possible dependencies. They must not conflate reduced value knowledge with
+input existence or ownership. Captured identities are bounded by frame owner, source invocation and input ordinal.
+Invocation entries and current values use the same snapshot join, including retained loans with changed referents.
+Existing block joins summarize successive dynamic frames from one source site, without accumulating an incarnation
+history. Losing a copy origin cannot erase an input or preserve a stale caller selector.
+
+Storage preservation uses the resolved `Effect` together with its target, raw access type and scope until the validity
+decision. The cached `Footprint` classifies which marker types a transfer can carry. It does not decide reachability.
+One transfer query serves active loans and stored shared views. A raw transfer revokes a matching observation only
+where it may reach its storage. Ambient effects use established exposure, and a target bound uses the existing memory
+relationship. Ordinary operations respect retained shared loans. Marker-free data transfers cannot retire markers. Whole-carrier transfer, replacement and retirement remain distinct
+from contents mutation. Scalar-only carriers must also lose authority after a reached raw move.
+
+Remove the global raw-transfer marker set used as a substitute for reached storage. Preserve the existing owner,
+witness and invalidation representations, rather than adding another evidence store or shutdown policy.
+Remove deferred refinement's replacement of captured arguments with proven constants. Constant knowledge belongs in
+the entry facts, while the frame retains its input identities through refinement, source mutation and joins.
+Reconsider this design if it requires per-consumer exceptions, repeated reachability traversals, unbounded loop
+history, or weakening rejected fabrication and raw-transfer cases.
+
+Optional execution services use their own existing retained domains and operation bindings. Common root driving and
+cleanup must not directly reference concrete deadline work or worker storage destruction. Deadline domains bind poll,
+wait, backing retirement and final destruction when formed. Worker domains bind their final destruction alongside their
+existing demand, stop and detach operations. The operation signatures preserve existing retained-owner and retirement
+requirements. Native entries take raw pointers or complete owned values, with anchored borrows inside their implementations.
+They consume their own incidents before returning. An unconstrained ordinary Bray callback can retain its input borrows
+in incident reports, so it cannot provide this service boundary. This adds no host-wide runtime table, C borrow ABI or
+alternate shutdown owner.
+
+The affected-contract checklist covers capture and forwarding, source mutation, branch and loop joins, raw and ordinary
+transfers, normal and abnormal cleanup, result consumption, Source/imported contracts, runtime native boundaries,
+genuine Main authority, optional service selection and synchronous no-executor controls.
 
 This document is the single current handoff. Update it in place as decisions and evidence change.
 Remove superseded statements. Do not accumulate historical task notes or parallel progress records.
@@ -84,6 +130,61 @@ function table, fabricated lane authority or a C borrow ABI. No language change 
 without implementing those separate outcomes here.
 
 ## Current verification boundary
+
+The current redesign separates scalar `StorageValue` observations from aggregate `Constructed` contents. The old
+single-`OwnedTarget` shape test misclassified refreshed aggregate owners as scalar storage contexts. Scalar data and
+storage identity now have an explicit representation. Ordinary equalities transform data without renaming its storage
+context. The nested conditional ownership collector now traverses both predecessors together and carries enclosing
+active-case guards into each payload, replacing flat inner-tag tests. Both changes are implemented. The checker unit suite reports 414 passing and one failing existing test,
+`known_value_writes_revoke_only_borrowed_authority_on_the_changed_storage`. The new nested guard and scalar/aggregate
+refresh regressions pass. Investigate the existing test before the next batch. The redesign is not yet covered by the
+Source results below. The queued intermediate checker run was
+cancelled while waiting for the Cargo lock so only this completed redesign is checked.
+
+Implementation and end-to-end verification remain in progress. Do not request final review yet.
+
+Stable capture identities accept the same-site inactive numeric guard and reject numeric and Boolean active guards.
+Shared and stored shared-view controls accept the original owner and reject fabricated markers and payload authority.
+Reached raw moves of scalar-only and address-only owners both reject subsequent authority use.
+
+The canonical refresh batch reduced the extended runtime Source sweep from 53 to 30 failures in 3,160 body and certificate
+checks, including anonymous bodies. Invocation composition and direct invocation now certify. All previously failing
+destructor terminal-effect checks now pass after distinguishing ordinary loans from actual raw publication of owned inline
+storage. Remaining families include mutable cursor forwarding, event registration, dispatch, task result transfer,
+root-frame scalar authority, worker context startup, task retirement, observer rollback and worker formation. Several
+certificate errors are downstream from those bodies. The deadline callback's local name collision is corrected.
+
+The current next batch consolidates borrowed markers under physical loan observations, rather than also treating their
+logical reference slots as the marker storage. Mutable loans use the same typed transfer query, while shared protection
+remains restricted to shared loans. This change was made after compiling the canonical refresh sweep and is not covered by it.
+It is building in the temporary public compilation diagnostic binary. Checker units for the combined batch are also queued.
+The previous checker run was 411 passing with one incorrect new assertion, now corrected to assert loss of known value.
+
+Optional services now use per-domain native callbacks. Deadline driving returns one C-layout value. Final destruction
+reuses each provider's existing native destruction entry, which consumes the actual reference slot. Deadline backing
+retirement uses the last execution service owner's pointer protocol, rather than borrowing the pin that it removes.
+No C borrow ABI, extra runtime owner or host-wide function table is introduced.
+
+Temporary traces use `BRA567_TRACE` in `trusted/check.rs` and `terminal.rs`, and `BRA567_TRANSFER_TRACE` in `transfers.rs`.
+They remain only in the working tree and are excluded from checkpoints. Remove them before finalization. The diagnostic harness moved to `xtask/src/bin/bra567.rs` to avoid example dev-dependency
+feature changes. It must not be committed. Use `cargo run --release --bin bra567 -- runtime`, then reuse its binary for
+focused cases. The source files are snapshotted at compilation load. Logs for current batches are under ignored
+`target/bra-567`, with `source-physical.log` and `checker-canonical-unit.log` currently active.
+
+Native acceptance shares authenticated runtime provenance auditing between async and synchronous products, once per
+smoke group. It adds a minimal async fixture, optional-service omission checks and preparation/build/startup/size metrics.
+Those checks remain unrun. Required style/format checks passed on the earlier shared-join batch and must repeat after the
+completed current batch. No final review agent has been requested.
+
+Shell GitHub authentication (`GH_TOKEN`) is invalid. The connected GitHub account is verified as `lejmer`, with admin/push
+access to the public `lejmer/bray` repository. Use its Git object APIs to publish a coherent checkpoint on existing PR #710.
+This checkpoint continues from `73f55623bb25b21bc1f9b87afc97253c87e14c5e`. It preserves the implementation and current
+redesign while validation remains incomplete. Parent #709 remains open with the unchanged stack base. Push coherent
+checkpoints regularly, as explicitly requested by the user, and update this record each time.
+
+Use the public compilation API for Source diagnosis without building a `bray-compilation` test binary. Keep essential
+final evidence in this record, rather than only in ignored logs. The native smoke, imported acceptance, comparative
+costs, final review, PR readiness and Linear In Review handoff all remain required.
 
 At the implementation checkpoint:
 

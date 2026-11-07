@@ -550,22 +550,50 @@ impl ExecutionCallEvidence {
         self.trusted_boundary &= other.trusted_boundary;
         self.pending_execution |= other.pending_execution;
 
-        self.assumptions
-            .retain(|condition| other.assumptions.contains(condition));
+        let mut arguments_changed = false;
+        let mut joined_facts = Vec::new();
 
-        self.trusted_assumptions
-            .retain(|condition| other.trusted_assumptions.contains(condition));
+        for (place, value) in &mut self.arguments {
+            let incoming = other.arguments.get(place);
 
-        self.arguments
-            .retain(|place, value| other.arguments.get(place) == Some(value));
+            if incoming == Some(value) { continue; }
+
+            // Invocation entries use the same snapshot join as current values.
+            // Loss of contents knowledge does not retire a common carrier or loan.
+            let joined = incoming.map_or(super::ExecutionCondition::Unknown, |incoming| {
+                super::common_components(
+                    value, incoming, None,
+                    (&self.assumptions, &other.assumptions),
+                    &mut joined_facts, &mut { super::ExecutionCondition::WORK_LIMIT },
+                )
+            });
+
+            if *value != joined {
+                *value = joined;
+                arguments_changed = true;
+            }
+        }
+
+        let previous_assumptions = self.assumptions.len();
+
+        self.assumptions.retain(|condition| other.assumptions.contains(condition));
+
+        let mut assumptions_changed = previous_assumptions != self.assumptions.len();
+
+        for fact in joined_facts { assumptions_changed |= self.assumptions.insert(fact); }
+
+        self.trusted_assumptions.retain(|condition| other.trusted_assumptions.contains(condition));
 
         self.copy_sources
-            .retain(|place, value| other.copy_sources.get(place) == Some(value));
+            .retain(|place, value| other.copy_sources.get(place) == Some(value)
+                && self.arguments.get(place).is_some_and(|value| *value != super::ExecutionCondition::Unknown));
 
         self.witness_inputs
             .retain(|owner| other.witness_inputs.contains(owner));
 
         addresses_changed
+            || arguments_changed
+            || assumptions_changed
             || before
                 != (
                     self.anonymous_target.is_some(),
@@ -697,4 +725,49 @@ pub struct ExecutionCompletionDependency {
     pub source: super::ExecutionClauseId,
     /// The calling expression.
     pub node: AnyBoundNodeId,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExecutionCallEvidence;
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_bound_tree::StorageProjection;
+    use bray_symbols::SymbolOrdinal;
+    use std::sync::Arc;
+
+    #[test]
+    fn input_join_loses_contents_without_losing_the_common_owner() {
+        let ordinal = SymbolOrdinal::new(0);
+        let input = ExecutionPlace::argument(ordinal);
+        let owner = ExecutionCondition::Input(input.clone());
+        let field = StorageProjection::TupleElement(ordinal);
+
+        let snapshot = |value| ExecutionCondition::Constructed(
+            Arc::new(owner.clone()), [(field, ExecutionCondition::Boolean(value))].into(),
+        );
+
+        for borrowed in [false, true] {
+            let value = |value| if borrowed { snapshot(value).borrowed() } else { snapshot(value) };
+
+            let mut entry = ExecutionCallEvidence {
+                arguments: [(input.clone(), value(true))].into(),
+                owned_inputs: if borrowed { Arc::from([]) } else { Arc::from([ordinal]) },
+                ..ExecutionCallEvidence::default()
+            };
+
+            let incoming = ExecutionCallEvidence {
+                arguments: [(input.clone(), value(false))].into(),
+                owned_inputs: Arc::clone(&entry.owned_inputs),
+                ..ExecutionCallEvidence::default()
+            };
+
+            assert!(entry.intersect(&incoming));
+            assert_eq!(entry.arguments[&input].owner_identity(), value(true).owner_identity());
+            let component = entry.arguments[&input].clone().into_referent().project(field);
+
+            assert_eq!(component.prove(&entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT }), None);
+            assert_eq!(entry.owned_arguments().count(), usize::from(!borrowed));
+            assert!(!entry.intersect(&incoming));
+        }
+    }
 }

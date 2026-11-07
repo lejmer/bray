@@ -86,6 +86,7 @@ internal struct Domain
     demand_service: Demand;
     stop_service: Stop;
     detach_service: Detach;
+    destroy_service: Destroy;
     state: std.sync.SpinLock<State>;
 }
 

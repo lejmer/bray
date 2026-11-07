@@ -25,6 +25,10 @@ internal struct Domain
     scheduler: bray.runtime.bootstrap.scheduler.Reference;
     execution: bray.runtime.bootstrap.execution.Reference?;
     limit: usize;
+    poll_service: Poll;
+    wait_service: Wait;
+    retire_service: Retire;
+    destroy_service: Destroy;
     state: std.sync.SpinLock<State>;
 }
 

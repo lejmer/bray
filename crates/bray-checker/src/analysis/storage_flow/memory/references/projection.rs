@@ -62,7 +62,22 @@ impl State {
         &self,
         target: &Target,
     ) -> bool {
-        !Self::unaddressed_inline_slot(&self.unaddressed_storage, target)
+        if Self::unaddressed_inline_slot(&self.unaddressed_storage, target) {
+            return false;
+        }
+
+        let Some(path) = target.storage_path().filter(|path| self.is_owned_inline_storage(path)) else {
+            return true;
+        };
+
+        // A language loan alone does not publish an address to ambient code.
+        // Actual raw exposure or an escaping call does. Explicit call inputs are
+        // reached separately, including during the call that first publishes them.
+        let root = Target::storage(Place::root(path.root));
+
+        self.contents.range(root.clone()..)
+            .take_while(|(candidate, _)| root.contains(candidate))
+            .any(|(_, contents)| contents.exposed || contents.escaped)
     }
 
     pub(super) fn unaddressed_inline_slot(

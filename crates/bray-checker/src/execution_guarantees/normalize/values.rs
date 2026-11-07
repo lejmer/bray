@@ -398,7 +398,7 @@ pub(super) fn borrowed_condition(
                 let prefix = root.clone().project(&path.projections[..index])?;
 
                 if let Some(value) = prefix.value_in(current) {
-                    identity = value.into_referent().owner_identity().clone();
+                    identity = value.owner_identity().clone().into_referent().owner_identity().clone();
                 }
             }
 
@@ -420,10 +420,7 @@ pub(super) fn borrowed_condition(
     if identity == value || value == ExecutionCondition::Unknown {
         identity
     } else {
-        ExecutionCondition::Constructed(
-            std::sync::Arc::new(identity),
-            [(bray_bound_tree::StorageProjection::OwnedTarget, value)].into(),
-        )
+        ExecutionCondition::storage_value(identity, value)
     }
 }
 

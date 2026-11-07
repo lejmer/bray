@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::joins::common_components;
+use crate::execution_guarantees::common_components;
 
 use crate::execution_guarantees::ExecutionCondition;
 

@@ -552,36 +552,7 @@ impl ExecutionState {
 
             assumptions.extend(captured.iter().cloned());
 
-            // Canonical constant contents let literal and abstract visits to the
-            // same captured frame meet without losing an argument observation.
-            let mut equalities = None;
-
-            let constants = entry
-                .copy_sources
-                .keys()
-                .filter_map(|place| place.value_in(&entry.arguments))
-                .filter_map(|value| {
-                    let normalized = match value.prove_trusted(&BTreeSet::new(), &assumptions) {
-                        Some(holds) => ExecutionCondition::Boolean(holds),
-                        None => value.with_equalities(equalities.get_or_insert_with(|| {
-                            ExecutionCondition::equalities(&assumptions, None)
-                        })),
-                    };
-
-                    if !matches!(
-                        normalized,
-                        ExecutionCondition::Boolean(_)
-                            | ExecutionCondition::Literal(_)
-                            | ExecutionCondition::Variant(_)
-                    ) {
-                        return None;
-                    }
-
-                    (normalized != value).then_some((value, normalized))
-                })
-                .collect::<std::collections::BTreeMap<_, _>>();
-
-            let changed = !captured.is_subset(&entry.assumptions) || !constants.is_empty();
+            let changed = !captured.is_subset(&entry.assumptions);
 
             let trusted = if owners.is_empty() {
                 None
@@ -613,16 +584,10 @@ impl ExecutionState {
                 continue;
             }
 
-            // Only changed captured values or proof facts require a new entry snapshot.
+            // Refinement adds proof without changing the frame's captured input identities.
             let entry = std::sync::Arc::make_mut(&mut candidate.entry);
 
             entry.assumptions.extend(captured);
-
-            if !constants.is_empty() {
-                for value in entry.arguments.values_mut() {
-                    *value = value.with_snapshots(&constants);
-                }
-            }
 
             if let Some(trusted) = trusted {
                 entry.trusted_assumptions = trusted;

@@ -172,6 +172,10 @@ trusted internal func initialize(
             scheduler = scheduler,
             execution = execution,
             limit = limit,
+            poll_service = poll_service,
+            wait_service = wait_service,
+            retire_service = retire_backing,
+            destroy_service = destruction,
             state = trusted std.sync.SpinLock<State>(
                 {
                     next = 1,
@@ -301,10 +305,10 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>)
         return trusted std.memory.read<Reference>(slot);
     };
 
-    trusted destroy_reference(trusted retire(pointer));
+    trusted destroy_storage(trusted retire(pointer));
 }
 
-trusted internal func destroy_reference(pos owner: Reference)
+trusted internal func destroy_storage(pos owner: Reference)
     requires(trusted retained(owner = &owner), trusted retiring(owner = &owner))
     uses(intrinsic)
 {
@@ -383,46 +387,35 @@ trusted internal func destroy_reference(pos owner: Reference)
     _ = allocation;
 }
 
-// Keep the closed broker allocation in its execution owner. This transition
-// retires its backing pin while the caller's independent owner remains live.
-trusted internal func retire_execution_backing(pos execution: &bray.runtime.bootstrap.execution.Reference)
+// The selected provider owns the backing pin. Its native entry carries the
+// last execution owner's authorization, independently of the pin being removed.
+@abi(c)
+trusted internal func retire_backing(pos pointer: DataPointer<Reference>)
     requires(
-        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
-        trusted bray.runtime.bootstrap.execution.services_retiring(owner = &execution.acquisition),
+        trusted reference_slot(pointer = pointer),
+        trusted backing_retirement(pointer = pointer),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = execution))
     uses(raw_memory, unchecked_init, intrinsic)
 {
-    let service = trusted bray.runtime.bootstrap.execution.deadlines(execution);
-
-    if service matches none
-    {
-        return;
-    }
-
-    let owner = match service
-    {
-        case ?value { yield value; }
-        case none { yield trusted core.target.abort(); }
-    };
+    let authority = pointer;
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     close(owner);
 
-    let pointer = std.memory.address_of<(bray.runtime.bootstrap.execution.Reference?)>(
+    let backing_slot = std.memory.address_of<(bray.runtime.bootstrap.execution.Reference?)>(
         &(trusted domain(owner)).execution
     );
 
     let take = trusted lambda(
-        pos execution: &bray.runtime.bootstrap.execution.Reference,
+        pos authority: DataPointer<Reference>,
         pos owner: &Reference,
         pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>
     ) -> bray.runtime.bootstrap.execution.Reference?
         requires(
-            trusted bray.runtime.bootstrap.execution.retained(owner = execution),
-            trusted bray.runtime.bootstrap.execution.services_retiring(owner = &execution.acquisition),
+            trusted backing_retirement(pointer = authority),
             trusted retained(owner = owner)
         )
         ensures(trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result), result matches ?_)
@@ -461,7 +454,7 @@ trusted internal func retire_execution_backing(pos execution: &bray.runtime.boot
         return backing;
     };
 
-    let backing = trusted take(execution, owner, pointer);
+    let backing = trusted take(authority, owner, backing_slot);
 
     _ = trusted bray.runtime.bootstrap.execution.release_pin(
         trusted bray.runtime.bootstrap.execution.take_pin(backing)

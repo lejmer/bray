@@ -241,6 +241,7 @@ fn encode(
         | ExecutionCondition::Tagged(_, _)
         | ExecutionCondition::Variant(_)
         | ExecutionCondition::Constructed(_, _)
+        | ExecutionCondition::StorageValue(_, _)
         | ExecutionCondition::Expression(_)
         | ExecutionCondition::CapturedInput { .. }
         | ExecutionCondition::ScopedCapability(_)

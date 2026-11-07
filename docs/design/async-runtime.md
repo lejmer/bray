@@ -88,6 +88,10 @@ Host, scheduler, cancellation, event, and observation support have separate rete
 coherent test-host adapter, while ordinary adapters have no test protocol dependency. Synchronous host cleanup and
 native-thread support do not require an async scheduler. A product with no runtime demand has no runtime selection.
 
+Optional service operation bindings live with their retained service domains. Common root driving and cleanup use
+those bindings without statically reaching concrete worker or timer policy. Forming a demanded service selects its
+implementation and retains it through final cleanup.
+
 The trusted bootstrap owns thread attachment and exit cleanup. Target thread-storage callbacks supply mechanisms, while
 Bray outcomes cross native calls through tagged results and owned destinations rather than foreign unwinding.
 

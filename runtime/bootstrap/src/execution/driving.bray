@@ -304,13 +304,13 @@ trusted internal func poll_deadlines(pos owner: &bray.runtime.bootstrap.executio
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     uses(foreign_call)
 {
-    if trusted execution_failure(owner).stage != 0
-    {
-        return;
-    }
-
     if let ?service = trusted deadlines(owner)
     {
+        if trusted execution_failure(owner).stage != 0
+        {
+            return;
+        }
+
         match consume bray.runtime.bootstrap.deadline.poll(service)
         {
             case Ok(_) {}
@@ -326,13 +326,13 @@ trusted internal func deadline_wait(pos owner: &bray.runtime.bootstrap.execution
     )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
 {
-    if trusted execution_failure(owner).stage != 0
-    {
-        return maximum;
-    }
-
     if let ?service = trusted deadlines(owner)
     {
+        if trusted execution_failure(owner).stage != 0
+        {
+            return maximum;
+        }
+
         match consume bray.runtime.bootstrap.deadline.wait(service, maximum)
         {
             case Ok(value) { return value; }

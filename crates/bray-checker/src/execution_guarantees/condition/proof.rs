@@ -47,6 +47,10 @@ impl ExecutionCondition {
             }
         }
 
+        if let Self::StorageValue(_, value) = self {
+            return value.prove_mixed(trusted, ordinary, budget);
+        }
+
         if let Self::Entry { condition, .. } = self {
             return condition.prove_mixed(trusted, ordinary, budget);
         }
@@ -112,6 +116,10 @@ impl ExecutionCondition {
 
         if assumptions.contains(&(self.clone(), false)) && !self.contains_unknown() {
             return Some(false);
+        }
+
+        if let Self::StorageValue(_, value) = self {
+            return value.prove(assumptions, budget);
         }
 
         if let Self::Entry { condition, .. } = self {

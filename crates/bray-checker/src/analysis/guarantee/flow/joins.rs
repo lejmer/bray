@@ -3,8 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::super::state::ExecutionState;
 use super::merge::result_replacements;
 use crate::ExecutionCondition;
-use bray_bound_tree::BoundOperator;
-use bray_symbols::ConstantValueKind;
+use crate::execution_guarantees::common_components;
 
 pub(in crate::analysis::guarantee) fn returned_condition(
     condition: &ExecutionCondition,
@@ -136,267 +135,6 @@ pub(in crate::analysis::guarantee) fn merge_returned(
     }
 
     joined
-}
-
-pub(super) fn common_components(
-    left: &ExecutionCondition,
-    right: &ExecutionCondition,
-    result: Option<ExecutionCondition>,
-    conditions: (
-        &BTreeSet<(ExecutionCondition, bool)>,
-        &BTreeSet<(ExecutionCondition, bool)>,
-    ),
-    facts: &mut Vec<(ExecutionCondition, bool)>,
-    budget: &mut usize,
-) -> ExecutionCondition {
-    if left == right {
-        return left.clone();
-    }
-
-    let Some(next) = budget.checked_sub(1) else {
-        return ExecutionCondition::Unknown;
-    };
-
-    *budget = next;
-
-    if left == &ExecutionCondition::Unknown || right == &ExecutionCondition::Unknown {
-        return ExecutionCondition::Unknown;
-    }
-
-    match (
-        matches!(left.owner_identity(), ExecutionCondition::Borrowed(_)),
-        matches!(right.owner_identity(), ExecutionCondition::Borrowed(_)),
-    ) {
-        (true, true) => {
-            let same_owner = left.has_same_owner(right);
-
-            let contents = common_components(
-                &left.clone().into_referent(),
-                &right.clone().into_referent(),
-                if same_owner { result } else { None },
-                conditions,
-                facts,
-                budget,
-            );
-
-            return if same_owner {
-                left.owner_identity().with_referent(contents)
-            } else {
-                // Joining an owned result does not identify different referents.
-                contents.borrowed()
-            };
-        }
-        (true, false) | (false, true) => return ExecutionCondition::Unknown,
-        (false, false) => {}
-    }
-
-    let fields = |mut value: &ExecutionCondition| {
-        while let Some(snapshot) = value.nullable_payload_snapshot() {
-            value = snapshot;
-        }
-
-        match value {
-            ExecutionCondition::Constructed(_, fields) => fields
-                .iter()
-                .map(|(field, _)| *field)
-                .collect::<std::collections::BTreeSet<_>>(
-            ),
-            ExecutionCondition::Present(_) => {
-                [bray_bound_tree::StorageProjection::NullableValue].into()
-            }
-            ExecutionCondition::Literal(value)
-                if matches!(value.kind(), ConstantValueKind::NullableAbsent) =>
-            {
-                [bray_bound_tree::StorageProjection::NullableValue].into()
-            }
-            _ => Default::default(),
-        }
-    };
-
-    let mut projections = fields(left);
-
-    projections.extend(fields(right));
-
-    if projections.is_empty() {
-        let joined = result.unwrap_or(ExecutionCondition::Unknown);
-
-        if joined != ExecutionCondition::Unknown
-            && let (ExecutionCondition::Literal(left), ExecutionCondition::Literal(right)) =
-                (left, right)
-            && matches!(
-                (left.kind(), right.kind()),
-                (ConstantValueKind::Integer(_), ConstantValueKind::Integer(_))
-            )
-            && let Ok(ConstantValueKind::Boolean(ordered)) = crate::constant::fold_binary(
-                BoundOperator::LessEqual,
-                left.kind(),
-                right.kind(),
-                crate::ConstantEvaluationLimits::default().integer_bits(),
-            )
-        {
-            // A yielded result keeps these bounds for this evaluation. Literals
-            // remain independent values and are never renamed to the result.
-            let (lower, upper) = if ordered {
-                (left, right)
-            } else {
-                (right, left)
-            };
-
-            for (operator, bound) in [
-                (BoundOperator::GreaterEqual, lower),
-                (BoundOperator::LessEqual, upper),
-            ] {
-                facts.push((
-                    ExecutionCondition::operation(
-                        operator,
-                        vec![
-                            joined.clone(),
-                            ExecutionCondition::Literal(std::sync::Arc::clone(bound)),
-                        ],
-                    ),
-                    true,
-                ));
-            }
-        }
-
-        return joined;
-    }
-
-    // A changed observation does not replace its existing descriptor or loan.
-    // Distinct owners instead acquire the selected result region's identity.
-    let identity = if left.owner_identity() != &ExecutionCondition::Unknown && left.has_same_owner(right) {
-        left.owner_identity().clone()
-    } else {
-        result.clone().unwrap_or(ExecutionCondition::Unknown)
-    };
-
-    let fields = projections
-        .into_iter()
-        .map(|projection| {
-            let inactive =
-                |value: &ExecutionCondition, conditions: &BTreeSet<(ExecutionCondition, bool)>| {
-                    match projection {
-                        bray_bound_tree::StorageProjection::NullableValue => {
-                            matches!(value, ExecutionCondition::Literal(value)
-                    if matches!(value.kind(), ConstantValueKind::NullableAbsent))
-                                || conditions.iter().any(|(condition, holds)| {
-                                    condition.nullable_absence(*holds).is_some_and(
-                                        |(subject, _)| {
-                                            subject == value || subject == value.owner_identity()
-                                        },
-                                    )
-                                })
-                        }
-                        bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                            variant,
-                            ..
-                        } => {
-                            value
-                                .clone()
-                                .matches_variant(variant)
-                                .prove(conditions, &mut { ExecutionCondition::WORK_LIMIT })
-                                == Some(false)
-                        }
-                        _ => false,
-                    }
-                };
-
-            let left_inactive = inactive(left, conditions.0);
-            let right_inactive = inactive(right, conditions.1);
-
-            if left_inactive != right_inactive {
-                // Only the active predecessor initializes this payload. Retain
-                // its components under the joined conditional owner.
-                let initialized = if left_inactive { right } else { left };
-
-                return (
-                    projection,
-                    owned_snapshot(
-                        &initialized.clone().project(projection),
-                        identity.clone().project(projection),
-                        budget,
-                    ),
-                );
-            }
-
-            let left = left.clone().project(projection);
-            let right = right.clone().project(projection);
-
-            let result = result
-                .as_ref()
-                .or_else(|| (identity != ExecutionCondition::Unknown).then_some(&identity))
-                .map(|result| if projection == bray_bound_tree::StorageProjection::OwnedTarget {
-                    // Contents have their own current identity. OwnedTarget is
-                    // not a source-level projection of the retained descriptor.
-                    result.clone()
-                } else { result.clone().project(projection) });
-
-            (
-                projection,
-                common_components(&left, &right, result, conditions, facts, budget),
-            )
-        })
-        .collect();
-
-    ExecutionCondition::Constructed(std::sync::Arc::new(identity), fields)
-}
-
-/// Reanchor initialized owned components under their destination owner.
-pub(super) fn owned_snapshot(
-    source: &ExecutionCondition,
-    identity: ExecutionCondition,
-    budget: &mut usize,
-) -> ExecutionCondition {
-    let Some(remaining) = budget.checked_sub(1) else {
-        return ExecutionCondition::Unknown;
-    };
-
-    *budget = remaining;
-
-    if let Some(snapshot) = source.nullable_payload_snapshot() {
-        return owned_snapshot(snapshot, identity, budget);
-    }
-
-    if matches!(source.owner_identity(), ExecutionCondition::Borrowed(_)) {
-        return source.clone();
-    }
-
-    match source {
-        ExecutionCondition::Constructed(base, fields) => {
-            let base = owned_snapshot(base, identity, budget);
-
-            let fields = fields
-                .iter()
-                .map(|(field, value)| {
-                    (
-                        *field,
-                        owned_snapshot(
-                            value,
-                            base.owner_identity().clone().project(*field),
-                            budget,
-                        ),
-                    )
-                })
-                .collect();
-
-            ExecutionCondition::Constructed(std::sync::Arc::new(base), fields)
-        }
-        ExecutionCondition::Tagged(variant, _) => {
-            ExecutionCondition::Tagged(*variant, std::sync::Arc::new(identity))
-        }
-        ExecutionCondition::Present(value) => {
-            ExecutionCondition::Present(std::sync::Arc::new(owned_snapshot(
-                value,
-                identity.project(bray_bound_tree::StorageProjection::NullableValue),
-                budget,
-            )))
-        }
-        ExecutionCondition::Borrowed(_)
-        | ExecutionCondition::Boolean(_)
-        | ExecutionCondition::Literal(_)
-        | ExecutionCondition::Unknown => source.clone(),
-        _ => identity,
-    }
 }
 
 #[cfg(test)]
@@ -749,6 +487,72 @@ mod tests {
                     .owned_results
                     .is_empty()
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod nested_guard_tests {
+    use super::merge_returned;
+    use crate::analysis::guarantee::state::ExecutionState;
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_bound_tree::{BoundErrorExpression, BoundExpression, BoundUnitId, StorageProjection};
+    use crate::test_support::{error_type, expression_unit, push_expression};
+    use bray_symbols::{SymbolId, SymbolOrdinal, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
+    use std::sync::Arc;
+
+    #[test]
+    fn nested_payload_authority_includes_the_outer_active_case() {
+        let variant = |id| UnionVariantSymbolId::from_symbol_id(SymbolId::new(id));
+        let field = |id| UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(id));
+        let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
+        let outer = variant(900);
+        let rejected = variant(901);
+        let inner = variant(902);
+        let outer_field = StorageProjection::ActiveUnionPayloadField { variant: outer, field: field(903) };
+        let inner_field = StorageProjection::ActiveUnionPayloadField { variant: inner, field: field(904) };
+        let definition = bray_symbols::FunctionSymbolId::from_symbol_id(SymbolId::new(905));
+        let callable = crate::test_support::callable_instance(definition.into());
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), callable.substitution(), vec![owner.borrowed()]),
+        ));
+
+        let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
+        ]);
+
+        for valid in [true, false] {
+            let marker = input(0);
+            let payload = ExecutionCondition::Constructed(
+                Arc::new(ExecutionCondition::Tagged(inner, Arc::new(input(1)))),
+                [(inner_field, marker.clone())].into(),
+            );
+            let accepted = ExecutionCondition::Constructed(
+                Arc::new(ExecutionCondition::Tagged(outer, Arc::new(input(2)))),
+                [(outer_field, payload)].into(),
+            );
+            let failure = ExecutionCondition::Tagged(rejected, Arc::new(input(3)));
+            let mut left = ExecutionState::default();
+            let owner = if valid { marker } else { input(4) };
+            let guarantee = held(owner.clone());
+
+            left.carry_guarantee(owner, guarantee.clone());
+            guarantee.assume(true, &mut left.trusted_assumptions);
+
+            let joined = merge_returned(
+                &mut left, &ExecutionState::default(), &accepted, &failure,
+                &ExecutionCondition::Result, expressions[0],
+            );
+            let active = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, vec![
+                joined.clone().matches_variant(outer), joined.clone().project(outer_field).matches_variant(inner),
+            ]);
+
+            active.assume(true, &mut left.assumptions);
+
+            let required = held(joined.project(outer_field).project(inner_field));
+
+            assert_eq!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions) == Some(true), valid);
         }
     }
 }

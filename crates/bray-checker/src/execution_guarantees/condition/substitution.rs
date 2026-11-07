@@ -127,6 +127,9 @@ impl ExecutionCondition {
                 invocation: *invocation,
                 ordinal: *ordinal,
             },
+            Self::StorageValue(owner, value) => Self::storage_value(
+                owner.substitute_values(replace, budget), value.substitute_values(replace, budget),
+            ),
             Self::Constructed(base, fields) => Self::Constructed(
                 Arc::new(base.substitute_values(replace, budget)),
                 fields
@@ -399,6 +402,12 @@ fn rewrite_equalities(
             invocation,
             ordinal,
         },
+        ExecutionCondition::StorageValue(owner, value) => ExecutionCondition::storage_value(
+            identities.map_or_else(|| owner.as_ref().clone(), |identities| {
+                rewrite_equalities(&owner, identities, Some(identities), budget)
+            }),
+            rewrite_equalities(&value, replacements, identities, budget),
+        ),
         ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
             Arc::new(rewrite_equalities(&base, replacements, identities, budget)),
             fields

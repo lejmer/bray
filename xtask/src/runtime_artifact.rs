@@ -11,6 +11,7 @@ mod native_link;
 mod numeric;
 mod observation_smoke;
 mod partition;
+mod provenance;
 mod reuse;
 mod smoke;
 mod synchronous;

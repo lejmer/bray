@@ -250,12 +250,9 @@ impl ExecutionCondition {
             // Scalar contents still belong to their existing storage context.
             // Refresh that context without replacing it with the copied value.
             let contents = if let Self::Borrowed(previous) = identity
-                && let Some((base, _)) = previous.storage_contents()
+                && let Some((owner, _)) = previous.storage_contents()
             {
-                Self::Constructed(
-                    Arc::new(base.clone()),
-                    [(bray_bound_tree::StorageProjection::OwnedTarget, contents)].into(),
-                )
+                Self::storage_value(owner.clone(), contents)
             } else {
                 contents
             };
@@ -287,14 +284,20 @@ impl ExecutionCondition {
         }
     }
 
+    pub(crate) fn storage_value(owner: Self, value: Self) -> Self {
+        let owner = owner.owner_identity().clone().into_referent().owner_identity().clone();
+
+        if value.storage_contents().is_some_and(|(current, _)| current == &owner) {
+            return value;
+        }
+
+        Self::StorageValue(Arc::new(owner), Arc::new(value))
+    }
+
     /// An existing storage context and its current scalar contents are separate observations.
     pub(crate) fn storage_contents(&self) -> Option<(&Self, &Self)> {
         match self {
-            Self::Constructed(base, fields) if !matches!(base.owner_identity(), Self::Borrowed(_)) =>
-                match fields.as_ref() {
-                    [(bray_bound_tree::StorageProjection::OwnedTarget, value)] => Some((base, value)),
-                    _ => None,
-                },
+            Self::StorageValue(owner, value) => Some((owner, value)),
             _ => None,
         }
     }
@@ -450,6 +453,7 @@ impl ExecutionCondition {
             Self::Input(place) => Self::Input(place.component(projection)),
             // A field access through a borrow observes the referent's field,
             // rather than projecting a field from the borrow value itself.
+            Self::StorageValue(_, value) => value.as_ref().clone().component(projection),
             Self::Borrowed(value) => value.as_ref().clone().component(projection),
             // Retain the nullable owner's identity when extracting its payload. Rewrapping
             // that payload can then name the acquisition witness without asserting presence.
@@ -604,6 +608,11 @@ impl ExecutionCondition {
     pub(crate) fn operation(operator: BoundOperator, mut operands: Vec<Self>) -> Self {
         for operand in &mut operands {
             operand.observe_contents();
+
+            if let Self::StorageValue(_, value) = operand
+                && matches!(value.as_ref(), Self::Literal(_) | Self::Boolean(_)) {
+                *operand = value.as_ref().clone();
+            }
 
             if let Self::Constructed(base, fields) = operand {
                 let contents = Self::component_base(base, fields);
