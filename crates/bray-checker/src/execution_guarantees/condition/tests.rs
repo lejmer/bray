@@ -97,7 +97,17 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
     let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
     let observe = |value| ExecutionCondition::predicate(predicate.into(), callable.substitution(), vec![value]);
 
-    assert_eq!(observe(aggregate.borrowed().with_referent(changed.clone())), observe(changed.borrowed()));
+    let alias = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(5)))
+        .borrowed().with_referent(aggregate.clone());
+
+    assert_eq!(observe(alias), observe(aggregate.clone().borrowed()));
+
+    let loan = aggregate.borrowed();
+    let refreshed = loan.with_referent(changed.clone());
+
+    assert_eq!(refreshed.owner_identity(), loan.owner_identity());
+    assert_eq!(refreshed.storage_contents(), None);
+    assert_ne!(observe(refreshed), observe(changed.borrowed()));
 }
 
 #[test]

@@ -229,12 +229,6 @@ impl ExecutionCondition {
             return payload.clone().borrowed();
         }
 
-        if let Self::CurrentValue(owner, contents) = &self
-            && !matches!(owner.as_ref(), Self::Borrowed(_))
-        {
-            return Self::current_value(owner.as_ref().clone().borrowed(), contents.as_ref().clone());
-        }
-
         if !matches!(self.owner_identity(), Self::Borrowed(_)) && self.owner_identity() != &self {
             return Self::current_value(self.owner_identity().clone().borrowed(), self);
         }
@@ -261,6 +255,8 @@ impl ExecutionCondition {
 
         let contents = if let Some((owner, _)) = previous.storage_contents() {
             Self::storage_value(owner.clone(), contents)
+        } else if let Self::CurrentValue(owner, _) = &previous {
+            Self::current_value(owner.as_ref().clone(), contents)
         } else { contents };
 
         if let Self::Borrowed(previous) = self && previous.as_ref() == &contents {
@@ -277,7 +273,7 @@ impl ExecutionCondition {
     ) -> Self {
         match base {
             Self::CurrentValue(owner, contents) => Self::current_value(
-                owner.as_ref().clone(), Self::Constructed(contents, fields),
+                owner.as_ref().clone(), Self::constructed(contents.as_ref().clone(), fields),
             ),
             Self::Borrowed(contents) => Self::current_value(
                 Self::Borrowed(Arc::clone(&contents)), Self::Constructed(contents, fields),
@@ -288,6 +284,10 @@ impl ExecutionCondition {
 
     pub(crate) fn current_value(owner: Self, contents: Self) -> Self {
         let owner = owner.owner_identity();
+
+        if let Self::Borrowed(referent) = owner && referent.as_ref() == &contents {
+            return owner.clone();
+        }
 
         if owner == &contents || matches!(&contents, Self::CurrentValue(current, _) if current.as_ref() == owner) {
             return contents;
@@ -323,10 +323,10 @@ impl ExecutionCondition {
         }
     }
 
-    /// Terms observe current contents. The enclosing flow value retains the loan context.
+    /// Observe the referent without identifying it with the loan that supplies access.
     fn observe_contents(&mut self) {
         if matches!(self, Self::CurrentValue(owner, _) if matches!(owner.as_ref(), Self::Borrowed(_))) {
-            *self = self.clone().into_referent().current_contents().clone().borrowed();
+            *self = Self::Borrowed(Arc::new(self.clone().into_referent()));
         }
     }
 
