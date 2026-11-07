@@ -197,6 +197,7 @@ internal func no_failure() -> Failure
 
 internal union FormationChoice
 {
+    Grow(pos capacity: usize);
     Existing(pos owner: WorkerReference);
     Created(pos formation: Descriptor);
     Backing;

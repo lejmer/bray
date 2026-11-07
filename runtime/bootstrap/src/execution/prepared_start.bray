@@ -45,9 +45,9 @@ internal struct PreparedStart
         }
 
         trusted close_owner(owner.selected, &mut owner.execution);
+
         _ = trusted release_pin(owner.execution.execution);
     }
-
 }
 
 internal predicate prepared_start(owner: &PreparedStart) = view_owned(owner = &owner.selected.acquisition) &&
@@ -55,14 +55,15 @@ internal predicate prepared_start(owner: &PreparedStart) = view_owned(owner = &o
     owner = &owner.execution.execution
 );
 
-internal predicate inactive_start(owner: &PreparedStart) = prepared_start(owner = owner) &&
-    owner.selected.status == 0 && bray.runtime.bootstrap.task.resolution_owner(owner = owner.reference) &&
-    bray.runtime.bootstrap.task.retained(owner = owner.reference) &&
-    bray.runtime.bootstrap.activation.producer(token = owner.token) &&
+internal predicate inactive_start(owner: &PreparedStart) = prepared_start(owner = owner) && owner.selected.status ==
+    0 && bray.runtime.bootstrap.task.resolution_owner(owner = owner.reference) && bray.runtime.bootstrap.task.retained(
+    owner = owner.reference
+) && bray.runtime.bootstrap.activation.producer(token = owner.token) &&
     bray.runtime.bootstrap.activation.requirements.inactive_owner(token = owner.token);
 
-internal predicate prepared_start_result(owner: &Result<PreparedStart, u32>) = owner matches Error(_) ||
-    inactive_start(owner = present_prepared_start(owner));
+internal predicate prepared_start_result(owner: &Result<PreparedStart, u32>) = owner matches Error(_) || inactive_start(
+    owner = present_prepared_start(owner)
+);
 
 internal const func present_prepared_start(pos owner: &Result<PreparedStart, u32>) -> &PreparedStart
     requires(owner matches Ok(_))
@@ -173,10 +174,7 @@ trusted internal func reserve_start(
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    ensures(
-        trusted inactive_start(owner = &prepared),
-        result != 0 || prepared.registration matches ?_
-    )
+    ensures(trusted inactive_start(owner = &prepared), result != 0 || prepared.registration matches ?_)
 {
     let (lane, status) = trusted select_lane(&prepared.execution.execution, 0, &prepared.initial, driver);
 

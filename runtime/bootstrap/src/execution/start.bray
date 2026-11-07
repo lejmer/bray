@@ -61,6 +61,7 @@ trusted internal func root_execution(
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
+    ensures(result.status != 0 || trusted resolution_input(owner = &result.task))
 {
     if frame == 0 || frame % std.memory.align_of<bray.runtime.bootstrap.activation.Inactive>() != 0
     {
@@ -221,7 +222,10 @@ trusted internal func start_frame(
                 {
                     yield trusted commit_start(&mut owner);
                 }
-                else { yield status; };
+                else
+                {
+                    yield status;
+                };
             };
         }
         case Error(status) { yield status; }

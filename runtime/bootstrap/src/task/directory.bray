@@ -193,7 +193,18 @@ trusted internal func grow(pos entries: &mut Entries, pos prepared: &mut Prepare
 
                 trusted internal std.memory.initialize_spare<Slot>(
                     &mut slots,
-                    empty_slot(index, 0, if index == first { yield 0; } else { yield index - 1; })
+                    empty_slot(
+                        index,
+                        0,
+                        if index == first
+                        {
+                            yield 0;
+                        }
+                        else
+                        {
+                            yield index - 1;
+                        }
+                    )
                 );
             }
 

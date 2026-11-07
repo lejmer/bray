@@ -53,18 +53,21 @@ Its mandatory style and formatting passed. The complete Source run found 69 fail
 Checker units passed 415. Lowering passed 37 and failed one stale instruction-position assertion. The combined Cargo run
 stopped there, leaving interface/ABI suites unrun. Native/imported acceptance and comparative costs remain unrun.
 
-A related contract/representation batch is in progress, without another test run. It adds the missing arena component
+A related contract/representation batch is pushed through `e82986f7d5d86c321cc7fc1afbac62d7c1adf1b6`,
+with final self-review refinements and no additional test run. It adds the missing arena component
 contract to the execution-domain borrow, uses address words for observational wait links, transports source claims in a
 noncopy native admission record, and moves prepared startup rollback to consuming scope entry/exit so graceful closure
 precedes destruction. Final cell recycling now moves the complete slot into a retirement packet, replacing individual
 field-detachment helpers. It preserves actual arena/execution retention through disposal. Namespace/borrow/nullable
-wiring errors from the first batch are being addressed together. The lowering test now checks Main startup through
+wiring errors from the first batch are addressed together. Worker formation now uses one decision enum including Grow,
+rather than nesting an allocation-capacity continuation in Result. Existing complete publication/disposal is preserved. The lowering test now checks Main startup through
 outcome/static/shutdown order, and the scalar-context matrix includes data equal to its storage identity.
 
-Finish self-review and the remaining contract/model classes before another validation batch. In particular, review
+The follow-on batch passed mutating style and explicit formatting and is undergoing a second integrated validation.
+Follow-on checker/lowering/interface/ABI suites passed 415/38/35/29 respectively. The full runtime Source run is still
+in progress. Its whole-protocol review covers
 prepared-start scope contracts, whole-slot materialization, owned nullable extraction, physical effect framing across
-runtime calls, nested entry view restoration and worker formation's active conditional guarantee. Do not turn the 69
-failures into a sequence of local edit/test loops. No result is claimed for the in-progress batch. Keep checkpoints pushed.
+runtime calls, nested entry view restoration and worker formation's active conditional guarantee. Do not turn failure counts into a sequence of local edit/test loops. Keep checkpoints pushed.
 
 ### Keep, adjust, replace and remove
 
@@ -135,9 +138,9 @@ runtime-only lookup without a global registry or ambient execution assumption. E
 unchanged. Reference-based operations use their actual cell. Domain retirement walks its arena. Source execution pins
 and native context installation remain attached before an executable task is published.
 
-Last storage release produces one retirement packet: under the resident acquisition, take the cell's actual arena
-reference, use that owned reference to reach entries, detach/recycle the initialized cell and take its execution pin,
-then release synchronization. Dispose cell, metadata and reports before releasing execution and final arena retention. Runtime retirement reuses that same operation.
+Last storage release produces one retirement packet. Under the resident acquisition, move the complete final slot
+into owned retirement storage and initialize its vacant row. Materialize the actual control, execution pin and arena
+reference, then recycle the row through that arena and release synchronization. Dispose cell, metadata and reports before releasing execution and final arena retention. Runtime retirement reuses that same operation.
 This preserves the useful existing complete retirement unit while moving its storage dependency to the right owner.
 
 Create the arena during domain formation and retain its actual owner in the domain. On domain destruction release that
@@ -407,8 +410,10 @@ Checkpoint `41cf664` passed mandatory mutating `cargo xtask style` and explicit 
 `cargo run --release --bin bra567 -- runtime` completed with 3,254 checks and 69 failing bodies/certificates.
 `cargo test --release -p bray-checker -p bray-lowering -p bray-runtime-interface -p bray-runtime-abi --lib`
 passed 415 checker units and 37 lowering units, then failed the async host's obsolete fixed-position assertion.
-Later crates were not run. All native/imported acceptance and cost measurements remain pending. A related implementation
-batch is in progress, unvalidated. No final review is authorized yet under this workflow.
+Later crates were not run in that first command. The follow-on complete unit command added `--no-fail-fast` and passed
+415 checker, 38 lowering, 35 runtime-interface and 29 ABI tests. Follow-on style and explicit formatting passed.
+The follow-on full runtime Source run is in progress. All native/imported acceptance and cost measurements remain
+pending. Do not start final review before required verification is complete.
 
 Pre-refactor checkpoint `7c7a70ba7c0ff5d153c554bfc49bd926efc5d665` passed 415 checker units and all 16
 representative Source controls. Full runtime Source checking had 3,160 checks and 22 failures. That evidence establishes
