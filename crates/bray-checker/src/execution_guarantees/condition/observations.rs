@@ -352,14 +352,16 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn observes_live(&self, changed: Option<&Self>) -> bool {
-        self.observes_live_where(|value| changed.is_none_or(|changed| value.observes(changed)))
+        self.observes_live_where(|value| changed.is_none_or(|changed| value.observes(changed)), |_| false)
     }
 
-    /// Inspect live borrowed observations and entry guards that are not captured yet.
-    pub(crate) fn observes_live_where(&self, observes: impl Fn(&Self) -> bool) -> bool {
+    /// Inspect live borrowed observations and uncaptured entry guards, retaining excluded contexts.
+    pub(crate) fn observes_live_where(&self, observes: impl Fn(&Self) -> bool, exclude: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![(self, false)];
 
         while let Some((condition, live)) = pending.pop() {
+            if exclude(condition) { continue; }
+
             if live && condition.observation_path().is_some() {
                 if observes(condition) {
                     return true;
