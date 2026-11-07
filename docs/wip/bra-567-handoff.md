@@ -10,60 +10,140 @@ Inspect current remote branches and issue relations before changing the stack. P
 [PR #709](https://github.com/lejmer/bray/pull/709) supplies demanded worker lifetime through
 [BRA-566](https://linear.app/bray-lang/issue/BRA-566).
 
-The current batch completes the evidence model described below before validating the runtime end to end.
-The user authorizes rewriting unsuitable mechanisms when that produces a simpler, more maintainable result.
+Implementation and testing are paused while the architecture is derived from the specification. The current
+implementation is evidence about an attempted design, not the starting assumption or a constraint on its replacement.
+The user authorizes rewriting unsuitable mechanisms. Representation choices below remain proposals until the complete
+ownership and transition model has been assessed. No diagnostic or test run is the next action.
 
-### Design commitments
+### Requirements that govern the design
 
-`ExecutionPlace` identifies a checked storage path. `ExecutionState.current` maps that path to its current value,
-including independently versioned contents. A reference value retains its identity and access capability. Its
-`CurrentValue` stores non-owning `Borrowed` reached data. Refreshing its referent or joining current contents must not
-replace the reference value's identity. A scalar observation reached through a stored view
-uses that loan's established storage context, not a current contents version as a new storage identity.
+The executable host owns the root resolution obligation. Async root execution uses genuine Main authority supplied by
+validated entry roles. Direct await stays within the current run and requires no additional task control block.
+The generated frame owns lexical cancellation broadcast and lifecycle resolution. It publishes a terminal outcome only
+after lexical cleanup. Host observation never resumes that frame or repeats lexical cleanup.
 
-`ExecutionCallEvidence` owns an invocation's entry snapshot. An inactive frame retains that context independently
-of later caller mutation. Each copied capture uses the existing frame-relative `CapturedInput` identity, including
-constant inputs. Ordinary facts describe its value. Copy origins only correlate still-unchanged caller observations,
-and expire without deleting captured inputs. Owned captures transfer their complete carriers. Borrowed inputs retain
-access dependencies without acquiring ownership. Normal completion can use entry proof, while abnormal cleanup
-receives no normal-completion guarantees.
+Outcome payloads and incidents remain owned through disposal. Required execution, exact-thread attachment, services and
+provider code remain available until disposal and selected static cleanup finish. Caller shutdown ownership and resident
+host ownership share one terminal teardown state. Closing admission preserves existing cleanup authority. Blocked
+shutdown returns an unresolved owner rather than waiting for a dependency held by its caller.
 
-Joins intersect proven facts and merge possible dependencies. They must not conflate reduced value knowledge with
-input existence or ownership. Captured identities are bounded by frame owner, source invocation and input ordinal.
-Invocation entries and current values use the same snapshot join, including retained loans with changed referents.
-Existing block joins summarize successive dynamic frames from one source site, without accumulating an incarnation
-history. Losing a copy origin cannot erase an input or preserve a stale caller selector.
+Ownership admission secures actual cleanup storage before publication. Rollback retains initialized inputs and resolves
+every accepted resource exactly once. Native boundaries contain panic/cancellation and transfer actual incident owners.
+Internal visibility, marker construction, raw addresses and observational thread IDs do not establish authority.
+No language change, C borrow ABI, Rust root frame, second shutdown engine or host-wide runtime operation table is needed.
 
-Storage preservation uses the resolved `Effect` together with its target, raw access type and scope until the validity
-decision. The cached `Footprint` classifies the nominal carriers and markers a transfer can carry. It does not decide reachability.
-One transfer query serves active loans and stored shared views. A raw transfer revokes a matching observation only
-where it may reach its storage. Ambient effects use established exposure, and a target bound uses the existing memory
-relationship. Ordinary operations respect retained shared loans. Marker-free data transfers cannot retire markers. Whole-carrier transfer, replacement and retirement remain distinct
-from contents mutation. Scalar-only carriers must also lose authority after a reached raw move.
+Compiler semantics distinguish immutable copied data, current storage contents, complete witness ownership, physical
+reference targets and lifetime/access dependencies. Legal moves transport evidence, while ordinary field copies do not.
+Mutation invalidates affected observations. Branches preserve every possible dependency and only universally supported
+guarantees. Loop summaries are bounded. Imported contracts preserve the same semantics as Source checking.
 
-Remove the global raw-transfer marker set used as a substitute for reached storage. Preserve the existing owner,
-witness and invalidation representations, rather than adding another evidence store or shutdown policy.
-Remove deferred refinement's replacement of captured arguments with proven constants. Constant knowledge belongs in
-the entry facts, while the frame retains its input identities through refinement, source mutation and joins.
-Reconsider this design if it requires per-consumer exceptions, repeated reachability traversals, unbounded loop
-history, or weakening rejected fabrication and raw-transfer cases.
+Runtime selection follows all reachable obligations, including cleanup. Synchronous products require no async executor.
+Absent deadline or worker demand omits the corresponding implementation units, with authenticated provenance evidence.
+Maintainability, compile cost, generated execution, product size and retained resources are acceptance criteria.
 
-Optional execution services use their own existing retained domains and operation bindings. Common root driving and
-cleanup must not directly reference concrete deadline work or worker storage destruction. Deadline domains bind poll,
-wait, backing retirement and final destruction when formed. Worker domains bind their final destruction alongside their
-existing demand, stop and detach operations. The operation signatures preserve existing retained-owner and retirement
-requirements. Native entries take raw pointers or complete owned values, with anchored borrows inside their implementations.
-They consume their own incidents before returning. An unconstrained ordinary Bray callback can retain its input borrows
-in incident reports, so it cannot provide this service boundary. This adds no host-wide runtime table, C borrow ABI or
-alternate shutdown owner.
+### Architecture proposal under assessment
 
-The affected-contract checklist covers capture and forwarding, source mutation, branch and loop joins, raw and ordinary
-transfers, normal and abnormal cleanup, result consumption, Source/imported contracts, runtime native boundaries,
-genuine Main authority, optional service selection and synchronous no-executor controls.
+Use ordinary Bray owners for distinct responsibilities: the host root resolution claim, stable task/frame storage,
+retained domain access, exact-thread entry restoration, admitted startup resources, outcome/report custody and product
+teardown. Short operations borrow those owners. A retained storage lease does not acquire a task's sole resolution claim.
+Types represent distinct ownership or lifetime invariants. Enums represent mutually exclusive phases. Traits represent
+selected behavior, while validated runtime roles establish execution authority.
 
-This document is the single current handoff. Update it in place as decisions and evidence change.
-Remove superseded statements. Do not accumulate historical task notes or parallel progress records.
-The repository and the facts recorded here are sufficient to resume. No temporary VM artifacts are required.
+Task admission is preparation followed by publication. Preparation owns the frame, a reserved admission entitlement,
+stable task storage, binding and actual cleanup backing. Native installation and other fallible work occur before
+publication. The admission entitlement accounts for races with entry closure. Commit transfers the complete prepared
+ownership; rollback uses the same owned fields and initialization state.
+
+The task arena stores ordinary task cells, including the host-owned root. Generated frames retain their own body,
+direct-await and cleanup state. Scheduling state does not duplicate the frame's lifecycle state. Only a completed
+generated frame can publish terminal storage, which is taken once by the root observer. The retained host execution
+binding survives observation and payload disposal without resuming a terminal root or inventing Blocking authority.
+
+The common resident host owns one teardown state, the cleanup domain graph, attachment state and report sink.
+It has no concrete executor field or static reference to async implementation units. An async product separately forms
+an execution owner and retains it through payload/static cleanup. Admitted continued cleanup can retain its selected
+execution binding through the existing host state. Graph edges
+record source owners and provider dependencies. External-root status is relative to the fixed teardown set. Internal
+consumer edges order cleanup rather than block it. Extract owned cleanup work before releasing host locks and invoking
+callbacks. Drain incidents while their providers remain retained. Exact-thread cleanup uses the existing attachment
+owner and selected execution binding. BRA-507 integrates suspending fallback with this same state, while BRA-559 owns
+test-host policy.
+
+Keep common orchestration concrete. Use statically selected provider behavior and small per-owner bindings where an ABI
+requires erasure. Separate worker and deadline capabilities so absent demand introduces no concrete provider references.
+Generated frame descriptors remain protected compiler metadata, not an ordinary source-implementable Future trait.
+Ordinary Source callbacks preserve checked incident dependencies. Native bindings use owned values or raw pointers,
+anchor borrows within their entry and consume boundary incidents before returning.
+
+The proposed compiler model uses explicit data terms, storage places/versions, whole-value carriers, loan capabilities,
+physical target regions and dependency-bearing facts. These are semantic responsibilities, not a commitment to new
+stores or a compiler-wide rewrite. A checked operation has one ownership/storage transition consumed by facts, borrowing
+and cleanup. Call summaries carry entry requirements, effects, ownership/reference transfers, normal guarantees and
+abnormal incident dependencies. Deferred frames retain relevant entry data and dependencies rather than mutable caller
+state. Joins retain correlated case/carrier alternatives, with canonical block summaries rather than execution history.
+
+The proposed ownership records have these concrete responsibilities. Names and layouts remain provisional.
+
+| Record | Owned fields or retained dependencies | Exclusive responsibility |
+| --- | --- | --- |
+| Common host record | Attachment registry, report sink, teardown state, admitted cleanup binding and provider retention | Product infrastructure and the shared teardown state |
+| Async execution owner | Execution domain, validated Main binding and host root resolution claim | Retain demanded execution services through root observation and selected product cleanup |
+| Root/task owner | Domain retention, generation-checked task key and introduced resolution authority | Take and resolve one terminal outcome |
+| Task storage lease | Domain retention and task key, without resolution authority | Keep cell/backing available to observers or registrations |
+| Prepared start | Admission entitlement, reserved slot, inactive frame, binding and physical cleanup backing | Commit complete publication or resolve rollback |
+| Task cell | Scheduling state, cancellation request, stable frame, wait linkage and terminal storage | Execute one run and publish its terminal record once |
+| Entry scope | Exact attachment, prior binding, installed binding and admission permit | Restore the displaced execution context on every exit |
+| Outcome owner | Payload/report, incidents, backing still in use and execution/provider dependencies | Dispose or transfer the complete observed result |
+| Teardown state | Fixed domain set, phase, graph progress and in-progress cleanup reservations | Advance one shared product cleanup operation |
+
+A type name, task key or matching fields cannot introduce any of these authorities. Introduction and movement follow
+checked complete-carrier contracts. Only explicit retention creates another storage lease; it never duplicates the
+resolution claim. Runtime phases use tagged state rather than unrelated flags. Scheduling may continue while generated
+cleanup suspends, so scheduling and frame lifecycle state are separate responsibilities.
+
+| Operation | Required semantic transition |
+| --- | --- |
+| Prepare | Reserve admission and backing while retaining the actual inactive frame |
+| Commit | Publish the fully installed frame and transfer the sole resolution claim |
+| Roll back | Resolve initialized resources and frame ownership exactly once |
+| Resume | Run under the validated binding, preserving the frame through suspension |
+| Publish terminal | Commit outcome after generated lexical cleanup, with completion visibility |
+| Observe | Acquire completion visibility, take the outcome once and prevent further resume |
+| Dispose outcome | Preserve execution/providers and release backing only after its last user |
+| Begin teardown | Fix the teardown set, close new admission and retain existing cleanup authority |
+| Blocked attempt | Return control with the unresolved owner and secured resident backing |
+| Clean domain | Own its reservation, run callbacks without host locks, drain incidents and release consumer edges |
+| Finish teardown | Release infrastructure only after all work that can use it has completed |
+
+For compiler semantics, a storage place identifies a location, a data term identifies an immutable observation, a
+carrier identifies a complete witness introduction, and a loan identifies access permission plus its dependencies.
+A reference's physical target set and its authority/lifetime roots are separate fields. Facts record the observations
+and complete carriers they require. One operation transition updates occupancy, versions, capabilities, carriers and
+obligations consistently. Raw publication affects reachability; raw transfer also applies its typed ownership effect.
+Unknown reachability is conservative and does not invent either freshness or authority.
+
+A scalar copy retains data without coupling it to later source writes. A legal witness move retains its carrier and
+revokes its old owner path. Borrowing retains access without transferring target ownership. Deferred captures retain
+copied data, moved carriers or loan dependencies according to their actual capture mode. Joins keep possible dependencies
+and correlated guarded ownership alternatives, and require valid evidence on every relevant path. A finite block/place
+summary bounds loop state. Proof-budget exhaustion can lose a proof but cannot drop an obligation or dependency.
+
+Small compile-time provider traits express replaceable behavior. Closed semantic alternatives and concurrent runtime
+phases use enums. Authority is supplied only by validated roles or established live contracts. Common orchestration
+remains concrete; specialize provider adapters and erase only at actual ABI boundaries. Borrowed local views incur no
+retention operation. Frame and control storage can be co-allocated. Common synchronous host ownership contains no optional concrete
+executor whose lifecycle would statically retain async units. Facts, paths and summaries use shared immutable
+representations, cached per-type classification and dependency-directed invalidation rather than repeated whole-state
+traversal. Broad effects still require conservative broad handling.
+
+Assess this proposal through complete success, panic, cancellation, startup failure, nested entry/restoration, blocked
+shutdown and imported-consumer scenarios before selecting concrete layouts or changing code. The ownership/transition tables above are the starting engineering artifact. Complete the requirement-to-component
+mapping and assess unresolved synchronization, admission and cleanup contracts before choosing representations. Compare the existing implementation
+against that model only after it is coherent. Identify mechanisms to remove and justify every additional concept.
+
+This document is the single current handoff. Update it in place. Keep current verified evidence, architectural decisions,
+open design questions and the next engineering action. Do not promote an experiment into a design commitment merely
+because it improves a test. Do not accumulate parallel progress records.
 
 ## Mandatory working instructions
 
@@ -210,12 +290,10 @@ Connected GitHub account `lejmer` has admin/push access to the public `lejmer/br
 authentication is invalid. Use connected Git object APIs for checkpoints on existing PR #710. Parent #709 remains
 open at the unchanged stack base. Push coherent checkpoints regularly, as requested by the user.
 
-The user has paused implementation and testing for an architectural reassessment. Do not resume the local
-representation/test loop. The current checker batch is verified as recorded above, but does not converge on Source
-acceptance. Before further edits, review one complete minimal async root lifecycle: admission, Main driving, outcome
-disposal, entry closure, domain drain and provider release. Establish each actual owner, access capability and transfer,
-then decide whether to simplify runtime ownership or correct the checker model. Specify what machinery the chosen
-approach removes and one end-to-end acceptance target. Native/imported/cost acceptance and final review remain pending.
+The user has directed a specification-first engineering design, with the current implementation set aside during
+architecture derivation. The proposal above is provisional. Continue the ownership and transition model before code or
+tests. Current representation details in this section describe the checkpoint only and do not constrain the design.
+Native/imported/cost acceptance and final review remain pending.
 
 ## Final acceptance
 
