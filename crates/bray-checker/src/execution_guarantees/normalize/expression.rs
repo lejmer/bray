@@ -63,7 +63,7 @@ pub(crate) fn expression_condition(
         let place = crate::ExecutionPlace::constant_reference(term);
 
         return current
-            .get(&place)
+            .get_value(&place)
             .cloned()
             .unwrap_or(ExecutionCondition::Input(place));
     }
@@ -128,7 +128,7 @@ pub(crate) fn expression_condition(
             current,
         ),
         BoundExpression::PatternReference(reference) => current
-            .get(&BoundReferenceTarget::Local(reference.binding().into()).into())
+            .get_value(&BoundReferenceTarget::Local(reference.binding().into()).into())
             .cloned()
             .unwrap_or(ExecutionCondition::Unknown),
         BoundExpression::MemberAccess(member) => {

@@ -7,6 +7,7 @@ use crate::execution_guarantees::ExecutionCondition;
 
 use super::super::super::id::AnalysisBlockId;
 use super::super::state::ExecutionState;
+use super::super::current::{CurrentValue, ValueAvailability};
 
 pub(in crate::analysis) fn merge(
     target: &mut Option<ExecutionState>,
@@ -142,6 +143,9 @@ fn join_observations<'a>(
     let mut needs_condition_proof = false;
     let mut stable_values = std::collections::BTreeSet::new();
     let mut stable_identities = std::collections::BTreeSet::new();
+    let mut availability = BTreeMap::new();
+    let mut availability_guards = std::collections::BTreeSet::new();
+    let mut availability_facts = Vec::new();
 
     let observed = target
         .current
@@ -158,13 +162,20 @@ fn join_observations<'a>(
             .value_in(&incoming.current)
             .unwrap_or(ExecutionCondition::Unknown);
 
+        let left_available = resolved_availability(target, place);
+        let right_available = resolved_availability(incoming, place);
+
         if value.owner_identity() == other.owner_identity() {
             stable_identities.insert(value.owner_identity().clone());
         }
 
         let result = || block.map(|block| joined_observation(block, place));
 
-        let joined = if value == other {
+        let joined = if left_available == ValueAvailability::Absent {
+            other.clone()
+        } else if right_available == ValueAvailability::Absent {
+            value.clone()
+        } else if value == other {
             stable_values.insert(value.clone());
             stable_values.insert(value.clone().borrowed());
 
@@ -185,6 +196,26 @@ fn join_observations<'a>(
         } else {
             result().unwrap_or(ExecutionCondition::Unknown)
         };
+
+        let available = if left_available == right_available {
+            left_available.clone()
+        } else if matches!(left_available, ValueAvailability::Unknown)
+            || matches!(right_available, ValueAvailability::Unknown)
+        {
+            ValueAvailability::Unknown
+        } else {
+            let guard = ExecutionCondition::InitializedSnapshot(
+                place.clone(), std::sync::Arc::new(joined.owner_identity().clone()),
+            );
+
+            availability_facts.push((guard.clone(), left_available, right_available));
+            availability_guards.insert((joined.owner_identity().clone(), guard.clone()));
+            ValueAvailability::Guarded(guard)
+        };
+
+        joins |= target.current.availability(place) != available
+            || incoming.current.availability(place) != available;
+        availability.insert(place.clone(), available);
 
         if value != other && joined != ExecutionCondition::Unknown {
             needs_condition_proof |= matches!(
@@ -217,15 +248,11 @@ fn join_observations<'a>(
         super::super::state::update_parent_observations(&mut joined_values, place, value, None);
     }
 
-    if block.is_none() {
-        // Returned branches already renamed their result carriers. Intersect their
-        // storage snapshots without performing a second ownership or predicate join.
-        for (place, value) in joined_values {
-            changed |= target.current.get(&place) != Some(&value);
-            target.current.insert(place, value);
-        }
-
-        return (incoming_joined, changed);
+    // Availability is evidence about the predecessor's actual initialized storage,
+    // independent of the contents or any authority carried by that storage.
+    for (guard, left, right) in availability_facts {
+        assume_availability(target, &guard, left);
+        assume_availability(incoming_joined.to_mut(), &guard, right);
     }
 
     for (place, joined) in &joined_values {
@@ -273,6 +300,7 @@ fn join_observations<'a>(
         .chain(incoming.pending_results.keys())
         .copied()
         .collect::<std::collections::BTreeSet<_>>()
+        .into_iter().filter(|_| block.is_some())
     {
         let value = target
             .pending_results
@@ -333,6 +361,7 @@ fn join_observations<'a>(
             (incoming_joined.as_ref(), &right, &right_identities),
             &joined_values,
             &results,
+            &availability_guards,
         );
 
         target.join_values(&left, &left_identities);
@@ -349,9 +378,14 @@ fn join_observations<'a>(
         }
 
         for (place, value) in joined_values {
-            changed |= target.current.get(&place) != Some(&value);
-            target.current.insert(place.clone(), value.clone());
-            incoming.current.insert(place, value);
+            let slot = CurrentValue {
+                value,
+                availability: availability.remove(&place).expect("joined place has availability"),
+            };
+
+            changed |= target.current.slot(&place) != Some(&slot);
+            target.current.set_slot(place.clone(), slot.clone());
+            incoming.current.set_slot(place, slot);
         }
 
         for (expression, value) in results {
@@ -364,6 +398,30 @@ fn join_observations<'a>(
     changed |= publish_owned_results(target, &mut incoming_joined, owned_results);
 
     (incoming_joined, changed)
+}
+
+fn resolved_availability(state: &ExecutionState, place: &crate::ExecutionPlace) -> ValueAvailability {
+    match state.current.availability(place) {
+        ValueAvailability::Guarded(guard) => match guard.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) {
+            Some(true) => ValueAvailability::Present,
+            Some(false) => ValueAvailability::Absent,
+            None => ValueAvailability::Guarded(guard),
+        },
+        available => available,
+    }
+}
+
+fn assume_availability(state: &mut ExecutionState, guard: &ExecutionCondition, available: ValueAvailability) {
+    let condition = match available {
+        ValueAvailability::Present => (guard.clone(), true),
+        ValueAvailability::Absent => (guard.clone(), false),
+        ValueAvailability::Guarded(previous) => (
+            ExecutionCondition::operation(bray_bound_tree::BoundOperator::Equal, vec![guard.clone(), previous]), true,
+        ),
+        ValueAvailability::Unknown => return,
+    };
+
+    condition.0.assume(condition.1, &mut state.assumptions);
 }
 
 fn joined_observation(block: AnalysisBlockId, place: &crate::ExecutionPlace) -> ExecutionCondition {

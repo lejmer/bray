@@ -20,12 +20,13 @@ pub(super) fn conditional_guarantees(
     ),
     current: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     results: &[(BoundExpressionId, ExecutionCondition)],
+    availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
 ) -> Vec<(ExecutionCondition, ExecutionCondition, ExecutionCondition, bool)> {
     if left.0.witnesses.is_empty() && right.0.witnesses.is_empty() {
         return Vec::new();
     }
 
-    let mut guards = BTreeSet::new();
+    let mut guards = availability.clone();
     let mut inputs = [BTreeMap::new(), BTreeMap::new()];
     let absent = [left.0, right.0].map(absent_observations);
 

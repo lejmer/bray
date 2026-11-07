@@ -264,6 +264,7 @@ impl ExecutionCondition {
                 Self::Boolean(_)
                 | Self::Literal(_)
                 | Self::Variant(_)
+                | Self::InitializedSnapshot(_, _)
                 | Self::Entry { captured: true, .. } => {}
                 Self::Entry {
                     condition,

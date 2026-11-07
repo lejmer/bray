@@ -578,6 +578,16 @@ impl Lifecycle {
             arguments.entry(self.receiver.into()).or_insert(value);
         }
 
+        let mut assumptions = state.assumptions.clone();
+
+        // Conditional cleanup executes only for the initialized receiver. This
+        // selects a previously proved guarded clause, and creates no authority.
+        if let Some(place) = place
+            && let super::super::current::ValueAvailability::Guarded(guard) = state.current.availability(place)
+        {
+            guard.assume(true, &mut assumptions);
+        }
+
         // Entry assumptions must survive the mutations made by this lifecycle invocation.
         ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
@@ -589,7 +599,7 @@ impl Lifecycle {
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,
             arguments,
-            assumptions: state.assumptions.clone(),
+            assumptions,
             trusted_assumptions: state.trusted_assumptions.clone(),
         }
     }

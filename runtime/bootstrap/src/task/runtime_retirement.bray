@@ -141,7 +141,7 @@ trusted internal func detach_runtime_slot(
 
     let retired: RetiredCell? = if last
     {
-        yield trusted take_released(&lease, &reference);
+        yield trusted take_released(&lease, reference);
     }
     else
     {

@@ -50,23 +50,48 @@ trusted internal func create_arena() -> ArenaReference?
         return none;
     }
 
-    let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
-        std.memory.stride_of<Arena>(),
-        align = std.memory.align_of<Arena>()
-    )
-    {
-        case ?backing { yield backing; }
-        case none { return none; }
-    };
-
-    // Acquire resident lifetime only after fallible allocation. A rejected
-    // acquisition still leaves the allocation in its ordinary cleanup owner.
     if !trusted bray.runtime.bootstrap.host.acquire_execution_domain()
     {
         return none;
     }
 
-    return trusted initialize_arena(allocation, identity);
+    return with arena_admission = ArenaAdmission { active = true }
+    {
+        let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
+            std.memory.stride_of<Arena>(),
+            align = std.memory.align_of<Arena>()
+        )
+        {
+            case ?backing { yield backing; }
+            case none { return none; }
+        };
+
+        let retained_arena = trusted initialize_arena(allocation, identity);
+
+        arena_admission.active = false;
+        yield retained_arena;
+    };
+}
+
+// The scoped admission owns the resident count until the initialized arena
+// accepts it. Allocation failure and unwinding release the same acquisition.
+internal struct ArenaAdmission
+{
+    mut active: bool;
+
+    consume enter() -> Self
+        executes(pure, total)
+    {
+        return self;
+    }
+
+    trusted exit(pos owner: Self)
+    {
+        if owner.active
+        {
+            trusted bray.runtime.bootstrap.host.release_execution_domain();
+        }
+    }
 }
 
 trusted internal func initialize_arena(pos allocation: std.memory.RawAllocation, pos identity: u64) -> ArenaReference

@@ -100,7 +100,7 @@ trusted internal func dispose_reference(pos reference: Reference) -> u32
             trusted core.target.abort();
         }
 
-        yield trusted take_released(&lease, &reference);
+        yield trusted take_released(&lease, reference);
     };
 
     return trusted dispose_retired_cell(retired);
@@ -155,34 +155,19 @@ trusted internal func dispose_optional_retired_cell(pos owner: RetiredCell?) -> 
 // The final-reference protocol and resident lease authorize one physical take.
 // Return the independently owned resources before making the row reusable.
 trusted internal func take_retired_cell(
-    pos reference: &Reference,
+    pos reference: Reference,
     pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> (usize, RetiredCell)
     requires(
-        trusted released(owner = reference),
+        trusted released(owner = &reference),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(trusted retired_cell(owner = &result.1))
     uses(raw_memory, unchecked_init, intrinsic)
 {
-    let permit = trusted lambda(pos reference: &Reference, pos lease: &bray.runtime.bootstrap.host.HostLease)
-        requires(
-            trusted released(owner = reference),
-            lease.active,
-            trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
-        )
-        ensures(
-            trusted core.memory.valid_read<Slot>(pointer = reference.pointer, count = 1),
-            trusted core.memory.valid_write<Slot>(pointer = reference.pointer, count = 1),
-            trusted core.memory.initialized_as<Slot>(pointer = reference.pointer),
-            trusted core.memory.aligned_for<Slot>(pointer = reference.pointer)
-        )
-        executes(pure, total) {};
-
-    trusted permit(reference, lease);
-
-    let slot = trusted std.memory.read<Slot>(reference.pointer);
+    let mut access = trusted released_slot_access(&reference, lease);
+    let slot = trusted link_slot(&mut access);
 
     if slot.control matches none || slot.registration matches ?_ || !slot.terminal_waiters.empty() ||
         !slot.retirement_waiters.empty()
@@ -204,12 +189,11 @@ trusted internal func take_retired_cell(
         )
         executes(pure, total) {};
 
-    trusted initialized(reference, &slot);
+    trusted initialized(&reference, &slot);
 
-    let arena_owner = trusted std.memory.assume_initialized<(ArenaReference?)>(slot.arena_owner);
-
-    let execution = trusted std.memory.assume_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
-        slot.execution_owner
+    let arena_owner = trusted std.memory.move_initialized<(ArenaReference?)>(&mut slot.arena_owner);
+    let execution = trusted std.memory.move_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
+        &mut slot.execution_owner
     );
 
     let storage_owner = match consume arena_owner
@@ -218,13 +202,11 @@ trusted internal func take_retired_cell(
         case none { yield trusted core.target.abort(); }
     };
 
-    let storage = match consume slot.control
+    let control = match &mut slot.control
     {
-        case ?value { yield value; }
+        case ?storage { yield trusted std.memory.move_initialized<std.sync.SpinLock<Control>>(storage); }
         case none { yield trusted core.target.abort(); }
     };
-
-    let control = trusted std.memory.assume_initialized<std.sync.SpinLock<Control>>(storage);
 
     let retired: RetiredCell =
     {
@@ -233,8 +215,23 @@ trusted internal func take_retired_cell(
         arena = storage_owner
     };
 
-    trusted std.memory.write<Slot>(reference.pointer, empty_slot(index, generation, 0));
+    _ = std.memory.replace_value<Slot>(slot, empty_slot(index, generation, 0));
     return (index, retired);
+}
+
+trusted internal func released_slot_access(
+    pos reference: &Reference,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> LinkAccess
+    requires(
+        trusted released(owner = reference),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted released(owner = reference), trusted link_access(owner = &result))
+    executes(pure, total)
+{
+    return { lease = lease, pointer = reference.pointer };
 }
 
 internal const func retired_control_storage(pos owner: &Slot) -> &Uninit<std.sync.SpinLock<Control>>
@@ -250,12 +247,12 @@ internal const func retired_control_storage(pos owner: &Slot) -> &Uninit<std.syn
 
 trusted internal func take_released(
     pos lease: &bray.runtime.bootstrap.host.HostLease,
-    pos reference: &Reference
+    pos reference: Reference
 ) -> RetiredCell
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted released(owner = reference)
+        trusted released(owner = &reference)
     )
     ensures(
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),

@@ -22,7 +22,7 @@ internal struct Slot
     mut next: usize;
     mut control: Uninit<std.sync.SpinLock<Control>>?;
     cancellation: core.atomic.Atomic<usize>;
-    execution_owner: Uninit<(bray.runtime.bootstrap.execution.Reference?)>;
+    mut execution_owner: Uninit<(bray.runtime.bootstrap.execution.Reference?)>;
     mut terminal_waiters: WaitLink;
     mut retirement_waiters: WaitLink;
     mut registration: WaitRegistration?;
