@@ -129,7 +129,7 @@ impl ExecutionState {
     pub(super) fn owned_values<'a>(
         &'a self,
         value: &ExecutionCondition,
-    ) -> impl Iterator<Item = ExecutionCondition> + 'a {
+    ) -> impl Iterator<Item = ExecutionCondition> + 'a + use<'a> {
         // Snapshots share immutable components. Only the traversal's small worklist is owned.
         let mut pending = vec![value.clone()];
 
@@ -612,7 +612,6 @@ impl ExecutionState {
             value: ExecutionCondition::Unknown, availability: super::current::ValueAvailability::Absent,
         }, None);
     }
-
 
 }
 

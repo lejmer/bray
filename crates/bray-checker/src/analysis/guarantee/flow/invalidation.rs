@@ -538,10 +538,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut masks = self.preservation_masks( descriptors.keys().map(|place| {
             (place, descriptor_paths[place].projections.as_ref())
         }), retained.iter().map(|(place, (_, path))| (place, path.projections.as_ref())));
+
         let current = state.current.iter().map(|(place, value)| (place.clone(), value.clone())).collect::<Vec<_>>();
 
         for (place, source) in current {
             let mask = masks.remove(&place).unwrap_or_default();
+
             let next = mask.apply(&source, Some(&place), mutation, &|place, owner, contents| {
                 self.current_observation(place, owner, contents)
             });
@@ -561,6 +563,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let mut root = place.clone();
 
             root.projections = [].into();
+
             let mask = masks.entry(root).or_default().at_mut(path);
 
             if preserves_value { mask.value = true; } else { mask.descriptor = true; }
@@ -717,25 +720,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .collect::<BTreeMap<_, _>>(),
             _ => BTreeMap::new(),
         };
+
         let masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.as_ref())),
             stable_places.iter().map(|(place, (_, path))| (place, path.projections.as_ref())));
+
         let mut updates = BTreeMap::new();
 
         for place in changed_places {
             let mut root = place.clone();
 
             root.projections = [].into();
+
             let Some(source) = root.value_in(&state.current) else { continue; };
+
             let path = changed_paths.get(&place).map_or(&[][..], |path| path.as_ref());
             let previous = path.iter().copied().fold(source.clone(), ExecutionCondition::project);
             let empty = super::preservation::ValuePreservation::default();
             let mask = masks.get(&root).and_then(|mask| mask.at(path)).unwrap_or(&empty);
+
             let next = if transfers { ExecutionCondition::Unknown } else {
                 mask.apply(&previous, Some(&place), mutation, &|place, owner, contents| {
                     self.current_observation(place, owner, contents)
                 })
             };
+
             let updated = updates.entry(root).or_insert(source);
 
             *updated = updated.with_storage_component(path, next);

@@ -68,7 +68,8 @@ impl ExecutionState {
                                 DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
                                     transfer.input().component(*field),
                                     [],
-                                ).with_preservation(preservation)),
+                                ).with_preservation(preservation)
+                                    .with_condition(transfer.condition())),
                             );
                         };
 
@@ -96,17 +97,8 @@ impl ExecutionState {
         // Contents can change without changing this object's recorded identity.
         // Only its own mapping survives that way. Child mappings come from the
         // actual current children, never a previous version of the aggregate.
-        let owner = self.owned_results.get(value.owner_identity()).map(|result| {
-            result.try_map(
-                &mut |transfer| Ok::<_, std::convert::Infallible>(
-                    if transfer.output().is_empty() {
-                        DependencyOwnedResult::Transfer(transfer.clone())
-                    } else {
-                        DependencyOwnedResult::default()
-                    }),
-                &mut |condition| Ok(Some(condition.clone())),
-            ).expect("recorded owner selection is infallible")
-        }).unwrap_or_default();
+        let owner = self.owned_results.get(value.owner_identity())
+            .map(DependencyOwnedResult::root_layout).unwrap_or_default();
 
         DependencyOwnedResult::all([owner, contents])
     }
@@ -158,12 +150,16 @@ mod tests {
             DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(original.clone(), [])),
             DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(old_child.clone(), [field])),
         ]));
+
         state.owned_results.insert(new_child.clone(), DependencyOwnedResult::Transfer(
             DependencyOwnedTransfer::new(new_child.clone(), []),
         ));
+
         let changed = ExecutionCondition::owned_value(original.clone(),
             ExecutionCondition::constructed(ExecutionCondition::Unknown, [(field, new_child.clone())].into()));
+
         let ownership = state.owned_result(&changed);
+
         let mappings = ownership.transfers().map(|transfer| (transfer.input(), transfer.output().to_vec()))
             .collect::<std::collections::BTreeSet<_>>();
 

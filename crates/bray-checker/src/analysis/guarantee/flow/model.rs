@@ -285,6 +285,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // Keep both the stable evaluated branch and its checked Boolean meaning.
             // The latter exposes conjunctions carried by completion observations.
             observed.assume(value, &mut state.assumptions);
+
             let prospective = condition == ExecutionCondition::Expression(expression);
 
             condition.assume(value, &mut state.assumptions);

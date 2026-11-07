@@ -595,6 +595,7 @@ where
             StorageIdentity::ScopedCapability { expression, .. } => bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
             _ => unreachable!("protocol storage belongs to an implicit invocation"),
         };
+
         let storage = self.bind_identity(
             StorageBindingTarget::InvocationResult(occurrence), identity, Some(ty),
         )?.expect("selected invocation result is planned once");

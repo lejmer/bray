@@ -106,6 +106,7 @@ where
             let operand = *condition.operands().first()?;
 
             self.push_result(current, id, AnalysisResultPhase::Begin);
+
             let success = self.condition_result_outcome(id, true, matched);
             let failure = self.condition_result_outcome(id, false, unmatched);
 
@@ -119,6 +120,7 @@ where
             let operand = *unary.operands().first()?;
 
             self.push_result(current, id, AnalysisResultPhase::Begin);
+
             let success = self.condition_result_outcome(id, true, matched);
             let failure = self.condition_result_outcome(id, false, unmatched);
 
@@ -130,10 +132,13 @@ where
             && matches!(binary.operator(), BoundOperator::LogicalAnd | BoundOperator::LogicalOr)
         {
             let [left, right] = binary.operands() else { return None; };
+
             let (left, right) = (*left, *right);
+
             let conjunction = binary.operator() == BoundOperator::LogicalAnd;
 
             self.push_result(current, id, AnalysisResultPhase::Begin);
+
             let success = self.condition_result_outcome(id, true, matched);
             let failure = self.condition_result_outcome(id, false, unmatched);
             let next = self.push_block();
@@ -247,6 +252,7 @@ where
 
         self.push_edge(outcome, completed, destination.1,
             Some(AnalysisRefinement::Condition { expression, value }));
+
         self.push_result(completed, expression, AnalysisResultPhase::Completion);
         self.push_edge(completed, destination.0, AnalysisEdgeKind::Sequential, None);
 

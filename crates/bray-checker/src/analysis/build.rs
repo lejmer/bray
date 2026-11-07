@@ -989,6 +989,7 @@ mod tests {
             AnalysisResultPhase::Completion,
             AnalysisResultPhase::Completion,
         ]);
+
         assert!(!graph.operations().iter().any(|operation| matches!(
             operation.kind(), AnalysisOperationKind::Bound(node) if node == binary.into()
         )));
