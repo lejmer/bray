@@ -9,6 +9,11 @@ using internal bray.runtime.bootstrap.scheduler;
 using internal bray.runtime.bootstrap.worker;
 using internal bray.runtime.bootstrap.deadline;
 
+@layout(c)
+internal struct Acquisition
+{
+}
+
 // Execution owners retain services through root and product cleanup. Pins only
 // preserve backing for admitted callbacks and attachments. Product entry and
 // shutdown eligibility remain exclusively in the resident host.

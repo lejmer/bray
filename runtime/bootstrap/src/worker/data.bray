@@ -116,26 +116,42 @@ internal struct Worker
     failure_code: core.atomic.Atomic<i64>;
 }
 
+// Slot retention, launch ownership and an entered thread have independent lifetimes.
+@layout(c)
+internal struct WorkerMarker
+{
+}
+
+@layout(c)
+internal struct FormationMarker
+{
+}
+
+@layout(c)
+internal struct ScopeMarker
+{
+}
+
 internal struct WorkerReference
 {
-    marker: Marker;
+    marker: WorkerMarker;
     pointer: DataPointer<Worker>;
 }
 
 // A formation claim and its committed native descriptor keep one complete carrier.
 internal struct Descriptor
 {
-    marker: Marker;
+    marker: FormationMarker;
     reference: WorkerReference;
 }
 
-trusted internal predicate forming(owner: &Marker);
+trusted internal predicate forming(owner: &FormationMarker);
 
-trusted internal predicate descriptor_owned(owner: &Marker);
+trusted internal predicate descriptor_owned(owner: &FormationMarker);
 
 internal struct Scope
 {
-    marker: Marker;
+    marker: ScopeMarker;
     worker: Descriptor;
     mut execution: Uninit<(bray.runtime.bootstrap.host.ExecutionOwner?)>;
     attachment: u64;
@@ -156,13 +172,13 @@ trusted internal predicate callback_slot(pointer: DataPointer<Callback>);
 
 trusted internal predicate scope_slot(pointer: DataPointer<DataPointer<Scope>>);
 
-trusted internal predicate scope_live(owner: &Marker);
+trusted internal predicate scope_live(owner: &ScopeMarker);
 
-trusted internal predicate scope_owned(owner: &Marker);
+trusted internal predicate scope_owned(owner: &ScopeMarker);
 
 trusted internal predicate native_entry();
 
-trusted internal predicate retained_worker(owner: &Marker);
+trusted internal predicate retained_worker(owner: &WorkerMarker);
 
 trusted internal predicate formation_entry();
 

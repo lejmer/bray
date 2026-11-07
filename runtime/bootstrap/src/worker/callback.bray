@@ -255,7 +255,7 @@ trusted internal func retain_descriptor(pos formation: Descriptor) -> (Descripto
 {
     let observer: WorkerReference =
     {
-        marker = Marker
+        marker = WorkerMarker
         {
         },
         pointer = formation.reference.pointer

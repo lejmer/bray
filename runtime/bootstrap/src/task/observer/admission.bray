@@ -16,16 +16,24 @@ trusted internal predicate creation_entry(
     outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 );
 
+internal struct InputMarker
+{
+}
+
+internal struct PreparationMarker
+{
+}
+
 internal struct Input
 {
-    acquisition: Marker;
+    acquisition: InputMarker;
     task: u64;
     layout: bray.runtime.bootstrap.task.result.Layout;
     glue: Glue;
     outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>;
 }
 
-trusted internal predicate input_retained(owner: &Marker);
+trusted internal predicate input_retained(owner: &InputMarker);
 
 internal predicate input_owner(owner: &Input) = input_retained(owner = &owner.acquisition);
 
@@ -60,7 +68,7 @@ trusted internal func read_input(
 
     return
     {
-        acquisition = Marker
+        acquisition = InputMarker
         {
         },
         task = task,
@@ -184,7 +192,7 @@ internal func storage_shape(
 // backing and helper reservations acquired by this attempt.
 internal struct Prepared
 {
-    acquisition: Marker;
+    acquisition: PreparationMarker;
     input: Input;
     lease: bray.runtime.bootstrap.storage.Lease;
     mut records: bray.runtime.bootstrap.ReportRecords;
@@ -193,7 +201,7 @@ internal struct Prepared
     mut provider: bray.runtime.bootstrap.provider.Reference;
 }
 
-trusted internal predicate preparation_owned(owner: &Marker);
+trusted internal predicate preparation_owned(owner: &PreparationMarker);
 
 internal predicate prepared(owner: &Prepared) = preparation_owned(owner = &owner.acquisition);
 

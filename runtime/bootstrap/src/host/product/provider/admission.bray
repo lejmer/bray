@@ -212,7 +212,7 @@ trusted internal func prepare_provider(
 
     owner.native =
     {
-        acquisition = bray.runtime.bootstrap.host.Acquisition
+        acquisition = bray.runtime.bootstrap.provider.Acquisition
         {
         },
         context = binding.provider.context,

@@ -194,7 +194,7 @@ trusted internal func stop_reference(pos reference: &Reference, pos defer: bool 
 
                 return
                 {
-                    marker = Marker
+                    marker = WorkerMarker
                     {
                     },
                     pointer = std.memory.pointer<Worker>(&rows[index])

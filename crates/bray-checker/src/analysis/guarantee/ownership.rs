@@ -14,15 +14,6 @@ impl ExecutionState {
         }
 
         match value {
-            ExecutionCondition::Input(place) if place.is_callable_input()
-                && self.owned_results.get(&ExecutionCondition::Input(crate::ExecutionPlace {
-                    root: place.root.clone(), projections: std::sync::Arc::from([]),
-                })).is_some_and(|owned| !owned.is_empty()) => {
-                DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
-                    ExecutionCondition::Input(place.clone()),
-                    [],
-                ))
-            }
             ExecutionCondition::Present(value) => {
                 self.prefixed_owned_result(value, StorageProjection::NullableValue)
             }

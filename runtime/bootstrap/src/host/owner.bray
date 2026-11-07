@@ -18,9 +18,14 @@ using internal std.thread;
 
 internal callable AttachmentCleanup = @abi(c) func(pos identity: u64) -> u32;
 
+@layout(c)
+internal struct ExecutionAcquisition
+{
+}
+
 // The attachment owns this complete, thread-bound record independently of
 // native TLS key order. Binding borrows that owner, retirement consumes it.
-trusted internal predicate execution_acquired(owner: &Acquisition);
+trusted internal predicate execution_acquired(owner: &ExecutionAcquisition);
 
 internal predicate execution_owned(owner: &ExecutionOwner) = execution_acquired(owner = &owner.acquisition);
 
@@ -57,7 +62,7 @@ internal callable ExecutionRetire = @abi(c) trusted func(pos owner: ExecutionOwn
 @layout(c)
 internal struct ExecutionOwner
 {
-    acquisition: Acquisition;
+    acquisition: ExecutionAcquisition;
     resource: DataPointer<u8>;
     bind: ExecutionEnter;
     retire: ExecutionRetire;

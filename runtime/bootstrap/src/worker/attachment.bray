@@ -23,7 +23,7 @@ trusted internal func publish_scope(pos owner: &mut Scope) -> (u32, bray.runtime
     {
         return
         {
-            acquisition = bray.runtime.bootstrap.host.Acquisition
+            acquisition = bray.runtime.bootstrap.host.ExecutionAcquisition
             {
             },
             resource = std.memory.byte_address<Scope>(std.memory.address_of<Scope>(owner)),

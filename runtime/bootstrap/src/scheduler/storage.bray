@@ -119,7 +119,7 @@ trusted internal func initialize(
 
     return
     {
-        acquisition = bray.runtime.bootstrap.host.Acquisition
+        acquisition = Acquisition
         {
         },
         pointer = pointer

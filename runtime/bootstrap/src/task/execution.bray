@@ -151,11 +151,16 @@ trusted internal func publication(
 // Like a lock acquisition, this noncopy marker is issued only after acquiring
 // the actual cell reservation. It stays within the complete Dispatch carrier.
 // No operation accepts it with an independently supplied storage pointer.
-trusted internal predicate dispatch_acquired(owner: &Marker);
+@layout(c)
+internal struct DispatchAcquisition
+{
+}
+
+trusted internal predicate dispatch_acquired(owner: &DispatchAcquisition);
 
 internal struct Dispatch
 {
-    acquisition: Marker;
+    acquisition: DispatchAcquisition;
     reference: &Reference;
     services: &Services;
     root: usize;
@@ -227,7 +232,7 @@ trusted internal func acquire_dispatch(
         {
             return
             {
-                acquisition = Marker
+                acquisition = DispatchAcquisition
                 {
                 },
                 reference = reference,
@@ -247,7 +252,7 @@ trusted internal func acquire_dispatch(
 
     return
     {
-        acquisition = Marker
+        acquisition = DispatchAcquisition
         {
         },
         reference = reference,

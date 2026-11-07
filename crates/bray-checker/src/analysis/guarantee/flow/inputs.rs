@@ -44,6 +44,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // previously observed through a loan. The read owns that transition.
             if let ExecutionCondition::Input(input) = &value
                 && input.is_callable_input()
+                && ExecutionPlace::storage_path(self.storage, &path).as_ref() == Some(input)
             {
                 state.owned_results.entry(value.clone()).or_insert_with(|| bray_symbols::DependencyOwnedResult::Transfer(
                     bray_symbols::DependencyOwnedTransfer::new(value.clone(), []),

@@ -21,7 +21,7 @@ trusted internal func acquire_invocation(pos context: usize, pos operation: u32)
     {
         acquisition =
         {
-            claim = Marker
+            claim = CallbackMarker
             {
             },
             context = trusted core.target.from_exposed_address<Context>(address = context),
