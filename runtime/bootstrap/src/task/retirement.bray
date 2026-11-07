@@ -117,8 +117,9 @@ internal struct RetiredCell
 internal predicate retired_cell(owner: &RetiredCell) = std.sync.spin_lock.valid(&owner.control.prepared.instance) &&
     bray.runtime.bootstrap.execution.optional_pin(owner = &owner.execution) && arena_retained(owner = &owner.arena);
 
-internal predicate optional_retired_cell(owner: &(RetiredCell?)) = owner matches none ||
-    retired_cell(owner = present_retired_cell(owner));
+internal predicate optional_retired_cell(owner: &(RetiredCell?)) = owner matches none || retired_cell(
+    owner = present_retired_cell(owner)
+);
 
 internal const func present_retired_cell(pos owner: &(RetiredCell?)) -> &RetiredCell
     requires(owner matches ?_)
@@ -182,6 +183,7 @@ trusted internal func take_retired_slot(
         executes(pure, total) {};
 
     trusted permit(reference, lease);
+
     let slot = trusted std.memory.read<Slot>(reference.pointer);
 
     if slot.control matches none || slot.registration matches ?_ || !slot.terminal_waiters.empty() ||
@@ -214,7 +216,9 @@ trusted internal func materialize_retired_slot(pos owner: Slot) -> RetiredCell
         requires(trusted retired_slot(owner = owner))
         ensures(
             trusted core.memory.uninit_initialized<(ArenaReference?)>(storage = &owner.arena_owner),
-            trusted core.memory.uninit_initialized<(bray.runtime.bootstrap.execution.Reference?)>(storage = &owner.execution_owner),
+            trusted core.memory.uninit_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
+                storage = &owner.execution_owner
+            ),
             owner.control matches none || trusted core.memory.uninit_initialized<std.sync.SpinLock<Control>>(
                 storage = retired_control_storage(owner)
             )
@@ -224,8 +228,12 @@ trusted internal func materialize_retired_slot(pos owner: Slot) -> RetiredCell
     trusted initialized(&owner);
 
     let arena_owner = trusted std.memory.assume_initialized<(ArenaReference?)>(owner.arena_owner);
-    let execution = trusted std.memory.assume_initialized<(bray.runtime.bootstrap.execution.Reference?)>(owner.execution_owner);
-    let arena = match consume arena_owner
+
+    let execution = trusted std.memory.assume_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
+        owner.execution_owner
+    );
+
+    let storage_owner = match consume arena_owner
     {
         case ?value { yield value; }
         case none { yield trusted core.target.abort(); }
@@ -239,7 +247,12 @@ trusted internal func materialize_retired_slot(pos owner: Slot) -> RetiredCell
 
     let control = trusted std.memory.assume_initialized<std.sync.SpinLock<Control>>(storage);
 
-    return { control = control, execution = execution, arena = arena };
+    return
+    {
+        control = control,
+        execution = execution,
+        arena = storage_owner
+    };
 }
 
 trusted internal func take_released(
@@ -265,7 +278,10 @@ trusted internal func take_released(
         let mut anchor = trusted arena_anchor(&retired.arena, lease);
         let entries = trusted arena_entries(&mut anchor);
 
-        if index == 0 || index > entries.total || entries.active == 0 { trusted core.target.abort(); }
+        if index == 0 || index > entries.total || entries.active == 0
+        {
+            trusted core.target.abort();
+        }
 
         let next = entries.free;
         let slot = trusted slot_at(entries, index);

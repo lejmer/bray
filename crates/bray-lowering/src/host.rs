@@ -363,14 +363,21 @@ mod tests {
 
         assert_eq!(unit.kind(), &MirUnitKind::ExecutableHost(host));
 
-        let operations = unit.operations().iter().map(bray_ir::MirOperation::kind).collect::<Vec<_>>();
+        let operations = unit
+            .operations()
+            .iter()
+            .map(bray_ir::MirOperation::kind)
+            .collect::<Vec<_>>();
 
         assert!(matches!(
             operations.as_slice(),
             [
                 MirOperationKind::Host(MirHostOperation::InitializeRuntime { runtime: startup }),
                 MirOperationKind::Host(MirHostOperation::BeginProductEntry),
-                MirOperationKind::Host(MirHostOperation::ExecuteRoot { execution: RootExecution::Asynchronous { .. }, .. }),
+                MirOperationKind::Host(MirHostOperation::ExecuteRoot {
+                    execution: RootExecution::Asynchronous { .. },
+                    ..
+                }),
                 MirOperationKind::Host(MirHostOperation::ObserveRootTerminal { .. }),
                 MirOperationKind::Host(MirHostOperation::ResolveRootTerminal { .. }),
                 MirOperationKind::Host(MirHostOperation::BeginStaticCleanup),
