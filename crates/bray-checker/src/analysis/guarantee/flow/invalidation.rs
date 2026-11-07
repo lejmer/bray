@@ -698,6 +698,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let mut changed_places = BTreeSet::new();
+        // Execution places omit union discriminants. Keep the checked physical
+        // path while rebuilding affected parents, including unselected variants.
+        let mut changed_paths = BTreeMap::new();
 
         match invalidation {
             StorageInvalidation::Observed { accesses, .. } => {
@@ -706,6 +709,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         crate::ExecutionPlace::storage_observation(self.storage, path)
                     {
                         // An unresolved selector invalidates its observable enclosing value.
+                        changed_paths.insert(place.clone(), std::sync::Arc::clone(&path.projections));
                         changed_places.insert(place);
                     }
                 }
@@ -744,6 +748,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .project(&invalidated.projections)
                             .unwrap_or_else(|| place.clone());
 
+                        changed_paths.insert(changed.clone(), std::sync::Arc::clone(&invalidated.projections));
                         changed_places.insert(changed);
                     }
                 }
@@ -751,7 +756,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
         }
 
-        self.extend_static_changes(state, invalidation, &mut changed_places);
+        self.extend_static_changes(state, invalidation, &mut changed_places, &mut changed_paths);
 
         // Disjoint values already retain their complete snapshot. Reconstructing
         // their fields can erase a joined variant or revive old loop inputs.
@@ -851,7 +856,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 });
 
-            state.assign(place, value, None);
+            let path = changed_paths.get(&place).map(|path| path.as_ref());
+
+            state.assign(place, value, path);
         }
 
         // Restore unchanged components before refreshing aliases to the new snapshot.
@@ -868,6 +875,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         invalidation: &StorageInvalidation,
         changed_places: &mut BTreeSet<crate::ExecutionPlace>,
+        changed_paths: &mut BTreeMap<crate::ExecutionPlace, std::sync::Arc<[bray_bound_tree::StorageProjection]>>,
     ) {
         // Storage aliasing conservatively groups specializations by declaration. Revoke
         // each selected instance affected by that storage path, without merging identities.
@@ -881,12 +889,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             for place in state.current.keys().filter(|place| {
                 place.projections.is_empty() && place.selected_static() == Some(declaration)
             }) {
-                changed_places.insert(
-                    place
-                        .clone()
-                        .project(&path.projections)
-                        .unwrap_or_else(|| place.clone()),
-                );
+                let place = place.clone().project(&path.projections).unwrap_or_else(|| place.clone());
+
+                changed_paths.insert(place.clone(), std::sync::Arc::clone(&path.projections));
+                changed_places.insert(place);
             }
         };
 
@@ -963,7 +969,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for (path, place, value) in aliases {
             if let Some(place) = place {
-                state.assign(place, value, None);
+                state.assign(place, value, Some(&path.projections));
             } else if let Some(bray_bound_tree::StorageIdentity::Temporary(expression)) =
                 self.storage.identity(path.root)
             {

@@ -3048,6 +3048,41 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
 }
 
 #[test]
+fn mutable_union_completion_observes_the_updated_owner() {
+    for (preserved, valid) in [("trusted held(value = &value),", true), ("", false)] {
+        let source = r#"trusted module app;
+using std.memory;
+struct Marker {}
+struct Reference { marker: Marker; }
+struct Row { mut provider: Reference; }
+union Value { First(pos mut row: Row); Second(pos mut row: Row); }
+trusted predicate held(value: &Value);
+trusted predicate reference_held(value: &Marker);
+trusted func fresh() -> Reference ensures(trusted reference_held(value = &result.marker)) executes(pure,total) { return { marker = Marker{}};}
+trusted func take(pos value: &mut Value) -> Reference
+    requires(trusted held(value = &value))
+    ensures( $PRESERVED trusted reference_held(value = &result.marker))
+{
+    return match value {
+        case Value.First(row) {yield trusted std.memory.replace_value<Reference>(&mut row.provider, fresh());}
+        case Value.Second(row) {yield trusted std.memory.replace_value<Reference>(&mut row.provider, fresh());}
+    };
+}
+func observe(pos value: &mut Value, pos provider: &Reference)
+    requires(trusted held(value = &value), trusted reference_held(value = &provider.marker)) executes(pure,total) {}
+func caller(pos mut value: Value) requires(trusted held(value = &value)) {
+    let provider = trusted take(&mut value);
+    observe(&mut value, &provider);
+}
+"#.replace("$PRESERVED", preserved);
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+    }
+}
+
+#[test]
 fn typed_raw_transfers_preserve_only_unmoved_marker_free_owners() {
     for field in ["u64", "DataPointer<u8>"] {
         for (pointee, operation, valid) in [

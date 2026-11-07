@@ -249,7 +249,9 @@ pub(super) fn smoke_test(
             let bytes = fs::metadata(executable.path())
                 .map_err(|error| CommandError::read(executable.path(), error))?.len();
 
-            println!("asynchronous_product name={name} mode={mode} bytes={bytes} preparation_seconds={preparation_seconds:.6} build_seconds={build_seconds:.6} startup_seconds={startup_seconds:.6} exit={expected}");
+            let whole_build_seconds = preparation_seconds + build_seconds;
+
+            println!("asynchronous_product name={name} mode={mode} bytes={bytes} preparation_seconds={preparation_seconds:.6} build_seconds={build_seconds:.6} whole_build_seconds={whole_build_seconds:.6} startup_seconds={startup_seconds:.6} exit={expected}");
         }
     }
 

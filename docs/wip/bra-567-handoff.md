@@ -4,8 +4,7 @@
 
 Continue [BRA-567](https://linear.app/bray-lang/issue/BRA-567/implement-async-root-and-main-lane-orchestration-in-bray)
 on draft [PR #710](https://github.com/lejmer/bray/pull/710), branch
-`feature/bra-567-async-root-orchestration`. The implementation checkpoint is
-`80ed53f08d4ac6751412ba7b858fa6f02e7e39fc`. The comparison baseline is
+`feature/bra-567-async-root-orchestration`. The branch head is the implementation checkpoint. The comparison baseline is
 `e477f82ce8cdbae354a81c23b6744fb8d68475d6`, which includes the parent implementation and develop integration.
 Inspect current remote branches and issue relations before changing the stack. Parent
 [PR #709](https://github.com/lejmer/bray/pull/709) supplies demanded worker lifetime through
@@ -35,7 +34,7 @@ Existing block joins summarize successive dynamic frames from one source site, w
 history. Losing a copy origin cannot erase an input or preserve a stale caller selector.
 
 Storage preservation uses the resolved `Effect` together with its target, raw access type and scope until the validity
-decision. The cached `Footprint` classifies which marker types a transfer can carry. It does not decide reachability.
+decision. The cached `Footprint` classifies the nominal carriers and markers a transfer can carry. It does not decide reachability.
 One transfer query serves active loans and stored shared views. A raw transfer revokes a matching observation only
 where it may reach its storage. Ambient effects use established exposure, and a target bound uses the existing memory
 relationship. Ordinary operations respect retained shared loans. Marker-free data transfers cannot retire markers. Whole-carrier transfer, replacement and retirement remain distinct
@@ -143,12 +142,13 @@ Completed evidence on the pushed checkpoint plus the owner-identity retirement c
 | Check | Result and limit |
 | --- | --- |
 | Checker library unit suite | 415 passed, including scalar/aggregate refresh and nested guarded ownership |
-| Runtime Source bodies and execution certificates | 3,160 checks, 26 failures |
+| Runtime Source bodies and execution certificates | 3,160 checks, 23 failures on the union-reconstruction batch |
 | Same-site inactive numeric deferred frame | Accepted |
 | Active numeric and Boolean partial extraction | Rejected |
 | Shared and stored owner forwarding | Accepted, fabricated marker and payload authority rejected |
 | Raw moves of scalar-only and address-only owners | Subsequent authority rejected |
 | Nested Source union ownership | Real owner accepted, fabricated owner rejected |
+| Mutable union completion | Promised owner accepted, unpromised owner rejected |
 | Required style and formatting | Passed on earlier batch, must repeat for the completed batch |
 | Native/imported runtime acceptance and comparative costs | Unrun |
 
@@ -157,14 +157,38 @@ inline storage to ambient raw code. Composition and direct invocation certify. R
 event registration, dispatch, root admission and resume, task result transfer, worker context initialization, task
 retirement, observer rollback, worker entry and worker formation. Some certificate failures depend on those bodies.
 
-The current batch extends the existing cached inline shape from empty marker types to complete nominal carriers.
+The completed ownership-transfer batch extends the existing cached inline shape from empty marker types to complete nominal carriers.
 A reached raw move must revoke scalar-only owner authority as well as empty markers. An unrelated typed move cannot
 retire another nominal owner merely because both contain scalar data. Raw writes remain conservative for contents.
 Active loans and stored views retain their referent type for that one shared decision. Matching nested carrier types
-remain potentially affected. The full Source sweep above covers this completed batch and event registration now passes.
+remain potentially affected. The earlier 26-failure Source sweep covered this carrier batch and event registration passed.
 Eight public Source controls accept unrelated moves and reject whole-owner moves, nested-owner moves and raw writes
 for both scalar-only and pointer-only owners. The corresponding compilation test is added but its Rust test binary is unrun.
 The 415 checker unit result predates the carrier-classification extension.
+
+The following batch retains physical union paths through invalidation and alias refresh. Execution places omit the
+variant identity, so reconstructing parents from only those places erased the full mutable owner. Both positive and
+negative mutable-union Source controls now behave correctly. A bounded map retains the already checked physical paths
+for reconstruction. It does not add a new owner or a second persistent analysis state.
+
+Runtime ownership now follows complete publication and disposal units:
+
+- Root admission reuses the `Current` view in its actual entry scope, removing an extra counted view and the single-use
+  `start_root` helper. The native frame claim remains in its original input slot until admission commits.
+- Worker context construction accepts the complete binding before publication. Failed native installation uses the
+  existing context retirement path to release that pin. Worker context bodies and certificates pass in the later sweep.
+- One task-slot operation owns detachment, metadata cleanup, report disposal and final pin release. The separate detach
+  phase releases the resident host acquisition before callbacks. Its pin remains live through all disposal. These
+  task-retirement bodies and certificates pass in the later sweep.
+- Deadline backing retirement detaches its pin before closing, but retains that pin locally through callbacks.
+- Observers validate execution before allocating preparation resources. Native record output now uses a separate scratch
+  value before committing to the preparation owner, keeping its acquisition outside the native output slot.
+- Execution observation explicitly promises valid native report callbacks on its returned outcome.
+
+The later full Source sweep still had 17 failed checks, including a duplicate root-local name introduced during
+inlining. That name is corrected. The scratch record output change and current root entry are rebuilding in one traced
+Source sweep. Do not treat the lower count as completed acceptance. Remaining shared concerns include dispatch loans,
+root/task-allocation cleanup, observer rollback and worker formation. Finish the entire flow before final review.
 
 Optional services use per-domain native callbacks. Deadline driving returns one C-layout value. Final destruction
 reuses each provider's existing native destruction entry, which consumes the actual reference slot. Deadline backing
@@ -175,7 +199,7 @@ Native acceptance shares authenticated runtime provenance auditing between async
 smoke group. It adds a minimal async fixture, optional-service omission checks and preparation/build/startup/size metrics.
 Those checks remain unrun. No final review agent has been requested.
 
-Temporary traces in `trusted/check.rs`, `terminal.rs` and `transfers.rs`, and the diagnostic binary under
+Temporary traces in `trusted/check.rs`, `cleanup/transition.rs`, `terminal.rs` and `transfers.rs`, and the diagnostic binary under
 `xtask/src/bin/`, are local only and must be removed before finalization. They are excluded from checkpoints.
 Use normal tooling production artifacts rather than examples or compilation test binaries for diagnosis.
 Do not require temporary artifacts to resume this task.
@@ -184,7 +208,8 @@ The connected GitHub account is verified as `lejmer`, with admin/push access to 
 Shell GitHub authentication is invalid. Use connected Git object APIs to publish checkpoints on existing PR #710.
 Parent #709 remains open with the unchanged stack base. Push coherent checkpoints regularly as requested by the user.
 
-Next: finish the ownership-transfer batch, resolve the remaining Source families by their shared contracts, then run
+Next: inspect the current complete Source sweep and its exact failed cleanup contracts, finish the remaining shared
+ownership paths, then run
 imported and native acceptance, final required checks, comparative costs and final review. Mark PR ready and Linear
 In Review only after all required evidence is complete.
 
