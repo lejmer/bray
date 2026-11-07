@@ -116,18 +116,21 @@ impl ExecutionState {
             }
         }
 
-        let observes = |condition: &ExecutionCondition| {
+        let observes = |condition: &ExecutionCondition, selection: bool| {
             condition
                 .observations_except(|value| retained_observations.contains(value))
-                .any(|observed| invalidated_observations.overlaps(observed))
+                .any(|observed| invalidated_observations.overlaps(observed)
+                    || selection && matches!(observed,
+                        ExecutionCondition::Joined(_, _, place) | ExecutionCondition::PostState(_, place)
+                            if place.overlaps_any(places)))
         };
 
         let borrowed_changed = |condition: &ExecutionCondition| condition.observes_live_where(|value| {
             let owner = value.storage_contents().map_or(value, |(owner, _)| owner);
 
-            observes(value) || !retained_observations.contains(value)
+            observes(value, false) || !retained_observations.contains(value)
                 && matches!(owner, ExecutionCondition::Input(place) if place.overlaps_any(places))
-        });
+        }, |value| retained_observations.contains(value));
 
         let retained_contents = |condition: &ExecutionCondition| {
             kind.is_write()
@@ -154,7 +157,7 @@ impl ExecutionState {
         // their former container ends. Borrowed observations and physical bounds
         // still expire. Writes also invalidate affected by-value observations.
         let revokes = |condition: &ExecutionCondition| {
-            (observes(condition) || borrowed_changed(condition)) && !stable(condition)
+            (observes(condition, false) || borrowed_changed(condition)) && !stable(condition)
         };
 
         let revokes_guarantee = |condition: &ExecutionCondition| {
@@ -228,7 +231,9 @@ impl ExecutionState {
         self.retire_pending_conditions(&revokes, &retired_conditions);
 
         for entries in self.deferred_invocations.values_mut() {
-            entries.retire_selection(observes);
+            // Current branch selectors can outlive a slot's loop incarnation.
+            // Frozen call-entry arguments remain owned by their captured frame.
+            entries.retire_selection(|condition| observes(condition, true));
         }
 
         // A destroyed frame cannot participate in a later incarnation's ownership join.
@@ -524,7 +529,7 @@ impl ExecutionState {
     ) {
         self.assumptions.retain(|(condition, _)| !condition.observes_live_where(|value| {
             value.observations().any(|observed| matches!(observed, ExecutionCondition::Input(place) if roots.contains(&place.root)))
-        }));
+        }, |_| false));
 
         self.retire_address_roots(roots);
 

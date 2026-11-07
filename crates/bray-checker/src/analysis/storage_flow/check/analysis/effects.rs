@@ -63,11 +63,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 matches!(
                     self.execution.semantics.selections().expression(expression),
                     Some(bray_bound_tree::SemanticSelection::Operation(_))
-                )
+                ) || self.request.view().expression(expression).is_some_and(|bound| {
+                    !matches!(bound, bray_bound_tree::BoundExpression::Call(_) | bray_bound_tree::BoundExpression::Await(_))
+                })
             })
         {
-            // Source-free operations have no invocation contract. Their operand
-            // transfers and destination writes have separate storage operations.
+            // Intrinsic operations and ownership admission checks have invocation
+            // edges without calling source code. Their checked moves and writes
+            // remain separate storage transitions.
             return Some(Vec::new());
         }
 

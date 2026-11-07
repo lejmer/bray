@@ -356,6 +356,9 @@ pub(super) fn borrowed_condition(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
     known: &bray_symbols::AvailableCompilerKnownSymbols,
+    storage: Option<&bray_bound_tree::StoragePlan>,
+    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    expression: BoundExpressionId,
     operand: BoundExpressionId,
     value: ExecutionCondition,
 ) -> ExecutionCondition {
@@ -368,9 +371,51 @@ pub(super) fn borrowed_condition(
     }
 
     // Equal scalar contents can prove ordinary tests without equating storage authority.
-    let identity = super::expression::expression_place(unit, semantics, values, operand)
-        .map(ExecutionCondition::Input)
-        .unwrap_or(ExecutionCondition::Expression(operand));
+    let identity = storage.and_then(|storage| {
+        let plan = storage.occurrence_plans(expression.into())
+            .find(|plan| matches!(plan.purpose(), bray_bound_tree::StorageAccessPurpose::Borrow(_)))?;
+
+        let path = storage.logical_path(plan.access())?;
+        let root = crate::ExecutionPlace::storage_identity(storage, path.root)?;
+
+        let mut identity = if matches!(storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::PostconditionResult(_))) {
+            ExecutionCondition::Result
+        } else {
+            ExecutionCondition::Input(root.clone())
+        };
+
+        // Follow the checked reference boundaries in this existing access path.
+        // A stored view observes its referent, not the slot storing the view.
+        for index in 0..path.projections.len() {
+            let ty = if index == 0 {
+                storage.storage_type(path.root)
+            } else {
+                storage.access_at(path.root, &path.projections[..index])
+                    .and_then(|access| storage.access(access)).map(|access| access.reached_type())
+            };
+
+            if ty.is_some_and(|ty| matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })) {
+                let prefix = root.clone().project(&path.projections[..index])?;
+
+                if let Some(value) = prefix.value_in(current) {
+                    identity = value.into_referent().owner_identity().clone();
+                }
+            }
+
+            identity = identity.project(path.projections[index]);
+        }
+
+        Some(identity)
+    }).or_else(|| super::expression::expression_place(unit, semantics, values, operand).map(|place| {
+        let result = matches!(place.reference(), Some(bray_bound_tree::BoundReferenceTarget::Local(
+            bray_symbols::AnyLocalSymbolId::PostconditionResult(_))));
+
+        if result {
+            place.projections.iter().fold(ExecutionCondition::Result, |value, projection| value.component(*projection))
+        } else {
+            ExecutionCondition::Input(place)
+        }
+    })).unwrap_or(ExecutionCondition::Expression(operand));
 
     if identity == value || value == ExecutionCondition::Unknown {
         identity
@@ -387,6 +432,8 @@ pub(super) fn structured_condition(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
     known: &bray_symbols::AvailableCompilerKnownSymbols,
+    storage: Option<&bray_bound_tree::StoragePlan>,
+    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     expression: BoundExpressionId,
     operation: &bray_bound_tree::BoundStructuredExpression,
     evaluate: &mut impl FnMut(BoundExpressionId) -> ExecutionCondition,
@@ -526,7 +573,7 @@ pub(super) fn structured_condition(
                     value.requiring_trusted_predicates()
                 }
                 bray_bound_tree::BoundStructuredExpressionKind::Borrow => {
-                    borrowed_condition(unit, semantics, values, known, *operand, value)
+                    borrowed_condition(unit, semantics, values, known, storage, current, expression, *operand, value)
                 }
                 _ => value,
             }

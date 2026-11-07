@@ -661,6 +661,22 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
 
     #[test]
+    fn retirement_respects_the_retained_loan_context() {
+        let owner = input(0);
+        let loan = owner.clone().borrowed();
+        let mut state = ExecutionState::default();
+
+        state.assumptions.insert((loan.clone(), true));
+        state.retire_trusted_values([owner.clone()], &BTreeSet::from([loan.clone()]));
+
+        assert!(state.assumptions.contains(&(loan.clone(), true)));
+
+        state.retire_trusted_values([owner], &BTreeSet::new());
+
+        assert!(!state.assumptions.contains(&(loan, true)));
+    }
+
+    #[test]
     fn known_value_writes_revoke_only_borrowed_authority_on_the_changed_storage() {
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
             "ValidRead",

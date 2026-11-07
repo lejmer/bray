@@ -129,6 +129,7 @@ pub fn predicate_conditions_with_inputs(
             semantics,
             values,
             known,
+            storage.map(|(plan, _)| plan),
             &literals,
             &patterns,
             inputs,
