@@ -434,13 +434,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .as_ref()
                         .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
                     {
-                        state.vacate(place);
+                        state.current.retire(&place);
                     }
 
-                    let retained = std::iter::once(&state.result)
-                        .chain(state.current.values())
-                        .chain(state.pending_results.values())
-                        .flat_map(|value| state.owned_values(value))
+                    let retained = std::iter::once(state.result.clone())
+                        .chain(state.current.live_values())
+                        .chain(state.pending_results.values().cloned())
+                        .flat_map(|value| state.owned_values(&value))
                         .collect();
 
                     state.retire_trusted_values([disposed], &retained);
@@ -557,26 +557,11 @@ impl Lifecycle {
         place: Option<&ExecutionPlace>,
         value: Option<crate::ExecutionCondition>,
     ) -> ExecutionCallEvidence {
-        let mut arguments = BTreeMap::new();
-
-        for (observed, value) in &state.current {
-            if let Some(place) = place
-                && place.contains(observed)
-            {
-                let mut input = ExecutionPlace::from(self.receiver);
-
-                for field in observed.projections.iter().skip(place.projections.len()) {
-                    input = input.component(*field);
-                }
-
-                // Cleanup can overwrite the receiver, so entry evidence owns its observations.
-                arguments.insert(input, value.clone());
-            }
-        }
-
-        if let Some(value) = value {
-            arguments.entry(self.receiver.into()).or_insert(value);
-        }
+        // Capture one actual receiver snapshot. Its components are projections
+        // of this value, including when the receiver itself is a component.
+        let arguments = value
+            .map(|value| BTreeMap::from([(self.receiver.into(), value)]))
+            .unwrap_or_default();
 
         let mut assumptions = state.assumptions.clone();
 

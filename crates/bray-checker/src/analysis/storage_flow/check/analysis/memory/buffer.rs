@@ -34,6 +34,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .collect(),
         };
 
+        // Formation binds the descriptor to the allocator's actual target.
         state.memory.point_at(
             allocation,
             pointer,
@@ -174,18 +175,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let sources = source.regions(&state.memory)?;
         let destinations = destination.regions(&state.memory)?;
         let exact = source.is_exact(&state.memory) && destination.is_exact(&state.memory);
-
-        // A recognized owning buffer has backing even when its returned descriptor
-        // has opaque reference metadata. Keep its pointer field on that same region.
-        for owner in sources.iter().chain(&destinations) {
-            state.memory.owned_region(
-                std::slice::from_ref(owner),
-                owner.project(&[StorageProjection::ProductField(fields.pointer)]),
-                fields.element,
-                StorageProjection::ProductField(fields.pointer),
-                !exact,
-            );
-        }
 
         let source_regions = sources
             .iter()

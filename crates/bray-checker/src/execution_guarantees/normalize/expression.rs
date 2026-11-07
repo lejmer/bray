@@ -421,7 +421,11 @@ fn name_condition(
             | AnySymbolId::GenericConstParameter(_),
         )
         | BoundReferenceTarget::Local(AnyLocalSymbolId::AnonymousCallableParameter(_)) => {
-            ExecutionCondition::Input(target.into())
+            if matches!(target, BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(_))) {
+                ExecutionCondition::Input(target.into())
+            } else {
+                current.formal_input(&place).unwrap_or(ExecutionCondition::Unknown)
+            }
         }
         BoundReferenceTarget::Local(AnyLocalSymbolId::PostconditionResult(_)) => {
             ExecutionCondition::Result

@@ -54,7 +54,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             &|input| {
                 input
                     .value_in(&state.current)
-                    .unwrap_or_else(|| ExecutionCondition::Input(input.clone()))
+                    .unwrap_or(ExecutionCondition::Unknown)
             },
             &state.result,
             &mut { ExecutionCondition::WORK_LIMIT },

@@ -544,20 +544,78 @@ impl ExecutionCondition {
         use bray_bound_tree::StorageProjection;
         use bray_symbols::ConstantProjectionKind;
 
-        let Some((first, rest)) = path.split_first() else {
+        let mut current = self.clone();
+        let mut projections = Vec::with_capacity(path.len());
+
+        for component in path {
+            let projection = match component {
+                ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(*field),
+                ConstantProjectionKind::TupleElement(index) => StorageProjection::TupleElement(*index),
+                ConstantProjectionKind::ArrayElementOrdinal(index) => {
+                    StorageProjection::ElementFromStart(*index)
+                }
+                ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
+                ConstantProjectionKind::UnionPayloadField(field) => {
+                    // A typed path retains the variant even before its payload is observed.
+                    let projection = storage.into_iter().flatten().find(|projection|
+                        matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field)
+                    ).copied().or_else(|| {
+                        let mut observed = &current;
+
+                        loop {
+                            if let Self::Observation { contents, .. } = observed {
+                                observed = contents;
+                            } else if let Some(payload) = observed.nullable_payload_snapshot() {
+                                observed = payload;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        let Self::Constructed(_, fields) = observed else { return None; };
+
+                        fields.iter().find_map(|(projection, _)|
+                            matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field).then_some(*projection)
+                        )
+                    });
+
+                    let Some(projection) = projection else { return Self::Unknown; };
+
+                    projection
+                }
+                _ => return Self::Unknown,
+            };
+
+            projections.push(projection);
+            current = current.component(*component);
+        }
+
+        self.with_storage_component(&projections, value)
+    }
+
+    /// Update retained data along a checked storage path without losing its selectors.
+    pub(crate) fn with_storage_component(
+        &self,
+        path: &[bray_bound_tree::StorageProjection],
+        value: Self,
+    ) -> Self {
+        use bray_bound_tree::StorageProjection;
+        use bray_symbols::ConstantProjectionKind;
+
+        let Some((projection, rest)) = path.split_first() else {
             return value;
         };
 
         if let Some(data) = self.current_referent() {
-            return self.with_referent(data.with_component(path, value, storage));
+            return self.with_referent(data.with_storage_component(path, value));
         }
 
         if let Self::Observation { owner, contents, kind } = self {
-            return Self::observation(owner.as_ref().clone(), contents.with_component(path, value, storage), *kind);
+            return Self::observation(owner.as_ref().clone(), contents.with_storage_component(path, value), *kind);
         }
 
         if let Some(snapshot) = self.nullable_payload_snapshot() {
-            let updated = snapshot.with_component(path, value, storage);
+            let updated = snapshot.with_storage_component(path, value);
 
             if updated == *snapshot {
                 return self.clone();
@@ -568,45 +626,16 @@ impl ExecutionCondition {
             };
 
             return owner
-                .with_component(&[ConstantProjectionKind::NullableValue], updated, storage)
+                .with_storage_component(&[StorageProjection::NullableValue], updated)
                 .component(ConstantProjectionKind::NullableValue);
         }
 
-        let projection = match first {
-            ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(*field),
-            ConstantProjectionKind::TupleElement(index) => StorageProjection::TupleElement(*index),
-            ConstantProjectionKind::ArrayElementOrdinal(index) => {
-                StorageProjection::ElementFromStart(*index)
-            }
-            ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
-            ConstantProjectionKind::UnionPayloadField(field) => {
-                // The checked storage path retains the variant even when this
-                // observation has not materialized an active payload yet.
-                let projection = storage.into_iter().flatten().find(|projection|
-                    matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field)
-                ).or_else(|| {
-                    let Self::Constructed(_, fields) = self else { return None; };
-
-                    fields.iter().find_map(|(projection, _)|
-                        matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field).then_some(projection)
-                    )
-                });
-
-                let Some(projection) = projection else {
-                    return Self::Unknown;
-                };
-
-                *projection
-            }
-            _ => return Self::Unknown,
-        };
-
-        let previous = self.clone().component(*first);
+        let previous = self.clone().project(*projection);
 
         // Stored components contain payload data. The extraction view retains
         // its owner separately and must not become its own payload's backing.
         let previous = previous.nullable_payload_snapshot().unwrap_or(&previous);
-        let child = previous.with_component(rest, value, storage);
+        let child = previous.with_storage_component(rest, value);
 
         if child == *previous {
             return self.clone();
@@ -617,10 +646,10 @@ impl ExecutionCondition {
             value => (Arc::new(value.clone()), Vec::new()),
         };
 
-        if let Some((_, current)) = fields.iter_mut().find(|(field, _)| *field == projection) {
+        if let Some((_, current)) = fields.iter_mut().find(|(field, _)| field == projection) {
             *current = child;
         } else {
-            fields.push((projection, child));
+            fields.push((*projection, child));
             fields.sort_by_key(|(projection, _)| *projection);
         }
 

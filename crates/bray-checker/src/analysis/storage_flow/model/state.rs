@@ -319,6 +319,31 @@ impl StorageFlowState {
             if let Some(target) =
                 StorageFlowInput::reference_location(values, &memory, slot.root, path, None)
             {
+                if let Some((fields, _)) = input.raw_buffers.values().find(|(fields, _)| {
+                    *ty == Some(fields.element)
+                        && path.borrows().iter().all(|(index, _)| *index < path.projections().len())
+                        && path.projections().last()
+                            == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer))
+                }) {
+                    let owner_path = bray_bound_tree::StorageReferencePath::new(
+                        path.projections()[..path.projections().len() - 1].into(),
+                        path.borrows().into(),
+                    );
+
+                    let owner = StorageFlowInput::reference_location(
+                        values,
+                        &memory,
+                        slot.root,
+                        &owner_path,
+                        None,
+                    )
+                    .expect("prepared buffer pointer entry retains its reached owner");
+
+                    memory.entry_owned_buffer(owner, target, fields.element);
+
+                    continue;
+                }
+
                 memory.entry_reference_at(slot.clone(), *layer, target, *ty);
             }
         }

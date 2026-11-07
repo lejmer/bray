@@ -51,7 +51,7 @@ impl TrustedChecks {
                             &|place| {
                                 place
                                     .value_in(&boundary.current)
-                                    .unwrap_or_else(|| ExecutionCondition::Input(place.clone()))
+                                    .unwrap_or(ExecutionCondition::Unknown)
                             },
                             &boundary.trusted_assumptions,
                             &boundary.assumptions,

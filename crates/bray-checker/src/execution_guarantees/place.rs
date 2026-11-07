@@ -7,6 +7,12 @@ use bray_symbols::{AnySymbolId, ConstantProjectionKind};
 pub(crate) trait ExecutionValues {
     fn get_value(&self, place: &ExecutionPlace) -> Option<&super::ExecutionCondition>;
     fn get_value_mut(&mut self, place: &ExecutionPlace) -> Option<&mut super::ExecutionCondition>;
+
+    /// Declaration normalization may introduce an unbound formal once. An
+    /// execution-state reader must not recover an entry after losing its value.
+    fn formal_input(&self, place: &ExecutionPlace) -> Option<super::ExecutionCondition> {
+        Some(super::ExecutionCondition::Input(place.clone()))
+    }
 }
 
 impl ExecutionValues for std::collections::BTreeMap<ExecutionPlace, super::ExecutionCondition> {

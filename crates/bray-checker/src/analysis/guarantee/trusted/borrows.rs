@@ -217,10 +217,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return Default::default();
         }
 
+        let result_site = match invocation {
+            BoundExecutionSite::ScopedExit(expression) => BoundExecutionSite::ScopedEnter(expression),
+            site => site,
+        };
+        let result_place = self.storage.invocation_result(result_site)
+            .and_then(|access| ExecutionPlace::storage(self.storage, access));
+
         state
             .current
-            .iter()
+            .live_entries()
             .filter(|(place, _)| {
+                // The planner's result slot belongs to this protocol invocation.
+                // At exit it is the consumed capability, not a surviving outside owner.
+                if result_place.as_ref().is_some_and(|result| result.contains(place)) {
+                    return false;
+                }
+
                 let crate::execution_guarantees::ExecutionInput::Storage(identity) = place.root
                 else {
                     return true;
@@ -240,15 +253,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     ordinal,
                                 }
                     }
-                    Some(bray_bound_tree::StorageIdentity::InvocationResult(source)) => {
-                        source != invocation
-                    }
                     _ => true,
                 }
             })
             .map(|(_, value)| value)
-            .chain(std::iter::once(&state.result))
-            .flat_map(|value| state.owned_values(value))
+            .chain(std::iter::once(state.result.clone()))
+            .flat_map(|value| state.owned_values(&value))
             .collect()
     }
 
@@ -669,18 +679,29 @@ pub(in crate::analysis::guarantee) fn project_place(
     place.project(&crate::storage::storage_projections(values, dependencies, subject.projections())?)
 }
 
+// The checked owned-result layout can establish presence and an active variant.
+// Borrowed result projections update data without asserting either condition.
 fn construct(
     root: ExecutionCondition,
-    fields: BTreeMap<Vec<StorageProjection>, ExecutionCondition>,
+    mut fields: BTreeMap<Vec<StorageProjection>, ExecutionCondition>,
     owns: bool,
 ) -> ExecutionCondition {
+    if let Some(value) = fields.remove(&Vec::new()) {
+        return value;
+    }
+
+    if !owns {
+        return fields.into_iter().fold(root, |root, (path, value)| {
+            root.with_storage_component(&path, value)
+        });
+    }
+
     let mut children =
         BTreeMap::<StorageProjection, BTreeMap<Vec<StorageProjection>, ExecutionCondition>>::new();
 
     for (path, value) in fields {
-        let Some((first, rest)) = path.split_first() else {
-            return value;
-        };
+        let (first, rest) = path.split_first()
+            .expect("whole result replacement was selected before its component layout");
 
         children
             .entry(*first)
@@ -695,19 +716,14 @@ fn construct(
     if children.len() == 1
         && let Some(fields) = children.remove(&StorageProjection::NullableValue)
     {
-        if owns || matches!(root, ExecutionCondition::Present(_)) {
-            return ExecutionCondition::Present(std::sync::Arc::new(construct(
-                root.project(StorageProjection::NullableValue),
-                fields,
-                owns,
-            )));
-        }
-
-        children.insert(StorageProjection::NullableValue, fields);
+        return ExecutionCondition::Present(std::sync::Arc::new(construct(
+            root.project(StorageProjection::NullableValue),
+            fields,
+            owns,
+        )));
     }
 
-    let root = if owns
-        && let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) =
+    let root = if let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) =
             children.keys().next()
     {
         ExecutionCondition::Tagged(*variant, std::sync::Arc::new(root))
@@ -715,20 +731,10 @@ fn construct(
         root
     };
 
-    let (base, mut components) = match root {
-        ExecutionCondition::Constructed(base, fields) => {
-            (base, fields.iter().cloned().collect::<BTreeMap<_, _>>())
-        }
-        root => (std::sync::Arc::new(root), BTreeMap::new()),
-    };
+    children.into_iter().fold(root, |root, (projection, fields)| {
+        let prior = root.clone().project(projection);
+        let component = construct(prior, fields, owns);
 
-    for (projection, fields) in children {
-        let prior = components
-            .remove(&projection)
-            .unwrap_or_else(|| base.as_ref().clone().project(projection));
-
-        components.insert(projection, construct(prior, fields, owns));
-    }
-
-    ExecutionCondition::constructed(base.as_ref().clone(), components.into_iter().collect())
+        root.with_storage_component(&[projection], component)
+    })
 }

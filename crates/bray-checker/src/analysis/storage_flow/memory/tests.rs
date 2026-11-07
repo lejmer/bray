@@ -2168,6 +2168,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
     let owner = Target::storage(owner);
     let view = Target::storage(view);
 
+    state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), element);
     state.owned_region(&[owner.clone()], view.clone(), element, BUFFER_POINTER, false);
 
     let projection = StorageProjection::Element(selectors[0]);
@@ -2205,6 +2206,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
 
     let nested = Target::storage(nested);
 
+    state.entry_owned_buffer(selected.clone(), selected.project(&[BUFFER_POINTER]), element);
     state.owned_region(&[selected.clone()], nested.clone(), element, BUFFER_POINTER, true);
 
     assert_eq!(
@@ -2270,6 +2272,7 @@ fn bounded_returned_regions_do_not_declare_or_initialize_a_cell() {
 
     let mut actual = State::default();
 
+    actual.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), element);
     actual.owned_region(&[owner], Target::storage(view), element, BUFFER_POINTER, false);
     state.merge(&actual, &Default::default(), &Default::default());
 
@@ -2347,6 +2350,10 @@ fn bounded_owned_views_keep_alternative_regions_without_exact_pointer_identity()
 
     let destination = Target::storage(view);
 
+    for owner in &owners {
+        state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), error_type());
+    }
+
     state.owned_region(
         &owners,
         destination.clone(),
@@ -2394,6 +2401,7 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
         previous: false,
     };
 
+    state.entry_owned_buffer(header.clone(), header.project(&[BUFFER_POINTER]), error_type());
     state.owned_region(
         &[header.clone()],
         Target::storage(pointer.clone()),
@@ -2487,6 +2495,7 @@ fn displaced_regions_require_a_known_allocation_boundary() {
 
     let owner = Target::storage(storage);
 
+    state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), error_type());
     state.owned_region(
         &[owner.clone()],
         Target::storage(pointer.clone()),
@@ -2614,6 +2623,7 @@ fn incoming_aliases_can_reach_allocations_under_invocation_owned_headers() {
         previous: false,
     };
 
+    state.entry_owned_buffer(header.clone(), header.project(&[BUFFER_POINTER]), error_type());
     state.owned_region(
         &[header.clone()],
         Target::storage(pointer.clone()),
@@ -3730,12 +3740,34 @@ fn opaque_owned_values_keep_their_backing_identity_without_claiming_initializati
     let ([owner, pointer, moved, ..], origins) = places();
 
     let call = origins[0].into();
+    let backing_slot = Place {
+        root: owner.root,
+        projections: [BUFFER_POINTER].into(),
+    };
+
+    let mut state = State {
+        owned_storage: [owner.root, moved.root].into(),
+        ..State::default()
+    };
+
     let owner = Target::storage(owner);
     let moved = Target::storage(moved);
     let ty = error_type();
-    let mut state = State::default();
 
     state.stage_unknown(call, owner.clone());
+    state.complete_transition(call);
+
+    assert_eq!(state.owned_regions(&owner, BUFFER_POINTER), None);
+
+    state.stage_unknown(call, owner.clone());
+    state.stage_returned_reference(
+        call,
+        Target::storage(backing_slot.clone()),
+        backing_slot,
+        ty,
+        [],
+    );
+
     state.complete_transition(call);
 
     state.owned_region(
@@ -3790,6 +3822,7 @@ fn bounded_address_views_preserve_the_allocation_type_without_initializing_the_r
     let mut state = State::default();
     let owner = Target::storage(owner);
 
+    state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), region_type);
     state.owned_region(
         &[owner.clone()],
         Target::storage(pointer.clone()),
@@ -3826,9 +3859,11 @@ fn exact_address_views_reject_a_conflicting_declared_storage_type() {
     let region_type = error_type();
     let view_type = crate::test_support::nullable_type(region_type);
     let mut state = State::default();
+    let owner = Target::storage(owner);
 
+    state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), region_type);
     state.owned_region(
-        &[Target::storage(owner)],
+        &[owner],
         Target::storage(pointer.clone()),
         region_type,
         BUFFER_POINTER,

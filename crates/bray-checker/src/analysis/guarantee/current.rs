@@ -19,97 +19,172 @@ pub(super) struct CurrentValue {
     pub(super) availability: ValueAvailability,
 }
 
-/// Current storage observations retain their checked ownership availability.
-/// Callable entry arguments use the same read-only data lookup without this state.
+/// One authoritative object description, with initialization observations for
+/// its components. Components do not store independent copies of object data.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct CurrentRoot {
+    value: ExecutionCondition,
+    availability: ValueAvailability,
+    components: BTreeMap<ExecutionPlace, ValueAvailability>,
+}
+
+/// Current storage owns one value tree per root. All component writes update
+/// that tree, so readers never need to reconstruct an aggregate from overlays.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CurrentValues {
-    slots: BTreeMap<ExecutionPlace, CurrentValue>,
+    roots: BTreeMap<ExecutionPlace, CurrentRoot>,
 }
 
 impl CurrentValues {
-    pub(super) fn slot(&self, place: &ExecutionPlace) -> Option<&CurrentValue> {
-        self.slots.get(place)
+    pub(super) fn slot(&self, place: &ExecutionPlace) -> Option<CurrentValue> {
+        Some(CurrentValue {
+            value: place.value_in(self)?,
+            availability: self.availability(place),
+        })
     }
 
     pub(super) fn availability(&self, place: &ExecutionPlace) -> ValueAvailability {
-        for length in (0..=place.projections.len()).rev() {
+        let Some(root) = self.roots.get(&root_place(place)) else {
+            return ValueAvailability::Unknown;
+        };
+
+        for length in (1..=place.projections.len()).rev() {
             let mut parent = place.clone();
 
             parent.projections = place.projections[..length].into();
 
-            if let Some(value) = self.slots.get(&parent) {
-                return value.availability.clone();
+            if let Some(availability) = root.components.get(&parent) {
+                return availability.clone();
             }
         }
 
-        ValueAvailability::Unknown
+        root.availability.clone()
     }
 
+    /// Publish joined observations without changing component initialization.
     pub(super) fn set_slot(&mut self, place: ExecutionPlace, value: CurrentValue) {
-        self.slots.insert(place, value);
+        self.write(place, value, None);
     }
 
+    pub(super) fn write(&mut self, place: ExecutionPlace, value: CurrentValue,
+        storage: Option<&[bray_bound_tree::StorageProjection]>) {
+        let root_key = root_place(&place);
+        let root = self.roots.entry(root_key).or_insert_with(|| CurrentRoot {
+            value: ExecutionCondition::Unknown,
+            availability: ValueAvailability::Unknown,
+            components: BTreeMap::new(),
+        });
+
+        if place.projections.is_empty() {
+            root.value = value.value;
+            root.availability = value.availability;
+        } else {
+            root.value = root.value.with_component(&place.projections, value.value, storage);
+            root.components.insert(place, value.availability);
+        }
+    }
+
+    /// Checked replacement also replaces initialization of its whole subtree.
+    pub(super) fn replace(&mut self, place: ExecutionPlace, value: CurrentValue,
+        storage: Option<&[bray_bound_tree::StorageProjection]>) {
+        if let Some(root) = self.roots.get_mut(&root_place(&place)) {
+            root.components.retain(|component, _| !place.contains(component));
+        }
+
+        self.write(place, value, storage);
+    }
+
+    /// Direct lookup is for complete retained roots. Component reads use the
+    /// ordinary value projection in ExecutionPlace::value_in.
     pub(super) fn get(&self, place: &ExecutionPlace) -> Option<&ExecutionCondition> {
-        self.slots.get(place).map(|value| &value.value)
+        self.roots.get(place).map(|root| &root.value)
     }
 
     pub(super) fn get_mut(&mut self, place: &ExecutionPlace) -> Option<&mut ExecutionCondition> {
-        self.slots.get_mut(place).map(|value| &mut value.value)
+        self.roots.get_mut(place).map(|root| &mut root.value)
     }
 
-    /// Install a value after checked initialization or assignment.
     pub(super) fn insert(&mut self, place: ExecutionPlace, value: ExecutionCondition) {
-        self.set_slot(place, CurrentValue { value, availability: ValueAvailability::Present });
+        self.replace(place, CurrentValue { value, availability: ValueAvailability::Present }, None);
     }
 
-    /// Update contents without changing the slot's ownership availability.
-    pub(super) fn observe(&mut self, place: ExecutionPlace, value: ExecutionCondition) {
-        let availability = self.availability(&place);
+    /// Terminal formal observations outlive their local storage for contract
+    /// checking. Retiring the root preserves that data without retaining it as
+    /// a live owner or making the storage initialized again.
+    pub(super) fn retire(&mut self, place: &ExecutionPlace) {
+        let Some(root) = self.roots.get_mut(&root_place(place)) else { return; };
 
-        self.set_slot(place, CurrentValue { value, availability });
-    }
+        root.components.retain(|component, _| !place.contains(component));
 
-    pub(super) fn remove(&mut self, place: &ExecutionPlace) {
-        self.slots.remove(place);
+        if place.projections.is_empty() {
+            root.availability = ValueAvailability::Absent;
+        } else {
+            root.components.insert(place.clone(), ValueAvailability::Absent);
+        }
     }
 
     pub(super) fn retire_availability(&mut self, mutation: bray_bound_tree::StorageMutation) {
-        for slot in self.slots.values_mut() {
-            if matches!(&slot.availability, ValueAvailability::Guarded(guard) if guard.depends_on(mutation)) {
-                slot.availability = ValueAvailability::Unknown;
+        for root in self.roots.values_mut() {
+            for availability in std::iter::once(&mut root.availability).chain(root.components.values_mut()) {
+                if matches!(availability, ValueAvailability::Guarded(guard) if guard.depends_on(mutation)) {
+                    *availability = ValueAvailability::Unknown;
+                }
             }
         }
     }
 
     pub(super) fn keys(&self) -> impl Iterator<Item = &ExecutionPlace> {
-        self.slots.keys()
+        self.roots.iter().flat_map(|(place, root)| std::iter::once(place).chain(root.components.keys()))
     }
 
     pub(super) fn iter(&self) -> impl Iterator<Item = (&ExecutionPlace, &ExecutionCondition)> {
-        self.slots.iter().map(|(place, value)| (place, &value.value))
+        self.roots.iter().map(|(place, root)| (place, &root.value))
     }
 
-    pub(super) fn iter_mut(&mut self) -> impl Iterator<Item = (&ExecutionPlace, &mut ExecutionCondition)> {
-        self.slots.iter_mut().map(|(place, value)| (place, &mut value.value))
+    /// Maximal live subtrees of the retained actual objects. A terminal field
+    /// remains readable as data, but cannot keep its former owner alive.
+    pub(super) fn live_values(&self) -> impl Iterator<Item = ExecutionCondition> + '_ {
+        self.live_entries().map(|(_, value)| value)
     }
 
-    pub(super) fn range(
-        &self,
-        range: impl std::ops::RangeBounds<ExecutionPlace>,
-    ) -> impl Iterator<Item = (&ExecutionPlace, &ExecutionCondition)> {
-        self.slots.range(range).map(|(place, value)| (place, &value.value))
-    }
+    pub(super) fn live_entries(&self) -> impl Iterator<Item = (ExecutionPlace, ExecutionCondition)> + '_ {
+        self.roots.iter().flat_map(|(place, root)| {
+            if root.availability == ValueAvailability::Absent {
+                return Vec::new();
+            }
 
-    pub(super) fn values(&self) -> impl Iterator<Item = &ExecutionCondition> {
-        self.slots.values().map(|value| &value.value)
+            let absent = root.components.iter().filter_map(|(place, availability)| {
+                (*availability == ValueAvailability::Absent).then_some(place)
+            }).collect::<Vec<_>>();
+
+            if absent.is_empty() {
+                return vec![(place.clone(), root.value.clone())];
+            }
+
+            let mut candidates = root.components.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+
+            collect_owned_places(&root.value, place, &mut candidates, &mut { ExecutionCondition::WORK_LIMIT });
+            let mut live = Vec::<ExecutionPlace>::new();
+
+            for candidate in candidates {
+                if absent.iter().any(|absent| absent.contains(&candidate) || candidate.contains(absent))
+                    || live.iter().any(|parent| parent.contains(&candidate)) {
+                    continue;
+                }
+
+                live.push(candidate);
+            }
+
+            live.into_iter().filter_map(|place| place.value_in(self).map(|value| (place, value))).collect()
+        })
     }
 
     pub(super) fn values_mut(&mut self) -> impl Iterator<Item = &mut ExecutionCondition> {
-        self.slots.values_mut().map(|value| &mut value.value)
+        self.roots.values_mut().map(|root| &mut root.value)
     }
 
     pub(super) fn retain(&mut self, mut retain: impl FnMut(&ExecutionPlace, &ExecutionCondition) -> bool) {
-        self.slots.retain(|place, value| retain(place, &value.value));
+        self.roots.retain(|place, root| retain(place, &root.value));
     }
 
     pub(super) fn extend(&mut self, values: impl IntoIterator<Item = (ExecutionPlace, ExecutionCondition)>) {
@@ -118,11 +193,47 @@ impl CurrentValues {
         }
     }
 
-    pub(super) fn observe_all(&mut self, values: impl IntoIterator<Item = (ExecutionPlace, ExecutionCondition)>) {
-        for (place, value) in values {
-            self.observe(place, value);
+
+}
+
+fn collect_owned_places(
+    value: &ExecutionCondition,
+    place: &ExecutionPlace,
+    places: &mut std::collections::BTreeSet<ExecutionPlace>,
+    budget: &mut usize,
+) {
+    let Some(remaining) = budget.checked_sub(1) else { return; };
+
+    *budget = remaining;
+
+    match value {
+        ExecutionCondition::Observation { contents, kind: crate::execution_guarantees::ExecutionObservationKind::Owned, .. } => {
+            collect_owned_places(contents, place, places, budget);
         }
+        ExecutionCondition::Present(value) => {
+            let child = place.clone().component(bray_symbols::ConstantProjectionKind::NullableValue);
+
+            places.insert(child.clone());
+            collect_owned_places(value, &child, places, budget);
+        }
+        ExecutionCondition::Constructed(_, fields) => {
+            for (projection, value) in fields.iter() {
+                let Some(projection) = ExecutionPlace::projection_kind(*projection) else { continue; };
+                let child = place.clone().component(projection);
+
+                places.insert(child.clone());
+                collect_owned_places(value, &child, places, budget);
+            }
+        }
+        _ => {}
     }
+}
+
+fn root_place(place: &ExecutionPlace) -> ExecutionPlace {
+    let mut root = place.clone();
+
+    root.projections = [].into();
+    root
 }
 
 impl FromIterator<(ExecutionPlace, ExecutionCondition)> for CurrentValues {
@@ -130,7 +241,6 @@ impl FromIterator<(ExecutionPlace, ExecutionCondition)> for CurrentValues {
         let mut current = Self::default();
 
         current.extend(values);
-
         current
     }
 }
@@ -149,17 +259,22 @@ impl ExecutionValues for CurrentValues {
     fn get_value_mut(&mut self, place: &ExecutionPlace) -> Option<&mut ExecutionCondition> {
         self.get_mut(place)
     }
+
+    fn formal_input(&self, _place: &ExecutionPlace) -> Option<ExecutionCondition> {
+        None
+    }
+
 }
 
 impl<'a> IntoIterator for &'a CurrentValues {
     type Item = (&'a ExecutionPlace, &'a ExecutionCondition);
     type IntoIter = std::iter::Map<
-        std::collections::btree_map::Iter<'a, ExecutionPlace, CurrentValue>,
-        fn((&'a ExecutionPlace, &'a CurrentValue)) -> Self::Item,
+        std::collections::btree_map::Iter<'a, ExecutionPlace, CurrentRoot>,
+        fn((&'a ExecutionPlace, &'a CurrentRoot)) -> Self::Item,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.slots.iter().map(|(place, value)| (place, &value.value))
+        self.roots.iter().map(|(place, root)| (place, &root.value))
     }
 }
 
@@ -188,6 +303,46 @@ mod tests {
         state.trusted_assumptions.insert((claim.clone(), true));
 
         (state, place, claim)
+    }
+
+    #[test]
+    fn component_writes_keep_one_object_and_retirement_keeps_only_terminal_data() {
+        let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let left = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let right = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let old = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let sibling = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        let replacement = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(3)));
+        let mut state = ExecutionState::default();
+
+        state.assign(root.clone(), ExecutionCondition::constructed(ExecutionCondition::Input(root.clone()),
+            [(left, old), (right, sibling.clone())].into()), None);
+        let field = root.clone().project(&[left]).expect("tuple field");
+
+        state.assign(field.clone(), replacement.clone(), Some(&[left]));
+        assert_eq!(state.current.iter().count(), 1);
+        assert_eq!(field.value_in(&state.current), Some(replacement.clone()));
+        state.current.retire(&field);
+        assert_eq!(field.value_in(&state.current), Some(replacement.clone()), "terminal data remains observable");
+        let live = state.current.live_values().flat_map(|value| state.owned_values(&value)).collect::<Vec<_>>();
+
+        assert!(!live.contains(&replacement), "retired field must not retain its former owner");
+        assert!(live.contains(&sibling), "independent live field retains its actual owner");
+    }
+
+    #[test]
+    fn available_carrier_does_not_reprove_an_unestablished_clause_after_mutation() {
+        let (mut state, place, claim) = retained_owner();
+        let owner = ExecutionCondition::Input(place);
+        let mut stable = crate::execution_guarantees::ObservationSet::default();
+
+        stable.insert(owner.clone());
+        stable.insert(owner.clone().borrowed());
+        state.trusted_assumptions.clear();
+        state.invalidate_cleanup(&stable, &[owner.clone()].into_iter().collect());
+        assert!(state.witnesses.contains_key(&owner), "the carrier is still a possible owner");
+        assert_eq!(claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), None,
+            "possible ownership must not establish a predicate clause");
     }
 
     #[test]

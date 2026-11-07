@@ -490,28 +490,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    fn preserve_contents_owners<'place>(
-        &self,
-        state: &ExecutionState,
-        retained: &crate::execution_guarantees::ObservationSet,
-        places: impl IntoIterator<Item = &'place crate::ExecutionPlace>,
-        descriptors: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-    ) {
-        for place in places {
-            if descriptors.contains_key(place) {
-                continue;
-            }
-
-            if let Some(value) = place.value_in(&state.current)
-                && retained.overlaps(&value) {
-                // Retained observations name this same value through every alias.
-                // A surviving component belongs to this same complete owner.
-                // The separate post-state still replaces its contents observation.
-                descriptors.insert(place.clone(), value.owner_identity().clone());
-            }
-        }
-    }
-
     fn invalidate_all_observations(
         &self,
         state: &mut ExecutionState,
@@ -525,28 +503,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .flat_map(|path| self.storage_places(state, path.clone()).map(move |place| (place, path.clone())))
             .collect::<BTreeMap<_, _>>();
 
-        let mut descriptors = descriptor_paths.keys().filter_map(|place| {
+        let descriptors = descriptor_paths.keys().filter_map(|place| {
                 let value = place.value_in(&state.current)?;
 
                 Some((place.clone(), value.owner_identity().clone()))
             })
             .collect::<BTreeMap<_, _>>();
 
-        let (mut retained, mut snapshots) = self.preserved_storage_values(state, stable_values, mutation);
+        let (retained, mut snapshots) = self.preserved_storage_values(state, stable_values, mutation);
 
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
-        let stable_roots = stable_values
-            .iter()
-            .map(|path| path.root)
-            .collect::<BTreeSet<_>>();
-
-        let mut owners: BTreeSet<_> = stable_roots
-            .into_iter()
-            .flat_map(|root| {
-                self.storage_path_values(state, bray_bound_tree::StoragePath::root(root), mutation)
-            })
-            .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
+        let mut owners: BTreeSet<_> = retained.values()
+            .flat_map(|(value, _)| state.owned_values(value))
             .filter(|value| *value != ExecutionCondition::Unknown)
             .map(|value| value.owner_identity().clone())
             .collect();
@@ -562,81 +531,40 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .map(|value| value.owner_identity().clone()));
         }
 
-        // Reconstruct actual carriers, not every structural prefix of an
-        // unchanged field. A prefix can have unrelated mutable observations.
-        let nested_owners = descriptors.iter().filter(|(place, identity)| {
-            !place.projections.is_empty() && state.witnesses.contains_key(*identity)
-        }).map(|(place, identity)| (place.clone(), identity.clone())).collect::<Vec<_>>();
-
         state.invalidate_cleanup(&snapshots, &owners);
 
-        // A local observation starts at its checked binding, not at a preceding
-        // opaque call. Keep existing local roots and all potentially external roots.
-        let roots = self
-            .observed_types
-            .keys()
-            .filter(|place| {
-                !matches!(
-                    place.root,
-                    crate::execution_guarantees::ExecutionInput::Reference(
-                        bray_bound_tree::BoundReferenceTarget::Local(
-                            bray_symbols::AnyLocalSymbolId::Binding(_)
-                        )
-                    ) | crate::execution_guarantees::ExecutionInput::Storage(_)
-                )
-            })
-            .chain(state.current.keys())
-            .filter(|place| place.projections.is_empty())
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let mut masks = self.preservation_masks( descriptors.keys().map(|place| {
+            (place, descriptor_paths[place].projections.as_ref())
+        }), retained.iter().map(|(place, (_, path))| (place, path.projections.as_ref())));
+        let current = state.current.iter().map(|(place, value)| (place.clone(), value.clone())).collect::<Vec<_>>();
 
-        self.preserve_contents_owners(state, &snapshots, &roots, &mut descriptors);
+        for (place, source) in current {
+            let mask = masks.remove(&place).unwrap_or_default();
+            let next = mask.apply(&source, Some(&place), mutation, &|place, owner, contents| {
+                self.current_observation(place, owner, contents)
+            });
 
-        let previous = std::mem::take(&mut state.current);
+            state.observe(place, next, None);
+        }
+    }
 
-        for place in roots {
-            if let Some((value, _)) = retained.remove(&place) {
-                // A whole stable root needs no intermediate post-state or reconstruction.
-                let availability = previous.availability(&place);
+    fn preservation_masks<'a>(
+        &self,
+        descriptors: impl Iterator<Item = (&'a crate::ExecutionPlace, &'a [bray_bound_tree::StorageProjection])>,
+        values: impl Iterator<Item = (&'a crate::ExecutionPlace, &'a [bray_bound_tree::StorageProjection])>,
+    ) -> BTreeMap<crate::ExecutionPlace, super::preservation::ValuePreservation> {
+        let mut masks = BTreeMap::<crate::ExecutionPlace, super::preservation::ValuePreservation>::new();
 
-                state.set_current(place, value, None, availability);
-                continue;
-            }
+        for (preserves_value, (place, path)) in descriptors.map(|entry| (false, entry)).chain(values.map(|entry| (true, entry))) {
+            let mut root = place.clone();
 
-            let contents = ExecutionCondition::PostState(mutation, place.clone());
+            root.projections = [].into();
+            let mask = masks.entry(root).or_default().at_mut(path);
 
-            let value = descriptors.get(&place).map_or_else(
-                || contents.clone(),
-                |identity| {
-                    self.current_observation(&place, identity.clone(), contents.clone())
-                },
-            );
-
-            let path = descriptor_paths.get(&place).map(|path| path.projections.as_ref());
-
-            let availability = previous.availability(&place);
-
-            state.set_current(place, value, path, availability);
+            if preserves_value { mask.value = true; } else { mask.descriptor = true; }
         }
 
-        // Restore each surviving nested carrier before restoring its data.
-        // Keeping only the outer descriptor loses independently created child
-        // identities at the next opaque operation, despite unchanged markers.
-        for (place, identity) in nested_owners {
-            let contents = ExecutionCondition::PostState(mutation, place.clone());
-            let value = self.current_observation(&place, identity, contents);
-            let path = descriptor_paths.get(&place).map(|path| path.projections.as_ref());
-
-            let availability = previous.availability(&place);
-
-            state.set_current(place, value, path, availability);
-        }
-
-        for (place, (value, path)) in retained {
-            let availability = previous.availability(&place);
-
-            state.set_current(place, value, Some(&path.projections), availability);
-        }
+        masks
     }
 
     pub(in crate::analysis) fn invalidate_observations(
@@ -732,7 +660,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Storage flow distinguishes the descriptor slot from its reached elements.
         // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
         // and predicates from equating the old contents with the new contents.
-        let mut descriptors = match invalidation {
+        let descriptors = match invalidation {
             StorageInvalidation::Observed {
                 stable_descriptors, ..
             } => stable_descriptors
@@ -767,15 +695,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         return None;
                     }
 
-                    Some(place.value_in(&state.current)
-                        .unwrap_or_else(|| ExecutionCondition::Input(place.clone())))
+                    place.value_in(&state.current)
                 })
                 .collect()
         };
-
-        if !transfers {
-            self.preserve_contents_owners(state, &stable_values, &changed_places, &mut descriptors);
-        }
 
         let no_predicates = BTreeSet::new();
 
@@ -786,48 +709,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             &stable_values,
         );
 
-        // Preserve observations of disjoint components before retiring the containing snapshot.
-        let retained = self
-            .observed_types
-            .keys()
-            .filter(|place| !place.overlaps_any(&changed_places))
-            .filter_map(|place| {
-                place
-                    .value_in(&state.current)
-                    .map(|value| (place.clone(), value))
-            })
-            .collect::<Vec<_>>();
-
-        state.current.observe_all(retained);
+        let descriptor_paths = match invalidation {
+            StorageInvalidation::Observed { stable_descriptors, .. } => stable_descriptors.iter()
+                .filter_map(|path| crate::ExecutionPlace::storage_path(self.storage, path).map(|place| (place, path.projections.clone())))
+                .collect::<BTreeMap<_, _>>(),
+            _ => BTreeMap::new(),
+        };
+        let masks = self.preservation_masks(
+            descriptor_paths.iter().map(|(place, path)| (place, path.as_ref())),
+            stable_places.iter().map(|(place, (_, path))| (place, path.projections.as_ref())));
+        let mut updates = BTreeMap::new();
 
         for place in changed_places {
-            let value = descriptors
-                .get(&place)
-                .map(|identity| {
-                    self.current_observation(
-                        &place, identity.clone(),
-                        ExecutionCondition::PostState(mutation, place.clone()),
-                    )
+            let mut root = place.clone();
+
+            root.projections = [].into();
+            let Some(source) = root.value_in(&state.current) else { continue; };
+            let path = changed_paths.get(&place).map_or(&[][..], |path| path.as_ref());
+            let previous = path.iter().copied().fold(source.clone(), ExecutionCondition::project);
+            let empty = super::preservation::ValuePreservation::default();
+            let mask = masks.get(&root).and_then(|mask| mask.at(path)).unwrap_or(&empty);
+            let next = if transfers { ExecutionCondition::Unknown } else {
+                mask.apply(&previous, Some(&place), mutation, &|place, owner, contents| {
+                    self.current_observation(place, owner, contents)
                 })
-                .unwrap_or_else(|| {
-                    if transfers {
-                        ExecutionCondition::Unknown
-                    } else {
-                        // A possible write retires the old contents, not this live place's
-                        // identity. Distinct post-state terms assert no equality between aliases.
-                        ExecutionCondition::PostState(mutation, place.clone())
-                    }
-                });
+            };
+            let updated = updates.entry(root).or_insert(source);
 
-            let path = changed_paths.get(&place).map(|path| path.as_ref());
-
-            state.observe(place, value, path);
+            *updated = updated.with_storage_component(path, next);
         }
 
-        // Restore unchanged components before refreshing aliases to the new snapshot.
-        for (place, (value, path)) in stable_places {
-            state.observe(place, value, Some(&path.projections));
-        }
+        for (place, value) in updates { state.observe(place, value, None); }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
             self.observe_references(state, mutation, snapshots);
