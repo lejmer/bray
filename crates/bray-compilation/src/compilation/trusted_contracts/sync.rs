@@ -699,7 +699,6 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
         ("owner.acquisition = Marker {};", false),
     ] {
         let raw = operation.contains("core.memory.write");
-        let capabilities = if raw { "uses(raw_memory, unchecked_init)" } else { "" };
 
         let memory_requirements = if raw {
             "trusted core.memory.valid_write<u32>(pointer = pointer, count = 1), trusted core.memory.aligned_for<u32>(pointer = pointer),"
@@ -707,10 +706,19 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
             ""
         };
 
+        for publication in ["", "_ = trusted core.target.expose_address<Owner>(core.memory.address_of<Owner>(&owner));"] {
+        let capabilities = match (raw, publication.is_empty()) {
+            (true, false) => "uses(intrinsic, raw_memory, unchecked_init)",
+            (true, true) => "uses(raw_memory, unchecked_init)",
+            (false, false) => "uses(intrinsic)",
+            (false, true) => "",
+        };
+
         let source = format!(
             r#"
             trusted module app;
             using core.memory;
+            using core.target;
             struct Marker {{}}
             struct Owner {{ mut acquisition: Marker; mut payload: u32; }}
             trusted predicate held(owner: &Marker);
@@ -723,6 +731,7 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
                     {memory_requirements}
                 ) {capabilities}
             {{
+                {publication}
                 {operation}
                 observe(&owner.acquisition);
             }}
@@ -743,6 +752,7 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
                 &diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
+        }
         }
     }
 }
@@ -3075,6 +3085,7 @@ func caller(pos mut value: Value) requires(trusted held(value = &value)) {
     observe(&mut value, &provider);
 }
 "#.replace("$PRESERVED", preserved);
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
@@ -3117,6 +3128,7 @@ trusted func caller(pos owner: &Owner)
     observe(owner);
 }
 "#.replace("$FIELD", field).replace("$OPERATION", operation).replace("$POINTEE", pointee);
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 

@@ -68,7 +68,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let exposed = memory.raw_exposed_regions();
-
         let survives = |target: &Target, observation: Observation, owner: Option<bray_symbols::TypeId>, shared: bool| {
             transfers.iter().all(|(effect, ty, raw)| {
                 // Ordinary code cannot transfer a retained shared loan's inline

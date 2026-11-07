@@ -63,7 +63,6 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         if value == &other {
             stable_values.insert(value.clone());
             stable_values.insert(value.clone().borrowed());
-            stable_identities.insert(value.clone());
         }
     }
 
@@ -259,19 +258,20 @@ mod tests {
             ExecutionCondition::predicate(symbol.into(), substitution, vec![value.component(field).borrowed()]),
         ));
 
-        let branch = |version| ExecutionCondition::Constructed(
-            Arc::new(descriptor.clone()),
-            [(StorageProjection::OwnedTarget, ExecutionCondition::Joined(
-                BoundUnitId::new(0), version, place.clone(),
-            ))].into(),
+        let branch = |version| ExecutionCondition::current_value(
+            descriptor.clone(),
+            ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone()),
         );
 
-        for borrowed in [false, true] {
+        for (borrowed, unchanged, component_carrier) in [false, true].into_iter()
+            .flat_map(|borrowed| [false, true].into_iter().flat_map(move |unchanged|
+                [false, true].map(move |component| (borrowed, unchanged, component))))
+        {
             let context = |value: ExecutionCondition| if borrowed {
                 descriptor.clone().borrowed().with_referent(value)
             } else { value };
 
-            let left = context(branch(0));
+            let left = context(if unchanged { descriptor.clone() } else { branch(0) });
             let right = context(branch(1));
 
             let joined = common_components(
@@ -291,7 +291,12 @@ mod tests {
 
                 state.current.insert(place.clone(), value.clone());
                 condition.clone().assume(true, &mut state.trusted_assumptions);
-                state.carry_guarantee(value.clone().into_referent(), condition);
+
+                let carrier = if component_carrier {
+                    value.clone().component(field)
+                } else { value.clone().into_referent() };
+
+                state.carry_guarantee(carrier, condition);
 
                 state
             };
@@ -514,6 +519,7 @@ mod nested_guard_tests {
         let definition = bray_symbols::FunctionSymbolId::from_symbol_id(SymbolId::new(905));
         let callable = crate::test_support::callable_instance(definition.into());
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+
         let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), callable.substitution(), vec![owner.borrowed()]),
         ));
@@ -524,14 +530,17 @@ mod nested_guard_tests {
 
         for valid in [true, false] {
             let marker = input(0);
+
             let payload = ExecutionCondition::Constructed(
                 Arc::new(ExecutionCondition::Tagged(inner, Arc::new(input(1)))),
                 [(inner_field, marker.clone())].into(),
             );
+
             let accepted = ExecutionCondition::Constructed(
                 Arc::new(ExecutionCondition::Tagged(outer, Arc::new(input(2)))),
                 [(outer_field, payload)].into(),
             );
+
             let failure = ExecutionCondition::Tagged(rejected, Arc::new(input(3)));
             let mut left = ExecutionState::default();
             let owner = if valid { marker } else { input(4) };
@@ -544,6 +553,7 @@ mod nested_guard_tests {
                 &mut left, &ExecutionState::default(), &accepted, &failure,
                 &ExecutionCondition::Result, expressions[0],
             );
+
             let active = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, vec![
                 joined.clone().matches_variant(outer), joined.clone().project(outer_field).matches_variant(inner),
             ]);

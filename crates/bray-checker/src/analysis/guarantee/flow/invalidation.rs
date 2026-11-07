@@ -596,14 +596,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let value = descriptors.get(&place).map_or_else(
                 || contents.clone(),
                 |identity| {
-                    ExecutionCondition::Constructed(
-                        std::sync::Arc::new(identity.clone()),
-                        [(
-                            bray_bound_tree::StorageProjection::OwnedTarget,
-                            contents.clone(),
-                        )]
-                        .into(),
-                    )
+                    ExecutionCondition::current_value(identity.clone(), contents.clone())
                 },
             );
 
@@ -697,64 +690,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
-        let mut changed_places = BTreeSet::new();
-        // Execution places omit union discriminants. Keep the checked physical
-        // path while rebuilding affected parents, including unselected variants.
-        let mut changed_paths = BTreeMap::new();
-
-        match invalidation {
-            StorageInvalidation::Observed { accesses, .. } => {
-                for path in accesses.values().flatten() {
-                    if let Some(place) =
-                        crate::ExecutionPlace::storage_observation(self.storage, path)
-                    {
-                        // An unresolved selector invalidates its observable enclosing value.
-                        changed_paths.insert(place.clone(), std::sync::Arc::clone(&path.projections));
-                        changed_places.insert(place);
-                    }
-                }
-            }
-            StorageInvalidation::Paths(paths) => {
-                for (target, binding) in self.storage.bindings() {
-                    let access = match binding {
-                        bray_bound_tree::StorageBinding::Access(access) => *access,
-                        bray_bound_tree::StorageBinding::Identity(identity) => {
-                            let Some(access) = self.storage.root_access(*identity) else {
-                                continue;
-                            };
-
-                            access
-                        }
-                    };
-
-                    if !invalidation.invalidates(access, self.storage) {
-                        continue;
-                    }
-
-                    let Some(place) = crate::ExecutionPlace::binding(self.storage, *target) else {
-                        continue;
-                    };
-
-                    for invalidated in paths {
-                        if self.storage.relationship_to_path(access, invalidated)
-                            == bray_bound_tree::StorageRelationship::Disjoint
-                        {
-                            continue;
-                        }
-
-                        // Each affected path owns its projection of this binding.
-                        let changed = place
-                            .clone()
-                            .project(&invalidated.projections)
-                            .unwrap_or_else(|| place.clone());
-
-                        changed_paths.insert(changed.clone(), std::sync::Arc::clone(&invalidated.projections));
-                        changed_places.insert(changed);
-                    }
-                }
-            }
-            StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
-        }
+        let (mut changed_places, mut changed_paths) = self.invalidated_places(invalidation);
 
         self.extend_static_changes(state, invalidation, &mut changed_places, &mut changed_paths);
 
@@ -837,13 +773,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let value = descriptors
                 .get(&place)
                 .map(|identity| {
-                    ExecutionCondition::Constructed(
-                        std::sync::Arc::new(identity.clone()),
-                        [(
-                            bray_bound_tree::StorageProjection::OwnedTarget,
-                            ExecutionCondition::PostState(mutation, place.clone()),
-                        )]
-                        .into(),
+                    ExecutionCondition::current_value(
+                        identity.clone(),
+                        ExecutionCondition::PostState(mutation, place.clone()),
                     )
                 })
                 .unwrap_or_else(|| {
@@ -870,6 +802,76 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.observe_references(state, mutation, snapshots);
         }
     }
+    fn invalidated_places(
+        &self,
+        invalidation: &StorageInvalidation,
+    ) -> (
+        BTreeSet<crate::ExecutionPlace>,
+        BTreeMap<crate::ExecutionPlace, std::sync::Arc<[bray_bound_tree::StorageProjection]>>,
+    ) {
+        let mut changed_places = BTreeSet::new();
+
+        // Execution places omit union discriminants. Keep the checked physical
+        // path while rebuilding affected parents, including unselected variants.
+        let mut changed_paths = BTreeMap::new();
+
+        match invalidation {
+            StorageInvalidation::Observed { accesses, .. } => {
+                for path in accesses.values().flatten() {
+                    if let Some(place) =
+                        crate::ExecutionPlace::storage_observation(self.storage, path)
+                    {
+                        // An unresolved selector invalidates its observable enclosing value.
+                        changed_paths.insert(place.clone(), std::sync::Arc::clone(&path.projections));
+                        changed_places.insert(place);
+                    }
+                }
+            }
+            StorageInvalidation::Paths(paths) => {
+                for (target, binding) in self.storage.bindings() {
+                    let access = match binding {
+                        bray_bound_tree::StorageBinding::Access(access) => *access,
+                        bray_bound_tree::StorageBinding::Identity(identity) => {
+                            let Some(access) = self.storage.root_access(*identity) else {
+                                continue;
+                            };
+
+                            access
+                        }
+                    };
+
+                    if !invalidation.invalidates(access, self.storage) {
+                        continue;
+                    }
+
+                    let Some(place) = crate::ExecutionPlace::binding(self.storage, *target) else {
+                        continue;
+                    };
+
+                    for invalidated in paths {
+                        if self.storage.relationship_to_path(access, invalidated)
+                            == bray_bound_tree::StorageRelationship::Disjoint
+                        {
+                            continue;
+                        }
+
+                        // Each affected path owns its projection of this binding.
+                        let changed = place
+                            .clone()
+                            .project(&invalidated.projections)
+                            .unwrap_or_else(|| place.clone());
+
+                        changed_paths.insert(changed.clone(), std::sync::Arc::clone(&invalidated.projections));
+                        changed_places.insert(changed);
+                    }
+                }
+            }
+            StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
+        }
+
+        (changed_places, changed_paths)
+    }
+
     fn extend_static_changes(
         &self,
         state: &ExecutionState,

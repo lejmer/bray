@@ -132,44 +132,41 @@ without implementing those separate outcomes here.
 
 Implementation and end-to-end verification remain in progress. Do not request final review yet.
 
-The checker now distinguishes scalar `StorageValue` context from aggregate `Constructed` contents. Scalar data and
-storage identity have separate representations. Ordinary equalities change data without renaming storage context.
-Observation retirement consistently compares the owner identity for both scalar and aggregate snapshots. Nested
-conditional ownership uses one paired predecessor traversal and carries all enclosing active-case guards.
+The checker distinguishes non-owning scalar `StorageValue` context, retained-owner `CurrentValue` contents, and
+structural `Constructed` components. `OwnedTarget` represents real backing or a borrowed referent, rather than also
+representing an owned value's current contents. The current batch removes that overloaded representation from
+invalidation and joins. Ordinary equalities change data without renaming storage. Join substitutions distinguish
+complete root identity from current component observations. No additional witness or alias store is introduced.
 
-Completed evidence on the pushed checkpoint plus the owner-identity retirement correction:
+The cached inline footprint classifies complete nominal carriers as well as empty markers. A reached raw move must
+revoke scalar-only owner authority. Unrelated typed moves cannot retire another nominal owner merely because both
+contain scalar data. Raw writes remain conservative for contents. Active loans and stored views use one typed survival
+query and retain their physical referent type. Mutable markers use that query even after raw publication. Active loan
+regions are resolved once per preservation operation.
+
+Nested conditional ownership carries all enclosing active-case guards in one paired predecessor traversal. Mutable
+union reconstruction retains checked physical paths, including variant identity, instead of reconstructing parents
+from execution places that omit that identity.
 
 | Check | Result and limit |
 | --- | --- |
-| Checker library unit suite | 415 passed, including scalar/aggregate refresh and nested guarded ownership |
-| Runtime Source bodies and execution certificates | 3,160 checks, 23 failures on the union-reconstruction batch |
-| Same-site inactive numeric deferred frame | Accepted |
-| Active numeric and Boolean partial extraction | Rejected |
-| Shared and stored owner forwarding | Accepted, fabricated marker and payload authority rejected |
-| Raw moves of scalar-only and address-only owners | Subsequent authority rejected |
-| Nested Source union ownership | Real owner accepted, fabricated owner rejected |
+| Checker library unit suite | 415 passed before the carrier and current-value batches |
+| Runtime Source bodies and execution certificates | Latest complete valid sweep: 3,160 checks, 17 failures before current-value batch |
+| Same-site inactive numeric deferred frame | Accepted, active numeric and Boolean partial extraction rejected |
+| Shared/stored owner and nested union forwarding | Real owner accepted, fabricated marker and payload authority rejected |
+| Typed raw transfer controls | Unrelated nominal moves accepted, whole/nested owner moves and writes rejected for scalar/address owners |
 | Mutable union completion | Promised owner accepted, unpromised owner rejected |
-| Required style and formatting | Passed on earlier batch, must repeat for the completed batch |
+| Exposed mutable marker | Demonstrated old rejection of marker-free write, corrected behavior pending verification |
+| Required style and formatting | Running for current-value batch |
 | Native/imported runtime acceptance and comparative costs | Unrun |
 
-All previously failing destructor terminal-effect checks pass. Ordinary loans no longer imply publication of owned
-inline storage to ambient raw code. Composition and direct invocation certify. Remaining Source families include
-event registration, dispatch, root admission and resume, task result transfer, worker context initialization, task
-retirement, observer rollback, worker entry and worker formation. Some certificate failures depend on those bodies.
-
-The completed ownership-transfer batch extends the existing cached inline shape from empty marker types to complete nominal carriers.
-A reached raw move must revoke scalar-only owner authority as well as empty markers. An unrelated typed move cannot
-retire another nominal owner merely because both contain scalar data. Raw writes remain conservative for contents.
-Active loans and stored views retain their referent type for that one shared decision. Matching nested carrier types
-remain potentially affected. The earlier 26-failure Source sweep covered this carrier batch and event registration passed.
-Eight public Source controls accept unrelated moves and reject whole-owner moves, nested-owner moves and raw writes
-for both scalar-only and pointer-only owners. The corresponding compilation test is added but its Rust test binary is unrun.
-The 415 checker unit result predates the carrier-classification extension.
-
-The following batch retains physical union paths through invalidation and alias refresh. Execution places omit the
-variant identity, so reconstructing parents from only those places erased the full mutable owner. Both positive and
-negative mutable-union Source controls now behave correctly. A bounded map retains the already checked physical paths
-for reconstruction. It does not add a new owner or a second persistent analysis state.
+All previously failing destructor terminal-effect checks pass. Composition, direct invocation, event registration,
+worker context construction, task retirement and service retirement pass their Source bodies/certificates.
+Remaining body families in the last valid sweep are execution dispatch, resume binding, root entry cleanup,
+task-allocation cleanup, observer preparation rollback, worker entry and worker formation. Remaining certificate
+failures include downstream callers. The temporary physical-framing experiment did not improve acceptance and was
+removed. The full Source sweep and new mixed initial/refreshed component-carrier join coverage are pending on the
+current-value representation. Do not request review or claim acceptance from an earlier check count.
 
 Runtime ownership now follows complete publication and disposal units:
 
@@ -184,11 +181,6 @@ Runtime ownership now follows complete publication and disposal units:
 - Observers validate execution before allocating preparation resources. Native record output now uses a separate scratch
   value before committing to the preparation owner, keeping its acquisition outside the native output slot.
 - Execution observation explicitly promises valid native report callbacks on its returned outcome.
-
-The later full Source sweep still had 17 failed checks, including a duplicate root-local name introduced during
-inlining. That name is corrected. The scratch record output change and current root entry are rebuilding in one traced
-Source sweep. Do not treat the lower count as completed acceptance. Remaining shared concerns include dispatch loans,
-root/task-allocation cleanup, observer rollback and worker formation. Finish the entire flow before final review.
 
 Optional services use per-domain native callbacks. Deadline driving returns one C-layout value. Final destruction
 reuses each provider's existing native destruction entry, which consumes the actual reference slot. Deadline backing
@@ -208,10 +200,16 @@ The connected GitHub account is verified as `lejmer`, with admin/push access to 
 Shell GitHub authentication is invalid. Use connected Git object APIs to publish checkpoints on existing PR #710.
 Parent #709 remains open with the unchanged stack base. Push coherent checkpoints regularly as requested by the user.
 
-Next: inspect the current complete Source sweep and its exact failed cleanup contracts, finish the remaining shared
-ownership paths, then run
-imported and native acceptance, final required checks, comparative costs and final review. Mark PR ready and Linear
-In Review only after all required evidence is complete.
+The current-value batch is implemented and undergoing finalization. It keeps the complete carrier until ownership
+changes, and moving it reanchors its contents at the destination. Borrowed values retain their existing loan identity
+and never acquire those owned components. A bare owner and a refreshed current value join their current observations.
+The existing join regression now covers both branch shapes, owned and borrowed contexts, and whole/component carriers.
+Current-value owners and captured-frame owners use identity-only substitutions. Current component witnesses follow
+joined values. This prevents a contents substitution from recursively renaming its own owner.
+
+Next: inspect required style/format results, run the checker library suite and full Source consumer sweep, then verify
+the capture, raw-transfer, fabrication and exposed-marker controls as a combined model. Push the coherent checkpoint.
+Imported/native acceptance, comparative costs and final review remain pending.
 
 ## Final acceptance
 

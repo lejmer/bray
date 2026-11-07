@@ -226,15 +226,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .expect("active borrow retains its plan");
 
             let referent = memory.borrow_observation(*borrow);
+
             let ty = self.storage.access(capability.access())
                 .expect("active borrow retains its checked access").reached_type();
+
             let ty = self.request.semantic_values().unborrowed_type(ty);
 
-            // A retained shared referent protects its ordinary scalar values and
-            // immutable markers. Borrowing a reference slot protects only that slot.
-            let protected_referent = memory.borrow_regions(*borrow).is_some_and(|targets| {
-                !targets.is_empty() && targets.iter().all(|target| !target.previous)
-            });
+            // Resolve the loan once. Historical or unknown backing cannot frame
+            // a current owner, and one possible target cannot protect its siblings.
+            let source = Source::Borrow(*borrow);
+
+            let Some(targets) = source.regions(memory)
+                .filter(|targets| !targets.is_empty() && targets.iter().all(|target| !target.previous)) else {
+                continue;
+            };
+
+            let exposed_referent = targets.iter().any(|target| exposed.iter().any(|raw| {
+                memory.target_relationship(raw, target) != StorageRelationship::Disjoint
+            }));
 
             for path in self
                 .storage
@@ -242,47 +251,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .into_iter()
                 .chain(referent.as_ref())
             {
-                // Exposure can reach mutable state, while this live loan still
-                // protects its classified inline observations.
-                let exposed_referent = memory.borrow_regions(*borrow).is_none_or(|targets| {
-                    targets.iter().any(|target| {
-                        exposed.iter().any(|raw| {
-                            memory.target_relationship(raw, target) != StorageRelationship::Disjoint
-                        })
-                    })
-                });
-
-                if exposed_referent && !(opaque && protected_referent
-                    && capability.kind() == bray_symbols::BorrowKind::Shared) {
-                    continue;
-                }
-
                 if capability.kind() == bray_symbols::BorrowKind::Mutable {
                     for (value, observation) in self.input.footprint.observations(path) {
                         if matches!(observation, bray_bound_tree::StorageObservationKind::Marker(_))
-                            && memory.borrow_regions(*borrow).is_some_and(|targets| targets.iter().all(|target| {
+                            && targets.iter().all(|target| {
                                 survives(&target.project(&value.projections[path.projections.len()..]), observation, ty, false)
-                            })) {
+                            }) {
                             stable_values.insert(value.clone());
                         }
                     }
 
+                    if !exposed_referent {
                     stable_descriptors.extend(self.input.footprint.discriminants.get(&path.root).into_iter().flatten().filter(|descriptor| {
                         descriptor.contains(path)
                             && matches!(path.projections.get(descriptor.projections.len()), Some(bray_bound_tree::StorageProjection::NullableValue | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
                     }).cloned());
+                    }
 
                     continue;
                 }
+
+                if exposed_referent && !opaque { continue; }
 
                 let discriminants = self.input.footprint.discriminants.get(&path.root);
                 let mut observed = false;
 
                 if !exposed_referent {
                     for value in self.input.opaque_values.range(path.clone()..).take_while(|value| path.contains(value)) {
-                        if memory.borrow_regions(*borrow).is_some_and(|targets| targets.iter().all(|target| {
+                        if targets.iter().all(|target| {
                             survives(&target.project(&value.projections[path.projections.len()..]), bray_bound_tree::StorageObservationKind::Mutable, ty, true)
-                        })) {
+                        }) {
                             stable_values.insert(value.clone());
                             observed = true;
                         }
@@ -290,8 +288,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 for (value, observation) in self.input.footprint.observations(path) {
-                    if !protected_referent { continue; }
-
                     // Pointer descriptors belong to the shared owner, separately
                     // from the mutable storage they reach.
                     if observation == bray_bound_tree::StorageObservationKind::Address {
@@ -300,11 +296,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         continue;
                     }
 
-                    let survives = memory.borrow_regions(*borrow).is_some_and(|targets| {
-                        targets.iter().all(|target| survives(
-                            &target.project(&value.projections[path.projections.len()..]), observation, ty, true,
-                        ))
-                    });
+                    let survives = targets.iter().all(|target| survives(
+                        &target.project(&value.projections[path.projections.len()..]), observation, ty, true,
+                    ));
 
                     if survives && (!exposed_referent || opaque && observation.is_immutable_inline()) {
                         stable_values.insert(value.clone());

@@ -68,6 +68,8 @@ impl ExecutionCondition {
             // loan that supplies them. Flow values retain that loan separately.
             let value = std::mem::replace(argument, Self::Unknown).into_referent();
 
+            let value = if let Self::CurrentValue(_, contents) = value { contents.as_ref().clone() } else { value };
+
             *argument = value.storage_contents().map(|(_, contents)| contents.clone()).unwrap_or(value);
 
             if argument.contains_unknown() {
@@ -125,7 +127,7 @@ impl ExecutionCondition {
     pub(crate) fn matches_variant(self, variant: bray_symbols::UnionVariantSymbolId) -> Self {
         match self {
             Self::Unknown => Self::Unknown,
-            Self::Borrowed(value) => value.as_ref().clone().matches_variant(variant),
+            Self::Borrowed(value) | Self::CurrentValue(_, value) => value.as_ref().clone().matches_variant(variant),
             Self::Literal(ref value)
                 if let bray_symbols::ConstantValueKind::Union {
                     variant: active, ..
@@ -284,6 +286,20 @@ impl ExecutionCondition {
         }
     }
 
+    pub(crate) fn current_value(owner: Self, contents: Self) -> Self {
+        let owner = owner.owner_identity();
+
+        if matches!(owner, Self::Borrowed(_)) {
+            return owner.with_referent(contents);
+        }
+
+        if owner == &contents || matches!(&contents, Self::CurrentValue(current, _) if current.as_ref() == owner) {
+            return contents;
+        }
+
+        Self::CurrentValue(Arc::new(owner.clone()), Arc::new(contents))
+    }
+
     pub(crate) fn storage_value(owner: Self, value: Self) -> Self {
         let owner = owner.owner_identity().clone().into_referent().owner_identity().clone();
 
@@ -402,6 +418,10 @@ impl ExecutionCondition {
             ));
         }
 
+        if let Self::CurrentValue(_, contents) = self {
+            return contents.as_ref().clone().project(projection);
+        }
+
         let projection = match projection {
             StorageProjection::NullableValue => bray_symbols::ConstantProjectionKind::NullableValue,
             StorageProjection::ProductField(field) => {
@@ -453,7 +473,7 @@ impl ExecutionCondition {
             Self::Input(place) => Self::Input(place.component(projection)),
             // A field access through a borrow observes the referent's field,
             // rather than projecting a field from the borrow value itself.
-            Self::StorageValue(_, value) => value.as_ref().clone().component(projection),
+            Self::StorageValue(_, value) | Self::CurrentValue(_, value) => value.as_ref().clone().component(projection),
             Self::Borrowed(value) => value.as_ref().clone().component(projection),
             // Retain the nullable owner's identity when extracting its payload. Rewrapping
             // that payload can then name the acquisition witness without asserting presence.
@@ -534,6 +554,10 @@ impl ExecutionCondition {
             return value;
         };
 
+        if let Self::CurrentValue(owner, contents) = self {
+            return Self::current_value(owner.as_ref().clone(), contents.with_component(path, value, storage));
+        }
+
         if let Some(snapshot) = self.nullable_payload_snapshot() {
             let updated = snapshot.with_component(path, value, storage);
 
@@ -609,7 +633,7 @@ impl ExecutionCondition {
         for operand in &mut operands {
             operand.observe_contents();
 
-            if let Self::StorageValue(_, value) = operand
+            if let Self::StorageValue(_, value) | Self::CurrentValue(_, value) = operand
                 && matches!(value.as_ref(), Self::Literal(_) | Self::Boolean(_)) {
                 *operand = value.as_ref().clone();
             }

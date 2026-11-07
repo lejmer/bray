@@ -54,6 +54,7 @@ fn borrowed_scalar_contents_retain_storage_authority_and_const_value_semantics()
         let forwarded = loan.with_referent(changed.clone().into_referent());
 
         assert_eq!(forwarded, changed);
+
         let unrelated = stored(1, value);
 
         assert_eq!(condition(unchanged), condition(loan.clone()));
@@ -76,9 +77,7 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
     let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
     let current = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
     let changed = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
-    let aggregate = ExecutionCondition::Constructed(
-        Arc::new(owner), [(bray_bound_tree::StorageProjection::OwnedTarget, current)].into(),
-    );
+    let aggregate = ExecutionCondition::current_value(owner, current);
 
     assert_eq!(aggregate.storage_contents(), None);
 
@@ -123,19 +122,15 @@ fn changed_contents_do_not_reuse_unlisted_components_from_carrier_identity() {
     let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
     let marker = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
 
-    let value = ExecutionCondition::Constructed(
-        Arc::new(identity.clone()),
-        [
-            (
-                bray_bound_tree::StorageProjection::OwnedTarget,
-                contents.clone(),
-            ),
-            (
+    let value = ExecutionCondition::current_value(
+        identity.clone(),
+        ExecutionCondition::Constructed(
+            Arc::new(contents.clone()),
+            [(
                 bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)),
                 marker.clone(),
-            ),
-        ]
-        .into(),
+            )].into(),
+        ),
     );
 
     assert_eq!(value.owner_identity(), &identity);

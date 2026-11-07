@@ -178,7 +178,6 @@ trusted internal func root_execution(
     return result;
 }
 
-
 trusted internal func start_frame(
     pos selected: &Current,
     pos reference: &bray.runtime.bootstrap.task.Reference,

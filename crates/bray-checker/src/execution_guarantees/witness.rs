@@ -361,7 +361,7 @@ impl super::ExecutionCallEvidence {
         let witness_inputs = self
             .witness_inputs
             .iter()
-            .map(|owner| owner.with_joined_values(identities, identities))
+            .map(|owner| owner.with_joined_owners(replacements, identities))
             .collect();
 
         let rename_facts = |facts: &BTreeSet<(ExecutionCondition, bool)>| {

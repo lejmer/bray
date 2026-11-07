@@ -92,8 +92,22 @@ trusted internal func poll_service(pos owner: DataPointer<Reference>) -> Driving
 {
     return match consume poll_reference(trusted borrow_reference(&owner, owner))
     {
-        case Ok(value) { yield { status = std.platform.success_status(), value = value }; }
-        case Error(status) { yield { status = status, value = 0 }; }
+        case Ok(value)
+        {
+            yield
+            {
+                status = std.platform.success_status(),
+                value = value
+            };
+        }
+        case Error(status)
+        {
+            yield
+            {
+                status = status,
+                value = 0
+            };
+        }
     };
 }
 
@@ -103,7 +117,21 @@ trusted internal func wait_service(pos owner: DataPointer<Reference>, pos maximu
 {
     return match consume wait_reference(trusted borrow_reference(&owner, owner), maximum)
     {
-        case Ok(value) { yield { status = std.platform.success_status(), value = value }; }
-        case Error(status) { yield { status = status, value = 0 }; }
+        case Ok(value)
+        {
+            yield
+            {
+                status = std.platform.success_status(),
+                value = value
+            };
+        }
+        case Error(status)
+        {
+            yield
+            {
+                status = status,
+                value = 0
+            };
+        }
     };
 }
