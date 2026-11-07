@@ -6,7 +6,7 @@ use crate::analysis::id::AnalysisBlockId;
 use crate::analysis::model::{
     AnalysisCallPhase, AnalysisOperationKind, AnalysisRefinement, ControlFlowGraph,
 };
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundUnit, StoragePlan};
+use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundUnit, CheckedExpressionSemantics, StoragePlan};
 
 /// Evaluated values have compiler-cache lifetimes, independently of storage ownership.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
@@ -20,9 +20,10 @@ impl ValueRetention {
         graph: &ControlFlowGraph,
         unit: &BoundUnit,
         storage: &StoragePlan,
+        expressions: &CheckedExpressionSemantics,
         cancellation: &dyn bray_base::Cancellation,
     ) -> Option<Self> {
-        let transfers = transfers(graph, unit, storage);
+        let transfers = transfers(graph, unit, storage, expressions);
 
         let domain = SetLiveness::new(
             None,
@@ -101,6 +102,7 @@ fn transfers(
     graph: &ControlFlowGraph,
     unit: &BoundUnit,
     storage: &StoragePlan,
+    expressions: &CheckedExpressionSemantics,
 ) -> Vec<SetTransfer<BoundExpressionId>> {
     let mut transfers = graph
         .blocks()
@@ -206,6 +208,12 @@ fn transfers(
                         transfer.generated.remove(&expression);
                         transfer.killed.insert(expression);
                         transfer.generated.extend(node.child_expressions());
+
+                        if let Some(selection) = expressions.selections().expression(expression) {
+                            // Selected receivers can be nested under the callee syntax.
+                            // Preserve actual runtime inputs until entry captures them.
+                            transfer.generated.extend(selection.inputs().filter_map(|input| input.expression()));
+                        }
 
                         if let bray_bound_tree::BoundExpression::Structured(index) = node
                             && matches!(

@@ -39,9 +39,23 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
     if matches!(domain.semantics.selections().expression(expression), Some(bray_bound_tree::SemanticSelection::Call(call)) if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::FutureStart))
     {
         // Starting a task activates its body even when the task is later cancelled or disposed.
+        let frame = match operation {
+            AnalysisOperationKind::Bound(_) => {
+                let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+                    domain.semantics.selections().expression(expression) else {
+                    unreachable!("selected FutureStart retains its call");
+                };
+
+                // Before production the existing receiver owns this frame. At
+                // Completion the actual Task result owns the rebound frame.
+                domain.receiver_value(state, expression, call)
+            }
+            _ => domain.value(state, expression),
+        };
+
         deferred.extend(
             state
-                .deferred_entries(&domain.value(state, expression))
+                .deferred_entries(&frame)
                 .into_iter()
                 .flat_map(|value| value.producers.iter())
                 .filter(|(_, candidate)| {
@@ -213,9 +227,12 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     storage: &StoragePlan,
     domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
     state: &ExecutionState,
-    occurrence: bray_bound_tree::BoundExecutionSite,
+    operation: crate::analysis::model::AnalysisOperationKind,
+    current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     transfers: &mut BTreeSet<BoundExpressionId>,
 ) {
+    let occurrence = operation.occurrence();
+
     for plan in storage.occurrence_plans(occurrence).filter(|plan| {
         matches!(
             plan.purpose(),
@@ -224,7 +241,20 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
                 | bray_bound_tree::StorageAccessPurpose::Move
         )
     }) {
-        let value = domain.storage_value(state, plan.expression(), plan.access());
+        let path = current_access(plan);
+        let defining = Some(plan.expression()) == occurrence.expression()
+            && matches!(operation,
+                crate::analysis::model::AnalysisOperationKind::Bound(_)
+                | crate::analysis::model::AnalysisOperationKind::Call {
+                    phase: crate::analysis::model::AnalysisCallPhase::Attempt, ..
+                });
+
+        let value = if defining {
+            path.as_ref().map(|path| domain.current_access_value(state, path))
+                .unwrap_or(crate::ExecutionCondition::Unknown)
+        } else {
+            domain.storage_value(state, plan.expression(), plan.access())
+        };
 
         let fresh = plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer
             && storage
@@ -240,9 +270,8 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
                     )
                 });
 
-        let (is_witness, mut partial_witness) = state.witness_projection(&value);
-
-        partial_witness |= separates_carrier(domain, state, plan.access());
+        let is_witness = state.owns_witness(&value);
+        let partial_witness = path.as_ref().is_some_and(|path| separates_carrier(domain, state, path));
 
         if !is_witness && !partial_witness {
             continue;
@@ -271,35 +300,23 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
 fn separates_carrier<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
     state: &ExecutionState,
-    access: bray_bound_tree::StorageAccessId,
+    path: &bray_bound_tree::StoragePath,
 ) -> bool {
-    let Some(path) = domain.storage.resolved_projections(access) else {
-        return false;
-    };
+    for index in 0..path.projections.len() {
+        let container = bray_bound_tree::StoragePath {
+            root: path.root,
+            projections: path.projections[..index].into(),
+        };
+        let value = domain.current_access_value(state, &container);
 
-    if path.is_empty() {
-        return false;
-    }
-
-    let root = domain
-        .storage
-        .root_identity(access)
-        .expect("resolved access retains its root");
-
-    let mut value = domain.storage_identity_value(state, root);
-
-    for (index, projection) in path.iter().enumerate() {
-        // Unwrapping presence moves the complete contained carrier. Other ownership
-        // projections must not detach any component of a directly carrying value.
+        // Presence extraction retains the complete carrier. Other selectors
+        // cross its checked current storage boundary, including through loans.
         if state.directly_carries_witness(&reached_container(&value))
-            && path[index..]
-                .iter()
-                .any(|projection| *projection != bray_bound_tree::StorageProjection::NullableValue)
+            && path.projections[index..].iter().any(|projection|
+                *projection != bray_bound_tree::StorageProjection::NullableValue)
         {
             return true;
         }
-
-        value = value.project(*projection);
     }
 
     false
@@ -308,5 +325,5 @@ fn separates_carrier<C: CheckerRequestContext + ?Sized>(
 // A field projection crosses borrow layers into reached storage. The loan's
 // own contract does not make that loan the owner of the reached aggregate.
 fn reached_container(value: &crate::ExecutionCondition) -> crate::ExecutionCondition {
-    value.clone().into_referent().owner_identity().clone()
+    value.clone().into_referent()
 }

@@ -47,8 +47,10 @@ Maintainability, compile cost, generated execution, product size and retained re
 The runtime protocol and ownership representation are being completed together. The latest validated checkpoint
 is `e12e722f9867f8cc959b7e6a0d56cf3f4db63e1c`: 520 affected unit tests and all 18 Source controls passed, while
 the full runtime Source run finished 3,264 checks with 69 failures. Native/imported acceptance remains unrun.
-The reconstruction audit and integrated replacement below supersede local repairs. Its code is currently under
-static self-review and has not been built or tested. Complete the whole acceptance contract in this PR.
+The reconstruction audit and integrated replacement below supersede local repairs. Its production code compiles,
+style and format pass, and the affected unit batch passed 1,093 tests with two new interface fixture setup failures.
+Those fixtures are corrected and awaiting verification. Full Source and native acceptance remain pending.
+Complete the whole acceptance contract in this PR.
 
 ### Ordered implementation and removals
 
@@ -219,17 +221,75 @@ initialization solver, runtime-name exceptions or implicit allocation freshness 
 
 ## Current validation and remaining acceptance
 
+### Phase, role and conditional-value completion
+
+The first integrated reconstruction batch exposed three architectural contract gaps. They are not individual runtime
+call-site failures. Keep the strict actual-value readers and canonical root data representation, then finish these
+contracts together before another behavioral run:
+
+1. **Separate pre-transition storage reads from evaluated results.** `check_witness_transfers` executes before the
+   occurrence's own producer. It cannot read that occurrence from `expressions`. Resolve its actual source using the
+   collector's existing live physical target, then read the retained current object. Keep post-move reads on evaluated
+   snapshots. Apply the same phase rule to Bound-form FutureStart, using its captured receiver. Retention must use
+   selected runtime input metadata, including unstaged method receivers across argument-call edges. Do not retain
+   arbitrary syntax subtrees or restore normalization on cache misses.
+2. **Keep data, loan descriptors and complete owners distinct from first production.** Borrow production must create
+   a loan immediately. Scalar copies and their projections retain data without the source's ownership. Centralize
+   role-aware lineage, witness matching and retirement selection. General observation identity remains separate from
+   permission to own a carrier. Actual projections and tag/nullable decorations must preserve these roles. Stable
+   identities cannot contain changing object contents.
+3. **Infer conditional preservation before joining values.** Attach preservation to actual ownership layouts when
+   predecessor snapshots are captured. Entry/checked input moves establish their actual unchanged input once.
+   Structural updates change the affected subtree summary, opaque updates keep only checked survivors, and calls
+   compose input preservation with callee preservation. Joins retain guarded layouts and intersect only guarantees
+   that hold on all relevant alternatives. Terminal publication translates those established summaries instead of
+   comparing an unconditional merged value with an original input after branch data was discarded. Tag refinement
+   over actual contents preserves their equality. A constructor or mutation has its own new data basis.
+4. **Remove semantic-shape stand-ins for storage ownership.** Whole versus partial carrier checks must use the actual
+   checked storage boundary and role, not infer current containment from an immutable input term's old field path.
+   Eliminate empty `Constructed` wrappers used to suppress partial-witness checks. Keep actual object identity,
+   evaluated data and the checked complete-result transfer. Review all repeated transfer/capture paths for finite
+   identities and canonical value updates. Prove convergence with a representative repeated transfer boundary,
+   without increasing the stack or making unknown data grant authority.
+5. **Complete and review this whole batch.** Revisit the reconstruction inventory's producers, selectors, movement,
+   mutation, joins, retirement, captures and imported contracts. Add meaningful regressions for the confirmed phase,
+   receiver retention, role and repeated-transfer contracts. Agents use GPT-6.1 low effort and run no validation.
+   Root runs required style/format, affected units, complete Source controls/runtime checking and the established
+   imported/native acceptance after the completed implementation. No per-edit test loop.
+
+The first replacement's evidence is 1,095 affected unit tests passed after test-only fixture corrections. The owned
+Source/imported integration suite passed 47, failed 3 and ignored 6 tiered tests. Its failures include improperly
+accepted copied-owner negatives, lost conditional valid transfers, and fresh array-factory guarantees. Input-free
+factories do not use owned-input masks and must not receive speculative mask fixes. The explicit Source controls
+matched 16/18. `frame-boolean` was improperly accepted, and the expanded scoped-owner composition loses its guarantee
+after a callback. The complete runtime Source runner aborted with stack overflow before a total, after reporting a
+deadline storage obligation. This is an unresolved termination defect, not a new failure count. Logs are
+`reconstruction-units.log`, `reconstruction-interface-units.log`, `reconstruction-owned-integration.log`,
+`reconstruction-controls.log` and `reconstruction-source.log` in the ignored task directory.
+
 The latest validated implementation checkpoint is `e12e722f9867f8cc959b7e6a0d56cf3f4db63e1c`.
 Mutating style and explicit format passed. Affected units passed 418 checker, 38 lowering, 35 runtime-interface and
 29 ABI tests, total 520. All 18 Source controls matched, including the corrected fabricated-owner negative and the
 ownership-transition composition. The complete runtime Source run finished 3,264 checks with 69 failures. These
 results do not establish end-to-end acceptance. Logs use the `availability-` prefix in the ignored task directory.
-All subsequent reconstruction, expression-production and owned-result summary changes remain unvalidated.
-
-The reconstruction replacement is integrated and in batch validation. Production Rust compilation completed after
-correcting the shared owned-value iterator's lifetime capture. Mutating style passed using the built xtask tool after
-extracting owned-result graph validation from the oversized general interface validator. Explicit `cargo xtask format`
-is running. No new behavioral test or runtime Source result is available yet.
+The reconstruction checkpoint has partial validation below. Production Rust compilation completed after
+correcting the shared owned-value iterator's lifetime capture. Mutating `cargo xtask style` and explicit
+`cargo xtask format` passed. Owned-result graph validation is a focused helper in the general interface validator.
+The affected unit command adds symbols, bound-tree and package-interface to the previous suites:
+`cargo test --release -p bray-symbols -p bray-bound-tree -p bray-checker -p bray-lowering -p bray-package-interface -p bray-runtime-interface -p bray-runtime-abi --lib --no-fail-fast`.
+It passed 132 bound-tree, 424 checker, 38 lowering, 214 package-interface, 35 runtime-interface, 29 ABI and 221 symbols
+tests, total 1,093 passed. Two new package-interface tests initially stopped in fixture setup because `identity_surface` lacked
+valid struct-field and generic-parameter relationships. The helper now uses the actual symbol relationship kinds,
+with fixture assertions unchanged. The affected interface suite then passed all 216 tests, bringing the combined
+affected unit result to 1,095 passing tests.
+One new checker fixture initially used a private ID constructor. It now obtains IDs from the existing bound-tree
+builder, and all 424 checker tests passed. Logs use `reconstruction-` in the ignored task directory.
+`cargo test --release -p bray-compilation --lib owned --no-fail-fast` completed with 47 passed, 3 failed and 6 ignored.
+The paired unchanged/changed Boolean control passed. The 18 explicit Source controls matched 16 expectations.
+The complete runtime Source run aborted with stack overflow before a total. These results cover pushed production
+checkpoint `0e9e56034e09d6b206c012a50361d36d6d4f7556`, with the described test fixture corrections.
+The phase, role and conditional-value completion batch above supersedes that implementation and is not yet validated.
+Native acceptance remains unrun.
 `CurrentValues` now keeps one root data tree plus component availability, with no independently stored field data.
 Writes update that tree, reads project it, and terminal retirement retains data while live-subtree views exclude
 retired ownership. `aggregate_snapshot`, opaque whole-map reset/restore, witness-filtered nested reconstruction,
@@ -251,8 +311,16 @@ their actual Boolean result after the selected operand path completes. Previousl
 operands and recovery from syntax concealed the missing producer. Reference refresh updates the retained expression or
 pending result in its existing channel and does not recreate dead temporary parents.
 
-The call-boundary review found a missing owned-contents contract. A new typed preservation mask on each owned-result
-transfer separates unchanged data from owner identity. Its inference and consumption are being integrated with portable
+Actual planned temporary and expression-result storage now participates in `CurrentValues` alongside local and
+invocation slots. Previously those physical value slots existed only in the evaluated-expression cache, so a retained
+factory result could lose ownership across another call. Definition publishes the same actual object to current
+storage and its evaluated snapshot. A move vacates current storage, cache pruning does not destroy it, and scope expiry
+ends its ownership. Call attempts keep prospective results pending until successful completion. Allocation identities
+remain physical regions rather than inline value slots. Opaque invalidation applies the checked survival mask first,
+then retains authority through actual live snapshots, preserving ownership roles and replaced-child boundaries.
+
+The call-boundary review found a missing owned-contents contract. A typed preservation mask on each owned-result
+transfer separates unchanged data from owner identity. Its inference and consumption are integrated with portable
 encoding, validation, substitution and specialization identity. This is an internal semantic contract change, with no
 source-language or native ABI change. It replaces unconditional reuse of frozen argument contents.
 
@@ -275,11 +343,11 @@ regressions protect this distinction, canonical component writes, retired-field 
 The existing native composition now includes consuming scoped entry with opaque callbacks and early-return exit.
 
 The user explicitly authorized implementation subagents at GPT-6.1 low effort, with no test runs. Agents
-`/root/invocation_results`, `/root/retirement_packet` and `/root/cleanup_snapshots` own expression production and export,
-shared semantic/interface metadata, and owned-return inference/completion respectively. They do not run builds, tests,
+`/root/invocation_results`, `/root/retirement_packet` and `/root/cleanup_snapshots` own expression production and phase
+retention, ownership-role identity and retirement, and owned-return inference/completion respectively. They do not run builds, tests,
 style, format or probes. Root integrates their changes and owns all validation.
-Self-review and naming/keyword preflight are complete. No changed Bray binding conflicts with a keyword or visible
-module declaration. New Rust methods and types have no declaration/keyword conflicts. Do not
+Before validating the completed integration batch, repeat static self-review and naming/keyword preflight across its
+new declarations and producers. No changed Bray binding conflicts with a keyword or visible module declaration. Do not
 claim the prior 520 unit/18 control evidence covers these new changes. Native/imported acceptance remains unrun.
 
 The remaining failures include scoped entry/exit and prepared start, whole binding ownership transfer, current

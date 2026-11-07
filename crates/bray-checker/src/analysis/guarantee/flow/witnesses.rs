@@ -303,10 +303,11 @@ fn collect_observations(
 
     if joined == &ExecutionCondition::Unknown { return; }
 
-    let owner = joined.owner_identity().clone();
+    let Some((role, owner)) = joined.ownership_identity() else { return; };
+    let owner = owner.clone();
 
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
-        if source.owner_identity() != &owner
+        if source.ownership_identity() != Some((role, &owner))
             && !matches!(owner, ExecutionCondition::Unknown | ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
             inputs.entry(owner.clone()).and_modify(|previous| {
                 if previous != source { *previous = ExecutionCondition::Unknown; }
@@ -314,21 +315,10 @@ fn collect_observations(
         }
     }
 
-    if let Some(data) = joined.current_referent() {
-        let sources = sources.map(|source| source.current_referent().cloned().unwrap_or_else(|| source.clone().into_referent()));
-
-        collect_observations([&sources[0], &sources[1]], data, inputs, guards, absent, active, budget);
-        return;
-    }
-
-    if matches!(joined.owner_identity(), ExecutionCondition::Borrowed(_)) {
+    if role == ObservationKind::Reference {
         let sources = sources.map(|source| source.clone().into_referent());
 
-        collect_observations(
-            [&sources[0], &sources[1]], &joined.clone().into_referent(),
-            inputs, guards, absent, active, budget,
-        );
-
+        collect_reference_data([&sources[0], &sources[1]], &joined.clone().into_referent(), inputs, budget);
         return;
     }
 
@@ -403,6 +393,48 @@ fn collect_observations(
             [&values[0], &values[1]], &joined.clone().project(field), inputs, guards, absent,
             &active, budget,
         );
+    }
+}
+
+fn collect_reference_data(
+    sources: [&ExecutionCondition; 2],
+    joined: &ExecutionCondition,
+    inputs: &mut [BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
+    budget: &mut usize,
+) {
+    let Some(remaining) = budget.checked_sub(1) else { return; };
+    *budget = remaining;
+
+    if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = joined {
+        let sources = sources.map(|source| match source {
+            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => contents.as_ref(),
+            value => value,
+        });
+
+        collect_reference_data(sources, contents, inputs, budget);
+        return;
+    }
+
+    if matches!(joined, ExecutionCondition::Unknown | ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_)) {
+        return;
+    }
+
+    // These substitutions instantiate an actual predecessor's reached data
+    // during proof. They do not create an ownership mapping or another origin.
+    for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
+        if source != joined {
+            inputs.entry(joined.clone()).and_modify(|previous| {
+                if previous != source { *previous = ExecutionCondition::Unknown; }
+            }).or_insert_with(|| source.clone());
+        }
+    }
+
+    if let ExecutionCondition::Constructed(_, fields) = joined {
+        for (field, value) in fields.iter() {
+            let sources = sources.map(|source| source.clone().project(*field));
+
+            collect_reference_data([&sources[0], &sources[1]], value, inputs, budget);
+        }
     }
 }
 

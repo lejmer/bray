@@ -151,11 +151,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut guards = BTreeMap::new();
 
-        for transfer in dependencies.owned_result().transfers() {
-            let guard = transfer
-                .condition()
-                .map(decode)
-                .unwrap_or(ExecutionCondition::Boolean(true));
+        for (transfer, enclosing) in dependencies.owned_result().guarded_transfers() {
+            let guard = enclosing.into_iter().copied().chain(transfer.condition())
+                .map(|condition| decode(condition))
+                .fold(ExecutionCondition::Boolean(true), |guard, condition| {
+                    ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![guard, condition])
+                });
 
             for value in self.returned_owned_values(invocation, arguments, [transfer])
                 .iter().flat_map(|(_, value)| state.owned_values(value))
@@ -258,32 +259,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     return false;
                 }
 
-                let crate::execution_guarantees::ExecutionInput::Storage(identity) = place.root
-                else {
-                    return true;
-                };
-
                 // Staged arguments belong to this callee after admission. Including
                 // them would retain authority even when the call consumes its owner.
-                match self.storage.identity(identity) {
-                    Some(bray_bound_tree::StorageIdentity::InvocationInput {
-                        expression,
-                        ordinal,
-                    }) => {
-                        invocation != expression.into()
-                            && invocation
-                                != BoundExecutionSite::CallInput {
-                                    expression,
-                                    ordinal,
-                                }
-                    }
-                    _ => true,
-                }
+                !self.is_invocation_input_place(invocation, place)
             })
             .map(|(_, value)| value)
             .chain(std::iter::once(state.result.clone()))
             .flat_map(|value| state.owned_values(&value))
             .collect()
+    }
+
+    fn is_invocation_input_place(&self, invocation: BoundExecutionSite, place: &ExecutionPlace) -> bool {
+        let crate::execution_guarantees::ExecutionInput::Storage(identity) = place.root else {
+            return false;
+        };
+
+        matches!(self.storage.identity(identity), Some(
+            bray_bound_tree::StorageIdentity::InvocationInput { expression, ordinal }
+        ) if invocation == expression.into()
+            || invocation == (BoundExecutionSite::CallInput { expression, ordinal }))
     }
 
     pub(super) fn retire_consumed_inputs(
@@ -324,6 +318,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .chain(self.preserved_borrowed_inputs(invocation, arguments))
             .collect();
 
+        state.retire_trusted_values(consumed, &retained);
+    }
+
+    pub(super) fn retire_failed_call(
+        &self,
+        state: &mut super::super::state::ExecutionState,
+        invocation: BoundExecutionSite,
+    ) {
+        let Some(entry) = state.entries.get(&invocation) else {
+            return;
+        };
+
+        // Admission transfers these actual values to execution even when no
+        // normal result is produced. Caller-owned borrows are not owned inputs.
+        let consumed = entry.owned_arguments().collect::<Vec<_>>();
+        let retained = self.surviving_call_values(state, invocation);
+        let private = state.current.iter()
+            .filter(|(place, _)| self.is_invocation_input_place(invocation, place))
+            .map(|(place, _)| place.clone()).collect::<Vec<_>>();
+
+        for place in private {
+            state.current.retire(&place);
+        }
+
+        if let Some(place) = self.storage.invocation_result(invocation)
+            .and_then(|access| ExecutionPlace::storage(self.storage, access))
+        {
+            state.current.retire(&place);
+        }
+
+        state.entries.remove(&invocation);
         state.retire_trusted_values(consumed, &retained);
     }
 
@@ -458,7 +483,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 state.refine_witnesses();
 
-                let mut fields = self.returned_owned_values(invocation, arguments, [transfer]);
+                let fields = self.returned_owned_values(invocation, arguments, [transfer]);
 
                 let ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
                     self.request.semantic_values(), transfer.input(), dependencies.input_count(),
@@ -466,29 +491,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     unreachable!("a checked ownership source names an input projection");
                 };
 
+                let preservation = transfer.preservation().try_map_projections(&mut |projection| {
+                    Ok::<_, std::convert::Infallible>(crate::storage::owned_storage_projections(
+                        self.dependencies, &[*projection],
+                    )[0])
+                }).expect("checked owned data projection mapping is infallible");
+
                 let ownership = input.value_in(arguments)
                     .map(|value| state.owned_result(&value.into_referent()))
                     .unwrap_or_default()
-                    .root_layout();
+                    .root_layout()
+                    .try_map(
+                        &mut |source| Ok::<_, std::convert::Infallible>(DependencyOwnedResult::Transfer(
+                            source.clone().with_preservation(source.preservation().intersection(&preservation)),
+                        )),
+                        &mut |condition| Ok(Some(condition.clone())),
+                    ).expect("returned ownership contents composition is infallible");
 
-                for (_, value) in &mut fields {
+                for (_, value) in &fields {
                     let actual = DependencyOwnedResult::all([
-                        ownership.clone(), state.owned_result(value),
+                        ownership.clone(), state.owned_children_result(value),
                     ]);
-
-                    let independent = state.witness_projection(value).1
-                        && value.ownership_ancestors().skip(1)
-                        .filter(|parent| state.directly_carries_witness(parent))
-                        .all(|parent| super::transfers::independent_result_owner(
-                            self, invocation, &state.entries[&invocation], transfer, &input,
-                            &state.witnesses[parent.owner_identity()],
-                        ));
-
-                    if independent {
-                        // The checked transition publishes a complete child. Its existing
-                        // identity, contents, evidence and portable lineage travel together.
-                        *value = ExecutionCondition::constructed(value.clone(), [].into());
-                    }
 
                     // Preserve only the transferred top lineage and actual children.
                     state.owned_results.insert(value.clone(), actual);
@@ -851,4 +874,44 @@ fn construct(
 
         root.with_storage_component(&[projection], component)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::returned_contents;
+    use crate::test_support::{expression_unit, integer_literal_expression, push_expression};
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_bound_tree::{BoundExecutionSite, BoundUnitId, StorageProjection};
+    use bray_symbols::{DependencyValuePreservation as Mask, SymbolOrdinal};
+
+    #[test]
+    fn repeated_identity_returns_keep_current_data_and_finite_snapshots() {
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(place.clone());
+        let retained = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let changed = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let source = ExecutionCondition::constructed(owner.clone(), [
+            (retained, ExecutionCondition::Boolean(true)),
+            (changed, ExecutionCondition::Boolean(false)),
+        ].into());
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
+        });
+        let changed_mask = Mask::new(true, [(changed, Mask::none())].into());
+        let contents = returned_contents(&source, &changed_mask, BoundExecutionSite::from(sites[0]),
+            &place, &mut { ExecutionCondition::WORK_LIMIT });
+        let mut current = ExecutionCondition::owned_value(owner.clone(), contents);
+        let expected = current.clone();
+
+        for _ in 0..16 {
+            let contents = returned_contents(&current, &Mask::all(), BoundExecutionSite::from(sites[1]),
+                &place, &mut { ExecutionCondition::WORK_LIMIT });
+
+            current = ExecutionCondition::owned_value(owner.clone(), contents);
+            assert_eq!(current, expected);
+        }
+
+        assert_eq!(current.clone().project(retained), ExecutionCondition::Boolean(true));
+        assert_ne!(current.project(changed), ExecutionCondition::Boolean(false));
+    }
 }

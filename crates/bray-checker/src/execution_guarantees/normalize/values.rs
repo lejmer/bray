@@ -364,8 +364,8 @@ pub(super) fn borrowed_condition(
         .and_then(|entry| known.type_representation(values, entry.ty()))
         .is_some_and(crate::representation::is_scalar);
 
-    if !scalar && value != ExecutionCondition::Unknown {
-        return value;
+    if !scalar && value.ownership_identity().is_some() {
+        return value.borrowed();
     }
 
     // Equal scalar contents can prove ordinary tests without equating storage authority.
@@ -415,11 +415,17 @@ pub(super) fn borrowed_condition(
         }
     })).unwrap_or(ExecutionCondition::Expression(operand));
 
-    if identity == value || value == ExecutionCondition::Unknown {
+    if !scalar {
+        return ExecutionCondition::reference_value(identity.borrowed(), value);
+    }
+
+    let value = if identity == value || value == ExecutionCondition::Unknown {
         identity
     } else {
         ExecutionCondition::scalar_observation(identity, value)
-    }
+    };
+
+    value.borrowed()
 }
 
 pub(super) fn structured_condition(

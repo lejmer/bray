@@ -503,41 +503,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .flat_map(|path| self.storage_places(state, path.clone()).map(move |place| (place, path.clone())))
             .collect::<BTreeMap<_, _>>();
 
-        let descriptors = descriptor_paths.keys().filter_map(|place| {
-                let value = place.value_in(&state.current)?;
-
-                Some((place.clone(), value.owner_identity().clone()))
-            })
-            .collect::<BTreeMap<_, _>>();
-
         let (retained, mut snapshots) = self.preserved_storage_values(state, stable_values, mutation);
 
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
-        let mut owners: BTreeSet<_> = retained.values()
-            .flat_map(|(value, _)| state.owned_values(value))
-            .filter(|value| *value != ExecutionCondition::Unknown)
-            .map(|value| value.owner_identity().clone())
-            .collect();
-
-        owners.extend(descriptors.values().cloned());
-
-        if let bray_bound_tree::StorageMutation::Operation(site) = mutation
-            && let Some(entry) = state.entries.get(&site)
-            && let Some(contracts) = self.dependencies.calls().get(&site) {
-            let transfers = contracts.owned_result().guaranteed_transfers();
-
-            owners.extend(self.returned_owned_values(site, &entry.arguments, &transfers)
-                .iter().flat_map(|(_, value)| state.owned_values(value))
-                .filter(|value| !matches!(value.owner_identity(), ExecutionCondition::Borrowed(_) | ExecutionCondition::Unknown))
-                .map(|value| value.owner_identity().clone()));
-        }
-
-        state.invalidate_cleanup(&snapshots, &owners);
-
-        let mut masks = self.preservation_masks( descriptors.keys().map(|place| {
-            (place, descriptor_paths[place].projections.as_ref())
-        }), retained.iter().map(|(place, (_, path))| (place, path.projections.as_ref())));
+        let mut masks = self.preservation_masks(
+            descriptor_paths.iter().map(|(place, path)| (place, path.projections.as_ref())),
+            retained.iter().map(|(place, (_, path))| (place, path.projections.as_ref())));
 
         let current = state.current.iter().map(|(place, value)| (place.clone(), value.clone())).collect::<Vec<_>>();
 
@@ -550,6 +522,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             state.observe(place, next, None);
         }
+
+        // Authority follows the actual surviving value tree. A descriptor keeps
+        // its own identity, but cannot retain overwritten children by prefix.
+        // Evaluated snapshots are not a second source of live ownership.
+        let mut owners = state.current.live_values()
+            .flat_map(|value| state.owned_values(&value))
+            .collect::<BTreeSet<_>>();
+
+        if let bray_bound_tree::StorageMutation::Operation(site) = mutation
+            && let Some(entry) = state.entries.get(&site)
+            && let Some(contracts) = self.dependencies.calls().get(&site) {
+            let transfers = contracts.owned_result().guaranteed_transfers();
+
+            owners.extend(self.returned_owned_values(site, &entry.arguments, &transfers)
+                .iter().flat_map(|(_, value)| state.owned_values(value)));
+        }
+
+        state.invalidate_cleanup(&snapshots, &owners);
     }
 
     fn preservation_masks<'a>(
@@ -665,16 +655,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Storage flow distinguishes the descriptor slot from its reached elements.
         // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
         // and predicates from equating the old contents with the new contents.
-        let descriptors = match invalidation {
+        let descriptor_paths = match invalidation {
             StorageInvalidation::Observed {
                 stable_descriptors, ..
             } => stable_descriptors
                 .iter()
                 .filter_map(|path| {
                     let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
-                    let value = place.value_in(&state.current)?;
-
-                    Some((place, value.owner_identity().clone()))
+                    Some((place, path.projections.clone()))
                 })
                 .collect::<BTreeMap<_, _>>(),
             _ => BTreeMap::new(),
@@ -687,7 +675,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         } else {
             changed_places
                 .iter()
-                .filter(|place| !descriptors.contains_key(*place))
+                .filter(|place| !descriptor_paths.contains_key(*place))
                 .filter_map(|place| {
                     if self.observed_types.get(place).copied().flatten()
                         .and_then(|ty| crate::representation::type_representation(self.request, ty))
@@ -713,13 +701,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if content_only { &self.content_predicates } else { &no_predicates },
             &stable_values,
         );
-
-        let descriptor_paths = match invalidation {
-            StorageInvalidation::Observed { stable_descriptors, .. } => stable_descriptors.iter()
-                .filter_map(|path| crate::ExecutionPlace::storage_path(self.storage, path).map(|place| (place, path.projections.clone())))
-                .collect::<BTreeMap<_, _>>(),
-            _ => BTreeMap::new(),
-        };
 
         let masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.as_ref())),
