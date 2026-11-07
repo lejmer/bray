@@ -1,0 +1,213 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap.scheduler;
+
+// A service owner reserves admission against domain closure. The native input
+// still owns the inactive frame until commit accepts it. Rollback withdraws the
+// exact scheduler reservation before releasing services, including on unwind.
+internal struct PreparedStart
+{
+    selected: &Current;
+    reference: &bray.runtime.bootstrap.task.Reference;
+    token: &bray.runtime.bootstrap.activation.Inactive;
+    mut execution: Owner;
+    initial: bray.runtime.bootstrap.activation.requirements.Execution;
+    mut registration: u64?;
+
+    trusted destruct()
+        requires(
+            blocking_execution(),
+            trusted prepared_start(owner = &self),
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+    {
+        if let ?registration = self.registration
+        {
+            trusted withdraw_registration(&self.execution.execution, registration);
+        }
+
+        trusted close_owner(self.selected, &mut self.execution);
+        _ = trusted release_pin(self.execution.execution);
+    }
+}
+
+internal predicate prepared_start(owner: &PreparedStart) =
+    view_owned(owner = &owner.selected.acquisition) && service_owner(owner = &owner.execution) &&
+    retained(owner = &owner.execution.execution) && pinned(owner = &owner.execution.execution);
+
+internal predicate prepared_start_result(owner: &Result<PreparedStart, u32>) = owner matches Error(_) || (
+    prepared_start(owner = present_prepared_start(owner)) && present_prepared_start(owner).registration matches ?_ &&
+    bray.runtime.bootstrap.task.resolution_owner(owner = present_prepared_start(owner).reference) &&
+    bray.runtime.bootstrap.task.retained(owner = present_prepared_start(owner).reference) &&
+    bray.runtime.bootstrap.activation.producer(token = present_prepared_start(owner).token) &&
+    bray.runtime.bootstrap.activation.requirements.inactive_owner(token = present_prepared_start(owner).token)
+);
+
+internal const func present_prepared_start(pos owner: &Result<PreparedStart, u32>) -> &PreparedStart
+    requires(owner matches Ok(_))
+    executes(pure, total)
+{
+    return match owner
+    {
+        case Ok(value) { yield &value; }
+        case Error(_) { panic("missing prepared start"); }
+    };
+}
+
+trusted internal func prepare_start(
+    pos selected: &Current,
+    pos reference: &bray.runtime.bootstrap.task.Reference,
+    pos token: &bray.runtime.bootstrap.activation.Inactive,
+    pos driver: bray.runtime.bootstrap.scheduler.Lane?,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> Result<PreparedStart, u32>
+    requires(
+        blocking_execution(),
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.activation.producer(token = token),
+        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted prepared_start_result(owner = &result)
+    )
+{
+    let active = trusted context(selected);
+    let initial = match consume trusted bray.runtime.bootstrap.activation.requirements.read(
+        token, 0, 0, 0, active.thread
+    )
+    {
+        case ?value { yield value; }
+        case none { return Error(3); }
+    };
+
+    let execution = trusted bray.runtime.bootstrap.task.execution_reference(reference);
+    let admission = trusted try_retain_owner(execution);
+
+    if admission matches none { return Error(4); }
+
+    let make = trusted lambda(
+        pos selected: &Current,
+        pos reference: &bray.runtime.bootstrap.task.Reference,
+        pos token: &bray.runtime.bootstrap.activation.Inactive,
+        pos admission: Owner?,
+        pos initial: bray.runtime.bootstrap.activation.requirements.Execution
+    ) -> PreparedStart
+        requires(
+            trusted view_owned(owner = &selected.acquisition),
+            trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+            trusted bray.runtime.bootstrap.task.retained(owner = reference),
+            trusted bray.runtime.bootstrap.activation.producer(token = token),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token),
+            admission matches ?_,
+            trusted optional_owner(owner = &admission)
+        )
+        ensures(trusted prepared_start(owner = &result))
+        uses(intrinsic)
+    {
+        let owner = match consume admission
+        {
+            case ?value { yield value; }
+            case none { yield trusted core.target.abort(); }
+        };
+
+        return
+        {
+            selected = selected,
+            reference = reference,
+            token = token,
+            execution = owner,
+            initial = initial,
+            registration = none
+        };
+    };
+
+    let mut prepared = trusted make(selected, reference, token, admission, initial);
+    let (lane, status) = trusted select_lane(&prepared.execution.execution, 0, &prepared.initial, driver);
+
+    if status != 0 { return Error(status); }
+
+    let registration = trusted register_task(&prepared.execution.execution, reference.handle, lane, driver);
+
+    if registration == 0 { return Error(4); }
+
+    prepared.registration = registration;
+    let failure = trusted demand_lane(&prepared.execution.execution, lane);
+
+    if failure.stage != 0
+    {
+        trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
+            outcome, trusted bray.runtime.bootstrap.worker.failure_outcome(&failure)
+        );
+
+        return Error(5);
+    }
+
+    return Ok(prepared);
+}
+
+trusted internal func commit_start(pos mut owner: PreparedStart) -> u32
+    requires(
+        blocking_execution(),
+        trusted prepared_start(owner = &owner),
+        owner.registration matches ?_,
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = owner.reference),
+        trusted bray.runtime.bootstrap.task.retained(owner = owner.reference),
+        trusted bray.runtime.bootstrap.activation.producer(token = owner.token),
+        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = owner.token),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    uses(intrinsic)
+{
+    let active = trusted context(owner.selected);
+
+    let authorize = trusted lambda(pos active: &Context, pos token: &bray.runtime.bootstrap.activation.Inactive)
+        requires(
+            trusted bray.runtime.bootstrap.activation.producer(token = token),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token)
+        )
+        ensures(trusted bray.runtime.bootstrap.activation.entry_authorized(token = token, origin = active.thread))
+        executes(pure, total) {};
+
+    trusted authorize(active, owner.token);
+    let root = trusted bray.runtime.bootstrap.activation.begin(owner.token, active.thread);
+
+    if root == 0 { return 3; }
+
+    {
+        let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(owner.reference);
+        let control = trusted guard.get();
+
+        control.registration = match owner.registration
+        {
+            case ?registration { yield registration; }
+            case none { yield trusted core.target.abort(); }
+        };
+
+        trusted bray.runtime.bootstrap.task.publish(control, root, owner.initial);
+    }
+
+    // Publication transfers the registration to the cell. Destructor cleanup
+    // now ends only the preparation's independent service acquisition.
+    owner.registration = none;
+    _ = trusted wake_reference(owner.reference, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
+    return 0;
+}

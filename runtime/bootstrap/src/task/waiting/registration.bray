@@ -66,7 +66,7 @@ trusted internal func check_wait(pos observed: &Reference, pos retirement: u8) -
 
     if retirement == 0
     {
-        return if child.phase matches Phase.Terminal | Phase.Resolved
+        return if child.phase matches Phase.Terminal(_) | Phase.Resolved
         {
             yield (0, false);
         }
@@ -81,12 +81,12 @@ trusted internal func check_wait(pos observed: &Reference, pos retirement: u8) -
         return (6, false);
     }
 
-    if child.retired
+    if (child.retirement matches Retirement.Complete)
     {
         return (0, false);
     }
 
-    child.retiring = true;
+    child.retirement = Retirement.Requested;
     return (6, true);
 }
 

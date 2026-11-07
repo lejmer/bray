@@ -36,11 +36,11 @@ internal func retire_reference(pos reference: &Reference) -> u32
         return 6;
     }
 
-    if control.retired
+    if (control.retirement matches Retirement.Complete)
     {
         return 0;
     }
 
-    control.retiring = true;
+    control.retirement = Retirement.Requested;
     return 6;
 }

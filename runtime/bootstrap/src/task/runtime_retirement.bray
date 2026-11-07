@@ -183,7 +183,7 @@ trusted internal func close_runtime_admission(
     control.native_context = 0;
     control.source_owner = false;
     control.phase = Phase.Resolved;
-    control.retired = true;
+    control.retirement = Retirement.Complete;
 
     let unused = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
         &mut control.failure_records,

@@ -7,27 +7,18 @@ using internal bray.runtime.bootstrap.task;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
 
-// This is the source claim borrowed from the actual native owner or created by
-// admission. Ordinary retention only pins storage and never issues this claim.
-trusted internal func borrow_resolution(
-    pos execution: &bray.runtime.bootstrap.execution.Reference,
-    pos source: &u64
-) -> (bray.runtime.bootstrap.task.Reference?, u32)
-    requires(
-        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
-        trusted resolution_input(owner = source)
-    )
+// The protected source claim keeps this stable cell live. The entry's current
+// execution context supplies authority and restoration, never task lookup.
+trusted internal func borrow_resolution(pos source: &u64) -> bray.runtime.bootstrap.task.Reference
+    requires(trusted resolution_input(owner = source))
     ensures(
         trusted resolution_input(owner = source),
-        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
-        trusted bray.runtime.bootstrap.task.retained_option(owner = &result.0),
-        trusted bray.runtime.bootstrap.task.resolution_owner_option(owner = &result.0)
+        trusted bray.runtime.bootstrap.task.retained(owner = &result),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &result),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = &result)
     )
-    uses(intrinsic, raw_memory)
 {
-    let handle = trusted std.memory.read<u64>(std.memory.address_of<u64>(source));
-
-    return trusted retain_task(execution, handle);
+    return trusted bray.runtime.bootstrap.task.retain_source_claim(source);
 }
 
 trusted internal func admit_source_task(
@@ -107,14 +98,7 @@ trusted internal func admit_task_context(
 
     if let ?accept = admission
     {
-        let (storage, storage_status) = trusted retain_task(execution, reference.handle);
-
-        if storage matches none
-        {
-            trusted core.target.abort();
-        }
-
-        let owner = trusted bray.runtime.bootstrap.task.take_retained(storage);
+        let owner = trusted bray.runtime.bootstrap.task.duplicate_reference(reference);
 
         return trusted accept(
             owner,

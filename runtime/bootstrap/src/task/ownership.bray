@@ -69,7 +69,7 @@ trusted internal func observe_reference(pos reference: &Reference) -> Result<bra
         return Error(7);
     }
 
-    if !(control.phase matches Phase.Terminal)
+    if !(control.phase matches Phase.Terminal(_))
     {
         return Error(6);
     }
@@ -139,10 +139,10 @@ trusted internal func destroy_claim(pos reference: &Reference) -> u32
 
             control.phase = Phase.Resolved;
 
-            control.retired = true;
+            control.retirement = Retirement.Complete;
         }
 
-        if !(control.phase matches Phase.Resolved) || !control.retired
+        if !(control.phase matches Phase.Resolved) || !(control.retirement matches Retirement.Complete)
         {
             return 6;
         }
