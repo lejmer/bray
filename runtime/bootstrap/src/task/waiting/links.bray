@@ -49,6 +49,10 @@ internal struct LinkAccess
 
 trusted internal predicate link_access(owner: &LinkAccess);
 
+// Neighbor storage is retained only while this membership remains linked
+// under this actual resident lease. Owning resources alone does not prove it.
+trusted internal predicate live_wait_links(owner: &WaitRegistration, lease: &bray.runtime.bootstrap.host.HostLease);
+
 trusted internal func task_slot_access(
     pos owner: &Reference,
     pos lease: &bray.runtime.bootstrap.host.HostLease
@@ -80,7 +84,11 @@ trusted internal func released_slot_access(
     ensures(trusted released(owner = owner), trusted link_access(owner = &result))
     executes(pure, total)
 {
-    return { lease = lease, pointer = owner.pointer };
+    return
+    {
+        lease = lease,
+        pointer = owner.pointer
+    };
 }
 
 trusted internal func previous_link_access(
@@ -88,12 +96,13 @@ trusted internal func previous_link_access(
     pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> LinkAccess
     requires(
-        trusted registration_owned(owner = &owner),
+        trusted registration_owned(owner = &owner.resources),
+        trusted live_wait_links(owner = owner, lease = lease),
         !owner.previous.empty(),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted registration_owned(owner = &owner), trusted link_access(owner = &result))
+    ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result))
     executes(pure, total)
 {
     return
@@ -108,12 +117,13 @@ trusted internal func next_link_access(
     pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> LinkAccess
     requires(
-        trusted registration_owned(owner = &owner),
+        trusted registration_owned(owner = &owner.resources),
+        trusted live_wait_links(owner = owner, lease = lease),
         !owner.next.empty(),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted registration_owned(owner = &owner), trusted link_access(owner = &result))
+    ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result))
     executes(pure, total)
 {
     return
@@ -206,21 +216,33 @@ trusted internal func task_head_access(
 {
     let mut access = trusted task_slot_access(owner, lease);
     let slot = trusted link_slot(&mut access);
-    let head = if retirement == 0 { yield slot.terminal_waiters; } else { yield slot.retirement_waiters; };
 
-    if head.empty() { trusted core.target.abort(); }
+    let head = if retirement == 0
+    {
+        yield slot.terminal_waiters;
+    }
+    else
+    {
+        yield slot.retirement_waiters;
+    };
 
-    return { lease = lease, pointer = head.pointer };
+    if head.empty()
+    {
+        trusted core.target.abort();
+    }
+
+    return
+    {
+        lease = lease,
+        pointer = head.pointer
+    };
 }
 
 // End the borrow into the incoming owner before moving that owner into its
 // retained membership slot. The lease excludes both recycling and delivery.
-trusted internal func store_registration(
-    pos owner: WaitRegistration,
-    pos lease: &bray.runtime.bootstrap.host.HostLease
-)
+trusted internal func store_registration(pos owner: WaitRegistration, pos lease: &bray.runtime.bootstrap.host.HostLease)
     requires(
-        trusted registration_owned(owner = &owner),
+        trusted registration_owned(owner = &owner.resources),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
@@ -232,7 +254,10 @@ trusted internal func store_registration(
         let mut access = trusted task_slot_access(trusted registration_waiter(&owner), lease);
         let slot = trusted link_slot(&mut access);
 
-        if slot.registration matches ?_ { trusted core.target.abort(); }
+        if slot.registration matches ?_
+        {
+            trusted core.target.abort();
+        }
 
         yield std.memory.address_of_mut<(WaitRegistration?)>(&mut slot.registration);
     };
@@ -243,7 +268,7 @@ trusted internal func store_registration(
         pos pointer: DataPointer<(WaitRegistration?)>
     )
         requires(
-            trusted registration_owned(owner = owner),
+            trusted registration_owned(owner = &owner.resources),
             lease.active,
             trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
         )

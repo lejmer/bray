@@ -410,7 +410,9 @@ trusted internal func destroy_domain(pos owner: &Reference)
         );
     };
 
-    let (queue_owner, worker_cell, deadline_cell, failure_state, retired_reports, allocation, arena) = trusted take(owner);
+    let (queue_owner, worker_cell, deadline_cell, failure_state, retired_reports, allocation, arena) = trusted take(
+        owner
+    );
 
     _ = worker_cell;
     _ = deadline_cell;
@@ -420,9 +422,8 @@ trusted internal func destroy_domain(pos owner: &Reference)
     trusted bray.runtime.bootstrap.scheduler.destroy_reference(queue_owner);
 
     trusted bray.runtime.bootstrap.task.release_arena(arena);
-    _ = allocation;
 
-    trusted bray.runtime.bootstrap.host.release_execution_domain();
+    _ = allocation;
 }
 
 trusted internal func take_pin(pos owner: Reference?) -> Reference

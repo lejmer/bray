@@ -66,15 +66,13 @@ trusted internal func creation(pos output: DataPointer<ArenaReference>) -> u64
 // Admission creates the source claim before an inactive frame transfers.
 @abi(c)
 trusted internal func admission(pos input: DataPointer<ArenaReference>) -> u64
-    requires(
-        trusted arena_reference_slot(owner = &input),
-        trusted bray.runtime.bootstrap.host.product.native_host()
-    )
+    requires(trusted arena_reference_slot(owner = &input), trusted bray.runtime.bootstrap.host.product.native_host())
 {
     // Generic buffer cleanup can require report backing before its fallible
     // allocation is attempted. Keep that failure inside this native boundary;
     // the source start operation still owns and resolves its inactive frame.
     let directory = trusted borrow_arena_reference(&input);
+
     let admitted = catch trusted admit(directory);
 
     let reference = match consume admitted
@@ -215,6 +213,7 @@ internal func admit_locked(
         let storage_owner: ArenaReference? = trusted retain_arena(directory);
 
         slot.arena_owner = core.memory.uninit_from<(ArenaReference?)>(storage_owner);
+
         slot.control = core.memory.uninit_from<std.sync.SpinLock<Control>>(
             trusted std.sync.SpinLock<Control>(prepare(failure_records))
         );

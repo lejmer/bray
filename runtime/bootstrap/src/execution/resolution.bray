@@ -53,7 +53,10 @@ trusted internal func task_resolution(
     };
 }
 
-trusted internal func task_resolution_action(pos selected: &Current, pos output: bray.runtime.bootstrap.task.result.Resolution) -> u32
+trusted internal func task_resolution_action(
+    pos selected: &Current,
+    pos output: bray.runtime.bootstrap.task.result.Resolution
+) -> u32
     requires(
         blocking_execution(),
         trusted view_owned(owner = &selected.acquisition),
@@ -69,7 +72,7 @@ trusted internal func task_resolution_action(pos selected: &Current, pos output:
         return selected.status;
     }
 
-    let owner = trusted borrow_resolution(output.task);
+    let owner = trusted bray.runtime.bootstrap.task.retain_source_claim(output.task);
     let result = trusted transfer_task_result(selected, &owner, output);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);

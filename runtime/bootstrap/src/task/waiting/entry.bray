@@ -37,14 +37,17 @@ trusted internal func wait_references(pos child: &Reference, pos parent: &Refere
             return 4;
         }
 
-        if retirement > 1 || child.runtime != parent.runtime || child.pointer == parent.pointer
+        if retirement > 1 || child.runtime != parent.runtime || child.handle == parent.handle
         {
             return 3;
         }
 
         let (status, register) = trusted check_wait(child, retirement);
 
-        if !register { return status; }
+        if !register
+        {
+            return status;
+        }
 
         let registration = trusted admit_wait(child, parent, retirement);
         let (publication_status, spare) = trusted publish_wait(registration, &lease);
@@ -66,7 +69,7 @@ trusted internal func wait_references(pos child: &Reference, pos parent: &Refere
 
 trusted internal func take_optional_registration(pos owner: WaitRegistration?) -> WaitRegistration
     requires(owner matches ?_, trusted optional_registration(owner = &owner))
-    ensures(trusted registration_owned(owner = &result))
+    ensures(trusted registration_owned(owner = &result.resources))
     uses(intrinsic)
 {
     return match consume owner

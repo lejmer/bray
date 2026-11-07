@@ -43,12 +43,12 @@ trusted internal func withdraw_wait(pos parent: &Reference, pos preserve_unready
             return true;
         }
 
-        let registration = trusted take_optional_registration(taken);
+        let mut registration = trusted take_optional_registration(taken);
         let committed = trusted wait_committed(&registration, &lease);
 
         // Recovery retains a shielded event wait until delivery. Neither an
         // unready link nor committed delivery admits another producer callback.
-        if committed || (preserve_unready_event && registration.target matches WaitTarget.Event(_, _, _) |
+        if committed || (preserve_unready_event && registration.resources.target matches WaitTarget.Event(_, _, _) |
             WaitTarget.ExecutionEvent(_, _))
         {
             trusted store_registration(registration, &lease);
@@ -56,6 +56,8 @@ trusted internal func withdraw_wait(pos parent: &Reference, pos preserve_unready
         }
 
         trusted unlink_registration(&registration, &lease);
+        registration.previous = no_wait_link();
+        registration.next = no_wait_link();
         yield registration;
     };
 
@@ -68,16 +70,17 @@ trusted internal func wait_committed(
     pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> bool
     requires(
-        trusted registration_owned(owner = &owner),
+        trusted registration_owned(owner = &owner.resources),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
-        trusted registration_owned(owner = &owner),
+        result || trusted live_wait_links(owner = owner, lease = lease),
+        trusted registration_owned(owner = &owner.resources),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
 {
-    if let WaitTarget.Event(_, observed, _) | WaitTarget.ExecutionEvent(_, observed) = owner.target
+    if let WaitTarget.Event(_, observed, _) | WaitTarget.ExecutionEvent(_, observed) = owner.resources.target
     {
         let retained_event = trusted event_reference(owner);
         let mut mutation = trusted bray.runtime.bootstrap.event.event_anchor(retained_event, lease);
@@ -105,17 +108,18 @@ trusted internal func unlink_registration(
     pos lease: &bray.runtime.bootstrap.host.HostLease
 )
     requires(
-        trusted registration_owned(owner = &owner),
+        trusted registration_owned(owner = &owner.resources),
+        trusted live_wait_links(owner = owner, lease = lease),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
-        trusted registration_owned(owner = &owner),
+        trusted registration_owned(owner = &owner.resources),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(intrinsic)
 {
-    match owner.target
+    match owner.resources.target
     {
         case WaitTarget.Task(reference)
         {

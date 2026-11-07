@@ -267,10 +267,10 @@ trusted internal func deliver_one(
 }
 
 trusted internal func wake_waiter(pos owner: &bray.runtime.bootstrap.task.WaitRegistration) -> u32
-    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner))
-    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner))
+    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.resources))
+    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.resources))
 {
-    if owner.target matches bray.runtime.bootstrap.task.WaitTarget.ExecutionEvent(_, _)
+    if owner.resources.target matches bray.runtime.bootstrap.task.WaitTarget.ExecutionEvent(_, _)
     {
         _ = trusted bray.runtime.bootstrap.execution.wake_reference(
             trusted bray.runtime.bootstrap.task.registration_waiter(owner),

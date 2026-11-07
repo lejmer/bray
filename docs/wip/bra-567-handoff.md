@@ -48,15 +48,14 @@ Progress: step 1 is implemented and undergoing whole-protocol self-review. Its e
 contents and owned/reference/scalar role fields. Old observation variants and nested reference-data role tags are gone.
 No build or behavioral test has run on the refactor. Temporary production trace branches have been removed.
 Step 1 is pushed as `48de9375c3442474374cc88d5b58c489503d263b`. Step 2 is pushed as
-`68ad79a66f8fa7ab64be75efeffceea0cf485570`. Step 3 and the task/root part of step 4 are implemented at the
-source level and await integrated self-review and validation. Startup has a prepared owner with an actual service
-acquisition and exact scheduler reservation, whose destructor rolls back before releasing services. Terminal phase owns
-its outcome and retirement uses one enum. Source claims now identify actual cells, independently of arena coordinates.
-Wake borrows storage without acquiring resolution authority. Nested root scopes retain a distinct operation view and
-the displaced parent's view, drop the operation view before retiring its context, and restore the parent quota through
-the parent view. Helpers borrow these views. The shared host teardown integration, compiler semantic alignment,
-removal/cost audit and all verification in steps 4 through 7 remain pending. No build or behavioral test has run on the
-refactor. Keep checkpoints pushed during implementation.
+`68ad79a66f8fa7ab64be75efeffceea0cf485570`. Steps 3 and 4 are pushed as
+`aaf3caaf0b5f466a3c39e91cc21f9731a80eda38`, with whole-protocol self-review refinements being checkpointed.
+The source-level migration in steps 1 through 5 is implemented. Self-review separates owned wait resources from current
+linked membership, clears detached links, retains actual execution through product detachment and removes duplicate
+host counts and ambient source-claim lookup. Step 5 reuses the established shared transition and portable contract, with
+no additional persisted representation. Structural removal is reviewed. Comparative costs in step 6 and behavioral
+verification in step 7 remain outstanding. Mandatory mutating style passed. Explicit `cargo xtask format` passed.
+The full runtime Source check and affected checker/lowering/interface/ABI suites are running. No result is claimed yet. Keep checkpoints pushed during implementation.
 
 ### Keep, adjust, replace and remove
 
@@ -332,7 +331,7 @@ because it improves a test. Do not accumulate parallel progress records.
 1. Read `AGENTS.md` and the current repository-local `work-on-bray-issues` skill before working.
    Read the coding conventions and crate responsibilities before code changes.
 2. Use `use-bray-language` before designing Bray behavior or writing Bray code. Read the actual relevant language
-   specification before relying on an assumption or running tests. Use `debug-bray-end-to-end` for this investigation.
+   specification before relying on an assumption or running tests. Select work from this architecture and protocol plan.
    Existing fixtures and compiler behavior do not override the specification.
 3. Investigate the mechanism end to end: creation, forwarding, mutation, capture, branch and loop merging,
    cleanup, and final consumption. Explain both accepted and rejected programs through the same rules.
@@ -393,89 +392,41 @@ without implementing those separate outcomes here.
 
 ## Current verification boundary
 
-The following results describe the pre-refactor implementation checkpoint `7c7a70b`, not the new migration.
-No refactor validation has run yet. Do not request final review.
+The refactor checkpoints are unvalidated. Mandatory mutating `cargo xtask style` passed. Explicit `cargo xtask format` passed. Compiler unit checks and the complete runtime Source bodies/certificates are
+running. All native/imported acceptance remains pending. Do not request final review until these requirements and cost receipts pass.
 
-That checkpoint's checker separates a retained value's identity from its current data. A reference value still owns its access
-capability. Its reached data is `Borrowed` within `CurrentValue`, so it does not own the target storage. Entry inputs
-retain their original identities. Checked type and borrowed-input metadata determine reference role during contents
-refresh, without changing entry values. `StorageValue` remains a non-owning scalar physical observation, while
-`Constructed` contains structural components. `OwnedTarget` represents real backing. Synthetic backing projections
-for current contents are removed. Substitution preserves the non-owning role independently of ordinary borrow
-normalization. No additional witness or alias store is introduced.
+Pre-refactor checkpoint `7c7a70ba7c0ff5d153c554bfc49bd926efc5d665` passed 415 checker units and all 16
+representative Source controls. Full runtime Source checking had 3,160 checks and 22 failures. That evidence establishes
+neither current refactor correctness nor end-to-end acceptance. Native/imported acceptance and comparative costs are
+unrun. Preserve the positive/negative controls for real/fabricated owners, correlated union carriers, immutable captures,
+conditional promises, scalar/pointer raw transfers and mutable exposed markers.
 
-Predicates discard the access loan identity while retaining the owned referent's physical context. Aliases of one
-referent agree, while equal data at distinct storage does not identify predicate subjects. Const calls compute from
-data independently of those contexts. Joins distinguish complete value identity from current component observations.
-The existing join matrix covers owned values, explicit loans and formal reference values, with whole/component
-carriers and mixed initial/refreshed predecessors.
+The explicit observation model reuses the existing physical storage-flow transitions, checked owned-result transfers,
+reference regions, typed effect scope, active/stored loan survival and portable dependency contracts. Internal observation
+snapshots are not persisted. No new interface field, witness store, alias store or freshness rule is introduced.
+Compiler/lowering/interface checks and Source/imported runtime builds must verify this agreement.
 
-The cached inline footprint classifies complete nominal carriers as well as empty markers. Reached raw moves revoke
-matching scalar-only or pointer-containing owner authority. Unrelated typed moves preserve another nominal owner.
-Raw writes remain conservative for contents. Active loans and stored views share one typed survival query, with
-active loan regions resolved once. Mutable union reconstruction retains checked physical variant paths. Nested
-conditional ownership carries every enclosing active-case guard in one paired predecessor traversal.
+The current whole-protocol self-review separates mutable intrusive membership from retained wait resources. An actual
+`WaitResources` carrier owns endpoints/callbacks. Neighbor access also requires a current membership witness under the
+actual host lease. Popped and withdrawn registrations have cleared links. `Delivery` owns its remaining detached chain.
+Each slot retains its own arena. Final cell retirement extracts control/execution/arena into one packet before recycling,
+then disposes metadata/reports/control before execution and arena release outside synchronization. The domain's arena
+retention supplies its resident host lifetime transitively, avoiding a duplicate host-domain count.
 
-The latest implementation checkpoint is `7c7a70ba7c0ff5d153c554bfc49bd926efc5d665`. The non-owning reached-data
-representation replaces the entry-seeding experiment. Combined checks pass checker units and representative controls,
-but full Source acceptance still fails. Do not request final review.
+Root startup and completion use the same prepared-start and entry-scope protocols as ordinary tasks. A prepared start
+retains actual execution admission through commit or rollback. The entry scope keeps a displaced parent view for
+restoration and, only when a nested root installs another context, a distinct operation view. It releases that operation
+view before retiring its context. Product detachment transfers the actual execution owner into pending progress before
+calling providers, then returns it under the host lease. These are inspection conclusions awaiting execution evidence.
 
-| Check | Result and limit |
-| --- | --- |
-| Checker library units | Pre-refactor checkpoint: 415 passed |
-| Runtime Source bodies and certificates | Pre-refactor checkpoint: 3,160 checks, 22 failures. Earlier canonical-loan sweep: 15 failures. Entry-seeding experiment: 106 failures |
-| Representative Source controls | All 16 behave as expected on the pre-refactor checkpoint, including genuine/fabricated owners, nested unions, captures, promises, raw transfers and exposed mutable markers |
-| Required style and formatting | Pre-refactor mutating style workflow passed |
-| Native/imported acceptance and comparative costs | Unrun |
-
-Previously failing destructor terminal-effect checks pass. Composition, direct invocation, event registration,
-worker context construction, task retirement, service retirement and observer rollback pass their Source bodies and
-certificates in earlier sweeps. Remaining body families are execution dispatch, resume binding, root entry cleanup, task-allocation cleanup,
-worker formation and task-result transfer. The earlier regressions in activation abandonment, entry execution
-restoration and task dispatch are absent in the current sweep.
-
-Runtime ownership follows complete publication and disposal units:
-
-- Root admission reuses the actual entry scope's `Current` view. The native frame claim remains in its original input
-  slot until admission commits.
-- Worker construction accepts the complete binding before publication. Failed native installation retires the actual
-  context and pin.
-- One task-slot operation owns detachment, metadata cleanup, report disposal and final pin release. Its detach phase
-  releases the resident host acquisition before callbacks, retaining the pin through disposal.
-- Deadline backing retirement detaches its pin before closing and retains it locally through callbacks.
-- Observers validate execution before allocation. Native record output uses scratch before committing to preparation.
-- Execution observation explicitly promises valid native report callbacks on its returned outcome.
-
-Optional services bind native operations per retained domain. Deadline driving returns one C-layout value. Final
-provider destruction reuses its existing native entry. This introduces no C borrow ABI, extra runtime owner or
-host-wide dispatch table. Native acceptance shares authenticated runtime provenance auditing across sync/async
-products. It includes minimal async demand omission and preparation/build/startup/size receipts, still unrun.
-
-Focused diagnosis found task allocation's last `dispose_reference` call does not physically frame the local Current
-root/acquisition despite framing the original factory temporary. Its admission and disposal calls export Unknown
-among other effects. Admission's result has no exported pointer relation, while its deeper `admit_locked` producer
-has a pointer relation from Entries backing through slabs. Simple nullable pointer, tuple and destructor controls
-export references correctly, including a retry loop with nested Result/nullable extraction and guard cleanup
-(14 checks, no failures), so those control-flow shapes alone do not explain this loss. Inspect actual producers and
-exits, without inferring freshness from allocation ownership or absent input dependencies.
-
-Worker formation carries a row witness but lacks an active trusted clause for Existing at the final call. Ordinary
-branch facts establish Existing/Ok. Availability or ownership of a witness alone must not activate mutable conditions.
-The physical-framing experiment was removed. No speculative relaxation of Unknown effects is implemented.
-
-Temporary traces in `trusted/check.rs`, `cleanup/transition.rs`, `terminal.rs` and `transfers.rs`, plus the local harness
-under `xtask/src/bin/`, must be excluded from checkpoints and removed before finalization. The harness uses ordinary
-production tooling artifacts and supports selected Source body, certificate and dependency-summary diagnosis.
-No temporary artifact is required to resume. The optional Linux retained-resource probe runs separately from normal
-products, so instrumentation does not affect product-size receipts.
+Temporary production traces are removed. The untracked local runner under `xtask/src/bin/` uses the workspace production
+feature graph and existing target, and is excluded from checkpoints. Remove it before finalization. Optional resource
+instrumentation runs separately from normal product builds. Existing runtime-artifact smoke and provenance audit tooling
+must produce Source/imported/native, minimal-demand and build/startup/size receipts.
 
 Connected GitHub account `lejmer` has admin/push access to the public `lejmer/bray` repository. Shell GitHub
 authentication is invalid. Use connected Git object APIs for checkpoints on existing PR #710. Parent #709 remains
 open at the unchanged stack base. Push coherent checkpoints regularly, as requested by the user.
-
-The user has authorized the full refactor plan above and its implementation within this PR. Next execute the plan in
-order. Current representation details in this section describe the checkpoint only and do not constrain its replacement.
-Native/imported/cost acceptance and final review remain pending.
 
 ## Final acceptance
 

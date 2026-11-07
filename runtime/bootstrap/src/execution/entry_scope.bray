@@ -22,8 +22,9 @@ internal predicate entry_scope_owned(owner: &EntryScope) = view_owned(owner = &o
     (owner.previous matches none || bray.runtime.bootstrap.host.execution_option_owned(owner = &owner.previous)) &&
     optional_current(owner = &owner.operation);
 
-internal predicate optional_current(owner: &(Current?)) = owner matches none ||
-    view_owned(owner = &present_current(owner).acquisition);
+internal predicate optional_current(owner: &(Current?)) = owner matches none || view_owned(
+    owner = &present_current(owner).acquisition
+);
 
 internal const func present_current(pos owner: &(Current?)) -> &Current
     requires(owner matches ?_)
@@ -292,7 +293,7 @@ trusted internal func finish_entry_scope(pos owner: EntryScope) -> u32
     let take = trusted lambda(pos owner: EntryScope) -> (Current, bray.runtime.bootstrap.host.ExecutionOwner?, Current?)
         requires(
             trusted view_owned(owner = &owner.current.acquisition),
-        trusted optional_current(owner = &owner.operation),
+            trusted optional_current(owner = &owner.operation),
             owner.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(
                 owner = &owner.previous
             )
@@ -317,6 +318,7 @@ trusted internal func finish_entry_scope(pos owner: EntryScope) -> u32
 
     // No view of the nested context can remain when its actual owner retires.
     _ = operation;
+
     let mut saved = displaced;
 
     if !isolated

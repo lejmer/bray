@@ -60,7 +60,7 @@ trusted internal func delivery_access(pos owner: &Delivery) -> bray.runtime.boot
 
 trusted internal func pop_delivery(pos owner: Delivery) -> (WaitRegistration, Delivery)
     requires(!owner.next.empty(), trusted delivery_owned(owner = &owner))
-    ensures(trusted registration_owned(owner = &result.0), trusted delivery_owned(owner = &result.1))
+    ensures(trusted registration_owned(owner = &result.0.resources), trusted delivery_owned(owner = &result.1))
     uses(intrinsic)
 {
     let lease = trusted delivery_access(&owner);
@@ -78,12 +78,15 @@ trusted internal func pop_delivery(pos owner: Delivery) -> (WaitRegistration, De
         trusted core.target.abort();
     }
 
-    let registration = trusted take_optional_registration(taken);
+    let mut registration = trusted take_optional_registration(taken);
 
     let remaining: Delivery =
     {
         next = registration.next
     };
+
+    registration.previous = no_wait_link();
+    registration.next = no_wait_link();
 
     return (registration, remaining);
 }
@@ -126,12 +129,12 @@ trusted internal func wake_waiter(
     pos remaining: Delivery
 ) -> Delivery
     requires(
-        trusted registration_owned(owner = &registration),
+        trusted registration_owned(owner = &registration.resources),
         trusted delivery_owned(owner = &remaining),
         trusted dispatch_acquired(owner = &owner.acquisition)
     )
     ensures(
-        trusted registration_owned(owner = &registration),
+        trusted registration_owned(owner = &registration.resources),
         trusted delivery_owned(owner = &result),
         trusted dispatch_acquired(owner = &owner.acquisition)
     )
@@ -149,7 +152,7 @@ trusted internal func wake_waiter(
 // components. Borrowed projections never create another component owner.
 trusted internal func release_wait(pos owner: WaitRegistration)
     requires(
-        trusted registration_owned(owner = &owner),
+        trusted registration_owned(owner = &owner.resources),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
 {
@@ -162,18 +165,21 @@ trusted internal func release_wait(pos owner: WaitRegistration)
 // storage owner. Target release cannot consume that retained count.
 trusted internal func release_wait_target(pos owner: WaitRegistration) -> Reference
     requires(
-        trusted registration_owned(owner = &owner),
+        trusted registration_owned(owner = &owner.resources),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
     uses(intrinsic)
 {
-    return match owner.target
+    return match owner.resources.target
     {
         case WaitTarget.Task(_)
         {
             let take = trusted lambda(pos owner: WaitRegistration) -> (Reference, Reference)
-                requires(trusted registration_owned(owner = &owner), owner.target matches WaitTarget.Task(_))
+                requires(
+                    trusted registration_owned(owner = &owner.resources),
+                    owner.resources.target matches WaitTarget.Task(_)
+                )
                 ensures(
                     trusted retained(owner = &result.0),
                     trusted owned_reference(owner = &result.0),
@@ -182,13 +188,15 @@ trusted internal func release_wait_target(pos owner: WaitRegistration) -> Refere
                 )
                 uses(raw_memory, intrinsic)
             {
-                return match owner.target
+                return match owner.resources.target
                 {
                     case WaitTarget.Task(reference)
                     {
                         yield (
                             trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&reference)),
-                            trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.waiter))
+                            trusted std.memory.read<Reference>(
+                                std.memory.address_of<Reference>(&owner.resources.waiter)
+                            )
                         );
                     }
                     case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _)
@@ -212,8 +220,8 @@ trusted internal func release_wait_target(pos owner: WaitRegistration) -> Refere
                 Reference
             )
                 requires(
-                    trusted registration_owned(owner = &owner),
-                    owner.target matches WaitTarget.Event(_, _, _)
+                    trusted registration_owned(owner = &owner.resources),
+                    owner.resources.target matches WaitTarget.Event(_, _, _)
                 )
                 ensures(
                     trusted bray.runtime.bootstrap.event.retained(owner = &result.0),
@@ -224,7 +232,7 @@ trusted internal func release_wait_target(pos owner: WaitRegistration) -> Refere
                 )
                 uses(raw_memory, intrinsic)
             {
-                return match owner.target
+                return match owner.resources.target
                 {
                     case WaitTarget.Event(reference, _, callback)
                     {
@@ -235,7 +243,9 @@ trusted internal func release_wait_target(pos owner: WaitRegistration) -> Refere
                             trusted std.memory.read<bray.runtime.bootstrap.event.Callback>(
                                 std.memory.address_of<bray.runtime.bootstrap.event.Callback>(&callback)
                             ),
-                            trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.waiter))
+                            trusted std.memory.read<Reference>(
+                                std.memory.address_of<Reference>(&owner.resources.waiter)
+                            )
                         );
                     }
                     case WaitTarget.Task(_) | WaitTarget.ExecutionEvent(_, _) { yield trusted core.target.abort(); }
@@ -255,8 +265,8 @@ trusted internal func release_wait_target(pos owner: WaitRegistration) -> Refere
                 Reference
             )
                 requires(
-                    trusted registration_owned(owner = &owner),
-                    owner.target matches WaitTarget.ExecutionEvent(_, _)
+                    trusted registration_owned(owner = &owner.resources),
+                    owner.resources.target matches WaitTarget.ExecutionEvent(_, _)
                 )
                 ensures(
                     trusted bray.runtime.bootstrap.event.retained(owner = &result.0),
@@ -266,7 +276,7 @@ trusted internal func release_wait_target(pos owner: WaitRegistration) -> Refere
                 )
                 uses(raw_memory, intrinsic)
             {
-                return match owner.target
+                return match owner.resources.target
                 {
                     case WaitTarget.ExecutionEvent(reference, _)
                     {
@@ -274,7 +284,9 @@ trusted internal func release_wait_target(pos owner: WaitRegistration) -> Refere
                             trusted std.memory.read<bray.runtime.bootstrap.event.Reference>(
                                 std.memory.address_of<bray.runtime.bootstrap.event.Reference>(&reference)
                             ),
-                            trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.waiter))
+                            trusted std.memory.read<Reference>(
+                                std.memory.address_of<Reference>(&owner.resources.waiter)
+                            )
                         );
                     }
                     case WaitTarget.Task(_) | WaitTarget.Event(_, _, _) { yield trusted core.target.abort(); }

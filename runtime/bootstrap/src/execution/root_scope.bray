@@ -154,10 +154,9 @@ trusted internal func retain_owner(pos owner: &Owner) -> Owner
 
 // A storage pin preserves cleanup access after admission closes. Only an open
 // execution can turn that pin into a new service owner.
-internal predicate optional_owner(owner: &(Owner?)) = owner matches none || (
-    service_owner(owner = present_owner(owner)) && retained(owner = &present_owner(owner).execution) &&
-    pinned(owner = &present_owner(owner).execution)
-);
+internal predicate optional_owner(owner: &(Owner?)) = owner matches none || (service_owner(
+    owner = present_owner(owner)
+) && retained(owner = &present_owner(owner).execution) && pinned(owner = &present_owner(owner).execution));
 
 internal const func present_owner(pos owner: &(Owner?)) -> &Owner
     requires(owner matches ?_)
