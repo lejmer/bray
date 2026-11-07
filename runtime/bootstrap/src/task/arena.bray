@@ -50,30 +50,23 @@ trusted internal func create_arena() -> ArenaReference?
         return none;
     }
 
+    let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
+        std.memory.stride_of<Arena>(),
+        align = std.memory.align_of<Arena>()
+    )
+    {
+        case ?backing { yield backing; }
+        case none { return none; }
+    };
+
+    // Acquire resident lifetime only after fallible allocation. A rejected
+    // acquisition still leaves the allocation in its ordinary cleanup owner.
     if !trusted bray.runtime.bootstrap.host.acquire_execution_domain()
     {
         return none;
     }
 
-    let allocation = trusted bray.runtime.bootstrap.heap.try_allocation(
-        std.memory.stride_of<Arena>(),
-        align = std.memory.align_of<Arena>()
-    );
-
-    return match consume allocation
-    {
-        case ?backing
-        {
-            let owner: ArenaReference? = trusted initialize_arena(backing, identity);
-
-            yield owner;
-        }
-        case none
-        {
-            trusted bray.runtime.bootstrap.host.release_execution_domain();
-            yield none;
-        }
-    };
+    return trusted initialize_arena(allocation, identity);
 }
 
 trusted internal func initialize_arena(pos allocation: std.memory.RawAllocation, pos identity: u64) -> ArenaReference
@@ -81,7 +74,11 @@ trusted internal func initialize_arena(pos allocation: std.memory.RawAllocation,
         identity != 0,
         allocation.bytes == std.memory.stride_of<Arena>(),
         allocation.align == std.memory.align_of<Arena>(),
-        trusted core.memory.owned_allocation(pointer = allocation.pointer, bytes = allocation.bytes, align = allocation.align),
+        trusted core.memory.owned_allocation(
+            pointer = allocation.pointer,
+            bytes = allocation.bytes,
+            align = allocation.align
+        ),
         trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = allocation.bytes)
     )
     ensures(trusted arena_retained(owner = &result))
@@ -122,7 +119,9 @@ trusted internal func initialize_arena(pos allocation: std.memory.RawAllocation,
 
     return
     {
-        marker = ArenaMarker {},
+        marker = ArenaMarker
+        {
+        },
         pointer = pointer
     };
 }
@@ -175,7 +174,9 @@ trusted internal func retain_arena(pos owner: &ArenaReference) -> ArenaReference
         {
             return
             {
-                marker = ArenaMarker {},
+                marker = ArenaMarker
+                {
+                },
                 pointer = owner.pointer
             };
         }
@@ -239,7 +240,6 @@ trusted internal func arena_entries(pos anchor: &mut ArenaAnchor) -> &mut Entrie
     return trusted std.memory.borrow_mut_from<Entries, ArenaAnchor>(anchor, pointer);
 }
 
-
 trusted internal func take_arena(pos owner: ArenaReference?) -> ArenaReference
     requires(owner matches ?_, trusted optional_arena(owner = &owner))
     ensures(trusted arena_retained(owner = &result))
@@ -257,7 +257,7 @@ trusted internal func last_arena_reference(pos owner: &ArenaReference) -> bool
     uses(intrinsic)
 {
     let value = trusted arena(owner);
-    let previous = core.atomic.fetch_sub<usize, 3>(&value.references, value = 1);
+    let previous = core.atomic.fetch_sub<usize, 3>(&value.references, 1);
 
     if previous == 0
     {
@@ -299,6 +299,7 @@ trusted internal func release_arena(pos owner: ArenaReference)
 
     _ = entries;
     _ = retired.allocation;
+
     trusted bray.runtime.bootstrap.host.release_execution_domain();
 }
 
@@ -333,7 +334,6 @@ trusted internal func take_retired_arena(
     trusted permit(&owner);
     return trusted std.memory.read<Arena>(owner.pointer);
 }
-
 
 trusted internal predicate arena_reference_slot(owner: &DataPointer<ArenaReference>);
 

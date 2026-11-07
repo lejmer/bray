@@ -579,8 +579,7 @@ trusted internal func shutdown_host() -> u32
 
             let host: &mut HostOwner = trusted host_value(lease, anchor);
 
-            if host.transitioning || retired matches ?_ ||
-                trusted bray.runtime.bootstrap.event.names_live(&host.events)
+            if host.transitioning || retired matches ?_ || trusted bray.runtime.bootstrap.event.names_live(&host.events)
             {
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
@@ -801,13 +800,7 @@ trusted internal func shutdown_host() -> u32
         let lease: HostLease = trusted access_prepared_host(&retired);
         let mut anchor: HostAnchor = trusted host_anchor(&lease);
 
-        yield trusted finish_host_shutdown_locked(
-            &lease,
-            &mut anchor,
-            &mut retired,
-            &mut products,
-            &mut events
-        );
+        yield trusted finish_host_shutdown_locked(&lease, &mut anchor, &mut retired, &mut products, &mut events);
     };
 
     // The caught report remains owned until the transition has been resolved.

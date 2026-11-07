@@ -37,4 +37,3 @@ trusted internal func dispatch_wait_access(pos owner: &Dispatch) -> bray.runtime
 {
     return trusted bray.runtime.bootstrap.host.host_access();
 }
-

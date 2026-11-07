@@ -143,7 +143,10 @@ trusted internal func detach_runtime_slot(
     {
         yield trusted take_released(&lease, &reference);
     }
-    else { yield none; };
+    else
+    {
+        yield none;
+    };
 
     return (unused, metadata, retired);
 }

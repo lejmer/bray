@@ -50,6 +50,7 @@ trusted internal func retain_wake_claim(pos source: &u64) -> Reference
         executes(pure, total) {};
 
     trusted permit(source, pointer);
+
     let slot = trusted std.memory.borrow_from<Slot, u64>(source, pointer);
 
     let borrow = trusted lambda(pos source: &u64, pos slot: &Slot) -> Reference
@@ -58,15 +59,19 @@ trusted internal func retain_wake_claim(pos source: &u64) -> Reference
     {
         return
         {
-            acquisition = Marker {},
+            acquisition = Marker
+            {
+            },
             pointer = std.memory.address_of<Slot>(slot),
             runtime = slot.runtime,
-            handle = (std.numeric.truncate_to<u64, u32>(slot.generation) << 32) |
-                std.numeric.truncate_to<u64, usize>(slot.index)
+            handle = (std.numeric.truncate_to<u64, u32>(slot.generation) << 32) | std.numeric.truncate_to<u64, usize>(
+                slot.index
+            )
         };
     };
 
     let borrowed = trusted borrow(source, slot);
+
     return trusted duplicate_reference(&borrowed);
 }
 

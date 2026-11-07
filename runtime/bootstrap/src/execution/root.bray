@@ -109,7 +109,10 @@ trusted internal func root_observation(pos handle: u64) -> bray.runtime.bootstra
     return result;
 }
 
-trusted internal func root_observation_action(pos selected: &Current, pos handle: &u64) -> bray.runtime.bootstrap.ReportOutcome
+trusted internal func root_observation_action(
+    pos selected: &Current,
+    pos handle: &u64
+) -> bray.runtime.bootstrap.ReportOutcome
     requires(
         blocking_execution(),
         trusted view_owned(owner = &selected.acquisition),
@@ -124,7 +127,7 @@ trusted internal func root_observation_action(pos selected: &Current, pos handle
         return runtime_failure(selected.status);
     }
 
-    let owner = trusted borrow_resolution(handle);
+    let owner = trusted bray.runtime.bootstrap.task.retain_source_claim(handle);
     let outcome = trusted observe_reference(selected, &owner);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
@@ -226,7 +229,7 @@ trusted internal func root_completion_action(pos selected: &Current, pos handle:
         return selected.status;
     }
 
-    let owner = trusted borrow_resolution(handle);
+    let owner = trusted bray.runtime.bootstrap.task.retain_source_claim(handle);
     let resolved = trusted retire_reference(selected, &owner);
 
     let result = if resolved == 0

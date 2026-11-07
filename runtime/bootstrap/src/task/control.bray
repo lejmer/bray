@@ -30,7 +30,8 @@ trusted internal func release(pos owner: &mut Control) -> bool
 
     owner.references -= 1;
 
-    if owner.references == 0 && (!(owner.phase matches Phase.Resolved) || !(owner.retirement matches Retirement.Complete))
+    if owner.references == 0 && (!(owner.phase matches Phase.Resolved) || !(owner.retirement matches
+        Retirement.Complete))
     {
         trusted core.target.abort();
     }
@@ -74,7 +75,8 @@ trusted internal func publish(
 
 trusted internal func begin_dispatch(pos owner: &mut Control) -> bool
 {
-    if owner.phase matches Phase.Admitted || owner.dispatching || (owner.retirement matches Retirement.Complete) || !trusted retain(owner)
+    if owner.phase matches Phase.Admitted || owner.dispatching || (owner.retirement matches Retirement.Complete) ||
+        !trusted retain(owner)
     {
         return false;
     }

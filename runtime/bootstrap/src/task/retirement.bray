@@ -115,8 +115,7 @@ internal struct RetiredCell
     arena: ArenaReference;
 }
 
-internal predicate retired_cell(owner: &RetiredCell) =
-    std.sync.spin_lock.valid(&owner.control.prepared.instance) &&
+internal predicate retired_cell(owner: &RetiredCell) = std.sync.spin_lock.valid(&owner.control.prepared.instance) &&
     bray.runtime.bootstrap.execution.optional_pin(owner = &owner.execution) && arena_retained(owner = &owner.arena);
 
 trusted internal predicate optional_retired_cell(owner: &(RetiredCell?));
@@ -157,8 +156,10 @@ trusted internal func take_cell_arena(
 {
     let mut access = trusted released_slot_access(reference, lease);
     let slot = trusted link_slot(&mut access);
+
     let storage = std.memory.replace_value<Uninit<(ArenaReference?)>>(
-        &mut slot.arena_owner, core.memory.uninit_from<(ArenaReference?)>(none)
+        &mut slot.arena_owner,
+        core.memory.uninit_from<(ArenaReference?)>(none)
     );
 
     let initialized = trusted lambda(pos reference: &Reference, pos storage: &Uninit<(ArenaReference?)>)
@@ -167,6 +168,7 @@ trusted internal func take_cell_arena(
         executes(pure, total) {};
 
     trusted initialized(reference, &storage);
+
     let owner = trusted std.memory.assume_initialized<(ArenaReference?)>(storage);
 
     let acquired = trusted lambda(pos reference: &Reference, pos owner: ArenaReference?) -> ArenaReference
@@ -295,5 +297,10 @@ trusted internal func take_released(
     entries.free = index;
     entries.active -= 1;
 
-    return { control = retired, execution = execution, arena = owner };
+    return
+    {
+        control = retired,
+        execution = execution,
+        arena = owner
+    };
 }

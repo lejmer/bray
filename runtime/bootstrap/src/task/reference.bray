@@ -12,7 +12,11 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.product;
 
 @abi(c)
-trusted internal func retention(pos input: DataPointer<ArenaReference>, pos handle: u64, pos output: DataPointer<Reference>) -> u32
+trusted internal func retention(
+    pos input: DataPointer<ArenaReference>,
+    pos handle: u64,
+    pos output: DataPointer<Reference>
+) -> u32
     requires(trusted arena_reference_slot(owner = &input), trusted bray.runtime.bootstrap.host.product.native_host())
 {
     let directory = trusted borrow_arena_reference(&input);
@@ -284,7 +288,9 @@ trusted internal func duplicate_reference(pos owner: &Reference) -> Reference
 
     return
     {
-        acquisition = Marker {},
+        acquisition = Marker
+        {
+        },
         pointer = owner.pointer,
         runtime = owner.runtime,
         handle = owner.handle

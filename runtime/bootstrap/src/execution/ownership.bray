@@ -7,20 +7,6 @@ using internal bray.runtime.bootstrap.task;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
 
-// The protected source claim keeps this stable cell live. The entry's current
-// execution context supplies authority and restoration, never task lookup.
-trusted internal func borrow_resolution(pos source: &u64) -> bray.runtime.bootstrap.task.Reference
-    requires(trusted resolution_input(owner = source))
-    ensures(
-        trusted resolution_input(owner = source),
-        trusted bray.runtime.bootstrap.task.retained(owner = &result),
-        trusted bray.runtime.bootstrap.task.owned_reference(owner = &result),
-        trusted bray.runtime.bootstrap.task.resolution_owner(owner = &result)
-    )
-{
-    return trusted bray.runtime.bootstrap.task.retain_source_claim(source);
-}
-
 trusted internal func admit_source_task(
     pos selected: &Current,
     pos root: bool
@@ -36,7 +22,6 @@ trusted internal func admit_source_task(
         trusted bray.runtime.bootstrap.task.retained_option(owner = &result.0),
         trusted bray.runtime.bootstrap.task.resolution_owner_option(owner = &result.0)
     )
-    uses(intrinsic)
 {
     let execution = trusted domain(bound_execution(selected));
     let admitted = catch trusted bray.runtime.bootstrap.task.admit(&execution.arena);

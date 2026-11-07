@@ -208,7 +208,6 @@ trusted internal func start_frame(
     }
     uses(intrinsic)
 {
-
     {
         let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
         let control = trusted guard.get();

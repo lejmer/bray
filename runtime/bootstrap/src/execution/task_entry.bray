@@ -91,7 +91,7 @@ trusted internal func task_start(
         return selected.status;
     }
 
-    let owner = trusted borrow_resolution(&handle);
+    let owner = trusted bray.runtime.bootstrap.task.retain_source_claim(&handle);
     let token = trusted root_frame(&frame);
     let started = trusted start_frame(&selected, &owner, token, none, outcome);
 
@@ -116,7 +116,7 @@ trusted internal func task_destruction(pos handle: u64) -> u32
         return selected.status;
     }
 
-    let owner = trusted borrow_resolution(&handle);
+    let owner = trusted bray.runtime.bootstrap.task.retain_source_claim(&handle);
     let destroyed = trusted destroy_reference(&selected, &owner);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
@@ -170,7 +170,7 @@ trusted internal func cancellation_action(pos handle: &u64) -> u32
     )
     ensures(trusted resolution_input(owner = handle))
 {
-    let owner = trusted borrow_resolution(handle);
+    let owner = trusted bray.runtime.bootstrap.task.retain_source_claim(handle);
     let requested = trusted request_cancellation(&owner);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);

@@ -113,7 +113,7 @@ trusted internal func publish_event_wait(
     pos observed: u64
 ) -> bray.runtime.bootstrap.task.WaitRegistration?
     requires(
-        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner),
+        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.resources),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
@@ -132,9 +132,12 @@ trusted internal func publish_event_wait(
         let retained_event = trusted bray.runtime.bootstrap.task.event_reference(&owner);
         let mut mutation = trusted event_anchor(retained_event, lease);
         let state = trusted event_state(lease, &mut mutation);
+
         let mut access = trusted bray.runtime.bootstrap.task.task_slot_access(
-            trusted bray.runtime.bootstrap.task.registration_waiter(&owner), lease
+            trusted bray.runtime.bootstrap.task.registration_waiter(&owner),
+            lease
         );
+
         let slot = trusted bray.runtime.bootstrap.task.link_slot(&mut access);
 
         if slot.registration matches ?_
@@ -249,15 +252,15 @@ trusted internal func make_wait(
         trusted bray.runtime.bootstrap.task.retained(owner = &waiter),
         trusted callback_owned(owner = &callback)
     )
-    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result))
+    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result.resources))
 {
     return
     {
-        marker = bray.runtime.bootstrap.task.Marker
+        resources =
         {
+            target = bray.runtime.bootstrap.task.WaitTarget.Event(event, observed, callback),
+            waiter = waiter
         },
-        target = bray.runtime.bootstrap.task.WaitTarget.Event(event, observed, callback),
-        waiter = waiter,
         retirement = 0,
         previous = bray.runtime.bootstrap.task.no_wait_link(),
         next = bray.runtime.bootstrap.task.no_wait_link()
@@ -287,9 +290,9 @@ trusted internal func retain_event_for_wait(
 trusted internal func wait_registration_access(
     pos owner: &bray.runtime.bootstrap.task.WaitRegistration
 ) -> bray.runtime.bootstrap.host.HostLease
-    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner))
+    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.resources))
     ensures(
-        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner),
+        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.resources),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
@@ -380,15 +383,15 @@ trusted internal func make_execution_wait(
         trusted bray.runtime.bootstrap.task.retained(owner = &waiter),
         trusted bray.runtime.bootstrap.task.owned_reference(owner = &waiter)
     )
-    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result))
+    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result.resources))
 {
     return
     {
-        marker = bray.runtime.bootstrap.task.Marker
+        resources =
         {
+            target = bray.runtime.bootstrap.task.WaitTarget.ExecutionEvent(event, observed),
+            waiter = waiter
         },
-        target = bray.runtime.bootstrap.task.WaitTarget.ExecutionEvent(event, observed),
-        waiter = waiter,
         retirement = 0,
         previous = bray.runtime.bootstrap.task.no_wait_link(),
         next = bray.runtime.bootstrap.task.no_wait_link()
