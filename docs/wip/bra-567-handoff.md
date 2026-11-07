@@ -153,23 +153,23 @@ Raw writes remain conservative for contents. Active loans and stored views share
 active loan regions resolved once. Mutable union reconstruction retains checked physical variant paths. Nested
 conditional ownership carries every enclosing active-case guard in one paired predecessor traversal.
 
-The latest pushed checkpoint is `7358cd9a6e150516d7b946c8865a1ac5b25bf2ce`. Its entry-loan seeding experiment
-regressed full Source acceptance and is being replaced by the current non-owning reached-data representation.
-Do not treat that checkpoint as accepted. Update these results after combined validation of the completed batch.
+The latest implementation checkpoint is `7c7a70ba7c0ff5d153c554bfc49bd926efc5d665`. The non-owning reached-data
+representation replaces the entry-seeding experiment. Combined checks pass checker units and representative controls,
+but full Source acceptance still fails. Do not request final review.
 
 | Check | Result and limit |
 | --- | --- |
-| Checker library units | Previous owned-referent and entry-seeding batches: 415 passed. Current batch pending |
-| Runtime Source bodies and certificates | Best canonical-loan sweep: 3,160 checks, 15 failures. Owned-referent batch: 21 failures. Entry-seeding experiment: 106 failures. Current batch pending |
-| Representative Source controls | All 16 passed on the owned-referent batch, including genuine/fabricated owners, nested unions, captures, promises, raw transfers and exposed mutable markers |
-| Required style and formatting | Passed for prior pushed batches. Current Rust batch pending |
+| Checker library units | Current batch: 415 passed |
+| Runtime Source bodies and certificates | Current batch: 3,160 checks, 22 failures. Earlier canonical-loan sweep: 15 failures. Entry-seeding experiment: 106 failures |
+| Representative Source controls | All 16 behave as expected on the current batch, including genuine/fabricated owners, nested unions, captures, promises, raw transfers and exposed mutable markers |
+| Required style and formatting | Current mutating style workflow passed |
 | Native/imported acceptance and comparative costs | Unrun |
 
 Previously failing destructor terminal-effect checks pass. Composition, direct invocation, event registration,
 worker context construction, task retirement, service retirement and observer rollback pass their Source bodies and
-certificates in earlier sweeps. Remaining body families include execution dispatch, resume binding, root entry
-cleanup, task-allocation cleanup and worker formation. Later representation experiments also regressed activation
-abandonment, entry execution restoration and task dispatch. Full acceptance must be established on the current code.
+certificates in earlier sweeps. Remaining body families are execution dispatch, resume binding, root entry cleanup, task-allocation cleanup,
+worker formation and task-result transfer. The earlier regressions in activation abandonment, entry execution
+restoration and task dispatch are absent in the current sweep.
 
 Runtime ownership follows complete publication and disposal units:
 
@@ -192,7 +192,8 @@ Focused diagnosis found task allocation's last `dispose_reference` call does not
 root/acquisition despite framing the original factory temporary. Its admission and disposal calls export Unknown
 among other effects. Admission's result has no exported pointer relation, while its deeper `admit_locked` producer
 has a pointer relation from Entries backing through slabs. Simple nullable pointer, tuple and destructor controls
-export references correctly, so ordinary nullable joins alone do not explain this loss. Inspect actual producers and
+export references correctly, including a retry loop with nested Result/nullable extraction and guard cleanup
+(14 checks, no failures), so those control-flow shapes alone do not explain this loss. Inspect actual producers and
 exits, without inferring freshness from allocation ownership or absent input dependencies.
 
 Worker formation carries a row witness but lacks an active trusted clause for Existing at the final call. Ordinary
@@ -209,9 +210,12 @@ Connected GitHub account `lejmer` has admin/push access to the public `lejmer/br
 authentication is invalid. Use connected Git object APIs for checkpoints on existing PR #710. Parent #709 remains
 open at the unchanged stack base. Push coherent checkpoints regularly, as requested by the user.
 
-Next: finish the current representation batch and self-review, run mandatory style, checker units, the full runtime
-Source sweep and representative controls. Resolve actual remaining physical-effect and guarded-carrier failures
-before native/imported/cost acceptance, final review, PR readiness and Linear In Review.
+The user has paused implementation and testing for an architectural reassessment. Do not resume the local
+representation/test loop. The current checker batch is verified as recorded above, but does not converge on Source
+acceptance. Before further edits, review one complete minimal async root lifecycle: admission, Main driving, outcome
+disposal, entry closure, domain drain and provider release. Establish each actual owner, access capability and transfer,
+then decide whether to simplify runtime ownership or correct the checker model. Specify what machinery the chosen
+approach removes and one end-to-end acceptance target. Native/imported/cost acceptance and final review remain pending.
 
 ## Final acceptance
 
