@@ -165,7 +165,7 @@ trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.
         yield match consume selected.ownership
         {
             case BindingOwnership.Open(_, _) { yield trusted core.target.abort(); }
-            case BindingOwnership.Cleanup(pin) { yield trusted release(pin); }
+            case BindingOwnership.Cleanup(execution_pin) { yield trusted release(execution_pin); }
         };
     }
     else

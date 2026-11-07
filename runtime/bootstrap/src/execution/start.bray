@@ -81,9 +81,9 @@ trusted internal func root_execution(
         completion = &mut ended
     }
     {
-        let scope = &entered.scope;
+        let entered_scope = &entered.scope;
 
-        let entry_status = scope.status;
+        let entry_status = entered_scope.status;
 
         let result = if entry_status == 0
         {
@@ -91,7 +91,7 @@ trusted internal func root_execution(
             // native frame claim in its actual input slot until admission commits.
             yield loop
             {
-                let selected = trusted entry_current(scope);
+                let selected = trusted entry_current(entered_scope);
 
                 if selected.status != 0
                 {

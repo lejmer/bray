@@ -38,13 +38,13 @@ trusted internal func task_resolution(
         completion = &mut ended
     }
     {
-        let scope = &entered.scope;
+        let entered_scope = &entered.scope;
 
-        let status = scope.status;
+        let status = entered_scope.status;
 
         let result = if status == 0
         {
-            yield trusted task_resolution_action(trusted entry_current(scope), output);
+            yield trusted task_resolution_action(trusted entry_current(entered_scope), output);
         }
         else
         {

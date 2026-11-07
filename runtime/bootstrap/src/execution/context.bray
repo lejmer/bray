@@ -39,7 +39,7 @@ trusted internal predicate driver_binding_entry(context: DataPointer<Context>);
 internal union BindingOwnership
 {
     Open(pos owner: Owner, pos close: BindingClose);
-    Cleanup(pos pin: Reference);
+    Cleanup(pos execution: Reference);
 }
 
 internal struct Binding
@@ -52,9 +52,9 @@ internal struct Binding
 
 internal predicate kernel_binding(owner: &Binding) = retained(owner = binding_reference(&owner.ownership)) && pinned(
     owner = binding_reference(&owner.ownership)
-) && (owner.ownership matches BindingOwnership.Cleanup(_) || service_owner(
+) && ((owner.ownership matches BindingOwnership.Open(_, _) && service_owner(
     owner = open_binding_owner(&owner.ownership)
-));
+)) || owner.ownership matches BindingOwnership.Cleanup(_));
 
 internal const func binding_reference(pos owner: &BindingOwnership) -> &Reference
     executes(pure, total)
@@ -62,7 +62,7 @@ internal const func binding_reference(pos owner: &BindingOwnership) -> &Referenc
     return match owner
     {
         case BindingOwnership.Open(value, _) { yield &value.execution; }
-        case BindingOwnership.Cleanup(pin) { yield &pin; }
+        case BindingOwnership.Cleanup(execution_pin) { yield &execution_pin; }
     };
 }
 

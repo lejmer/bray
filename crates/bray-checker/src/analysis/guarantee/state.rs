@@ -14,7 +14,7 @@ pub(crate) struct ExecutionState {
         BTreeMap<ExecutionCondition, std::sync::Arc<crate::execution_guarantees::ExecutionWitness>>,
     pub(super) trusted_assumptions: BTreeSet<(ExecutionCondition, bool)>,
     pub(super) allocation_owners: BTreeMap<ExecutionCondition, ExecutionCondition>,
-    pub(super) current: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    pub(super) current: super::current::CurrentValues,
     pub(super) expressions: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pending_results: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) result: ExecutionCondition,
@@ -35,7 +35,7 @@ impl Default for ExecutionState {
             witnesses: BTreeMap::new(),
             trusted_assumptions: BTreeSet::new(),
             allocation_owners: BTreeMap::new(),
-            current: BTreeMap::new(),
+            current: super::current::CurrentValues::default(),
             expressions: BTreeMap::new(),
             pending_results: BTreeMap::new(),
             result: ExecutionCondition::Unknown,
@@ -48,7 +48,7 @@ impl Default for ExecutionState {
 }
 
 pub(super) fn update_parent_observations(
-    observations: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    observations: &mut impl crate::execution_guarantees::ExecutionValues,
     place: &crate::ExecutionPlace,
     value: &ExecutionCondition,
     storage: Option<&[bray_bound_tree::StorageProjection]>,
@@ -58,7 +58,7 @@ pub(super) fn update_parent_observations(
 
         parent.projections = place.projections[..length].into();
 
-        if let Some(snapshot) = observations.get_mut(&parent) {
+        if let Some(snapshot) = observations.get_value_mut(&parent) {
             *snapshot =
                 snapshot.with_component(&place.projections[length..], value.clone(), storage);
         }
@@ -637,6 +637,31 @@ impl ExecutionState {
         value: ExecutionCondition,
         storage: Option<&[bray_bound_tree::StorageProjection]>,
     ) {
+        self.set_current(place, value, storage, super::current::ValueAvailability::Present);
+    }
+
+    pub(super) fn observe(
+        &mut self,
+        place: crate::ExecutionPlace,
+        value: ExecutionCondition,
+        storage: Option<&[bray_bound_tree::StorageProjection]>,
+    ) {
+        let availability = self.current.availability(&place);
+
+        self.set_current(place, value, storage, availability);
+    }
+
+    pub(super) fn vacate(&mut self, place: crate::ExecutionPlace) {
+        self.set_current(place, ExecutionCondition::Unknown, None, super::current::ValueAvailability::Absent);
+    }
+
+    pub(super) fn set_current(
+        &mut self,
+        place: crate::ExecutionPlace,
+        value: ExecutionCondition,
+        storage: Option<&[bray_bound_tree::StorageProjection]>,
+        availability: super::current::ValueAvailability,
+    ) {
         let replaced = self
             .current
             .range(place.clone()..)
@@ -650,7 +675,7 @@ impl ExecutionState {
 
         update_parent_observations(&mut self.current, &place, &value, storage);
 
-        self.current.insert(place, value);
+        self.current.set_slot(place, super::current::CurrentValue { value, availability });
     }
 }
 

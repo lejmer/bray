@@ -426,7 +426,7 @@ fn publish_owned_results(
 }
 
 fn current_replacements(
-    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
     joined_values: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     stable_values: &std::collections::BTreeSet<ExecutionCondition>,
     stable_identities: &std::collections::BTreeSet<ExecutionCondition>,
