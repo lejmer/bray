@@ -407,11 +407,11 @@ fn append_cleanup_call_effects<C: CheckerRequestContext + ?Sized>(
     // The cleanup receiver is not an invocation input at this summary boundary.
     // Keep conditional payload cleanup and capture separate from unknown mutation.
     effects.extend(template.effects().iter().map(|effect| match effect {
-        DependencyStorageEffect::Direct { kind, .. }
-        | DependencyStorageEffect::Indirect { kind, .. } => match kind {
+        DependencyStorageEffect::Direct { kind, access_type, .. }
+        | DependencyStorageEffect::Indirect { kind, access_type, .. } => match kind {
             DependencyMutationKind::Escape => DependencyStorageEffect::Escape,
             DependencyMutationKind::Atomic => DependencyStorageEffect::Atomic,
-            _ => DependencyStorageEffect::Unknown,
+            _ => DependencyStorageEffect::unresolved(*kind, *access_type),
         },
         // The summary owns its effects and shares immutable subject projections.
         effect => effect.clone(),

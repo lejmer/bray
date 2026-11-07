@@ -226,15 +226,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects.into_iter().flatten() {
             let raw = raw_operation || match effect {
-                Effect::Mutation(_, _, Some(ty)) => crate::representation::reference_kind(self.request, *ty)
+                Effect::Mutation(_, _, Some(ty)) | Effect::UnboundedMutation { access_type: Some(ty), .. } => crate::representation::reference_kind(self.request, *ty)
                     == Some(bray_symbols::DependencyReferenceKind::Address),
                 _ => false,
             };
 
             let ty = match effect {
-                Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic, _) => continue,
-                Effect::Mutation(_, Mutation::Replace(ty), _) => Some(*ty),
-                Effect::Mutation(_, Mutation::Write | Mutation::Consume | Mutation::Clear, Some(ty)) if raw => {
+                Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic, _)
+                | Effect::UnboundedMutation { kind: Mutation::Escape | Mutation::Atomic, .. } => continue,
+                Effect::Mutation(_, Mutation::Replace(ty), _) | Effect::UnboundedMutation { kind: Mutation::Replace(ty), .. } => Some(*ty),
+                Effect::Mutation(_, Mutation::Write | Mutation::Consume | Mutation::Clear, Some(ty))
+                | Effect::UnboundedMutation { kind: Mutation::Write | Mutation::Consume | Mutation::Clear, access_type: Some(ty), .. } if raw => {
                     crate::representation::reference_target_type(self.request, *ty)
                 }
                 Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear, _) => {
@@ -249,7 +251,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         }
                     }
                 }
-                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_) | Effect::Mutation(_, Mutation::Retire, _) => {
+                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_) | Effect::Mutation(_, Mutation::Retire, _) | Effect::UnboundedMutation { .. } => {
                     // A checked raw operation supplies its actual transfer type even
                     // when the reached address has an ambient storage summary.
                     if typed_transfer.is_some() { continue; }
@@ -628,7 +630,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> StorageInvalidation {
         if effects
             .iter()
-            .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
+            .any(Effect::may_reach_all_inputs)
         {
             return self.opaque_observations(memory, roots);
         }
@@ -720,7 +722,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             && effects.is_none_or(|effects| {
                 effects
                     .iter()
-                    .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
+                    .any(Effect::may_reach_all_inputs)
             })
         {
             return StorageInvalidation::unknown();

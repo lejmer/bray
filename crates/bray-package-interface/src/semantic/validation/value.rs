@@ -195,7 +195,8 @@ impl InterfaceSemantics {
                 }
 
                 match effect {
-                    DependencyStorageEffect::Atomic
+                    DependencyStorageEffect::UnboundedMutation { .. }
+                | DependencyStorageEffect::Atomic
                     | DependencyStorageEffect::Ambient
                     | DependencyStorageEffect::Unknown
                     | DependencyStorageEffect::Escape => {}

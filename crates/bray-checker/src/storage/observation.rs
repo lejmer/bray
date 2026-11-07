@@ -617,9 +617,11 @@ fn prepare_effects<'a, C: CheckerRequestContext + ?Sized>(
                 continue;
             }
             Effect::Direct { kind: Mutation::Replace(ty), .. }
-            | Effect::Indirect { kind: Mutation::Replace(ty), .. } => (*ty, &[][..]),
+            | Effect::Indirect { kind: Mutation::Replace(ty), .. }
+            | Effect::UnboundedMutation { kind: Mutation::Replace(ty), .. } => (*ty, &[][..]),
             Effect::Direct { access_type: Some(ty), kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. }
             | Effect::Indirect { access_type: Some(ty), kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. }
+            | Effect::UnboundedMutation { access_type: Some(ty), kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. }
                 if crate::representation::reference_kind(request, *ty) == Some(bray_symbols::DependencyReferenceKind::Address) => {
                 let Some(ty) = crate::representation::reference_target_type(request, *ty) else { continue; };
 

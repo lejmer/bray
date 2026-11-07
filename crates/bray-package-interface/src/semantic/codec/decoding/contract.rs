@@ -171,6 +171,18 @@ pub(super) fn decode_dependency_contract(
         let raw = read_u32(reader)?;
 
         effects.push(match raw {
+            7 => {
+                let kind = decode_mutation(reader)?;
+                let access_type = read_optional_u32(reader)?.map(crate::InterfaceTypeId::new);
+
+                let ambient = match read_u32(reader)? {
+                    0 => false,
+                    1 => true,
+                    value => return Err(crate::semantic::codec::invalid_discriminant(crate::InterfaceValidationField::Dependency, value)),
+                };
+
+                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient }
+            }
             0 => DependencyStorageEffect::Unknown,
             6 => DependencyStorageEffect::Ambient,
             5 => DependencyStorageEffect::Escape,

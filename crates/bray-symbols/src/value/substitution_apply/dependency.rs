@@ -243,6 +243,11 @@ impl SemanticValueStore {
                 use super::super::DependencyStorageEffect;
 
                 Ok(match effect {
+                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
+                        kind: kind.try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
+                        access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
+                        ambient: *ambient,
+                    },
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                     DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
