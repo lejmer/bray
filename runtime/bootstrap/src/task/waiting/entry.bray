@@ -37,33 +37,17 @@ trusted internal func wait_references(pos child: &Reference, pos parent: &Refere
             return 4;
         }
 
-        let (status, coordinates) = trusted wait_coordinates(child, parent, retirement, &lease);
-
-        let (runtime, observed_identity, waiter_identity) = match coordinates
+        if retirement > 1 || child.runtime != parent.runtime || child.pointer == parent.pointer
         {
-            case ?identities { yield identities; }
-            case none { return status; }
-        };
-
-        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-
-        let (prepared, admission_status) = trusted admit_wait(
-            &lease,
-            &mut anchor,
-            runtime,
-            observed_identity,
-            waiter_identity,
-            retirement
-        );
-
-        if prepared matches none
-        {
-            return admission_status;
+            return 3;
         }
 
-        let registration = trusted take_optional_registration(prepared);
+        let (status, register) = trusted check_wait(child, retirement);
 
-        let (publication_status, spare) = trusted publish_wait(registration, &lease, &mut anchor);
+        if !register { return status; }
+
+        let registration = trusted admit_wait(child, parent, retirement);
+        let (publication_status, spare) = trusted publish_wait(registration, &lease);
 
         if spare matches none
         {
@@ -82,7 +66,7 @@ trusted internal func wait_references(pos child: &Reference, pos parent: &Refere
 
 trusted internal func take_optional_registration(pos owner: WaitRegistration?) -> WaitRegistration
     requires(owner matches ?_, trusted optional_registration(owner = &owner))
-    ensures(trusted registration_owned(owner = &result.marker))
+    ensures(trusted registration_owned(owner = &result))
     uses(intrinsic)
 {
     return match consume owner

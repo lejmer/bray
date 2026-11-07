@@ -20,8 +20,8 @@ internal struct WaitRegistration
     target: WaitTarget;
     waiter: Reference;
     retirement: u8;
-    mut previous: u64;
-    mut next: u64;
+    mut previous: WaitLink;
+    mut next: WaitLink;
 }
 
 internal union WaitTarget
@@ -35,12 +35,12 @@ internal union WaitTarget
     );
 }
 
-trusted internal predicate registration_owned(owner: &Marker);
+trusted internal predicate registration_owned(owner: &WaitRegistration);
 
 trusted internal predicate optional_registration(owner: &(WaitRegistration?));
 
 trusted internal func registration_target(pos owner: &WaitRegistration) -> &Reference
-    requires(trusted registration_owned(owner = &owner.marker))
+    requires(trusted registration_owned(owner = &owner))
     ensures(trusted retained(owner = result))
     uses(intrinsic)
 {
@@ -90,111 +90,34 @@ trusted internal func check_wait(pos observed: &Reference, pos retirement: u8) -
     return (6, true);
 }
 
-// Reuse resident retention instead of borrowing the native reference slots as
-// backing for a new registration. Each successful result already owns its cell.
-trusted internal func admit_wait(
-    pos lease: &bray.runtime.bootstrap.host.HostLease,
-    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
-    pos runtime: u64,
-    pos child: u64,
-    pos parent: u64,
-    pos retirement: u8
-) -> (WaitRegistration?, u32)
-    requires(
-        lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(
-            anchor = &anchor.acquisition,
-            lease = &lease.acquisition
-        )
-    )
-    ensures(
-        trusted optional_registration(owner = &result.0),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(
-            anchor = &anchor.acquisition,
-            lease = &lease.acquisition
-        )
-    )
-    uses(intrinsic)
+// Both native inputs retain their actual cells through the resident lease.
+// Admission duplicates those owners, without another directory lookup.
+trusted internal func admit_wait(pos child: &Reference, pos parent: &Reference, pos retirement: u8) -> WaitRegistration
+    requires(trusted retained(owner = child), trusted retained(owner = parent))
+    ensures(trusted registration_owned(owner = &result))
 {
-    let (observed_owner, status) = trusted retain_locked(lease, anchor, runtime, child);
+    let observed = trusted duplicate_reference(child);
+    let waiter = trusted duplicate_reference(parent);
 
-    if observed_owner matches none
+    return
     {
-        return (none, status);
-    }
-
-    let observed = trusted take_retained(observed_owner);
-    let (waiter_owner, waiter_status) = trusted retain_waiter(lease, anchor, runtime, parent, &observed);
-
-    if waiter_owner matches none
-    {
-        // The native input still retains this cell. Rolling back this temporary
-        // count cannot dispose storage or invoke a callback.
-        let mut guard = trusted lock_cell(&observed);
-
-        if trusted release(trusted guard.get())
-        {
-            trusted core.target.abort();
-        }
-
-        return (none, waiter_status);
-    }
-
-    let waiter = trusted take_retained(waiter_owner);
-
-    let registration: WaitRegistration =
-    {
-        marker = Marker
-        {
-        },
+        marker = Marker {},
         target = WaitTarget.Task(observed),
         waiter = waiter,
         retirement = retirement,
-        previous = 0,
-        next = 0
+        previous = no_wait_link(),
+        next = no_wait_link()
     };
-
-    let owned: WaitRegistration? = registration;
-
-    return (owned, 6);
-}
-
-trusted internal func wait_slot(pos entries: &mut Entries, pos handle: u64) -> &mut Slot
-    uses(intrinsic)
-{
-    let index = std.numeric.truncate_to<usize, u64>(handle & 0xffffffff);
-    let generation = std.numeric.truncate_to<u32, u64>(handle >> 32);
-
-    if index == 0 || index > entries.total
-    {
-        trusted core.target.abort();
-    }
-
-    let slot = trusted slot_at(entries, index);
-
-    if slot.generation != generation || slot.control matches none
-    {
-        trusted core.target.abort();
-    }
-
-    return slot;
 }
 
 trusted internal func publish_wait(
     pos mut registration: WaitRegistration,
-    pos lease: &bray.runtime.bootstrap.host.HostLease,
-    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor
+    pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> (u32, WaitRegistration?)
     requires(
-        trusted registration_owned(owner = &registration.marker),
+        trusted registration_owned(owner = &registration),
         lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(
-            anchor = &anchor.acquisition,
-            lease = &lease.acquisition
-        )
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
         trusted optional_registration(owner = &result.1),
@@ -202,83 +125,60 @@ trusted internal func publish_wait(
     )
     uses(intrinsic)
 {
-    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
-    let mut entries = &mut host.tasks;
-    let parent = registration.waiter.handle;
-    let child = (trusted registration_target(&registration)).handle;
+    let parent = trusted wait_link(trusted registration_waiter(&registration));
     let retirement = registration.retirement;
 
     {
-        let slot = trusted wait_slot(&mut entries, parent);
+        let mut access = trusted task_slot_access(trusted registration_waiter(&registration), lease);
+        let slot = trusted link_slot(&mut access);
 
         if let ?existing = slot.registration
         {
-            let status: u32 = if trusted same_task_wait(&existing, child, retirement)
-            {
-                yield 6;
-            }
-            else
-            {
-                yield 3;
-            };
+            let status: u32 = if trusted same_task_wait(
+                &existing,
+                trusted registration_target(&registration),
+                retirement
+            ) { yield 6; } else { yield 3; };
 
-            let rejected: WaitRegistration? = registration;
-
-            return (status, rejected);
+            return (status, registration);
         }
     }
 
     let head =
     {
-        let slot = trusted wait_slot(&mut entries, child);
+        let mut access = trusted task_slot_access(trusted registration_target(&registration), lease);
+        let slot = trusted link_slot(&mut access);
 
-        yield if retirement == 0
-        {
-            yield slot.terminal_waiters;
-        }
-        else
-        {
-            yield slot.retirement_waiters;
-        };
+        yield if retirement == 0 { yield slot.terminal_waiters; } else { yield slot.retirement_waiters; };
     };
 
-    if head != 0
+    if !head.empty()
     {
-        let slot = trusted wait_slot(&mut entries, head);
+        let mut access = trusted task_head_access(trusted registration_target(&registration), lease, retirement);
+        let slot = trusted link_slot(&mut access);
 
-        if let ?owner = slot.registration
-        {
-            owner.previous = parent;
-        }
-        else
-        {
-            trusted core.target.abort();
-        }
+        if let ?prior = slot.registration { prior.previous = parent; }
+        else { trusted core.target.abort(); }
+    }
+
+    {
+        let mut access = trusted task_slot_access(trusted registration_target(&registration), lease);
+        let slot = trusted link_slot(&mut access);
+
+        if retirement == 0 { slot.terminal_waiters = parent; }
+        else { slot.retirement_waiters = parent; }
     }
 
     registration.next = head;
-
-    (trusted wait_slot(&mut entries, parent)).registration = registration;
-
-    let slot = trusted wait_slot(&mut entries, child);
-
-    if retirement == 0
-    {
-        slot.terminal_waiters = parent;
-    }
-    else
-    {
-        slot.retirement_waiters = parent;
-    }
-
+    trusted store_registration(registration, lease);
     return (6, none);
 }
 
-trusted internal func same_task_wait(pos owner: &WaitRegistration, pos child: u64, pos retirement: u8) -> bool
+trusted internal func same_task_wait(pos owner: &WaitRegistration, pos child: &Reference, pos retirement: u8) -> bool
 {
     return match owner.target
     {
-        case WaitTarget.Task(reference) { yield reference.handle == child && owner.retirement == retirement; }
+        case WaitTarget.Task(reference) { yield reference.pointer == child.pointer && owner.retirement == retirement; }
         case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _) { yield false; }
     };
 }
@@ -286,10 +186,10 @@ trusted internal func same_task_wait(pos owner: &WaitRegistration, pos child: u6
 // The registration retains this event independently of its external name.
 // A local carrier lends that storage under the resident acquisition.
 trusted internal func event_reference(pos owner: &WaitRegistration) -> &bray.runtime.bootstrap.event.Reference
-    requires(trusted registration_owned(owner = &owner.marker))
+    requires(trusted registration_owned(owner = &owner))
     ensures(
         trusted bray.runtime.bootstrap.event.retained(owner = result),
-        trusted registration_owned(owner = &owner.marker)
+        trusted registration_owned(owner = &owner)
     )
     uses(intrinsic)
 {
@@ -302,10 +202,10 @@ trusted internal func event_reference(pos owner: &WaitRegistration) -> &bray.run
 }
 
 trusted internal func event_callback(pos owner: &WaitRegistration) -> &bray.runtime.bootstrap.event.Callback
-    requires(trusted registration_owned(owner = &owner.marker))
+    requires(trusted registration_owned(owner = &owner))
     ensures(
         trusted bray.runtime.bootstrap.event.callback_owned(owner = result),
-        trusted registration_owned(owner = &owner.marker)
+        trusted registration_owned(owner = &owner)
     )
     uses(intrinsic)
 {
@@ -317,8 +217,8 @@ trusted internal func event_callback(pos owner: &WaitRegistration) -> &bray.runt
 }
 
 trusted internal func registration_waiter(pos owner: &WaitRegistration) -> &Reference
-    requires(trusted registration_owned(owner = &owner.marker))
-    ensures(trusted retained(owner = result), trusted registration_owned(owner = &owner.marker))
+    requires(trusted registration_owned(owner = &owner))
+    ensures(trusted retained(owner = result), trusted registration_owned(owner = &owner))
     executes(pure, total)
 {
     return &owner.waiter;

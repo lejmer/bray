@@ -3130,9 +3130,12 @@ typedef struct
 _Static_assert(sizeof(TaskReference) == 24, "native task reference layout");
 _Static_assert(sizeof(TaskSnapshot) == 88, "native task snapshot layout");
 
-extern uint64_t bray_runtime_task_control_creation(void);
-extern uint64_t bray_runtime_task_control_admission(uint64_t);
-extern uint32_t bray_runtime_task_control_retention(uint64_t, uint64_t, TaskReference*);
+typedef struct { uintptr_t address; } TaskArenaReference;
+
+extern uint64_t bray_runtime_task_control_creation(TaskArenaReference*);
+extern void bray_runtime_task_control_arena_release(const TaskArenaReference*);
+extern uint64_t bray_runtime_task_control_admission(const TaskArenaReference*);
+extern uint32_t bray_runtime_task_control_retention(const TaskArenaReference*, uint64_t, TaskReference*);
 extern uint32_t bray_runtime_task_control_cancellation(const TaskReference*, uint32_t);
 extern uint32_t bray_runtime_task_control_snapshot(const TaskReference*, TaskSnapshot*);
 extern uint32_t bray_runtime_task_control_wait(const TaskReference*, const TaskReference*, uint8_t);
@@ -3152,16 +3155,17 @@ static int check_task_cancellation(void)
     if (bray_runtime_thread_attachment_enter() != 0)
         return 193;
 
-    uint64_t runtime = bray_runtime_task_control_creation();
+    TaskArenaReference arena = {0};
+    uint64_t runtime = bray_runtime_task_control_creation(&arena);
     size_t previous_bytes = atomic_load(&retained_bytes);
     unsigned setup_attempts = atomic_load(&allocation_attempts);
     uintptr_t cell_stride = UINTPTR_MAX;
 
     for (unsigned index = 0; index < TASKS; ++index)
     {
-        uint64_t handle = bray_runtime_task_control_admission(runtime);
+        uint64_t handle = bray_runtime_task_control_admission(&arena);
 
-        if (runtime == 0 || handle == 0 || bray_runtime_task_control_retention(runtime, handle, &cells[index]) != 0)
+        if (runtime == 0 || handle == 0 || bray_runtime_task_control_retention(&arena, handle, &cells[index]) != 0)
             return 194;
 
         if (index != 0)
@@ -3176,6 +3180,9 @@ static int check_task_cancellation(void)
     }
 
     size_t pooled_bytes = atomic_load(&retained_bytes) - previous_bytes;
+
+    // Cells retain their backing after the independent arena owner retires.
+    bray_runtime_task_control_arena_release(&arena);
 
     printf(
         "task_control admitted=%u cell_stride_bytes=%zu pool_requested_bytes=%zu pool_bytes_per_cell=%.1f setup_allocations=%u\n",

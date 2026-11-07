@@ -1161,32 +1161,42 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution], effects: []
             }
             TaskControlCreation {
-                "Create the runtime identity for resident Bray task control.", "task_control_creation",
-                native: (TASK_CONTROL_CREATION_SYMBOL = "bray_runtime_task_control_creation", [] -> U64),
+                "Create an owned task arena and return its observational identity.", "task_control_creation",
+                native: (TASK_CONTROL_CREATION_SYMBOL = "bray_runtime_task_control_creation", [Pointer] -> U64),
                 service: Execution,
                 call_hook: (),
-                compiler: C [] -> U64,
+                compiler: C [Pointer] -> U64,
                 owner: Host, availability: All, bootstrap: ("task.creation"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [AllocateTask]
             }
             TaskControlAdmission {
                 "Admit a Bray control cell before transferring an inactive frame.", "task_control_admission",
-                native: (TASK_CONTROL_ADMISSION_SYMBOL = "bray_runtime_task_control_admission", [U64] -> U64),
+                native: (TASK_CONTROL_ADMISSION_SYMBOL = "bray_runtime_task_control_admission", [Pointer] -> U64),
                 service: Execution,
                 call_hook: (),
-                compiler: C [U64] -> U64,
+                compiler: C [Pointer] -> U64,
                 owner: Host, availability: All, bootstrap: ("task.admission"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [AllocateTask, AdmitCleanupStorage]
             }
             TaskControlRetention {
                 "Retain a resident cell independently of the source resolution owner.", "task_control_retention",
-                native: (TASK_CONTROL_RETENTION_SYMBOL = "bray_runtime_task_control_retention", [U64, U64, Pointer] -> U32),
+                native: (TASK_CONTROL_RETENTION_SYMBOL = "bray_runtime_task_control_retention", [Pointer, U64, Pointer] -> U32),
                 service: Execution,
                 call_hook: (),
-                compiler: C [U64, U64, Pointer] -> U32,
+                compiler: C [Pointer, U64, Pointer] -> U32,
                 owner: Host, availability: All, bootstrap: ("task.retention"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            TaskControlArenaRelease {
+                "Release the caller's task-arena owner after its last use.", "task_control_arena_release",
+                native: (TASK_CONTROL_ARENA_RELEASE_SYMBOL = "bray_runtime_task_control_arena_release", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("task.arena_reference_release"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: []
             }

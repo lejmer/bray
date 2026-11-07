@@ -34,10 +34,11 @@ trusted internal func retire_execution(pos owner: &bray.runtime.bootstrap.execut
             trusted core.target.abort();
         }
 
-        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-        let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+        let value = trusted bray.runtime.bootstrap.execution.domain(owner);
+        let mut anchor = trusted arena_anchor(&value.arena, &lease);
+        let entries = trusted arena_entries(&mut anchor);
 
-        yield host.tasks.total;
+        yield entries.total;
     };
 
     let mut index: usize = 1;
@@ -64,20 +65,20 @@ trusted internal func retire_runtime_slot(pos owner: &bray.runtime.bootstrap.exe
     )
     uses(intrinsic)
 {
-    let (unused, metadata, execution) = trusted detach_runtime_slot(owner, index);
+    let (unused, metadata, retired) = trusted detach_runtime_slot(owner, index);
 
     // Detachment retires the resident acquisition before invoking callbacks.
     // Keep the task's actual pin through metadata and report disposal.
     trusted bray.runtime.bootstrap.execution.release_context(owner, metadata);
 
     _ = trusted bray.runtime.bootstrap.consume_record_values(unused, 0);
-    _ = trusted bray.runtime.bootstrap.execution.release_task_pin(execution);
+    _ = trusted dispose_optional_retired_cell(retired);
 }
 
 trusted internal func detach_runtime_slot(
     pos owner: &bray.runtime.bootstrap.execution.Reference,
     pos index: usize
-) -> (bray.runtime.bootstrap.ReportRecords, usize, bray.runtime.bootstrap.execution.Reference?)
+) -> (bray.runtime.bootstrap.ReportRecords, usize, RetiredCell?)
     requires(
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
         trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition),
@@ -88,7 +89,7 @@ trusted internal func detach_runtime_slot(
     ensures(
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
         trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition),
-        trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result.2)
+        trusted optional_retired_cell(owner = &result.2)
     )
     uses(intrinsic)
 {
@@ -99,9 +100,10 @@ trusted internal func detach_runtime_slot(
         trusted core.target.abort();
     }
 
-    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
-    let slot = trusted slot_at(&mut host.tasks, index);
+    let value = trusted bray.runtime.bootstrap.execution.domain(owner);
+    let mut anchor = trusted arena_anchor(&value.arena, &lease);
+    let entries = trusted arena_entries(&mut anchor);
+    let slot = trusted slot_at(entries, index);
 
     if slot.runtime != (trusted bray.runtime.bootstrap.execution.domain(owner)).identity || slot.control matches none
     {
@@ -137,22 +139,13 @@ trusted internal func detach_runtime_slot(
     let reference = trusted issue_reference(&lease, &slot, index);
     let (last, unused, metadata) = trusted close_runtime_admission(&lease, &reference, owner);
 
-    let execution = if last
+    let retired: RetiredCell? = if last
     {
-        // The closed cell owns no frame or result. Destroying
-        // its initialized lock cannot invoke a producer under this acquisition.
-        let mut recycling_anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-
-        let (retired, execution) = trusted take_released(&lease, &mut recycling_anchor, &reference);
-
-        yield execution;
+        yield trusted take_released(&lease, &reference);
     }
-    else
-    {
-        yield none;
-    };
+    else { yield none; };
 
-    return (unused, metadata, execution);
+    return (unused, metadata, retired);
 }
 
 trusted internal func close_runtime_admission(

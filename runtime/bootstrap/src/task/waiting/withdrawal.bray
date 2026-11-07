@@ -9,10 +9,11 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.event;
 using internal bray.runtime.bootstrap.host.product;
 
-trusted internal func take_registration(pos entries: &mut Entries, pos parent: u64) -> WaitRegistration?
-    ensures(trusted optional_registration(owner = &result))
+trusted internal func take_registration(pos access: &mut LinkAccess) -> WaitRegistration?
+    requires(trusted link_access(owner = &access))
+    ensures(trusted optional_registration(owner = &result), trusted link_access(owner = &access))
 {
-    let slot = trusted wait_slot(&mut entries, parent);
+    let slot = trusted link_slot(access);
 
     return trusted std.memory.replace_value<(WaitRegistration?)>(&mut slot.registration, none);
 }
@@ -34,10 +35,8 @@ trusted internal func withdraw_wait(pos parent: &Reference, pos preserve_unready
             trusted core.target.abort();
         }
 
-        let identity = parent.handle;
-        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-        let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
-        let taken = trusted take_registration(&mut host.tasks, identity);
+        let mut access = trusted task_slot_access(parent, &lease);
+        let taken = trusted take_registration(&mut access);
 
         if taken matches none
         {
@@ -46,18 +45,17 @@ trusted internal func withdraw_wait(pos parent: &Reference, pos preserve_unready
 
         let registration = trusted take_optional_registration(taken);
         let committed = trusted wait_committed(&registration, &lease);
-        let mut entries = &mut host.tasks;
 
         // Recovery retains a shielded event wait until delivery. Neither an
         // unready link nor committed delivery admits another producer callback.
         if committed || (preserve_unready_event && registration.target matches WaitTarget.Event(_, _, _) |
             WaitTarget.ExecutionEvent(_, _))
         {
-            (trusted wait_slot(&mut entries, identity)).registration = registration;
+            trusted store_registration(registration, &lease);
             return false;
         }
 
-        trusted unlink_registration(&mut entries, &registration, &lease);
+        trusted unlink_registration(&registration, &lease);
         yield registration;
     };
 
@@ -70,12 +68,12 @@ trusted internal func wait_committed(
     pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> bool
     requires(
-        trusted registration_owned(owner = &owner.marker),
+        trusted registration_owned(owner = &owner),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
-        trusted registration_owned(owner = &owner.marker),
+        trusted registration_owned(owner = &owner),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
 {
@@ -103,17 +101,16 @@ trusted internal func wait_committed(
 }
 
 trusted internal func unlink_registration(
-    pos mut entries: &mut Entries,
     pos owner: &WaitRegistration,
     pos lease: &bray.runtime.bootstrap.host.HostLease
 )
     requires(
-        trusted registration_owned(owner = &owner.marker),
+        trusted registration_owned(owner = &owner),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
-        trusted registration_owned(owner = &owner.marker),
+        trusted registration_owned(owner = &owner),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(intrinsic)
@@ -122,9 +119,10 @@ trusted internal func unlink_registration(
     {
         case WaitTarget.Task(reference)
         {
-            if owner.previous == 0
+            if owner.previous.empty()
             {
-                let observed_slot = trusted wait_slot(&mut entries, reference.handle);
+                let mut access = trusted task_slot_access(&reference, lease);
+                let observed_slot = trusted link_slot(&mut access);
 
                 if owner.retirement == 0
                 {
@@ -142,21 +140,22 @@ trusted internal func unlink_registration(
             let mut mutation = trusted bray.runtime.bootstrap.event.event_anchor(retained_event, lease);
             let event = trusted bray.runtime.bootstrap.event.event_state(lease, &mut mutation);
 
-            if owner.previous == 0
+            if owner.previous.empty()
             {
                 event.head = owner.next;
             }
 
-            if owner.next == 0
+            if owner.next.empty()
             {
                 event.tail = owner.previous;
             }
         }
     }
 
-    if owner.previous != 0
+    if !owner.previous.empty()
     {
-        let previous = trusted wait_slot(&mut entries, owner.previous);
+        let mut access = trusted previous_link_access(owner, lease);
+        let previous = trusted link_slot(&mut access);
 
         if let ?registration = previous.registration
         {
@@ -168,9 +167,10 @@ trusted internal func unlink_registration(
         }
     }
 
-    if owner.next != 0
+    if !owner.next.empty()
     {
-        let next = trusted wait_slot(&mut entries, owner.next);
+        let mut access = trusted next_link_access(owner, lease);
+        let next = trusted link_slot(&mut access);
 
         if let ?registration = next.registration
         {

@@ -47,7 +47,13 @@ Maintainability, compile cost, generated execution, product size and retained re
 Progress: step 1 is implemented and undergoing whole-protocol self-review. Its explicit observation variant has owner,
 contents and owned/reference/scalar role fields. Old observation variants and nested reference-data role tags are gone.
 No build or behavioral test has run on the refactor. Temporary production trace branches have been removed.
-Step 2, execution-owned arenas, is next. Steps 3 through 7 remain pending. Keep checkpoints pushed during implementation.
+Step 1 is pushed as `48de9375c3442474374cc88d5b58c489503d263b`. Step 2 is implemented at the source level
+and awaits the integrated self-review and validation. It includes independently owned arenas retained by domains and
+cells, native arena input/output/disposal, intrusive wait publication/withdrawal/delivery, and a complete retirement
+packet disposed outside the resident lease. The common host no longer owns task slabs. Wait registrations now carry
+their ownership predicate on the whole registration rather than an unrelated empty marker. Native fixtures exercise
+arena release while cells remain live. Process-global unattached event notification remains intact. Steps 3 through 7
+remain pending. No build or test has run on this migration. Keep checkpoints pushed during implementation.
 
 ### Keep, adjust, replace and remove
 
@@ -57,7 +63,8 @@ Step 2, execution-owned arenas, is next. Steps 3 through 7 remain pending. Keep 
 | `host/product/{state,progress,cleanup,operations}.bray`, provider and attachment domains | Keep and adjust integration | One resident teardown state, fixed teardown set, dependency order, callouts outside host locks and incident drain |
 | `execution/{data,context,owner,binding,lifetime}.bray` | Keep distinct execution owners, pins and validated binding | Root outcome and product cleanup retain actual services and genuine execution authority |
 | `worker/context*`, `task/runtime_retirement.bray`, observer scratch output, per-provider operations | Keep complete publication/disposal units | Preserve worker rollback, task pin lifetime, report ownership and absent-service selection |
-| `host/owner.bray` task/event fields and their cleanup | Replace with execution-domain storage | Common host no longer owns concrete async task/event types or their lifecycle dependencies |
+| `host/owner.bray` task fields and their cleanup | Move to execution-domain storage | Common host no longer owns concrete task storage or its lifecycle dependencies |
+| Resident external-event name directory | Keep | Unattached native notification can route process-wide names without adding another registry |
 | `task/{native,reference,retirement,runtime_retirement,waiting/*}.bray`, `event/{directory,registration}.bray` | Adjust all directory access together | Each operation reaches the arena through a retained execution domain, rather than an ambient host acquisition |
 | `execution/{start,ownership,task_entry}.bray` | Replace staged loose startup values with a prepared-start owner | Reserved admission, slot, registration, binding and cleanup backing commit together; one rollback protocol |
 | `task/{data,control,ownership,frame_retirement,execution}.bray` | Adjust tagged state | Terminal phase owns its actual outcome; retirement has one tagged status; genuine dispatch and source-claim state remain distinct |
@@ -81,25 +88,53 @@ freshness. Keep immutable copied/captured entry values separate from current sto
 nested-case ownership and finite block/place join identities. Extend the existing observation/join regression matrix
 only where needed to protect these semantic distinctions.
 
-### 2. Move async arenas behind the execution owner
+### 2. Move task arenas behind the execution owner
 
-Move `HostOwner.tasks` and `HostOwner.events` into execution-owned synchronized arena state. Reuse `task.Entries`,
-its slab growth, generational handles, task-cell locks and event directory layout. Add an arena access operation that
-borrows the actual retained execution reference and returns a scoped synchronized borrow. The common host continues to
-own attachment/product state, but no longer references task/event cleanup or their concrete types.
+Move `HostOwner.tasks` into an explicitly owned task arena retained by the execution domain. Reuse `task.Entries`,
+geometric slab growth, generational handles and cell locks. The low-level native task-control protocol also forms cells
+without an executor, so the arena has its own backing owner and lifetime. Each admitted slot retains the arena until
+its final storage reference ends. The domain retains an arena owner and supplies its separate execution pin before
+publishing an executable task. The existing resident `HostLease` remains the synchronization boundary for arena/list
+mutation. `ArenaAnchor` borrows the actual arena reference and resident lease and provides scoped access to entries. This preserves synchronization without another lock allocation or acquisition. Common host
+shutdown no longer references concrete task storage or its lifecycle.
 
-Change admission, retention, slot recycling, runtime retirement, task wait registration/delivery/withdrawal and event
-registration/directory operations as one batch. Source helpers receive the retained execution reference explicitly.
-Handle-only native wrappers resolve their established current execution and verify the runtime identity before calling
-those helpers. Reference-based operations retain their cell/domain dependency. Task cells acquire their domain pin
-before publication and keep it through final disposal. Retirement enumerates this domain's arena, eliminating ambient
-host scans and runtime filtering. Preserve stable slots and generations until every storage reference ends.
+Keep the resident external-event name directory. `EventSignal` explicitly supports notification without a native-thread
+attachment, and event waits can retain tasks from different execution domains. Moving that directory into a domain and
+resolving an ambient execution would break its contract. The retained directory contains event-name/reference records,
+not an executor owner. Do not introduce another global execution registry.
 
-Initialize arena storage during execution-domain formation. Extract and destroy it only after the domain's tasks,
-registrations and pins have resolved. Delete task/event swapping and destruction from `shutdown_host`. Keep private ABI
-entry names and existing role validation where their contracts suffice. If a boundary needs an explicit domain input,
-change its Source declaration, runtime ABI adapter/metadata and every caller together rather than adding an ambient
-fallback or another global registry.
+Replace task-handle queue links with a small copyable `WaitLink` containing a stable slot pointer. `WaitRegistration`,
+`Delivery` and event/task queue heads retain the existing complete list ownership protocols. A link is observational
+and grants no storage authority. Scoped link access is introduced from an actual retained task, owned registration or
+owned detached delivery together with the resident lease. All slot recycling and final arena extraction use that same
+lease, preserving backing through the access interval. This supports cross-domain event delivery without global task
+lookup, extra node allocation or another storage reference per traversal.
+
+Rewrite wait admission to duplicate the actual retained child/parent references instead of reducing them to numerical
+coordinates and looking them up again. `duplicate_reference` counts the existing live cell under its cell lock and
+copies its actual coordinates/pointer. Delete superseded forwarding/coordinate helpers. Rewrite wait publication,
+unlink, delivery and event registration as one intrusive-list protocol using the existing preadmitted membership slot.
+Callbacks and registration disposal remain outside the resident acquisition.
+
+Source task admission/retention helpers receive the arena reference explicitly. Native `TaskControlCreation` writes an
+owned arena reference and returns its observational runtime identity. `TaskControlAdmission` and `TaskControlRetention`
+borrow that actual arena through a raw input slot, and a consuming `TaskControlArenaRelease` ends the caller's arena
+reference. Update catalog signatures, Source entry contracts and all native fixtures together. This replaces numerical
+runtime-only lookup without a global registry or ambient execution assumption. Existing task reference C layout remains
+unchanged. Reference-based operations use their actual cell. Domain retirement walks its arena. Source execution pins
+and native context installation remain attached before an executable task is published.
+
+Last storage release produces one retirement packet: under the resident acquisition, take the cell's actual arena
+reference, use that owned reference to reach entries, detach/recycle the initialized cell and take its execution pin,
+then release synchronization. Dispose cell, metadata and reports before releasing execution and final arena retention. Runtime retirement reuses that same operation.
+This preserves the useful existing complete retirement unit while moving its storage dependency to the right owner.
+
+Create the arena during domain formation and retain its actual owner in the domain. On domain destruction release that
+owner after all domain work resolves. The final arena reference extracts entries under the resident lease, destroys
+backing outside synchronization and finally releases its allocation. This also supports retained low-level native cells
+without a live executor.
+Delete task swapping/destruction from `shutdown_host`. Keep private ABI names/signatures where their role contracts
+suffice, changing owning declarations, metadata and callers together if a concrete boundary requires more information.
 
 ### 3. Complete admission and tagged task state
 
@@ -118,6 +153,20 @@ ownership remains with the actual native input until activation accepts it. Root
 this same protocol. Preserve existing handle-based native source claims with validated introduction contracts.
 
 ### 4. Entry, outcome and host lifecycle integration
+
+Separate source resolution claims from observational arena coordinates. Keep each cell's generation/index handle for
+scheduler lookup and native storage inspection, always paired with its actual arena owner. A protected source task/root
+handle is an opaque claim to the stable cell, introduced by the actual resolution owner. Its existing private word ABI
+can encode the stable cell address because the claim's storage reference and arena retention prevent recycling. Add the
+cell's immutable local index so a valid claim can reconstruct its inspected coordinate. Never use the claim address as
+permission without its complete input contract. This removes ambient-domain lookup and cross-arena coordinate ambiguity
+without a global registry or per-claim allocation.
+
+Update root/task allocation, frame start, resolution, cancellation, observation and wake entries, native task-reference
+handle projection, generated host assumptions and C fixtures together. Scheduler keys remain coordinates. Source claim
+operations use the actual cell's retained execution binding; the current entry supplies physical execution authority and
+restoration rather than selecting which task a numeric coordinate refers to. Borrowed wake access and the sole source
+resolution right remain separate contracts.
 
 Use the `Current` already owned by `EntryScope` throughout root start, observation and completion. Short helpers borrow
 that view and its domain; they do not reacquire counted views. Keep the complete displaced execution owner in the scope
@@ -146,7 +195,7 @@ with owning serialization/validation consumers changed together.
 
 ### 6. Remove superseded mechanisms and assess cost
 
-Remove the old observation variants/role normalization, common-host async arena lifecycle, loose startup rollback paths,
+Remove the old observation variants/role normalization, common-host task arena lifecycle, loose startup rollback paths,
 empty terminal outcome storage, duplicate retirement flags and temporary diagnostics. Keep existing Source provider
 bindings rather than introducing a host-wide dispatch table. Keep common orchestration concrete and specialize only
 provider adapters. Check sync/minimal-async dependency selection from actual retained units. Measure production and test

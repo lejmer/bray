@@ -14,8 +14,7 @@ using internal bray.runtime.bootstrap.heap;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.product;
 
-@abi(c)
-trusted internal func creation() -> u64
+trusted internal func new_arena_identity() -> u64
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
 {
     let lease = trusted bray.runtime.bootstrap.host.host_access();
@@ -39,15 +38,44 @@ trusted internal func creation() -> u64
     return identity;
 }
 
+// Native callers own the returned arena reference independently of an executor.
+@abi(c)
+trusted internal func creation(pos output: DataPointer<ArenaReference>) -> u64
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let created = catch trusted create_arena();
+
+    let optional = match consume created
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return 0; }
+    };
+
+    if optional matches none
+    {
+        return 0;
+    }
+
+    let owner = trusted take_arena(optional);
+    let identity = (trusted arena(&owner)).identity;
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<ArenaReference>(output, owner);
+    return identity;
+}
+
 // Admission creates the source claim before an inactive frame transfers.
 @abi(c)
-trusted internal func admission(pos runtime: u64) -> u64
-    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+trusted internal func admission(pos input: DataPointer<ArenaReference>) -> u64
+    requires(
+        trusted arena_reference_slot(owner = &input),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
 {
     // Generic buffer cleanup can require report backing before its fallible
     // allocation is attempted. Keep that failure inside this native boundary;
     // the source start operation still owns and resolves its inactive frame.
-    let admitted = catch trusted admit(runtime);
+    let directory = trusted borrow_arena_reference(&input);
+    let admitted = catch trusted admit(directory);
 
     let reference = match consume admitted
     {
@@ -70,9 +98,13 @@ trusted internal func admission(pos runtime: u64) -> u64
     return handle;
 }
 
-trusted internal func admit(pos runtime: u64) -> Reference?
-    requires(trusted bray.runtime.bootstrap.host.product.native_host())
-    ensures(trusted retained_option(owner = &result), trusted resolution_owner_option(owner = &result))
+trusted internal func admit(pos directory: &ArenaReference) -> Reference?
+    requires(trusted arena_retained(owner = directory), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(
+        trusted arena_retained(owner = directory),
+        trusted retained_option(owner = &result),
+        trusted resolution_owner_option(owner = &result)
+    )
 {
     // This report allowance belongs to the task, independently of any frame's
     // body panic. Admission and recycling happen outside the host acquisition.
@@ -107,15 +139,10 @@ trusted internal func admit(pos runtime: u64) -> Reference?
                 return none;
             }
 
-            let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-            let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+            let mut anchor = trusted arena_anchor(directory, &lease);
+            let entries = trusted arena_entries(&mut anchor);
 
-            if host.transitioning
-            {
-                return none;
-            }
-
-            yield match consume trusted admit_locked(&mut host.tasks, &mut prepared, failure_records.records, runtime)
+            yield match consume trusted admit_locked(entries, &mut prepared, failure_records.records, directory)
             {
                 case Ok(reference)
                 {
@@ -143,9 +170,13 @@ internal func admit_locked(
     pos entries: &mut Entries,
     pos prepared: &mut Prepared,
     pos failure_records: bray.runtime.bootstrap.ReportRecords,
-    pos runtime: u64
+    pos directory: &ArenaReference
 ) -> Result<(Reference?), Growth>
+    requires(trusted arena_retained(owner = directory))
+    ensures(trusted arena_retained(owner = directory))
 {
+    let runtime = (trusted arena(directory)).identity;
+
     while true
     {
         match consume trusted grow(entries, prepared)
@@ -181,6 +212,9 @@ internal func admit_locked(
         slot.runtime = runtime;
         core.atomic.store<usize, 4>(&slot.cancellation, 0);
 
+        let storage_owner: ArenaReference? = trusted retain_arena(directory);
+
+        slot.arena_owner = core.memory.uninit_from<(ArenaReference?)>(storage_owner);
         slot.control = core.memory.uninit_from<std.sync.SpinLock<Control>>(
             trusted std.sync.SpinLock<Control>(prepare(failure_records))
         );
