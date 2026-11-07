@@ -412,10 +412,7 @@ trusted internal func retire_backing(pos pointer: DataPointer<Reference>)
         pos owner: &Reference,
         pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>
     ) -> bray.runtime.bootstrap.execution.Reference?
-        requires(
-            trusted backing_retirement(pointer = authority),
-            trusted retained(owner = owner)
-        )
+        requires(trusted backing_retirement(pointer = authority), trusted retained(owner = owner))
         ensures(trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result), result matches ?_)
         uses(raw_memory, unchecked_init, intrinsic)
     {

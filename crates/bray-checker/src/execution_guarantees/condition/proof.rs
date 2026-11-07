@@ -47,7 +47,7 @@ impl ExecutionCondition {
             }
         }
 
-        if let Self::StorageValue(_, value) = self {
+        if let Self::StorageValue(_, value) | Self::CurrentValue(_, value) = self {
             return value.prove_mixed(trusted, ordinary, budget);
         }
 
@@ -118,7 +118,7 @@ impl ExecutionCondition {
             return Some(false);
         }
 
-        if let Self::StorageValue(_, value) = self {
+        if let Self::StorageValue(_, value) | Self::CurrentValue(_, value) = self {
             return value.prove(assumptions, budget);
         }
 

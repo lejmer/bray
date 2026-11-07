@@ -47,7 +47,14 @@ internal func poll(pos owner: &Reference) -> Result<u32, std.platform.PlatformSt
     let operation = (trusted domain(owner)).poll_service;
     let output = trusted operation(trusted service_pointer(owner));
 
-    return if output.status.category == 0 { yield Ok(output.value); } else { yield Error(output.status); };
+    return if output.status.category == 0
+    {
+        yield Ok(output.value);
+    }
+    else
+    {
+        yield Error(output.status);
+    };
 }
 
 internal func wait(pos owner: &Reference, pos maximum: u32) -> Result<u32, std.platform.PlatformStatus>
@@ -58,7 +65,14 @@ internal func wait(pos owner: &Reference, pos maximum: u32) -> Result<u32, std.p
     let operation = (trusted domain(owner)).wait_service;
     let output = trusted operation(trusted service_pointer(owner), maximum);
 
-    return if output.status.category == 0 { yield Ok(output.value); } else { yield Error(output.status); };
+    return if output.status.category == 0
+    {
+        yield Ok(output.value);
+    }
+    else
+    {
+        yield Error(output.status);
+    };
 }
 
 trusted internal func destroy_reference(pos owner: Reference)
@@ -97,7 +111,10 @@ trusted internal func retire_execution_backing(pos execution: &bray.runtime.boot
     {
         let operation = (trusted domain(owner)).retire_service;
 
-        let authorize = trusted lambda(pos execution: &bray.runtime.bootstrap.execution.Reference, pos owner: &Reference) -> DataPointer<Reference>
+        let authorize = trusted lambda(
+            pos execution: &bray.runtime.bootstrap.execution.Reference,
+            pos owner: &Reference
+        ) -> DataPointer<Reference>
             requires(
                 trusted bray.runtime.bootstrap.execution.retained(owner = execution),
                 trusted bray.runtime.bootstrap.execution.services_retiring(owner = &execution.acquisition),

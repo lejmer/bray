@@ -93,7 +93,7 @@ pub(super) fn conditional_guarantees(
                         ) == Some(true))
                         .then(|| {
                             (
-                                owner.with_joined_values(identities, identities),
+                                owner.with_joined_owners(values, identities),
                                 condition.with_joined_values(values, identities),
                             )
                         })
@@ -310,6 +310,16 @@ fn collect_observations(
                 if previous != source { *previous = ExecutionCondition::Unknown; }
             }).or_insert_with(|| source.clone());
         }
+    }
+
+    if let ExecutionCondition::CurrentValue(_, contents) = joined {
+        let sources = sources.map(|source| match source {
+            ExecutionCondition::CurrentValue(_, contents) => contents.as_ref(),
+            value => value,
+        });
+
+        collect_observations(sources, contents, inputs, guards, absent, active, budget);
+        return;
     }
 
     // Payload authority is conditional on every enclosing active case. A test

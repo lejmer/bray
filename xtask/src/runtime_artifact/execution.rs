@@ -26,6 +26,7 @@ pub(super) fn smoke_test(
     directory: &Path,
 ) -> Result<(), CommandError> {
     let probe = allocation_probe(target, directory)?;
+
     let (bray_units, runtime_units) = super::provenance::load_runtime_provenance(runtime, target)?;
 
     for (name, source, expected) in [
@@ -86,6 +87,7 @@ pub(super) fn smoke_test(
         ),
     ] {
         let preparing = Instant::now();
+
         let package = PackageIdentity::try_new("bray.runtime.execution.smoke")
             .expect("fixture package identity is valid");
 
@@ -143,6 +145,7 @@ pub(super) fn smoke_test(
             let map = output.with_extension("map");
 
             let building = Instant::now();
+
             let native = crate::native_product::emit_executable_with_configuration(
                 &compilation,
                 product.clone(),

@@ -67,6 +67,21 @@ pub(crate) fn common_components(
         return ExecutionCondition::Unknown;
     }
 
+    if left.has_same_owner(right)
+        && (matches!(left, ExecutionCondition::CurrentValue(_, _))
+            || matches!(right, ExecutionCondition::CurrentValue(_, _)))
+    {
+        let contents = |value: &ExecutionCondition| match value {
+            ExecutionCondition::CurrentValue(_, contents) => contents.as_ref().clone(),
+            value => value.clone(),
+        };
+
+        return ExecutionCondition::current_value(
+            left.owner_identity().clone(),
+            common_components(&contents(left), &contents(right), result, conditions, facts, budget),
+        );
+    }
+
     let fields = |mut value: &ExecutionCondition| {
         while let Some(snapshot) = value.nullable_payload_snapshot() {
             value = snapshot;
@@ -240,6 +255,7 @@ pub(crate) fn owned_snapshot(
 
     match source {
         ExecutionCondition::StorageValue(_, _) => source.clone(),
+        ExecutionCondition::CurrentValue(_, contents) => owned_snapshot(contents, identity, budget),
         ExecutionCondition::Constructed(base, fields) => {
             let base = owned_snapshot(base, identity, budget);
 

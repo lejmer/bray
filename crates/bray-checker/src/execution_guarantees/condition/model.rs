@@ -37,6 +37,8 @@ pub enum ExecutionCondition {
         Arc<ExecutionCondition>,
         Arc<[(bray_bound_tree::StorageProjection, ExecutionCondition)]>,
     ),
+    /// Current contents of one retained value owner, independently of its identity.
+    CurrentValue(Arc<ExecutionCondition>, Arc<ExecutionCondition>),
     /// A scalar observation of an existing storage context. Equal contents do not
     /// identify that storage or transfer its authority to a copied scalar.
     StorageValue(Arc<ExecutionCondition>, Arc<ExecutionCondition>),
@@ -122,7 +124,7 @@ impl ExecutionCondition {
                 condition: value, ..
             }
             | Self::CapturedInput { owner: value, .. } => value.contains_trusted(),
-            Self::StorageValue(owner, value) => owner.contains_trusted() || value.contains_trusted(),
+            Self::StorageValue(owner, value) | Self::CurrentValue(owner, value) => owner.contains_trusted() || value.contains_trusted(),
             Self::Constructed(base, fields) => {
                 base.contains_trusted() || fields.iter().any(|(_, value)| value.contains_trusted())
             }
@@ -142,7 +144,7 @@ impl ExecutionCondition {
     pub(super) fn contains_unknown(&self) -> bool {
         match self {
             Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),
-            Self::StorageValue(owner, value) => owner.contains_unknown() || value.contains_unknown(),
+            Self::StorageValue(owner, value) | Self::CurrentValue(owner, value) => owner.contains_unknown() || value.contains_unknown(),
             Self::Trusted(value)
             | Self::Borrowed(value)
             | Self::Present(value)

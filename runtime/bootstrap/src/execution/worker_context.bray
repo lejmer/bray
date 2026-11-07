@@ -10,10 +10,7 @@ using internal bray.runtime.bootstrap.worker;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.heap;
 
-trusted internal func worker_context(
-    pos scope: &bray.runtime.bootstrap.worker.Scope,
-    pos binding: Binding
-) -> Context
+trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.Scope, pos binding: Binding) -> Context
     requires(
         trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
         trusted kernel_binding(owner = &binding)
@@ -135,6 +132,7 @@ trusted internal func create_worker_context(
     // Publish the complete binding with its context. The context's existing
     // retirement path also owns rollback if native installation fails.
     let value = trusted worker_context(scope, trusted pin_binding(trusted pin(owner)));
+
     let execution = trusted initialize_context(allocation, value);
     let bound = trusted bray.runtime.bootstrap.host.execution_context(execution.resource);
 

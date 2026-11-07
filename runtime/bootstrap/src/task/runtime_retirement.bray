@@ -50,10 +50,7 @@ trusted internal func retire_execution(pos owner: &bray.runtime.bootstrap.execut
     }
 }
 
-trusted internal func retire_runtime_slot(
-    pos owner: &bray.runtime.bootstrap.execution.Reference,
-    pos index: usize
-)
+trusted internal func retire_runtime_slot(pos owner: &bray.runtime.bootstrap.execution.Reference, pos index: usize)
     requires(
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
         trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition),

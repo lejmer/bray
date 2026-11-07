@@ -166,7 +166,6 @@ fn join_observations<'a>(
         let joined = if value == other {
             stable_values.insert(value.clone());
             stable_values.insert(value.clone().borrowed());
-            stable_identities.insert(value.clone());
 
             value.clone()
         } else if value == ExecutionCondition::Unknown || other == ExecutionCondition::Unknown {
@@ -461,7 +460,7 @@ fn current_replacements(
         // Literal payloads are shared by unrelated places and contract constants.
         // Joining their slots must not rename the constant itself.
         if value == joined
-            || value == joined.owner_identity()
+            || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::CurrentValue(_, _))
             || matches!(
                 value,
                 ExecutionCondition::Literal(_)
@@ -474,7 +473,7 @@ fn current_replacements(
 
         if matches!(
             value,
-            ExecutionCondition::Constructed(_, _) | ExecutionCondition::Present(_)
+            ExecutionCondition::Constructed(_, _) | ExecutionCondition::CurrentValue(_, _) | ExecutionCondition::Present(_)
         ) {
             result_replacements(
                 value,
@@ -495,10 +494,10 @@ fn current_replacements(
             insert_replacement(map, value, joined);
         }
 
-        for identity in [value, value.owner_identity()] {
-            if identity != joined.owner_identity() && !stable_identities.contains(identity) {
-                insert_replacement(identities, identity, joined.owner_identity());
-            }
+        let owner = value.owner_identity();
+
+        if owner != joined.owner_identity() && !stable_identities.contains(owner) {
+            insert_replacement(identities, owner, joined.owner_identity());
         }
     }
 
@@ -585,7 +584,7 @@ pub(super) fn result_replacements(
     identities: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
 ) {
     if value == joined
-        || value == joined.owner_identity()
+        || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::CurrentValue(_, _))
         || joined == &ExecutionCondition::Unknown
         || matches!(
             value,
@@ -627,13 +626,19 @@ pub(super) fn result_replacements(
         insert_replacement(values, owner, joined.owner_identity());
     }
 
-    for identity in [value, value.owner_identity()] {
-        if identity != joined.owner_identity() && !stable_identities.contains(identity) {
-            insert_replacement(identities, identity, joined.owner_identity());
-        }
+    if owner != joined.owner_identity() && !stable_identities.contains(owner) {
+        insert_replacement(identities, owner, joined.owner_identity());
     }
 
     match value {
+        ExecutionCondition::CurrentValue(_, contents) => {
+            let joined = match joined {
+                ExecutionCondition::CurrentValue(_, contents) => contents.as_ref(),
+                value => value,
+            };
+
+            result_replacements(contents, joined, stable_values, stable_identities, values, identities);
+        }
         ExecutionCondition::Constructed(_, fields) => {
             for (field, component) in fields.iter() {
                 result_replacements(

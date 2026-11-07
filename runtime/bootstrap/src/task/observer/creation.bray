@@ -117,6 +117,7 @@ trusted internal func reserve_records(pos owner: &mut Prepared) -> bool
     // Native output writes target a separate value, then commit through the
     // ordinary owner. Its preparation acquisition is never a native output slot.
     let mut records = owner.records;
+
     let status = trusted bray.runtime.bootstrap.report_records_admit(
         4,
         std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records)

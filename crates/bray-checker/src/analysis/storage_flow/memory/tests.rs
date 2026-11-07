@@ -3098,6 +3098,7 @@ fn retired_local_reference_slots_do_not_expose_their_former_targets() {
 #[test]
 fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
     let ([owner, pointer, _, _], origins) = places();
+
     let target = Target::storage(owner.clone());
 
     let mut state = State {

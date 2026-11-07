@@ -127,6 +127,10 @@ impl ExecutionCondition {
                 invocation: *invocation,
                 ordinal: *ordinal,
             },
+            Self::CurrentValue(owner, value) => Self::current_value(
+                owner.substitute_values(replace, budget),
+                value.substitute_values(replace, budget),
+            ),
             Self::StorageValue(owner, value) => Self::storage_value(
                 owner.substitute_values(replace, budget), value.substitute_values(replace, budget),
             ),
@@ -251,6 +255,22 @@ impl ExecutionCondition {
         rewrite_equalities(self, replacements, None, &mut { Self::WORK_LIMIT })
     }
 
+    /// Rename a carrier through a join. Component owners follow the current
+    /// containing value; complete roots and retained loans follow owner transfers.
+    pub(crate) fn with_joined_owners(
+        &self,
+        values: &BTreeMap<Self, Self>,
+        identities: &BTreeMap<Self, Self>,
+    ) -> Self {
+        let owner = self.owner_identity();
+
+        let components = matches!(owner, Self::Projection(_, _))
+            || matches!(owner, Self::Input(place) if !place.projections.is_empty());
+
+        owner.with_joined_values(if components { values } else { identities }, identities)
+            .owner_identity().clone()
+    }
+
     pub(crate) fn with_joined_values(
         &self,
         replacements: &BTreeMap<Self, Self>,
@@ -339,7 +359,7 @@ fn rewrite_equalities(
             rewrite_equalities(&value, replacements, identities, budget).present()
         }
         ExecutionCondition::Borrowed(value) if let Some(identities) = identities => {
-            rewrite_equalities(&value, identities, Some(identities), budget).borrowed()
+            rewrite_equalities(&value, replacements, Some(identities), budget).borrowed()
         }
         ExecutionCondition::Entry { captured: true, .. } if identities.is_some() => value,
         ExecutionCondition::Borrowed(value) => {
@@ -402,6 +422,12 @@ fn rewrite_equalities(
             invocation,
             ordinal,
         },
+        ExecutionCondition::CurrentValue(owner, value) => ExecutionCondition::current_value(
+            identities.map_or_else(|| owner.as_ref().clone(), |identities| {
+                rewrite_equalities(&owner, identities, Some(identities), budget)
+            }),
+            rewrite_equalities(&value, replacements, identities, budget),
+        ),
         ExecutionCondition::StorageValue(owner, value) => ExecutionCondition::storage_value(
             identities.map_or_else(|| owner.as_ref().clone(), |identities| {
                 rewrite_equalities(&owner, identities, Some(identities), budget)

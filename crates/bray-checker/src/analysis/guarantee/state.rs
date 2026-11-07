@@ -545,7 +545,7 @@ impl ExecutionState {
             |value: &ExecutionCondition| value.with_joined_values(replacements, identities);
 
         let rename_identity =
-            |value: &ExecutionCondition| value.with_joined_values(identities, identities);
+            |value: &ExecutionCondition| value.with_joined_owners(replacements, identities);
 
         for facts in [&mut self.assumptions, &mut self.trusted_assumptions] {
             let mut renamed = BTreeSet::new();
@@ -696,11 +696,7 @@ mod tests {
                 return ExecutionCondition::storage_value(input(owner), input(4)).borrowed();
             }
 
-            ExecutionCondition::Constructed(
-                Arc::new(input(owner)),
-                [(bray_bound_tree::StorageProjection::OwnedTarget, input(4))].into(),
-            )
-            .borrowed()
+            ExecutionCondition::current_value(input(owner), input(4)).borrowed()
         };
 
         let observed = condition(storage(0));

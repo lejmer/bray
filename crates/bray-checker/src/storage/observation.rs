@@ -858,10 +858,6 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     if matches!(definition, Some(NamedTypeSymbolId::Struct(_)))
         && fields.is_empty()
     {
-        if let Some(markers) = &mut inline_carriers {
-            markers.insert(ty);
-        }
-
         result.push((Vec::new(), Observation::Marker(ty)));
     }
 

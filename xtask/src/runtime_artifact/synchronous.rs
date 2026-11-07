@@ -21,7 +21,9 @@ pub(super) fn smoke_test(
     directory: &Path,
 ) -> Result<(), CommandError> {
     let mut release_sizes = Vec::new();
+
     let (bray_units, runtime_units) = super::provenance::load_runtime_provenance(runtime, target)?;
+
     let probe = super::execution::allocation_probe(target, directory)?;
 
     for (name, source, expected, stdout, stderr) in [
@@ -104,6 +106,7 @@ pub(super) fn smoke_test(
         ),
     ] {
         let preparing = Instant::now();
+
         let package = PackageIdentity::try_new("bray.runtime.synchronous.smoke")
             .expect("fixture package identity is valid");
 
