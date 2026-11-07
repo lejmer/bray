@@ -230,8 +230,8 @@ fn join_observations<'a>(
             &joined, &mut joined_facts,
         );
 
-        joins |= target.current.get(place) != Some(&joined)
-            || incoming.current.get(place) != Some(&joined);
+        joins |= place.value_in(&target.current).as_ref() != Some(&joined)
+            || place.value_in(&incoming.current).as_ref() != Some(&joined);
 
         places.push((place.clone(), joined.clone()));
     }
@@ -379,7 +379,7 @@ fn join_observations<'a>(
                 availability: availability.remove(&place).expect("joined place has availability"),
             };
 
-            changed |= target.current.slot(&place) != Some(&slot);
+            changed |= target.current.slot(&place).as_ref() != Some(&slot);
             target.current.set_slot(place.clone(), slot.clone());
             incoming.current.set_slot(place, slot);
         }

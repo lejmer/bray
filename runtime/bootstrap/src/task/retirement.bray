@@ -178,42 +178,57 @@ trusted internal func take_retired_cell(
     let index = slot.index;
     let generation = slot.generation;
 
-    let initialized = trusted lambda(pos reference: &Reference, pos owner: &Slot)
-        requires(trusted released(owner = reference), owner.control matches ?_)
+    let initialized = trusted lambda(
+        pos retiring: &Reference,
+        pos resident: &bray.runtime.bootstrap.host.HostLease,
+        pos arena_storage: &Uninit<(ArenaReference?)>,
+        pos execution_storage: &Uninit<(bray.runtime.bootstrap.execution.Reference?)>,
+        pos control_storage: &Uninit<std.sync.SpinLock<Control>>
+    )
+        requires(
+            trusted released(owner = retiring),
+            resident.active,
+            trusted bray.runtime.bootstrap.host.host_access_live(owner = &resident.acquisition)
+        )
         ensures(
-            trusted core.memory.uninit_initialized<(ArenaReference?)>(storage = &owner.arena_owner),
+            trusted core.memory.uninit_initialized<(ArenaReference?)>(storage = arena_storage),
             trusted core.memory.uninit_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
-                storage = &owner.execution_owner
+                storage = execution_storage
             ),
-            trusted core.memory.uninit_initialized<std.sync.SpinLock<Control>>(storage = retired_control_storage(owner))
+            trusted core.memory.uninit_initialized<std.sync.SpinLock<Control>>(storage = control_storage)
         )
         executes(pure, total) {};
 
-    trusted initialized(&reference, &slot);
-
-    let arena_owner = trusted std.memory.move_initialized<(ArenaReference?)>(&mut slot.arena_owner);
-
-    let execution = trusted std.memory.move_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
-        &mut slot.execution_owner
-    );
-
-    let storage_owner = match consume arena_owner
+    let retired: RetiredCell = match &mut slot.control
     {
-        case ?value { yield value; }
+        case ?storage
+        {
+            // These are the actual fields reached through the released reference
+            // under its resident lease. No field has been taken before this boundary.
+            trusted initialized(&reference, lease, &slot.arena_owner, &slot.execution_owner, &storage);
+
+            let arena_owner = trusted std.memory.move_initialized<(ArenaReference?)>(&mut slot.arena_owner);
+
+            let execution = trusted std.memory.move_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
+                &mut slot.execution_owner
+            );
+
+            let control = trusted std.memory.move_initialized<std.sync.SpinLock<Control>>(&mut storage);
+
+            let storage_owner = match consume arena_owner
+            {
+                case ?value { yield value; }
+                case none { yield trusted core.target.abort(); }
+            };
+
+            yield RetiredCell
+            {
+                control = control,
+                execution = execution,
+                arena = storage_owner
+            };
+        }
         case none { yield trusted core.target.abort(); }
-    };
-
-    let control = match &mut slot.control
-    {
-        case ?storage { yield trusted std.memory.move_initialized<std.sync.SpinLock<Control>>(storage); }
-        case none { yield trusted core.target.abort(); }
-    };
-
-    let retired: RetiredCell =
-    {
-        control = control,
-        execution = execution,
-        arena = storage_owner
     };
 
     _ = std.memory.replace_value<Slot>(slot, empty_slot(index, generation, 0));
@@ -237,17 +252,6 @@ trusted internal func released_slot_access(
     {
         lease = lease,
         pointer = reference.pointer
-    };
-}
-
-internal const func retired_control_storage(pos owner: &Slot) -> &Uninit<std.sync.SpinLock<Control>>
-    requires(owner.control matches ?_)
-    executes(pure, total)
-{
-    return match owner.control
-    {
-        case ?value { yield &value; }
-        case none { panic("missing retired task control"); }
     };
 }
 

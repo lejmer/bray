@@ -47,11 +47,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .map(|input| &input.predicates),
         );
 
-        if value != ExecutionCondition::Unknown {
-            return value;
-        }
-
-        self.aggregate_snapshot(state, expression).unwrap_or(value)
+        value
     }
 
     pub(in crate::analysis::guarantee) fn borrowed_value(
@@ -77,59 +73,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .trusted_contracts()
                 .map(|input| &input.predicates),
         )
-    }
-
-    fn aggregate_snapshot(
-        &self,
-        state: &ExecutionState,
-        expression: BoundExpressionId,
-    ) -> Option<ExecutionCondition> {
-        let ty = self.semantics.types().expression(expression)?.ty();
-
-        if matches!(
-            self.request.semantic_values().type_data(ty).as_ref(),
-            bray_symbols::TypeData::Borrow { .. }
-        ) {
-            return None;
-        }
-
-        let place = crate::execution_guarantees::expression_place(
-            self.request.unit(),
-            self.semantics,
-            self.request.semantic_values(),
-            expression,
-        )?;
-
-        let fields = state
-            .current
-            .range(place.clone()..)
-            .take_while(|(observed, _)| place.contains(observed))
-            .filter_map(|(observed, value)| {
-                let [projection] = &observed.projections[place.projections.len()..] else {
-                    return None;
-                };
-
-                let projection = match projection {
-                    bray_symbols::ConstantProjectionKind::ProductField(field) => {
-                        bray_bound_tree::StorageProjection::ProductField(*field)
-                    }
-                    bray_symbols::ConstantProjectionKind::TupleElement(index) => {
-                        bray_bound_tree::StorageProjection::TupleElement(*index)
-                    }
-                    _ => return None,
-                };
-
-                Some((projection, value.clone()))
-            })
-            .collect::<Vec<_>>();
-
-        // Mutation retires the old whole-value identity. The new snapshot carries
-        // only observed component values, never the retired owner's witnesses.
-        (!fields.is_empty()).then(|| {
-            ExecutionCondition::constructed(ExecutionCondition::Unknown,
-                fields.into(),
-            )
-        })
     }
 
     pub(in crate::analysis::guarantee) fn invocation_value(
@@ -167,13 +110,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .input_place(invocation)
                     .expect("implicit invocation result has an execution place");
 
+                if state.current.availability(&place) == super::super::current::ValueAvailability::Absent {
+                    return ExecutionCondition::Unknown;
+                }
+
+
                 place
                     .value_in(&state.current)
-                    .filter(|value| *value != ExecutionCondition::Unknown)
-                    .unwrap_or_else(|| match invocation {
-                        bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => ExecutionCondition::ScopedCapability(expression),
-                        _ => ExecutionCondition::PostState(bray_bound_tree::StorageMutation::Operation(invocation), place),
-                    })
+                    .unwrap_or(ExecutionCondition::Unknown)
             }
             bray_bound_tree::BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
             bray_bound_tree::BoundExecutionSite::Cleanup(node)
@@ -246,7 +190,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, identity) {
             return place
                 .value_in(&state.current)
-                .unwrap_or(ExecutionCondition::Input(place));
+                .unwrap_or(ExecutionCondition::Unknown);
         }
 
         match self
@@ -265,9 +209,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 } else {
                     self.value(state, expression)
                 }
-            }
-            bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } => {
-                ExecutionCondition::ScopedCapability(expression)
             }
             _ => ExecutionCondition::Unknown,
         }

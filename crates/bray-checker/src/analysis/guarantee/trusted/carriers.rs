@@ -330,7 +330,7 @@ fn collect(
             &|input| {
                 input
                     .value_in(&state.current)
-                    .unwrap_or_else(|| ExecutionCondition::Input(input.clone()))
+                    .unwrap_or(ExecutionCondition::Unknown)
             },
             result,
             &mut { ExecutionCondition::WORK_LIMIT },
@@ -412,16 +412,6 @@ fn returned_owners(
 
         match value {
             ExecutionCondition::Present(value) => {
-                // Presence snapshots can name the joined owner through their payload.
-                let reconstructed = value.owner_identity().clone().present();
-
-                if !matches!(
-                    reconstructed,
-                    ExecutionCondition::Present(_) | ExecutionCondition::Unknown
-                ) {
-                    owners.insert(reconstructed.owner_identity().clone(), path.clone());
-                }
-
                 let mut path = path;
 
                 path.push(StorageProjection::NullableValue);
@@ -440,6 +430,8 @@ fn returned_owners(
                             | StorageProjection::ActiveUnionPayloadField { .. }
                             | StorageProjection::NullableValue
                             | StorageProjection::ElementFromStart(_)
+                            | StorageProjection::OwnedTarget
+                            | StorageProjection::UninitPayload
                     ) {
                         continue;
                     }
@@ -448,16 +440,11 @@ fn returned_owners(
 
                     child.push(*projection);
 
-                    if *projection == StorageProjection::NullableValue {
-                        // Nullable extraction retains the complete snapshot's identity.
-                        owners.insert(
-                            value
-                                .clone()
-                                .project(bray_bound_tree::StorageProjection::NullableValue),
-                            child.clone(),
-                        );
-                    }
+                    // Projection is the declared view of this retained component.
+                    // Nullable extraction can retain its containing owner's identity.
+                    let projected = value.clone().project(*projection);
 
+                    owners.insert(projected, child.clone());
                     pending.push((component, child));
                 }
             }

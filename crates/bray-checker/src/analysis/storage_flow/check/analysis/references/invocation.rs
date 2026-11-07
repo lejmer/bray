@@ -953,8 +953,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 self.storage.logical_path(access).cloned()
             }
-            site @ (BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_)) =>
-                self.storage.invocation_result(site).and_then(|access| self.storage.logical_path(access)).cloned(),
+            site @ (BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_)) => {
+                let access = self.storage.invocation_result(site)
+                    .expect("implicit completion retains its planned result slot");
+
+                Some(self.storage.logical_path(access)
+                    .expect("implicit result slot has its logical path").clone())
+            }
             BoundExecutionSite::ScopedExit(_) => None,
             BoundExecutionSite::Cleanup(_) => panic!("cleanup suspension has no invocation result"),
             BoundExecutionSite::Node(_) => self.expression_result_storage(occurrence.expression()?),

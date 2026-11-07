@@ -382,66 +382,14 @@ impl ExecutionState {
                 .retain(|(condition, _)| !stale(condition));
         }
 
-        let mut retired_places = BTreeSet::new();
-        let mut updated_places = Vec::new();
-
-        for (place, value) in self
+        for value in self
             .current
-            .iter_mut()
-            .map(|(place, value)| (Some(place), value))
-            .chain(self.expressions.values_mut().map(|value| (None, value)))
-            .chain(self.pending_results.values_mut().map(|value| (None, value)))
-            .chain(std::iter::once((None, &mut self.result)))
+            .values_mut()
+            .chain(self.expressions.values_mut())
+            .chain(self.pending_results.values_mut())
+            .chain(std::iter::once(&mut self.result))
         {
-            if !stale(value) {
-                if let Some(place) = place
-                    && place.is_contained_by_any(&retired_places)
-                {
-                    // Preserve the independently known component while its parent
-                    // is retired. Projection paths share immutable metadata.
-                    updated_places.push((place.clone(), value.clone()));
-                }
-
-                continue;
-            }
-
-            if let ExecutionCondition::Constructed(identity, fields) = value
-                && !stale(identity)
-            {
-                // A repeated payload mutation does not recreate the descriptor or its siblings.
-                let fields = fields
-                    .iter()
-                    .map(|(projection, component)| {
-                        (
-                            *projection,
-                            if stale(component) {
-                                ExecutionCondition::Unknown
-                            } else {
-                                component.clone()
-                            },
-                        )
-                    })
-                    .collect();
-
-                *value = ExecutionCondition::constructed(identity.as_ref().clone(), fields);
-            } else if let ExecutionCondition::Observation { owner, kind, .. } = value
-                && !stale(owner)
-            {
-                *value = ExecutionCondition::observation(owner.as_ref().clone(), ExecutionCondition::Unknown, *kind);
-            } else {
-                *value = ExecutionCondition::Unknown;
-            }
-
-            if let Some(place) = place {
-                retired_places.insert(place.clone());
-                updated_places.push((place.clone(), value.clone()));
-            }
-        }
-
-        // Ordered paths visit parents before children. Keep containing snapshots
-        // consistent with surviving fields before a later whole-value capture.
-        for (place, value) in updated_places {
-            update_parent_observations(&mut self.current, &place, &value, None);
+            *value = value.without_evaluation(mutation, &mut { ExecutionCondition::WORK_LIMIT });
         }
     }
 
@@ -465,7 +413,11 @@ impl ExecutionState {
 
             witness.retain_conditions(|condition, _| condition.observes_only(|value| stable_values.preserves(value)));
 
-            for condition in witness.conditions.keys().filter(|_| witness.available) {
+            // Availability says the carrier can be used, not that every possible
+            // clause was proved on this path. Preserve only established truth.
+            for condition in witness.conditions.keys().filter(|condition| {
+                witness.available && condition.prove_trusted(&self.trusted_assumptions, &self.assumptions) == Some(true)
+            }) {
                 condition.clone().assume(true, &mut retained);
             }
 
@@ -639,7 +591,9 @@ impl ExecutionState {
         value: ExecutionCondition,
         storage: Option<&[bray_bound_tree::StorageProjection]>,
     ) {
-        self.set_current(place, value, storage, super::current::ValueAvailability::Present);
+        self.current.replace(place, super::current::CurrentValue {
+            value, availability: super::current::ValueAvailability::Present,
+        }, storage);
     }
 
     pub(super) fn observe(
@@ -650,35 +604,16 @@ impl ExecutionState {
     ) {
         let availability = self.current.availability(&place);
 
-        self.set_current(place, value, storage, availability);
+        self.current.write(place, super::current::CurrentValue { value, availability }, storage);
     }
 
     pub(super) fn vacate(&mut self, place: crate::ExecutionPlace) {
-        self.set_current(place, ExecutionCondition::Unknown, None, super::current::ValueAvailability::Absent);
+        self.current.replace(place, super::current::CurrentValue {
+            value: ExecutionCondition::Unknown, availability: super::current::ValueAvailability::Absent,
+        }, None);
     }
 
-    pub(super) fn set_current(
-        &mut self,
-        place: crate::ExecutionPlace,
-        value: ExecutionCondition,
-        storage: Option<&[bray_bound_tree::StorageProjection]>,
-        availability: super::current::ValueAvailability,
-    ) {
-        let replaced = self
-            .current
-            .range(place.clone()..)
-            .take_while(|(observed, _)| place.contains(observed))
-            .map(|(observed, _)| observed.clone())
-            .collect::<Vec<_>>();
 
-        for observed in replaced {
-            self.current.remove(&observed);
-        }
-
-        update_parent_observations(&mut self.current, &place, &value, storage);
-
-        self.current.set_slot(place, super::current::CurrentValue { value, availability });
-    }
 }
 
 #[cfg(test)]

@@ -138,7 +138,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .input_place(invocation)
                             .expect("implicit invocation has its owned result slot");
 
-                        state.current.retain(|place, _| !result.contains(place));
+                        state.vacate(result);
                     }
 
                     if let Site::Node(AnyBoundNodeId::Expression(expression)) = invocation {
@@ -468,20 +468,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 entry.pending_execution = false;
             }
 
-            let result = self.invocation_value(state, invocation);
-
-            if matches!(
-                invocation,
+            // This completion defines the result identity. Later reads select the
+            // completed object from this invocation's planned slot.
+            let result = match invocation {
+                bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => {
+                    ExecutionCondition::ScopedCapability(expression)
+                }
                 bray_bound_tree::BoundExecutionSite::Iterate(_)
-                    | bray_bound_tree::BoundExecutionSite::Next(_)
-                    | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
-            ) {
-                let place = self
-                    .input_place(invocation)
-                    .expect("completed protocol invocation retains its result slot");
-
-                state.assign(place, result.clone(), None);
-            }
+                | bray_bound_tree::BoundExecutionSite::Next(_) => ExecutionCondition::PostState(
+                    bray_bound_tree::StorageMutation::Operation(invocation),
+                    self.input_place(invocation)
+                        .expect("completed protocol invocation retains its result slot"),
+                ),
+                bray_bound_tree::BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
+                _ => unreachable!("implicit completion has a protocol invocation"),
+            };
 
             let result = self.complete_trusted_call(state, invocation, result, observations);
 
@@ -499,10 +500,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 );
             }
 
-            if let bray_bound_tree::BoundExecutionSite::ScopedExit(expression) = invocation {
-                let capability = self.invocation_value(state, bray_bound_tree::BoundExecutionSite::ScopedEnter(expression));
-
-                state.invalidate_trusted(&capability);
+            if let bray_bound_tree::BoundExecutionSite::ScopedExit(_) = invocation {
+                // Exit consumes the capability. Its captured input survives storage
+                // retirement and names the actual completed entry object.
+                if let Some(capability) = state.entries.get(&invocation).and_then(|entry| {
+                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
+                        .value_in(&entry.arguments)
+                }) {
+                    state.invalidate_trusted(&capability);
+                }
             }
 
             return;

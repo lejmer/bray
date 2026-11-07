@@ -2,6 +2,54 @@ use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::ExecutionCondition;
 
 impl ExecutionCondition {
+    /// Expires one finite evaluation while retaining independent owned snapshots.
+    pub(crate) fn without_evaluation(
+        &self,
+        mutation: bray_bound_tree::StorageMutation,
+        remaining: &mut usize,
+    ) -> Self {
+        if *remaining == 0 {
+            return Self::Unknown;
+        }
+
+        *remaining -= 1;
+
+        if !self.depends_on(mutation) {
+            return self.clone();
+        }
+
+        match self {
+            Self::Constructed(base, fields) => Self::constructed(
+                base.without_evaluation(mutation, remaining),
+                fields
+                    .iter()
+                    .map(|(projection, value)| {
+                        (*projection, value.without_evaluation(mutation, remaining))
+                    })
+                    .collect(),
+            ),
+            Self::Observation { owner, contents, kind }
+                if *kind == ObservationKind::Owned
+                    || *kind == ObservationKind::Reference && !owner.depends_on(mutation) =>
+            {
+                Self::observation(
+                    owner.without_evaluation(mutation, remaining),
+                    contents.without_evaluation(mutation, remaining),
+                    *kind,
+                )
+            }
+            Self::Present(value) => value.without_evaluation(mutation, remaining).present(),
+            Self::Tagged(variant, value) => Self::Tagged(
+                *variant,
+                std::sync::Arc::new(value.without_evaluation(mutation, remaining)),
+            ),
+            // Scalar and proof terms cannot preserve their meaning after any
+            // contributing evaluation expires. A retired reference also loses
+            // its reached view, which never independently owned those contents.
+            _ => Self::Unknown,
+        }
+    }
+
     /// Closed spatial predicates observe pointer descriptors, not their payload snapshots.
     pub(crate) fn spatial_observations(
         &self,

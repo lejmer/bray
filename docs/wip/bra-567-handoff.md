@@ -44,18 +44,11 @@ Maintainability, compile cost, generated execution, product size and retained re
 
 ## Architectural completion
 
-Implementation has resumed. The last validated implementation is
-`754dbb2f16817dcbea8440140bdfb96bd41078f2`. Complete the transitions below as one coherent migration.
-The runtime's new containers do not yet establish a complete ownership protocol. In particular, an initialized slot
-does not authorize partitioning a whole witness, a closed service acquisition is not another open owner, and retaining
-an endpoint does not preserve its changing queue membership. The compiler's explicit observation roles are useful but
-do not by themselves establish consistent transport through mutation, joins and cleanup.
-
-The latest full runtime Source run completed with 3,256 body/certificate checks and 61 failures across 19 bodies.
-The affected unit suites passed 415 checker, 38 lowering, 35 runtime-interface and 29 ABI tests. Mandatory mutating
-style and explicit formatting passed for this checkpoint. Native/imported execution, all representative Source controls
-on the refactor, provenance/cost receipts and final review remain outstanding. End-to-end acceptance is not established.
-No reviewer has been launched. Build caches and the untracked local diagnostic runner are retained.
+The runtime protocol and ownership representation are being completed together. The latest validated checkpoint
+is `e12e722f9867f8cc959b7e6a0d56cf3f4db63e1c`: 520 affected unit tests and all 18 Source controls passed, while
+the full runtime Source run finished 3,264 checks with 69 failures. Native/imported acceptance remains unrun.
+The reconstruction audit and integrated replacement below supersede local repairs. Its code is currently under
+static self-review and has not been built or tested. Complete the whole acceptance contract in this PR.
 
 ### Ordered implementation and removals
 
@@ -131,83 +124,17 @@ No reviewer has been launched. Build caches and the untracked local diagnostic r
       establish the issue acceptance contract.
 - [ ] Superseded mechanisms and diagnostic infrastructure are removed, checkpoints are pushed and final review is complete.
 
-The runtime transition migration is pushed at `15f86d695d9158e3acb646ccdcc84dcc1dbd4582` but unvalidated: tagged
-open/cleanup bindings and consuming close, direct retirement packets, Source entry restoration scopes with native
-status preservation, and pre-mutation wait neighbor access.
+Execution closure now consumes open `Owner` and returns its actual `Reference` pin. Tagged binding ownership,
+`PreparedStart`, `EntryRestoration`, wait resource/membership separation and `RetiredCell` are the intended runtime
+protocol shapes. Their implementation is still subject to complete Source, imported/native and resource validation.
 
-Compiler transport review found a missing distinction in opaque-call reconstruction. Independently introduced child
-owners can retain unchanged markers while their containing aggregate receives a new contents snapshot. Keeping only
-the outer descriptor loses those child identities on a later operation. The pending compiler change prepares finite
-inline owner paths with the existing storage footprint, preserves them only through the existing physical survival
-query, and reconstructs nested identities before restoring unchanged data. It retains exact union projection metadata.
-This adds no alias store, witness store, persisted contract field or freshness rule. Existing move, guard, dependency
-and raw-transfer checks remain in force. A native execution fixture composes nested owners, opaque callbacks, sibling
-mutation, loops, tagged selection and cleanup. Complete runtime checking and positive/negative controls must establish
-the change before native/imported acceptance. Mandatory style passed before the final projection-metadata refinement.
-Style and explicit formatting passed at `9c22a795e971e5ce6a71fd9cdd7db60bab8e8336`. All 517 affected units passed.
-The complete Source run finished with 3,260 checks and 111 failing bodies/certificates, including new binding-name
-conflicts and semantic regressions. These results do not establish completion. Sixteen prior Source controls retained
-their expected acceptance/rejection counts, but the fabricated-owner control rejected a malformed initializer instead
-of an ownership violation. Its local input is corrected and must be checked for the intended trusted diagnostic.
-The added owned-loan control passed. The committed ownership-transition composition fails at implicit cleanup.
-
-The next coherent correction covers naming preflight, reconstruction of actual carriers without resetting unrelated
-observations, consuming final-reference extraction under the resident lease, and ownership that exists on only one
-control-flow predecessor. A single composed diagnostic probe shows repeated callbacks and a loop preserve their owner,
-while conditionally moving a nested owner leaves its original storage's cleanup unproved. The existing shared
-`StorageFlowState` tracks definite absence separately from unknown data, but the execution observation join loses that
-distinction. Review that representation and conditional cleanup together rather than patching the failing destructor.
-The probe's extra `dispose_state` helper omitted its required trusted input contract and is not valid contrary evidence.
-No final reviewer or native/imported acceptance has run. Keep implementation active until the complete acceptance passes.
-
-### Current compiler design decision: observation availability
-
-The callback-only and loop-only composition bodies pass. Conditional movement alone leaves the original nested
-owner's implicit cleanup unproved. Storage analysis already distinguishes moved/absent storage from unknown data,
-but execution observations write `Unknown` after a checked move and merge it with an initialized predecessor as unknown.
-Cleanup then has no observation for the owner that still exists on one predecessor. A declaration-name exemption or
-activating every possible witness condition would be wrong.
-
-Replace `ExecutionState.current`'s bare data term with one current-value record containing the term and its availability:
-present, absent, guarded, or unknown. Missing observation data must never imply absence. Checked movement and cleanup establish absence. An opaque mutation establishes unknown
-contents, without asserting absence. Assignment establishes a new present observation. Parent/component updates retain
-their actual owner identities and availability. This remains proof data inside the existing composite storage domain,
-not another initialization or alias analysis.
-
-At joins, retain possible observations over predecessors where their slot exists and retain proof only under the same
-availability guard. Represent that guard by a finite internal initialized-observation condition naming the place and
-value incarnation. Use existing guard implication and carrier-proof rules. An absent predecessor supplies no owner or
-authority. Unknown contents remain conservative. Never promote witness availability into an active predicate clause.
-
-Selected implicit cleanup is conditional on its receiver being initialized. Its entry evidence can assume that same
-initialized-observation guard, just as it already assumes the active nullable/union payload guards. Ordinary use still
-requires the owning storage analysis to prove initialization and access. Real mutation, replacement, transfer and
-retirement invalidate the applicable guards. Joins use canonical block/place identities and the existing bounded
-fixed point. Internal availability conditions must not escape into portable interfaces. Source-visible guarded result
-contracts retain their established presence/variant encoding.
-
-Implement the record, place lookup/projection, assignment/move/cleanup updates, joins, clause transport and selected
-cleanup evidence together. Review deferred entry capture and portable-term rejection. Protect conditional movement,
-normal and abnormal cleanup, fabricated owners, conditional clauses, raw transfer and repeated incarnations in the
-existing tests and composition fixtures. Do not rerun builds/tests until this semantic batch and runtime ownership
-corrections are complete and the naming/keyword preflight has passed.
-
-The current-value record migration is wired and undergoing batch validation. `analysis/guarantee/current.rs` owns the
-record and its data/availability views. `ExecutionValues` shares lookup with frozen call-entry maps. Assignment,
-observation and vacancy have distinct state operations. Opaque reconstruction carries prior availability and only
-reconstructs registered nested carriers. Joins preserve possible data from initialized predecessors, while existing
-carrier proof establishes guarded clauses on both predecessors. Selected cleanup assumes only that receiver's
-initialization guard. Internal immutable guards identify the block or returned-expression join, reject portable encoding and expire with their value incarnation.
-The regressions check both branch orders, fixed-point convergence, distinct join selectors and the distinction between absence and unknown data.
-
-The final task reference is now consumed by the shared retirement operation. It extracts initialized payloads from the
-actual leased row and forms RetiredCell before publishing the vacant row. Ordinary storage release and execution-domain
-retirement use the same transition. Arena creation owns resident admission before allocation, with scoped rollback until
-the initialized arena accepts the count. The naming preflight found and removed a new local `admission` conflict with
-the task module's existing `admission` function. Use `arena_admission` for this scope. The pushed checkpoint `aa5204f`
-preserves the migration before validation, and is not a passing implementation checkpoint. Follow-up review completed
-finite-incarnation guard retirement and removed unused map adapters. Mandatory style, formatting and behavioral checks
-cover that final state. Mutating style and explicit formatting passed. The affected unit suites and complete runtime Source checking are building or queued. Do not claim end-to-end acceptance until native/imported execution and costs are established.
+The checker distinguishes identity, current data, scalar copies, owned components, reference contexts and physical
+lifetime targets. Current storage now has one retained root data tree and per-component availability. Joins can retain
+a possible value over initialized predecessors without treating unknown data as absence. Finite internal initialization
+guards identify their block or returned-expression join and value incarnation. They create no authority, cannot become
+portable evidence, and expire with that incarnation. Conditional cleanup selects already-proved clauses under the
+receiver's initialization guard. Availability never proves an active predicate. Ordinary storage legality remains
+owned by the composite physical storage flow.
 
 ## Reconstruction audit and replacement plan
 
@@ -294,6 +221,39 @@ ownership-transition composition. The complete runtime Source run finished 3,264
 results do not establish end-to-end acceptance. Logs use the `availability-` prefix in the ignored task directory.
 The implicit invocation result-slot changes after that checkpoint have not been built or tested.
 
+The reconstruction replacement is implemented and undergoing integration/self-review, without new builds or tests.
+`CurrentValues` now keeps one root data tree plus component availability, with no independently stored field data.
+Writes update that tree, reads project it, and terminal retirement retains data while live-subtree views exclude
+retired ownership. `aggregate_snapshot`, opaque whole-map reset/restore, witness-filtered nested reconstruction,
+unchanged-field repopulation and repeated-evaluation parent repair are deleted. A temporary `ValuePreservation` trie
+contains only the checked physical-survival mask, applied atomically to actual old nodes. It holds no object data or
+proof and does not recover anything from syntax, witnesses or newly constructed markers. Mutation still necessarily
+creates fresh unknown contents. Stable nodes are selected from the actual retained object.
+
+The implicit invocation result-slot protocol now stores completed values once and reads them without recreating
+ScopedCapability/PostState identities. Scope exit uses its captured actual input. Cleanup captures one actual receiver
+and retains terminal descriptions without save/clear/restore. Call retention uses live subtrees rather than terminal
+field data. Returned-owner lookup no longer manufactures nullable aliases, and returned writes share the typed
+`with_storage_component` operation, including OwnedTarget/UninitPayload selectors. Formal declaration normalization
+may introduce Input terms, while execution-state reads cannot recover missing formal objects.
+
+Physical buffer regions now bind at declared entry, actual allocation or actual result formation. Queries read those
+records, and transfers preserve them. They do not recreate missing regions or add ownership/freshness. Existing
+physical unit fixtures now set up genuine producers and keep the previous behavioral assertions. The runtime
+retirement initialization boundary takes actual field borrows under the final reference and lease, and no longer
+uses a panic-capable const projector in its total certificate.
+
+The truth/availability review also removed `invalidate_cleanup`'s promotion of possible witness clauses merely
+because the carrier was available. It retains only clauses already proved in the current truth environment. Added
+regressions protect this distinction, canonical component writes, retired-field retention and repeated effect masks.
+The existing native composition now includes consuming scoped entry with opaque callbacks and early-return exit.
+
+The user explicitly authorized implementation subagents at GPT-6.1 low effort, with no test runs. Agents
+`/root/invocation_results`, `/root/retirement_packet` and `/root/cleanup_snapshots` completed bounded edits and static
+reviews without builds, tests, style, format or probes. Root integrates their changes and owns all validation.
+Complete self-review and naming/keyword preflight before the first batch validation of this replacement. Do not
+claim the prior 520 unit/18 control evidence covers these new changes. Native/imported acceptance remains unrun.
+
 The remaining failures include scoped entry/exit and prepared start, whole binding ownership transfer, current
 owner/view survival through callbacks and loops, optional result/borrow extraction, arena admission, task retirement,
 wait access and worker formation. The audit above supersedes a per-call-site repair strategy. The runtime's `Binding`
@@ -318,7 +278,7 @@ Required end-to-end evidence remains:
 
 Read root `AGENTS.md`, coding conventions and crates documentation. Skills already read and applied are
 `.agents/skills/work-on-bray-issues/SKILL.md`, `.agents/skills/use-bray-language/SKILL.md`, and
-`.agents/skills/debug-bray-end-to-end/SKILL.md`. Do not delegate implementation. Dispatch the required fresh PR reviewer
+`.agents/skills/debug-bray-end-to-end/SKILL.md`. The user now explicitly authorizes implementation subagents using GPT-6.1 at low effort, with no test/build/format/style runs by those agents. Three bounded agents own implicit result slots, cleanup/terminal snapshots and physical retirement. Root owns canonical current values, invalidation and integration. Dispatch the required fresh PR reviewer
 only after implementation and required validation finish, with direct attributed publication on PR #710.
 
 Before every build, test or executable probe, check new names against keywords, enclosing bindings and visible
@@ -336,8 +296,8 @@ The shell's GitHub token is invalid. The connected GitHub Git-object API has ver
 `lejmer/bray` destination and authenticated `lejmer` account with push permission. Use create_tree with the current
 base tree, create_commit and update_ref with expected_sha and force=false. Fetch that branch without the invalid
 credential helper outside the sandbox, then `git reset --mixed` the published commit to align history while preserving
-worktree edits. Keep pushing recovery checkpoints. The latest pushed head is the validated checkpoint above, tree
-`e42969e198ce377515f3c4b28bf4d6dc4601af94`. Verify mutable remote PR/base state before final handoff. Parent PR #709
+worktree edits. Keep pushing recovery checkpoints. The latest pushed head is `55e78af5fba626a43a1a7c4dc3433ddffeba1a0b`, tree
+`660847ac158156c549c28c3a420c51efd04a3685`. It includes the audit and partial implicit-result migration. Verify mutable remote PR/base state before final handoff. Parent PR #709
 remains open and ready, base commit `4ac3ad99259cc5bc02e968f830adaa4c521bed6a`.
 
 All validation processes for that checkpoint finished. No native/imported acceptance or final reviewer has run.

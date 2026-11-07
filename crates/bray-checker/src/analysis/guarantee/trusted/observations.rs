@@ -128,7 +128,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     return Some(
                         place
                             .value_in(&state.current)
-                            .unwrap_or(ExecutionCondition::Input(place)),
+                            .unwrap_or(ExecutionCondition::Unknown),
                     );
                 }
 
@@ -157,7 +157,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .and_then(|access| self.storage.logical_path(access))
                     .and_then(observe),
                 bray_bound_tree::BoundExecutionSite::Iterate(_)
-                | bray_bound_tree::BoundExecutionSite::Next(_) => self
+                | bray_bound_tree::BoundExecutionSite::Next(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedEnter(_) => self
                     .storage
                     .invocation_result(input)
                     .and_then(|access| self.storage.logical_path(access))

@@ -22,19 +22,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .value_in(&state.current)
             .unwrap_or(ExecutionCondition::Unknown);
 
-        let arguments = entry
-            .arguments
-            .keys()
-            .map(|input| {
-                let mut value = root.clone();
-
-                for field in input.projections.iter() {
-                    value = value.component(*field);
-                }
-
-                (input.clone(), value)
-            })
-            .collect::<BTreeMap<_, _>>();
+        let arguments = BTreeMap::from([(lifecycle.receiver.into(), root)]);
 
         for (conditions, trusted) in [
             (&contract.guarantees, true),
@@ -92,6 +80,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     )
                 })
             })
+            .filter(|(place, _)| {
+                state.current.availability(place) != super::super::current::ValueAvailability::Absent
+            })
             .filter_map(|(place, _)| place.value_in(&state.current))
             .collect::<Vec<_>>();
 
@@ -100,44 +91,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .map(|(place, _)| place.root.clone())
             .collect::<BTreeSet<_>>();
 
-        // A formal carrier's stored reference names caller-owned storage. Retain its
-        // checked final value for completion clauses after disposing the carrier.
-        let borrowed = self
-            .borrowed_inputs
-            .iter()
-            .chain(&self.disposal.borrowed_inputs)
-            .filter(|place| expired_roots.contains(&place.root))
-            .filter_map(|place| {
-                place
-                    .value_in(&state.current)
-                    .map(|value| (place.clone(), value))
-            })
-            .collect::<BTreeMap<_, _>>();
-
-        // Normal postconditions read the final parameter observations. Retiring the
-        // parameter owner must revoke its authority without making lookup fall back
-        // to the entry value. Restore these snapshots only after owner retirement.
-        let completed_inputs = state
-            .current
-            .iter()
-            .filter(|(place, _)| place.is_callable_input() && expired_roots.contains(&place.root))
-            .map(|(place, value)| (place.clone(), value.clone()))
-            .collect::<BTreeMap<_, _>>();
-
         state.invalidate_trusted_roots(&expired_roots);
 
-        state
-            .current
-            .retain(|place, _| !expired_roots.contains(&place.root));
-
-        state.current.observe_all(borrowed);
+        // Terminal observations remain readable by completion clauses after the
+        // storage and its access authority end.
+        for (place, _) in expired {
+            state.current.retire(place);
+        }
 
         // Index retained owners once instead of scanning all live aggregates for
         // every expired value and each of its owned components.
-        let retained = std::iter::once(&state.result)
-            .chain(state.current.values())
-            .chain(state.pending_results.values())
-            .flat_map(|value| state.owned_values(value))
+        // Borrowed inputs describe caller-owned pointees. Ending their local
+        // carriers does not retire those pointees.
+        let retained = std::iter::once(state.result.clone())
+            .chain(state.current.live_values())
+            .chain(state.pending_results.values().cloned())
+            .flat_map(|value| state.owned_values(&value))
+            .chain(
+                self.borrowed_inputs
+                    .iter()
+                    .chain(&self.disposal.borrowed_inputs)
+                    .filter(|place| expired_roots.contains(&place.root))
+                    .filter_map(|place| place.value_in(&state.current))
+                    .flat_map(|value| state.owned_values(&value)),
+            )
             .collect::<BTreeSet<_>>();
 
         let retired = values
@@ -149,7 +126,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // into the result. The child's value survives, but dependencies on the
         // expired storage were invalidated above and cannot be restored here.
         state.retire_trusted_values(retired, &retained);
-        state.current.observe_all(completed_inputs);
     }
 
     pub(in crate::analysis::guarantee) fn complete_trusted_call(

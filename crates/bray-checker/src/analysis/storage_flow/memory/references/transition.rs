@@ -444,35 +444,28 @@ impl State {
         &self,
         owner: &Target,
         pointer: bray_bound_tree::StorageProjection,
-    ) -> std::borrow::Cow<'_, References> {
-        if let Some(references) = self
-            .values
+    ) -> Option<&References> {
+        self.values
             .get(owner)
             .filter(|references| !references.unknown)
-        {
-            return std::borrow::Cow::Borrowed(references);
-        }
+            .or_else(|| self.values.get(&owner.project(&[pointer])))
+    }
 
-        let backing = owner.project(&[pointer]);
-        let declared_backing = backing.observation_path();
+    pub(in crate::analysis::storage_flow) fn entry_owned_buffer(
+        &mut self,
+        owner: Target,
+        pointer: Target,
+        element: TypeId,
+    ) {
+        // Declared entry ownership supplies a region, not a fresh allocation.
+        // Later moves retain this pointer record without deriving another origin.
+        let backing = owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]);
 
-        let pointer = self.values.get(&backing).filter(|references| {
-            !references.unknown
-                && (references.targets.is_empty()
-                    || !references.targets.iter().all(|target| {
-                        matches!(&target.origin, Origin::Entry { reference, layer: 1, projections }
-                    if declared_backing.as_ref() == Some(reference) && projections.is_empty())
-                    }))
-        });
-
-        // An entry descriptor's own pointer snapshot denotes its owned region.
-        // Returned and transferred pointers retain their established physical origins.
-        match pointer {
-            Some(references) => std::borrow::Cow::Borrowed(references),
-            _ => std::borrow::Cow::Owned(References::one(
-                owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
-            )),
-        }
+        self.contents
+            .entry(backing.clone())
+            .or_default()
+            .storage_type = Some(element);
+        self.values.insert(pointer, References::one(backing));
     }
 
     pub(in crate::analysis::storage_flow) fn owned_regions(
@@ -480,7 +473,7 @@ impl State {
         owner: &Target,
         pointer: bray_bound_tree::StorageProjection,
     ) -> Option<Vec<Target>> {
-        self.owned_references(owner, pointer).regions()
+        self.owned_references(owner, pointer)?.regions()
     }
 
     pub(in crate::analysis::storage_flow) fn owned_region(
@@ -497,16 +490,10 @@ impl State {
         };
 
         for owner in owners {
-            let materialized = self.values.get(owner).is_some_and(|value| !value.unknown);
-            let owned = self.owned_references(owner, pointer);
-
-            references.merge(&owned);
-
-            // Owners and their returned views retain independent records through moves.
-            if !materialized {
-                let owned = owned.into_owned();
-
-                self.values.insert(owner.clone(), owned);
+            if let Some(owned) = self.owned_references(owner, pointer) {
+                references.merge(owned);
+            } else {
+                references.unknown = true;
             }
         }
 

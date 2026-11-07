@@ -80,11 +80,54 @@ func exercise(pos callback: func() -> unit, pos active: bool)
     }
 }
 
+struct ScopedOwner
+{
+    state: State;
+
+    consume enter() -> State
+        requires(trusted retained(marker = &self.state.owner.marker))
+        ensures(trusted retained(marker = &result.owner.marker))
+    {
+        return self.state;
+    }
+
+    exit(pos entered_state: State)
+        requires(trusted retained(marker = &entered_state.owner.marker))
+    {
+        observe(&entered_state.owner);
+    }
+}
+
+func exercise_scope(pos callback: func() -> unit, pos early_exit: bool)
+{
+    let scoped_owner: ScopedOwner =
+    {
+        state =
+        {
+            owner = acquire(),
+            progress = 0
+        }
+    };
+
+    _ = with entered_state = scoped_owner
+    {
+        callback();
+        observe(&entered_state.owner);
+
+        if early_exit
+        {
+            return;
+        }
+    };
+}
+
 func progress() {}
 
 func main() -> i32
 {
     exercise(progress, true);
     exercise(progress, false);
+    exercise_scope(progress, false);
+    exercise_scope(progress, true);
     return 0;
 }

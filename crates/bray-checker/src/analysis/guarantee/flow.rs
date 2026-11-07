@@ -8,6 +8,7 @@ mod model;
 mod numeric;
 mod operation;
 mod prepare;
+mod preservation;
 mod refinement;
 mod value;
 mod witnesses;
