@@ -124,7 +124,7 @@ pub(in crate::analysis::guarantee) fn merge_returned(
 
     let mut completed = Some(target.clone());
 
-    super::merge::merge(&mut completed, &Some(incoming), None);
+    super::merge::merge(&mut completed, &Some(incoming), super::merge::ExecutionJoin::Result(expression));
     *target = completed.expect("reachable normal return retains a state");
     target.pending_results.remove(&expression);
 
@@ -322,11 +322,11 @@ mod tests {
             let mut merged = Some(state(left));
 
             super::super::merge::merge(
-                &mut merged, &Some(state(right)), Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 2)),
+                &mut merged, &Some(state(right)), Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 2)).into(),
             );
 
             let merged = merged.expect("both current observations remain reachable");
-            let condition = guarantee(merged.current[&place].clone());
+            let condition = guarantee(merged.current.get(&place).expect("joined observation").clone());
 
             assert_eq!(condition.prove_trusted(&merged.trusted_assumptions, &merged.assumptions), Some(true),
                 "context={context:?} unchanged={unchanged} component={component_carrier} facts={:?} witnesses={:?}",
@@ -360,13 +360,13 @@ mod tests {
         super::super::merge::merge(
             &mut merged,
             &Some(right),
-            Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)),
+            Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)).into(),
         );
 
         let merged = merged.expect("both predecessors are reachable");
 
-        assert_eq!(merged.current[&original], value);
-        assert_eq!(merged.current[&alias], ExecutionCondition::Unknown);
+        assert_eq!(*merged.current.get(&original).expect("original observation"), value);
+        assert_eq!(*merged.current.get(&alias).expect("alias observation"), ExecutionCondition::Unknown);
         assert!(merged.assumptions.contains(&(value, true)));
     }
     #[test]
@@ -398,7 +398,7 @@ mod tests {
 
         let mut merged = Some(left);
 
-        super::super::merge::merge(&mut merged, &Some(right), None);
+        super::super::merge::merge(&mut merged, &Some(right), None.into());
 
         let merged = merged.expect("both returned branches are reachable");
         let whole = owner.value_in(&merged.current).expect("retained owner");
@@ -447,7 +447,7 @@ mod tests {
             assert!(!super::super::merge::merge(
                 &mut target,
                 &Some(incoming),
-                Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)),
+                Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)).into(),
             ));
         }
 
@@ -503,7 +503,7 @@ mod tests {
             super::super::merge::merge(
                 &mut target,
                 &Some(incoming),
-                Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)),
+                Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)).into(),
             );
 
             assert!(

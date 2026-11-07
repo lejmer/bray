@@ -496,7 +496,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         target: &mut Self::State,
         boundary: &Self::State,
     ) -> bool {
-        merge(target, boundary, block)
+        merge(target, boundary, block.into())
     }
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {

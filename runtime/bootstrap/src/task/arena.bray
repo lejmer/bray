@@ -55,7 +55,10 @@ trusted internal func create_arena() -> ArenaReference?
         return none;
     }
 
-    return with arena_admission = ArenaAdmission { active = true }
+    return with arena_admission = ArenaAdmission
+    {
+        active = true
+    }
     {
         let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
             std.memory.stride_of<Arena>(),

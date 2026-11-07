@@ -166,7 +166,7 @@ impl ExecutionState {
 
         let availability_expired = |condition: &ExecutionCondition| {
             !kind.is_write() && condition.observations().any(|observed| {
-                matches!(observed, ExecutionCondition::InitializedSnapshot(_, owner)
+                matches!(observed, ExecutionCondition::InitializedSnapshot(_, _, owner)
                     if invalidated_observations.contains(owner)
                         && !retained_observations.contains(owner))
             })
@@ -204,6 +204,7 @@ impl ExecutionState {
                     && (directly_changed.contains(carrier.owner_identity()) || !stable(condition)))
                     || revokes_guarantee(condition)
                     || address_expired
+                    || availability_expired(condition)
                 {
                     condition.clone().assume(true, &mut retired_conditions);
 
