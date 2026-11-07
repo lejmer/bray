@@ -422,14 +422,10 @@ impl ExecutionState {
                     .collect();
 
                 *value = ExecutionCondition::constructed(identity.as_ref().clone(), fields);
-            } else if let ExecutionCondition::CurrentValue(owner, contents) = value
+            } else if let ExecutionCondition::Observation { owner, kind, .. } = value
                 && !stale(owner)
             {
-                let contents = if matches!(contents.as_ref(), ExecutionCondition::Borrowed(_)) {
-                    ExecutionCondition::Borrowed(std::sync::Arc::new(ExecutionCondition::Unknown))
-                } else { ExecutionCondition::Unknown };
-
-                *value = ExecutionCondition::current_value(owner.as_ref().clone(), contents);
+                *value = ExecutionCondition::observation(owner.as_ref().clone(), ExecutionCondition::Unknown, *kind);
             } else {
                 *value = ExecutionCondition::Unknown;
             }
@@ -701,10 +697,10 @@ mod tests {
         for scalar in [false, true] {
         let storage = |owner| {
             if scalar {
-                return ExecutionCondition::storage_value(input(owner), input(4)).borrowed();
+                return ExecutionCondition::scalar_observation(input(owner), input(4)).borrowed();
             }
 
-            ExecutionCondition::current_value(input(owner), input(4)).borrowed()
+            ExecutionCondition::owned_value(input(owner), input(4)).borrowed()
         };
 
         let observed = condition(storage(0));

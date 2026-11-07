@@ -127,17 +127,10 @@ impl ExecutionCondition {
                 invocation: *invocation,
                 ordinal: *ordinal,
             },
-            Self::CurrentValue(owner, value) => {
-                let contents = if let Self::Borrowed(data) = value.as_ref() {
-                    Self::Borrowed(Arc::new(data.substitute_values(replace, budget)))
-                } else {
-                    value.substitute_values(replace, budget)
-                };
-
-                Self::current_value(owner.substitute_values(replace, budget), contents)
-            }
-            Self::StorageValue(owner, value) => Self::storage_value(
-                owner.substitute_values(replace, budget), value.substitute_values(replace, budget),
+            Self::Observation { owner, contents, kind } => Self::observation(
+                owner.substitute_values(replace, budget),
+                contents.substitute_values(replace, budget),
+                *kind,
             ),
             Self::Constructed(base, fields) => Self::constructed(base.substitute_values(replace, budget),
                 fields
@@ -426,25 +419,12 @@ fn rewrite_equalities(
             invocation,
             ordinal,
         },
-        ExecutionCondition::CurrentValue(owner, value) => {
-            let contents = if let ExecutionCondition::Borrowed(data) = value.as_ref() {
-                ExecutionCondition::Borrowed(Arc::new(rewrite_equalities(data, replacements, identities, budget)))
-            } else {
-                rewrite_equalities(&value, replacements, identities, budget)
-            };
-
-            ExecutionCondition::current_value(
-                identities.map_or_else(|| owner.as_ref().clone(), |identities| {
-                    rewrite_equalities(&owner, identities, Some(identities), budget)
-                }),
-                contents,
-            )
-        }
-        ExecutionCondition::StorageValue(owner, value) => ExecutionCondition::storage_value(
+        ExecutionCondition::Observation { owner, contents, kind } => ExecutionCondition::observation(
             identities.map_or_else(|| owner.as_ref().clone(), |identities| {
                 rewrite_equalities(&owner, identities, Some(identities), budget)
             }),
-            rewrite_equalities(&value, replacements, identities, budget),
+            rewrite_equalities(&contents, replacements, identities, budget),
+            kind,
         ),
         ExecutionCondition::Constructed(base, fields) => ExecutionCondition::constructed(rewrite_equalities(&base, replacements, identities, budget),
             fields

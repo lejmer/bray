@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::BTreeMap;
 
 use crate::execution_guarantees::common_components;
@@ -460,7 +461,7 @@ fn current_replacements(
         // Literal payloads are shared by unrelated places and contract constants.
         // Joining their slots must not rename the constant itself.
         if value == joined
-            || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::CurrentValue(_, _))
+            || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. })
             || matches!(
                 value,
                 ExecutionCondition::Literal(_)
@@ -473,7 +474,7 @@ fn current_replacements(
 
         if matches!(
             value,
-            ExecutionCondition::Constructed(_, _) | ExecutionCondition::CurrentValue(_, _) | ExecutionCondition::Borrowed(_) | ExecutionCondition::Present(_)
+            ExecutionCondition::Constructed(_, _) | ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. } | ExecutionCondition::Borrowed(_) | ExecutionCondition::Present(_)
         ) {
             result_replacements(
                 value,
@@ -584,7 +585,7 @@ pub(super) fn result_replacements(
     identities: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
 ) {
     if value == joined
-        || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::CurrentValue(_, _))
+        || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. })
         || joined == &ExecutionCondition::Unknown
         || matches!(
             value,
@@ -596,7 +597,7 @@ pub(super) fn result_replacements(
         return;
     }
 
-    if matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) {
+    if value.current_referent().is_some() || matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) {
         if value.has_same_owner(joined) {
             // The loan stays the same while its current observations join.
             // Renaming those contents does not transfer or rename the loan.
@@ -631,11 +632,11 @@ pub(super) fn result_replacements(
     }
 
     match value {
-        ExecutionCondition::CurrentValue(_, contents) => {
+        ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => {
             let source = value.current_referent().unwrap_or(contents);
 
             let joined = joined.current_referent().unwrap_or_else(|| match joined {
-                ExecutionCondition::CurrentValue(_, contents) => contents.as_ref(),
+                ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => contents.as_ref(),
                 value => value,
             });
 

@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, StorageAccessId};
@@ -204,7 +205,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 loop {
                     match result {
                         ExecutionCondition::Constructed(base, _) => result = base,
-                        ExecutionCondition::CurrentValue(_, contents) => result = contents,
+                        ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => result = contents,
                         _ => break,
                     }
                 }

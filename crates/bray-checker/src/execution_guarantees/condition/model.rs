@@ -2,6 +2,17 @@ use bray_bound_tree::BoundOperator;
 use bray_symbols::ConstantValueData;
 use std::sync::Arc;
 
+/// How a current observation relates to the storage or value that retains it.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutionObservationKind {
+    /// Current contents belong to this complete owned value.
+    Owned,
+    /// Current reached data is observed through a retained reference value.
+    Reference,
+    /// Copied scalar data is observed at an independently identified storage place.
+    Scalar,
+}
+
 /// A bounded, source-independent value used to compare entry and completion conditions.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ExecutionCondition {
@@ -37,12 +48,13 @@ pub enum ExecutionCondition {
         Arc<ExecutionCondition>,
         Arc<[(bray_bound_tree::StorageProjection, ExecutionCondition)]>,
     ),
-    /// Current data of one retained value, independently of its identity.
-    /// Borrowed data observes a reference's target without owning that storage.
-    CurrentValue(Arc<ExecutionCondition>, Arc<ExecutionCondition>),
-    /// A scalar observation of an existing storage context. Equal contents do not
-    /// identify that storage or transfer its authority to a copied scalar.
-    StorageValue(Arc<ExecutionCondition>, Arc<ExecutionCondition>),
+    /// Current data retains its identity independently of its observation role.
+    /// Reference contents never transfer ownership of the reached storage.
+    Observation {
+        owner: Arc<ExecutionCondition>,
+        contents: Arc<ExecutionCondition>,
+        kind: ExecutionObservationKind,
+    },
     /// Fresh contents observed after a checked mutation. This establishes no guarantee.
     PostState(
         bray_bound_tree::StorageMutation,
@@ -125,7 +137,7 @@ impl ExecutionCondition {
                 condition: value, ..
             }
             | Self::CapturedInput { owner: value, .. } => value.contains_trusted(),
-            Self::StorageValue(owner, value) | Self::CurrentValue(owner, value) => owner.contains_trusted() || value.contains_trusted(),
+            Self::Observation { owner, contents: value, .. } => owner.contains_trusted() || value.contains_trusted(),
             Self::Constructed(base, fields) => {
                 base.contains_trusted() || fields.iter().any(|(_, value)| value.contains_trusted())
             }
@@ -145,7 +157,7 @@ impl ExecutionCondition {
     pub(super) fn contains_unknown(&self) -> bool {
         match self {
             Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),
-            Self::StorageValue(owner, value) | Self::CurrentValue(owner, value) => owner.contains_unknown() || value.contains_unknown(),
+            Self::Observation { owner, contents: value, .. } => owner.contains_unknown() || value.contains_unknown(),
             Self::Trusted(value)
             | Self::Borrowed(value)
             | Self::Present(value)
