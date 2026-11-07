@@ -159,7 +159,7 @@ trusted internal func publish_event_wait(
             }
             else
             {
-                let mut tail_access = trusted bray.runtime.bootstrap.task.event_tail_access(state, lease);
+                let mut tail_access = trusted bray.runtime.bootstrap.task.event_tail_access(&state, lease);
                 let tail = trusted bray.runtime.bootstrap.task.link_slot(&mut tail_access);
 
                 if let ?prior_wait = tail.registration

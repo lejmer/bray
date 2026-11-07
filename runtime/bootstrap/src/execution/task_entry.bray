@@ -51,17 +51,13 @@ trusted internal func task_allocation() -> Admission
     }
 
     let owner = trusted bray.runtime.bootstrap.task.take_retained(admitted);
-    let handle = trusted bray.runtime.bootstrap.task.source_claim(&owner);
+    let result = trusted publish_admission(&owner, 0);
 
     // The returned protected task keeps the source claim. Only the temporary
     // independent storage count ends at this boundary.
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
 
-    return
-    {
-        status = 0,
-        task = handle
-    };
+    return result;
 }
 
 @abi(c)

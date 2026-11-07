@@ -23,7 +23,6 @@ internal struct Configuration
     scope_finish: usize;
 }
 
-@copy
 @layout(c)
 internal struct Admission
 {

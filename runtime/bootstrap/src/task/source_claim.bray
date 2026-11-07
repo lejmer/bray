@@ -13,9 +13,7 @@ trusted internal func source_claim(pos owner: &Reference) -> u64
     requires(trusted retained(owner = owner), trusted resolution_owner(owner = owner))
     ensures(
         trusted retained(owner = owner),
-        trusted resolution_owner(owner = owner),
-        trusted bray.runtime.bootstrap.execution.resolution_input(owner = &result),
-        trusted bray.runtime.bootstrap.execution.wake_input(owner = &result)
+        trusted resolution_owner(owner = owner)
     )
     uses(intrinsic)
 {

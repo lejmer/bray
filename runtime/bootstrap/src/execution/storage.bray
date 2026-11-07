@@ -104,6 +104,7 @@ trusted internal func domain(pos owner: &Reference) -> &Domain
     requires(trusted retained(owner = owner))
     ensures(
         trusted retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.arena_retained(owner = &result.arena),
         trusted std.sync.once.valid(&result.workers.prepared.instance),
         trusted std.sync.once.valid(&result.deadlines.prepared.instance),
         trusted std.sync.spin_lock.valid(&result.failure.prepared.instance),

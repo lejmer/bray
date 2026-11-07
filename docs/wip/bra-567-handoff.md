@@ -47,15 +47,24 @@ Maintainability, compile cost, generated execution, product size and retained re
 Progress: step 1 is implemented and undergoing whole-protocol self-review. Its explicit observation variant has owner,
 contents and owned/reference/scalar role fields. Old observation variants and nested reference-data role tags are gone.
 No build or behavioral test has run on the refactor. Temporary production trace branches have been removed.
-Step 1 is pushed as `48de9375c3442474374cc88d5b58c489503d263b`. Step 2 is pushed as
-`68ad79a66f8fa7ab64be75efeffceea0cf485570`. Steps 3 and 4 are pushed as
-`aaf3caaf0b5f466a3c39e91cc21f9731a80eda38`, with whole-protocol self-review refinements being checkpointed.
-The source-level migration in steps 1 through 5 is implemented. Self-review separates owned wait resources from current
-linked membership, clears detached links, retains actual execution through product detachment and removes duplicate
-host counts and ambient source-claim lookup. Step 5 reuses the established shared transition and portable contract, with
-no additional persisted representation. Structural removal is reviewed. Comparative costs in step 6 and behavioral
-verification in step 7 remain outstanding. Mandatory mutating style passed. Explicit `cargo xtask format` passed.
-The full runtime Source check and affected checker/lowering/interface/ABI suites are running. No result is claimed yet. Keep checkpoints pushed during implementation.
+The observation model, arena migration and initial startup/claim changes are pushed in `48de937`, `68ad79a` and
+`aaf3caaf`. The integrated protocol checkpoint is `41cf664435530e6db41509d73e4217674b18f19d`.
+Its mandatory style and formatting passed. The complete Source run found 69 failing bodies/certificates in 3,254 checks.
+Checker units passed 415. Lowering passed 37 and failed one stale instruction-position assertion. The combined Cargo run
+stopped there, leaving interface/ABI suites unrun. Native/imported acceptance and comparative costs remain unrun.
+
+A related contract/representation batch is in progress, without another test run. It adds the missing arena component
+contract to the execution-domain borrow, uses address words for observational wait links, transports source claims in a
+noncopy native admission record, and moves prepared startup rollback to consuming scope entry/exit so graceful closure
+precedes destruction. Final cell recycling now moves the complete slot into a retirement packet, replacing individual
+field-detachment helpers. It preserves actual arena/execution retention through disposal. Namespace/borrow/nullable
+wiring errors from the first batch are being addressed together. The lowering test now checks Main startup through
+outcome/static/shutdown order, and the scalar-context matrix includes data equal to its storage identity.
+
+Finish self-review and the remaining contract/model classes before another validation batch. In particular, review
+prepared-start scope contracts, whole-slot materialization, owned nullable extraction, physical effect framing across
+runtime calls, nested entry view restoration and worker formation's active conditional guarantee. Do not turn the 69
+failures into a sequence of local edit/test loops. No result is claimed for the in-progress batch. Keep checkpoints pushed.
 
 ### Keep, adjust, replace and remove
 
@@ -105,7 +114,7 @@ attachment, and event waits can retain tasks from different execution domains. M
 resolving an ambient execution would break its contract. The retained directory contains event-name/reference records,
 not an executor owner. Do not introduce another global execution registry.
 
-Replace task-handle queue links with a small copyable `WaitLink` containing a stable slot pointer. `WaitRegistration`,
+Replace task-handle queue links with a small copyable `WaitLink` containing an observational stable-slot address word. `WaitRegistration`,
 `Delivery` and event/task queue heads retain the existing complete list ownership protocols. A link is observational
 and grants no storage authority. Scoped link access is introduced from an actual retained task, owned registration or
 owned detached delivery together with the resident lease. All slot recycling and final arena extraction use that same
@@ -149,8 +158,10 @@ from the new state, without exporting its internal representation.
 Add `PreparedStart` beside execution startup. It owns the admitted task reservation, scheduler registration, selected
 lane/initial requirements, actual execution binding and secured rollback resources until activation publication.
 Preparation reserves admission under the domain's closure protocol and completes fallible provider/native installation.
-Commit consumes the prepared owner, begins the actual inactive frame, installs complete cell state and publishes ready
-work. Rollback withdraws the exact registration and resolves its task/context/report ownership once. Existing frame
+Enter consumes the prepared owner into one scoped capability. Commit borrows that capability and begins the actual inactive frame, installs complete cell state and publishes ready
+work. Scope exit withdraws an uncommitted exact registration and resolves the service acquisition once. It runs for every
+body exit, including panic. Preparation forms the owner before fallible registration or worker demand. Final destruction
+follows that graceful scope exit. Retire task/context/report ownership through their existing actual owners. Existing frame
 ownership remains with the actual native input until activation accepts it. Root and ordinary task-start entries use
 this same protocol. Preserve existing handle-based native source claims with validated introduction contracts.
 
@@ -392,8 +403,12 @@ without implementing those separate outcomes here.
 
 ## Current verification boundary
 
-The refactor checkpoints are unvalidated. Mandatory mutating `cargo xtask style` passed. Explicit `cargo xtask format` passed. Compiler unit checks and the complete runtime Source bodies/certificates are
-running. All native/imported acceptance remains pending. Do not request final review until these requirements and cost receipts pass.
+Checkpoint `41cf664` passed mandatory mutating `cargo xtask style` and explicit `cargo xtask format`.
+`cargo run --release --bin bra567 -- runtime` completed with 3,254 checks and 69 failing bodies/certificates.
+`cargo test --release -p bray-checker -p bray-lowering -p bray-runtime-interface -p bray-runtime-abi --lib`
+passed 415 checker units and 37 lowering units, then failed the async host's obsolete fixed-position assertion.
+Later crates were not run. All native/imported acceptance and cost measurements remain pending. A related implementation
+batch is in progress, unvalidated. No final review is authorized yet under this workflow.
 
 Pre-refactor checkpoint `7c7a70ba7c0ff5d153c554bfc49bd926efc5d665` passed 415 checker units and all 16
 representative Source controls. Full runtime Source checking had 3,160 checks and 22 failures. That evidence establishes
@@ -407,9 +422,10 @@ snapshots are not persisted. No new interface field, witness store, alias store 
 Compiler/lowering/interface checks and Source/imported runtime builds must verify this agreement.
 
 The current whole-protocol self-review separates mutable intrusive membership from retained wait resources. An actual
-`WaitResources` carrier owns endpoints/callbacks. Neighbor access also requires a current membership witness under the
+`WaitResources` carrier owns endpoints/callbacks. Link address words grant no physical access. Their scoped producers
+reconstruct a pointer only with the actual retained collection or detached chain and current lease. Neighbor access also requires a current membership witness under the
 actual host lease. Popped and withdrawn registrations have cleared links. `Delivery` owns its remaining detached chain.
-Each slot retains its own arena. Final cell retirement extracts control/execution/arena into one packet before recycling,
+Each slot retains its own arena. Final cell retirement moves the complete slot into one owned packet before recycling,
 then disposes metadata/reports/control before execution and arena release outside synchronization. The domain's arena
 retention supplies its resident host lifetime transitively, avoiding a duplicate host-domain count.
 
