@@ -200,9 +200,7 @@ trusted internal func take_retired_cell(
             trusted core.memory.uninit_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
                 storage = &owner.execution_owner
             ),
-            trusted core.memory.uninit_initialized<std.sync.SpinLock<Control>>(
-                storage = retired_control_storage(owner)
-            )
+            trusted core.memory.uninit_initialized<std.sync.SpinLock<Control>>(storage = retired_control_storage(owner))
         )
         executes(pure, total) {};
 

@@ -128,9 +128,20 @@ No reviewer has been launched. Build caches and the untracked local diagnostic r
       establish the issue acceptance contract.
 - [ ] Superseded mechanisms and diagnostic infrastructure are removed, checkpoints are pushed and final review is complete.
 
-The runtime transition migration is implemented but unvalidated: tagged open/cleanup bindings and consuming close,
-direct retirement packets, Source entry restoration scopes with native status preservation, and pre-mutation wait
-neighbor access. Compiler transport review and the complete validation/acceptance sequence remain active work.
+The runtime transition migration is pushed at `15f86d695d9158e3acb646ccdcc84dcc1dbd4582` but unvalidated: tagged
+open/cleanup bindings and consuming close, direct retirement packets, Source entry restoration scopes with native
+status preservation, and pre-mutation wait neighbor access.
+
+Compiler transport review found a missing distinction in opaque-call reconstruction. Independently introduced child
+owners can retain unchanged markers while their containing aggregate receives a new contents snapshot. Keeping only
+the outer descriptor loses those child identities on a later operation. The pending compiler change prepares finite
+inline owner paths with the existing storage footprint, preserves them only through the existing physical survival
+query, and reconstructs nested identities before restoring unchanged data. It retains exact union projection metadata.
+This adds no alias store, witness store, persisted contract field or freshness rule. Existing move, guard, dependency
+and raw-transfer checks remain in force. A native execution fixture composes nested owners, opaque callbacks, sibling
+mutation, loops, tagged selection and cleanup. Complete runtime checking and positive/negative controls must establish
+the change before native/imported acceptance. Mandatory style passed before the final projection-metadata refinement.
+Explicit formatting and combined validation are in progress. No behavioral acceptance is claimed for this batch yet.
 
 ## Refactor plan
 

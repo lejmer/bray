@@ -520,13 +520,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         stable_values: &BTreeSet<bray_bound_tree::StoragePath>,
         normal_snapshots: &BTreeMap<(bray_symbols::DependencySubjectRoot, std::sync::Arc<[bray_bound_tree::StorageProjection]>), bray_bound_tree::StorageObservationKind>,
     ) {
-        let mut descriptors = descriptors
+        let descriptor_paths = descriptors
             .iter()
-            .flat_map(|path| self.storage_places(state, path.clone()))
-            .filter_map(|place| {
+            .flat_map(|path| self.storage_places(state, path.clone()).map(move |place| (place, path.clone())))
+            .collect::<BTreeMap<_, _>>();
+
+        let mut descriptors = descriptor_paths.keys().filter_map(|place| {
                 let value = place.value_in(&state.current)?;
 
-                Some((place, value.owner_identity().clone()))
+                Some((place.clone(), value.owner_identity().clone()))
             })
             .collect::<BTreeMap<_, _>>();
 
@@ -548,6 +550,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .filter(|value| *value != ExecutionCondition::Unknown)
             .map(|value| value.owner_identity().clone())
             .collect();
+
+        owners.extend(descriptors.values().cloned());
 
         if let bray_bound_tree::StorageMutation::Operation(site) = mutation
             && let Some(entry) = state.entries.get(&site)
@@ -600,7 +604,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 },
             );
 
-            state.assign(place, value, None);
+            let path = descriptor_paths.get(&place).map(|path| path.projections.as_ref());
+
+            state.assign(place, value, path);
+        }
+
+        // Restore each surviving nested carrier before restoring its data.
+        // Keeping only the outer descriptor loses independently created child
+        // identities at the next opaque operation, despite unchanged markers.
+        for (place, identity) in descriptors.into_iter().filter(|(place, _)| !place.projections.is_empty()) {
+            let contents = ExecutionCondition::PostState(mutation, place.clone());
+            let value = self.current_observation(&place, identity, contents);
+            let path = descriptor_paths.get(&place).map(|path| path.projections.as_ref());
+
+            state.assign(place, value, path);
         }
 
         for (place, (value, path)) in retained {

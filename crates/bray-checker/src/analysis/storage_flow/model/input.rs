@@ -23,6 +23,8 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) tag_preserving_assignments:
         BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
     pub(in crate::analysis::storage_flow) opaque_values: BTreeSet<bray_bound_tree::StoragePath>,
+    /// Inline owner slots, including independently typed nested carriers.
+    pub(in crate::analysis::storage_flow) opaque_descriptors: BTreeSet<bray_bound_tree::StoragePath>,
     pub(in crate::analysis::storage_flow) opaque_candidates: Vec<bray_bound_tree::StoragePath>,
     pub(super) unused_entry_storage: BTreeSet<StorageIdentityId>,
     pub(super) cleanup_free_storage: BTreeSet<StorageIdentityId>,
@@ -132,7 +134,16 @@ impl StorageFlowInput {
             .filter(|(_, kind)| *kind != bray_bound_tree::StorageObservationKind::Discriminant)
             .map(|(path, _)| path.clone()).collect::<BTreeSet<_>>();
 
-        let opaque_candidates = owned_descriptors
+        // A field can keep its complete owner while another component changes.
+        // Prepare the finite inline ancestry once, without following pointees.
+        let opaque_descriptors = owned_descriptors.chain(opaque_values.iter().flat_map(|path| {
+            (0..path.projections.len()).map(move |length| bray_bound_tree::StoragePath {
+                root: path.root,
+                projections: path.projections[..length].into(),
+            })
+        })).collect::<BTreeSet<_>>();
+
+        let opaque_candidates = opaque_descriptors.iter().cloned()
             .chain(footprint.borrowed_observations.keys().cloned())
             .chain(
                 footprint
@@ -148,6 +159,7 @@ impl StorageFlowInput {
 
         let mut input = Self {
             footprint,
+            opaque_descriptors,
             opaque_values,
             opaque_candidates,
             retained_storage,

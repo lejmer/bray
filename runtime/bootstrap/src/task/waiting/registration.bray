@@ -144,11 +144,7 @@ trusted internal func publish_wait(
 
         if let ?existing = slot.registration
         {
-            let status: u32 = if trusted same_task_wait(
-                &existing,
-                child,
-                retirement
-            )
+            let status: u32 = if trusted same_task_wait(&existing, child, retirement)
             {
                 yield 6;
             }

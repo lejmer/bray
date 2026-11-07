@@ -1,0 +1,90 @@
+trusted module ownership_transitions;
+
+struct Marker
+{
+}
+
+trusted predicate retained(marker: &Marker);
+
+struct Owner
+{
+    marker: Marker;
+    value: u32;
+
+    trusted destruct()
+        requires(trusted retained(marker = &self.marker))
+        executes(pure, total) {}
+}
+
+struct State
+{
+    owner: Owner;
+    mut progress: u32;
+}
+
+union Selection
+{
+    Active(pos state: State);
+    Empty;
+}
+
+trusted func acquire() -> Owner
+    ensures(trusted retained(marker = &result.marker))
+{
+    return
+    {
+        marker = Marker
+        {
+        },
+        value = 7
+    };
+}
+
+func observe(pos owner: &Owner)
+    requires(trusted retained(marker = &owner.marker))
+{
+    assert(owner.value == 7);
+}
+
+func exercise(pos callback: func() -> unit, pos active: bool)
+{
+    let mut state: State =
+    {
+        owner = acquire(),
+        progress = 0
+    };
+
+    while state.progress != 3
+    {
+        callback();
+        state.progress += 1;
+        callback();
+        observe(&state.owner);
+    }
+
+    let selected = if active
+    {
+        yield Selection.Active(state);
+    }
+    else
+    {
+        yield Selection.Empty;
+    };
+
+    callback();
+
+    match consume selected
+    {
+        case Selection.Active(value) { observe(&value.owner); }
+        case Selection.Empty {}
+    }
+}
+
+func progress() {}
+
+func main() -> i32
+{
+    exercise(progress, true);
+    exercise(progress, false);
+    return 0;
+}
