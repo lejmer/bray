@@ -37,8 +37,8 @@ internal struct State
 {
     mut generation: u64;
     mut closed: bool;
-    mut head: u64;
-    mut tail: u64;
+    mut head: bray.runtime.bootstrap.task.WaitLink;
+    mut tail: bray.runtime.bootstrap.task.WaitLink;
 }
 
 trusted internal predicate retained(owner: &Reference);

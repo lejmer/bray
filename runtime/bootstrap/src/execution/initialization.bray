@@ -141,10 +141,21 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
         }
     };
 
-    let identity = trusted bray.runtime.bootstrap.task.creation();
+    let storage = trusted bray.runtime.bootstrap.task.create_arena();
 
-    if identity == 0 || !trusted bray.runtime.bootstrap.host.acquire_execution_domain()
+    if storage matches none
     {
+        trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
+        _ = allocation;
+        trusted finish_native_provider_option(provider);
+        return 4;
+    }
+
+    let arena = trusted bray.runtime.bootstrap.task.take_arena(storage);
+
+    if !trusted bray.runtime.bootstrap.host.acquire_execution_domain()
+    {
+        trusted bray.runtime.bootstrap.task.release_arena(arena);
         trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
 
         _ = allocation;
@@ -153,7 +164,7 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
         return 4;
     }
 
-    let execution = trusted initialize_domain(allocation, scheduler, identity, configuration);
+    let execution = trusted initialize_domain(allocation, scheduler, arena, configuration);
 
     trusted install_binding(selected, trusted own_binding(selected, execution));
     trusted install_native_provider(selected, provider);

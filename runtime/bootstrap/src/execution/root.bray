@@ -70,9 +70,9 @@ trusted internal func retain_task(
         return (none, 4);
     }
 
-    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let mut anchor = trusted bray.runtime.bootstrap.task.arena_anchor(&value.arena, &lease);
 
-    return trusted bray.runtime.bootstrap.task.retain_locked(&lease, &mut anchor, value.identity, handle);
+    return trusted bray.runtime.bootstrap.task.retain_locked(&lease, &mut anchor, handle);
 }
 
 @abi(c)

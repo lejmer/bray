@@ -47,8 +47,8 @@ trusted internal func admit_source_task(
     )
     uses(intrinsic)
 {
-    let runtime = (trusted domain(bound_execution(selected))).identity;
-    let admitted = catch trusted bray.runtime.bootstrap.task.admit(runtime);
+    let execution = trusted domain(bound_execution(selected));
+    let admitted = catch trusted bray.runtime.bootstrap.task.admit(&execution.arena);
 
     let reference = match consume admitted
     {

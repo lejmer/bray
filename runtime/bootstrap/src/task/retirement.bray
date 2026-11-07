@@ -101,53 +101,120 @@ trusted internal func dispose_reference(pos reference: Reference) -> u32
             trusted core.target.abort();
         }
 
-        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-
-        yield trusted take_released(&lease, &mut anchor, &reference);
+        yield trusted take_released(&lease, &reference);
     };
 
-    let (control, execution) = retired;
+    return trusted dispose_retired_cell(retired);
+}
 
-    _ = control;
+// Extraction owns every resource needed to finish retirement after unlocking.
+internal struct RetiredCell
+{
+    control: std.sync.SpinLock<Control>;
+    execution: bray.runtime.bootstrap.execution.Reference?;
+    arena: ArenaReference;
+}
 
-    return trusted bray.runtime.bootstrap.execution.release_task_pin(execution);
+internal predicate retired_cell(owner: &RetiredCell) =
+    std.sync.spin_lock.valid(&owner.control.prepared.instance) &&
+    bray.runtime.bootstrap.execution.optional_pin(owner = &owner.execution) && arena_retained(owner = &owner.arena);
+
+trusted internal predicate optional_retired_cell(owner: &(RetiredCell?));
+
+trusted internal func dispose_retired_cell(pos owner: RetiredCell) -> u32
+    requires(trusted retired_cell(owner = &owner))
+{
+    _ = owner.control;
+    let status = trusted bray.runtime.bootstrap.execution.release_task_pin(owner.execution);
+
+    trusted release_arena(owner.arena);
+    return status;
+}
+
+trusted internal func dispose_optional_retired_cell(pos owner: RetiredCell?) -> u32
+    requires(trusted optional_retired_cell(owner = &owner))
+{
+    return match consume owner
+    {
+        case ?cell { yield trusted dispose_retired_cell(cell); }
+        case none { yield 0; }
+    };
+}
+
+// The last cell reference still owns its arena retention. Move it out before
+// accessing entries, so recycling never relies on an ambient execution binding.
+trusted internal func take_cell_arena(
+    pos reference: &Reference,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> ArenaReference
+    requires(
+        trusted released(owner = reference),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted arena_retained(owner = &result), trusted released(owner = reference))
+    uses(unchecked_init)
+{
+    let mut access = trusted released_slot_access(reference, lease);
+    let slot = trusted link_slot(&mut access);
+    let storage = std.memory.replace_value<Uninit<(ArenaReference?)>>(
+        &mut slot.arena_owner, core.memory.uninit_from<(ArenaReference?)>(none)
+    );
+
+    let initialized = trusted lambda(pos reference: &Reference, pos storage: &Uninit<(ArenaReference?)>)
+        requires(trusted released(owner = reference))
+        ensures(trusted core.memory.uninit_initialized<(ArenaReference?)>(storage = storage))
+        executes(pure, total) {};
+
+    trusted initialized(reference, &storage);
+    let owner = trusted std.memory.assume_initialized<(ArenaReference?)>(storage);
+
+    let acquired = trusted lambda(pos reference: &Reference, pos owner: ArenaReference?) -> ArenaReference
+        requires(trusted released(owner = reference))
+        ensures(trusted arena_retained(owner = &result))
+        uses(intrinsic)
+    {
+        return match consume owner
+        {
+            case ?value { yield value; }
+            case none { yield trusted core.target.abort(); }
+        };
+    };
+
+    return trusted acquired(reference, owner);
 }
 
 trusted internal func take_released(
     pos lease: &bray.runtime.bootstrap.host.HostLease,
-    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
     pos reference: &Reference
-) -> (std.sync.SpinLock<Control>, bray.runtime.bootstrap.execution.Reference?)
+) -> RetiredCell
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(
-            anchor = &anchor.acquisition,
-            lease = &lease.acquisition
-        ),
         trusted released(owner = reference)
     )
     ensures(
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted std.sync.spin_lock.valid(&result.0.prepared.instance),
-        trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result.1)
+        trusted retired_cell(owner = &result)
     )
     uses(intrinsic)
 {
-    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+    let owner = trusted take_cell_arena(reference, lease);
+    let mut anchor = trusted arena_anchor(&owner, lease);
+    let entries = trusted arena_entries(&mut anchor);
     let index = std.numeric.truncate_to<usize, u64>(reference.handle & 0xffffffff);
     let generation = std.numeric.truncate_to<u32, u64>(reference.handle >> 32);
 
-    if index == 0 || index > host.tasks.total || generation == 0 || host.tasks.active == 0
+    if index == 0 || index > entries.total || generation == 0 || entries.active == 0
     {
         trusted core.target.abort();
     }
 
-    let next = host.tasks.free;
-    let slot = trusted slot_at(&mut host.tasks, index);
+    let next = entries.free;
+    let slot = trusted slot_at(&mut entries, index);
 
-    if slot.generation != generation || slot.registration matches ?_ || slot.terminal_waiters != 0 ||
-        slot.retirement_waiters != 0
+    if slot.generation != generation || slot.registration matches ?_ || !slot.terminal_waiters.empty() ||
+        !slot.retirement_waiters.empty()
     {
         trusted core.target.abort();
     }
@@ -225,8 +292,8 @@ trusted internal func take_released(
 
     slot.runtime = 0;
     slot.next = next;
-    host.tasks.free = index;
-    host.tasks.active -= 1;
+    entries.free = index;
+    entries.active -= 1;
 
-    return (retired, execution);
+    return { control = retired, execution = execution, arena = owner };
 }

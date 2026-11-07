@@ -1,0 +1,401 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.atomic;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap.host;
+
+@layout(c)
+internal struct ArenaMarker
+{
+}
+
+@layout(c)
+internal struct ArenaReference
+{
+    marker: ArenaMarker;
+    pointer: DataPointer<Arena>;
+}
+
+internal struct Arena
+{
+    allocation: std.memory.RawAllocation;
+    references: core.atomic.Atomic<usize>;
+    identity: u64;
+    entries: Uninit<Entries>;
+}
+
+trusted internal predicate arena_acquired(owner: &ArenaMarker);
+
+internal predicate arena_retained(owner: &ArenaReference) = arena_acquired(owner = &owner.marker);
+
+trusted internal predicate arena_final(owner: &ArenaMarker);
+
+trusted internal predicate optional_arena(owner: &(ArenaReference?));
+
+// The arena is independently usable by a native control owner. An executor
+// retains this same owner rather than relying on ambient host task storage.
+trusted internal func create_arena() -> ArenaReference?
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted optional_arena(owner = &result))
+{
+    let identity = trusted new_arena_identity();
+
+    if identity == 0
+    {
+        return none;
+    }
+
+    if !trusted bray.runtime.bootstrap.host.acquire_execution_domain()
+    {
+        return none;
+    }
+
+    let allocation = trusted bray.runtime.bootstrap.heap.try_allocation(
+        std.memory.stride_of<Arena>(),
+        align = std.memory.align_of<Arena>()
+    );
+
+    return match consume allocation
+    {
+        case ?backing
+        {
+            let owner: ArenaReference? = trusted initialize_arena(backing, identity);
+
+            yield owner;
+        }
+        case none
+        {
+            trusted bray.runtime.bootstrap.host.release_execution_domain();
+            yield none;
+        }
+    };
+}
+
+trusted internal func initialize_arena(pos allocation: std.memory.RawAllocation, pos identity: u64) -> ArenaReference
+    requires(
+        identity != 0,
+        allocation.bytes == std.memory.stride_of<Arena>(),
+        allocation.align == std.memory.align_of<Arena>(),
+        trusted core.memory.owned_allocation(pointer = allocation.pointer, bytes = allocation.bytes, align = allocation.align),
+        trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = allocation.bytes)
+    )
+    ensures(trusted arena_retained(owner = &result))
+    uses(raw_memory, unchecked_init, layout_reinterpret)
+{
+    let pointer = trusted std.memory.reinterpret<Arena, u8>(allocation.pointer);
+
+    let permit = trusted lambda(pos allocation: &std.memory.RawAllocation, pos pointer: DataPointer<Arena>)
+        requires(
+            allocation.bytes == std.memory.stride_of<Arena>(),
+            allocation.align == std.memory.align_of<Arena>(),
+            trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = allocation.bytes)
+        )
+        ensures(
+            trusted core.memory.valid_write<Arena>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Arena>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&allocation, pointer);
+
+    trusted std.memory.write<Arena>(
+        pointer,
+        {
+            allocation = allocation,
+            references = core.atomic.initialize<usize>(1),
+            identity = identity,
+            entries = core.memory.uninit_from<Entries>(
+                {
+                    slabs = none,
+                    free = 0,
+                    total = 0,
+                    active = 0
+                }
+            )
+        }
+    );
+
+    return
+    {
+        marker = ArenaMarker {},
+        pointer = pointer
+    };
+}
+
+trusted internal func arena(pos owner: &ArenaReference) -> &Arena
+    requires(trusted arena_retained(owner = owner))
+    ensures(trusted arena_retained(owner = owner))
+    uses(raw_memory, unchecked_alias)
+{
+    let permit = trusted lambda(pos owner: &ArenaReference)
+        requires(trusted arena_retained(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Arena>(pointer = owner.pointer, count = 1),
+            trusted core.memory.initialized_as<Arena>(pointer = owner.pointer),
+            trusted core.memory.aligned_for<Arena>(pointer = owner.pointer),
+            trusted core.memory.shared_alias_valid<Arena>(pointer = owner.pointer),
+            trusted core.memory.epoch_current<Arena>(pointer = owner.pointer),
+            trusted core.memory.synchronized_access<Arena>(pointer = owner.pointer),
+            trusted core.memory.movement_stable<Arena>(pointer = owner.pointer),
+            trusted core.memory.finalization_pending<Arena>(pointer = owner.pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner);
+    return trusted std.memory.borrow_from<Arena, ArenaReference>(owner, owner.pointer);
+}
+
+trusted internal func retain_arena(pos owner: &ArenaReference) -> ArenaReference
+    requires(trusted arena_retained(owner = owner))
+    ensures(trusted arena_retained(owner = owner), trusted arena_retained(owner = &result))
+    uses(intrinsic)
+{
+    let value = trusted arena(owner);
+    let mut count = core.atomic.load<usize, 1>(&value.references);
+
+    while true
+    {
+        if count == 0 || count == std.numeric.USIZE_MAX
+        {
+            trusted core.target.abort();
+        }
+
+        let (observed, retained) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.references,
+            expected = count,
+            desired = count + 1
+        );
+
+        if retained
+        {
+            return
+            {
+                marker = ArenaMarker {},
+                pointer = owner.pointer
+            };
+        }
+
+        count = observed;
+    }
+}
+
+internal struct ArenaAnchor
+{
+    owner: &ArenaReference;
+    lease: &bray.runtime.bootstrap.host.HostLease;
+}
+
+internal predicate arena_access(owner: &ArenaAnchor) = arena_retained(owner = owner.owner) && owner.lease.active &&
+    bray.runtime.bootstrap.host.host_access_live(owner = &owner.lease.acquisition);
+
+trusted internal func arena_anchor(
+    pos owner: &ArenaReference,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> ArenaAnchor
+    requires(
+        trusted arena_retained(owner = owner),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted arena_retained(owner = owner), trusted arena_access(owner = &result))
+    executes(pure, total)
+{
+    return
+    {
+        owner = owner,
+        lease = lease
+    };
+}
+
+trusted internal func arena_entries(pos anchor: &mut ArenaAnchor) -> &mut Entries
+    requires(trusted arena_access(owner = &anchor))
+    ensures(trusted arena_access(owner = &anchor))
+    uses(raw_memory, unchecked_alias)
+{
+    let value = trusted arena(anchor.owner);
+    let pointer = std.memory.uninit_pointer<Entries>(&value.entries);
+
+    let permit = trusted lambda(pos owner: &ArenaAnchor, pos pointer: DataPointer<Entries>)
+        requires(trusted arena_access(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Entries>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<Entries>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Entries>(pointer = pointer),
+            trusted core.memory.aligned_for<Entries>(pointer = pointer),
+            trusted core.memory.exclusive_alias_valid<Entries>(pointer = pointer),
+            trusted core.memory.epoch_current<Entries>(pointer = pointer),
+            trusted core.memory.synchronized_access<Entries>(pointer = pointer),
+            trusted core.memory.movement_stable<Entries>(pointer = pointer),
+            trusted core.memory.finalization_pending<Entries>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&anchor, pointer);
+    return trusted std.memory.borrow_mut_from<Entries, ArenaAnchor>(anchor, pointer);
+}
+
+
+trusted internal func take_arena(pos owner: ArenaReference?) -> ArenaReference
+    requires(owner matches ?_, trusted optional_arena(owner = &owner))
+    ensures(trusted arena_retained(owner = &result))
+{
+    return match consume owner
+    {
+        case ?value { yield value; }
+        case none { yield trusted core.target.abort(); }
+    };
+}
+
+trusted internal func last_arena_reference(pos owner: &ArenaReference) -> bool
+    requires(trusted arena_retained(owner = owner))
+    ensures(!result || trusted arena_final(owner = &owner.marker))
+    uses(intrinsic)
+{
+    let value = trusted arena(owner);
+    let previous = core.atomic.fetch_sub<usize, 3>(&value.references, value = 1);
+
+    if previous == 0
+    {
+        trusted core.target.abort();
+    }
+
+    return previous == 1;
+}
+
+trusted internal func release_arena(pos owner: ArenaReference)
+    requires(trusted arena_retained(owner = &owner))
+    uses(unchecked_init)
+{
+    if !trusted last_arena_reference(&owner)
+    {
+        return;
+    }
+
+    // No slot or other owner can remain when the last arena reference ends.
+    // The resident lease also waits for every scoped intrusive-link access.
+    let retired =
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            trusted core.target.abort();
+        }
+
+        yield trusted take_retired_arena(owner, &lease);
+    };
+
+    let entries = trusted std.memory.assume_initialized<Entries>(retired.entries);
+
+    if entries.active != 0
+    {
+        trusted core.target.abort();
+    }
+
+    _ = entries;
+    _ = retired.allocation;
+    trusted bray.runtime.bootstrap.host.release_execution_domain();
+}
+
+trusted internal func take_retired_arena(
+    pos owner: ArenaReference,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> Arena
+    requires(
+        trusted arena_final(owner = &owner.marker),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(
+        trusted core.memory.uninit_initialized<Entries>(storage = &result.entries),
+        trusted core.memory.owned_allocation(
+            pointer = result.allocation.pointer,
+            bytes = result.allocation.bytes,
+            align = result.allocation.align
+        )
+    )
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos owner: &ArenaReference)
+        requires(trusted arena_final(owner = &owner.marker))
+        ensures(
+            trusted core.memory.valid_read<Arena>(pointer = owner.pointer, count = 1),
+            trusted core.memory.initialized_as<Arena>(pointer = owner.pointer),
+            trusted core.memory.aligned_for<Arena>(pointer = owner.pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&owner);
+    return trusted std.memory.read<Arena>(owner.pointer);
+}
+
+
+trusted internal predicate arena_reference_slot(owner: &DataPointer<ArenaReference>);
+
+trusted internal predicate arena_reference_disposal(owner: &DataPointer<ArenaReference>);
+
+trusted internal func borrow_arena_reference(pos input: &DataPointer<ArenaReference>) -> &ArenaReference
+    requires(trusted arena_reference_slot(owner = input))
+    ensures(trusted arena_retained(owner = result))
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted std.memory.read<DataPointer<ArenaReference>>(
+        std.memory.address_of<DataPointer<ArenaReference>>(input)
+    );
+
+    let permit = trusted lambda(pos input: &DataPointer<ArenaReference>, pos pointer: DataPointer<ArenaReference>)
+        requires(trusted arena_reference_slot(owner = input))
+        ensures(
+            trusted core.memory.valid_read<ArenaReference>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<ArenaReference>(pointer = pointer),
+            trusted core.memory.aligned_for<ArenaReference>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<ArenaReference>(pointer = pointer),
+            trusted core.memory.epoch_current<ArenaReference>(pointer = pointer),
+            trusted core.memory.synchronized_access<ArenaReference>(pointer = pointer),
+            trusted core.memory.movement_stable<ArenaReference>(pointer = pointer),
+            trusted core.memory.finalization_pending<ArenaReference>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(input, pointer);
+    return trusted std.memory.borrow_from<ArenaReference, DataPointer<ArenaReference>>(input, pointer);
+}
+
+@abi(c)
+trusted internal func arena_reference_release(pos input: DataPointer<ArenaReference>)
+    requires(
+        trusted arena_reference_slot(owner = &input),
+        trusted arena_reference_disposal(owner = &input),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    uses(raw_memory)
+{
+    let take = trusted lambda(pos input: &DataPointer<ArenaReference>) -> ArenaReference
+        requires(trusted arena_reference_slot(owner = input), trusted arena_reference_disposal(owner = input))
+        ensures(trusted arena_retained(owner = &result))
+        uses(raw_memory)
+    {
+        let pointer = trusted std.memory.read<DataPointer<ArenaReference>>(
+            std.memory.address_of<DataPointer<ArenaReference>>(input)
+        );
+
+        let permit = trusted lambda(pos input: &DataPointer<ArenaReference>, pos pointer: DataPointer<ArenaReference>)
+            requires(trusted arena_reference_slot(owner = input), trusted arena_reference_disposal(owner = input))
+            ensures(
+                trusted core.memory.valid_read<ArenaReference>(pointer = pointer, count = 1),
+                trusted core.memory.initialized_as<ArenaReference>(pointer = pointer),
+                trusted core.memory.aligned_for<ArenaReference>(pointer = pointer)
+            )
+            executes(pure, total) {};
+
+        trusted permit(input, pointer);
+        return trusted std.memory.read<ArenaReference>(pointer);
+    };
+
+    trusted release_arena(trusted take(&input));
+}

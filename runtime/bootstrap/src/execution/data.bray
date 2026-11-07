@@ -58,6 +58,7 @@ internal struct Domain
     allocation: std.memory.RawAllocation;
     scheduler: bray.runtime.bootstrap.scheduler.Reference;
     identity: u64;
+    arena: bray.runtime.bootstrap.task.ArenaReference;
     configuration: Configuration;
     task_services: bray.runtime.bootstrap.task.Services;
     owners: core.atomic.Atomic<usize>;

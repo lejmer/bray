@@ -15,14 +15,16 @@ using internal bray.runtime.bootstrap.heap;
 // an admitted internal reference supplies authority, independently of these bits.
 internal struct Slot
 {
+    index: usize;
     mut runtime: u64;
+    mut arena_owner: Uninit<(ArenaReference?)>;
     mut generation: u32;
     mut next: usize;
     mut control: Uninit<std.sync.SpinLock<Control>>?;
     cancellation: core.atomic.Atomic<usize>;
     execution_owner: Uninit<(bray.runtime.bootstrap.execution.Reference?)>;
-    mut terminal_waiters: u64;
-    mut retirement_waiters: u64;
+    mut terminal_waiters: WaitLink;
+    mut retirement_waiters: WaitLink;
     mut registration: WaitRegistration?;
 }
 
@@ -173,7 +175,9 @@ trusted internal func grow(pos entries: &mut Entries, pos prepared: &mut Prepare
                 trusted internal std.memory.initialize_spare<Slot>(
                     &mut slots,
                     {
+                        index = index,
                         runtime = 0,
+                        arena_owner = core.memory.uninit_from<(ArenaReference?)>(none),
                         generation = 0,
                         next = if index == first
                         {
@@ -183,8 +187,8 @@ trusted internal func grow(pos entries: &mut Entries, pos prepared: &mut Prepare
                         {
                             yield index - 1;
                         },
-                        terminal_waiters = 0,
-                        retirement_waiters = 0,
+                        terminal_waiters = no_wait_link(),
+                        retirement_waiters = no_wait_link(),
                         registration = none,
                         cancellation = core.atomic.initialize<usize>(0),
                         execution_owner = core.memory.uninit_from<(bray.runtime.bootstrap.execution.Reference?)>(none),

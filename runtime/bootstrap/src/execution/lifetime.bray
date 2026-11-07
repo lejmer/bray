@@ -346,7 +346,8 @@ trusted internal func destroy_domain(pos owner: &Reference)
         std.sync.Once<bray.runtime.bootstrap.deadline.Reference>,
         std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>,
         std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>,
-        std.memory.RawAllocation
+        std.memory.RawAllocation,
+        bray.runtime.bootstrap.task.ArenaReference
     )
         requires(trusted retained(owner = owner), trusted retiring(owner = owner))
         ensures(
@@ -360,7 +361,8 @@ trusted internal func destroy_domain(pos owner: &Reference)
                 align = result.5.align
             ),
             trusted bray.runtime.bootstrap.scheduler.retained(owner = &result.0),
-            trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &result.0)
+            trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &result.0),
+            trusted bray.runtime.bootstrap.task.arena_retained(owner = &result.6)
         )
         uses(raw_memory)
     {
@@ -401,11 +403,14 @@ trusted internal func destroy_domain(pos owner: &Reference)
             ),
             trusted std.memory.read<std.memory.RawAllocation>(
                 std.memory.address_of<std.memory.RawAllocation>(&value.allocation)
+            ),
+            trusted std.memory.read<bray.runtime.bootstrap.task.ArenaReference>(
+                std.memory.address_of<bray.runtime.bootstrap.task.ArenaReference>(&value.arena)
             )
         );
     };
 
-    let (queue_owner, worker_cell, deadline_cell, failure_state, retired_reports, allocation) = trusted take(owner);
+    let (queue_owner, worker_cell, deadline_cell, failure_state, retired_reports, allocation, arena) = trusted take(owner);
 
     _ = worker_cell;
     _ = deadline_cell;
@@ -414,6 +419,7 @@ trusted internal func destroy_domain(pos owner: &Reference)
 
     trusted bray.runtime.bootstrap.scheduler.destroy_reference(queue_owner);
 
+    trusted bray.runtime.bootstrap.task.release_arena(arena);
     _ = allocation;
 
     trusted bray.runtime.bootstrap.host.release_execution_domain();

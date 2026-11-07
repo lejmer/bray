@@ -16,7 +16,7 @@ using internal bray.runtime.bootstrap.heap;
 trusted internal func initialize_domain(
     pos allocation: std.memory.RawAllocation,
     pos scheduler: bray.runtime.bootstrap.scheduler.Reference,
-    pos identity: u64,
+    pos arena: bray.runtime.bootstrap.task.ArenaReference,
     pos configuration: Configuration
 ) -> Owner
     requires(
@@ -30,7 +30,8 @@ trusted internal func initialize_domain(
         trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = std.memory.stride_of<Domain>()),
         trusted bray.runtime.bootstrap.scheduler.retained(owner = &scheduler),
         trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &scheduler),
-        trusted native_configuration(owner = &configuration)
+        trusted native_configuration(owner = &configuration),
+        trusted bray.runtime.bootstrap.task.arena_retained(owner = &arena)
     )
     ensures(
         trusted retained(owner = &result.execution),
@@ -54,6 +55,7 @@ trusted internal func initialize_domain(
     };
 
     let pointer = trusted typed(&allocation);
+    let identity = (trusted bray.runtime.bootstrap.task.arena(&arena)).identity;
 
     trusted std.memory.write<Domain>(
         pointer,
@@ -61,6 +63,7 @@ trusted internal func initialize_domain(
             allocation = allocation,
             scheduler = scheduler,
             identity = identity,
+            arena = arena,
             configuration = configuration,
             task_services = trusted task_services(),
             owners = core.atomic.initialize<usize>(1),

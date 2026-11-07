@@ -71,8 +71,8 @@ trusted internal func initialize_domain(pos allocation: DataPointer<u8>) -> Refe
                 {
                     generation = 0,
                     closed = false,
-                    head = 0,
-                    tail = 0
+                    head = bray.runtime.bootstrap.task.no_wait_link(),
+                    tail = bray.runtime.bootstrap.task.no_wait_link()
                 }
             )
         }
