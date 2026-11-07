@@ -104,6 +104,7 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         (&incoming, &right, &right_ids),
         &BTreeMap::new(),
         &[(expression, joined.clone())],
+        &BTreeSet::new(),
     );
 
     let ownership = super::witnesses::owned_alternatives(

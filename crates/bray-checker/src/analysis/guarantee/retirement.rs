@@ -164,8 +164,17 @@ impl ExecutionState {
             revokes(condition) && (kind.is_write() || borrowed_changed(condition))
         };
 
+        let availability_expired = |condition: &ExecutionCondition| {
+            !kind.is_write() && condition.observations().any(|observed| {
+                matches!(observed, ExecutionCondition::InitializedSnapshot(_, owner)
+                    if invalidated_observations.contains(owner)
+                        && !retained_observations.contains(owner))
+            })
+        };
+
         self.assumptions
-            .retain(|(condition, _)| retained_contents(condition) || !borrowed_changed(condition));
+            .retain(|(condition, _)| !availability_expired(condition)
+                && (retained_contents(condition) || !borrowed_changed(condition)));
 
         let mut retired_conditions = BTreeSet::new();
 

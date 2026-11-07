@@ -66,6 +66,12 @@ pub enum ExecutionCondition {
         u32,
         crate::execution_guarantees::ExecutionPlace,
     ),
+    /// Immutable initialized-state observation at an ownership join. The value
+    /// identity distinguishes incarnations without becoming access authority.
+    InitializedSnapshot(
+        crate::execution_guarantees::ExecutionPlace,
+        Arc<ExecutionCondition>,
+    ),
     /// A selected built-in operation on other known values.
     Operation(BoundOperator, Arc<[ExecutionCondition]>),
     /// A checked predicate application, compared by declaration and selected arguments.
@@ -150,6 +156,7 @@ impl ExecutionCondition {
             | Self::ScopedCapability(_)
             | Self::PostState(_, _)
             | Self::Joined(_, _, _)
+            | Self::InitializedSnapshot(_, _)
             | Self::Unknown => false,
         }
     }

@@ -332,7 +332,7 @@ fn call_argument_conditions(
                     None => meaning.clone(), // Lexical anonymous input paths are already selected.
                 };
 
-                let inputs = arguments
+                let inputs: std::collections::BTreeMap<_, _> = arguments
                     .iter()
                     .enumerate()
                     .map(|(ordinal, value)| {

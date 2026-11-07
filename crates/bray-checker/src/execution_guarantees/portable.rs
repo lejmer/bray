@@ -246,6 +246,7 @@ fn encode(
         | ExecutionCondition::CapturedInput { .. }
         | ExecutionCondition::ScopedCapability(_)
         | ExecutionCondition::PostState(_, _)
+        | ExecutionCondition::InitializedSnapshot(_, _)
         | ExecutionCondition::Joined(_, _, _) => return Ok(None),
     };
 

@@ -390,15 +390,11 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
                 root.projections = std::sync::Arc::new([]);
 
-                state
-                    .current
-                    .entry(root.clone())
-                    .or_insert_with(|| ExecutionCondition::Input(root));
-
-                state
-                    .current
-                    .entry(place.clone())
-                    .or_insert_with(|| ExecutionCondition::Input(place.clone()));
+                for input in [root, place.clone()] {
+                    if state.current.get(&input).is_none() {
+                        state.current.insert(input.clone(), ExecutionCondition::Input(input));
+                    }
+                }
             }
         }
 

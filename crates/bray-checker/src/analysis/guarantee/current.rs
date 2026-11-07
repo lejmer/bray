@@ -92,6 +92,10 @@ impl CurrentValues {
         self.slots.iter().map(|(place, value)| (place, &value.value))
     }
 
+    pub(super) fn iter_mut(&mut self) -> impl Iterator<Item = (&ExecutionPlace, &mut ExecutionCondition)> {
+        self.slots.iter_mut().map(|(place, value)| (place, &mut value.value))
+    }
+
     pub(super) fn range(
         &self,
         range: impl std::ops::RangeBounds<ExecutionPlace>,
@@ -158,5 +162,71 @@ impl<'a> IntoIterator for &'a CurrentValues {
 
     fn into_iter(self) -> Self::IntoIter {
         self.slots.iter().map(|(place, value)| (place, &value.value))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ValueAvailability;
+    use crate::analysis::guarantee::flow::merge_execution;
+    use crate::analysis::guarantee::state::ExecutionState;
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_symbols::SymbolOrdinal;
+    use std::sync::Arc;
+
+    fn retained_owner() -> (ExecutionState, ExecutionPlace, ExecutionCondition) {
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(place.clone());
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+        let claim = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
+            symbol.into(), crate::test_support::empty_substitution(symbol.into()), vec![owner.clone().borrowed()],
+        )));
+        let mut state = ExecutionState::default();
+
+        state.assign(place.clone(), owner.clone(), None);
+        state.carry_guarantee(owner, claim.clone());
+        state.trusted_assumptions.insert((claim.clone(), true));
+        (state, place, claim)
+    }
+
+    #[test]
+    fn conditional_move_keeps_authority_only_for_initialized_cleanup() {
+        let (present, place, claim) = retained_owner();
+        let mut absent = ExecutionState::default();
+
+        absent.vacate(place.clone());
+
+        for (left, right) in [(present.clone(), absent.clone()), (absent.clone(), present)] {
+            let mut joined = Some(left);
+
+            merge_execution(&mut joined, &Some(right.clone()), None);
+
+            let state = joined.as_ref().expect("reachable join");
+            let ValueAvailability::Guarded(guard) = state.current.availability(&place) else {
+                panic!("conditionally initialized owner requires a guard");
+            };
+
+            assert_eq!(claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), None);
+            let mut cleanup = state.assumptions.clone();
+
+            guard.assume(true, &mut cleanup);
+            assert_eq!(claim.prove_trusted(&state.trusted_assumptions, &cleanup), Some(true));
+            assert!(!merge_execution(&mut joined, &Some(right), None), "availability joins must converge");
+        }
+    }
+
+    #[test]
+    fn unknown_storage_does_not_become_an_absent_predecessor() {
+        let (present, place, claim) = retained_owner();
+        let mut unknown = ExecutionState::default();
+
+        unknown.assign(place.clone(), ExecutionCondition::Unknown, None);
+        let mut joined = Some(present);
+
+        merge_execution(&mut joined, &Some(unknown), None);
+        let state = joined.expect("reachable join");
+
+        assert_eq!(state.current.get(&place), Some(&ExecutionCondition::Unknown));
+        assert_eq!(claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), None);
     }
 }
