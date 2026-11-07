@@ -229,16 +229,19 @@ impl ExecutionCondition {
             return payload.clone().borrowed();
         }
 
-        if !matches!(self.owner_identity(), Self::Borrowed(_)) && self.owner_identity() != &self {
-            return Self::current_value(self.owner_identity().clone().borrowed(), self);
+        if self == Self::Unknown || matches!(self, Self::Borrowed(_)) || self.current_referent().is_some() {
+            return self;
         }
 
-        // This marks a live observation, not an additional dereference. Formal
-        // predicate substitution and runtime forwarding can reach the same view.
-        if self == Self::Unknown || matches!(self.owner_identity(), Self::Borrowed(_)) {
-            self
-        } else {
+        let owner = self.owner_identity();
+
+        if owner == &self {
             Self::Borrowed(Arc::new(self))
+        } else {
+            Self::current_value(
+                Self::Borrowed(Arc::new(owner.clone())),
+                Self::Borrowed(Arc::new(self)),
+            )
         }
     }
 
@@ -263,20 +266,26 @@ impl ExecutionCondition {
             return self.clone();
         }
 
-        Self::current_value(identity.clone().borrowed(), contents)
+        Self::current_value(identity.clone(), Self::Borrowed(Arc::new(contents)))
     }
 
-    /// Structural overlays belong inside their existing owner or loan context.
+    /// Structural overlays stay inside the existing value and its reached-data context.
     pub(crate) fn constructed(
         base: Self,
         fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
     ) -> Self {
         match base {
-            Self::CurrentValue(owner, contents) => Self::current_value(
-                owner.as_ref().clone(), Self::constructed(contents.as_ref().clone(), fields),
-            ),
+            Self::CurrentValue(owner, contents) => {
+                let contents = match contents.as_ref() {
+                    Self::Borrowed(data) => Self::Borrowed(Arc::new(Self::constructed(data.as_ref().clone(), fields))),
+                    data => Self::constructed(data.clone(), fields),
+                };
+
+                Self::current_value(owner.as_ref().clone(), contents)
+            }
             Self::Borrowed(contents) => Self::current_value(
-                Self::Borrowed(Arc::clone(&contents)), Self::Constructed(contents, fields),
+                Self::Borrowed(Arc::clone(&contents)),
+                Self::Borrowed(Arc::new(Self::constructed(contents.as_ref().clone(), fields))),
             ),
             base => Self::Constructed(Arc::new(base), fields),
         }
@@ -285,7 +294,7 @@ impl ExecutionCondition {
     pub(crate) fn current_value(owner: Self, contents: Self) -> Self {
         let owner = owner.owner_identity();
 
-        if let Self::Borrowed(referent) = owner && referent.as_ref() == &contents {
+        if let Self::Borrowed(referent) = &contents && referent.as_ref() == owner {
             return owner.clone();
         }
 
@@ -294,6 +303,14 @@ impl ExecutionCondition {
         }
 
         Self::CurrentValue(Arc::new(owner.clone()), Arc::new(contents))
+    }
+
+    /// Reached data is a non-owning observation. The outer value still owns its loan.
+    pub(crate) fn current_referent(&self) -> Option<&Self> {
+        match self {
+            Self::CurrentValue(_, contents) if let Self::Borrowed(data) = contents.as_ref() => Some(data),
+            _ => None,
+        }
     }
 
     /// Current-value contexts retain storage or loan identity outside value terms.
@@ -325,7 +342,7 @@ impl ExecutionCondition {
 
     /// Observe the referent without identifying it with the loan that supplies access.
     fn observe_contents(&mut self) {
-        if matches!(self, Self::CurrentValue(owner, _) if matches!(owner.as_ref(), Self::Borrowed(_))) {
+        if self.current_referent().is_some() {
             *self = Self::Borrowed(Arc::new(self.clone().into_referent()));
         }
     }
@@ -334,8 +351,12 @@ impl ExecutionCondition {
     pub(crate) fn into_referent(self) -> Self {
         match self {
             Self::Borrowed(value) => value.as_ref().clone().into_referent(),
-            Self::CurrentValue(owner, contents) if matches!(owner.as_ref(), Self::Borrowed(_)) => {
-                contents.as_ref().clone().into_referent()
+            Self::CurrentValue(owner, contents) => {
+                if let Self::Borrowed(data) = contents.as_ref() {
+                    data.as_ref().clone().into_referent()
+                } else {
+                    Self::CurrentValue(owner, contents)
+                }
             }
             value => value,
         }
@@ -525,6 +546,10 @@ impl ExecutionCondition {
         let Some((first, rest)) = path.split_first() else {
             return value;
         };
+
+        if let Some(data) = self.current_referent() {
+            return self.with_referent(data.with_component(path, value, storage));
+        }
 
         if let Self::CurrentValue(owner, contents) = self {
             return Self::current_value(owner.as_ref().clone(), contents.with_component(path, value, storage));

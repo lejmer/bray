@@ -215,7 +215,7 @@ impl ExecutionCondition {
 
     pub(crate) fn owned_components(&self) -> impl Iterator<Item = &Self> {
         let present = match self {
-            Self::CurrentValue(owner, value) if !matches!(owner.as_ref(), Self::Borrowed(_)) => Some(value.as_ref()),
+            Self::CurrentValue(_, value) if !matches!(value.as_ref(), Self::Borrowed(_)) => Some(value.as_ref()),
             Self::Present(value)
             | Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value) => Some(value.as_ref()),
             _ => None,
@@ -391,7 +391,7 @@ impl ExecutionCondition {
                 Self::StorageValue(owner, value) => pending.extend([(owner.as_ref(), live), (value.as_ref(), live)]),
                 Self::CurrentValue(owner, value) => {
                     pending.push((owner, live));
-                    pending.push((value, live || matches!(owner.as_ref(), Self::Borrowed(_))));
+                    pending.push((value, live));
                 }
                 Self::Constructed(base, fields) => {
                     pending.push((base, live));

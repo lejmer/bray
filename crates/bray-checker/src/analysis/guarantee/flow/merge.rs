@@ -632,12 +632,14 @@ pub(super) fn result_replacements(
 
     match value {
         ExecutionCondition::CurrentValue(_, contents) => {
-            let joined = match joined {
+            let source = value.current_referent().unwrap_or(contents);
+
+            let joined = joined.current_referent().unwrap_or_else(|| match joined {
                 ExecutionCondition::CurrentValue(_, contents) => contents.as_ref(),
                 value => value,
-            };
+            });
 
-            result_replacements(contents, joined, stable_values, stable_identities, values, identities);
+            result_replacements(source, joined, stable_values, stable_identities, values, identities);
         }
         ExecutionCondition::Constructed(_, fields) => {
             for (field, component) in fields.iter() {

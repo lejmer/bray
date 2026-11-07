@@ -256,21 +256,32 @@ mod tests {
             ExecutionCondition::predicate(symbol.into(), substitution, vec![value.component(field).borrowed()]),
         ));
 
-        let branch = |version| ExecutionCondition::current_value(
-            descriptor.clone(),
-            ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone()),
-        );
+        #[derive(Clone, Copy, Debug)]
+        enum Context { Owned, Loan, Reference }
 
-        for (borrowed, unchanged, component_carrier) in [false, true].into_iter()
-            .flat_map(|borrowed| [false, true].into_iter().flat_map(move |unchanged|
-                [false, true].map(move |component| (borrowed, unchanged, component))))
+        for (context, unchanged, component_carrier) in [Context::Owned, Context::Loan, Context::Reference].into_iter()
+            .flat_map(|context| [false, true].into_iter().flat_map(move |unchanged|
+                [false, true].map(move |component| (context, unchanged, component))))
         {
-            let context = |value: ExecutionCondition| if borrowed {
-                descriptor.clone().borrowed().with_referent(value)
-            } else { value };
+            let branch = |version| {
+                let data = ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone());
 
-            let left = context(if unchanged { descriptor.clone() } else { branch(0) });
-            let right = context(branch(1));
+                match context {
+                    Context::Owned => ExecutionCondition::current_value(descriptor.clone(), data),
+                    Context::Loan => descriptor.clone().borrowed().with_referent(
+                        ExecutionCondition::current_value(descriptor.clone(), data),
+                    ),
+                    Context::Reference => descriptor.with_referent(data),
+                }
+            };
+
+            let initial = match context {
+                Context::Loan => descriptor.clone().borrowed(),
+                Context::Owned | Context::Reference => descriptor.clone(),
+            };
+
+            let left = if unchanged { initial } else { branch(0) };
+            let right = branch(1);
 
             let joined = common_components(
                 &left, &right, Some(current.clone()), (&conditions, &conditions),
@@ -281,7 +292,15 @@ mod tests {
             assert_eq!(joined.clone().component(field), current.clone().component(field));
             assert_ne!(joined.clone().component(field), descriptor.clone().component(field));
 
-            if borrowed { assert_eq!(joined.owned_components().count(), 0); }
+            if !matches!(context, Context::Owned) {
+                assert_eq!(joined.owned_components().count(), 0);
+                assert_eq!(joined.clone().borrowed(), joined);
+
+                let substituted = joined.with_snapshots(&Default::default());
+
+                assert_eq!(substituted, joined);
+                assert_eq!(substituted.owned_components().count(), 0);
+            }
 
             let state = |value: ExecutionCondition| {
                 let mut state = ExecutionState::default();
@@ -309,7 +328,7 @@ mod tests {
             let condition = guarantee(merged.current[&place].clone());
 
             assert_eq!(condition.prove_trusted(&merged.trusted_assumptions, &merged.assumptions), Some(true),
-                "borrowed={borrowed} unchanged={unchanged} component={component_carrier} facts={:?} witnesses={:?}",
+                "context={context:?} unchanged={unchanged} component={component_carrier} facts={:?} witnesses={:?}",
                 merged.trusted_assumptions, merged.witnesses);
 
             assert_ne!(condition, guarantee(descriptor.clone()));

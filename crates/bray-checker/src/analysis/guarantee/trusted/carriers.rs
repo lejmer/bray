@@ -426,8 +426,11 @@ fn returned_owners(
                 path.push(StorageProjection::NullableValue);
                 pending.push((value, path));
             }
-            ExecutionCondition::CurrentValue(owner, contents) if !matches!(owner.as_ref(), ExecutionCondition::Borrowed(_)) => {
-                pending.push((contents, path));
+            ExecutionCondition::CurrentValue(_, contents) => {
+                // A returned reference can carry access promises without owning its target.
+                let data = if let ExecutionCondition::Borrowed(data) = contents.as_ref() { data.as_ref() } else { contents.as_ref() };
+
+                pending.push((data, path));
             }
             ExecutionCondition::Constructed(_, fields) => {
                 for (projection, component) in fields.iter() {

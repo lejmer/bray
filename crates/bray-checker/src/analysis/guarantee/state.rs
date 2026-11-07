@@ -422,10 +422,14 @@ impl ExecutionState {
                     .collect();
 
                 *value = ExecutionCondition::constructed(identity.as_ref().clone(), fields);
-            } else if let ExecutionCondition::CurrentValue(owner, _) = value
+            } else if let ExecutionCondition::CurrentValue(owner, contents) = value
                 && !stale(owner)
             {
-                *value = ExecutionCondition::current_value(owner.as_ref().clone(), ExecutionCondition::Unknown);
+                let contents = if matches!(contents.as_ref(), ExecutionCondition::Borrowed(_)) {
+                    ExecutionCondition::Borrowed(std::sync::Arc::new(ExecutionCondition::Unknown))
+                } else { ExecutionCondition::Unknown };
+
+                *value = ExecutionCondition::current_value(owner.as_ref().clone(), contents);
             } else {
                 *value = ExecutionCondition::Unknown;
             }

@@ -312,6 +312,13 @@ fn collect_observations(
         }
     }
 
+    if let Some(data) = joined.current_referent() {
+        let sources = sources.map(|source| source.current_referent().cloned().unwrap_or_else(|| source.clone().into_referent()));
+
+        collect_observations([&sources[0], &sources[1]], data, inputs, guards, absent, active, budget);
+        return;
+    }
+
     if matches!(joined.owner_identity(), ExecutionCondition::Borrowed(_)) {
         let sources = sources.map(|source| source.clone().into_referent());
 

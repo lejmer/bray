@@ -335,7 +335,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 })
             {
                 // Entry places and their immutable snapshots retain the shared field path.
-                let input = self.borrowed_context(place, ExecutionCondition::Input(place.clone()));
+                let input = ExecutionCondition::Input(place.clone());
 
                 state.current.insert(place.clone(), input.clone());
 
@@ -393,12 +393,12 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 state
                     .current
                     .entry(root.clone())
-                    .or_insert_with(|| self.borrowed_context(&root, ExecutionCondition::Input(root.clone())));
+                    .or_insert_with(|| ExecutionCondition::Input(root));
 
                 state
                     .current
                     .entry(place.clone())
-                    .or_insert_with(|| self.borrowed_context(place, ExecutionCondition::Input(place.clone())));
+                    .or_insert_with(|| ExecutionCondition::Input(place.clone()));
             }
         }
 
@@ -417,7 +417,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         if let Some(contracts) = self.request.trusted_contracts() {
             for (selection, carriers) in self.dependencies.static_carriers() {
                 let place = crate::ExecutionPlace::static_instance(selection.clone());
-                let value = self.borrowed_context(&place, ExecutionCondition::Input(place.clone()));
+                let value = ExecutionCondition::Input(place.clone());
 
                 state.current.insert(place.clone(), value.clone());
 

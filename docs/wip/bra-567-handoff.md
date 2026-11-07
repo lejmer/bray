@@ -16,8 +16,9 @@ The user authorizes rewriting unsuitable mechanisms when that produces a simpler
 ### Design commitments
 
 `ExecutionPlace` identifies a checked storage path. `ExecutionState.current` maps that path to its current value,
-including independently versioned contents. A `Borrowed` owner identifies a retained loan. Refreshing its referent
-or joining current contents must not replace the loan identity. A scalar observation reached through a stored view
+including independently versioned contents. A reference value retains its identity and access capability. Its
+`CurrentValue` stores non-owning `Borrowed` reached data. Refreshing its referent or joining current contents must not
+replace the reference value's identity. A scalar observation reached through a stored view
 uses that loan's established storage context, not a current contents version as a new storage identity.
 
 `ExecutionCallEvidence` owns an invocation's entry snapshot. An inactive frame retains that context independently
@@ -132,121 +133,85 @@ without implementing those separate outcomes here.
 
 Implementation and end-to-end verification remain in progress. Do not request final review yet.
 
-The checker distinguishes non-owning scalar `StorageValue` context, retained-owner/loan `CurrentValue` contents, and
-structural `Constructed` components. `CurrentValue` with a `Borrowed` owner observes but does not own its contents.
-`OwnedTarget` represents real backing. Synthetic borrowed-referent and owned-current wrappers are removed. The current batch removes that overloaded representation from
-invalidation and joins. Ordinary equalities change data without renaming storage. Join substitutions distinguish
-complete root identity from current component observations. No additional witness or alias store is introduced.
+The checker separates a retained value's identity from its current data. A reference value still owns its access
+capability. Its reached data is `Borrowed` within `CurrentValue`, so it does not own the target storage. Entry inputs
+retain their original identities. Checked type and borrowed-input metadata determine reference role during contents
+refresh, without changing entry values. `StorageValue` remains a non-owning scalar physical observation, while
+`Constructed` contains structural components. `OwnedTarget` represents real backing. Synthetic backing projections
+for current contents are removed. Substitution preserves the non-owning role independently of ordinary borrow
+normalization. No additional witness or alias store is introduced.
 
-The cached inline footprint classifies complete nominal carriers as well as empty markers. A reached raw move must
-revoke scalar-only owner authority. Unrelated typed moves cannot retire another nominal owner merely because both
-contain scalar data. Raw writes remain conservative for contents. Active loans and stored views use one typed survival
-query and retain their physical referent type. Mutable markers use that query even after raw publication. Active loan
-regions are resolved once per preservation operation.
+Predicates discard the access loan identity while retaining the owned referent's physical context. Aliases of one
+referent agree, while equal data at distinct storage does not identify predicate subjects. Const calls compute from
+data independently of those contexts. Joins distinguish complete value identity from current component observations.
+The existing join matrix covers owned values, explicit loans and formal reference values, with whole/component
+carriers and mixed initial/refreshed predecessors.
 
-Nested conditional ownership carries all enclosing active-case guards in one paired predecessor traversal. Mutable
-union reconstruction retains checked physical paths, including variant identity, instead of reconstructing parents
-from execution places that omit that identity.
+The cached inline footprint classifies complete nominal carriers as well as empty markers. Reached raw moves revoke
+matching scalar-only or pointer-containing owner authority. Unrelated typed moves preserve another nominal owner.
+Raw writes remain conservative for contents. Active loans and stored views share one typed survival query, with
+active loan regions resolved once. Mutable union reconstruction retains checked physical variant paths. Nested
+conditional ownership carries every enclosing active-case guard in one paired predecessor traversal.
+
+The latest pushed checkpoint is `7358cd9a6e150516d7b946c8865a1ac5b25bf2ce`. Its entry-loan seeding experiment
+regressed full Source acceptance and is being replaced by the current non-owning reached-data representation.
+Do not treat that checkpoint as accepted. Update these results after combined validation of the completed batch.
 
 | Check | Result and limit |
 | --- | --- |
-| Checker library unit suite | Current-value batch: 414 passed, one expanded join matrix failed in the bare-loan/unchanged branch. Canonical loan batch pending |
-| Runtime Source bodies and execution certificates | Canonical-loan batch: 3,160 checks, 15 failures, including five body families and downstream certificates. Predicate-context correction pending |
-| Same-site inactive numeric deferred frame | Accepted, active numeric and Boolean partial extraction rejected |
-| Shared/stored owner and nested union forwarding | Real owner accepted, fabricated marker and payload authority rejected |
-| Typed raw transfer controls | Unrelated nominal moves accepted, whole/nested owner moves and writes rejected for scalar/address owners |
-| Mutable union completion | Promised owner accepted, unpromised owner rejected |
-| Exposed mutable marker | Marker-free write now accepted after raw publication |
-| Required style and formatting | Running for current-value batch |
-| Native/imported runtime acceptance and comparative costs | Unrun |
+| Checker library units | Previous owned-referent and entry-seeding batches: 415 passed. Current batch pending |
+| Runtime Source bodies and certificates | Best canonical-loan sweep: 3,160 checks, 15 failures. Owned-referent batch: 21 failures. Entry-seeding experiment: 106 failures. Current batch pending |
+| Representative Source controls | All 16 passed on the owned-referent batch, including genuine/fabricated owners, nested unions, captures, promises, raw transfers and exposed mutable markers |
+| Required style and formatting | Passed for prior pushed batches. Current Rust batch pending |
+| Native/imported acceptance and comparative costs | Unrun |
 
-All previously failing destructor terminal-effect checks pass. Composition, direct invocation, event registration,
-worker context construction, task retirement and service retirement pass their Source bodies/certificates.
-Remaining body families in the last valid sweep are execution dispatch, resume binding, root entry cleanup,
-task-allocation cleanup, observer preparation rollback, worker entry and worker formation. Remaining certificate
-failures include downstream callers. The temporary physical-framing experiment did not improve acceptance and was
-removed. The full Source sweep and new mixed initial/refreshed component-carrier join coverage are pending on the
-current-value representation. Do not request review or claim acceptance from an earlier check count.
+Previously failing destructor terminal-effect checks pass. Composition, direct invocation, event registration,
+worker context construction, task retirement, service retirement and observer rollback pass their Source bodies and
+certificates in earlier sweeps. Remaining body families include execution dispatch, resume binding, root entry
+cleanup, task-allocation cleanup and worker formation. Later representation experiments also regressed activation
+abandonment, entry execution restoration and task dispatch. Full acceptance must be established on the current code.
 
-Runtime ownership now follows complete publication and disposal units:
+Runtime ownership follows complete publication and disposal units:
 
-- Root admission reuses the `Current` view in its actual entry scope, removing an extra counted view and the single-use
-  `start_root` helper. The native frame claim remains in its original input slot until admission commits.
-- Worker context construction accepts the complete binding before publication. Failed native installation uses the
-  existing context retirement path to release that pin. Worker context bodies and certificates pass in the later sweep.
-- One task-slot operation owns detachment, metadata cleanup, report disposal and final pin release. The separate detach
-  phase releases the resident host acquisition before callbacks. Its pin remains live through all disposal. These
-  task-retirement bodies and certificates pass in the later sweep.
-- Deadline backing retirement detaches its pin before closing, but retains that pin locally through callbacks.
-- Observers validate execution before allocating preparation resources. Native record output now uses a separate scratch
-  value before committing to the preparation owner, keeping its acquisition outside the native output slot.
+- Root admission reuses the actual entry scope's `Current` view. The native frame claim remains in its original input
+  slot until admission commits.
+- Worker construction accepts the complete binding before publication. Failed native installation retires the actual
+  context and pin.
+- One task-slot operation owns detachment, metadata cleanup, report disposal and final pin release. Its detach phase
+  releases the resident host acquisition before callbacks, retaining the pin through disposal.
+- Deadline backing retirement detaches its pin before closing and retains it locally through callbacks.
+- Observers validate execution before allocation. Native record output uses scratch before committing to preparation.
 - Execution observation explicitly promises valid native report callbacks on its returned outcome.
 
-Optional services use per-domain native callbacks. Deadline driving returns one C-layout value. Final destruction
-reuses each provider's existing native destruction entry, which consumes the actual reference slot. Deadline backing
-retirement uses the last execution service owner's pointer protocol, rather than borrowing the pin it removes.
-No C borrow ABI, extra runtime owner or host-wide table is introduced.
+Optional services bind native operations per retained domain. Deadline driving returns one C-layout value. Final
+provider destruction reuses its existing native entry. This introduces no C borrow ABI, extra runtime owner or
+host-wide dispatch table. Native acceptance shares authenticated runtime provenance auditing across sync/async
+products. It includes minimal async demand omission and preparation/build/startup/size receipts, still unrun.
 
-Native acceptance shares authenticated runtime provenance auditing between async and synchronous products, once per
-smoke group. It adds a minimal async fixture, optional-service omission checks and preparation/build/startup/size metrics.
-Those checks remain unrun. No final review agent has been requested.
+Focused diagnosis found task allocation's last `dispose_reference` call does not physically frame the local Current
+root/acquisition despite framing the original factory temporary. Its admission and disposal calls export Unknown
+among other effects. Admission's result has no exported pointer relation, while its deeper `admit_locked` producer
+has a pointer relation from Entries backing through slabs. Simple nullable pointer, tuple and destructor controls
+export references correctly, so ordinary nullable joins alone do not explain this loss. Inspect actual producers and
+exits, without inferring freshness from allocation ownership or absent input dependencies.
 
-Temporary traces in `trusted/check.rs`, `cleanup/transition.rs`, `terminal.rs` and `transfers.rs`, and the diagnostic binary under
-`xtask/src/bin/`, are local only and must be removed before finalization. They are excluded from checkpoints.
-Use normal tooling production artifacts rather than examples or compilation test binaries for diagnosis.
-Do not require temporary artifacts to resume this task.
+Worker formation carries a row witness but lacks an active trusted clause for Existing at the final call. Ordinary
+branch facts establish Existing/Ok. Availability or ownership of a witness alone must not activate mutable conditions.
+The physical-framing experiment was removed. No speculative relaxation of Unknown effects is implemented.
 
-The connected GitHub account is verified as `lejmer`, with admin/push access to the public `lejmer/bray` repository.
-Shell GitHub authentication is invalid. Use connected Git object APIs to publish checkpoints on existing PR #710.
-Parent #709 remains open with the unchanged stack base. Push coherent checkpoints regularly as requested by the user.
+Temporary traces in `trusted/check.rs`, `cleanup/transition.rs`, `terminal.rs` and `transfers.rs`, plus the local harness
+under `xtask/src/bin/`, must be excluded from checkpoints and removed before finalization. The harness uses ordinary
+production tooling artifacts and supports selected Source body, certificate and dependency-summary diagnosis.
+No temporary artifact is required to resume. The optional Linux retained-resource probe runs separately from normal
+products, so instrumentation does not affect product-size receipts.
 
-The current-value and canonical-loan implementation is pushed through `6522a56a294774b58ea949f229ab4c97cf4624f1`.
-The latest canonical-loan style and format checks passed. Its checker suite passed the expanded join matrix, with
-414 tests passing and one retirement failure exposing lost physical predicate identity. The next uncommitted correction preserves an owned current context inside its borrowed view. A loan's lifetime identity
-and the owned referent's physical context are different roles. Whole-object predicates discard the loan identity and keep
-the owned current referent, so aliases of one referent agree while equal contents at different storage stay distinct.
-Const calls discard both contexts and compute from data. `with_referent` retains an existing owned/scalar storage context
-when refreshing its data. An unchanged current loan collapses to its bare form. Combined verification is pending. Observer preparation rollback now
-passes. The capture controls retain numeric inactive acceptance, active numeric/Boolean rejection, real shared owner
-acceptance, fabrication rejection, and promised/unpromised union distinction. The exposed mutable-marker control passes.
+Connected GitHub account `lejmer` has admin/push access to the public `lejmer/bray` repository. Shell GitHub
+authentication is invalid. Use connected Git object APIs for checkpoints on existing PR #710. Parent #709 remains
+open at the unchanged stack base. Push coherent checkpoints regularly, as requested by the user.
 
-The canonical-loan batch replaces synthetic `Constructed(Borrowed(owner), OwnedTarget = contents)` with
-`CurrentValue(Borrowed(owner), contents)`. This removes borrowed contents' backing interpretation and makes the same
-current-value context handle owned and borrowed snapshots. `into_referent` exposes reached data separately from the retained loan. Predicate arguments keep the owned referent context after discarding the enclosing loan identity, so equal data at
-different storage stays distinct while aliases agree. Const calls compute from data. Owned-components traversal excludes borrowed current contexts. Bare loans join and substitute
-through their referents before predecessor proof. The ordinary structural-snapshot early return remains in place, while
-current contexts join their changed contents. Broadly removing that early return regressed unrelated Source consumers.
-
-A focused final-storage trace confirms task allocation's last `dispose_reference` call does not frame the local Current
-root or its acquisition, despite retaining the original factory-result temporary. Do not assume the join correction fixes
-that separate physical-effect case. The fallback reference-result bounds may include the Current input region. Investigate
-established reference-output and typed-effect contracts, without inventing freshness from ownership or absent inputs.
-Worker formation has an available row witness but no active trusted clause for that row at the final call. Do not activate
-all carried witnesses: availability/ownership alone does not prove mutable current conditions.
-
-Temporary traces remain excluded from checkpoints. `transfers.rs` additionally prints `BRA567_STORAGE` at the end of
-preservation for diagnosis. Update checkpoint filtering or remove it before publishing. The task-owned optional Linux
-resource probe derives from the existing allocation probe and runs separately, so it will not affect product-size receipts.
-
-The pushed owned-referent context batch `159cd8281451bcad6da95081991416b8a729483b` passes all 415 checker units and
-all 16 representative Source controls (captures, genuine/fabricated owners, nested unions, promises, raw owner transfers,
-and exposed mutable markers). The full runtime sweep is 3,160 checks with 21 failures. The extra body failures versus the
-15-failure canonical batch include activation abandonment, entry execution restoration and task dispatch.
-
-The next uncommitted producer correction uses existing checked type/borrowed-input metadata to seed reference values
-as loans and preserve that role during contents invalidation. Formal borrow inputs were seeded as bare values, so their
-refresh could create an owning current context and make equivalent aliases disagree. Owned values continue to retain
-owned referent contexts. This is a representation correction, not a fresh-allocation or immutable-owner framing rule.
-No speculative relaxation of unknown effects has been implemented.
-
-The temporary harness supports `BRA567_SUMMARY=1` to print existing storage-flow body effects and selected call reference
-relations. The focused task-allocation summary shows `current()` has Atomic/Ambient effects, while admission and
-`dispose_reference` still export Unknown among their other effects. Inspect actual reference relations before changing
-scope or reachability. Do not assume a lost type or independent allocation without evidence.
-
-Next: finish the typed loan-introduction batch and self-review, finalize style, then run checker units, full runtime
-Source consumers and affected controls. Resolve remaining physical-effect and guarded-carrier failures together before
-native/imported/cost acceptance and final review.
+Next: finish the current representation batch and self-review, run mandatory style, checker units, the full runtime
+Source sweep and representative controls. Resolve actual remaining physical-effect and guarded-carrier failures
+before native/imported/cost acceptance, final review, PR readiness and Linear In Review.
 
 ## Final acceptance
 
