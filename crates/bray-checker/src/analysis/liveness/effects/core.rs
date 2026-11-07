@@ -23,6 +23,7 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct OperationEffects {
+    consumption_uses: BTreeMap<(bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageValueConsumptionPhase), BTreeSet<BoundDependencySubject>>,
     pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
     operation_result_definitions:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
@@ -222,6 +223,13 @@ impl OperationEffects {
                     .or_default()
                     .insert(subject);
             }
+        }
+
+        for (occurrence, phase, path) in storage.value_consumption_entries() {
+            let subject = BoundDependencySubject::Storage(path.root);
+            effects.universe.insert(subject);
+            effects.by_occurrence.entry(occurrence).or_default();
+            effects.consumption_uses.entry((occurrence, phase)).or_default().insert(subject);
         }
 
         for plan in storage.access_plans() {
@@ -581,8 +589,18 @@ impl OperationEffects {
             .operation_result_definitions
             .get(&operation.kind().occurrence());
 
+        let consumption_phase = if phase == Some(AnalysisCallPhase::Attempt) {
+            bray_bound_tree::StorageValueConsumptionPhase::Admission
+        } else {
+            bray_bound_tree::StorageValueConsumptionPhase::Completion
+        };
+        let consumption_uses = (phase != Some(AnalysisCallPhase::Input))
+            .then(|| self.consumption_uses.get(&(operation.kind().occurrence(), consumption_phase)))
+            .flatten();
+
         Some(OperationEffectView {
             effect,
+            consumption_uses,
             phase,
             result_definitions,
             recovered: self.recovered_nodes.contains(&operation.kind().node()),
@@ -606,6 +624,7 @@ impl OperationEffects {
 #[derive(Clone, Copy)]
 pub(in crate::analysis::liveness) struct OperationEffectView<'a> {
     effect: &'a OperationEffect,
+    consumption_uses: Option<&'a BTreeSet<BoundDependencySubject>>,
     phase: Option<AnalysisCallPhase>,
     result_definitions: Option<&'a BTreeSet<BoundDependencySubject>>,
     recovered: bool,
@@ -619,7 +638,7 @@ impl<'a> OperationEffectView<'a> {
         self.effect.uses.iter().filter(move |subject| {
             self.phase != Some(AnalysisCallPhase::Completion)
                 && (self.recovered || !self.effect.definitions.contains(subject))
-        })
+        }).chain(self.consumption_uses.into_iter().flatten())
     }
 
     pub(in crate::analysis::liveness) fn definitions(
@@ -644,6 +663,7 @@ impl<'a> OperationEffectView<'a> {
             .uses
             .iter()
             .chain(&self.effect.definitions)
+            .chain(self.consumption_uses.into_iter().flatten())
             .filter(|subject| {
                 matches!(
                     subject,

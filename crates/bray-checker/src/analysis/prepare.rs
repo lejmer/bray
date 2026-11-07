@@ -464,5 +464,18 @@ impl PreparedBodyAnalysis {
                 ));
             }
         }
+
+        for (_, identity) in storage.value_slots() {
+            if let Some(scope) = owners.identity_scope(storage, identity)
+                && let Some(place) = crate::ExecutionPlace::storage_identity(storage, identity)
+            {
+                self.scope_places.entry(scope).or_default().push((place, identity));
+            }
+        }
+
+        for places in self.scope_places.values_mut() {
+            places.sort();
+            places.dedup();
+        }
     }
 }

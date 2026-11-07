@@ -1793,6 +1793,7 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         }
         StorageIdentity::Result(_) => MirStorageKind::Return,
         StorageIdentity::Temporary(_)
+        | StorageIdentity::Evaluated(_)
         | StorageIdentity::InvocationInput { .. }
         | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::PostconditionResult(_)

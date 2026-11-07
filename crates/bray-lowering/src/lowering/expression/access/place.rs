@@ -244,7 +244,8 @@ impl Lowerer<'_> {
                     .storage_plan()
                     .identity(identity)
                     .and_then(|model| match model {
-                        StorageIdentity::Temporary(owner) if owner == expression => Some(owner),
+                        StorageIdentity::Temporary(owner) | StorageIdentity::Evaluated(owner)
+                            if owner == expression => Some(owner),
                         _ => None,
                     })
             });
@@ -307,7 +308,7 @@ impl Lowerer<'_> {
         let existing = static_reference.as_ref().map_or_else(
             || {
                 self.storages.get(&identity).copied().filter(|_| {
-                    !matches!(model, StorageIdentity::Temporary(_))
+                    !matches!(model, StorageIdentity::Temporary(_) | StorageIdentity::Evaluated(_))
                         || self.initialized_temporaries.contains(&identity)
                 })
             },
@@ -323,7 +324,7 @@ impl Lowerer<'_> {
 
         let (owner, custom_index) = match model {
             StorageIdentity::CustomIndexBorrow(owner) => (Some(owner), true),
-            StorageIdentity::Temporary(owner) | StorageIdentity::Allocation(owner)
+            StorageIdentity::Temporary(owner) | StorageIdentity::Evaluated(owner) | StorageIdentity::Allocation(owner)
                 if owner != expression =>
             {
                 (Some(owner), false)

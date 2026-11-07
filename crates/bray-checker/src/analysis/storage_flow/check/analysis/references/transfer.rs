@@ -27,10 +27,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                if let Some(source) =
-                    self.input
-                        .reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
-                {
+                let source = if let Some(result) = self.expression_result_storage(expression) {
+                    let selected = self.storage.access(access).expect("pattern source access is planned");
+                    let base = self.storage.node_plans(expression.into())
+                        .filter_map(|plan| self.storage.access(plan.access()))
+                        .filter(|base| base.root() == selected.root()
+                            && selected.projections().starts_with(base.projections()))
+                        .max_by_key(|base| base.projections().len());
+
+                    base.map(|base| Target::storage(result)
+                        .project(&selected.projections()[base.projections().len()..]))
+                } else {
+                    self.input.reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
+                };
+
+                if let Some(source) = source {
                     state
                         .memory
                         .transfer_value(&source, Place::root(destination));
@@ -43,6 +54,25 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let bray_bound_tree::AnyBoundNodeId::Expression(expression) = node else {
             return;
         };
+
+        if let Some(result) = self.expression_result_storage(expression)
+            && matches!(self.storage.identity(result.root), Some(bray_bound_tree::StorageIdentity::Evaluated(_)))
+        {
+            let source = self.storage.node_plans(expression.into()).find_map(|plan| {
+                matches!(self.storage.effective_purpose(plan),
+                    bray_bound_tree::StorageAccessPurpose::Copy
+                        | bray_bound_tree::StorageAccessPurpose::Move
+                        | bray_bound_tree::StorageAccessPurpose::ValueTransfer)
+                    .then(|| self.input.reference_target(
+                        self.request.semantic_values(), &state.memory, self.storage, plan.access()))
+                    .flatten()
+            });
+
+            if let Some(source) = source {
+                // The move's existing evaluated payload survives until finish_value_transfers.
+                state.memory.transfer_value(&source, result);
+            }
+        }
 
         if let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) =
             self.execution.semantics.selections().expression(expression)

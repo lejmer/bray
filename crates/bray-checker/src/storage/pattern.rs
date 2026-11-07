@@ -2,7 +2,7 @@ use bray_bound_tree::{
     BoundExpressionId, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode,
     BoundPatternTarget, BoundReferenceTarget, PatternOperation, PatternProjection, StorageAccess,
     StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
-    StorageIdentity, StorageProjection,
+    StorageIdentity, StorageProjection, StoragePath, StorageValueConsumptionPhase,
 };
 use bray_symbols::TypeData;
 
@@ -18,6 +18,18 @@ where
         id: BoundPatternId,
         subject_expression: BoundExpressionId,
         parent_access: StorageAccessId,
+    ) -> Result<(), PlanError<C::UpstreamError>> {
+        let value = self.pattern_value_path(subject_expression, parent_access);
+
+        self.plan_pattern_value(id, subject_expression, parent_access, value)
+    }
+
+    fn plan_pattern_value(
+        &mut self,
+        id: BoundPatternId,
+        subject_expression: BoundExpressionId,
+        parent_access: StorageAccessId,
+        mut value_path: Option<StoragePath>,
     ) -> Result<(), PlanError<C::UpstreamError>> {
         self.check_cancellation()?;
 
@@ -44,6 +56,11 @@ where
 
         let access = match checked.projection() {
             Some(projection) => {
+                if let Some(value) = &mut value_path {
+                    value.projections = value.projections.iter().copied()
+                        .chain([StorageProjection::from(projection)]).collect();
+                }
+
                 let access = self.project_pattern_access(
                     id,
                     parent_access,
@@ -86,11 +103,15 @@ where
                 pattern_operation_purpose(pattern.mode(), checked.operation()),
                 access,
             )?;
+
+            if matches!(checked.operation(), PatternOperation::Consume | PatternOperation::Copy) {
+                self.consume_pattern_value(id, value_path.as_ref());
+            }
         }
 
         if checked.target().is_none() {
             for binding in pattern.bindings() {
-                self.bind_pattern_local(*binding, id, subject_expression, access)?;
+                self.bind_pattern_local(*binding, id, subject_expression, access, value_path.as_ref())?;
             }
         }
 
@@ -103,8 +124,14 @@ where
                 .patterns
                 .binding_type(binding).unwrap_or_else(|| panic!("plan_pattern requires checked pattern binding type, id: {id:?}, subject_expression: {subject_expression:?}, parent_access: {parent_access:?}, binding: {binding:?}"));
 
+            let mut entry_path = value_path.clone();
             let access = match checked.projection() {
                 Some(projection) => {
+                    if let Some(value) = &mut entry_path {
+                        value.projections = value.projections.iter().copied()
+                            .chain([StorageProjection::from(projection)]).collect();
+                    }
+
                     let access = self.project_pattern_access(
                         id,
                         access,
@@ -125,7 +152,7 @@ where
                 None => access,
             };
 
-            self.bind_pattern_local(binding, id, subject_expression, access)?;
+            self.bind_pattern_local(binding, id, subject_expression, access, entry_path.as_ref())?;
         }
 
         if let Some(target) = checked
@@ -133,10 +160,14 @@ where
             .filter(|target| pattern.mode() == BoundPatternMode::Assignment || target.is_constant())
         {
             self.plan_pattern_target(id, subject_expression, pattern.mode(), target)?;
+
+            if matches!(checked.operation(), PatternOperation::Consume | PatternOperation::Copy) {
+                self.consume_pattern_value(id, value_path.as_ref());
+            }
         }
 
         for child in pattern.children() {
-            self.plan_pattern(*child, subject_expression, access)?;
+            self.plan_pattern_value(*child, subject_expression, access, value_path.clone())?;
         }
 
         if pattern.kind() == BoundPatternKind::Alternative {
@@ -152,6 +183,7 @@ where
         pattern: BoundPatternId,
         subject_expression: BoundExpressionId,
         access: StorageAccessId,
+        value_path: Option<&StoragePath>,
     ) -> Result<(), PlanError<C::UpstreamError>> {
         let checked = self
             .patterns
@@ -224,7 +256,20 @@ where
 
         let purpose = pattern_operation_purpose(mode, checked.operation());
 
-        self.record_pattern_purpose(pattern, subject_expression, purpose, access)
+        self.record_pattern_purpose(pattern, subject_expression, purpose, access)?;
+
+        if matches!(checked.operation(), PatternOperation::Consume | PatternOperation::Copy) {
+            self.consume_pattern_value(pattern, value_path);
+        }
+
+        Ok(())
+    }
+
+    fn consume_pattern_value(&mut self, pattern: BoundPatternId, value: Option<&StoragePath>) {
+        if let Some(value) = value {
+            self.builder_mut().consume_value(pattern.into(), StorageValueConsumptionPhase::Completion, value.clone())
+                .expect("pattern consumption selects its actual evaluated subject component");
+        }
     }
 
     fn bind_owned_pattern_storage(

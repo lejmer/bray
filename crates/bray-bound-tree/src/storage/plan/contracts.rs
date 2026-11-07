@@ -9,6 +9,15 @@ use bray_symbols::{
 };
 use std::sync::Arc;
 
+/// The checked boundary after which an evaluated operand handle is consumed.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageValueConsumptionPhase {
+    /// Invocation entry has captured the admitted operands, before callee effects.
+    Admission,
+    /// The consumer has published its destination value or pattern bindings.
+    Completion,
+}
+
 /// The semantic construct that establishes a borrow capability.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BorrowCapabilityOrigin {

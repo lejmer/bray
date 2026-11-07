@@ -319,6 +319,33 @@ ends its ownership. Call attempts keep prospective results pending until success
 remain physical regions rather than inline value slots. Opaque invalidation applies the checked survival mask first,
 then retains authority through actual live snapshots, preserving ownership roles and replaced-child boundaries.
 
+The consumer trace found that physical source accesses and produced evaluation slots must be distinct. A Name/member
+move consumes its source when the read is evaluated, while the evaluated object must remain owned until its parent
+captures it. Likewise, an aggregate child temporary must survive sibling evaluation and then cease to be an independent
+owner after assembly. Pattern binding and staged inputs already have explicit later consumption, but aggregate and
+unstaged-call planning did not record it. Scope preparation also previously enumerated only bound storage.
+Complete this as one checked protocol: index a typed result slot for every materialized runtime expression, retain
+source accesses as the physical move targets, record evaluated-value consumption at each actual destination commit,
+and include unbound value slots in lexical expiry. Consumers select existing objects and mark slots unavailable after
+capture. No runtime child-syntax scan, cache-wide ownership retention, alias ledger or result reconstruction is allowed.
+Keep successful publication after a self-produced root's materialization Move. Availability alone cannot distinguish
+that producer from a later consuming operation. Validate this entire protocol together, including negative old-owner
+access after consuming the assembled destination.
+
+`StorageIdentity::Evaluated` distinguishes a materialized aliased read from its original physical source. Existing
+self-produced temporaries retain their identities. `StoragePlan::value_slot` indexes actual outputs, while checked
+Admission/Completion consumption paths name their destination boundaries. Lvalue-only reads and borrows do not acquire
+independent owning result slots. Physical reference/owned-region payload, liveness, cleanup/frame retention and semantic
+publication must all follow those checked transports. Source access checking remains attached to the original path.
+Borrowing a fresh physical owner keeps that owner in its real scope, while consuming a loan handle does not end its
+pointee. Implicit Next and scoped capability results remain distinct from the enclosing expression's final value.
+
+Admission also transfers witness authority into the existing callee-entry protocol. Suspend recorded actual input
+carriers in the existing ledger and remove public facts during execution. Keep only that admitted entry's existing
+records privately through opaque effects. Normal completion resumes, qualifies by actual result cases, and applies
+returned preservation masks and dependency retirement atomically. Failure retires admitted inputs without publishing
+a normal result. This replaces the unconditional-return-only owner retention shortcut, with no second witness store.
+
 The call-boundary review found a missing owned-contents contract. A typed preservation mask on each owned-result
 transfer separates unchanged data from owner identity. Its inference and consumption are integrated with portable
 encoding, validation, substitution and specialization identity. This is an internal semantic contract change, with no

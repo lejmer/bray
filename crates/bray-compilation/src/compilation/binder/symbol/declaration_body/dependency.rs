@@ -300,6 +300,7 @@ fn portable_storage_identity(
         | StorageIdentity::ContractParameter(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::Temporary(_)
+        | StorageIdentity::Evaluated(_)
         | StorageIdentity::InvocationInput { .. }
         | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::InvocationResult(_)

@@ -526,20 +526,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Authority follows the actual surviving value tree. A descriptor keeps
         // its own identity, but cannot retain overwritten children by prefix.
         // Evaluated snapshots are not a second source of live ownership.
-        let mut owners = state.current.live_values()
+        let owners = state.current.live_values()
             .flat_map(|value| state.owned_values(&value))
             .collect::<BTreeSet<_>>();
 
-        if let bray_bound_tree::StorageMutation::Operation(site) = mutation
-            && let Some(entry) = state.entries.get(&site)
-            && let Some(contracts) = self.dependencies.calls().get(&site) {
-            let transfers = contracts.owned_result().guaranteed_transfers();
+        let admitted = match mutation {
+            bray_bound_tree::StorageMutation::Operation(site) => Some(site),
+            _ => None,
+        };
 
-            owners.extend(self.returned_owned_values(site, &entry.arguments, &transfers)
-                .iter().flat_map(|(_, value)| state.owned_values(value)));
-        }
-
-        state.invalidate_cleanup(&snapshots, &owners);
+        state.invalidate_cleanup(&snapshots, &owners, admitted);
     }
 
     fn preservation_masks<'a>(

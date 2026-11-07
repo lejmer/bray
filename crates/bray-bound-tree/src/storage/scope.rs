@@ -117,6 +117,7 @@ pub fn storage_identity_transfers_at_unit_exit(
             | StorageIdentity::PredicateParameter(_)
             | StorageIdentity::PostconditionResult(_)
             | StorageIdentity::Temporary(_)
+            | StorageIdentity::Evaluated(_)
             | StorageIdentity::InvocationInput { .. }
             | StorageIdentity::CustomIndexBorrow(_)
             | StorageIdentity::InvocationResult(_)

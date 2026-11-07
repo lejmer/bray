@@ -20,6 +20,8 @@ pub struct StoragePlan {
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
     temporaries: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
+    value_slots: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
+    value_consumptions: BTreeMap<(crate::BoundExecutionSite, crate::StorageValueConsumptionPhase), BTreeSet<StoragePath>>,
     identity_types: BTreeMap<StorageIdentityId, TypeId>,
     copyable_types: BTreeSet<TypeId>,
     owned_borrows: BTreeMap<(TypeId, BorrowKind), crate::StorageProtocolCall>,
@@ -61,6 +63,8 @@ impl StoragePlan {
             kind,
             identities,
             temporaries,
+            value_slots,
+            value_consumptions,
             identity_types,
             owned_borrows,
             accesses,
@@ -133,6 +137,8 @@ impl StoragePlan {
             copyable_types: BTreeSet::new(),
             identities: identities.into(),
             temporaries,
+            value_slots,
+            value_consumptions,
             identity_types,
             owned_borrows,
             accesses: accesses.into(),
@@ -193,6 +199,32 @@ impl StoragePlan {
     /// Returns the first temporary slot introduced for one explicit expression result.
     pub fn temporary(&self, expression: crate::BoundExpressionId) -> Option<StorageIdentityId> {
         self.temporaries.get(&expression).copied()
+    }
+
+    /// Returns actual evaluated slot paths consumed at one checked boundary.
+    pub fn value_consumptions(
+        &self,
+        occurrence: crate::BoundExecutionSite,
+        phase: crate::StorageValueConsumptionPhase,
+    ) -> impl Iterator<Item = &StoragePath> {
+        self.value_consumptions.get(&(occurrence, phase)).into_iter().flatten()
+    }
+
+    /// Enumerates evaluated-value destination commits for lifetime analysis.
+    pub fn value_consumption_entries(&self) -> impl Iterator<Item = (crate::BoundExecutionSite, crate::StorageValueConsumptionPhase, &StoragePath)> {
+        self.value_consumptions.iter().flat_map(|((site, phase), paths)| {
+            paths.iter().map(move |path| (*site, *phase, path))
+        })
+    }
+
+    /// Returns the actual materialized result slot, independently of its source access.
+    pub fn value_slot(&self, expression: crate::BoundExpressionId) -> Option<StorageIdentityId> {
+        self.value_slots.get(&expression).copied()
+    }
+
+    /// Enumerates checked expression outputs without scanning storage identities.
+    pub fn value_slots(&self) -> impl Iterator<Item = (crate::BoundExpressionId, StorageIdentityId)> + '_ {
+        self.value_slots.iter().map(|(expression, identity)| (*expression, *identity))
     }
 
     /// Returns the checked type stored by one persistent storage origin, when recorded.
