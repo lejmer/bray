@@ -66,7 +66,9 @@ impl ExecutionCondition {
         for argument in &mut arguments {
             // Const calls compute from current values, independently of the
             // loan that supplies them. Flow values retain that loan separately.
-            *argument = std::mem::replace(argument, Self::Unknown).into_referent();
+            let value = std::mem::replace(argument, Self::Unknown).into_referent();
+
+            *argument = value.literal_contents().cloned().unwrap_or(value);
 
             if argument.contains_unknown() {
                 return Self::Unknown;
@@ -245,6 +247,21 @@ impl ExecutionCondition {
         let identity = self.owner_identity();
 
         if matches!(identity, Self::Borrowed(_)) {
+            // A known value can still belong to a distinct storage owner. Refresh
+            // that existing context instead of turning its authority into a literal.
+            let contents = if let Self::Borrowed(previous) = identity
+                && previous.literal_contents().is_some()
+                && matches!(contents, Self::Literal(_) | Self::Boolean(_))
+                && let Self::Constructed(base, _) = previous.as_ref()
+            {
+                Self::Constructed(
+                    Arc::clone(base),
+                    [(bray_bound_tree::StorageProjection::OwnedTarget, contents)].into(),
+                )
+            } else {
+                contents
+            };
+
             if let Self::Borrowed(previous) = self
                 && previous.as_ref() == &contents
             {
@@ -269,6 +286,17 @@ impl ExecutionCondition {
                 Arc::new(identity.clone().borrowed()),
                 [(bray_bound_tree::StorageProjection::OwnedTarget, contents)].into(),
             )
+        }
+    }
+
+    /// Known contents observed through an existing storage or descriptor context.
+    fn literal_contents(&self) -> Option<&Self> {
+        match self {
+            Self::Constructed(_, fields) => match fields.as_ref() {
+                [(bray_bound_tree::StorageProjection::OwnedTarget, value @ (Self::Literal(_) | Self::Boolean(_)))] => Some(value),
+                _ => None,
+            },
+            _ => None,
         }
     }
 

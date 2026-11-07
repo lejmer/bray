@@ -711,8 +711,8 @@ mod tests {
                 true,
             ),
             (
-                "@abi(c) trusted func callback() { panic(\"contained\"); } trusted func invoke() uses(foreign_call) { trusted callback(); }",
-                false,
+                "@abi(c) trusted func callback() { panic(\"ordinary\"); } trusted func invoke() uses(foreign_call) { trusted callback(); }",
+                true,
             ),
             (
                 "@abi(c) trusted func callback(pos flag: bool) requires(flag) {} trusted func invoke() uses(foreign_call) { trusted callback(false); }",

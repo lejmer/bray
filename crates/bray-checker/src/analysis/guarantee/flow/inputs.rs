@@ -40,8 +40,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 value
             } else { value.into_referent() };
 
+            self.observe_move(state, &path, pointee, &value);
             state.pending_results.insert(expression, value);
-            self.observe_move(state, &path, pointee);
 
             return Some(path);
         }
