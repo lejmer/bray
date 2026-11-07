@@ -26,7 +26,7 @@ pub(crate) fn expression_condition(
         bray_bound_tree::BoundPatternId,
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
-    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     expression: BoundExpressionId,
     budget: &mut usize,
@@ -160,13 +160,13 @@ pub(crate) fn expression_condition(
                 return ExecutionCondition::Unknown;
             };
 
-            if let Some(value) = current.get(&BoundReferenceTarget::Surface(target.member()).into())
+            if let Some(value) = current.get_value(&BoundReferenceTarget::Surface(target.member()).into())
             {
                 return value.clone();
             }
 
             if let Some(value) = expression_place(unit, semantics, values, expression)
-                .and_then(|place| current.get(&place))
+                .and_then(|place| current.get_value(&place))
             {
                 return value.clone();
             }
@@ -399,7 +399,7 @@ pub(crate) fn expression_place(
 fn name_condition(
     target: BoundReferenceTarget,
     selection: Option<&SemanticSelection>,
-    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
 ) -> ExecutionCondition {
     let place = match selection {
         Some(SemanticSelection::StaticReference(selection)) => {
@@ -408,7 +408,7 @@ fn name_condition(
         _ => target.into(),
     };
 
-    if let Some(value) = current.get(&place) {
+    if let Some(value) = current.get_value(&place) {
         // The current state and expression retain the same immutable term independently.
         return value.clone();
     }

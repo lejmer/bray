@@ -32,6 +32,7 @@ pub(crate) use normalize::{
 };
 pub use normalize::{execution_conditions, predicate_conditions, predicate_conditions_with_inputs};
 pub(crate) use place::ExecutionInput;
+pub(crate) use place::ExecutionValues;
 pub use place::ExecutionPlace;
 
 pub use portable::{

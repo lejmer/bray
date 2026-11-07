@@ -33,7 +33,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
 
-            state.assign(place, ExecutionCondition::Unknown, None);
+            state.vacate(place);
         }
     }
 

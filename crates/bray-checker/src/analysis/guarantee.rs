@@ -6,6 +6,7 @@ mod check;
 mod cleanup;
 pub(crate) use cleanup::{Cleanup, Plan as CleanupPlan};
 mod completion;
+mod current;
 mod integer;
 mod operation;
 mod ownership;

@@ -24,7 +24,7 @@ pub(super) fn selected_condition(
         bray_bound_tree::BoundPatternId,
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
-    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     expression: BoundExpressionId,
     budget: &mut usize,
@@ -237,7 +237,7 @@ fn call_argument_conditions(
         bray_bound_tree::BoundPatternId,
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
-    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
     evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     budget: &mut usize,
     predicates: Option<
@@ -321,7 +321,7 @@ fn call_argument_conditions(
         {
             let place = bray_bound_tree::BoundReferenceTarget::Surface((*provider).into()).into();
 
-            if let Some(meaning) = current.get(&place) {
+            if let Some(meaning) = current.get_value(&place) {
                 let meaning = match call.resolution().declaration_source() {
                     Some(callable) => crate::substitute_execution_condition(
                         values,

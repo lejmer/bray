@@ -562,6 +562,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .map(|value| value.owner_identity().clone()));
         }
 
+        // Reconstruct actual carriers, not every structural prefix of an
+        // unchanged field. A prefix can have unrelated mutable observations.
+        let nested_owners = descriptors.iter().filter(|(place, identity)| {
+            !place.projections.is_empty() && state.witnesses.contains_key(*identity)
+        }).map(|(place, identity)| (place.clone(), identity.clone())).collect::<Vec<_>>();
+
         state.invalidate_cleanup(&snapshots, &owners);
 
         // A local observation starts at its checked binding, not at a preceding
@@ -586,12 +592,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         self.preserve_contents_owners(state, &snapshots, &roots, &mut descriptors);
 
-        state.current.clear();
+        let previous = std::mem::take(&mut state.current);
 
         for place in roots {
             if let Some((value, _)) = retained.remove(&place) {
                 // A whole stable root needs no intermediate post-state or reconstruction.
-                state.current.insert(place, value);
+                let availability = previous.availability(&place);
+
+                state.set_current(place, value, None, availability);
                 continue;
             }
 
@@ -606,22 +614,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let path = descriptor_paths.get(&place).map(|path| path.projections.as_ref());
 
-            state.assign(place, value, path);
+            let availability = previous.availability(&place);
+
+            state.set_current(place, value, path, availability);
         }
 
         // Restore each surviving nested carrier before restoring its data.
         // Keeping only the outer descriptor loses independently created child
         // identities at the next opaque operation, despite unchanged markers.
-        for (place, identity) in descriptors.into_iter().filter(|(place, _)| !place.projections.is_empty()) {
+        for (place, identity) in nested_owners {
             let contents = ExecutionCondition::PostState(mutation, place.clone());
             let value = self.current_observation(&place, identity, contents);
             let path = descriptor_paths.get(&place).map(|path| path.projections.as_ref());
 
-            state.assign(place, value, path);
+            let availability = previous.availability(&place);
+
+            state.set_current(place, value, path, availability);
         }
 
         for (place, (value, path)) in retained {
-            state.assign(place, value, Some(&path.projections));
+            let availability = previous.availability(&place);
+
+            state.set_current(place, value, Some(&path.projections), availability);
         }
     }
 
@@ -784,7 +798,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<Vec<_>>();
 
-        state.current.extend(retained);
+        state.current.observe_all(retained);
 
         for place in changed_places {
             let value = descriptors
@@ -807,12 +821,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let path = changed_paths.get(&place).map(|path| path.as_ref());
 
-            state.assign(place, value, path);
+            state.observe(place, value, path);
         }
 
         // Restore unchanged components before refreshing aliases to the new snapshot.
         for (place, (value, path)) in stable_places {
-            state.assign(place, value, Some(&path.projections));
+            state.observe(place, value, Some(&path.projections));
         }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
@@ -988,7 +1002,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for (path, place, value) in aliases {
             if let Some(place) = place {
-                state.assign(place, value, Some(&path.projections));
+                state.observe(place, value, Some(&path.projections));
             } else if let Some(bray_bound_tree::StorageIdentity::Temporary(expression)) =
                 self.storage.identity(path.root)
             {

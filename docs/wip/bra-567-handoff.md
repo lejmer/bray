@@ -118,6 +118,9 @@ No reviewer has been launched. Build caches and the untracked local diagnostic r
 
 ### Architecture acceptance checklist
 
+- [ ] Before every build, test or executable probe, check changed declaration and binding names against Bray keywords,
+      enclosing bindings and visible module declarations. Fields and variant parameters use their own declared scopes.
+      Do not use compilation to discover predictable naming conflicts. Check this again after a rewrite or rename.
 - [ ] Open service ownership and closed cleanup retention are different binding alternatives with consuming transitions.
 - [ ] Startup rollback, root entry restoration and native entry storage each have one identified owner on every exit.
 - [ ] Task retirement returns independent resource owners directly, with no invalid whole-witness partition.
@@ -141,7 +144,66 @@ This adds no alias store, witness store, persisted contract field or freshness r
 and raw-transfer checks remain in force. A native execution fixture composes nested owners, opaque callbacks, sibling
 mutation, loops, tagged selection and cleanup. Complete runtime checking and positive/negative controls must establish
 the change before native/imported acceptance. Mandatory style passed before the final projection-metadata refinement.
-Explicit formatting and combined validation are in progress. No behavioral acceptance is claimed for this batch yet.
+Style and explicit formatting passed at `9c22a795e971e5ce6a71fd9cdd7db60bab8e8336`. All 517 affected units passed.
+The complete Source run finished with 3,260 checks and 111 failing bodies/certificates, including new binding-name
+conflicts and semantic regressions. These results do not establish completion. Sixteen prior Source controls retained
+their expected acceptance/rejection counts, but the fabricated-owner control rejected a malformed initializer instead
+of an ownership violation. Its local input is corrected and must be checked for the intended trusted diagnostic.
+The added owned-loan control passed. The committed ownership-transition composition fails at implicit cleanup.
+
+The next coherent correction covers naming preflight, reconstruction of actual carriers without resetting unrelated
+observations, consuming final-reference extraction under the resident lease, and ownership that exists on only one
+control-flow predecessor. A single composed diagnostic probe shows repeated callbacks and a loop preserve their owner,
+while conditionally moving a nested owner leaves its original storage's cleanup unproved. The existing shared
+`StorageFlowState` tracks definite absence separately from unknown data, but the execution observation join loses that
+distinction. Review that representation and conditional cleanup together rather than patching the failing destructor.
+The probe's extra `dispose_state` helper omitted its required trusted input contract and is not valid contrary evidence.
+No final reviewer or native/imported acceptance has run. Keep implementation active until the complete acceptance passes.
+
+### Current compiler design decision: observation availability
+
+The callback-only and loop-only composition bodies pass. Conditional movement alone leaves the original nested
+owner's implicit cleanup unproved. Storage analysis already distinguishes moved/absent storage from unknown data,
+but execution observations write `Unknown` after a checked move and merge it with an initialized predecessor as unknown.
+Cleanup then has no observation for the owner that still exists on one predecessor. A declaration-name exemption or
+activating every possible witness condition would be wrong.
+
+Replace `ExecutionState.current`'s bare data term with one current-value record containing the term and its availability:
+present, absent, guarded, or unknown. Missing observation data must never imply absence. Checked movement and cleanup establish absence. An opaque mutation establishes unknown
+contents, without asserting absence. Assignment establishes a new present observation. Parent/component updates retain
+their actual owner identities and availability. This remains proof data inside the existing composite storage domain,
+not another initialization or alias analysis.
+
+At joins, retain possible observations over predecessors where their slot exists and retain proof only under the same
+availability guard. Represent that guard by a finite internal initialized-observation condition naming the place and
+value incarnation. Use existing guard implication and carrier-proof rules. An absent predecessor supplies no owner or
+authority. Unknown contents remain conservative. Never promote witness availability into an active predicate clause.
+
+Selected implicit cleanup is conditional on its receiver being initialized. Its entry evidence can assume that same
+initialized-observation guard, just as it already assumes the active nullable/union payload guards. Ordinary use still
+requires the owning storage analysis to prove initialization and access. Real mutation, replacement, transfer and
+retirement invalidate the applicable guards. Joins use canonical block/place identities and the existing bounded
+fixed point. Internal availability conditions must not escape into portable interfaces. Source-visible guarded result
+contracts retain their established presence/variant encoding.
+
+Implement the record, place lookup/projection, assignment/move/cleanup updates, joins, clause transport and selected
+cleanup evidence together. Review deferred entry capture and portable-term rejection. Protect conditional movement,
+normal and abnormal cleanup, fabricated owners, conditional clauses, raw transfer and repeated incarnations in the
+existing tests and composition fixtures. Do not rerun builds/tests until this semantic batch and runtime ownership
+corrections are complete and the naming/keyword preflight has passed.
+
+The current-value record migration is started and intentionally unvalidated. `analysis/guarantee/current.rs` owns the
+record and its data/availability views. `ExecutionValues` shares lookup with frozen call-entry maps. Assignment,
+observation and vacancy now have distinct state operations. Opaque reconstruction carries prior availability and only
+reconstructs registered nested carriers. Normalization uses the value-view contract. The remaining migration is the
+availability-aware join, guarded clause transport, initialized receiver evidence for conditional cleanup, snapshot guard
+representation/capture/retirement, and regression coverage. Do not build this partially wired model yet.
+
+For runtime extraction, change `take_released` and its final-reference producer to consume the final `Reference` value.
+Extract initialized field payloads from the actual leased row rather than first raw-moving a whole Slot and asserting
+initialization on its copied Uninit fields. Publish the vacant row after forming RetiredCell. Both ordinary final storage
+release and execution-domain retirement pass their final actual reference to this same operation. Arena formation also
+needs resident admission owned before allocation, with scoped rollback until the initialized arena accepts that duty.
 
 ## Refactor plan
 

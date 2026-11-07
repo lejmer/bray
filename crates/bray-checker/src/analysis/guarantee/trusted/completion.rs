@@ -130,7 +130,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .current
             .retain(|place, _| !expired_roots.contains(&place.root));
 
-        state.current.extend(borrowed);
+        state.current.observe_all(borrowed);
 
         // Index retained owners once instead of scanning all live aggregates for
         // every expired value and each of its owned components.
@@ -149,7 +149,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // into the result. The child's value survives, but dependencies on the
         // expired storage were invalidated above and cannot be restored here.
         state.retire_trusted_values(retired, &retained);
-        state.current.extend(completed_inputs);
+        state.current.observe_all(completed_inputs);
     }
 
     pub(in crate::analysis::guarantee) fn complete_trusted_call(

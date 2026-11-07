@@ -96,13 +96,13 @@ trusted internal func root_observation(pos handle: u64) -> bray.runtime.bootstra
         completion = &mut ended
     }
     {
-        let scope = &entered.scope;
+        let entered_scope = &entered.scope;
 
-        let status = scope.status;
+        let status = entered_scope.status;
 
         let result = if status == 0
         {
-            yield trusted root_observation_action(trusted entry_current(scope), &handle);
+            yield trusted root_observation_action(trusted entry_current(entered_scope), &handle);
         }
         else
         {
@@ -209,13 +209,13 @@ trusted internal func root_completion(pos handle: u64) -> u32
         completion = &mut ended
     }
     {
-        let scope = &entered.scope;
+        let entered_scope = &entered.scope;
 
-        let status = scope.status;
+        let status = entered_scope.status;
 
         let result = if status == 0
         {
-            yield trusted root_completion_action(trusted entry_current(scope), &handle);
+            yield trusted root_completion_action(trusted entry_current(entered_scope), &handle);
         }
         else
         {

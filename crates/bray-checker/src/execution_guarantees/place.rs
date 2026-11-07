@@ -3,6 +3,22 @@ use std::sync::Arc;
 use bray_bound_tree::BoundReferenceTarget;
 use bray_symbols::{AnySymbolId, ConstantProjectionKind};
 
+/// Value observations used by construction and read-only normalization.
+pub(crate) trait ExecutionValues {
+    fn get_value(&self, place: &ExecutionPlace) -> Option<&super::ExecutionCondition>;
+    fn get_value_mut(&mut self, place: &ExecutionPlace) -> Option<&mut super::ExecutionCondition>;
+}
+
+impl ExecutionValues for std::collections::BTreeMap<ExecutionPlace, super::ExecutionCondition> {
+    fn get_value(&self, place: &ExecutionPlace) -> Option<&super::ExecutionCondition> {
+        self.get(place)
+    }
+
+    fn get_value_mut(&mut self, place: &ExecutionPlace) -> Option<&mut super::ExecutionCondition> {
+        self.get_mut(place)
+    }
+}
+
 /// An observable input or local place, including its selected component path.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionPlace {
@@ -231,7 +247,7 @@ impl ExecutionPlace {
 
     pub(crate) fn value_in(
         &self,
-        values: &std::collections::BTreeMap<Self, super::ExecutionCondition>,
+        values: &(impl ExecutionValues + ?Sized),
     ) -> Option<super::ExecutionCondition> {
         for length in (0..=self.projections.len()).rev() {
             let prefix = Self {
@@ -239,7 +255,7 @@ impl ExecutionPlace {
                 projections: self.projections[..length].into(),
             };
 
-            if let Some(value) = values.get(&prefix) {
+            if let Some(value) = values.get_value(&prefix) {
                 // Component projections retain the same immutable snapshot as their containing value.
                 let mut value = value.clone();
 
