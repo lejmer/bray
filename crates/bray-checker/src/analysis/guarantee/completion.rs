@@ -318,6 +318,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let input = ExecutionPlace::from(*input);
             let ordinal = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
             let value = self.current_input(state, *source);
+
             let value = self.copied_access_value(ExecutionCondition::PostState(
                 bray_bound_tree::StorageMutation::Operation(invocation), ordinal.clone(),
             ), value, plan);

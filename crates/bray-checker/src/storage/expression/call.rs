@@ -35,14 +35,18 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 SelectedOperation::Construction(_)
             ))
         );
+
         let observational = matches!(semantic_selection, Some(SemanticSelection::Predicate(_)))
             || selection.is_some_and(|call| matches!(call.target(), BoundCallableTarget::Predicate(_)));
+
         assert!(selection.is_none_or(|call| !call.stages_inputs()),
             "runtime selected calls plan their private inputs before admission");
+
         let phase = self.value_consumer_phase(id);
 
         if !direct {
             self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
+
             self.consume_expression_value(id.into(), phase,
                 callee, StorageAccessPurpose::Read);
         }
@@ -53,6 +57,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 receiver.expression(),
                 Self::call_receiver_purpose(receiver.mode()),
             )?;
+
             self.consume_expression_value(id.into(), phase,
                 receiver.expression(), Self::call_receiver_purpose(receiver.mode()));
         }
@@ -68,12 +73,15 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         for argument in arguments {
             let purpose = if observational {
                 self.plan_expression(argument, Some(StorageAccessPurpose::Read))?;
+
                 StorageAccessPurpose::Read
             } else if let Some(kind) = reborrows.next().flatten() {
                 self.plan_call_reborrow(argument, kind)?;
+
                 StorageAccessPurpose::Borrow(kind)
             } else {
                 self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
+
                 StorageAccessPurpose::ValueTransfer
             };
 

@@ -44,6 +44,94 @@ Maintainability, compile cost, generated execution, product size and retained re
 
 ## Architectural completion
 
+### Current integration evidence and completion contracts
+
+The phase/input integration has substantial regressions and is not an end-to-end improvement yet. The earlier
+runtime Source run recorded 3,160 checks with 30 failures. The last completed runtime run recorded 3,264 checks
+with 69 failures. The newest runtime run stopped on the storage-flow convergence bound while checking report output,
+before producing a total. A separate trusted-contract suite recorded 126 passed,
+99 failed and 97 ignored tests. These are different populations. Of seven active tests shared with the previous
+owned-filtered integration run, three regressed. The same 18 focused controls now match eight expectations,
+compared with 16 previously. Some negatives are incorrectly accepted, so rejection counts alone are insufficient.
+The latest affected library batch recorded 132 bound-tree passes, 424 checker passes with 13 failures and
+35 lowering passes with three failures. Fixture corrections have not yet been rerun.
+
+Complete the shared contracts below as one integration batch before another behavioral run. Keep the existing
+diagnostic executable frozen while its Source baseline finishes. Do not repair individual runtime call sites.
+
+1. Separate output definition, source materialization and private-input admission in the checked storage plan.
+   A parent's input transfer cannot decorate its returned value. A self-produced result cannot be consumed before
+   successful production. Semantic ownership, physical availability, liveness and lowering must share those roles
+   and their operation phases. Replace overlapping purpose/occurrence heuristics rather than adding result recovery.
+2. Physical constructor assembly must consume the same actual producer as semantic assembly. Record the existing
+   checked producer site and type for every selected input, including defaults. A staged input already includes its
+   conversion. Transfer from its live private slot exactly once. Ordinary direct tuple/array inputs retain their
+   actual expression producer. Delete the stale expression-only constructor interpretation.
+3. Join current data without promoting a data term into an owned object. Separate immutable loan descriptors from
+   mutable referent-data replacement. Repeated joins must converge and preserve matching observations without
+   changing ownership roles. Proof subjects may observe actual referents, but copies must not gain authority from
+   equal data and a loan descriptor must not change because its contents do.
+4. Revocation uses the complete computed retired-owner set for exact membership. A bounded affirmative retention
+   query cannot answer the negative question of whether an owner was retired. Keep conservative proof budgets for
+   genuine containment queries and never interpret exhaustion as continued authority.
+5. Root reviews the whole producer/admission/completion/retirement sequence and naming conflicts before running
+   mandatory style and format, affected libraries, the same contract selection, all 18 controls and runtime Source.
+   Report each suite separately with comparable evidence. Native and imported acceptance still must finish.
+
+Implementation agents use GPT-6.1 at low effort and perform no validation runs. Root owns integration and the
+data/loan join contract. The phase/input agent owns checked plan roles and their semantic/physical consumers.
+The constructor agent owns physical constructor producer metadata and transfer. The retirement agent owns exact
+revocation membership. None may recover missing actual objects from syntax or witnesses.
+
+### Test and fixture audit
+
+Implementation changes are paused for a read-only audit of the original design, migration commitments and test
+expectations. Do not attribute nonconvergence to the old representation without establishing that diagnosis. The
+original design was made from the specification first, followed by an explicit keep/rewrite migration plan.
+
+Eleven of the 16 affected-library failures have identified manual fixture setup mismatches: six dependency-call
+fixtures lack actual staged inputs, three lowering fixtures assume implicit temporary discovery or omit selected
+input storage, and two retirement fixtures record possible carried conditions without establishing their truth.
+Corrections are present but unverified. Their presence is not evidence that all eleven failures are resolved.
+
+The fixture corrections themselves need review. In `dependency/call/contract.rs`, moving entry requirements to
+private input storage matches admission, but merely asserting a source loan exists in staging metadata does not
+preserve the old guarantee that returned/deferred references retain the source loan's lifetime. Restore that
+behavioral coverage at the correct transport boundary. The lowering fixture helper always records Admission,
+although staged intrinsic constructors use Completion. Its assertion that a Store exists must also establish that
+the actual private slot is initialized before use. Do not count weaker assertions as repaired fixtures.
+
+Two source fixture defects are confirmed by static inspection. `mutable_union_completion_observes_the_updated_owner`
+uses `std.memory` through the bare `compilation` helper, which supplies no standard-library dependency. Its current
+unresolved-name errors prevent testing the intended semantic rule. `typed_raw_transfers_preserve_only_unmoved_marker_free_owners`
+declares `unchecked_init` for read cases that do not use that capability. The language requires exact capability
+use, so those positive cases are invalid independently of their ownership behavior. Correct the setup and preserve
+the intended positive/negative expectations, then assess any remaining diagnostics.
+
+Two negative source expectations are not supported by the reviewed rules. In
+`trusted_implementation_does_not_export_undeclared_authority`, `hidden()` returns the complete witness from `acquire()`
+unchanged. The witness movement rule says its guarantees travel in the result dependency contract, and the dependency
+contract is inferred and exported. Missing repeated `ensures` alone does not establish that this forwarding loses
+authority. In `shared_marker_borrows_preserve_the_original_owner_without_mutable_authority`, the checked helper accepts
+`&mut Owner` but only invokes a callback. It neither changes the fresh local owner nor exposes it to that callback.
+The reviewed rules invalidate affected observations when state can change, rather than treating the parameter mode
+alone as mutation. Do not change production semantics merely to satisfy these negatives. Resolve their expectations
+against the full language contract, preserving separate tests for genuine opaque mutation and undeclared creation of
+authority. These findings do not justify changing the language specification.
+
+The audited frame negatives, mutable-guarantee pair, shared/stored marker positives, cursor loop positives and
+terminating-branch pair have expectations supported by
+[trusted witness values](../language/contracts-and-trust/trusted-witness-values.md) and
+[contract reasoning](../language/contracts-and-trust/contract-reasoning.md). Do not weaken them. Scoped-exit checking
+currently panics inside the compiler rather than yielding its expected result. Raw condition shape assertions need
+a separate semantic review: preserving a loan descriptor does not establish whether two actual aliases should match
+the same predicate subject. No conclusion that all 99 source test failures are fixture errors is supported.
+
+The paused phase-role implementation defines checked access roles and shared operation phase selection, but its
+self-output Read classification and the trusted transfer consumer migration are unfinished. Constructor producer
+metadata is implemented but unverified. Exact retirement membership remains planned. Do not treat this recovery
+checkpoint as a validated integration batch or resume testing each edit separately.
+
 The runtime protocol and ownership representation are being completed together. The latest validated checkpoint
 is `e12e722f9867f8cc959b7e6a0d56cf3f4db63e1c`: 520 affected unit tests and all 18 Source controls passed, while
 the full runtime Source run finished 3,264 checks with 69 failures. Native/imported acceptance remains unrun.
@@ -290,6 +378,21 @@ The complete runtime Source run aborted with stack overflow before a total. Thes
 checkpoint `0e9e56034e09d6b206c012a50361d36d6d4f7556`, with the described test fixture corrections.
 The phase, role and conditional-value completion batch above supersedes that implementation and is not yet validated.
 Native acceptance remains unrun.
+The integrated input-lifetime checkpoint is `486b9043b043de7a75c3af33eeccc973ab160627`. Production checker and lowering
+compilation and mutating `cargo xtask style` completed successfully. Three cross-module visibility/conversion mistakes
+were corrected as a batch before that successful build. Final cleanup removes obsolete memory lowering leftovers and
+separates Scalar read context from same-path data equality, while preserving Reference and ownership barriers. Explicit
+`cargo xtask format` and the final mutating `cargo xtask style` both passed. Naming/keyword and whitespace preflight
+passed before validation. The coherent batch used:
+
+- `cargo test --release -p bray-bound-tree -p bray-checker -p bray-lowering --lib --no-fail-fast -- --test-threads=4`
+- `cargo test --release -p bray-compilation --lib trusted_contracts --no-fail-fast -- --test-threads=4` outside the sandbox
+- `cargo run --release --bin bra567 -- runtime` outside the sandbox, with per-body/certificate progress logging
+
+Logs use the `evaluation-` prefix in the ignored task directory. The completed controls matched 8 of 18 expectations.
+The library and trusted-contract results and aborted runtime result are recorded above. Source-only unchanged symbols, interface codec, ABI and
+runtime-interface unit evidence remains valid. No behavioral evidence from the earlier checkpoint covers the changed
+checker/lowering semantics. All implementation agents are frozen and ran no tests or builds.
 `CurrentValues` now keeps one root data tree plus component availability, with no independently stored field data.
 Writes update that tree, reads project it, and terminal retirement retains data while live-subtree views exclude
 retired ownership. `aggregate_snapshot`, opaque whole-map reset/restore, witness-filtered nested reconstruction,

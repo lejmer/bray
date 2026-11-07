@@ -500,6 +500,7 @@ where
 
         let bound = self.request.view().expression(expression)
             .expect("planned value expression belongs to its unit");
+
         let result = self.expression_type(expression);
 
         if bound.is_recovered() || result.is_recovered()
@@ -512,6 +513,7 @@ where
 
         let access = self.builder().access(source)
             .expect("planned source access belongs to its unit");
+
         let existing = match access.root() {
             StorageAccessRoot::Storage(identity) if access.projections().is_empty()
                 && matches!(self.builder().identity(identity),
@@ -535,6 +537,7 @@ where
 
             self.builder_mut().set_identity_type(identity, result.ty())
                 .expect("materialized value retains its checked type");
+
             self.direct_access(expression, identity)?;
 
             identity

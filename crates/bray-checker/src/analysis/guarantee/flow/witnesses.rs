@@ -304,6 +304,7 @@ fn collect_observations(
     if joined == &ExecutionCondition::Unknown { return; }
 
     let Some((role, owner)) = joined.ownership_identity() else { return; };
+
     let owner = owner.clone();
 
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
@@ -403,6 +404,7 @@ fn collect_reference_data(
     budget: &mut usize,
 ) {
     let Some(remaining) = budget.checked_sub(1) else { return; };
+
     *budget = remaining;
 
     if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = joined {

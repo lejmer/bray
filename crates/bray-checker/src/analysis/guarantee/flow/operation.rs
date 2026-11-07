@@ -262,6 +262,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.retire_evaluation(bray_bound_tree::StorageMutation::Operation(
                             expression.into(),
                         ));
+
                         self.vacate_expression_slot(state, expression);
                     }
 
@@ -410,10 +411,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 |place, projection| match projection {
                     bray_bound_tree::StorageProjection::ElementFromEnd(offset) => {
                         let actual = place.value_in(&state.current);
+
                         let ty = self.observed_types.get(place).copied().flatten()
                             .or_else(|| if place.projections.is_empty() { self.storage.identity_type(path.root) } else { None })
                             .or_else(|| actual.as_ref().and_then(|value| self.observation_type(value)))
                             .or_else(|| actual.as_ref().and_then(|value| self.observation_type(value.owner_identity())))?;
+
                         let length = crate::constant::known_array_length(self.request.semantic_values(), ty)?;
                         let index = length.checked_sub(usize::try_from(offset.raw()).ok()?.checked_add(1)?)?;
 
@@ -427,6 +430,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 ExecutionCondition::Observation { contents, kind: crate::execution_guarantees::ExecutionObservationKind::Owned | crate::execution_guarantees::ExecutionObservationKind::Scalar, .. } => actual = contents.as_ref().clone(),
                                 ExecutionCondition::Literal(value) => {
                                     let bray_symbols::ConstantValueKind::Integer(value) = value.kind() else { return None; };
+
                                     let index = crate::constant::integer_to_usize(value)?;
 
                                     return Some(bray_symbols::SymbolOrdinal::new(u32::try_from(index).ok()?));
@@ -537,9 +541,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if input {
             let invocation = operation.occurrence();
+
             let place = self.input_place(invocation)
                 .expect("completed input retains its place");
+
             let result = self.invocation_value(state, invocation);
+
             let result = self.storage.occurrence_plans(invocation)
                 .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Copy)
                 .fold(result, |result, plan| {
@@ -583,6 +590,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.activate_task(state, expression);
         self.complete_memory_write(state, expression);
         self.preserve_integer_value(state, expression);
+
         let value = self.value(state, expression);
 
         self.publish_expression(state, expression, value);
@@ -648,6 +656,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or_else(|| self.produce_value(state, expression));
 
         let value = self.storage.node_plans(expression.into())
+            .filter(|plan| self.storage.access_plan_role(*plan) == bray_bound_tree::StorageAccessPlanRole::SourceMaterialization)
             .filter(|plan| plan.expression() == expression)
             .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Copy)
             .fold(value, |value, plan| {

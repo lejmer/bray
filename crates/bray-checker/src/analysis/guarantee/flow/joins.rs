@@ -537,6 +537,7 @@ mod nested_guard_tests {
         let copied = ExecutionCondition::scalar_observation(owner.clone(), owner.clone());
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
+
         let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.borrowed()]),
         ));

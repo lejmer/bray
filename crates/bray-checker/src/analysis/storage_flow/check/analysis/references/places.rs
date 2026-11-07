@@ -11,9 +11,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         argument: BoundExpressionId,
     ) -> Option<bray_symbols::DependencySubjectRoot> {
         let selection = self.execution.semantics.selections().expression(operation.expression())?;
+
         if !selection.stages_inputs() {
             return None;
         }
+
         selection.inputs().find(|input| input.expression() == Some(argument)).map(|input| input.root())
     }
 
@@ -25,8 +27,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Target> {
         if self.execution.semantics.selections().expression(operation.expression()).is_some_and(|selection| selection.stages_inputs()) {
             let root = self.staged_memory_input(operation, argument)?;
+
             return self.invocation_place(operation.expression().into(), root).map(Target::storage);
         }
+
         self.expression_target(state, argument)
     }
 
@@ -38,8 +42,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Source> {
         if self.execution.semantics.selections().expression(operation.expression()).is_some_and(|selection| selection.stages_inputs()) {
             let root = self.staged_memory_input(operation, argument)?;
+
             return self.invocation_reference(state, operation.expression().into(), root);
         }
+
         self.expression_reference(state, argument)
     }
 
@@ -50,21 +56,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         argument: BoundExpressionId,
     ) -> Option<Target> {
         let selection = self.execution.semantics.selections().expression(operation.expression());
+
         if !selection.is_some_and(|selection| selection.stages_inputs()) {
             return self.uninit_target(state, argument);
         }
+
         let root = self.staged_memory_input(operation, argument)?;
         let selection = selection?;
         let input = selection.inputs().find(|input| input.root() == root)?;
+
         let borrowed = matches!(self.request.semantic_values().type_data(input.ty(self.request.semantic_values())).as_ref(),
             bray_symbols::TypeData::Borrow { .. });
+
         let target = if borrowed {
             let mut regions = self.memory_argument_reference(state, operation, argument)?.regions(&state.memory)?;
+
             if regions.len() != 1 { return None; }
+
             regions.pop().expect("one protected input target")
         } else {
             self.memory_argument_target(state, operation, argument)?
         };
+
         Some(target.project(&[bray_bound_tree::StorageProjection::UninitPayload]))
     }
 

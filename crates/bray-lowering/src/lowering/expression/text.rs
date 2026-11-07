@@ -170,7 +170,6 @@ impl Lowerer<'_> {
         Ok(LoweredExpression::continuing(current, Some(result), source))
     }
 
-
 }
 
 #[cfg(test)]

@@ -40,10 +40,12 @@ impl ExecutionState {
         admitted: Option<bray_bound_tree::BoundExecutionSite>,
     ) {
         let (kind, places) = effect;
+
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);
         let pending = values.into_iter().collect::<Vec<_>>();
         let retiring_snapshots = retained_snapshots.map(|_| pending.iter().cloned().collect::<BTreeSet<_>>());
+
         let retiring_observations = pending.iter().flat_map(|value| value.observations().cloned())
             .collect::<crate::execution_guarantees::ObservationSet>();
 
@@ -642,13 +644,17 @@ mod tests {
         let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let sibling = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+
         let old = ExecutionCondition::owned_value(root.clone(), ExecutionCondition::constructed(root.clone(), [
             (field, ExecutionCondition::Boolean(true)),
         ].into()));
+
         let changed = ExecutionCondition::owned_value(root.clone(), ExecutionCondition::constructed(root.clone(), [
             (field, ExecutionCondition::Boolean(false)), (sibling, ExecutionCondition::Boolean(true)),
         ].into()));
+
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+
         let condition = ExecutionCondition::Trusted(std::sync::Arc::new(ExecutionCondition::predicate(
             symbol.into(), crate::test_support::empty_substitution(symbol.into()),
             vec![ExecutionCondition::reference_value(root.clone().project(field).borrowed(), old.clone().project(field))],
@@ -656,6 +662,10 @@ mod tests {
 
         for (returned, preserved) in [
             (old.clone(), true),
+            (old.with_storage_component(&[field], ExecutionCondition::scalar_observation(
+                ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))),
+                old.clone().project(field),
+            )), true),
             (ExecutionCondition::owned_value(root.clone(), ExecutionCondition::Unknown), false),
             (changed, false),
         ] {
@@ -675,6 +685,7 @@ mod tests {
         let mut state = ExecutionState::default();
 
         state.carry_guarantee(owner.clone(), owner.clone());
+        state.trusted_assumptions.insert((owner.clone(), true));
 
         let copied = ExecutionCondition::scalar_observation(owner.clone(), owner.clone());
         let loan = owner.clone().borrowed();
@@ -694,6 +705,7 @@ mod tests {
         use crate::test_support::{error_type, expression_unit, push_expression};
 
         let unit = BoundUnitId::new(41);
+
         let (_, expressions) = expression_unit(unit, |tree, origin| (0..2).map(|_| {
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))
         }).collect::<Vec<_>>());
@@ -704,6 +716,7 @@ mod tests {
         let mut state = ExecutionState::default();
 
         state.carry_guarantee(child.clone(), child.clone());
+        state.trusted_assumptions.insert((child.clone(), true));
 
         let aggregate = ExecutionCondition::constructed(result, [(field, child)].into());
 

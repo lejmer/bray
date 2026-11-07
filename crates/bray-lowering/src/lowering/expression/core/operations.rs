@@ -1185,9 +1185,11 @@ impl Lowerer<'_> {
 
         if let Some(receiver) = selection.receiver() {
             let (lowered, _) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
+
             let Some(continuation) = lowered.block else { return Ok(lowered); };
 
             current = continuation;
+
             arguments.push(MirCallArgument::Receiver {
                 parameter: receiver.parameter(),
                 value: lowered.value.expect("staged receiver retains its actual input slot"),
@@ -1208,9 +1210,11 @@ impl Lowerer<'_> {
                 }
                 SelectedArgument::Explicit { parameter, ordinal, .. } => {
                     let lowered = self.lower_selected_argument_input(id, argument, current, &source)?;
+
                     let Some(continuation) = lowered.block else { return Ok(lowered); };
 
                     current = continuation;
+
                     arguments.push(MirCallArgument::Explicit {
                         parameter: *parameter,
                         ordinal: *ordinal,

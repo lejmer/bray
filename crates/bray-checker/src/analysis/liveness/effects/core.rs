@@ -235,6 +235,7 @@ impl OperationEffects {
 
         for (occurrence, phase, path) in storage.value_consumption_entries() {
             let subject = BoundDependencySubject::Storage(path.root);
+
             effects.universe.insert(subject);
             effects.by_occurrence.entry(occurrence).or_default();
             effects.boundary_uses.entry((occurrence, phase)).or_default().insert(subject);

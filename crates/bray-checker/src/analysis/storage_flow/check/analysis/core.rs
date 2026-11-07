@@ -1089,11 +1089,13 @@ where
         let completing_call = matches!(kind, AnalysisOperationKind::Call {
             phase: AnalysisCallPhase::Completion, ..
         });
+
         let private_input = |path: &bray_bound_tree::StoragePath| {
             matches!(self.storage.identity(path.root),
                 Some(StorageIdentity::InvocationInput { expression, .. })
                     if kind.occurrence() == expression.into())
         };
+
         let completed_inputs = completing_call.then(|| self.storage.value_consumptions(
             kind.occurrence(), bray_bound_tree::StorageValueConsumptionPhase::Admission));
 
@@ -1103,6 +1105,7 @@ where
         {
             let ty = self.storage.storage_type(path.root)
                 .expect("consumed evaluated slot has its checked type");
+
             let origin = self.storage.identity(path.root).and_then(|identity| identity.definition_node())
                 .and_then(|node| match node { AnyBoundNodeId::Expression(expression) => Some(expression), _ => None })
                 .or_else(|| kind.occurrence().expression())
@@ -1150,9 +1153,7 @@ where
         ) {
             self.initialize_operation_storage(state, kind);
 
-            for plan in self
-                .storage
-                .occurrence_plans(kind.occurrence())
+            for plan in kind.storage_plans(self.storage)
                 .filter(|plan| {
                     matches!(plan.purpose(), StorageAccessPurpose::Borrow(_))
                         && !self
@@ -1489,15 +1490,7 @@ where
                 bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(_))
                     if phase == AnalysisCallPhase::Attempt =>
                 {
-                    for plan in self.storage.occurrence_plans(invocation).filter(|plan| {
-                        !matches!(plan.purpose(), StorageAccessPurpose::Borrow(_))
-                            && matches!(
-                                self.storage
-                                    .root_identity(plan.access())
-                                    .and_then(|root| self.storage.identity(root)),
-                                Some(StorageIdentity::InvocationInput { .. })
-                            )
-                    }) {
+                    for plan in operation.kind().storage_plans(self.storage) {
                         self.apply_plan(state, plan, refinements.clone(), invalidation);
                     }
 
@@ -1511,17 +1504,7 @@ where
                 | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                 | bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
                     if phase == AnalysisCallPhase::Attempt {
-                        for plan in self
-                            .storage
-                            .occurrence_plans(operation.kind().occurrence())
-                            .filter(|plan| {
-                                !matches!(
-                                    plan.purpose(),
-                                    StorageAccessPurpose::Borrow(_)
-                                        | StorageAccessPurpose::Initialize
-                                )
-                            })
-                        {
+                        for plan in operation.kind().storage_plans(self.storage) {
                             self.apply_plan(state, plan, refinements.clone(), invalidation);
                         }
                     } else {
@@ -1565,22 +1548,7 @@ where
 
         self.initialize_operation_storage(state, operation.kind());
 
-        for plan in self.storage.node_plans(operation.kind().node()) {
-            if matches!(
-                operation.kind(),
-                AnalysisOperationKind::Call {
-                    phase: AnalysisCallPhase::Completion,
-                    ..
-                }
-            ) && matches!(
-                self.storage
-                    .root_identity(plan.access())
-                    .and_then(|root| self.storage.identity(root)),
-                Some(StorageIdentity::InvocationInput { .. })
-            ) {
-                continue;
-            }
-
+        for plan in operation.kind().storage_plans(self.storage) {
             self.apply_plan(state, plan, refinements.clone(), invalidation);
         }
 
@@ -1859,11 +1827,8 @@ where
 
                 if let Some(target) = target {
                     if purpose == StorageAccessPurpose::Move {
-                        let admitted_input = self.storage.root_identity(plan.access())
-                            .and_then(|root| self.storage.identity(root))
-                            .is_some_and(|identity| matches!(identity,
-                                StorageIdentity::InvocationInput { expression, .. }
-                                    if plan.occurrence() == expression.into()));
+                        let admitted_input = self.storage.access_plan_role(plan)
+                            == bray_bound_tree::StorageAccessPlanRole::PrivateInputAdmission;
 
                         // Admission transfers the private input to this invocation. Its
                         // protected payload remains initialized until the callee uses it.

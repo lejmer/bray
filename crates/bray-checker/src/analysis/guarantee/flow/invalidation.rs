@@ -664,6 +664,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .iter()
                 .filter_map(|path| {
                     let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
+
                     Some((place, path.projections.clone()))
                 })
                 .collect::<BTreeMap<_, _>>(),

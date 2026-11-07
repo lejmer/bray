@@ -125,6 +125,7 @@ where
                 .binding_type(binding).unwrap_or_else(|| panic!("plan_pattern requires checked pattern binding type, id: {id:?}, subject_expression: {subject_expression:?}, parent_access: {parent_access:?}, binding: {binding:?}"));
 
             let mut entry_path = value_path.clone();
+
             let access = match checked.projection() {
                 Some(projection) => {
                     if let Some(value) = &mut entry_path {

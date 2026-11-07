@@ -219,6 +219,7 @@ fn join_observations<'a>(
             && let ValueAvailability::Guarded(guard) = &available
         {
             availability_facts.push((guard.clone(), left_available, right_available));
+
             if let Some((_, owner)) = joined.ownership_identity() {
                 availability_guards.insert((owner.clone(), guard.clone()));
             }
@@ -782,6 +783,7 @@ fn reference_data_replacements(
     budget: &mut usize,
 ) {
     let Some(remaining) = budget.checked_sub(1) else { return; };
+
     *budget = remaining;
 
     if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = source {

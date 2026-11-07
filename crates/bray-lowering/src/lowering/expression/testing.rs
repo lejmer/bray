@@ -21,8 +21,11 @@ impl Lowerer<'_> {
         let [argument @ SelectedArgument::Explicit { .. }] = selection.arguments() else {
             panic!("testing failure retains its selected explicit message input");
         };
+
         let lowered = self.lower_selected_argument_input(expression, argument, current, &source)?;
+
         let Some(current) = lowered.block else { return Ok(Some(lowered)); };
+
         let message = lowered.value.expect("testing failure retains its staged message value");
 
         let current = self.lower_primitive_requirements(

@@ -208,6 +208,7 @@ impl ExecutionCondition {
 
     pub(crate) fn is_owned_projection_of(&self, owner: &Self) -> bool {
         let Some((role, owner)) = owner.ownership_identity() else { return false; };
+
         let Some((own_role, _)) = self.ownership_identity() else { return false; };
 
         if role != own_role {
@@ -564,7 +565,7 @@ impl Set {
     }
 
     fn snapshot_contents(mut value: &ExecutionCondition) -> &ExecutionCondition {
-        while let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = value {
+        while let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. } = value {
             value = contents;
         }
 

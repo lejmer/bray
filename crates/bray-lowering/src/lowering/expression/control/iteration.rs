@@ -46,9 +46,13 @@ impl Lowerer<'_> {
                 });
 
                 let source = self.expression_source(id);
+
                 let (lowered, _) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
+
                 let Some(current) = lowered.block else { return Ok(Some(lowered)); };
+
                 let operand = lowered.value.expect("range iteration retains its staged receiver");
+
                 let value = if matches!(receiver.mode(), ReceiverMode::Shared | ReceiverMode::Mutable) {
                     MirOperand::Copy(self.staged_receiver_target(&operand, receiver.target_type()))
                 } else {
@@ -111,8 +115,11 @@ impl Lowerer<'_> {
                     .expect("selected generator next retains its receiver");
 
                 let source = self.expression_source(id);
+
                 let (lowered, _) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
+
                 let Some(current) = lowered.block else { return Ok(Some(lowered)); };
+
                 let operand = lowered.value.expect("generator next retains its staged receiver");
                 let cursor = self.staged_receiver_target(&operand, receiver.target_type());
 
@@ -858,8 +865,11 @@ impl Lowerer<'_> {
         });
 
         let source = self.expression_source(id);
+
         let (lowered, _) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
+
         let Some(current) = lowered.block else { return Ok(lowered); };
+
         let operand = lowered.value.expect("range next retains its staged receiver");
         let cursor = self.staged_receiver_target(&operand, receiver.target_type());
 

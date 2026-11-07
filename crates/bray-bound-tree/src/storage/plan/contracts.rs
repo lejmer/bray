@@ -305,6 +305,23 @@ impl StorageAccessPurpose {
 }
 
 /// One control-flow occurrence and the exact storage access it evaluates.
+/// The value transport described by one checked access plan.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageAccessPlanRole {
+    /// Reading existing storage to form a materialized value.
+    SourceMaterialization,
+    /// Transferring an already produced whole evaluated value to its consumer.
+    EvaluatedValueTransfer,
+    /// Defining the whole expression output, which is initialized only at completion.
+    OutputDefinition,
+    /// Initializing a call's private staged input.
+    PrivateInputInitialization,
+    /// Admitting a staged input into its parent operation.
+    PrivateInputAdmission,
+    /// An access or mutation that does not transport a materialized value.
+    Observation,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageAccessPlan {
     occurrence: crate::BoundExecutionSite,

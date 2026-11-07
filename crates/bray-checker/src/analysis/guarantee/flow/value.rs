@@ -75,6 +75,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         value: ExecutionCondition,
         plan: bray_bound_tree::StorageAccessPlan,
     ) -> ExecutionCondition {
+        if self.storage.access_plan_role(plan) != bray_bound_tree::StorageAccessPlanRole::SourceMaterialization {
+            return value;
+        }
+
         if self.storage.effective_purpose(plan) != bray_bound_tree::StorageAccessPurpose::Copy {
             return value;
         }
@@ -89,16 +93,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if !matches!(value.ownership_identity(),
                 Some((crate::execution_guarantees::ExecutionObservationKind::Owned, _)))
         {
-            return value;
-        }
-
-        let source = self.storage.root_identity(plan.access())
-            .and_then(|root| self.storage.identity(root));
-        let produced = source.and_then(bray_bound_tree::StorageIdentity::definition_occurrence)
-            .is_some_and(|occurrence| occurrence.expression() == Some(plan.expression()))
-            && self.storage.resolved_projections(plan.access()).is_some_and(<[_]>::is_empty);
-
-        if plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer && produced {
             return value;
         }
 
@@ -160,7 +154,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    pub(in crate::analysis::guarantee) fn invocation_value(
+    pub(in crate::analysis) fn invocation_value(
         &self,
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
