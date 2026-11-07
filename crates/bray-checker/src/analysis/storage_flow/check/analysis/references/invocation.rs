@@ -953,10 +953,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 self.storage.logical_path(access).cloned()
             }
-            site @ (BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_)) =>
+            site @ (BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_)) =>
                 self.storage.invocation_result(site).and_then(|access| self.storage.logical_path(access)).cloned(),
-            BoundExecutionSite::ScopedEnter(expression) => self.storage.identity_entries()
-                .find_map(|(id, identity)| matches!(identity, bray_bound_tree::StorageIdentity::ScopedCapability { expression: owner, .. } if owner == expression).then_some(Place::root(id))),
             BoundExecutionSite::ScopedExit(_) => None,
             BoundExecutionSite::Cleanup(_) => panic!("cleanup suspension has no invocation result"),
             BoundExecutionSite::Node(_) => self.expression_result_storage(occurrence.expression()?),

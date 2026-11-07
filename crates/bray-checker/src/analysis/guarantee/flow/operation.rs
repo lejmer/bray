@@ -133,7 +133,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             match phase {
                 AnalysisCallPhase::Input => {
-                    if matches!(invocation, Site::Iterate(_) | Site::Next(_)) {
+                    if matches!(invocation, Site::Iterate(_) | Site::Next(_) | Site::ScopedEnter(_)) {
                         let result = self
                             .input_place(invocation)
                             .expect("implicit invocation has its owned result slot");
@@ -187,9 +187,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.trust_boundaries.remove(&expression);
                     } else {
                         if let Site::ScopedExit(expression) = invocation {
-                            state.invalidate_trusted(&ExecutionCondition::ScopedCapability(
-                                expression,
-                            ));
+                            let capability = self.invocation_value(state, Site::ScopedEnter(expression));
+
+                            state.invalidate_trusted(&capability);
                         }
 
                         self.invalidate(state, invocation, invalidation);
@@ -474,6 +474,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 invocation,
                 bray_bound_tree::BoundExecutionSite::Iterate(_)
                     | bray_bound_tree::BoundExecutionSite::Next(_)
+                    | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
             ) {
                 let place = self
                     .input_place(invocation)
@@ -488,6 +489,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 invocation,
                 bray_bound_tree::BoundExecutionSite::Iterate(_)
                     | bray_bound_tree::BoundExecutionSite::Next(_)
+                    | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
             ) {
                 state.assign(
                     self.input_place(invocation)
@@ -498,7 +500,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             if let bray_bound_tree::BoundExecutionSite::ScopedExit(expression) = invocation {
-                state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
+                let capability = self.invocation_value(state, bray_bound_tree::BoundExecutionSite::ScopedEnter(expression));
+
+                state.invalidate_trusted(&capability);
             }
 
             return;

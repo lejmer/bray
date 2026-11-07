@@ -161,7 +161,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .unwrap_or(ExecutionCondition::Unknown)
             }
             bray_bound_tree::BoundExecutionSite::Iterate(_)
-            | bray_bound_tree::BoundExecutionSite::Next(_) => {
+            | bray_bound_tree::BoundExecutionSite::Next(_)
+            | bray_bound_tree::BoundExecutionSite::ScopedEnter(_) => {
                 let place = self
                     .input_place(invocation)
                     .expect("implicit invocation result has an execution place");
@@ -169,15 +170,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 place
                     .value_in(&state.current)
                     .filter(|value| *value != ExecutionCondition::Unknown)
-                    .unwrap_or({
-                        ExecutionCondition::PostState(
-                            bray_bound_tree::StorageMutation::Operation(invocation),
-                            place,
-                        )
+                    .unwrap_or_else(|| match invocation {
+                        bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => ExecutionCondition::ScopedCapability(expression),
+                        _ => ExecutionCondition::PostState(bray_bound_tree::StorageMutation::Operation(invocation), place),
                     })
-            }
-            bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => {
-                ExecutionCondition::ScopedCapability(expression)
             }
             bray_bound_tree::BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
             bray_bound_tree::BoundExecutionSite::Cleanup(node)
@@ -306,7 +302,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .and_then(|identity| self.storage.identity(identity))
         {
             Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) => {
-                (ExecutionCondition::ScopedCapability(expression), true)
+                (self.invocation_value(state, bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)), true)
             }
             Some(bray_bound_tree::StorageIdentity::InvocationResult(invocation)) => {
                 (self.invocation_value(state, invocation), true)

@@ -381,6 +381,10 @@ impl StoragePlanBuilder {
                 Some(StorageIdentity::InvocationResult(actual)),
             ) => expected == actual,
             (
+                StorageBindingTarget::InvocationResult(crate::BoundExecutionSite::ScopedEnter(expected)),
+                Some(StorageIdentity::ScopedCapability { expression, .. }),
+            ) => expected == expression,
+            (
                 StorageBindingTarget::InvocationInput {
                     expression,
                     ordinal,

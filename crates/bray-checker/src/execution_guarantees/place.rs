@@ -182,6 +182,7 @@ impl ExecutionPlace {
                     bray_bound_tree::StorageIdentity::LocalOwned(_)
                         | bray_bound_tree::StorageIdentity::InvocationInput { .. }
                         | bray_bound_tree::StorageIdentity::InvocationResult(_)
+                        | bray_bound_tree::StorageIdentity::ScopedCapability { .. }
                 ) {
                     return Some(Self {
                         root: ExecutionInput::Storage(identity),

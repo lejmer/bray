@@ -590,19 +590,14 @@ where
         let source = node.origin().source_anchor();
         let is_recovered = node.is_recovered();
 
-        let storage = match identity {
-            StorageIdentity::InvocationResult(occurrence) => self
-                .bind_identity(
-                    StorageBindingTarget::InvocationResult(occurrence),
-                    identity,
-                    Some(ty),
-                )?
-                .expect("selected invocation result is planned once"),
-            _ => self
-                .builder_mut()
-                .push_identity(identity)
-                .expect("protocol identity belongs to its checked unit"),
+        let occurrence = match identity {
+            StorageIdentity::InvocationResult(occurrence) => occurrence,
+            StorageIdentity::ScopedCapability { expression, .. } => bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
+            _ => unreachable!("protocol storage belongs to an implicit invocation"),
         };
+        let storage = self.bind_identity(
+            StorageBindingTarget::InvocationResult(occurrence), identity, Some(ty),
+        )?.expect("selected invocation result is planned once");
 
         self.builder_mut()
             .set_identity_type(storage, ty).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in protocol_access: {error:?}"));

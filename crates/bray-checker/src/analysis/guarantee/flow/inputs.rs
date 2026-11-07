@@ -231,7 +231,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     expression,
                 )
             }
-            BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) => {
+            BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_) => {
                 let access = self
                     .storage
                     .invocation_result(input)
@@ -241,7 +241,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .logical_path(access)
                     .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
             }
-            BoundExecutionSite::ScopedEnter(_) => None,
             _ => panic!("call input has an evaluated value site: {input:?}"),
         }
     }
