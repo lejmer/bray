@@ -119,7 +119,7 @@ where
 
                 match selected {
                     Ok(Some((contracts, escaping))) => {
-                        if entry.selection().evaluates_defaults() {
+                        if entry.selection().stages_inputs() {
                             let inputs = match super::call::selected_input_contracts(
                                 request,
                                 storage,

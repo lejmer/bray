@@ -8,7 +8,10 @@ use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
     pub(in crate::storage) fn value_consumer_phase(&self, expression: BoundExpressionId) -> StorageValueConsumptionPhase {
-        if self.selections.invoked_callable(expression.into()).is_some() {
+        if self.selections.expression(expression).is_some_and(|selection| matches!(selection,
+            bray_bound_tree::SemanticSelection::Call(call) if call.stages_inputs()))
+            || self.selections.invoked_callable(expression.into()).is_some()
+        {
             StorageValueConsumptionPhase::Admission
         } else {
             StorageValueConsumptionPhase::Completion

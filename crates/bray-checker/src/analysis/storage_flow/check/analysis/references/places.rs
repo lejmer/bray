@@ -5,6 +5,69 @@ use crate::analysis::storage_flow::model::StorageFlowState;
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, StorageAccessPurpose};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    fn staged_memory_input(
+        &self,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+        argument: BoundExpressionId,
+    ) -> Option<bray_symbols::DependencySubjectRoot> {
+        let selection = self.execution.semantics.selections().expression(operation.expression())?;
+        if !selection.stages_inputs() {
+            return None;
+        }
+        selection.inputs().find(|input| input.expression() == Some(argument)).map(|input| input.root())
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn memory_argument_target(
+        &self,
+        state: &StorageFlowState,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+        argument: BoundExpressionId,
+    ) -> Option<Target> {
+        if self.execution.semantics.selections().expression(operation.expression()).is_some_and(|selection| selection.stages_inputs()) {
+            let root = self.staged_memory_input(operation, argument)?;
+            return self.invocation_place(operation.expression().into(), root).map(Target::storage);
+        }
+        self.expression_target(state, argument)
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn memory_argument_reference(
+        &self,
+        state: &StorageFlowState,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+        argument: BoundExpressionId,
+    ) -> Option<Source> {
+        if self.execution.semantics.selections().expression(operation.expression()).is_some_and(|selection| selection.stages_inputs()) {
+            let root = self.staged_memory_input(operation, argument)?;
+            return self.invocation_reference(state, operation.expression().into(), root);
+        }
+        self.expression_reference(state, argument)
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn memory_uninit_target(
+        &self,
+        state: &StorageFlowState,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+        argument: BoundExpressionId,
+    ) -> Option<Target> {
+        let selection = self.execution.semantics.selections().expression(operation.expression());
+        if !selection.is_some_and(|selection| selection.stages_inputs()) {
+            return self.uninit_target(state, argument);
+        }
+        let root = self.staged_memory_input(operation, argument)?;
+        let selection = selection?;
+        let input = selection.inputs().find(|input| input.root() == root)?;
+        let borrowed = matches!(self.request.semantic_values().type_data(input.ty(self.request.semantic_values())).as_ref(),
+            bray_symbols::TypeData::Borrow { .. });
+        let target = if borrowed {
+            let mut regions = self.memory_argument_reference(state, operation, argument)?.regions(&state.memory)?;
+            if regions.len() != 1 { return None; }
+            regions.pop().expect("one protected input target")
+        } else {
+            self.memory_argument_target(state, operation, argument)?
+        };
+        Some(target.project(&[bray_bound_tree::StorageProjection::UninitPayload]))
+    }
+
     pub(in crate::analysis::storage_flow::check::analysis) fn nullable_is_absent(
         &self,
         execution: &crate::analysis::guarantee::ExecutionState,

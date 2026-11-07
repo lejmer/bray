@@ -7,7 +7,7 @@ use super::super::plan::{PlanError, Planner};
 use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
-    pub(super) fn plan_default_inputs(
+    pub(super) fn plan_selected_inputs(
         &mut self,
         expression: BoundExpressionId,
         selection: &SemanticSelection,
@@ -143,6 +143,13 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 access,
             )
             .expect("selected callee consumes its exact staged input");
+
+        let phase = self.value_consumer_phase(expression);
+
+        self.builder_mut().consume_value(
+            expression.into(), phase,
+            bray_bound_tree::StoragePath::root(identity),
+        ).expect("callee admission consumes its actual private input handle");
 
         Ok(())
     }

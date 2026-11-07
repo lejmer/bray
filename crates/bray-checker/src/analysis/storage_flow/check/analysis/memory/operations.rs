@@ -57,7 +57,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        let target = self.expression_target(state, operation.arguments()[0])
+        let target = self.memory_argument_target(state, operation, operation.arguments()[0])
             .and_then(|slot| state.memory.value_target(&slot, pointee));
 
         if let Some(source) = self.execution.observe_memory_read(execution, expression, target.as_ref())
@@ -116,7 +116,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             return None;
                         }
 
-                        self.expression_target(state, argument).map(|place| {
+                        self.memory_argument_target(state, operation, argument).map(|place| {
                             if self.publish
                                 && matches!(
                                     operation.kind(),
@@ -190,7 +190,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let argument = |index| {
             arguments
                 .get(index)
-                .and_then(|argument| self.expression_target(state, *argument))
+                .and_then(|argument| self.memory_argument_target(state, operation, *argument))
         };
 
         let result = || self.expression_result_storage(operation.expression());
@@ -209,7 +209,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                if let Some(source) = self.expression_reference(state, arguments[0]) {
+                if let Some(source) = self.memory_argument_reference(state, operation, arguments[0]) {
                     source.transfer(&mut state.memory, result.clone());
 
                     state
@@ -244,7 +244,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if let Some(result) = result() {
                     // Unknown physical provenance remains unknown after a checked conversion.
                     // It is not syntax recovery and does not erase the body's other facts.
-                    if let Some(source) = self.expression_reference(state, arguments[pointer]) {
+                    if let Some(source) = self.memory_argument_reference(state, operation, arguments[pointer]) {
                         if let CheckedMemoryOperationKind::BorrowFrom { pointee, .. } =
                             operation.kind()
                         {
@@ -278,7 +278,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let value = self.expression_reference(state, arguments[1]);
+                let value = self.memory_argument_reference(state, operation, arguments[1]);
 
                 return state
                     .memory
@@ -289,11 +289,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let Some(source) = self.expression_target(state, *source) else {
+                let Some(source) = self.memory_argument_target(state, operation, *source) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let Some(destination) = self.expression_target(state, *destination) else {
+                let Some(destination) = self.memory_argument_target(state, operation, *destination) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
@@ -397,14 +397,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 state.memory.uninit(payload.clone(), element);
 
-                let value = self.expression_reference(state, arguments[0]);
+                let value = self.memory_argument_reference(state, operation, arguments[0]);
 
                 return state
                     .memory
                     .write_value(payload, element, operation.expression(), value);
             }
             CheckedMemoryOperationKind::UninitPointer { element, .. } => {
-                let Some(payload) = self.uninit_target(state, arguments[0]) else {
+                let Some(payload) = self.memory_uninit_target(state, operation, arguments[0]) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
@@ -418,11 +418,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             }
             CheckedMemoryOperationKind::UninitWrite { element } => {
-                let Some(payload) = self.uninit_target(state, arguments[0]) else {
+                let Some(payload) = self.memory_uninit_target(state, operation, arguments[0]) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let value = self.expression_reference(state, arguments[1]);
+                let value = self.memory_argument_reference(state, operation, arguments[1]);
 
                 let status = state.memory.write_value(
                     payload.clone(),
@@ -446,7 +446,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             CheckedMemoryOperationKind::UninitAssumeInitialized { element }
             | CheckedMemoryOperationKind::UninitMove { element } => {
-                let Some(payload) = self.uninit_target(state, arguments[0]) else {
+                let Some(payload) = self.memory_uninit_target(state, operation, arguments[0]) else {
                     return MemoryOperationStatus::Recovered;
                 };
 

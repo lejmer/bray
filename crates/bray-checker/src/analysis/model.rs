@@ -29,6 +29,24 @@ pub(crate) enum AnalysisOperationKind {
 }
 
 impl AnalysisOperationKind {
+    /// The checked value-transport boundary executed by this operation.
+    pub(crate) const fn value_consumption_phase(self) -> Option<bray_bound_tree::StorageValueConsumptionPhase> {
+        use bray_bound_tree::StorageValueConsumptionPhase;
+
+        match self {
+            Self::Call { phase: AnalysisCallPhase::Attempt, .. } => Some(StorageValueConsumptionPhase::Admission),
+            Self::Bound(_)
+                | Self::Call { phase: AnalysisCallPhase::Completion, .. }
+                | Self::Result { phase: AnalysisResultPhase::Completion, .. } => Some(StorageValueConsumptionPhase::Completion),
+            Self::Call { phase: AnalysisCallPhase::Input, .. }
+                | Self::Result { phase: AnalysisResultPhase::Begin, .. }
+                | Self::PatternObservation(_)
+                | Self::Suspension { .. }
+                | Self::ScopeExit { .. }
+                | Self::Recovery(_) => None,
+        }
+    }
+
     pub(crate) const fn is_normal_cleanup(self) -> bool {
         matches!(
             self,

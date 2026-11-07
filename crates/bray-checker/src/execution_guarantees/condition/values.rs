@@ -680,6 +680,59 @@ impl ExecutionCondition {
         Self::constructed(base.as_ref().clone(), fields.into())
     }
 
+    fn boolean_operation(operator: BoundOperator, operands: Vec<Self>) -> Self {
+        let conjunction = operator == BoundOperator::LogicalAnd;
+        let mut remaining = Self::WORK_LIMIT;
+        let mut pending = operands;
+        let mut terms = std::collections::BTreeSet::new();
+
+        while let Some(operand) = pending.pop() {
+            let Some(next) = remaining.checked_sub(1) else {
+                return Self::Unknown;
+            };
+            remaining = next;
+
+            match operand {
+                Self::Boolean(value) if value != conjunction => return Self::Boolean(value),
+                Self::Boolean(_) => {}
+                Self::Operation(inner, children) if inner == operator => {
+                    if children.len() > remaining {
+                        return Self::Unknown;
+                    }
+                    pending.extend(children.iter().cloned());
+                }
+                value => { terms.insert(value); }
+            }
+        }
+
+        let mut level = terms.into_iter().collect::<Vec<_>>();
+        if level.is_empty() {
+            return Self::Boolean(conjunction);
+        }
+
+        // Build directly: recursively calling operation would repeatedly flatten the tree.
+        // Sorted leaves and deterministic pairing give associative inputs one binary shape.
+        while level.len() > 1 {
+            let mut next = Vec::with_capacity(level.len().div_ceil(2));
+            let mut values = level.into_iter();
+            while let Some(left) = values.next() {
+                next.push(match values.next() {
+                    Some(right) => {
+                        let Some(next_remaining) = remaining.checked_sub(1) else {
+                            return Self::Unknown;
+                        };
+                        remaining = next_remaining;
+                        Self::Operation(operator, vec![left, right].into())
+                    }
+                    None => left,
+                });
+            }
+            level = next;
+        }
+
+        level.pop().expect("nonempty Boolean terms retain their result")
+    }
+
     pub(crate) fn operation(operator: BoundOperator, mut operands: Vec<Self>) -> Self {
         for operand in &mut operands {
             if matches!(operand, Self::Observation { kind: ObservationKind::Owned, .. }) {
@@ -691,6 +744,10 @@ impl ExecutionCondition {
                 *operand = value.as_ref().clone();
             }
 
+        }
+
+        if matches!(operator, BoundOperator::LogicalAnd | BoundOperator::LogicalOr) {
+            return Self::boolean_operation(operator, operands);
         }
 
         if !matches!(
@@ -803,20 +860,6 @@ impl ExecutionCondition {
             (BoundOperator::LogicalNot, [Self::Operation(BoundOperator::LogicalNot, inner)]) => {
                 inner.first().cloned().unwrap_or(Self::Unknown)
             }
-            (BoundOperator::LogicalAnd, [Self::Boolean(false), _] | [_, Self::Boolean(false)]) => {
-                Self::Boolean(false)
-            }
-            (BoundOperator::LogicalOr, [Self::Boolean(true), _] | [_, Self::Boolean(true)]) => {
-                Self::Boolean(true)
-            }
-            (
-                BoundOperator::LogicalAnd,
-                [Self::Boolean(true), value] | [value, Self::Boolean(true)],
-            )
-            | (
-                BoundOperator::LogicalOr,
-                [Self::Boolean(false), value] | [value, Self::Boolean(false)],
-            ) => value.clone(),
             _ => Self::Operation(operator, operands.into()),
         }
     }
@@ -829,6 +872,52 @@ mod tests {
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{ConstantProjectionKind, SymbolId, SymbolOrdinal, UnionVariantSymbolId};
     use std::sync::Arc;
+
+    #[test]
+    fn repeated_guard_qualification_has_one_exact_boolean_shape() {
+        use bray_bound_tree::BoundOperator;
+        use std::collections::BTreeSet;
+
+        let guard = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let predicate = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let qualify = |clause| ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
+            ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]), clause,
+        ]);
+        let expected = qualify(predicate.clone());
+        let mut repeated = expected.clone();
+        for _ in 0..4096 {
+            repeated = qualify(repeated);
+            assert_eq!(repeated, expected);
+        }
+
+        for guard_value in [false, true] {
+            for predicate_value in [false, true] {
+                let facts = BTreeSet::from([(guard.clone(), guard_value), (predicate.clone(), predicate_value)]);
+                assert_eq!(repeated.prove(&facts, &mut { ExecutionCondition::WORK_LIMIT }),
+                    Some(!guard_value || predicate_value));
+            }
+        }
+    }
+
+    #[test]
+    fn boolean_grouping_is_canonical_without_unknown_complement_evidence() {
+        use bray_bound_tree::BoundOperator;
+        use std::collections::BTreeSet;
+
+        let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let third = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        for operator in [BoundOperator::LogicalAnd, BoundOperator::LogicalOr] {
+            let combine = |left, right| ExecutionCondition::operation(operator, vec![left, right]);
+            assert_eq!(combine(combine(first.clone(), second.clone()), third.clone()),
+                combine(third.clone(), combine(second.clone(), first.clone())));
+            let unknown_complement = combine(ExecutionCondition::Unknown,
+                ExecutionCondition::operation(BoundOperator::LogicalNot, vec![ExecutionCondition::Unknown]));
+            assert_eq!(unknown_complement.prove(&BTreeSet::new(), &mut { ExecutionCondition::WORK_LIMIT }), None);
+            assert_eq!(ExecutionCondition::operation(operator,
+                vec![first.clone(); ExecutionCondition::WORK_LIMIT + 1]), ExecutionCondition::Unknown);
+        }
+    }
 
     #[test]
     fn scalar_and_reference_projections_keep_their_roles() {

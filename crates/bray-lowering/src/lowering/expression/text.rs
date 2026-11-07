@@ -100,7 +100,7 @@ impl Lowerer<'_> {
         let mut operand_types = Vec::with_capacity(capacity);
 
         if let Some(receiver) = selection.receiver() {
-            let (lowered, operand_type) = self.lower_call_receiver(receiver, current)?;
+            let (lowered, operand_type) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);
@@ -120,21 +120,11 @@ impl Lowerer<'_> {
         }
 
         for argument in selection.arguments() {
-            let SelectedArgument::Explicit {
-                expression,
-                conversion,
-                reborrow,
-                ..
-            } = argument
-            else {
-                panic!(
-                    "lowering contract violation: MissingSemanticSelection {value:?}",
-                    value = id
-                );
+            let SelectedArgument::Explicit { conversion, .. } = argument else {
+                panic!("text intrinsic retains its selected explicit argument");
             };
 
-            let lowered =
-                self.lower_text_operand(id, *expression, current, &source, conversion, *reborrow)?;
+            let lowered = self.lower_selected_argument_input(id, argument, current, &source)?;
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);
@@ -145,7 +135,7 @@ impl Lowerer<'_> {
             let Some(operand) = lowered.value else {
                 panic!(
                     "lowering contract violation: MissingOperationResult {value:?}",
-                    value = *expression
+                    value = id
                 );
             };
 
@@ -154,7 +144,7 @@ impl Lowerer<'_> {
         }
 
         current =
-            self.lower_primitive_requirements(id, current, &source, selection, &mut operands)?;
+            self.lower_primitive_requirements(id, current, &source, selection, &operands)?;
 
         let result_type = self.expression_type(id);
 
@@ -180,42 +170,7 @@ impl Lowerer<'_> {
         Ok(LoweredExpression::continuing(current, Some(result), source))
     }
 
-    fn lower_text_operand(
-        &mut self,
-        call: BoundExpressionId,
-        expression: BoundExpressionId,
-        current: MirBlockId,
-        source: &MirSourceAnchor,
-        conversion: &bray_bound_tree::SelectedConversion,
-        reborrow: Option<bray_symbols::BorrowKind>,
-    ) -> Result<LoweredExpression, LoweringError> {
-        let lowered = self.lower_call_argument(expression, reborrow, current)?;
 
-        let Some(current) = lowered.block else {
-            return Ok(lowered);
-        };
-
-        let Some(operand) = lowered.value else {
-            panic!(
-                "lowering contract violation: MissingOperationResult {value:?}",
-                value = expression
-            );
-        };
-
-        let (current, operand) = self.convert_operand(
-            call,
-            current,
-            Self::retained_source(source),
-            operand,
-            conversion,
-        )?;
-
-        Ok(LoweredExpression::continuing(
-            current,
-            Some(operand),
-            Self::retained_source(source),
-        ))
-    }
 }
 
 #[cfg(test)]

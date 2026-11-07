@@ -320,7 +320,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.retire_trusted_values(consumed, &retained);
     }
 
-    pub(super) fn retire_failed_call(
+    pub(in crate::analysis::guarantee) fn retire_failed_call(
         &self,
         state: &mut super::super::state::ExecutionState,
         invocation: BoundExecutionSite,

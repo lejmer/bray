@@ -456,13 +456,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(self.receiver_value(state, expression, call))
     }
 
-    pub(super) fn receiver_value(
+    pub(in crate::analysis::guarantee) fn receiver_value(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
     ) -> ExecutionCondition {
-        if call.evaluates_defaults() {
+        if call.stages_inputs() {
             self.invocation_value(
                 state,
                 bray_bound_tree::BoundExecutionSite::CallInput {

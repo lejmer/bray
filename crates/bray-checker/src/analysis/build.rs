@@ -352,7 +352,7 @@ where
         ) = self
             .selections()
             .and_then(|selections| selections.expression(id))
-            && selection.evaluates_defaults()
+            && selection.stages_inputs()
         {
             let current = self.build_selected_inputs(id, selection, current)?;
 

@@ -142,7 +142,7 @@ where
             DependencySubjectRoot::Result | DependencySubjectRoot::EvaluationStorage => {
                 Some(expression)
             }
-            _ if call.evaluates_defaults() => None,
+            _ if call.stages_inputs() => None,
             _ => crate::dependency::result_input(call, root).and_then(bray_bound_tree::SelectedInput::expression),
         }
     }
@@ -159,7 +159,7 @@ where
                         .flatten()
                 });
             }
-            CallInstantiationInput::Selected { call, .. } if call.evaluates_defaults() => {
+            CallInstantiationInput::Selected { call, .. } if call.stages_inputs() => {
                 return None;
             }
             CallInstantiationInput::Selected { call, .. } => match root {
@@ -247,7 +247,7 @@ where
                         .find_map(|(actual, access, _)| (*actual == root).then_some(*access))
                 }
             }
-            CallInstantiationInput::Selected { expression, call } if call.evaluates_defaults() => {
+            CallInstantiationInput::Selected { expression, call } if call.stages_inputs() => {
                 call.input_ordinal(root).map(|ordinal| {
                     self.storage
                         .invocation_input(*expression, ordinal)
@@ -437,7 +437,7 @@ where
         }
 
         let staged = match &self.input {
-            CallInstantiationInput::Selected { call, .. } if call.evaluates_defaults() => {
+            CallInstantiationInput::Selected { call, .. } if call.stages_inputs() => {
                 self.hidden_access(root)
             }
             CallInstantiationInput::Inputs { .. } => self.hidden_access(root).filter(|access| {

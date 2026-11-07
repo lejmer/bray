@@ -526,7 +526,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return self.operation_call_entry(state, expression, selection);
         };
 
-        let staged = call.evaluates_defaults();
+        let staged = call.stages_inputs();
 
         let mut arguments = if staged {
             self.staged_arguments(state, expression, selection, None)

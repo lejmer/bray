@@ -38,14 +38,14 @@ where
             _ if self
                 .selections
                 .expression(id)
-                .is_some_and(SemanticSelection::evaluates_defaults) =>
+                .is_some_and(SemanticSelection::stages_inputs) =>
             {
                 let selection = self
                     .selections
                     .expression(id)
-                    .expect("default evaluation retains its selection");
+                    .expect("staged evaluation retains its selection");
 
-                self.plan_default_inputs(id, selection)?;
+                self.plan_selected_inputs(id, selection)?;
 
                 self.temporary_access(id)?
             }

@@ -144,7 +144,8 @@ impl StoragePlanBuilder {
             | StorageIdentity::Result(crate::AnyBoundNodeId::Expression(expression)) => {
                 self.value_slots.get(expression) == Some(&path.root)
             }
-            StorageIdentity::InvocationResult(_) | StorageIdentity::ScopedCapability { .. } => true,
+            StorageIdentity::InvocationInput { .. } | StorageIdentity::InvocationResult(_)
+            | StorageIdentity::ScopedCapability { .. } => true,
             _ => false,
         };
 

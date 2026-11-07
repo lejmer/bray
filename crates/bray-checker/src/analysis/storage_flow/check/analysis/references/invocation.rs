@@ -86,8 +86,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.append_reference_roots(
                 state,
                 value.into(),
-                self.argument_storage(value),
-                self.expression_reference(state, value),
+                self.memory_argument_target(state, operation, value).and_then(|target| target.storage_path().cloned()),
+                self.memory_argument_reference(state, operation, value),
                 &mut stored,
             );
 
@@ -203,7 +203,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if let Some(expression) = occurrence.expression()
             && let Some(selection) = self.execution.semantics.selections().expression(expression)
-            && selection.evaluates_defaults()
+            && selection.stages_inputs()
         {
             if let BoundExecutionSite::CallInput { ordinal, .. } = occurrence {
                 let input = selection
@@ -546,7 +546,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let expression = occurrence.expression()?;
 
         if let Some(selection) = self.execution.semantics.selections().expression(expression)
-            && selection.evaluates_defaults()
+            && selection.stages_inputs()
             && let Some(BoundExecutionSite::CallInput {
                 expression,
                 ordinal,
@@ -584,7 +584,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         // Staged inputs already have their formal type, including its nullable wrapper.
-        if selection.evaluates_defaults() {
+        if selection.stages_inputs() {
             return Vec::new();
         }
 
@@ -975,7 +975,7 @@ pub(super) fn invocation_argument(
 ) -> Option<BoundExpressionId> {
     let selection = selections.expression(occurrence.expression()?)?;
 
-    if selection.evaluates_defaults() {
+    if selection.stages_inputs() {
         return match selection.invocation_input_site(occurrence, root)? {
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
                 Some(expression)

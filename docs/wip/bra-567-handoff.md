@@ -339,12 +339,30 @@ independent owning result slots. Physical reference/owned-region payload, livene
 publication must all follow those checked transports. Source access checking remains attached to the original path.
 Borrowing a fresh physical owner keeps that owner in its real scope, while consuming a loan handle does not end its
 pointee. Implicit Next and scoped capability results remain distinct from the enclosing expression's final value.
+The CFG operation defines one shared consumption phase used by semantic publication, physical retirement and liveness.
+Pattern observation, scope cleanup and suspension do not consume a value merely because they share a node identity.
+Storage selection distinguishes exact inline components from reached storage. Proven indices are normalized, while an
+unresolved inline selector retires only its containing evaluated view and retains terminal data. It never guesses a
+child or ends an indirection's descriptor in place of its pointee.
+
+Physical call completion also needs the actual admitted input objects. Runtime selected calls now use the existing
+`InvocationInput` staging protocol for all explicit inputs, rather than only calls with omitted defaults. The factual
+`evaluates_defaults` query stays separate from `stages_inputs`. Planning, CFG, dependencies, entry snapshots, physical
+reference consumers and lowering use the checked private slots. Intrinsics select those slots at completion and never
+recover a consumed expression source. Admission ends caller access without destroying the private input's protected
+payload. Callee effects, intrinsic completion and terminal cleanup own that payload, and completion liveness retains
+its slot. Specialized native/intrinsic lowering hooks must share the same input materialization path as ordinary calls.
 
 Admission also transfers witness authority into the existing callee-entry protocol. Suspend recorded actual input
 carriers in the existing ledger and remove public facts during execution. Keep only that admitted entry's existing
 records privately through opaque effects. Normal completion resumes, qualifies by actual result cases, and applies
 returned preservation masks and dependency retirement atomically. Failure retires admitted inputs without publishing
 a normal result. This replaces the unconditional-return-only owner retention shortcut, with no second witness store.
+Final masked retirement compares old and retained data at the same observed path even when the top owner survives.
+Captured immutable entry terms remain historical data. A repeated ownership guard also needs a finite logical shape:
+AND/OR normalization now flattens, folds constants, deduplicates and balances binary terms within the existing budget.
+Unknown terms never establish authority and exhaustion yields unknown. This is a bounded representation requirement,
+not an established explanation for the previous runtime stack overflow.
 
 The call-boundary review found a missing owned-contents contract. A typed preservation mask on each owned-result
 transfer separates unchanged data from owner identity. Its inference and consumption are integrated with portable

@@ -45,21 +45,17 @@ impl Lowerer<'_> {
                     )
                 });
 
-                let mode = match receiver.mode() {
-                    ReceiverMode::Shared => IterationSourceMode::Shared,
-                    ReceiverMode::Mutable => IterationSourceMode::Mutable,
-                    ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => {
-                        IterationSourceMode::Move
-                    }
+                let source = self.expression_source(id);
+                let (lowered, _) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
+                let Some(current) = lowered.block else { return Ok(Some(lowered)); };
+                let operand = lowered.value.expect("range iteration retains its staged receiver");
+                let value = if matches!(receiver.mode(), ReceiverMode::Shared | ReceiverMode::Mutable) {
+                    MirOperand::Copy(self.staged_receiver_target(&operand, receiver.target_type()))
+                } else {
+                    operand
                 };
 
-                self.lower_range_iteration_source(
-                    receiver.expression().into(),
-                    receiver.expression(),
-                    mode,
-                    current,
-                )
-                .map(Some)
+                Ok(Some(LoweredExpression::continuing(current, Some(value), source)))
             }
             Some(ImplementationHook::RangeNext) => {
                 self.lower_range_next_call(id, current, selection).map(Some)
@@ -72,7 +68,7 @@ impl Lowerer<'_> {
                     .receiver()
                     .expect("selected generator iterate retains its receiver");
 
-                let (lowered, receiver_type) = self.lower_call_receiver(receiver, current)?;
+                let (lowered, receiver_type) = self.lower_selected_receiver_input(id, receiver, current, &self.expression_source(id))?;
 
                 let Some(block) = lowered.block else {
                     return Ok(Some(lowered));
@@ -114,19 +110,13 @@ impl Lowerer<'_> {
                     .receiver()
                     .expect("selected generator next retains its receiver");
 
-                let decision = self.storage_decision(receiver.expression().into(), |purpose| {
-                    purpose == StorageAccessPurpose::Borrow(BorrowKind::Mutable)
-                });
+                let source = self.expression_source(id);
+                let (lowered, _) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
+                let Some(current) = lowered.block else { return Ok(Some(lowered)); };
+                let operand = lowered.value.expect("generator next retains its staged receiver");
+                let cursor = self.staged_receiver_target(&operand, receiver.target_type());
 
-                self.lower_access_place_with(
-                    receiver.expression(),
-                    decision.access(),
-                    current,
-                    |lowerer, block, cursor| {
-                        lowerer.generator_next(id, block, cursor, lowerer.expression_type(id), hook)
-                    },
-                )
-                .map(Some)
+                self.generator_next(id, current, cursor, self.expression_type(id), hook).map(Some)
             }
             _ => Ok(None),
         }
@@ -867,24 +857,13 @@ impl Lowerer<'_> {
             )
         });
 
-        let decision = self.storage_decision(receiver.expression().into(), |purpose| {
-            purpose == StorageAccessPurpose::Borrow(BorrowKind::Mutable)
-        });
+        let source = self.expression_source(id);
+        let (lowered, _) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
+        let Some(current) = lowered.block else { return Ok(lowered); };
+        let operand = lowered.value.expect("range next retains its staged receiver");
+        let cursor = self.staged_receiver_target(&operand, receiver.target_type());
 
-        self.lower_access_place_with(
-            receiver.expression(),
-            decision.access(),
-            current,
-            |lowerer, current, cursor| {
-                lowerer.lower_range_next_from_cursor(
-                    id,
-                    current,
-                    cursor,
-                    receiver.target_type(),
-                    lowerer.expression_type(id),
-                )
-            },
-        )
+        self.lower_range_next_from_cursor(id, current, cursor, receiver.target_type(), self.expression_type(id))
     }
 
     fn lower_range_next_from_cursor(
