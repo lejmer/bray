@@ -9,6 +9,7 @@ mod references;
 mod reports;
 mod snapshot;
 mod terminal;
+mod transfers;
 
 pub(crate) use core::{StorageFlowCollector, check_storage_flow_with_graph};
 

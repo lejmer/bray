@@ -313,41 +313,10 @@ impl Footprint {
         )
     }
 
-    /// Keep marker identities that none of these typed transfers can replace.
-    pub(crate) fn preserve_transfer_markers(
-        &self,
-        types: &BTreeMap<TypeId, bool>,
-        mut complete: bool,
-        invalidation: &mut StorageInvalidation,
-    ) -> BTreeSet<TypeId> {
-        let mut transferred = BTreeSet::new();
-        let mut raw_transferred = BTreeSet::new();
-
-        for (ty, raw) in types {
-            if let Some(markers) = self.shapes.get(ty).and_then(|shape| shape.inline_markers.as_ref()) {
-                transferred.extend(markers.iter().copied());
-
-                if *raw { raw_transferred.extend(markers.iter().copied()); }
-            } else {
-                complete = false;
-
-                if *raw { raw_transferred.extend(self.empty_markers.values().copied()); }
-            }
-        }
-
-        let stable_values = match invalidation {
-            StorageInvalidation::All { stable_values, .. }
-            | StorageInvalidation::Observed { stable_values, .. } => stable_values,
-            StorageInvalidation::Paths(_) => return raw_transferred,
-        };
-
-        if complete {
-            stable_values.extend(self.empty_markers.iter().filter_map(|(path, marker)| {
-                (!transferred.contains(marker)).then(|| path.clone())
-            }));
-        }
-
-        raw_transferred
+    /// Marker ownership transported by this already classified value type.
+    /// Reachability and mutation authority remain with the resolved operation.
+    pub(crate) fn transfer_markers(&self, ty: TypeId) -> Option<&BTreeSet<TypeId>> {
+        self.shapes.get(&ty)?.inline_markers.as_ref()
     }
 
 }
@@ -523,9 +492,11 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                             || identity.is_invocation_owned(storage.kind())
                             || matches!(identity, bray_bound_tree::StorageIdentity::Static(_))
                         {
-                            if let Observation::Marker(ty) = observation {
-                                // Typed payload stores cannot replace empty markers,
-                                // including markers reached through mutable loans.
+                            if let Observation::Marker(ty) = observation
+                                && borrowed.is_none()
+                            {
+                                // Borrowed markers use their loan's physical referents
+                                // below. A logical reference slot is not that storage.
                                 footprint.empty_markers.insert(path.clone(), *ty);
                             }
 

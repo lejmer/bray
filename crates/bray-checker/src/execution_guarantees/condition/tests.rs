@@ -38,13 +38,10 @@ fn borrowed_scalar_contents_retain_storage_authority_and_const_value_semantics()
     let call = |value| ExecutionCondition::call(callable, None, [], vec![value]);
 
     let stored = |ordinal, value| {
-        ExecutionCondition::Constructed(
-            Arc::new(ExecutionCondition::Input(ExecutionPlace::argument(
-                SymbolOrdinal::new(ordinal),
-            ))),
-            [(bray_bound_tree::StorageProjection::OwnedTarget, value)].into(),
-        )
-        .borrowed()
+        ExecutionCondition::storage_value(
+            ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))),
+            value,
+        ).borrowed()
     };
 
     for value in [
@@ -54,6 +51,9 @@ fn borrowed_scalar_contents_retain_storage_authority_and_const_value_semantics()
         let loan = stored(0, value.clone());
         let unchanged = loan.with_referent(value.clone());
         let changed = loan.with_referent(ExecutionCondition::Boolean(false));
+        let forwarded = loan.with_referent(changed.clone().into_referent());
+
+        assert_eq!(forwarded, changed);
         let unrelated = stored(1, value);
 
         assert_eq!(condition(unchanged), condition(loan.clone()));
@@ -69,6 +69,25 @@ fn borrowed_scalar_contents_retain_storage_authority_and_const_value_semantics()
         assert_eq!(changed.owner_identity(), loan.owner_identity());
         assert_eq!(changed.owned_components().count(), 0);
     }
+}
+
+#[test]
+fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
+    let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let current = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+    let changed = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+    let aggregate = ExecutionCondition::Constructed(
+        Arc::new(owner), [(bray_bound_tree::StorageProjection::OwnedTarget, current)].into(),
+    );
+
+    assert_eq!(aggregate.storage_contents(), None);
+
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+    let observe = |value| ExecutionCondition::predicate(predicate.into(), callable.substitution(), vec![value]);
+
+    assert_eq!(observe(aggregate.borrowed().with_referent(changed.clone())), observe(changed.borrowed()));
 }
 
 #[test]

@@ -3096,6 +3096,23 @@ fn retired_local_reference_slots_do_not_expose_their_former_targets() {
 }
 
 #[test]
+fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
+    let ([owner, pointer, _, _], origins) = places();
+    let target = Target::storage(owner.clone());
+
+    let mut state = State {
+        owned_storage: [owner.root].into(),
+        ..State::default()
+    };
+
+    assert!(!state.unknown_reference_may_reach(&target));
+
+    state.address(owner, pointer, error_type(), origins[0]);
+
+    assert!(state.unknown_reference_may_reach(&target));
+}
+
+#[test]
 fn unknown_references_cannot_reach_unaddressed_inline_storage() {
     let ([local, borrowed, pointer, backing], origins) = places();
 

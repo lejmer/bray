@@ -22,6 +22,26 @@ internal callable Stop = @abi(c) trusted func(pos owner: DataPointer<Reference>,
 internal callable Detach = @abi(c) trusted func(pos owner: DataPointer<Reference>)
     requires(trusted reference_slot(pointer = owner));
 
+internal callable Destroy = @abi(c) trusted func(pos pointer: DataPointer<Reference>)
+    requires(trusted reference_slot(pointer = pointer), trusted retirement_entry(pointer = pointer));
+
+trusted internal func destroy_reference(pos owner: Reference)
+    requires(trusted retained(owner = &owner.marker), trusted retiring(owner = &owner))
+    uses(foreign_call)
+{
+    let operation = (trusted domain(&owner)).destroy_service;
+
+    let authorize = trusted lambda(pos owner: &Reference) -> DataPointer<Reference>
+        requires(trusted retained(owner = &owner.marker), trusted retiring(owner = owner))
+        ensures(trusted reference_slot(pointer = result), trusted retirement_entry(pointer = result))
+        executes(pure, total)
+    {
+        return std.memory.address_of<Reference>(owner);
+    };
+
+    trusted operation(trusted authorize(&owner));
+}
+
 // Operations belong to the pool that owns their backing and provider. Root-only
 // consumers can borrow this interface without retaining native worker creation.
 internal func request(pos owner: &Reference, pos lane: bray.runtime.bootstrap.scheduler.Lane) -> Failure

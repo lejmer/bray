@@ -6,8 +6,11 @@ mod model;
 mod normalize;
 mod place;
 mod portable;
+mod snapshot;
 mod trusted_implication;
 mod witness;
+
+pub(crate) use snapshot::{common_components, owned_snapshot};
 
 pub use bray_symbols::ExecutionProperty;
 pub use condition::ExecutionCondition;

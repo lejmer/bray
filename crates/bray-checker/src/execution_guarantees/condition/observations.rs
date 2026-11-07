@@ -46,7 +46,7 @@ impl ExecutionCondition {
 
         loop {
             match value {
-                Self::Constructed(base, _) if **base != Self::Unknown => value = base,
+                Self::Constructed(base, _) | Self::StorageValue(base, _) if **base != Self::Unknown => value = base,
                 _ => {
                     if let Some(payload) = value.nullable_payload_snapshot() {
                         value = payload;
@@ -95,7 +95,7 @@ impl ExecutionCondition {
 
                     return Some((Self::Input(root), full_path));
                 }
-                Self::Constructed(base, _) if **base != Self::Unknown => value = base,
+                Self::Constructed(base, _) | Self::StorageValue(base, _) if **base != Self::Unknown => value = base,
                 Self::Expression(_)
                 | Self::ScopedCapability(_)
                 | Self::PostState(_, _)
@@ -160,6 +160,7 @@ impl ExecutionCondition {
                     condition: value, ..
                 }
                 | Self::CapturedInput { owner: value, .. } => pending.push(value),
+                Self::StorageValue(owner, value) => pending.extend([owner.as_ref(), value.as_ref()]),
                 Self::Constructed(base, fields) => {
                     pending.push(base);
 
@@ -186,6 +187,7 @@ impl ExecutionCondition {
                 Self::PostState(site, _) if *site == mutation => {
                     return true;
                 }
+                Self::StorageValue(owner, value) => pending.extend([owner.as_ref(), value.as_ref()]),
                 Self::Constructed(base, fields) => {
                     pending.push(base);
 
@@ -269,6 +271,7 @@ impl ExecutionCondition {
                     captured: false,
                 } => pending.push(condition),
                 Self::CapturedInput { owner, .. } => pending.push(owner),
+                Self::StorageValue(owner, value) => pending.extend([owner.as_ref(), value.as_ref()]),
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Projection(_, value)
@@ -320,6 +323,7 @@ impl ExecutionCondition {
                         condition,
                         captured: false,
                     } => pending.push(condition),
+                    Self::StorageValue(owner, value) => pending.extend([owner.as_ref(), value.as_ref()]),
                     Self::Constructed(base, fields) => {
                         pending.push(base);
                         pending.extend(fields.iter().map(|(_, value)| value));
@@ -386,6 +390,7 @@ impl ExecutionCondition {
                 | Self::Trusted(value)
                 | Self::Projection(_, value)
                 | Self::Present(value) => pending.push((value, live)),
+                Self::StorageValue(owner, value) => pending.extend([(owner.as_ref(), live), (value.as_ref(), live)]),
                 Self::Constructed(base, fields) => {
                     pending.push((base, live));
 

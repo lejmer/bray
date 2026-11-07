@@ -179,6 +179,11 @@ Neither operation creates authority from an unchanged field. Entry values identi
 while current borrowed observations describe its completion state. Storage ownership and permission to access a resource
 remain separate because a resource protocol can revoke permission without destroying the value that holds its address.
 
+Deferred call entries retain immutable input identities separately from knowledge about their values. Refinement adds
+proof facts without replacing captured inputs. Joins can lose component knowledge while retaining a common complete
+carrier or loan. Resolved storage effects keep their access type and reached region through preservation decisions,
+using the same classifications for active loans and stored views.
+
 ## Dependencies, behavior and async plans
 
 Dependency analysis infers the requirements carried by values and accesses from established storage, capability,

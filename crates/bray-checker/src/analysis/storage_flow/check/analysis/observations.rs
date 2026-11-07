@@ -194,88 +194,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
     }
 
-    pub(super) fn preserve_storage_values(
-        &mut self,
-        state: &StorageFlowState,
-        memory: &crate::analysis::storage_flow::memory::State,
-        operation: Option<&bray_bound_tree::CheckedMemoryOperation>,
-        effects: Option<&[Effect]>,
-        invalidation: &mut StorageInvalidation,
-    ) {
-        use bray_bound_tree::CheckedMemoryOperationKind as Operation;
-        use bray_symbols::DependencyMutationKind as Mutation;
-
-        let typed_transfer = operation.and_then(|operation| match operation.kind() {
-            Operation::Read { pointee, kind: bray_bound_tree::MemoryReadKind::Move }
-            | Operation::VolatileRead { pointee, kind: bray_bound_tree::MemoryReadKind::Move, .. }
-            | Operation::Write { pointee } | Operation::Copy { pointee, .. }
-            | Operation::VolatileWrite { pointee, .. } => Some(*pointee),
-            Operation::UninitMove { element } | Operation::UninitAssumeInitialized { element }
-            | Operation::UninitWrite { element } => Some(*element),
-            _ => None,
-        });
-
-        let raw_operation = operation.is_some_and(|operation| matches!(operation.kind(),
-            Operation::Read { .. } | Operation::VolatileRead { .. } | Operation::Write { .. }
-            | Operation::Copy { .. } | Operation::VolatileWrite { .. }));
-
-        let mut types = std::collections::BTreeMap::new();
-        let mut complete = effects.is_some() || typed_transfer.is_some();
-
-        if let Some(ty) = typed_transfer { types.insert(ty, raw_operation); }
-
-        for effect in effects.into_iter().flatten() {
-            let raw = raw_operation || match effect {
-                Effect::Mutation(_, _, Some(ty)) | Effect::UnboundedMutation { access_type: Some(ty), .. } => crate::representation::reference_kind(self.request, *ty)
-                    == Some(bray_symbols::DependencyReferenceKind::Address),
-                _ => false,
-            };
-
-            let ty = match effect {
-                Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic, _)
-                | Effect::UnboundedMutation { kind: Mutation::Escape | Mutation::Atomic, .. } => continue,
-                Effect::Mutation(_, Mutation::Replace(ty), _) | Effect::UnboundedMutation { kind: Mutation::Replace(ty), .. } => Some(*ty),
-                Effect::Mutation(_, Mutation::Write | Mutation::Consume | Mutation::Clear, Some(ty))
-                | Effect::UnboundedMutation { kind: Mutation::Write | Mutation::Consume | Mutation::Clear, access_type: Some(ty), .. } if raw => {
-                    crate::representation::reference_target_type(self.request, *ty)
-                }
-                Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear, _) => {
-                    if typed_transfer.is_some() { continue; }
-
-                    match memory.projected_type(self.request, target) {
-                        Ok(ty) => ty,
-                        Err(error) => {
-                            self.query_failure = Some(error);
-
-                            None
-                        }
-                    }
-                }
-                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_) | Effect::Mutation(_, Mutation::Retire, _) | Effect::UnboundedMutation { .. } => {
-                    // A checked raw operation supplies its actual transfer type even
-                    // when the reached address has an ambient storage summary.
-                    if typed_transfer.is_some() { continue; }
-
-                    None
-                }
-            };
-
-            if let Some(ty) = ty {
-                types.entry(ty).and_modify(|previous| *previous |= raw).or_insert(raw);
-            } else { complete = false; }
-        }
-
-        let transferred = self.input.footprint.preserve_transfer_markers(&types, complete, invalidation);
-
-        self.preserve_active_borrows(state, memory, &transferred, invalidation);
-        self.preserve_shared_views(memory, &transferred, invalidation);
-    }
-
-    fn preserve_active_borrows(
+    pub(super) fn preserve_active_borrows(
         &self,
         state: &StorageFlowState,
         memory: &crate::analysis::storage_flow::memory::State,
-        transferred: &std::collections::BTreeSet<bray_symbols::TypeId>,
+        survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind, bool) -> bool,
         invalidation: &mut StorageInvalidation,
     ) {
         let opaque = matches!(invalidation, StorageInvalidation::All { .. });
@@ -332,6 +255,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 if capability.kind() == bray_symbols::BorrowKind::Mutable {
+                    for (value, observation) in self.input.footprint.observations(path) {
+                        if matches!(observation, bray_bound_tree::StorageObservationKind::Marker(_))
+                            && memory.borrow_regions(*borrow).is_some_and(|targets| targets.iter().all(|target| {
+                                survives(&target.project(&value.projections[path.projections.len()..]), observation, false)
+                            })) {
+                            stable_values.insert(value.clone());
+                        }
+                    }
+
                     stable_descriptors.extend(self.input.footprint.discriminants.get(&path.root).into_iter().flatten().filter(|descriptor| {
                         descriptor.contains(path)
                             && matches!(path.projections.get(descriptor.projections.len()), Some(bray_bound_tree::StorageProjection::NullableValue | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
@@ -343,10 +275,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let discriminants = self.input.footprint.discriminants.get(&path.root);
                 let mut observed = false;
 
-                if !exposed_referent && transferred.is_empty() {
+                if !exposed_referent {
                     for value in self.input.opaque_values.range(path.clone()..).take_while(|value| path.contains(value)) {
-                        stable_values.insert(value.clone());
-                        observed = true;
+                        if memory.borrow_regions(*borrow).is_some_and(|targets| targets.iter().all(|target| {
+                            survives(&target.project(&value.projections[path.projections.len()..]), bray_bound_tree::StorageObservationKind::Mutable, true)
+                        })) {
+                            stable_values.insert(value.clone());
+                            observed = true;
+                        }
                     }
                 }
 
@@ -361,7 +297,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         continue;
                     }
 
-                    let survives = observation_survives_transfer(observation, transferred);
+                    let survives = memory.borrow_regions(*borrow).is_some_and(|targets| {
+                        targets.iter().all(|target| survives(
+                            &target.project(&value.projections[path.projections.len()..]), observation, true,
+                        ))
+                    });
 
                     if survives && (!exposed_referent || opaque && observation.is_immutable_inline()) {
                         stable_values.insert(value.clone());
@@ -388,10 +328,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
     }
 
-    fn preserve_shared_views(
+    pub(super) fn preserve_shared_views(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
-        transferred: &std::collections::BTreeSet<bray_symbols::TypeId>,
+        survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind) -> bool,
         invalidation: &mut StorageInvalidation,
     ) {
         let (stable_descriptors, stable_values, changed) = match invalidation {
@@ -455,21 +395,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             for (path, observation) in observations {
                 // A whole-value frame must not hide a retired marker inside it.
                 // Disjoint observations already survive the physical invalidation.
-                if !observation_survives_transfer(*observation, transferred) {
-                    continue;
-                }
-
                 let immutable_value = observation.is_immutable_inline();
                 let address = *observation == bray_bound_tree::StorageObservationKind::Address;
 
                 if !targets.is_empty()
                     && targets.iter().all(|target| {
-                        if target.previous {
-                            return false;
-                        }
-
                         let target =
                             target.project(&path.projections[reference.projections.len()..]);
+
+                        if target.previous || !survives(&target, *observation) {
+                            return false;
+                        }
 
                         match &target.origin {
                             // These referents have stable identities, but no
@@ -1076,19 +1012,5 @@ fn observable_path(
                 *projection != bray_bound_tree::StorageProjection::UninitPayload
             })
             .collect(),
-    }
-}
-
-fn observation_survives_transfer(
-    observation: bray_bound_tree::StorageObservationKind,
-    transferred: &std::collections::BTreeSet<bray_symbols::TypeId>,
-) -> bool {
-    use bray_bound_tree::StorageObservationKind as Observation;
-
-    match observation {
-        Observation::Marker(ty) => !transferred.contains(&ty),
-        Observation::Value | Observation::Mutable | Observation::Identity => transferred.is_empty(),
-        Observation::Address => true,
-        Observation::Discriminant | Observation::Reference(_) => false,
     }
 }

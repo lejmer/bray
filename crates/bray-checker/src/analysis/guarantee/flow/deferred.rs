@@ -342,7 +342,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ordinal: *ordinal,
             };
 
-            let captured = super::joins::owned_snapshot(&value, identity, &mut {
+            let captured = crate::execution_guarantees::owned_snapshot(&value, identity, &mut {
                 ExecutionCondition::WORK_LIMIT
             });
 
@@ -364,9 +364,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state.join_values(&values, &identities);
 
-        // Copyable contents get private observations without renaming their caller
-        // or transferring its authority. Track origins only while unchanged.
-        // Projected capture facts survive later source mutation.
+        // Every copied input has one immutable identity in its frame. Constants
+        // describe that input's value rather than changing the input's identity.
+        // Caller copy origins expire independently when their source changes.
         for (place, value) in entry.arguments.clone() {
             let crate::execution_guarantees::ExecutionInput::Argument(ordinal) = place.root else {
                 continue;
@@ -375,13 +375,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if !place.projections.is_empty()
                 || entry.owned_inputs.contains(&ordinal)
                 || value.observes_live(None)
-                || matches!(
-                    value,
-                    ExecutionCondition::Boolean(_)
-                        | ExecutionCondition::Literal(_)
-                        | ExecutionCondition::Variant(_)
-                        | ExecutionCondition::Unknown
-                )
+                || matches!(value, ExecutionCondition::Variant(_) | ExecutionCondition::Unknown)
             {
                 continue;
             }
@@ -398,19 +392,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         ordinal,
                     };
 
-                    super::joins::owned_snapshot(&value, identity.clone(), &mut {
-                        ExecutionCondition::WORK_LIMIT
-                    })
-                    .with_snapshots(&[(value.owner_identity().clone(), identity)].into())
+                    if matches!(value, ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
+                        identity
+                    } else {
+                        crate::execution_guarantees::owned_snapshot(&value, identity.clone(), &mut {
+                            ExecutionCondition::WORK_LIMIT
+                        }).with_snapshots(&[(value.owner_identity().clone(), identity)].into())
+                    }
                 });
 
-            let snapshots = [(value.clone(), captured.clone())].into();
+            if matches!(value, ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
+                ExecutionCondition::operation(
+                    bray_bound_tree::BoundOperator::Equal,
+                    vec![captured.clone(), value],
+                ).assume(true, &mut entry.assumptions);
+            } else {
+                let snapshots = [(value.clone(), captured.clone())].into();
 
-            for argument in entry.arguments.values_mut() {
-                *argument = argument.with_snapshots(&snapshots);
+                for argument in entry.arguments.values_mut() {
+                    *argument = argument.with_snapshots(&snapshots);
+                }
+
+                entry.copy_sources.insert(place.clone(), value);
             }
 
-            entry.copy_sources.insert(place.clone(), value);
             entry.arguments.insert(place, captured);
         }
 
