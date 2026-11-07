@@ -68,7 +68,7 @@ impl ExecutionCondition {
             // loan that supplies them. Flow values retain that loan separately.
             let value = std::mem::replace(argument, Self::Unknown).into_referent();
 
-            let value = if let Self::CurrentValue(_, contents) = value { contents.as_ref().clone() } else { value };
+            let value = value.current_contents().clone();
 
             *argument = value.storage_contents().map(|(_, contents)| contents.clone()).unwrap_or(value);
 
@@ -136,9 +136,7 @@ impl ExecutionCondition {
                 Self::Boolean(*active == variant)
             }
             Self::Tagged(active, _) => Self::Boolean(active == variant),
-            Self::Constructed(base, fields) => Self::component_base(&base, &fields)
-                .clone()
-                .matches_variant(variant),
+            Self::Constructed(base, _) => base.as_ref().clone().matches_variant(variant),
             value => {
                 if let Some(snapshot) = value.nullable_payload_snapshot() {
                     snapshot.clone().matches_variant(variant)
@@ -231,6 +229,16 @@ impl ExecutionCondition {
             return payload.clone().borrowed();
         }
 
+        if let Self::CurrentValue(owner, contents) = &self
+            && !matches!(owner.as_ref(), Self::Borrowed(_))
+        {
+            return Self::current_value(owner.as_ref().clone().borrowed(), contents.as_ref().clone());
+        }
+
+        if !matches!(self.owner_identity(), Self::Borrowed(_)) && self.owner_identity() != &self {
+            return Self::current_value(self.owner_identity().clone().borrowed(), self);
+        }
+
         // This marks a live observation, not an additional dereference. Formal
         // predicate substitution and runtime forwarding can reach the same view.
         if self == Self::Unknown || matches!(self.owner_identity(), Self::Borrowed(_)) {
@@ -242,62 +250,59 @@ impl ExecutionCondition {
 
     /// Refresh reached contents while retaining this existing loan's identity and lifetime.
     pub(crate) fn with_referent(&self, contents: Self) -> Self {
-        // Forwarding an unchanged symbolic reference must not manufacture a
-        // different loan or rebuild the complete owner that contains it.
         if self == &contents { return self.clone(); }
 
         let identity = self.owner_identity();
 
-        if matches!(identity, Self::Borrowed(_)) {
-            // Scalar contents still belong to their existing storage context.
-            // Refresh that context without replacing it with the copied value.
-            let contents = if let Self::Borrowed(previous) = identity
-                && let Some((owner, _)) = previous.storage_contents()
-            {
-                Self::storage_value(owner.clone(), contents)
-            } else {
-                contents
-            };
+        if *identity == Self::Unknown { return Self::Unknown; }
 
-            if let Self::Borrowed(previous) = self
-                && previous.as_ref() == &contents
-            {
-                return self.clone();
-            }
+        // A scalar view retains its physical storage even when its copied data changes.
+        let previous = self.clone().into_referent();
 
-            if identity == contents.owner_identity() {
-                return contents;
-            }
+        let contents = if let Some((owner, _)) = previous.storage_contents() {
+            Self::storage_value(owner.clone(), contents)
+        } else { contents };
 
-            Self::Constructed(
-                Arc::new(identity.clone()),
-                [(bray_bound_tree::StorageProjection::OwnedTarget, contents)].into(),
-            )
-        } else if *identity == Self::Unknown {
-            // Reached contents cannot supply a missing reference identity.
-            Self::Unknown
-        } else {
-            // A symbolic reference field still owns its existing loan context.
-            // Slot replacement supplies a new identity before this observation.
-            Self::Constructed(
-                Arc::new(identity.clone().borrowed()),
-                [(bray_bound_tree::StorageProjection::OwnedTarget, contents)].into(),
-            )
+        if let Self::Borrowed(previous) = self && previous.as_ref() == &contents {
+            return self.clone();
+        }
+
+        Self::current_value(identity.clone().borrowed(), contents)
+    }
+
+    /// Structural overlays belong inside their existing owner or loan context.
+    pub(crate) fn constructed(
+        base: Self,
+        fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
+    ) -> Self {
+        match base {
+            Self::CurrentValue(owner, contents) => Self::current_value(
+                owner.as_ref().clone(), Self::Constructed(contents, fields),
+            ),
+            Self::Borrowed(contents) => Self::current_value(
+                Self::Borrowed(Arc::clone(&contents)), Self::Constructed(contents, fields),
+            ),
+            base => Self::Constructed(Arc::new(base), fields),
         }
     }
 
     pub(crate) fn current_value(owner: Self, contents: Self) -> Self {
         let owner = owner.owner_identity();
 
-        if matches!(owner, Self::Borrowed(_)) {
-            return owner.with_referent(contents);
-        }
-
         if owner == &contents || matches!(&contents, Self::CurrentValue(current, _) if current.as_ref() == owner) {
             return contents;
         }
 
         Self::CurrentValue(Arc::new(owner.clone()), Arc::new(contents))
+    }
+
+    /// Current-value contexts retain storage or loan identity outside value terms.
+    fn current_contents(&self) -> &Self {
+        let mut current = self;
+
+        while let Self::CurrentValue(_, contents) = current { current = contents; }
+
+        current
     }
 
     pub(crate) fn storage_value(owner: Self, value: Self) -> Self {
@@ -320,8 +325,8 @@ impl ExecutionCondition {
 
     /// Terms observe current contents. The enclosing flow value retains the loan context.
     fn observe_contents(&mut self) {
-        if matches!(self, Self::Constructed(base, _) if matches!(base.owner_identity(), Self::Borrowed(_))) {
-            *self = self.clone().into_referent().borrowed();
+        if matches!(self, Self::CurrentValue(owner, _) if matches!(owner.as_ref(), Self::Borrowed(_))) {
+            *self = self.clone().into_referent().current_contents().clone().borrowed();
         }
     }
 
@@ -329,26 +334,8 @@ impl ExecutionCondition {
     pub(crate) fn into_referent(self) -> Self {
         match self {
             Self::Borrowed(value) => value.as_ref().clone().into_referent(),
-            Self::Constructed(base, fields)
-                if matches!(base.owner_identity(), Self::Borrowed(_)) =>
-            {
-                let contents = fields
-                    .iter()
-                    .find(|(field, _)| *field == bray_bound_tree::StorageProjection::OwnedTarget)
-                    .map(|(_, value)| value.clone().into_referent())
-                    .unwrap_or_else(|| base.as_ref().clone().into_referent());
-
-                let fields = fields
-                    .iter()
-                    .filter(|(field, _)| *field != bray_bound_tree::StorageProjection::OwnedTarget)
-                    .cloned()
-                    .collect::<Vec<_>>();
-
-                if fields.is_empty() {
-                    contents
-                } else {
-                    Self::Constructed(Arc::new(contents), fields.into())
-                }
+            Self::CurrentValue(owner, contents) if matches!(owner.as_ref(), Self::Borrowed(_)) => {
+                contents.as_ref().clone().into_referent()
             }
             value => value,
         }
@@ -521,24 +508,11 @@ impl ExecutionCondition {
                 })
                 .map(|(_, value)| value.clone())
                 .unwrap_or_else(|| {
-                    Self::component_base(&base, &fields)
-                        .clone()
-                        .component(projection)
+                    base.as_ref().clone().component(projection)
                 }),
             Self::Unknown => Self::Unknown,
             value => Self::Projection(projection, Arc::new(value)),
         }
-    }
-
-    fn component_base<'a>(
-        base: &'a Self,
-        fields: &'a [(bray_bound_tree::StorageProjection, Self)],
-    ) -> &'a Self {
-        fields
-            .iter()
-            .find(|(projection, _)| *projection == bray_bound_tree::StorageProjection::OwnedTarget)
-            .map(|(_, contents)| contents)
-            .unwrap_or(base)
     }
 
     pub(crate) fn with_component(
@@ -626,12 +600,16 @@ impl ExecutionCondition {
             fields.sort_by_key(|(projection, _)| *projection);
         }
 
-        Self::Constructed(base, fields.into())
+        Self::constructed(base.as_ref().clone(), fields.into())
     }
 
     pub(crate) fn operation(operator: BoundOperator, mut operands: Vec<Self>) -> Self {
         for operand in &mut operands {
             operand.observe_contents();
+
+            if matches!(operand, Self::CurrentValue(_, _)) {
+                *operand = operand.current_contents().clone();
+            }
 
             if let Self::StorageValue(_, value) | Self::CurrentValue(_, value) = operand
                 && matches!(value.as_ref(), Self::Literal(_) | Self::Boolean(_)) {

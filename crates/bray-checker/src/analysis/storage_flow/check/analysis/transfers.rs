@@ -119,5 +119,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         self.preserve_active_borrows(state, memory, &active, invalidation);
         self.preserve_shared_views(memory, &shared, invalidation);
+
     }
 }

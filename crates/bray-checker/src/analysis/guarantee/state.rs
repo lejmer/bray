@@ -421,7 +421,11 @@ impl ExecutionState {
                     })
                     .collect();
 
-                *value = ExecutionCondition::Constructed(std::sync::Arc::clone(identity), fields);
+                *value = ExecutionCondition::constructed(identity.as_ref().clone(), fields);
+            } else if let ExecutionCondition::CurrentValue(owner, _) = value
+                && !stale(owner)
+            {
+                *value = ExecutionCondition::current_value(owner.as_ref().clone(), ExecutionCondition::Unknown);
             } else {
                 *value = ExecutionCondition::Unknown;
             }
@@ -1362,8 +1366,7 @@ mod tests {
 
         state.current.insert(
             place.clone(),
-            ExecutionCondition::Constructed(
-                Arc::new(old.clone()),
+            ExecutionCondition::constructed(old.clone(),
                 [(marker, unchanged.clone()), (payload, old.clone())].into(),
             ),
         );
@@ -1903,8 +1906,7 @@ mod tests {
     fn retiring_a_carrier_revokes_its_unobserved_guarantee_but_keeps_moved_children() {
         let child = input(1);
 
-        let owner = ExecutionCondition::Constructed(
-            Arc::new(input(0)),
+        let owner = ExecutionCondition::constructed(input(0),
             [(
                 bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)),
                 child.clone(),

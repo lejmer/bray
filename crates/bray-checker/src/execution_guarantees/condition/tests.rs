@@ -81,6 +81,17 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
 
     assert_eq!(aggregate.storage_contents(), None);
 
+    let inline = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(3)));
+    let backing = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(4)));
+
+    let allocated = ExecutionCondition::constructed(inline.clone(),
+        [(bray_bound_tree::StorageProjection::OwnedTarget, backing.clone())].into());
+
+    let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+
+    assert_eq!(allocated.clone().project(bray_bound_tree::StorageProjection::OwnedTarget), backing);
+    assert_eq!(allocated.component(field), inline.component(field));
+
     let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
     let callable = crate::test_support::callable_instance(definition.into());
     let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
@@ -97,8 +108,7 @@ fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
         .clone()
         .component(ConstantProjectionKind::NullableValue);
 
-    let snapshot = ExecutionCondition::Constructed(
-        Arc::new(identity.clone()),
+    let snapshot = ExecutionCondition::constructed(identity.clone(),
         [(
             bray_bound_tree::StorageProjection::NullableValue,
             payload.clone(),
@@ -124,8 +134,7 @@ fn changed_contents_do_not_reuse_unlisted_components_from_carrier_identity() {
 
     let value = ExecutionCondition::current_value(
         identity.clone(),
-        ExecutionCondition::Constructed(
-            Arc::new(contents.clone()),
+        ExecutionCondition::constructed(contents.clone(),
             [(
                 bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)),
                 marker.clone(),
@@ -163,8 +172,7 @@ fn partial_aggregate_snapshots_keep_unlisted_component_identity() {
     let first = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
     let second = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
 
-    let value = ExecutionCondition::Constructed(
-        Arc::new(root.clone()),
+    let value = ExecutionCondition::constructed(root.clone(),
         [(first, ExecutionCondition::Unknown)].into(),
     );
 
@@ -368,8 +376,7 @@ fn repeated_component_observation_keeps_the_original_snapshot() {
 
 #[test]
 fn anonymous_aggregate_contents_do_not_establish_an_observation_identity() {
-    let anonymous = ExecutionCondition::Constructed(
-        Arc::new(ExecutionCondition::Unknown),
+    let anonymous = ExecutionCondition::constructed(ExecutionCondition::Unknown,
         [(
             bray_bound_tree::StorageProjection::OwnedTarget,
             ExecutionCondition::Boolean(true),
@@ -377,8 +384,7 @@ fn anonymous_aggregate_contents_do_not_establish_an_observation_identity() {
         .into(),
     );
 
-    let changed = ExecutionCondition::Constructed(
-        Arc::new(anonymous.clone()),
+    let changed = ExecutionCondition::constructed(anonymous.clone(),
         [(
             bray_bound_tree::StorageProjection::OwnedTarget,
             ExecutionCondition::Boolean(false),
@@ -552,8 +558,7 @@ fn predecessor_snapshots_do_not_expand_their_surviving_owner_recursively() {
     let second = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
     let unchanged = owner.clone().component(second);
 
-    let snapshot = ExecutionCondition::Constructed(
-        Arc::new(owner.clone()),
+    let snapshot = ExecutionCondition::constructed(owner.clone(),
         [
             (
                 bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)),

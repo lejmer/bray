@@ -473,7 +473,7 @@ fn current_replacements(
 
         if matches!(
             value,
-            ExecutionCondition::Constructed(_, _) | ExecutionCondition::CurrentValue(_, _) | ExecutionCondition::Present(_)
+            ExecutionCondition::Constructed(_, _) | ExecutionCondition::CurrentValue(_, _) | ExecutionCondition::Borrowed(_) | ExecutionCondition::Present(_)
         ) {
             result_replacements(
                 value,

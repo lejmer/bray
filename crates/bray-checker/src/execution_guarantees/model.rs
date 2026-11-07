@@ -742,8 +742,7 @@ mod tests {
         let owner = ExecutionCondition::Input(input.clone());
         let field = StorageProjection::TupleElement(ordinal);
 
-        let snapshot = |value| ExecutionCondition::Constructed(
-            Arc::new(owner.clone()), [(field, ExecutionCondition::Boolean(value))].into(),
+        let snapshot = |value| ExecutionCondition::constructed(owner.clone(), [(field, ExecutionCondition::Boolean(value))].into(),
         );
 
         for borrowed in [false, true] {

@@ -215,15 +215,14 @@ impl ExecutionCondition {
 
     pub(crate) fn owned_components(&self) -> impl Iterator<Item = &Self> {
         let present = match self {
+            Self::CurrentValue(owner, value) if !matches!(owner.as_ref(), Self::Borrowed(_)) => Some(value.as_ref()),
             Self::Present(value)
-            | Self::CurrentValue(_, value)
             | Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value) => Some(value.as_ref()),
             _ => None,
         };
 
         let fields = match self {
-            Self::Constructed(base, fields)
-                if !matches!(base.owner_identity(), Self::Borrowed(_)) => fields.as_ref(),
+            Self::Constructed(_, fields) => fields.as_ref(),
             _ => &[],
         };
 
@@ -389,11 +388,13 @@ impl ExecutionCondition {
                 | Self::Trusted(value)
                 | Self::Projection(_, value)
                 | Self::Present(value) => pending.push((value, live)),
-                Self::StorageValue(owner, value) | Self::CurrentValue(owner, value) => pending.extend([(owner.as_ref(), live), (value.as_ref(), live)]),
+                Self::StorageValue(owner, value) => pending.extend([(owner.as_ref(), live), (value.as_ref(), live)]),
+                Self::CurrentValue(owner, value) => {
+                    pending.push((owner, live));
+                    pending.push((value, live || matches!(owner.as_ref(), Self::Borrowed(_))));
+                }
                 Self::Constructed(base, fields) => {
                     pending.push((base, live));
-
-                    let live = live || matches!(base.owner_identity(), Self::Borrowed(_));
 
                     pending.extend(fields.iter().map(|(_, value)| (value, live)));
                 }

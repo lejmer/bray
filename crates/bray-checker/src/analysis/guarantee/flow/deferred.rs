@@ -677,8 +677,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 {
                     *state = normal;
 
-                    return ExecutionCondition::Constructed(
-                        Arc::new(root),
+                    return ExecutionCondition::constructed(root,
                         [(projection, value)].into(),
                     );
                 }
@@ -707,7 +706,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let value =
-            ExecutionCondition::Constructed(Arc::new(root.clone()), [(projection, value)].into());
+            ExecutionCondition::constructed(root.clone(), [(projection, value)].into());
 
         let joined =
             super::merge_returned(&mut normal, &abnormal, &value, &root, &root, expression);

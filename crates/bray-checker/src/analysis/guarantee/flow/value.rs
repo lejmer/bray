@@ -109,8 +109,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Mutation retires the old whole-value identity. The new snapshot carries
         // only observed component values, never the retired owner's witnesses.
         (!fields.is_empty()).then(|| {
-            ExecutionCondition::Constructed(
-                std::sync::Arc::new(ExecutionCondition::Unknown),
+            ExecutionCondition::constructed(ExecutionCondition::Unknown,
                 fields.into(),
             )
         })

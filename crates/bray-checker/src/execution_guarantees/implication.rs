@@ -423,10 +423,9 @@ pub fn map_execution_condition_references<E>(
             map_execution_condition_references(owner, map, input, literal, call)?,
             map_execution_condition_references(value, map, input, literal, call)?,
         ),
-        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
-            std::sync::Arc::new(map_execution_condition_references(
+        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::constructed(map_execution_condition_references(
                 base, map, input, literal, call,
-            )?),
+            )?,
             fields
                 .iter()
                 .map(|(field, value)| {

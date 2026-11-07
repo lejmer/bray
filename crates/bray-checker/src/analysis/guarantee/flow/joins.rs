@@ -201,19 +201,18 @@ mod tests {
         let marker = ExecutionCondition::Boolean(true);
 
         let nested = |version| {
-            ExecutionCondition::Constructed(
-                Arc::new(ExecutionCondition::Joined(
+            ExecutionCondition::constructed(ExecutionCondition::Joined(
                     BoundUnitId::new(0),
                     version,
                     place.clone(),
-                )),
+                ),
                 [(field, marker.clone())].into(),
             )
             .borrowed()
         };
 
         let owner = |value| {
-            ExecutionCondition::Constructed(Arc::new(identity.clone()), [(field, value)].into())
+            ExecutionCondition::constructed(identity.clone(), [(field, value)].into())
         };
 
         let joined = join_components(&owner(nested(1)), &owner(nested(2)));
@@ -226,8 +225,7 @@ mod tests {
         );
 
         let different = owner(
-            ExecutionCondition::Constructed(
-                Arc::new(ExecutionCondition::Unknown),
+            ExecutionCondition::constructed(ExecutionCondition::Unknown,
                 [(field, ExecutionCondition::Boolean(false))].into(),
             )
             .borrowed(),
@@ -310,7 +308,10 @@ mod tests {
             let merged = merged.expect("both current observations remain reachable");
             let condition = guarantee(merged.current[&place].clone());
 
-            assert_eq!(condition.prove_trusted(&merged.trusted_assumptions, &merged.assumptions), Some(true));
+            assert_eq!(condition.prove_trusted(&merged.trusted_assumptions, &merged.assumptions), Some(true),
+                "borrowed={borrowed} unchanged={unchanged} component={component_carrier} facts={:?} witnesses={:?}",
+                merged.trusted_assumptions, merged.witnesses);
+
             assert_ne!(condition, guarantee(descriptor.clone()));
         }
     }
@@ -531,13 +532,11 @@ mod nested_guard_tests {
         for valid in [true, false] {
             let marker = input(0);
 
-            let payload = ExecutionCondition::Constructed(
-                Arc::new(ExecutionCondition::Tagged(inner, Arc::new(input(1)))),
+            let payload = ExecutionCondition::constructed(ExecutionCondition::Tagged(inner, Arc::new(input(1))),
                 [(inner_field, marker.clone())].into(),
             );
 
-            let accepted = ExecutionCondition::Constructed(
-                Arc::new(ExecutionCondition::Tagged(outer, Arc::new(input(2)))),
+            let accepted = ExecutionCondition::constructed(ExecutionCondition::Tagged(outer, Arc::new(input(2))),
                 [(outer_field, payload)].into(),
             );
 

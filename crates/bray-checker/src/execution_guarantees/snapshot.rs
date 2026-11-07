@@ -230,7 +230,7 @@ pub(crate) fn common_components(
         })
         .collect();
 
-    ExecutionCondition::Constructed(std::sync::Arc::new(identity), fields)
+    ExecutionCondition::constructed(identity, fields)
 }
 
 /// Reanchor initialized owned components under their destination owner.
@@ -273,7 +273,7 @@ pub(crate) fn owned_snapshot(
                 })
                 .collect();
 
-            ExecutionCondition::Constructed(std::sync::Arc::new(base), fields)
+            ExecutionCondition::constructed(base, fields)
         }
         ExecutionCondition::Tagged(variant, _) => {
             ExecutionCondition::Tagged(*variant, std::sync::Arc::new(identity))

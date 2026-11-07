@@ -53,11 +53,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let projection =
             bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field };
 
-        let result = ExecutionCondition::Constructed(
-            Arc::new(ExecutionCondition::Tagged(
+        let result = ExecutionCondition::constructed(ExecutionCondition::Tagged(
                 variant,
                 Arc::new(ExecutionCondition::Expression(expression)),
-            )),
+            ),
             [(projection, value)].into(),
         );
 
