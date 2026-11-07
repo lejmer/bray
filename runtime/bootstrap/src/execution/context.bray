@@ -21,16 +21,10 @@ internal callable BindingClose = @abi(c) trusted func(pos owner: Owner) -> Refer
         trusted pinned(owner = &owner.execution),
         trusted service_owner(owner = &owner)
     )
-    ensures(
-        trusted retained(owner = &result),
-        trusted pinned(owner = &result)
-    );
+    ensures(trusted retained(owner = &result), trusted pinned(owner = &result));
 
 internal callable BindingRelease = @abi(c) trusted func(pos owner: Reference) -> u32
-    requires(
-        trusted retained(owner = &owner),
-        trusted pinned(owner = &owner)
-    );
+    requires(trusted retained(owner = &owner), trusted pinned(owner = &owner));
 
 // These operations suspend and restore the enclosing dispatch's quota claim.
 // They borrow the complete driver and do not transfer execution ownership.
@@ -58,7 +52,9 @@ internal struct Binding
 
 internal predicate kernel_binding(owner: &Binding) = retained(owner = binding_reference(&owner.ownership)) && pinned(
     owner = binding_reference(&owner.ownership)
-) && (owner.ownership matches BindingOwnership.Cleanup(_) || service_owner(owner = open_binding_owner(&owner.ownership)));
+) && (owner.ownership matches BindingOwnership.Cleanup(_) || service_owner(
+    owner = open_binding_owner(&owner.ownership)
+));
 
 internal const func binding_reference(pos owner: &BindingOwnership) -> &Reference
     executes(pure, total)

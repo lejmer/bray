@@ -20,10 +20,7 @@ internal callable CloseRoot = @abi(c) trusted func(pos owner: Owner) -> Referenc
         trusted service_owner(owner = &owner),
         blocking_execution()
     )
-    ensures(
-        trusted retained(owner = &result),
-        trusted pinned(owner = &result)
-    );
+    ensures(trusted retained(owner = &result), trusted pinned(owner = &result));
 
 trusted internal func own_binding(pos selected: &Current, pos owner: Owner) -> Binding
     requires(
@@ -126,10 +123,7 @@ trusted internal func close_owner_binding(pos owner: Owner) -> Reference
         trusted pinned(owner = &owner.execution),
         trusted service_owner(owner = &owner)
     )
-    ensures(
-        trusted retained(owner = &result),
-        trusted pinned(owner = &result)
-    )
+    ensures(trusted retained(owner = &result), trusted pinned(owner = &result))
 {
     let selected = trusted current();
 
@@ -237,10 +231,7 @@ trusted internal func finish_services(pos owner: &bray.runtime.bootstrap.executi
 
 @abi(c)
 trusted internal func release_owned_pin(pos owner: Reference) -> u32
-    requires(
-        trusted retained(owner = &owner),
-        trusted pinned(owner = &owner)
-    )
+    requires(trusted retained(owner = &owner), trusted pinned(owner = &owner))
 {
     let selected = trusted current();
 

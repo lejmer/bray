@@ -31,6 +31,11 @@ pub(super) fn smoke_test(
 
     for (name, source, expected) in [
         (
+            "ownership-transitions",
+            include_str!("../../fixtures/native-execution/ownership-transitions.bray"),
+            0,
+        ),
+        (
             "async-direct",
             include_str!("../../fixtures/native-execution/async-direct.bray"),
             0,

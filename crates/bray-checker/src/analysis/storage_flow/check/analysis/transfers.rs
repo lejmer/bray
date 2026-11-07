@@ -106,11 +106,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         match invalidation {
-            StorageInvalidation::All { stable_values, .. }
-            | StorageInvalidation::Observed { stable_values, .. } => {
-                stable_values.extend(self.input.footprint.empty_markers.iter().filter_map(|(path, marker)| {
-                    survives(&Target::storage(path.clone()), Observation::Marker(*marker), None, false).then(|| path.clone())
-                }));
+            StorageInvalidation::All { stable_values, stable_descriptors, .. }
+            | StorageInvalidation::Observed { stable_values, stable_descriptors, .. } => {
+                for (path, marker) in &self.input.footprint.empty_markers {
+                    if !survives(&Target::storage(path.clone()), Observation::Marker(*marker), None, false) { continue; }
+
+                    stable_values.insert(path.clone());
+
+                    // A surviving marker retains its typed carrier identity. Its
+                    // enclosing snapshots may still have different contents.
+                    stable_descriptors.extend((0..path.projections.len()).map(|length| bray_bound_tree::StoragePath {
+                        root: path.root,
+                        projections: path.projections[..length].into(),
+                    }));
+                }
             }
             StorageInvalidation::Paths(_) => return,
         }

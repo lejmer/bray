@@ -158,7 +158,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut stable_values = std::collections::BTreeSet::new();
 
         for path in memory.unexposed_storage(&self.input.opaque_candidates, roots) {
-            if path.projections.is_empty() {
+            if self.input.opaque_descriptors.contains(path) {
                 stable_descriptors.insert(path.clone());
             }
 
@@ -258,6 +258,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                 survives(&target.project(&value.projections[path.projections.len()..]), observation, ty, false)
                             }) {
                             stable_values.insert(value.clone());
+                            stable_descriptors.extend(owner_paths(value, path));
                         }
                     }
 
@@ -302,6 +303,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                     if survives && (!exposed_referent || opaque && observation.is_immutable_inline()) {
                         stable_values.insert(value.clone());
+
+                        if matches!(observation, bray_bound_tree::StorageObservationKind::Marker(_)) {
+                            stable_descriptors.extend(owner_paths(value, path));
+                        }
+
                         observed = true;
                     }
                 }
@@ -438,6 +444,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         }
                     } else {
                         stable_values.insert(path.clone());
+
+                        if matches!(observation, bray_bound_tree::StorageObservationKind::Marker(_)) {
+                            stable_descriptors.extend(owner_paths(path, reference));
+                        }
                     }
                 }
             }
@@ -995,6 +1005,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
     }
+}
+
+/// Preserve containing identities without claiming that their contents are unchanged.
+/// Stop at the actual loan boundary rather than following its lifetime anchor.
+fn owner_paths<'a>(
+    value: &'a StoragePath,
+    boundary: &'a StoragePath,
+) -> impl Iterator<Item = StoragePath> + 'a {
+    (boundary.projections.len()..value.projections.len()).map(|length| StoragePath {
+        root: value.root,
+        projections: value.projections[..length].into(),
+    })
 }
 
 fn observable_path(
