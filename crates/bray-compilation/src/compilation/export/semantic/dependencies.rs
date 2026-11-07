@@ -84,6 +84,11 @@ impl<'a> SemanticExporter<'a> {
                 use bray_symbols::DependencyStorageEffect;
 
                 Ok(match effect {
+                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
+                        kind: kind.try_map_type(|ty| self.type_id(ty))?,
+                        access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
+                        ambient: *ambient,
+                    },
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                     DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,

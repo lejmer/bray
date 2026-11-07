@@ -267,6 +267,12 @@ impl StructuralValueEncoder<'_, '_> {
         use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 
         let (kind, access_type) = match effect {
+            DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
+                self.tag(7);
+                self.tag(u8::from(*ambient));
+
+                (kind, access_type)
+            }
             DependencyStorageEffect::Cleanup(ty) => {
                 self.tag(3);
 

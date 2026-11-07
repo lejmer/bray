@@ -516,13 +516,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Effect::Mutation(target, kind, _) => {
                     memory.invalidate_target(target, *kind, invalidation)
                 }
+                Effect::UnboundedMutation { kind, ambient: false, .. } => {
+                    memory.invalidate(invalidation, self.storage, *kind);
+                }
                 effect if effect.is_ambient() => {
+                    let kind = match effect {
+                        Effect::UnboundedMutation { kind, .. } => *kind,
+                        _ => DependencyMutationKind::Retire,
+                    };
+
                     if effects.contains(&Effect::Escape) {
                         // Opaque calls can reach every invocation input, including delayed escapes.
                         memory.invalidate(
                             invalidation,
                             self.storage,
-                            DependencyMutationKind::Retire,
+                            kind,
                         );
                     } else {
                         let escaped = effects.iter().filter_map(|effect| match effect {
@@ -537,7 +545,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         for target in targets {
                             memory.invalidate_target(
                                 &target,
-                                DependencyMutationKind::Retire,
+                                kind,
                                 invalidation,
                             );
                         }
@@ -551,7 +559,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Effect::Unknown | Effect::Cleanup(_) => {
                     unreachable!("opaque effects handled above")
                 }
-                Effect::Ambient | Effect::Atomic => {
+                Effect::Ambient | Effect::Atomic | Effect::UnboundedMutation { .. } => {
                     unreachable!("classified effects handled above")
                 }
             }
@@ -604,6 +612,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects {
             let (subject, indirect, projections, kind, access_type) = match effect {
+                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
+                    resolved.push(Effect::unbounded(*kind, *access_type, *ambient));
+                    continue;
+                }
                 DependencyStorageEffect::Escape => {
                     resolved.push(Effect::Escape);
                     continue;
@@ -652,11 +664,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             } else if static_subject {
                 Vec::new()
             } else {
-                resolved.push(if kind == DependencyMutationKind::Escape {
-                    Effect::Escape
-                } else {
-                    Effect::Unknown
-                });
+                resolved.push(Effect::unbounded(kind, access_type, false));
 
                 continue;
             };
@@ -667,11 +675,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                resolved.push(if kind == DependencyMutationKind::Escape {
-                    Effect::Escape
-                } else {
-                    Effect::Unknown
-                });
+                resolved.push(Effect::unbounded(kind, access_type, false));
 
                 continue;
             };
@@ -702,6 +706,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
                 Effect::Mutation(target, kind, access_type) => {
                     self.record_target_effect(memory, target, *kind, *access_type, normal_effects)
+                }
+                Effect::UnboundedMutation { kind, access_type, ambient } => {
+                    self.record_effect(DependencyStorageEffect::UnboundedMutation {
+                        kind: *kind, access_type: *access_type, ambient: *ambient,
+                    }, normal_effects);
                 }
                 Effect::Ambient => {
                     self.record_effect(DependencyStorageEffect::Ambient, normal_effects)
@@ -736,7 +745,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         {
             if kind != DependencyMutationKind::Escape {
                 // An independent alternative may reach external storage, without granting freshness.
-                self.record_effect(DependencyStorageEffect::Ambient, normal_effects);
+                self.record_effect(DependencyStorageEffect::UnboundedMutation {
+                    kind, access_type, ambient: true,
+                }, normal_effects);
             }
 
             // Preserve every possible input region and the actual ownership transition.
@@ -804,7 +815,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             let effect = if effect == DependencyStorageEffect::Unknown {
-                DependencyStorageEffect::unresolved(kind)
+                DependencyStorageEffect::unresolved(kind, access_type)
             } else {
                 effect
             };
@@ -823,14 +834,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let StorageInvalidation::Paths(paths) = invalidation else {
-            self.record_effect(DependencyStorageEffect::Unknown, self.on_normal_path);
+            self.record_effect(DependencyStorageEffect::unresolved(kind, None), self.on_normal_path);
             return;
         };
 
         for path in paths {
             match self.formal_effect(path, kind) {
                 Some(DependencyStorageEffect::Unknown) => {
-                    self.record_effect(DependencyStorageEffect::Unknown, self.on_normal_path);
+                    self.record_effect(DependencyStorageEffect::unresolved(kind, None), self.on_normal_path);
                     return;
                 }
                 Some(effect) => {

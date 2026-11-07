@@ -181,7 +181,7 @@ fn project_effect(
                     kind: *kind,
                     access_type: *access_type,
                 })
-                .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind))
+                .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind, *access_type))
         }
         DependencyStorageEffect::Indirect {
             reference,
@@ -197,8 +197,9 @@ fn project_effect(
             })
             // A uniform array summary cannot select one runtime element. Use the
             // existing unresolved-alias meaning, never a path in the element type.
-            .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind)),
-        DependencyStorageEffect::Atomic
+            .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind, *access_type)),
+        DependencyStorageEffect::UnboundedMutation { .. }
+        | DependencyStorageEffect::Atomic
         | DependencyStorageEffect::Escape
         | DependencyStorageEffect::Ambient
         | DependencyStorageEffect::Unknown

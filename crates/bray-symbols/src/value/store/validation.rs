@@ -366,7 +366,8 @@ pub(super) fn validate_dependency_template_data(
         }
 
         match effect {
-            DependencyStorageEffect::Atomic
+            DependencyStorageEffect::UnboundedMutation { .. }
+                | DependencyStorageEffect::Atomic
             | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}

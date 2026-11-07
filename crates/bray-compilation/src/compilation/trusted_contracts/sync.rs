@@ -2982,6 +2982,8 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 ("forward(owner)", "", "", None),
                 ("forward(owner)", "", "", Some("trusted transfer(destination);")),
                 ("forward(owner)", "", "", Some("trusted forward_transfer(borrowed);")),
+                ("forward(owner)", "", "", Some("trusted transfer_external();")),
+                ("forward(owner)", "", "", Some("trusted transfer_unresolved(address);")),
             ] {
             let invoke = call.unwrap_or(operation.as_str());
             let caller_capabilities = if call.is_some() { String::new() } else { format!("uses({capabilities})") };
@@ -3011,6 +3013,35 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                     trusted core.memory.aligned_for<{pointee}>(pointer = result)
                 )
                 executes(pure, total);
+            trusted predicate known_address(address: usize);
+            extern trusted func external_pointer() -> DataPointer<{pointee}>
+                ensures(
+                    trusted core.memory.valid_write<{pointee}>(pointer = result, count = 1),
+                    trusted core.memory.valid_read<{pointee}>(pointer = result, count = 1),
+                    trusted core.memory.initialized_as<{pointee}>(pointer = result),
+                    trusted core.memory.aligned_for<{pointee}>(pointer = result)
+                ) executes(pure, total);
+            trusted func transfer_external() uses({capabilities})
+            {{
+                let destination = external_pointer();
+                {operation}
+            }}
+            trusted func transfer_unresolved(pos address: usize)
+                requires(trusted known_address(address))
+                uses(intrinsic, {capabilities})
+            {{
+                let destination = core.target.from_exposed_address<{pointee}>(address = address);
+                let permit = trusted lambda(pos destination: DataPointer<{pointee}>, pos address: usize)
+                    requires(trusted known_address(address))
+                    ensures(
+                        trusted core.memory.valid_write<{pointee}>(pointer = destination, count = 1),
+                        trusted core.memory.valid_read<{pointee}>(pointer = destination, count = 1),
+                        trusted core.memory.initialized_as<{pointee}>(pointer = destination),
+                        trusted core.memory.aligned_for<{pointee}>(pointer = destination)
+                    ) executes(pure, total) {{}};
+                trusted permit(destination, address);
+                {operation}
+            }}
             trusted func transfer(pos destination: DataPointer<{pointee}>)
                 requires(
                     trusted core.memory.valid_write<{pointee}>(pointer = destination, count = 1),
@@ -3035,8 +3066,8 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 ensures(trusted held(&result.marker)) executes(pure, total) {{ return owner; }}
             func observe(pos owner: &Owner)
                 requires(trusted held(&owner.marker)) executes(pure, total) {{}}
-            trusted func caller(pos owner: &Owner)
-                requires(trusted held(&owner.marker))
+            trusted func caller(pos owner: &Owner, pos address: usize)
+                requires(trusted held(&owner.marker), trusted known_address(address))
                 {caller_capabilities}
             {{
                 {expose}

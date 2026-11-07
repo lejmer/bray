@@ -17,12 +17,33 @@ pub(in crate::analysis::storage_flow) enum Effect {
     // The original checked access type belongs to the mutation. An alias bound
     // supplies its region, never a substitute raw access or transfer type.
     Mutation(Target, bray_symbols::DependencyMutationKind, Option<TypeId>),
+    UnboundedMutation {
+        kind: bray_symbols::DependencyMutationKind,
+        access_type: Option<TypeId>,
+        ambient: bool,
+    },
     Cleanup(TypeId),
 }
 
 impl Effect {
     pub(in crate::analysis::storage_flow) fn is_ambient(&self) -> bool {
-        matches!(self, Self::Ambient)
+        matches!(self, Self::Ambient | Self::UnboundedMutation { ambient: true, .. })
+    }
+
+    pub(in crate::analysis::storage_flow) fn may_reach_all_inputs(&self) -> bool {
+        matches!(self, Self::Unknown | Self::Cleanup(_) | Self::UnboundedMutation { ambient: false, .. })
+    }
+
+    pub(in crate::analysis::storage_flow) fn unbounded(
+        kind: bray_symbols::DependencyMutationKind,
+        access_type: Option<TypeId>,
+        ambient: bool,
+    ) -> Self {
+        match kind {
+            bray_symbols::DependencyMutationKind::Atomic => Self::Atomic,
+            bray_symbols::DependencyMutationKind::Escape => Self::Escape,
+            _ => Self::UnboundedMutation { kind, access_type, ambient },
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn is_atomic(&self) -> bool {
@@ -58,6 +79,7 @@ impl Effect {
                                 .is_some_and(|contents| contents.escaped)
                     })
             }
+            Self::UnboundedMutation { kind, .. } => kind.is_write() && *kind != bray_symbols::DependencyMutationKind::Clear,
             Self::Unknown | Self::Escape | Self::Cleanup(_) => true,
             Self::Ambient | Self::Atomic => false,
         }
@@ -69,7 +91,7 @@ impl Effect {
         match self {
             Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape, _) => None,
             Self::Mutation(target, kind, _) => Some((target, *kind)),
-            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
+            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::Cleanup(_) | Self::UnboundedMutation { .. } => None,
         }
     }
 }

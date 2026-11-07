@@ -170,10 +170,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // Unknown writes and opaque cleanup still need a reachability proof.
         let relevant = effects.is_none_or(|effects| {
             effects.iter().any(|effect| match effect {
-                Effect::Mutation(_, DependencyMutationKind::Replace(ty), _) => {
+                Effect::Mutation(_, DependencyMutationKind::Replace(ty), _) | Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(ty), .. } => {
                     self.input.graceful_types.contains(ty)
                 }
                 Effect::Mutation(_, DependencyMutationKind::Write | DependencyMutationKind::Escape, _)
+                | Effect::UnboundedMutation { kind: DependencyMutationKind::Write | DependencyMutationKind::Escape, .. }
                 | Effect::Escape
                 | Effect::Unknown
                 | Effect::Ambient
@@ -206,6 +207,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 })
         };
 
+        let unbounded_overlap = unknown || protected.iter().any(|part| memory.unknown_reference_may_reach(part));
+
         let introduced = effects
             .into_iter()
             .flatten()
@@ -215,6 +218,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 {
                     Some(*ty)
                 }
+                Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(ty), .. }
+                    if self.input.graceful_types.contains(ty) && unbounded_overlap => Some(*ty),
                 _ => None,
             });
 
@@ -222,7 +227,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             effects.iter().any(|effect| {
                 matches!(
                     effect,
-                    Effect::Unknown | Effect::Ambient | Effect::Escape | Effect::Cleanup(_)
+                    Effect::Unknown | Effect::Ambient | Effect::Escape | Effect::Cleanup(_) | Effect::UnboundedMutation { .. }
                 )
             })
         });
@@ -231,7 +236,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             effects.iter().any(|effect| {
                 matches!(
                     effect,
-                    Effect::Unknown | Effect::Escape | Effect::Cleanup(_)
+                    Effect::Unknown | Effect::Escape | Effect::Cleanup(_) | Effect::UnboundedMutation { ambient: false, .. }
                 )
             })
         });
@@ -240,7 +245,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let unproved = effects.into_iter().flatten().any(|effect| {
             matches!(effect, Effect::Mutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape, _) if overlaps(target))
-        }) || opaque && (unknown || reached.iter().any(overlaps));
+        }) || opaque && (unknown || reached.iter().any(overlaps)
+            || unbounded_overlap && effects.into_iter().flatten().any(|effect| matches!(effect, Effect::UnboundedMutation { .. })));
 
         if introduced.is_some() || unproved {
             self.report_terminal_operation(operation, introduced);
