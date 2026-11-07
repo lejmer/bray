@@ -175,7 +175,9 @@ retain the identity needed to interpret those moves.
 Reference refresh forwards the existing loan context with its current reached contents. A changed snapshot remains the
 same loan, including across merges, and never owns the storage it observes. Replacing the reference itself retires its
 old context. Checked consuming operations extract current contents separately from the loan's lifetime and permissions.
-Predicate and callable terms observe current contents while the enclosing flow value retains that loan context.
+Predicate arguments observe the owned referent and its current contents, independently of the loan that supplies
+access. Aliases of one referent agree, while equal data at different storage does not identify their subjects. Const
+calls compute from data independently of the storage context.
 
 Live trusted evidence belongs to its complete carrier and required dependencies in the composite flow state. Effect
 framing preserves established observations, while cleanup retains evidence only through surviving complete owners.

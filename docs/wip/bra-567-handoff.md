@@ -151,7 +151,7 @@ from execution places that omit that identity.
 | Check | Result and limit |
 | --- | --- |
 | Checker library unit suite | Current-value batch: 414 passed, one expanded join matrix failed in the bare-loan/unchanged branch. Canonical loan batch pending |
-| Runtime Source bodies and execution certificates | Current-value batch: 3,160 checks, 16 failures. Later broad early-return removal introduced regressions and is superseded by canonical loan batch |
+| Runtime Source bodies and execution certificates | Canonical-loan batch: 3,160 checks, 15 failures, including five body families and downstream certificates. Predicate-context correction pending |
 | Same-site inactive numeric deferred frame | Accepted, active numeric and Boolean partial extraction rejected |
 | Shared/stored owner and nested union forwarding | Real owner accepted, fabricated marker and payload authority rejected |
 | Typed raw transfer controls | Unrelated nominal moves accepted, whole/nested owner moves and writes rejected for scalar/address owners |
@@ -200,14 +200,20 @@ The connected GitHub account is verified as `lejmer`, with admin/push access to 
 Shell GitHub authentication is invalid. Use connected Git object APIs to publish checkpoints on existing PR #710.
 Parent #709 remains open with the unchanged stack base. Push coherent checkpoints regularly as requested by the user.
 
-The current-value batch is pushed at `8b6b1d68f0f95f4715d9767888b7cc7eec1377f2`. Observer preparation rollback now
+The current-value and canonical-loan implementation is pushed through `6522a56a294774b58ea949f229ab4c97cf4624f1`.
+The latest canonical-loan style and format checks passed. Its checker suite passed the expanded join matrix, with
+414 tests passing and one retirement failure exposing lost physical predicate identity. The next uncommitted correction preserves an owned current context inside its borrowed view. A loan's lifetime identity
+and the owned referent's physical context are different roles. Whole-object predicates discard the loan identity and keep
+the owned current referent, so aliases of one referent agree while equal contents at different storage stay distinct.
+Const calls discard both contexts and compute from data. `with_referent` retains an existing owned/scalar storage context
+when refreshing its data. An unchanged current loan collapses to its bare form. Combined verification is pending. Observer preparation rollback now
 passes. The capture controls retain numeric inactive acceptance, active numeric/Boolean rejection, real shared owner
 acceptance, fabrication rejection, and promised/unpromised union distinction. The exposed mutable-marker control passes.
 
-The uncommitted canonical-loan batch replaces synthetic `Constructed(Borrowed(owner), OwnedTarget = contents)` with
+The canonical-loan batch replaces synthetic `Constructed(Borrowed(owner), OwnedTarget = contents)` with
 `CurrentValue(Borrowed(owner), contents)`. This removes borrowed contents' backing interpretation and makes the same
-current-value context handle owned and borrowed snapshots. `into_referent` and term normalization expose data separately
-from the retained loan. Owned-components traversal excludes borrowed current contexts. Bare loans join and substitute
+current-value context handle owned and borrowed snapshots. `into_referent` exposes reached data separately from the retained loan. Predicate arguments keep the owned referent context after discarding the enclosing loan identity, so equal data at
+different storage stays distinct while aliases agree. Const calls compute from data. Owned-components traversal excludes borrowed current contexts. Bare loans join and substitute
 through their referents before predecessor proof. The ordinary structural-snapshot early return remains in place, while
 current contexts join their changed contents. Broadly removing that early return regressed unrelated Source consumers.
 
@@ -222,7 +228,9 @@ Temporary traces remain excluded from checkpoints. `transfers.rs` additionally p
 preservation for diagnosis. Update checkpoint filtering or remove it before publishing. The task-owned optional Linux
 resource probe derives from the existing allocation probe and runs separately, so it will not affect product-size receipts.
 
-Next: complete canonical-loan self-review, finalize style/format, validate the checker suite and complete Source consumers.
+Next: finish self-review of the owned-context/loan-context distinction, then finalize style and run the checker suite,
+full Source sweep and representative Source negatives. The intermediate experiment keeping the enclosing loan identity
+in predicate terms passed 415 units but caused 50 failures in 3,160 Source checks and is superseded. Do not keep it as a second path.
 Then resolve the physical-effect/guarded-carrier cases coherently and continue imported/native/cost acceptance and final review.
 
 ## Final acceptance
