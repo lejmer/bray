@@ -37,8 +37,8 @@ pub enum ExecutionCondition {
         Arc<ExecutionCondition>,
         Arc<[(bray_bound_tree::StorageProjection, ExecutionCondition)]>,
     ),
-    /// Current contents of one retained owner or loan, independently of its identity.
-    /// A borrowed owner observes its contents without owning them.
+    /// Current data of one retained value, independently of its identity.
+    /// Borrowed data observes a reference's target without owning that storage.
     CurrentValue(Arc<ExecutionCondition>, Arc<ExecutionCondition>),
     /// A scalar observation of an existing storage context. Equal contents do not
     /// identify that storage or transfer its authority to a copied scalar.

@@ -71,15 +71,21 @@ pub(crate) fn common_components(
         && (matches!(left, ExecutionCondition::CurrentValue(_, _))
             || matches!(right, ExecutionCondition::CurrentValue(_, _)))
     {
+        let reference = left.current_referent().is_some() || right.current_referent().is_some();
+
         let contents = |value: &ExecutionCondition| match value {
-            ExecutionCondition::CurrentValue(_, contents) => contents.as_ref().clone(),
+            ExecutionCondition::CurrentValue(_, data) => {
+                if reference {
+                    value.current_referent().unwrap_or(data).clone()
+                } else { data.as_ref().clone() }
+            }
             value => value.clone(),
         };
 
-        return ExecutionCondition::current_value(
-            left.owner_identity().clone(),
-            common_components(&contents(left), &contents(right), result, conditions, facts, budget),
-        );
+        let contents = common_components(&contents(left), &contents(right), result, conditions, facts, budget);
+        let contents = if reference { ExecutionCondition::Borrowed(std::sync::Arc::new(contents)) } else { contents };
+
+        return ExecutionCondition::current_value(left.owner_identity().clone(), contents);
     }
 
     let fields = |mut value: &ExecutionCondition| {
@@ -255,6 +261,9 @@ pub(crate) fn owned_snapshot(
 
     match source {
         ExecutionCondition::StorageValue(_, _) => source.clone(),
+        ExecutionCondition::CurrentValue(_, contents) if matches!(contents.as_ref(), ExecutionCondition::Borrowed(_)) => {
+            ExecutionCondition::current_value(identity, contents.as_ref().clone())
+        }
         ExecutionCondition::CurrentValue(_, contents) => owned_snapshot(contents, identity, budget),
         ExecutionCondition::Constructed(base, fields) => {
             let base = owned_snapshot(base, identity, budget);

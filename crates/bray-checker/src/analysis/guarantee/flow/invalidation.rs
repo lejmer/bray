@@ -596,7 +596,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let value = descriptors.get(&place).map_or_else(
                 || contents.clone(),
                 |identity| {
-                    ExecutionCondition::current_value(self.borrowed_context(&place, identity.clone()), contents.clone())
+                    self.current_observation(&place, identity.clone(), contents.clone())
                 },
             );
 
@@ -773,8 +773,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let value = descriptors
                 .get(&place)
                 .map(|identity| {
-                    ExecutionCondition::current_value(
-                        self.borrowed_context(&place, identity.clone()),
+                    self.current_observation(
+                        &place, identity.clone(),
                         ExecutionCondition::PostState(mutation, place.clone()),
                     )
                 })
