@@ -64,7 +64,9 @@ impl ExecutionCondition {
         mut arguments: Vec<Self>,
     ) -> Self {
         for argument in &mut arguments {
-            argument.observe_contents();
+            // Const calls compute from current values, independently of the
+            // loan that supplies them. Flow values retain that loan separately.
+            *argument = std::mem::replace(argument, Self::Unknown).into_referent();
 
             if argument.contains_unknown() {
                 return Self::Unknown;

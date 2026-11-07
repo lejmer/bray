@@ -5,6 +5,24 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[test]
+fn const_calls_observe_current_values_without_loan_identity() {
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+    let input = ExecutionCondition::Input(place.clone());
+    let call = |value| ExecutionCondition::call(callable, None, [], vec![value]);
+    let loan = input.clone().borrowed();
+    let contents = ExecutionCondition::Joined(bray_bound_tree::BoundUnitId::new(0), 1, place);
+    let current = loan.with_referent(contents.clone());
+
+    assert_eq!(call(loan.clone()), call(input));
+    assert_eq!(call(current.clone()), call(contents));
+    assert_ne!(call(current.clone()), call(loan.clone()));
+    assert_eq!(current.owner_identity(), loan.owner_identity());
+    assert_eq!(current.owned_components().count(), 0);
+}
+
+#[test]
 fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
     let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
 
