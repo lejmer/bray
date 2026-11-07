@@ -361,7 +361,7 @@ impl StorageFlowState {
         let execution_changed = crate::analysis::guarantee::merge_execution(
             &mut self.execution,
             &incoming.execution,
-            block,
+            block.into(),
         );
 
         let dependencies_changed = self

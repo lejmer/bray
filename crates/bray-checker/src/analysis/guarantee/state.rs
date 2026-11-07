@@ -331,6 +331,8 @@ impl ExecutionState {
     pub(super) fn retire_evaluation(&mut self, mutation: bray_bound_tree::StorageMutation) {
         let stale = |value: &ExecutionCondition| value.depends_on(mutation);
 
+        self.current.retire_availability(mutation);
+
         self.owned_results.retain(|value, _| !stale(value));
 
         self.witnesses.retain(|value, witness| {

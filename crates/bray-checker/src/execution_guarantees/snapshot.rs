@@ -291,7 +291,7 @@ pub(crate) fn owned_snapshot(
         ExecutionCondition::Borrowed(_)
         | ExecutionCondition::Boolean(_)
         | ExecutionCondition::Literal(_)
-        | ExecutionCondition::InitializedSnapshot(_, _)
+        | ExecutionCondition::InitializedSnapshot(_, _, _)
         | ExecutionCondition::Unknown => source.clone(),
         _ => identity,
     }

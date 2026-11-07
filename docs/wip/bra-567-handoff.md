@@ -192,18 +192,22 @@ normal and abnormal cleanup, fabricated owners, conditional clauses, raw transfe
 existing tests and composition fixtures. Do not rerun builds/tests until this semantic batch and runtime ownership
 corrections are complete and the naming/keyword preflight has passed.
 
-The current-value record migration is started and intentionally unvalidated. `analysis/guarantee/current.rs` owns the
+The current-value record migration is wired and undergoing batch validation. `analysis/guarantee/current.rs` owns the
 record and its data/availability views. `ExecutionValues` shares lookup with frozen call-entry maps. Assignment,
-observation and vacancy now have distinct state operations. Opaque reconstruction carries prior availability and only
-reconstructs registered nested carriers. Normalization uses the value-view contract. The remaining migration is the
-availability-aware join, guarded clause transport, initialized receiver evidence for conditional cleanup, snapshot guard
-representation/capture/retirement, and regression coverage. Do not build this partially wired model yet.
+observation and vacancy have distinct state operations. Opaque reconstruction carries prior availability and only
+reconstructs registered nested carriers. Joins preserve possible data from initialized predecessors, while existing
+carrier proof establishes guarded clauses on both predecessors. Selected cleanup assumes only that receiver's
+initialization guard. Internal immutable guards identify the block or returned-expression join, reject portable encoding and expire with their value incarnation.
+The regressions check both branch orders, fixed-point convergence, distinct join selectors and the distinction between absence and unknown data.
 
-For runtime extraction, change `take_released` and its final-reference producer to consume the final `Reference` value.
-Extract initialized field payloads from the actual leased row rather than first raw-moving a whole Slot and asserting
-initialization on its copied Uninit fields. Publish the vacant row after forming RetiredCell. Both ordinary final storage
-release and execution-domain retirement pass their final actual reference to this same operation. Arena formation also
-needs resident admission owned before allocation, with scoped rollback until the initialized arena accepts that duty.
+The final task reference is now consumed by the shared retirement operation. It extracts initialized payloads from the
+actual leased row and forms RetiredCell before publishing the vacant row. Ordinary storage release and execution-domain
+retirement use the same transition. Arena creation owns resident admission before allocation, with scoped rollback until
+the initialized arena accepts the count. The naming preflight found and removed a new local `admission` conflict with
+the task module's existing `admission` function. Use `arena_admission` for this scope. The pushed checkpoint `aa5204f`
+preserves the migration before validation, and is not a passing implementation checkpoint. Follow-up review completed
+finite-incarnation guard retirement and removed unused map adapters. Mandatory style, formatting and behavioral checks
+cover that final state. Mutating style and explicit formatting passed. The affected unit suites and complete runtime Source checking are building or queued. Do not claim end-to-end acceptance until native/imported execution and costs are established.
 
 ## Refactor plan
 

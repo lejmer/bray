@@ -71,6 +71,7 @@ pub enum ExecutionCondition {
     InitializedSnapshot(
         crate::execution_guarantees::ExecutionPlace,
         Arc<ExecutionCondition>,
+        Arc<ExecutionCondition>,
     ),
     /// A selected built-in operation on other known values.
     Operation(BoundOperator, Arc<[ExecutionCondition]>),
@@ -156,7 +157,7 @@ impl ExecutionCondition {
             | Self::ScopedCapability(_)
             | Self::PostState(_, _)
             | Self::Joined(_, _, _)
-            | Self::InitializedSnapshot(_, _)
+            | Self::InitializedSnapshot(_, _, _)
             | Self::Unknown => false,
         }
     }

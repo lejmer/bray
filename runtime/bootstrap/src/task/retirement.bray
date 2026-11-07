@@ -192,6 +192,7 @@ trusted internal func take_retired_cell(
     trusted initialized(&reference, &slot);
 
     let arena_owner = trusted std.memory.move_initialized<(ArenaReference?)>(&mut slot.arena_owner);
+
     let execution = trusted std.memory.move_initialized<(bray.runtime.bootstrap.execution.Reference?)>(
         &mut slot.execution_owner
     );
@@ -216,6 +217,7 @@ trusted internal func take_retired_cell(
     };
 
     _ = std.memory.replace_value<Slot>(slot, empty_slot(index, generation, 0));
+
     return (index, retired);
 }
 
@@ -231,7 +233,11 @@ trusted internal func released_slot_access(
     ensures(trusted released(owner = reference), trusted link_access(owner = &result))
     executes(pure, total)
 {
-    return { lease = lease, pointer = reference.pointer };
+    return
+    {
+        lease = lease,
+        pointer = reference.pointer
+    };
 }
 
 internal const func retired_control_storage(pos owner: &Slot) -> &Uninit<std.sync.SpinLock<Control>>

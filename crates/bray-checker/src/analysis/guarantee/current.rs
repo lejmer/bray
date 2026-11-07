@@ -69,19 +69,16 @@ impl CurrentValues {
         self.set_slot(place, CurrentValue { value, availability });
     }
 
-    pub(super) fn vacate(&mut self, place: ExecutionPlace) {
-        self.set_slot(place, CurrentValue {
-            value: ExecutionCondition::Unknown,
-            availability: ValueAvailability::Absent,
-        });
-    }
-
     pub(super) fn remove(&mut self, place: &ExecutionPlace) {
         self.slots.remove(place);
     }
 
-    pub(super) fn clear(&mut self) {
-        self.slots.clear();
+    pub(super) fn retire_availability(&mut self, mutation: bray_bound_tree::StorageMutation) {
+        for slot in self.slots.values_mut() {
+            if matches!(&slot.availability, ValueAvailability::Guarded(guard) if guard.depends_on(mutation)) {
+                slot.availability = ValueAvailability::Unknown;
+            }
+        }
     }
 
     pub(super) fn keys(&self) -> impl Iterator<Item = &ExecutionPlace> {
@@ -133,6 +130,7 @@ impl FromIterator<(ExecutionPlace, ExecutionCondition)> for CurrentValues {
         let mut current = Self::default();
 
         current.extend(values);
+
         current
     }
 }
@@ -178,20 +176,24 @@ mod tests {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let owner = ExecutionCondition::Input(place.clone());
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+
         let claim = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
             symbol.into(), crate::test_support::empty_substitution(symbol.into()), vec![owner.clone().borrowed()],
         )));
+
         let mut state = ExecutionState::default();
 
         state.assign(place.clone(), owner.clone(), None);
         state.carry_guarantee(owner, claim.clone());
         state.trusted_assumptions.insert((claim.clone(), true));
+
         (state, place, claim)
     }
 
     #[test]
     fn conditional_move_keeps_authority_only_for_initialized_cleanup() {
         let (present, place, claim) = retained_owner();
+
         let mut absent = ExecutionState::default();
 
         absent.vacate(place.clone());
@@ -199,31 +201,64 @@ mod tests {
         for (left, right) in [(present.clone(), absent.clone()), (absent.clone(), present)] {
             let mut joined = Some(left);
 
-            merge_execution(&mut joined, &Some(right.clone()), None);
+            merge_execution(&mut joined, &Some(right.clone()), None.into());
 
             let state = joined.as_ref().expect("reachable join");
+
             let ValueAvailability::Guarded(guard) = state.current.availability(&place) else {
                 panic!("conditionally initialized owner requires a guard");
             };
 
             assert_eq!(claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), None);
+
             let mut cleanup = state.assumptions.clone();
 
             guard.assume(true, &mut cleanup);
             assert_eq!(claim.prove_trusted(&state.trusted_assumptions, &cleanup), Some(true));
-            assert!(!merge_execution(&mut joined, &Some(right), None), "availability joins must converge");
+            assert!(!merge_execution(&mut joined, &Some(right), None.into()), "availability joins must converge");
         }
+    }
+
+    #[test]
+    fn separate_joins_do_not_share_initialization_truth() {
+        let (present, place, _) = retained_owner();
+
+        let mut absent = ExecutionState::default();
+
+        absent.vacate(place.clone());
+
+        let guards = [0, 1].map(|index| {
+            let mut joined = Some(present.clone());
+            let block = crate::analysis::id::AnalysisBlockId::from_slot(bray_bound_tree::BoundUnitId::new(0), index);
+
+            merge_execution(&mut joined, &Some(absent.clone()), Some(block).into());
+
+            let ValueAvailability::Guarded(guard) = joined.expect("reachable join").current.availability(&place) else {
+                panic!("conditionally initialized owner requires a guard");
+            };
+
+            guard
+        });
+
+        let mut assumptions = Default::default();
+
+        guards[0].clone().assume(true, &mut assumptions);
+        assert_ne!(guards[0], guards[1]);
+        assert_eq!(guards[1].prove(&assumptions, &mut { ExecutionCondition::WORK_LIMIT }), None);
     }
 
     #[test]
     fn unknown_storage_does_not_become_an_absent_predecessor() {
         let (present, place, claim) = retained_owner();
+
         let mut unknown = ExecutionState::default();
 
         unknown.assign(place.clone(), ExecutionCondition::Unknown, None);
+
         let mut joined = Some(present);
 
-        merge_execution(&mut joined, &Some(unknown), None);
+        merge_execution(&mut joined, &Some(unknown), None.into());
+
         let state = joined.expect("reachable join");
 
         assert_eq!(state.current.get(&place), Some(&ExecutionCondition::Unknown));

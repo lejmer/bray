@@ -9,10 +9,41 @@ use super::super::super::id::AnalysisBlockId;
 use super::super::state::ExecutionState;
 use super::super::current::{CurrentValue, ValueAvailability};
 
+/// Finite identity of the control-flow join that observes initialization.
+#[derive(Clone, Copy)]
+pub(in crate::analysis) enum ExecutionJoin {
+    Boundary,
+    Block(AnalysisBlockId),
+    Result(bray_bound_tree::BoundExpressionId),
+}
+
+impl From<Option<AnalysisBlockId>> for ExecutionJoin {
+    fn from(block: Option<AnalysisBlockId>) -> Self {
+        block.map_or(Self::Boundary, Self::Block)
+    }
+}
+
+impl ExecutionJoin {
+    fn block(self) -> Option<AnalysisBlockId> {
+        match self {
+            Self::Block(block) => Some(block),
+            Self::Boundary | Self::Result(_) => None,
+        }
+    }
+
+    fn snapshot(self, place: &crate::ExecutionPlace) -> ExecutionCondition {
+        match self {
+            Self::Block(block) => joined_observation(block, place),
+            Self::Result(expression) => ExecutionCondition::Expression(expression),
+            Self::Boundary => ExecutionCondition::Boolean(true),
+        }
+    }
+}
+
 pub(in crate::analysis) fn merge(
     target: &mut Option<ExecutionState>,
     incoming: &Option<ExecutionState>,
-    block: Option<AnalysisBlockId>,
+    join: ExecutionJoin,
 ) -> bool {
     let Some(incoming) = incoming else {
         return false;
@@ -25,7 +56,7 @@ pub(in crate::analysis) fn merge(
         return true;
     };
 
-    let (incoming_joined, mut changed) = join_observations(target, incoming, block);
+    let (incoming_joined, mut changed) = join_observations(target, incoming, join);
 
     let incoming = &incoming_joined;
     let dependencies = target.completion_dependencies.len();
@@ -126,7 +157,7 @@ pub(in crate::analysis) fn merge(
 fn join_observations<'a>(
     target: &mut ExecutionState,
     incoming: &'a ExecutionState,
-    block: Option<AnalysisBlockId>,
+    join: ExecutionJoin,
 ) -> (std::borrow::Cow<'a, ExecutionState>, bool) {
     let mut changed = false;
     let mut incoming_joined = std::borrow::Cow::Borrowed(incoming);
@@ -169,70 +200,35 @@ fn join_observations<'a>(
             stable_identities.insert(value.owner_identity().clone());
         }
 
-        let result = || block.map(|block| joined_observation(block, place));
-
-        let joined = if left_available == ValueAvailability::Absent {
-            other.clone()
-        } else if right_available == ValueAvailability::Absent {
-            value.clone()
-        } else if value == other {
+        if value == other {
             stable_values.insert(value.clone());
             stable_values.insert(value.clone().borrowed());
+        }
 
-            value.clone()
-        } else if value == ExecutionCondition::Unknown || other == ExecutionCondition::Unknown {
-            ExecutionCondition::Unknown
-        } else if value.has_same_owner(&other)
-            && value.owner_identity() != &ExecutionCondition::Unknown
+        let slot = join_current_value(
+            (target, &value, &left_available), (incoming, &other, &right_available),
+            place, join, &mut joined_facts,
+        );
+
+        let joined = slot.value;
+        let available = slot.availability;
+
+        if left_available != right_available
+            && let ValueAvailability::Guarded(guard) = &available
         {
-            common_components(
-                &value,
-                &other,
-                result(),
-                (&target.assumptions, &incoming.assumptions),
-                &mut joined_facts,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            )
-        } else {
-            result().unwrap_or(ExecutionCondition::Unknown)
-        };
-
-        let available = if left_available == right_available {
-            left_available.clone()
-        } else if matches!(left_available, ValueAvailability::Unknown)
-            || matches!(right_available, ValueAvailability::Unknown)
-        {
-            ValueAvailability::Unknown
-        } else {
-            let guard = ExecutionCondition::InitializedSnapshot(
-                place.clone(), std::sync::Arc::new(joined.owner_identity().clone()),
-            );
-
             availability_facts.push((guard.clone(), left_available, right_available));
             availability_guards.insert((joined.owner_identity().clone(), guard.clone()));
-            ValueAvailability::Guarded(guard)
-        };
+        }
 
         joins |= target.current.availability(place) != available
             || incoming.current.availability(place) != available;
+
         availability.insert(place.clone(), available);
 
-        if value != other && joined != ExecutionCondition::Unknown {
-            needs_condition_proof |= matches!(
-                value,
-                ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_)
-            ) || matches!(
-                other,
-                ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_)
-            );
-
-            if let Some(holds) = common_truth(
-                (&value, &target.assumptions),
-                (&other, &incoming.assumptions),
-            ) {
-                joined_facts.push((joined.clone(), holds));
-            }
-        }
+        needs_condition_proof |= join_current_truth(
+            (&value, &target.assumptions), (&other, &incoming.assumptions),
+            &joined, &mut joined_facts,
+        );
 
         joins |= target.current.get(place) != Some(&joined)
             || incoming.current.get(place) != Some(&joined);
@@ -300,7 +296,7 @@ fn join_observations<'a>(
         .chain(incoming.pending_results.keys())
         .copied()
         .collect::<std::collections::BTreeSet<_>>()
-        .into_iter().filter(|_| block.is_some())
+        .into_iter().filter(|_| join.block().is_some())
     {
         let value = target
             .pending_results
@@ -400,6 +396,44 @@ fn join_observations<'a>(
     (incoming_joined, changed)
 }
 
+/// Join possible contents over the initialized predecessors. Missing storage
+/// contributes no value, whereas unknown data remains a conservative value.
+fn join_current_value(
+    left: (&ExecutionState, &ExecutionCondition, &ValueAvailability),
+    right: (&ExecutionState, &ExecutionCondition, &ValueAvailability),
+    place: &crate::ExecutionPlace,
+    join: ExecutionJoin,
+    facts: &mut Vec<(ExecutionCondition, bool)>,
+) -> CurrentValue {
+    let result = || join.block().map(|block| joined_observation(block, place));
+
+    let value = if *left.2 == ValueAvailability::Absent {
+        right.1.clone()
+    } else if *right.2 == ValueAvailability::Absent || left.1 == right.1 {
+        left.1.clone()
+    } else if *left.1 == ExecutionCondition::Unknown || *right.1 == ExecutionCondition::Unknown {
+        ExecutionCondition::Unknown
+    } else if left.1.has_same_owner(right.1) {
+        common_components(left.1, right.1, result(), (&left.0.assumptions, &right.0.assumptions), facts,
+            &mut { ExecutionCondition::WORK_LIMIT })
+    } else {
+        result().unwrap_or(ExecutionCondition::Unknown)
+    };
+
+    let availability = if left.2 == right.2 {
+        left.2.clone()
+    } else if matches!(left.2, ValueAvailability::Unknown) || matches!(right.2, ValueAvailability::Unknown) {
+        ValueAvailability::Unknown
+    } else {
+        ValueAvailability::Guarded(ExecutionCondition::InitializedSnapshot(
+            place.clone(), std::sync::Arc::new(join.snapshot(place)),
+            std::sync::Arc::new(value.owner_identity().clone()),
+        ))
+    };
+
+    CurrentValue { value, availability }
+}
+
 fn resolved_availability(state: &ExecutionState, place: &crate::ExecutionPlace) -> ValueAvailability {
     match state.current.availability(place) {
         ValueAvailability::Guarded(guard) => match guard.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) {
@@ -415,6 +449,7 @@ fn assume_availability(state: &mut ExecutionState, guard: &ExecutionCondition, a
     let condition = match available {
         ValueAvailability::Present => (guard.clone(), true),
         ValueAvailability::Absent => (guard.clone(), false),
+        ValueAvailability::Guarded(previous) if &previous == guard => return,
         ValueAvailability::Guarded(previous) => (
             ExecutionCondition::operation(bray_bound_tree::BoundOperator::Equal, vec![guard.clone(), previous]), true,
         ),
@@ -433,25 +468,31 @@ fn joined_observation(block: AnalysisBlockId, place: &crate::ExecutionPlace) -> 
     )
 }
 
-fn common_truth(
-    left: (
-        &ExecutionCondition,
-        &std::collections::BTreeSet<(ExecutionCondition, bool)>,
-    ),
-    right: (
-        &ExecutionCondition,
-        &std::collections::BTreeSet<(ExecutionCondition, bool)>,
-    ),
-) -> Option<bool> {
-    let left = left
-        .0
-        .prove(left.1, &mut { ExecutionCondition::WORK_LIMIT })?;
+fn join_current_truth(
+    left: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
+    right: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
+    joined: &ExecutionCondition,
+    facts: &mut Vec<(ExecutionCondition, bool)>,
+) -> bool {
+    if left.0 == right.0 || *joined == ExecutionCondition::Unknown {
+        return false;
+    }
 
-    let right = right
-        .0
-        .prove(right.1, &mut { ExecutionCondition::WORK_LIMIT })?;
+    let needs_proof = [left.0, right.0].into_iter().any(|value| {
+        matches!(value, ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_))
+    });
 
-    (left == right).then_some(left)
+    let [Some(left), Some(right)] = [left, right].map(|(value, assumptions)| {
+        value.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+    }) else {
+        return needs_proof;
+    };
+
+    if left == right {
+        facts.push((joined.clone(), left));
+    }
+
+    needs_proof
 }
 
 fn publish_owned_results(

@@ -207,6 +207,7 @@ impl ExecutionCondition {
                     condition: value, ..
                 }
                 | Self::CapturedInput { owner: value, .. } => pending.push(value),
+                Self::InitializedSnapshot(_, join, value) => pending.extend([join.as_ref(), value.as_ref()]),
                 _ => {}
             }
         }
@@ -264,7 +265,7 @@ impl ExecutionCondition {
                 Self::Boolean(_)
                 | Self::Literal(_)
                 | Self::Variant(_)
-                | Self::InitializedSnapshot(_, _)
+                | Self::InitializedSnapshot(_, _, _)
                 | Self::Entry { captured: true, .. } => {}
                 Self::Entry {
                     condition,
