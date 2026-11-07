@@ -118,7 +118,7 @@ pub(super) fn audit_runtime_units(
         target,
         &contents,
     )
-    .map_err(CommandError::SynchronousLinkMapBoundary)?;
+    .map_err(CommandError::EntrySmoke)?;
 
     fs::write(map.with_extension("runtime-members"), retained.join("\n"))
         .map_err(|error| CommandError::write(map, error))?;

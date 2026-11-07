@@ -403,8 +403,6 @@ trusted internal func retire_backing(pos pointer: DataPointer<Reference>)
     let authority = pointer;
     let owner = trusted borrow_reference(&pointer, pointer);
 
-    close(owner);
-
     let backing_slot = std.memory.address_of<(bray.runtime.bootstrap.execution.Reference?)>(
         &(trusted domain(owner)).execution
     );
@@ -455,6 +453,10 @@ trusted internal func retire_backing(pos pointer: DataPointer<Reference>)
     };
 
     let backing = trusted take(authority, owner, backing_slot);
+
+    // Detach the cycle before running deadline cleanup, while this local pin
+    // keeps the execution alive through every callback and its cleanup.
+    close(owner);
 
     _ = trusted bray.runtime.bootstrap.execution.release_pin(
         trusted bray.runtime.bootstrap.execution.take_pin(backing)

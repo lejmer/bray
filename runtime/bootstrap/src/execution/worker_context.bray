@@ -10,8 +10,14 @@ using internal bray.runtime.bootstrap.worker;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.heap;
 
-trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.Scope) -> Context
-    requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker))
+trusted internal func worker_context(
+    pos scope: &bray.runtime.bootstrap.worker.Scope,
+    pos binding: Binding
+) -> Context
+    requires(
+        trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
+        trusted kernel_binding(owner = &binding)
+    )
     ensures(
         trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
         trusted context_owned(owner = &result),
@@ -19,6 +25,7 @@ trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.S
     )
 {
     let value = scope;
+    let installed: Binding? = binding;
 
     let workload = (trusted bray.runtime.bootstrap.worker.worker(scope)).workload;
 
@@ -34,7 +41,7 @@ trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.S
     return
     {
         allocation = none,
-        binding = core.memory.uninit_from<(Binding?)>(none),
+        binding = core.memory.uninit_from<(Binding?)>(installed),
         attachment = core.memory.uninit_from<(bray.runtime.bootstrap.host.attachment.Owner?)>(none),
         previous = core.memory.uninit_from<(bray.runtime.bootstrap.host.ExecutionOwner?)>(none),
         provider = core.memory.uninit_from<(NativeProviderScope?)>(none),
@@ -125,7 +132,10 @@ trusted internal func create_worker_context(
         }
     };
 
-    let execution = trusted initialize_context(allocation, trusted worker_context(scope));
+    // Publish the complete binding with its context. The context's existing
+    // retirement path also owns rollback if native installation fails.
+    let value = trusted worker_context(scope, trusted pin_binding(trusted pin(owner)));
+    let execution = trusted initialize_context(allocation, value);
     let bound = trusted bray.runtime.bootstrap.host.execution_context(execution.resource);
 
     match consume bound
@@ -155,7 +165,6 @@ trusted internal func create_worker_context(
     {
         let selected = trusted borrow_execution(&execution);
 
-        trusted install_binding(&selected, trusted pin_binding(trusted pin(owner)));
         trusted install_native_provider(&selected, provider);
     }
 

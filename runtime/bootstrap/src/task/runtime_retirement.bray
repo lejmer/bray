@@ -14,11 +14,15 @@ using internal bray.runtime.bootstrap.scheduler;
 trusted internal func retire_execution(pos owner: &bray.runtime.bootstrap.execution.Reference)
     requires(
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition)
+    )
     uses(intrinsic)
 {
     let limit: usize =
@@ -40,13 +44,7 @@ trusted internal func retire_execution(pos owner: &bray.runtime.bootstrap.execut
 
     while index <= limit
     {
-        let (unused, metadata, execution) = trusted retire_runtime_slot(owner, index);
-
-        _ = trusted bray.runtime.bootstrap.execution.release_task_pin(execution);
-
-        trusted bray.runtime.bootstrap.execution.release_context(owner, metadata);
-
-        _ = trusted bray.runtime.bootstrap.consume_record_values(unused, 0);
+        trusted retire_runtime_slot(owner, index);
 
         index += 1;
     }
@@ -55,10 +53,44 @@ trusted internal func retire_execution(pos owner: &bray.runtime.bootstrap.execut
 trusted internal func retire_runtime_slot(
     pos owner: &bray.runtime.bootstrap.execution.Reference,
     pos index: usize
-) -> (bray.runtime.bootstrap.ReportRecords, usize, bray.runtime.bootstrap.execution.Reference?)
-    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+)
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
     ensures(
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition)
+    )
+    uses(intrinsic)
+{
+    let (unused, metadata, execution) = trusted detach_runtime_slot(owner, index);
+
+    // Detachment retires the resident acquisition before invoking callbacks.
+    // Keep the task's actual pin through metadata and report disposal.
+    trusted bray.runtime.bootstrap.execution.release_context(owner, metadata);
+
+    _ = trusted bray.runtime.bootstrap.consume_record_values(unused, 0);
+    _ = trusted bray.runtime.bootstrap.execution.release_task_pin(execution);
+}
+
+trusted internal func detach_runtime_slot(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos index: usize
+) -> (bray.runtime.bootstrap.ReportRecords, usize, bray.runtime.bootstrap.execution.Reference?)
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition),
         trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result.2)
     )
     uses(intrinsic)

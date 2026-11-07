@@ -42,6 +42,7 @@ internal predicate native_configuration(owner: &Configuration) = configuration_o
 trusted internal predicate resolution_input(owner: &u64);
 
 internal func runtime_failure(pos status: u32) -> bray.runtime.bootstrap.ReportOutcome
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
 {
     return
     {
@@ -159,7 +160,8 @@ trusted internal func observe_reference(
     ensures(
         trusted view_owned(owner = &selected.acquisition),
         trusted bray.runtime.bootstrap.task.retained(owner = reference),
-        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report)
     )
     when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
     {

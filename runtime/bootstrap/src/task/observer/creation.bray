@@ -114,10 +114,16 @@ trusted internal func reserve_records(pos owner: &mut Prepared) -> bool
     requires(trusted prepared(owner = &owner), trusted bray.runtime.bootstrap.pool.protocol_access())
     ensures(trusted prepared(owner = &owner))
 {
-    return trusted bray.runtime.bootstrap.report_records_admit(
+    // Native output writes target a separate value, then commit through the
+    // ordinary owner. Its preparation acquisition is never a native output slot.
+    let mut records = owner.records;
+    let status = trusted bray.runtime.bootstrap.report_records_admit(
         4,
-        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut owner.records)
-    ) == 0;
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records)
+    );
+
+    owner.records = records;
+    return status == 0;
 }
 
 trusted internal func acquire_provider(pos owner: &mut Prepared) -> bool
@@ -190,6 +196,12 @@ trusted internal func create(
     )
 {
     let input = trusted read_input(task, layout, glue, outcome);
+    let driver = trusted bray.runtime.bootstrap.execution.current();
+
+    if driver.status != 0 || !bray.runtime.bootstrap.execution.has_execution(&driver)
+    {
+        return trusted failure(input);
+    }
 
     let (shape, header, result) = match consume storage_shape(&input.layout)
     {
@@ -205,14 +217,7 @@ trusted internal func create(
         return trusted reject(owner);
     }
 
-    let selected = trusted bray.runtime.bootstrap.execution.current();
-
-    if selected.status != 0 || !bray.runtime.bootstrap.execution.has_execution(&selected)
-    {
-        return trusted reject(owner);
-    }
-
-    let execution = trusted bray.runtime.bootstrap.execution.bound_execution(&selected);
+    let execution = trusted bray.runtime.bootstrap.execution.bound_execution(&driver);
     let (acquired, _) = trusted bray.runtime.bootstrap.execution.retain_task(execution, owner.input.task);
 
     if acquired matches none

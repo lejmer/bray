@@ -103,6 +103,7 @@ pub(super) fn smoke_test(
             "panic\npanic\npanic\npanic\n",
         ),
     ] {
+        let preparing = Instant::now();
         let package = PackageIdentity::try_new("bray.runtime.synchronous.smoke")
             .expect("fixture package identity is valid");
 
@@ -129,6 +130,8 @@ pub(super) fn smoke_test(
         let compilation = bray_tooling::load_llvm_compilation(request).map_err(|error| {
             CommandError::EntrySmoke(format!("could not load {name}: {error:?}"))
         })?;
+
+        let preparation_seconds = preparing.elapsed().as_secs_f64();
 
         for (mode, configuration) in [
             ("development", BuildConfiguration::Development),
@@ -200,8 +203,10 @@ pub(super) fn smoke_test(
                 release_sizes.push((name, bytes));
             }
 
+            let whole_build_seconds = preparation_seconds + build_seconds;
+
             println!(
-                "synchronous_product name={name} mode={mode} bytes={bytes} build_seconds={build_seconds:.6} startup_seconds={startup_seconds:.6}"
+                "synchronous_product name={name} mode={mode} bytes={bytes} preparation_seconds={preparation_seconds:.6} build_seconds={build_seconds:.6} whole_build_seconds={whole_build_seconds:.6} startup_seconds={startup_seconds:.6}"
             );
         }
     }
