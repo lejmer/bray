@@ -596,6 +596,9 @@ mod tests {
         let mut state = ExecutionState::default();
 
         state.current.insert(place, value.clone());
+        state.owned_results.insert(value.clone(), bray_symbols::DependencyOwnedResult::Transfer(
+            bray_symbols::DependencyOwnedTransfer::new(value.clone(), []),
+        ));
 
         let mut target = Some(state);
 
@@ -613,7 +616,7 @@ mod tests {
 
         let state = target.expect("reachable loop header");
 
-        assert!(state.owned_results.is_empty());
+        assert_eq!(state.owned_results.len(), 1);
 
         assert_eq!(
             state.owned_result(&value),

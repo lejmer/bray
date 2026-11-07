@@ -1696,10 +1696,10 @@ fn aggregate_mutation_revokes_reference_fields_without_address_metadata() {
             .contains_key(&super::model::Target::storage(field.clone()))
     );
 
-    state.invalidate_target(
-        &super::model::Target::storage(aggregate),
-        bray_symbols::DependencyMutationKind::Write,
+    state.apply_effects(
+        Some(&[super::Effect::Mutation(super::model::Target::storage(aggregate), bray_symbols::DependencyMutationKind::Write, None)]),
         &bray_bound_tree::StorageInvalidation::unknown(),
+        &StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish(),
     );
 
     assert!(!state.has_stored_value(&field));
@@ -2836,10 +2836,10 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
         };
 
         if resolved {
-            state.invalidate_target(
-                &target,
-                bray_symbols::DependencyMutationKind::Retire,
+            state.apply_effects(
+                Some(&[super::Effect::Mutation(target.clone(), bray_symbols::DependencyMutationKind::Retire, None)]),
                 &invalidation,
+                &storage,
             );
         } else {
             state.invalidate(
@@ -3219,18 +3219,18 @@ fn targeted_atomic_effects_preserve_reference_slots_under_possible_aliasing() {
         previous: false,
     };
 
-    state.invalidate_target(
-        &external,
-        bray_symbols::DependencyMutationKind::Atomic,
+    state.apply_effects(
+        Some(&[super::Effect::Mutation(external.clone(), bray_symbols::DependencyMutationKind::Atomic, None)]),
         &bray_bound_tree::StorageInvalidation::unknown(),
+        &StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish(),
     );
 
     assert_eq!(state.referent(&slot, error_type()), Some(source));
 
-    state.invalidate_target(
-        &external,
-        bray_symbols::DependencyMutationKind::Write,
+    state.apply_effects(
+        Some(&[super::Effect::Mutation(external.clone(), bray_symbols::DependencyMutationKind::Write, None)]),
         &bray_bound_tree::StorageInvalidation::unknown(),
+        &StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish(),
     );
 
     assert_eq!(state.referent(&slot, error_type()), None);
@@ -4186,4 +4186,67 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
     );
 
     assert!(memory.escaped_regions([other]).contains(&allocation));
+}
+
+#[test]
+fn mutation_summaries_preserve_initialization_only_for_complete_typed_cells() {
+    use super::{Effect, Origin};
+    use bray_symbols::DependencyMutationKind as Mutation;
+
+    let ([cell, alias, ..], origins) = places();
+
+    let ty = error_type();
+    let other = crate::test_support::nullable_type(ty);
+
+    let target = Target {
+        previous: false,
+        origin: Origin::Entry {
+            reference: cell,
+            layer: 1,
+            projections: Arc::from([]),
+        },
+    };
+
+    let alias = Target {
+        previous: false,
+        origin: Origin::Entry {
+            reference: alias,
+            layer: 1,
+            projections: Arc::from([]),
+        },
+    };
+
+    let storage = StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
+    let invalidation = bray_bound_tree::StorageInvalidation::unknown();
+
+    // Identical types do not imply that two possible aliases name a complete cell.
+    for (effect, valid) in [
+        (Effect::Mutation(target.clone(), Mutation::Replace(ty), None), true),
+        (Effect::Mutation(alias.clone(), Mutation::Replace(ty), None), false),
+        (Effect::Mutation(target.clone(), Mutation::Replace(ty), Some(other)), false),
+        (Effect::Mutation(target.clone(), Mutation::Replace(other), Some(other)), false),
+        (Effect::UnboundedMutation { kind: Mutation::Replace(ty), access_type: Some(other), ambient: false }, false),
+        (Effect::UnboundedMutation { kind: Mutation::Replace(other), access_type: Some(other), ambient: true }, false),
+        (Effect::Mutation(target.clone(), Mutation::Consume, None), false),
+        (Effect::Atomic, true),
+    ] {
+        let mut state = State::default();
+        let contents = state.contents.entry(target.clone()).or_default();
+
+        contents.storage_type = Some(ty);
+        contents.initialized.insert(ty);
+        state.escape_regions([target.clone()]);
+
+        assert_eq!(state.target_relationship(&target, &alias), bray_bound_tree::StorageRelationship::PotentiallyOverlapping);
+        state.apply_effects(Some(&[effect.clone()]), &invalidation, &storage);
+
+        assert_eq!(
+            state.read_value(target.clone(), ty, MemoryReadKind::Copy, None, None),
+            if valid { MemoryOperationStatus::Valid } else { MemoryOperationStatus::UninitializedRawStorage },
+            "a read without a new proof must respect the complete update: {effect:?}",
+        );
+
+        // A fresh checked proof can establish initialization after a raw write.
+        assert_eq!(state.read_value(target.clone(), ty, MemoryReadKind::Copy, Some(origins[0]), None), MemoryOperationStatus::Valid);
+    }
 }

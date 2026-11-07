@@ -339,6 +339,14 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
                 state.current.insert(place.clone(), input.clone());
 
+                if place.projections.is_empty()
+                    && !self.borrowed_inputs.iter().any(|borrow| borrow.contains(place))
+                {
+                    state.owned_results.insert(input.clone(), bray_symbols::DependencyOwnedResult::Transfer(
+                        bray_symbols::DependencyOwnedTransfer::new(input.clone(), []),
+                    ));
+                }
+
                 if self.unsigned_value(&input) {
                     let ty = self.observed_types[place]
                         .expect("typed unsigned entry retains its scalar type");

@@ -1,3 +1,4 @@
+mod effects;
 mod deferred;
 mod slots;
 mod targets;

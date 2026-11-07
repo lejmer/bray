@@ -305,6 +305,7 @@ where
         request,
         root,
         ty,
+        result.map(|access| storage.access(access).expect("implicit result retains its checked access").reached_type()),
         source_site,
         occurrence,
         instantiated,

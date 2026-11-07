@@ -103,6 +103,7 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     root: DependencySubjectRoot,
     ty: bray_symbols::TypeId,
+    result_type: Option<bray_symbols::TypeId>,
     source: bray_bound_tree::BoundExecutionSite,
     invocation: bray_bound_tree::BoundExecutionSite,
     contracts: BoundCallDependencyContracts,
@@ -114,17 +115,15 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
         .then(|| std::collections::BTreeSet::from([source]));
 
     let contracts = with_reference_inputs(request, contracts, template, retained, |subject| {
-        if subject.subject_root() != root {
-            return Ok(None);
-        }
+        let ty = if subject.subject_root() == root {
+            ty
+        } else if subject.subject_root() == DependencySubjectRoot::Result {
+            let Some(ty) = result_type else { return Ok(None); };
 
-        let Some(projections) =
-            crate::storage::resolve_storage_projections(request, subject.projections())?
-        else {
-            return Ok(None);
-        };
+            ty
+        } else { return Ok(None); };
 
-        crate::storage::reference_path(request, ty, projections.into(), None)
+        reference_subject_path(request, subject, ty)
     })?;
 
     Ok(contracts
@@ -283,32 +282,14 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
     Option<(bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
     CheckerQueryError<C::UpstreamError>,
 > {
-    let ty = match subject.subject_root() {
-        DependencySubjectRoot::Receiver => call.receiver().map(|receiver| {
-            receiver
-                .input_type(request.semantic_values())
-                .expect("selected receiver has a valid passed value type")
-        }),
-        DependencySubjectRoot::Parameter(parameter) => {
-            call.arguments().iter().find_map(|argument| match argument {
-                bray_bound_tree::SelectedArgument::Explicit {
-                    ordinal,
-                    conversion,
-                    ..
-                } if *ordinal == parameter.raw() => Some(conversion.target_type()),
-                bray_bound_tree::SelectedArgument::Default { ordinal, ty, .. }
-                    if *ordinal == parameter.raw() =>
-                {
-                    Some(*ty)
-                }
-                _ => None,
-            })
-        }
-        bray_symbols::DependencySubjectRoot::Result => match call.resolution().result() {
-            bray_bound_tree::BoundCallResult::Immediate(ty) => Some(ty),
-            bray_bound_tree::BoundCallResult::LazyFuture(future) => Some(future.completion_type()),
-        },
-        _ => None,
+    let ty = if subject.subject_root() == DependencySubjectRoot::Result {
+        Some(match call.resolution().result() {
+            bray_bound_tree::BoundCallResult::Immediate(ty) => ty,
+            bray_bound_tree::BoundCallResult::LazyFuture(future) => future.completion_type(),
+        })
+    } else {
+        crate::dependency::result_input(call, subject.subject_root())
+            .map(|input| input.ty(request.semantic_values()))
     };
 
     let Some(ty) = ty else {

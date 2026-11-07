@@ -434,7 +434,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             && let Some(invalidation) =
                 invalidation.or_else(|| self.refinements.invalidation_at(kind.occurrence()))
         {
-            self.apply_resolved_effects(&mut state.memory, call_effects, invalidation);
+            state.memory.apply_effects(call_effects, invalidation, self.storage);
         }
     }
 
@@ -479,10 +479,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         self.record_resolved_effects(&state.memory, &effects.mutations, normal_effects);
 
-        self.apply_resolved_effects(
-            &mut state.memory,
+        state.memory.apply_effects(
             Some(&effects.mutations),
             &effects.invalidation,
+            self.storage,
         );
 
         self.execution.invalidate_call_effects(
@@ -493,77 +493,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             occurrence,
             Some(&effects.invalidation),
         );
-    }
-
-    pub(super) fn apply_resolved_effects(
-        &self,
-        memory: &mut crate::analysis::storage_flow::memory::State,
-        effects: Option<&[Effect]>,
-        invalidation: &StorageInvalidation,
-    ) {
-        let Some(effects) = effects.filter(|effects| {
-            !effects
-                .iter()
-                .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
-        }) else {
-            memory.invalidate(invalidation, self.storage, DependencyMutationKind::Retire);
-            return;
-        };
-
-        for effect in effects {
-            match effect {
-                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, kind, _) => {
-                    memory.invalidate_target(target, *kind, invalidation)
-                }
-                Effect::UnboundedMutation { kind, ambient: false, .. } => {
-                    memory.invalidate(invalidation, self.storage, *kind);
-                }
-                effect if effect.is_ambient() => {
-                    let kind = match effect {
-                        Effect::UnboundedMutation { kind, .. } => *kind,
-                        _ => DependencyMutationKind::Retire,
-                    };
-
-                    if effects.contains(&Effect::Escape) {
-                        // Opaque calls can reach every invocation input, including delayed escapes.
-                        memory.invalidate(
-                            invalidation,
-                            self.storage,
-                            kind,
-                        );
-                    } else {
-                        let escaped = effects.iter().filter_map(|effect| match effect {
-                            Effect::Mutation(target, DependencyMutationKind::Escape, _) => {
-                                Some(target.clone())
-                            }
-                            _ => None,
-                        });
-
-                        let targets = memory.reachable_targets(memory.escaped_regions(escaped));
-
-                        for target in targets {
-                            memory.invalidate_target(
-                                &target,
-                                kind,
-                                invalidation,
-                            );
-                        }
-                    }
-                }
-                effect if effect.is_atomic() => memory.invalidate(
-                    &StorageInvalidation::unknown(),
-                    self.storage,
-                    DependencyMutationKind::Atomic,
-                ),
-                Effect::Unknown | Effect::Cleanup(_) => {
-                    unreachable!("opaque effects handled above")
-                }
-                Effect::Ambient | Effect::Atomic | Effect::UnboundedMutation { .. } => {
-                    unreachable!("classified effects handled above")
-                }
-            }
-        }
     }
 
     fn call_effects(

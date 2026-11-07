@@ -40,6 +40,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 value
             } else { value.into_referent() };
 
+            // A checked moving read transfers the reached value, including one
+            // previously observed through a loan. The read owns that transition.
+            if let ExecutionCondition::Input(input) = &value
+                && input.is_callable_input()
+            {
+                state.owned_results.entry(value.clone()).or_insert_with(|| bray_symbols::DependencyOwnedResult::Transfer(
+                    bray_symbols::DependencyOwnedTransfer::new(value.clone(), []),
+                ));
+            }
+
             state.pending_results.insert(expression, value);
             self.observe_move(state, &path);
 
