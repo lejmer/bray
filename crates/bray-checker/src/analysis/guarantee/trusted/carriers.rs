@@ -426,6 +426,9 @@ fn returned_owners(
                 path.push(StorageProjection::NullableValue);
                 pending.push((value, path));
             }
+            ExecutionCondition::CurrentValue(owner, contents) if !matches!(owner.as_ref(), ExecutionCondition::Borrowed(_)) => {
+                pending.push((contents, path));
+            }
             ExecutionCondition::Constructed(_, fields) => {
                 for (projection, component) in fields.iter() {
                     if !matches!(

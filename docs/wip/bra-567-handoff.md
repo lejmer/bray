@@ -132,9 +132,9 @@ without implementing those separate outcomes here.
 
 Implementation and end-to-end verification remain in progress. Do not request final review yet.
 
-The checker distinguishes non-owning scalar `StorageValue` context, retained-owner `CurrentValue` contents, and
-structural `Constructed` components. `OwnedTarget` represents real backing or a borrowed referent, rather than also
-representing an owned value's current contents. The current batch removes that overloaded representation from
+The checker distinguishes non-owning scalar `StorageValue` context, retained-owner/loan `CurrentValue` contents, and
+structural `Constructed` components. `CurrentValue` with a `Borrowed` owner observes but does not own its contents.
+`OwnedTarget` represents real backing. Synthetic borrowed-referent and owned-current wrappers are removed. The current batch removes that overloaded representation from
 invalidation and joins. Ordinary equalities change data without renaming storage. Join substitutions distinguish
 complete root identity from current component observations. No additional witness or alias store is introduced.
 
@@ -150,13 +150,13 @@ from execution places that omit that identity.
 
 | Check | Result and limit |
 | --- | --- |
-| Checker library unit suite | 415 passed before the carrier and current-value batches |
-| Runtime Source bodies and execution certificates | Latest complete valid sweep: 3,160 checks, 17 failures before current-value batch |
+| Checker library unit suite | Current-value batch: 414 passed, one expanded join matrix failed in the bare-loan/unchanged branch. Canonical loan batch pending |
+| Runtime Source bodies and execution certificates | Current-value batch: 3,160 checks, 16 failures. Later broad early-return removal introduced regressions and is superseded by canonical loan batch |
 | Same-site inactive numeric deferred frame | Accepted, active numeric and Boolean partial extraction rejected |
 | Shared/stored owner and nested union forwarding | Real owner accepted, fabricated marker and payload authority rejected |
 | Typed raw transfer controls | Unrelated nominal moves accepted, whole/nested owner moves and writes rejected for scalar/address owners |
 | Mutable union completion | Promised owner accepted, unpromised owner rejected |
-| Exposed mutable marker | Demonstrated old rejection of marker-free write, corrected behavior pending verification |
+| Exposed mutable marker | Marker-free write now accepted after raw publication |
 | Required style and formatting | Running for current-value batch |
 | Native/imported runtime acceptance and comparative costs | Unrun |
 
@@ -200,16 +200,30 @@ The connected GitHub account is verified as `lejmer`, with admin/push access to 
 Shell GitHub authentication is invalid. Use connected Git object APIs to publish checkpoints on existing PR #710.
 Parent #709 remains open with the unchanged stack base. Push coherent checkpoints regularly as requested by the user.
 
-The current-value batch is implemented and undergoing finalization. It keeps the complete carrier until ownership
-changes, and moving it reanchors its contents at the destination. Borrowed values retain their existing loan identity
-and never acquire those owned components. A bare owner and a refreshed current value join their current observations.
-The existing join regression now covers both branch shapes, owned and borrowed contexts, and whole/component carriers.
-Current-value owners and captured-frame owners use identity-only substitutions. Current component witnesses follow
-joined values. This prevents a contents substitution from recursively renaming its own owner.
+The current-value batch is pushed at `8b6b1d68f0f95f4715d9767888b7cc7eec1377f2`. Observer preparation rollback now
+passes. The capture controls retain numeric inactive acceptance, active numeric/Boolean rejection, real shared owner
+acceptance, fabrication rejection, and promised/unpromised union distinction. The exposed mutable-marker control passes.
 
-Next: inspect required style/format results, run the checker library suite and full Source consumer sweep, then verify
-the capture, raw-transfer, fabrication and exposed-marker controls as a combined model. Push the coherent checkpoint.
-Imported/native acceptance, comparative costs and final review remain pending.
+The uncommitted canonical-loan batch replaces synthetic `Constructed(Borrowed(owner), OwnedTarget = contents)` with
+`CurrentValue(Borrowed(owner), contents)`. This removes borrowed contents' backing interpretation and makes the same
+current-value context handle owned and borrowed snapshots. `into_referent` and term normalization expose data separately
+from the retained loan. Owned-components traversal excludes borrowed current contexts. Bare loans join and substitute
+through their referents before predecessor proof. The ordinary structural-snapshot early return remains in place, while
+current contexts join their changed contents. Broadly removing that early return regressed unrelated Source consumers.
+
+A focused final-storage trace confirms task allocation's last `dispose_reference` call does not frame the local Current
+root or its acquisition, despite retaining the original factory-result temporary. Do not assume the join correction fixes
+that separate physical-effect case. The fallback reference-result bounds may include the Current input region. Investigate
+established reference-output and typed-effect contracts, without inventing freshness from ownership or absent inputs.
+Worker formation has an available row witness but no active trusted clause for that row at the final call. Do not activate
+all carried witnesses: availability/ownership alone does not prove mutable current conditions.
+
+Temporary traces remain excluded from checkpoints. `transfers.rs` additionally prints `BRA567_STORAGE` at the end of
+preservation for diagnosis. Update checkpoint filtering or remove it before publishing. The task-owned optional Linux
+resource probe derives from the existing allocation probe and runs separately, so it will not affect product-size receipts.
+
+Next: complete canonical-loan self-review, finalize style/format, validate the checker suite and complete Source consumers.
+Then resolve the physical-effect/guarded-carrier cases coherently and continue imported/native/cost acceptance and final review.
 
 ## Final acceptance
 

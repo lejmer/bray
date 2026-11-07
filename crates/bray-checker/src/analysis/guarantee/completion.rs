@@ -201,8 +201,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             if normal_exit_blocks.contains(&block.id()) {
                 let mut result = &state.result;
 
-                while let ExecutionCondition::Constructed(base, _) = result {
-                    result = base;
+                loop {
+                    match result {
+                        ExecutionCondition::Constructed(base, _) => result = base,
+                        ExecutionCondition::CurrentValue(_, contents) => result = contents,
+                        _ => break,
+                    }
                 }
 
                 results.insert(match result {

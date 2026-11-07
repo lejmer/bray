@@ -14,6 +14,7 @@ impl ExecutionState {
         }
 
         match value {
+            ExecutionCondition::CurrentValue(owner, contents) if !matches!(owner.as_ref(), ExecutionCondition::Borrowed(_)) => self.owned_result(contents),
             ExecutionCondition::Present(value) => {
                 self.prefixed_owned_result(value, StorageProjection::NullableValue)
             }

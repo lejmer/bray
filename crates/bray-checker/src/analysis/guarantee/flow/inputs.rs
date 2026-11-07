@@ -144,8 +144,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 vec![observed, expected],
             );
 
-            return Some(ExecutionCondition::Constructed(
-                std::sync::Arc::new(result),
+            return Some(ExecutionCondition::constructed(result,
                 [(
                     bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)),
                     succeeded,

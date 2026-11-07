@@ -232,11 +232,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     _ => ExecutionCondition::Expression(expression).project(projection),
                 };
 
-                ExecutionCondition::Constructed(
-                    Arc::new(ExecutionCondition::Tagged(
+                ExecutionCondition::constructed(ExecutionCondition::Tagged(
                         *variant,
                         Arc::new(ExecutionCondition::Expression(expression)),
-                    )),
+                    ),
                     vec![(projection, payload)].into(),
                 )
             }

@@ -449,7 +449,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         // identity, contents, evidence and portable lineage travel together.
                         let ownership = state.owned_result(value);
 
-                        *value = ExecutionCondition::Constructed(std::sync::Arc::new(value.clone()), [].into());
+                        *value = ExecutionCondition::constructed(value.clone(), [].into());
                         state.owned_results.insert(value.clone(), ownership);
                     }
                 }
@@ -730,5 +730,5 @@ fn construct(
         components.insert(projection, construct(prior, fields, owns));
     }
 
-    ExecutionCondition::Constructed(base, components.into_iter().collect())
+    ExecutionCondition::constructed(base.as_ref().clone(), components.into_iter().collect())
 }

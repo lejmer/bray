@@ -56,7 +56,7 @@ pub(crate) fn construction_condition(
         _ => base,
     };
 
-    ExecutionCondition::Constructed(std::sync::Arc::new(base), fields.into())
+    ExecutionCondition::constructed(base, fields.into())
 }
 
 pub(super) fn constructed_condition(
@@ -139,8 +139,7 @@ pub(super) fn constructed_condition(
                 })
                 .collect::<Vec<_>>();
 
-            Some(ExecutionCondition::Constructed(
-                std::sync::Arc::new(ExecutionCondition::Expression(expression)),
+            Some(ExecutionCondition::constructed(ExecutionCondition::Expression(expression),
                 fields.into(),
             ))
         }
@@ -175,8 +174,7 @@ pub(super) fn constructed_condition(
                 })
                 .collect::<Vec<_>>();
 
-            Some(ExecutionCondition::Constructed(
-                std::sync::Arc::new(ExecutionCondition::Expression(expression)),
+            Some(ExecutionCondition::constructed(ExecutionCondition::Expression(expression),
                 fields.into(),
             ))
         }

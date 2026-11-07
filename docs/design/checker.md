@@ -165,8 +165,9 @@ changes to its reached contents.
 Checked consuming transitions publish complete child snapshots with their existing identity, contents and ownership
 lineage, rather than leaving them represented as partial accesses through their former container.
 A contents update changes the observed snapshot without replacing a still-live owner's identity.
-The current-value context keeps that owner separate from its contents. It owns the contents observation, while a scalar
-storage context only identifies borrowed storage. Neither context represents an owned backing projection. Joins combine
+The current-value context keeps an owner or loan separate from its contents. An owned context contains its current
+values, while a borrowed context only observes them. A scalar storage context identifies borrowed storage independently
+of its copied data. Neither context represents an owned backing projection. Joins combine
 a refreshed snapshot with an unchanged value through their contents while retaining their common owner. Ownership transitions
 carry the existing value into its destination, including values extracted through raw storage. Published storage targets
 retain the identity needed to interpret those moves.

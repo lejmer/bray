@@ -134,8 +134,7 @@ impl ExecutionCondition {
             Self::StorageValue(owner, value) => Self::storage_value(
                 owner.substitute_values(replace, budget), value.substitute_values(replace, budget),
             ),
-            Self::Constructed(base, fields) => Self::Constructed(
-                Arc::new(base.substitute_values(replace, budget)),
+            Self::Constructed(base, fields) => Self::constructed(base.substitute_values(replace, budget),
                 fields
                     .iter()
                     .map(|(field, value)| (*field, value.substitute_values(replace, budget)))
@@ -434,8 +433,7 @@ fn rewrite_equalities(
             }),
             rewrite_equalities(&value, replacements, identities, budget),
         ),
-        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
-            Arc::new(rewrite_equalities(&base, replacements, identities, budget)),
+        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::constructed(rewrite_equalities(&base, replacements, identities, budget),
             fields
                 .iter()
                 .map(|(field, value)| {
