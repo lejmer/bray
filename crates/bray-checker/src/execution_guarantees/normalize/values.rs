@@ -355,15 +355,15 @@ pub(super) fn borrowed_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
     operand: BoundExpressionId,
     value: ExecutionCondition,
 ) -> ExecutionCondition {
-    if !matches!(
-        value,
-        ExecutionCondition::Literal(_)
-            | ExecutionCondition::Boolean(_)
-            | ExecutionCondition::Unknown
-    ) {
+    let scalar = semantics.types().expression(operand)
+        .and_then(|entry| known.type_representation(values, entry.ty()))
+        .is_some_and(crate::representation::is_scalar);
+
+    if !scalar && value != ExecutionCondition::Unknown {
         return value;
     }
 
@@ -372,7 +372,7 @@ pub(super) fn borrowed_condition(
         .map(ExecutionCondition::Input)
         .unwrap_or(ExecutionCondition::Expression(operand));
 
-    if value == ExecutionCondition::Unknown {
+    if identity == value || value == ExecutionCondition::Unknown {
         identity
     } else {
         ExecutionCondition::Constructed(
@@ -386,6 +386,7 @@ pub(super) fn structured_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
     expression: BoundExpressionId,
     operation: &bray_bound_tree::BoundStructuredExpression,
     evaluate: &mut impl FnMut(BoundExpressionId) -> ExecutionCondition,
@@ -525,7 +526,7 @@ pub(super) fn structured_condition(
                     value.requiring_trusted_predicates()
                 }
                 bray_bound_tree::BoundStructuredExpressionKind::Borrow => {
-                    borrowed_condition(unit, semantics, values, *operand, value)
+                    borrowed_condition(unit, semantics, values, known, *operand, value)
                 }
                 _ => value,
             }

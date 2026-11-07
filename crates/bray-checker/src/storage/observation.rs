@@ -58,11 +58,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
         });
     }
 
-    let scalar = role.numeric_kind().is_some()
-        || matches!(
-            role,
-            RepresentationRole::ScalarBool | RepresentationRole::ScalarChar
-        );
+    let scalar = crate::representation::is_scalar(role);
 
     let observation = if scalar {
         Observation::Value

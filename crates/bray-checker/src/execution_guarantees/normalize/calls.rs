@@ -17,6 +17,7 @@ pub(super) fn selected_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     patterns: &BTreeMap<
         bray_bound_tree::BoundPatternId,
@@ -38,7 +39,7 @@ pub(super) fn selected_condition(
             call,
             |budget| {
                 call_argument_conditions(
-                    call, unit, semantics, values, literals, patterns, current, evaluated, budget,
+                    call, unit, semantics, values, known, literals, patterns, current, evaluated, budget,
                     predicates,
                 )
             },
@@ -57,6 +58,7 @@ pub(super) fn selected_condition(
                     unit,
                     semantics,
                     values,
+                    known,
                     literals,
                     patterns,
                     current,
@@ -226,6 +228,7 @@ fn call_argument_conditions(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     patterns: &BTreeMap<
         bray_bound_tree::BoundPatternId,
@@ -245,6 +248,7 @@ fn call_argument_conditions(
             unit,
             semantics,
             values,
+            known,
             literals,
             patterns,
             current,
@@ -276,6 +280,7 @@ fn call_argument_conditions(
                     unit,
                     semantics,
                     values,
+                    known,
                     literals,
                     patterns,
                     current,

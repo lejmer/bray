@@ -15,8 +15,9 @@ pub fn execution_conditions(
     semantics: &CheckedExpressionSemantics,
     patterns: &bray_bound_tree::CheckedPatterns,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
 ) -> Result<Vec<ExecutionCondition>, bray_symbols::SemanticValueStoreError> {
-    Ok(predicate_conditions(unit, semantics, patterns, values)?
+    Ok(predicate_conditions(unit, semantics, patterns, values, known)?
         .into_iter()
         .map(|(_, condition, _)| condition)
         .collect())
@@ -28,6 +29,7 @@ pub fn predicate_conditions(
     semantics: &CheckedExpressionSemantics,
     patterns: &bray_bound_tree::CheckedPatterns,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
 ) -> Result<
     Vec<(
         BoundExpressionId,
@@ -41,6 +43,7 @@ pub fn predicate_conditions(
         semantics,
         patterns,
         values,
+        known,
         &BTreeMap::new(),
         None,
         None,
@@ -53,6 +56,7 @@ pub fn predicate_conditions_with_inputs(
     semantics: &CheckedExpressionSemantics,
     patterns: &bray_bound_tree::CheckedPatterns,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
     inputs: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     storage: Option<(&bray_bound_tree::StoragePlan, &bray_bound_tree::StorageFlow)>,
     predicates: Option<
@@ -124,6 +128,7 @@ pub fn predicate_conditions_with_inputs(
             unit,
             semantics,
             values,
+            known,
             &literals,
             &patterns,
             inputs,

@@ -68,7 +68,7 @@ impl ExecutionCondition {
             // loan that supplies them. Flow values retain that loan separately.
             let value = std::mem::replace(argument, Self::Unknown).into_referent();
 
-            *argument = value.literal_contents().cloned().unwrap_or(value);
+            *argument = value.storage_contents().map(|(_, contents)| contents.clone()).unwrap_or(value);
 
             if argument.contains_unknown() {
                 return Self::Unknown;
@@ -247,15 +247,13 @@ impl ExecutionCondition {
         let identity = self.owner_identity();
 
         if matches!(identity, Self::Borrowed(_)) {
-            // A known value can still belong to a distinct storage owner. Refresh
-            // that existing context instead of turning its authority into a literal.
+            // Scalar contents still belong to their existing storage context.
+            // Refresh that context without replacing it with the copied value.
             let contents = if let Self::Borrowed(previous) = identity
-                && previous.literal_contents().is_some()
-                && matches!(contents, Self::Literal(_) | Self::Boolean(_))
-                && let Self::Constructed(base, _) = previous.as_ref()
+                && let Some((base, _)) = previous.storage_contents()
             {
                 Self::Constructed(
-                    Arc::clone(base),
+                    Arc::new(base.clone()),
                     [(bray_bound_tree::StorageProjection::OwnedTarget, contents)].into(),
                 )
             } else {
@@ -289,13 +287,14 @@ impl ExecutionCondition {
         }
     }
 
-    /// Known contents observed through an existing storage or descriptor context.
-    fn literal_contents(&self) -> Option<&Self> {
+    /// An existing storage context and its current scalar contents are separate observations.
+    pub(crate) fn storage_contents(&self) -> Option<(&Self, &Self)> {
         match self {
-            Self::Constructed(_, fields) => match fields.as_ref() {
-                [(bray_bound_tree::StorageProjection::OwnedTarget, value @ (Self::Literal(_) | Self::Boolean(_)))] => Some(value),
-                _ => None,
-            },
+            Self::Constructed(base, fields) if !matches!(base.owner_identity(), Self::Borrowed(_)) =>
+                match fields.as_ref() {
+                    [(bray_bound_tree::StorageProjection::OwnedTarget, value)] => Some((base, value)),
+                    _ => None,
+                },
             _ => None,
         }
     }

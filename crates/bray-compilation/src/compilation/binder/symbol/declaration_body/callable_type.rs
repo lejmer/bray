@@ -130,6 +130,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
             semantics,
             patterns,
             context.semantic_values(),
+            compilation.available_compiler_known_symbols(),
             &inputs,
             None,
             Some(&predicate_definitions),

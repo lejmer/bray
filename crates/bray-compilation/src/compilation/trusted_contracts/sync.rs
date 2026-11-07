@@ -1275,6 +1275,105 @@ fn cleanup_effects_follow_the_actual_borrowed_receiver() {
 }
 
 #[test]
+fn borrowed_scalar_authority_tracks_storage_independently_of_copied_values() {
+    for (parameter, initial, action, valid) in [
+        (
+            "",
+            "let mut value: u8 = 1; let mut other: u8 = 1;",
+            "observe(&value);",
+            true,
+        ),
+        (
+            "",
+            "let mut value: u8 = 1; let mut other: u8 = 1;",
+            "observe(&other);",
+            false,
+        ),
+        (
+            "",
+            "let mut value: u8 = 1; let mut other: u8 = 1;",
+            "other = 2; observe(&value);",
+            true,
+        ),
+        (
+            "",
+            "let mut value: u8 = 1;",
+            "value = 2; observe(&value);",
+            false,
+        ),
+        (
+            "",
+            "let mut value: u8 = 1;",
+            "value = 1; observe(&value);",
+            false,
+        ),
+        (
+            "",
+            "let mut value: u8 = 1;",
+            "value = 2; value = 1; observe(&value);",
+            false,
+        ),
+        (
+            "",
+            "let mut value: u8 = 1;",
+            "value = 2; establish(&value); observe(&value);",
+            true,
+        ),
+        (
+            "pos mut value: u8",
+            "let mut other = value;",
+            "observe(&value);",
+            true,
+        ),
+        (
+            "pos mut value: u8",
+            "let mut other = value;",
+            "observe(&other);",
+            false,
+        ),
+        (
+            "pos mut value: u8",
+            "let mut other = value;",
+            "other = 2; observe(&value);",
+            true,
+        ),
+        (
+            "pos mut value: u8",
+            "let mut other = value;",
+            "value = other; observe(&value);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            trusted predicate live(value: &u8);
+            trusted func establish(pos value: &u8) executes(pure, total)
+                ensures(trusted live(value)) {{}}
+            func observe(pos value: &u8) requires(trusted live(value)) {{}}
+            func caller({parameter}) {{ {initial} establish(&value); {action} }}
+        "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
 fn borrowed_postconditions_name_the_updated_storage_only() {
     for (action, observed, valid) in [
         (
