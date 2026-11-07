@@ -333,6 +333,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // normal result is produced. Caller-owned borrows are not owned inputs.
         let consumed = entry.owned_arguments().collect::<Vec<_>>();
         let retained = self.surviving_call_values(state, invocation);
+
         let private = state.current.iter()
             .filter(|(place, _)| self.is_invocation_input_place(invocation, place))
             .map(|(place, _)| place.clone()).collect::<Vec<_>>();
@@ -887,16 +888,21 @@ mod tests {
         let owner = ExecutionCondition::Input(place.clone());
         let retained = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let changed = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+
         let source = ExecutionCondition::constructed(owner.clone(), [
             (retained, ExecutionCondition::Boolean(true)),
             (changed, ExecutionCondition::Boolean(false)),
         ].into());
+
         let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
             (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
         });
+
         let changed_mask = Mask::new(true, [(changed, Mask::none())].into());
+
         let contents = returned_contents(&source, &changed_mask, BoundExecutionSite::from(sites[0]),
             &place, &mut { ExecutionCondition::WORK_LIMIT });
+
         let mut current = ExecutionCondition::owned_value(owner.clone(), contents);
         let expected = current.clone();
 

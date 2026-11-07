@@ -71,6 +71,7 @@ impl ExecutionState {
         invocation: bray_bound_tree::BoundExecutionSite,
     ) -> BTreeSet<ExecutionCondition> {
         let Some(entry) = self.entries.get(&invocation) else { return BTreeSet::new(); };
+
         let owners = entry.owned_arguments().collect::<BTreeSet<_>>();
 
         entry.witness_inputs.iter().filter(|carrier| {
@@ -97,6 +98,7 @@ impl ExecutionState {
     ) -> BTreeSet<ExecutionCondition> {
         let owners = invocation.and_then(|invocation| self.entries.get(&invocation))
             .into_iter().flat_map(|entry| entry.owned_arguments()).collect::<BTreeSet<_>>();
+
         let conditions = carriers.iter().filter_map(|carrier| self.witnesses.get(carrier))
             .flat_map(|witness| witness.conditions.keys()).collect::<BTreeSet<_>>();
 
@@ -440,6 +442,7 @@ impl ExecutionState {
         admitted: Option<bray_bound_tree::BoundExecutionSite>,
     ) {
         self.refine_witnesses();
+
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);
 
@@ -866,6 +869,7 @@ mod tests {
             let actual = ExecutionCondition::constructed(parent.clone(), [(
                 bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)), replacement,
             )].into());
+
             let mut state = ExecutionState::default();
 
             state.carry_guarantee(left.clone(), left_claim.clone());
@@ -917,6 +921,7 @@ mod tests {
         let (_, expressions) = expression_unit(BoundUnitId::new(41), |tree, origin| vec![
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
         ]);
+
         let invocation = expressions[0].into();
         let owner = input(0);
         let condition = permission(2);
@@ -928,6 +933,7 @@ mod tests {
             state.carry_guarantee(owner.clone(), condition.clone());
             condition.clone().assume(true, &mut state.trusted_assumptions);
             state.allocation_owners.insert(condition.clone(), owner.clone());
+
             state.entries.insert(invocation, crate::ExecutionCallEvidence {
                 arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), owner.clone())].into(),
                 owned_inputs: if owned { [SymbolOrdinal::new(0)].into() } else { [].into() },

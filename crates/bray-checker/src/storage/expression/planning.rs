@@ -76,6 +76,7 @@ where
                     let access = self.member_access(id, receiver, projection)?;
 
                     self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
+
                     self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
                         member.receiver(), StorageAccessPurpose::Read);
 
@@ -95,6 +96,7 @@ where
                     let access = self.member_access(id, receiver, projection)?;
 
                     self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
+
                     self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
                         member.receiver(), StorageAccessPurpose::Read);
 
@@ -180,6 +182,7 @@ where
             BoundExpression::ControlTransfer(transfer) => {
                 if let Some(operand) = transfer.operand() {
                     self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
+
                     self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
                         operand, StorageAccessPurpose::ValueTransfer);
                 }
@@ -235,6 +238,7 @@ where
         expression: &bray_bound_tree::BoundMatchExpression,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let subject = self.plan_expression(expression.subject(), None)?;
+
         let mode = expression.arms().first().map(|arm| {
             self.request.view().pattern(arm.pattern())
                 .unwrap_or_else(|| missing_node(arm.pattern())).mode()
@@ -242,6 +246,7 @@ where
 
         assert!(matches!(mode, None | Some(BoundPatternMode::MatchConsume | BoundPatternMode::MatchObserve)),
             "checked match arms retain their consume or observe mode");
+
         self.record_purpose(expression.subject(), Some(StorageAccessPurpose::Read), subject)?;
 
         if mode == Some(BoundPatternMode::MatchConsume) {
@@ -269,6 +274,7 @@ where
         phase: StorageValueConsumptionPhase,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
+
         self.consume_expression_value(expression.into(), phase,
             operand, StorageAccessPurpose::ValueTransfer);
 
@@ -392,6 +398,7 @@ where
                 };
 
                 let access = self.plan_expression(operand, None)?;
+
                 self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
                     operand, StorageAccessPurpose::ValueTransfer);
 
@@ -430,6 +437,7 @@ where
                 )?;
 
                 self.record_purpose(id, Some(StorageAccessPurpose::Borrow(borrow_kind)), access)?;
+
                 self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
                     operand, StorageAccessPurpose::Borrow(borrow_kind));
 
@@ -447,6 +455,7 @@ where
             | BoundStructuredExpressionKind::ResultPropagation => {
                 for operand in operands {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::ValueTransfer))?;
+
                     self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
                         *operand, StorageAccessPurpose::ValueTransfer);
                 }
@@ -480,6 +489,7 @@ where
 
                 for operand in operands {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::ValueTransfer))?;
+
                     self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
                         *operand, StorageAccessPurpose::ValueTransfer);
                 }
@@ -494,6 +504,7 @@ where
 
                 for operand in operands {
                     self.plan_expression(*operand, Some(purpose))?;
+
                     let consumption = if matches!(kind,
                         BoundStructuredExpressionKind::ArrayGenerator | BoundStructuredExpressionKind::GeneralGenerator)
                     {
@@ -628,6 +639,7 @@ where
         } else {
             self.plan_expression(receiver, None)?
         };
+
         let phase = self.value_consumer_phase(id);
 
         self.consume_expression_value(id.into(), phase, receiver,

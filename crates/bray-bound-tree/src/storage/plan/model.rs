@@ -378,6 +378,40 @@ impl StoragePlan {
             })
     }
 
+    /// Classifies transport independently of copyability and the expression naming its input.
+    pub fn access_plan_role(&self, plan: StorageAccessPlan) -> crate::StorageAccessPlanRole {
+        use crate::{StorageAccessPlanRole as Role, BoundExecutionSite as Site};
+
+        let root = self.root_identity(plan.access());
+        if let Some(StorageIdentity::InvocationInput { expression, ordinal }) = root.and_then(|root| self.identity(root)) {
+            if plan.occurrence() == (Site::CallInput { expression, ordinal })
+                && plan.purpose() == StorageAccessPurpose::Initialize
+            {
+                return Role::PrivateInputInitialization;
+            }
+            if plan.occurrence() == Site::Node(expression.into()) {
+                return Role::PrivateInputAdmission;
+            }
+        }
+
+        if matches!(plan.purpose(), StorageAccessPurpose::Copy | StorageAccessPurpose::Move | StorageAccessPurpose::ValueTransfer) {
+            let output = self.value_slot(plan.expression());
+            if root.is_some() && root == output
+                && self.resolved_projections(plan.access()).is_some_and(<[_]>::is_empty)
+            {
+                if root.and_then(|root| self.identity(root)).and_then(StorageIdentity::definition_occurrence) == Some(plan.occurrence()) {
+                    return Role::OutputDefinition;
+                }
+                if plan.purpose() == StorageAccessPurpose::ValueTransfer {
+                    return Role::EvaluatedValueTransfer;
+                }
+            }
+            return Role::SourceMaterialization;
+        }
+
+        Role::Observation
+    }
+
     /// Resolves an implicit value transfer to its checked copy or move operation.
     pub fn effective_purpose(&self, plan: StorageAccessPlan) -> StorageAccessPurpose {
         if plan.purpose() != StorageAccessPurpose::ValueTransfer {

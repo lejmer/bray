@@ -29,6 +29,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let source = if let Some(result) = self.expression_result_storage(expression) {
                     let selected = self.storage.access(access).expect("pattern source access is planned");
+
                     let base = self.storage.node_plans(expression.into())
                         .filter_map(|plan| self.storage.access(plan.access()))
                         .filter(|base| base.root() == selected.root()
@@ -134,9 +135,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         if let Some(fields) = self.input.reference_constructions.get(&expression) {
-            for (operand, destination, ty) in fields {
+            for (source, source_type, destination, ty) in fields {
                 // Each transition owns its destination while sharing the prepared projection path.
-                self.transfer_reference_value(state, *operand, destination.clone(), *ty);
+                self.transfer_reference_producer(state, *source, *source_type, destination.clone(), *ty);
             }
         }
 
@@ -401,8 +402,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         destination: &Place,
         target: bray_symbols::TypeId,
     ) -> bool {
-        if let Some(execution) = state.execution.as_ref() {
-            let value = self.execution.value(execution, expression);
+        let value = state.execution.as_ref().map(|execution| self.execution.value(execution, expression));
+        self.observe_transferred_value(state, value, destination, target)
+    }
+
+    fn observe_transferred_value(
+        &self,
+        state: &mut StorageFlowState,
+        value: Option<crate::ExecutionCondition>,
+        destination: &Place,
+        target: bray_symbols::TypeId,
+    ) -> bool {
+        if let Some(value) = &value {
 
             for payload in self
                 .input
@@ -423,10 +434,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        if state
-            .execution
-            .as_ref()
-            .is_some_and(|execution| self.nullable_is_absent(execution, expression, target))
+        if matches!(self.request.semantic_values().type_data(target).as_ref(), bray_symbols::TypeData::Nullable(_))
+            && matches!(value, Some(crate::ExecutionCondition::Literal(value))
+                if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
         {
             self.mark_absent_references(
                 state,
@@ -466,9 +476,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         destination: Place,
         target: bray_symbols::TypeId,
     ) {
+        let source_type = self.execution.semantics.types().expression(expression)
+            .expect("transferred value has a checked type").ty();
+        self.transfer_reference_producer(state, expression.into(), source_type, destination, target);
+    }
+
+    fn transfer_reference_producer(
+        &self,
+        state: &mut StorageFlowState,
+        producer: BoundExecutionSite,
+        source_type: bray_symbols::TypeId,
+        destination: Place,
+        target: bray_symbols::TypeId,
+    ) {
+        let source = match producer {
+            BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => self.expression_reference(state, expression),
+            BoundExecutionSite::CallInput { .. } => self.invocation_result(producer)
+                .map(|place| crate::analysis::storage_flow::memory::Source::Value(Target::storage(place))),
+            _ => unreachable!("reference construction retains an evaluated value producer"),
+        };
+        let value = state.execution.as_ref().map(|execution| self.execution.invocation_value(execution, producer));
         // The transfer owns its converted destination path.
-        if let Some(projections) = self.reference_wrapping(expression, target)
-            && let Some(source) = self.expression_reference(state, expression)
+        if let Some(projections) = crate::storage::nullable_wrapping(self.request.semantic_values(), source_type, target)
+            && let Some(source) = source
         {
             source.transfer(
                 &mut state.memory,
@@ -486,7 +516,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             state.memory.clear(&destination);
         }
 
-        self.observe_transferred_payloads(state, expression, &destination, target);
+        self.observe_transferred_value(state, value, &destination, target);
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn prepare_assignment_reference(

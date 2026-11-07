@@ -242,6 +242,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
         )
     }) {
         let path = current_access(plan);
+
         let defining = Some(plan.expression()) == occurrence.expression()
             && matches!(operation,
                 crate::analysis::model::AnalysisOperationKind::Bound(_)
@@ -307,6 +308,7 @@ fn separates_carrier<C: CheckerRequestContext + ?Sized>(
             root: path.root,
             projections: path.projections[..index].into(),
         };
+
         let value = domain.current_access_value(state, &container);
 
         // Presence extraction retains the complete carrier. Other selectors

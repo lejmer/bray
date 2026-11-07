@@ -19,6 +19,7 @@ impl ExecutionState {
         value: &ExecutionCondition,
     ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
         let mut budget = ExecutionCondition::WORK_LIMIT;
+
         let children = self.owned_result_bounded(value, &mut budget).try_map(
             &mut |transfer| Ok::<_, std::convert::Infallible>(
                 if transfer.output().is_empty() { DependencyOwnedResult::default() }
@@ -103,6 +104,7 @@ impl ExecutionState {
                     },
                     &mut |condition| Ok(Some(condition.clone())),
                 ).expect("actual component ownership update is infallible");
+
                 let inherited = without_empty_guards(inherited, budget);
 
                 DependencyOwnedResult::all(std::iter::once(inherited).chain(fields.iter().filter_map(|(field, value)| {
@@ -371,6 +373,7 @@ mod tests {
         let layout = DependencyOwnedResult::choice([
             DependencyOwnedResult::case(condition, active), DependencyOwnedResult::default(),
         ]);
+
         let joined = ExecutionCondition::Result;
 
         state.owned_results.insert(joined.clone(), layout.clone());
@@ -380,9 +383,11 @@ mod tests {
         let retained = state.owned_result(&updated);
 
         assert!(!retained.transfers().collect::<Vec<_>>().is_empty());
+
         assert!(retained.transfers().all(|transfer| {
             transfer.output() == [field] && transfer.preservation().preserves_value()
         }));
+
         assert!(retained.guaranteed_transfers().is_empty());
     }
 
@@ -408,6 +413,7 @@ mod tests {
         }
 
         let layout = state.owned_result(&current);
+
         let root = layout.transfers().find(|transfer| transfer.output().is_empty())
             .expect("updated object retains its original top identity");
 

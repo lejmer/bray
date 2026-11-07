@@ -291,6 +291,7 @@ pub(crate) fn owned_snapshot(
         }
         ExecutionCondition::Constructed(base, fields) => {
             let base = if **base == ExecutionCondition::Unknown { identity } else { owned_snapshot(base, identity, budget) };
+
             let parent = base.ownership_identity().filter(|(role, _)| *role == ObservationKind::Owned)
                 .map(|(_, owner)| owner.clone()).unwrap_or(ExecutionCondition::Unknown);
 

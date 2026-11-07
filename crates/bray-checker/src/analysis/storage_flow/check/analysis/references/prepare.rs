@@ -294,6 +294,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
         values: &crate::dependency::ValueInputs,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        types: &bray_bound_tree::CheckedExpressionTypes,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         for (identity, source) in storage.identity_entries() {
             let bray_bound_tree::StorageIdentity::Temporary(expression) = source else {
@@ -326,8 +328,38 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     self.reference_constructions
                         .entry(expression)
                         .or_default()
-                        .push((*operand, path, *element));
+                        .push(((*operand).into(), types.expression(*operand).expect("array operand has its checked type").ty(), path, *element));
                 }
+            }
+
+            if let Some(selection @ bray_bound_tree::SemanticSelection::Operation(
+                bray_bound_tree::SelectedOperation::Construction(construction),
+            )) = selections.expression(expression)
+            {
+                for input in construction.inputs() {
+                    let (field, ordinal) = match input {
+                        bray_bound_tree::SelectedConstructionInput::Explicit { input, ordinal, .. }
+                        | bray_bound_tree::SelectedConstructionInput::Default { input, ordinal, .. } => (input, *ordinal),
+                    };
+                    let projection = match field {
+                        bray_bound_tree::ConstructionInputId::StructField(field) => bray_symbols::DependencyProjection::ProductField(*field),
+                        bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => bray_symbols::DependencyProjection::UnionPayloadField(*field),
+                        bray_bound_tree::ConstructionInputId::CallableParameter(_) => continue,
+                    };
+                    let Some(path) = project(request, Place::root(identity), &[projection])? else { continue; };
+                    let (source, source_type) = if selection.stages_inputs() {
+                        (bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal: bray_symbols::SymbolOrdinal::new(ordinal) }, input.ty())
+                    } else {
+                        let bray_bound_tree::SelectedConstructionInput::Explicit { expression: operand, .. } = input else {
+                            unreachable!("unstaged construction has explicit inputs");
+                        };
+                        ((*operand).into(), types.expression(*operand).expect("construction input has its checked type").ty())
+                    };
+                    self.reference_constructions.entry(expression).or_default().push((source, source_type, path, input.ty()));
+                }
+                // Selected inputs own conversion and default placement. Dependency
+                // projection suffixes describe their original, unconverted sources.
+                continue;
             }
 
             for (projection, operand, suffix) in values.constructed_fields(expression) {
@@ -354,7 +386,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 self.reference_constructions
                     .entry(expression)
                     .or_default()
-                    .push((operand, path, ty));
+                    .push((operand.into(), types.expression(operand).expect("aggregate operand has its checked type").ty(), path, ty));
             }
         }
 

@@ -62,7 +62,8 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) reference_constructions: BTreeMap<
         BoundExpressionId,
         Vec<(
-            BoundExpressionId,
+            bray_bound_tree::BoundExecutionSite,
+            bray_symbols::TypeId,
             crate::analysis::storage_flow::memory::Place,
             bray_symbols::TypeId,
         )>,
@@ -196,7 +197,7 @@ impl StorageFlowInput {
             &input.footprint,
         )?;
 
-        input.prepare_reference_constructions(request, storage, values)?;
+        input.prepare_reference_constructions(request, storage, values, selections, types)?;
 
         for (ty, paths) in lifecycle_demands {
             demands.entry(ty).or_default().extend(paths);

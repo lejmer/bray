@@ -78,10 +78,13 @@ impl Lowerer<'_> {
                     let [argument @ SelectedArgument::Explicit { .. }] = selection.arguments() else {
                         panic!("event wait retains its selected explicit event input");
                     };
+
                     let lowered = self.lower_selected_argument_input(expression, argument, current, &source)?;
+
                     let Some(continuation) = lowered.block else { return Ok(Some(lowered)); };
 
                     current = continuation;
+
                     let event = lowered.value.expect("event wait retains its staged event value");
 
                     Some(event)

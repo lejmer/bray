@@ -29,6 +29,30 @@ pub(crate) enum AnalysisOperationKind {
 }
 
 impl AnalysisOperationKind {
+    /// Selects physical accesses at their checked phase. Output definitions are
+    /// successful publications, never reads that consume their own result slot.
+    pub(crate) fn storage_plans(self, storage: &bray_bound_tree::StoragePlan) -> impl Iterator<Item = bray_bound_tree::StorageAccessPlan> + '_ {
+        use bray_bound_tree::{StorageAccessPlanRole as Role, StorageAccessPurpose as Purpose};
+
+        storage.occurrence_plans(self.occurrence()).filter(move |plan| {
+            let role = storage.access_plan_role(*plan);
+            if role == Role::OutputDefinition { return false; }
+            match self {
+                Self::Call { phase: AnalysisCallPhase::Input, .. } => matches!(plan.purpose(), Purpose::Borrow(_)),
+                Self::Call { phase: AnalysisCallPhase::Attempt, .. } => !matches!(plan.purpose(), Purpose::Borrow(_) | Purpose::Initialize),
+                Self::Call { phase: AnalysisCallPhase::Completion, .. } => {
+                    role == Role::PrivateInputInitialization
+                        || role == Role::Observation && !matches!(plan.purpose(), Purpose::Borrow(_))
+                }
+                Self::Bound(_) | Self::Recovery(_) => role != Role::PrivateInputInitialization,
+                Self::Result { .. } | Self::PatternObservation(_) | Self::ScopeExit { .. } => false,
+                Self::Suspension { kind: AnalysisSuspensionKind::Await | AnalysisSuspensionKind::Yield, .. } =>
+                    !matches!(plan.purpose(), Purpose::Borrow(_) | Purpose::Initialize),
+                Self::Suspension { kind: AnalysisSuspensionKind::ScopedCall, .. } => false,
+            }
+        })
+    }
+
     /// The checked value-transport boundary executed by this operation.
     pub(crate) const fn value_consumption_phase(self) -> Option<bray_bound_tree::StorageValueConsumptionPhase> {
         use bray_bound_tree::StorageValueConsumptionPhase;

@@ -14,6 +14,7 @@ impl Lowerer<'_> {
         let (MirOperand::Move(place) | MirOperand::Copy(place)) = operand else {
             panic!("staged receiver retains its actual private input place");
         };
+
         let mut projections = place.projections().to_vec();
         let ty = self.append_reached_dereference(place.ty(), target, &mut projections);
 
@@ -30,12 +31,17 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
     ) -> Result<(LoweredExpression, TypeId), LoweringError> {
         let (lowered, ty) = self.lower_call_receiver(receiver, current)?;
+
         let Some(current) = lowered.block else { return Ok((lowered, ty)); };
+
         let operand = lowered.value.expect("selected receiver produces its evaluated value");
+
         let input = bray_bound_tree::BoundExecutionSite::CallInput {
             expression: call, ordinal: bray_symbols::SymbolOrdinal::new(0),
         };
+
         let (current, operand) = self.consume_staged_input(input, receiver.expression(), current, source, operand)?;
+
         let operand = self.materialize_call_input(input, current, source, operand, ty)?;
 
         Ok((LoweredExpression::continuing(current, Some(operand), Self::retained_source(source)), ty))
@@ -51,16 +57,23 @@ impl Lowerer<'_> {
         let bray_bound_tree::SelectedArgument::Explicit { expression, ordinal, conversion, reborrow, .. } = argument else {
             panic!("explicit input lowering retains its selected source and conversion");
         };
+
         let ordinal = self.input.semantic_selections().expression(call)
             .expect("selected call input retains its checked selection")
             .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(*ordinal)))
             .expect("selected argument retains its receiver-first input ordinal");
+
         let input = bray_bound_tree::BoundExecutionSite::CallInput { expression: call, ordinal };
         let lowered = self.lower_call_argument(*expression, *reborrow, current)?;
+
         let Some(current) = lowered.block else { return Ok(lowered); };
+
         let operand = lowered.value.expect("selected argument produces its evaluated value");
+
         let (current, operand) = self.consume_staged_input(input, *expression, current, source, operand)?;
+
         let (current, operand) = self.convert_operand(call, current, Self::retained_source(source), operand, conversion)?;
+
         let ty = self.builder.operand_type(&operand);
         let operand = self.materialize_call_input(input, current, source, operand, ty)?;
 

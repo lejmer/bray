@@ -690,6 +690,7 @@ impl ExecutionCondition {
             let Some(next) = remaining.checked_sub(1) else {
                 return Self::Unknown;
             };
+
             remaining = next;
 
             match operand {
@@ -699,6 +700,7 @@ impl ExecutionCondition {
                     if children.len() > remaining {
                         return Self::Unknown;
                     }
+
                     pending.extend(children.iter().cloned());
                 }
                 value => { terms.insert(value); }
@@ -706,6 +708,7 @@ impl ExecutionCondition {
         }
 
         let mut level = terms.into_iter().collect::<Vec<_>>();
+
         if level.is_empty() {
             return Self::Boolean(conjunction);
         }
@@ -715,18 +718,22 @@ impl ExecutionCondition {
         while level.len() > 1 {
             let mut next = Vec::with_capacity(level.len().div_ceil(2));
             let mut values = level.into_iter();
+
             while let Some(left) = values.next() {
                 next.push(match values.next() {
                     Some(right) => {
                         let Some(next_remaining) = remaining.checked_sub(1) else {
                             return Self::Unknown;
                         };
+
                         remaining = next_remaining;
+
                         Self::Operation(operator, vec![left, right].into())
                     }
                     None => left,
                 });
             }
+
             level = next;
         }
 
@@ -880,11 +887,14 @@ mod tests {
 
         let guard = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
         let predicate = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+
         let qualify = |clause| ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
             ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]), clause,
         ]);
+
         let expected = qualify(predicate.clone());
         let mut repeated = expected.clone();
+
         for _ in 0..4096 {
             repeated = qualify(repeated);
             assert_eq!(repeated, expected);
@@ -893,6 +903,7 @@ mod tests {
         for guard_value in [false, true] {
             for predicate_value in [false, true] {
                 let facts = BTreeSet::from([(guard.clone(), guard_value), (predicate.clone(), predicate_value)]);
+
                 assert_eq!(repeated.prove(&facts, &mut { ExecutionCondition::WORK_LIMIT }),
                     Some(!guard_value || predicate_value));
             }
@@ -907,13 +918,18 @@ mod tests {
         let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
         let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
         let third = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+
         for operator in [BoundOperator::LogicalAnd, BoundOperator::LogicalOr] {
             let combine = |left, right| ExecutionCondition::operation(operator, vec![left, right]);
+
             assert_eq!(combine(combine(first.clone(), second.clone()), third.clone()),
                 combine(third.clone(), combine(second.clone(), first.clone())));
+
             let unknown_complement = combine(ExecutionCondition::Unknown,
                 ExecutionCondition::operation(BoundOperator::LogicalNot, vec![ExecutionCondition::Unknown]));
+
             assert_eq!(unknown_complement.prove(&BTreeSet::new(), &mut { ExecutionCondition::WORK_LIMIT }), None);
+
             assert_eq!(ExecutionCondition::operation(operator,
                 vec![first.clone(); ExecutionCondition::WORK_LIMIT + 1]), ExecutionCondition::Unknown);
         }
@@ -939,6 +955,7 @@ mod tests {
         assert_eq!(loan.into_referent(), child);
 
         let descriptor = owner.clone().borrowed();
+
         let copied_views = ExecutionCondition::scalar_observation(owner, ExecutionCondition::constructed(
             ExecutionCondition::Unknown, [(field, descriptor.clone())].into(),
         ));
@@ -951,9 +968,11 @@ mod tests {
         let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let variant = UnionVariantSymbolId::from_symbol_id(SymbolId::new(900));
+
         let make = |contents| ExecutionCondition::Tagged(variant, Arc::new(ExecutionCondition::constructed(
             owner.clone(), [(field, contents)].into(),
         ))).present().borrowed();
+
         let before = make(ExecutionCondition::Boolean(true));
         let after = make(ExecutionCondition::Boolean(false));
         let loan = owner.borrowed();

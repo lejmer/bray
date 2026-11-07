@@ -5,7 +5,7 @@ use bray_ir::{
     MirBlockId, MirMemoryOperation, MirOperand, MirOperationKind, MirSourceAnchor,
     MirTerminatorKind,
 };
-use bray_symbols::{TypeData, TypeId};
+use bray_symbols::TypeData;
 
 use super::assembly::lower_inline_assembly_contract;
 use crate::lowering::{LoweringError, block::LoweredExpression, lowerer::Lowerer};
@@ -86,6 +86,7 @@ impl Lowerer<'_> {
                 bray_symbols::SymbolOrdinal::new(u32::try_from(ordinal)
                     .expect("checked memory argument ordinal fits its selected signature")),
             )).expect("memory input retains its checked private staging occurrence");
+
             let (continuation, operand) = self.consume_staged_input(
                 input, *expression, current, &source, operand,
             )?;
@@ -115,6 +116,7 @@ impl Lowerer<'_> {
             } else {
                 conversion.target_type()
             };
+
             let operand = self.materialize_call_input(input, current, &source, operand, operand_type)?;
 
             arguments.push((runtime_index, operand, operand_type));
@@ -411,7 +413,6 @@ impl Lowerer<'_> {
         )
     }
 
-
 }
 
 fn ordered_memory_arguments<'a>(
@@ -467,15 +468,4 @@ fn memory_argument_index(expression: BoundExpressionId, ordinal: u32) -> usize {
             "lowering contract violation: memory argument {ordinal} for {expression:?} must index the host collection"
         )
     })
-}
-
-const fn is_runtime_expression(kind: &CheckedMemoryOperationKind, ordinal: usize) -> bool {
-    kind.runtime_argument_index(ordinal).is_some()
-        || matches!(
-            kind,
-            CheckedMemoryOperationKind::InlineAssembly {
-                labels: Some(_),
-                ..
-            }
-        ) && ordinal == 6
 }
