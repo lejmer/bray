@@ -775,15 +775,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => BTreeMap::new(),
         };
 
+        let mut scalar_places = BTreeSet::new();
+
         let invalidated_values = if transfers {
             Vec::new()
         } else {
             changed_places
                 .iter()
                 .filter(|place| !descriptors.contains_key(*place))
-                .map(|place| {
-                    place.value_in(&state.current)
-                        .unwrap_or_else(|| ExecutionCondition::Input(place.clone()))
+                .filter_map(|place| {
+                    if self.observed_types.get(place).copied().flatten()
+                        .and_then(|ty| crate::representation::type_representation(self.request, ty))
+                        .is_some_and(crate::representation::is_scalar)
+                    {
+                        // A write retires this slot's borrowed observation, not
+                        // the immutable value also held by another scalar copy.
+                        scalar_places.insert(place.clone());
+
+                        return None;
+                    }
+
+                    Some(place.value_in(&state.current)
+                        .unwrap_or_else(|| ExecutionCondition::Input(place.clone())))
                 })
                 .collect()
         };
@@ -795,7 +808,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let no_predicates = BTreeSet::new();
 
         state.invalidate_contents(
-            &changed_places,
+            &scalar_places,
             invalidated_values,
             if content_only { &self.content_predicates } else { &no_predicates },
             &stable_values,

@@ -507,6 +507,7 @@ impl Compilation {
                 semantics.result().value(),
                 patterns.result().value(),
                 self.semantic_value_store()?,
+                self.available_compiler_known_symbols(),
                 &constants,
                 Some((
                     storage.result().value(),

@@ -662,18 +662,36 @@ mod tests {
 
     #[test]
     fn known_value_writes_revoke_only_borrowed_authority_on_the_changed_storage() {
-        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
+            "ValidRead",
+        );
 
-        let condition = |value| ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
-            symbol.into(), crate::test_support::empty_substitution(symbol.into()), vec![value],
-        )));
+        let condition = |value| {
+            ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
+                symbol.into(),
+                crate::test_support::empty_substitution(symbol.into()),
+                vec![value],
+            )))
+        };
 
-        let observed = condition(input(0).borrowed());
-        let other = condition(input(1).borrowed());
+        let storage = |owner| {
+            ExecutionCondition::Constructed(
+                Arc::new(input(owner)),
+                [(bray_bound_tree::StorageProjection::OwnedTarget, input(4))].into(),
+            )
+            .borrowed()
+        };
+
+        let observed = condition(storage(0));
+        let other = condition(storage(1));
         let copied_value = condition(input(0));
         let mut state = ExecutionState::default();
 
-        for (owner, condition) in [(input(0), &observed), (input(1), &other), (input(2), &copied_value)] {
+        for (owner, condition) in [
+            (input(0), &observed),
+            (input(1), &other),
+            (input(2), &copied_value),
+        ] {
             state.carry_guarantee(owner, condition.clone());
             state.trusted_assumptions.insert((condition.clone(), true));
         }
