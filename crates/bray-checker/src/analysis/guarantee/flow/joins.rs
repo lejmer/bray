@@ -168,16 +168,18 @@ pub(super) fn common_components(
         matches!(right.owner_identity(), ExecutionCondition::Borrowed(_)),
     ) {
         (true, true) => {
+            let same_owner = left.has_same_owner(right);
+
             let contents = common_components(
                 &left.clone().into_referent(),
                 &right.clone().into_referent(),
-                None,
+                if same_owner { result } else { None },
                 conditions,
                 facts,
                 budget,
             );
 
-            return if left.has_same_owner(right) {
+            return if same_owner {
                 left.owner_identity().with_referent(contents)
             } else {
                 // Joining an owned result does not identify different referents.
@@ -260,15 +262,13 @@ pub(super) fn common_components(
         return joined;
     }
 
-    // Ordinary observations retain only a shared identity. Yielded owners instead
-    // move their initialized components under the result region's identity.
-    let identity = result.clone().unwrap_or_else(|| {
-        if left.owner_identity() == right.owner_identity() {
-            left.owner_identity().clone()
-        } else {
-            ExecutionCondition::Unknown
-        }
-    });
+    // A changed observation does not replace its existing descriptor or loan.
+    // Distinct owners instead acquire the selected result region's identity.
+    let identity = if left.owner_identity() != &ExecutionCondition::Unknown && left.has_same_owner(right) {
+        left.owner_identity().clone()
+    } else {
+        result.clone().unwrap_or(ExecutionCondition::Unknown)
+    };
 
     let fields = projections
         .into_iter()
@@ -325,7 +325,11 @@ pub(super) fn common_components(
             let result = result
                 .as_ref()
                 .or_else(|| (identity != ExecutionCondition::Unknown).then_some(&identity))
-                .map(|result| result.clone().project(projection));
+                .map(|result| if projection == bray_bound_tree::StorageProjection::OwnedTarget {
+                    // Contents have their own current identity. OwnedTarget is
+                    // not a source-level projection of the retained descriptor.
+                    result.clone()
+                } else { result.clone().project(projection) });
 
             (
                 projection,
@@ -501,6 +505,74 @@ mod tests {
     }
 
     #[test]
+    fn joined_contents_keep_the_descriptor_and_a_distinct_current_identity() {
+        use crate::analysis::guarantee::state::ExecutionState;
+        use crate::analysis::id::AnalysisBlockId;
+
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let descriptor = ExecutionCondition::Input(place.clone());
+        let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let current = ExecutionCondition::Joined(BoundUnitId::new(0), 2, place.clone());
+        let conditions = Default::default();
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+        let substitution = crate::test_support::empty_substitution(symbol.into());
+
+        let guarantee = |value: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(symbol.into(), substitution, vec![value.component(field).borrowed()]),
+        ));
+
+        let branch = |version| ExecutionCondition::Constructed(
+            Arc::new(descriptor.clone()),
+            [(StorageProjection::OwnedTarget, ExecutionCondition::Joined(
+                BoundUnitId::new(0), version, place.clone(),
+            ))].into(),
+        );
+
+        for borrowed in [false, true] {
+            let context = |value: ExecutionCondition| if borrowed {
+                descriptor.clone().borrowed().with_referent(value)
+            } else { value };
+
+            let left = context(branch(0));
+            let right = context(branch(1));
+
+            let joined = common_components(
+                &left, &right, Some(current.clone()), (&conditions, &conditions),
+                &mut Vec::new(), &mut { ExecutionCondition::WORK_LIMIT },
+            );
+
+            assert_eq!(joined.owner_identity(), left.owner_identity());
+            assert_eq!(joined.clone().component(field), current.clone().component(field));
+            assert_ne!(joined.clone().component(field), descriptor.clone().component(field));
+
+            if borrowed { assert_eq!(joined.owned_components().count(), 0); }
+
+            let state = |value: ExecutionCondition| {
+                let mut state = ExecutionState::default();
+                let condition = guarantee(value.clone());
+
+                state.current.insert(place.clone(), value.clone());
+                condition.clone().assume(true, &mut state.trusted_assumptions);
+                state.carry_guarantee(value.clone().into_referent(), condition);
+
+                state
+            };
+
+            let mut merged = Some(state(left));
+
+            super::super::merge::merge(
+                &mut merged, &Some(state(right)), Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 2)),
+            );
+
+            let merged = merged.expect("both current observations remain reachable");
+            let condition = guarantee(merged.current[&place].clone());
+
+            assert_eq!(condition.prove_trusted(&merged.trusted_assumptions, &merged.assumptions), Some(true));
+            assert_ne!(condition, guarantee(descriptor.clone()));
+        }
+    }
+
+    #[test]
     fn disappearing_alias_does_not_rename_a_surviving_observation() {
         use crate::analysis::guarantee::state::ExecutionState;
         use crate::analysis::id::AnalysisBlockId;
@@ -596,6 +668,7 @@ mod tests {
         let mut state = ExecutionState::default();
 
         state.current.insert(place, value.clone());
+
         state.owned_results.insert(value.clone(), bray_symbols::DependencyOwnedResult::Transfer(
             bray_symbols::DependencyOwnedTransfer::new(value.clone(), []),
         ));

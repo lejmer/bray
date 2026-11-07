@@ -161,6 +161,8 @@ fn join_observations<'a>(
             stable_identities.insert(value.owner_identity().clone());
         }
 
+        let result = || block.map(|block| joined_observation(block, place));
+
         let joined = if value == other {
             stable_values.insert(value.clone());
             stable_values.insert(value.clone().borrowed());
@@ -175,20 +177,13 @@ fn join_observations<'a>(
             common_components(
                 &value,
                 &other,
-                None,
+                result(),
                 (&target.assumptions, &incoming.assumptions),
                 &mut joined_facts,
                 &mut { ExecutionCondition::WORK_LIMIT },
             )
         } else {
-            block.map_or(ExecutionCondition::Unknown, |block| {
-                ExecutionCondition::Joined(
-                    block.unit(),
-                    u32::try_from(block.to_index().expect("flow block has an index"))
-                        .expect("flow block index fits"),
-                    place.clone(),
-                )
-            })
+            result().unwrap_or(ExecutionCondition::Unknown)
         };
 
         if value != other && joined != ExecutionCondition::Unknown {
@@ -234,27 +229,27 @@ fn join_observations<'a>(
     }
 
     for (place, joined) in &joined_values {
-        if *joined != ExecutionCondition::Unknown {
-            let left = place
-                .value_in(&target.current)
-                .unwrap_or(ExecutionCondition::Unknown);
+        if *joined == ExecutionCondition::Unknown { continue; }
 
-            let right = place
-                .value_in(&incoming.current)
-                .unwrap_or(ExecutionCondition::Unknown);
+        let left = place
+            .value_in(&target.current)
+            .unwrap_or(ExecutionCondition::Unknown);
 
-            if left != right
-                || target.owned_results.get(&left) != incoming.owned_results.get(&right)
-            {
-                owned_results.insert(
-                    joined.clone(),
-                    super::witnesses::owned_alternatives(
-                        (target, &left),
-                        (incoming, &right),
-                        joined,
-                    ),
-                );
-            }
+        let right = place
+            .value_in(&incoming.current)
+            .unwrap_or(ExecutionCondition::Unknown);
+
+        if left != right
+            || target.owned_results.get(&left) != incoming.owned_results.get(&right)
+        {
+            owned_results.insert(
+                joined.clone(),
+                super::witnesses::owned_alternatives(
+                    (target, &left),
+                    (incoming, &right),
+                    joined,
+                ),
+            );
         }
     }
 
@@ -369,6 +364,15 @@ fn join_observations<'a>(
     changed |= publish_owned_results(target, &mut incoming_joined, owned_results);
 
     (incoming_joined, changed)
+}
+
+fn joined_observation(block: AnalysisBlockId, place: &crate::ExecutionPlace) -> ExecutionCondition {
+    ExecutionCondition::Joined(
+        block.unit(),
+        u32::try_from(block.to_index().expect("flow block has an index"))
+            .expect("flow block index fits"),
+        place.clone(),
+    )
 }
 
 fn common_truth(
@@ -583,7 +587,6 @@ pub(super) fn result_replacements(
     if value == joined
         || value == joined.owner_identity()
         || joined == &ExecutionCondition::Unknown
-        || matches!(value.owner_identity(), ExecutionCondition::Borrowed(_))
         || matches!(
             value,
             ExecutionCondition::Literal(_)
@@ -591,6 +594,20 @@ pub(super) fn result_replacements(
                 | ExecutionCondition::Unknown
         )
     {
+        return;
+    }
+
+    if matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) {
+        if value.has_same_owner(joined) {
+            // The loan stays the same while its current observations join.
+            // Renaming those contents does not transfer or rename the loan.
+            result_replacements(
+                &value.clone().into_referent(),
+                &joined.clone().into_referent(),
+                stable_values, stable_identities, values, identities,
+            );
+        }
+
         return;
     }
 

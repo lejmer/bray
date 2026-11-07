@@ -274,7 +274,7 @@ trusted internal func wait_ready(pos selected: &Current, pos owner: &Reference)
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    ensures(trusted view_owned(owner = &selected.acquisition))
+    ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
     uses(intrinsic)
 {
     let group = trusted bray.runtime.bootstrap.scheduler.register_parking(trusted scheduler_reference(owner));
@@ -289,11 +289,9 @@ trusted internal func wait_ready(pos selected: &Current, pos owner: &Reference)
         return;
     }
 
-    trusted bray.runtime.bootstrap.scheduler.park_reference(
-        trusted scheduler_reference(owner),
-        group,
-        trusted deadline_wait(owner, 1000)
-    );
+    let milliseconds = trusted deadline_wait(owner, 1000);
+
+    trusted bray.runtime.bootstrap.scheduler.park_reference(trusted scheduler_reference(owner), group, milliseconds);
 
     trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(owner), group);
 }

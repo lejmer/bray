@@ -5977,6 +5977,11 @@ fn copied_pointer_components_keep_storage_facts_without_owning_the_tuple() {
         r#"
         trusted module app;
         using core.memory;
+        struct BorrowedHolder { items: &[u8; 1]; }
+        func read_borrowed(pos value: BorrowedHolder) -> u8 { return value.items[0]; }
+        func read_holder(pos items: &[u8; 1]) -> u8 {
+            return read_borrowed(BorrowedHolder { items = items });
+        }
         struct Marker {}
         struct Access { marker: Marker; context: usize; pointer: DataPointer<u8>; }
         trusted predicate held(owner: &Marker);

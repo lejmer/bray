@@ -119,7 +119,7 @@ trusted internal func binding_driver(pos context: DataPointer<Context>) -> Curre
 
     return
     {
-        acquisition = Acquisition
+        acquisition = ViewAcquisition
         {
         },
         pointer = context,

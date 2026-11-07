@@ -1804,7 +1804,7 @@ where
                         state.record_move(place.clone(), plan.expression(), ty, true);
 
                         if let Some(execution) = state.execution.as_mut() {
-                            self.execution.observe_move(execution, place);
+                            self.execution.observe_move(execution, place, ty);
                         }
                     } else {
                         state.initialize_path(place);
