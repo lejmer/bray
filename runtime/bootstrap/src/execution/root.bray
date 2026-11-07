@@ -88,18 +88,29 @@ trusted internal func root_observation(pos handle: u64) -> bray.runtime.bootstra
     )
 {
     let scope = trusted root_scope();
-    let status = scope.status;
+    let mut ended: u32 = 0;
 
-    let result = if status == 0
+    let result = with entered = EntryRestoration
     {
-        yield trusted root_observation_action(trusted entry_current(&scope), &handle);
+        scope = scope,
+        completion = &mut ended
     }
-    else
     {
-        yield runtime_failure(status);
-    };
+        let scope = &entered.scope;
 
-    let ended = trusted finish_entry_scope(scope);
+        let status = scope.status;
+
+        let result = if status == 0
+        {
+            yield trusted root_observation_action(trusted entry_current(scope), &handle);
+        }
+        else
+        {
+            yield runtime_failure(status);
+        };
+
+        yield result;
+    };
 
     // Terminal outcome ownership leaves before its task's final completion.
     // Entry incidents remain independently represented by their report sink.
@@ -190,18 +201,29 @@ trusted internal func root_completion(pos handle: u64) -> u32
     )
 {
     let scope = trusted root_scope();
-    let status = scope.status;
+    let mut ended: u32 = 0;
 
-    let result = if status == 0
+    let result = with entered = EntryRestoration
     {
-        yield trusted root_completion_action(trusted entry_current(&scope), &handle);
+        scope = scope,
+        completion = &mut ended
     }
-    else
     {
-        yield status;
-    };
+        let scope = &entered.scope;
 
-    let ended = trusted finish_entry_scope(scope);
+        let status = scope.status;
+
+        let result = if status == 0
+        {
+            yield trusted root_completion_action(trusted entry_current(scope), &handle);
+        }
+        else
+        {
+            yield status;
+        };
+
+        yield result;
+    };
 
     return if result != 0
     {

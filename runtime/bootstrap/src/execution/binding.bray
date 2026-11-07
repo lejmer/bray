@@ -144,23 +144,6 @@ const internal func present_binding(pos owner: &(Binding?)) -> &Binding
     };
 }
 
-// The binding combines independently typed callbacks with this complete owner.
-// Moving that owner keeps its pin and service claim together.
-trusted internal func take_binding_owner(pos owner: Binding) -> Owner
-    requires(trusted kernel_binding(owner = &owner))
-    ensures(trusted retained(owner = &result.execution), trusted pinned(owner = &result.execution))
-    when(owner.close matches ?_)
-    {
-        ensures(trusted service_owner(owner = &result))
-    }
-    when(owner.close matches none)
-    {
-        ensures(trusted !service_owner(owner = &result))
-    }
-{
-    return owner.owner;
-}
-
 trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> u32
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
     ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
@@ -179,12 +162,11 @@ trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.
         let selected = trusted take_owned_binding(binding);
         let release = selected.release;
 
-        if selected.close matches ?_
+        yield match consume selected.ownership
         {
-            trusted core.target.abort();
-        }
-
-        yield trusted release(trusted take_binding_owner(selected));
+            case BindingOwnership.Open(_, _) { yield trusted core.target.abort(); }
+            case BindingOwnership.Cleanup(pin) { yield trusted release(pin); }
+        };
     }
     else
     {

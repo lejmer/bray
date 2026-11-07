@@ -119,13 +119,37 @@ trusted internal func unlink_registration(
     )
     uses(intrinsic)
 {
+    // Capture access while membership is unchanged. Updating the collection or
+    // either neighbor must not rely on the old registration links afterwards.
+    let mut previous_access = if owner.previous.empty()
+    {
+        yield none;
+    }
+    else
+    {
+        let access: LinkAccess? = trusted previous_link_access(owner, lease);
+
+        yield access;
+    };
+
+    let mut next_access = if owner.next.empty()
+    {
+        yield none;
+    }
+    else
+    {
+        let access: LinkAccess? = trusted next_link_access(owner, lease);
+
+        yield access;
+    };
+
     match owner.resources.target
     {
-        case WaitTarget.Task(reference)
+        case WaitTarget.Task(_)
         {
             if owner.previous.empty()
             {
-                let mut access = trusted task_slot_access(&reference, lease);
+                let mut access = trusted task_slot_access(trusted registration_target(owner), lease);
                 let observed_slot = trusted link_slot(&mut access);
 
                 if owner.retirement == 0
@@ -156,9 +180,8 @@ trusted internal func unlink_registration(
         }
     }
 
-    if !owner.previous.empty()
+    if let ?access = previous_access
     {
-        let mut access = trusted previous_link_access(owner, lease);
         let previous = trusted link_slot(&mut access);
 
         if let ?registration = previous.registration
@@ -171,9 +194,8 @@ trusted internal func unlink_registration(
         }
     }
 
-    if !owner.next.empty()
+    if let ?access = next_access
     {
-        let mut access = trusted next_link_access(owner, lease);
         let next = trusted link_slot(&mut access);
 
         if let ?registration = next.registration

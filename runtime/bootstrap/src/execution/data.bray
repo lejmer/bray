@@ -36,12 +36,12 @@ internal struct Reference
     pointer: DataPointer<Domain>;
 }
 
-// An open acquisition owns admission in addition to its storage pin. Closing
-// retires that acquisition while the same owner retains its pin for disposal.
+// An owner always retains admission and its storage pin. Closing consumes the
+// complete owner and returns the pin needed for subsequent cleanup.
 @layout(c)
 internal struct Owner
 {
-    mut acquisition: Acquisition;
+    acquisition: Acquisition;
     execution: Reference;
 }
 
