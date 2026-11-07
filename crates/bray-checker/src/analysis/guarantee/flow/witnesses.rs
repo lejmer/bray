@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExpressionId, BoundOperator};
@@ -330,9 +331,9 @@ fn collect_observations(
         return;
     }
 
-    if let ExecutionCondition::CurrentValue(_, contents) = joined {
+    if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } = joined {
         let sources = sources.map(|source| match source {
-            ExecutionCondition::CurrentValue(_, contents) => contents.as_ref(),
+            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => contents.as_ref(),
             value => value,
         });
 

@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::state::ExecutionState;
@@ -426,11 +427,9 @@ fn returned_owners(
                 path.push(StorageProjection::NullableValue);
                 pending.push((value, path));
             }
-            ExecutionCondition::CurrentValue(_, contents) => {
-                // A returned reference can carry access promises without owning its target.
-                let data = if let ExecutionCondition::Borrowed(data) = contents.as_ref() { data.as_ref() } else { contents.as_ref() };
-
-                pending.push((data, path));
+            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => {
+                // Reached data can carry access promises without transferring its ownership.
+                pending.push((contents, path));
             }
             ExecutionCondition::Constructed(_, fields) => {
                 for (projection, component) in fields.iter() {

@@ -38,7 +38,7 @@ fn borrowed_scalar_contents_retain_storage_authority_and_const_value_semantics()
     let call = |value| ExecutionCondition::call(callable, None, [], vec![value]);
 
     let stored = |ordinal, value| {
-        ExecutionCondition::storage_value(
+        ExecutionCondition::scalar_observation(
             ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))),
             value,
         ).borrowed()
@@ -77,7 +77,7 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
     let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
     let current = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
     let changed = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
-    let aggregate = ExecutionCondition::current_value(owner, current);
+    let aggregate = ExecutionCondition::owned_value(owner, current);
 
     assert_eq!(aggregate.storage_contents(), None);
 
@@ -142,7 +142,7 @@ fn changed_contents_do_not_reuse_unlisted_components_from_carrier_identity() {
     let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
     let marker = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
 
-    let value = ExecutionCondition::current_value(
+    let value = ExecutionCondition::owned_value(
         identity.clone(),
         ExecutionCondition::constructed(contents.clone(),
             [(

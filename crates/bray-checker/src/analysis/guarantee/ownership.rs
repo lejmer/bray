@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::state::ExecutionState;
 use crate::ExecutionCondition;
 use bray_bound_tree::StorageProjection;
@@ -14,7 +15,7 @@ impl ExecutionState {
         }
 
         match value {
-            ExecutionCondition::CurrentValue(_, contents) => self.owned_result(contents),
+            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => self.owned_result(contents),
             ExecutionCondition::Present(value) => {
                 self.prefixed_owned_result(value, StorageProjection::NullableValue)
             }

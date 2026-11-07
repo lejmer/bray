@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::BTreeSet;
 
 use super::ExecutionCondition;
@@ -29,63 +30,56 @@ pub(crate) fn common_components(
         return ExecutionCondition::Unknown;
     }
 
-    match (
-        matches!(left.owner_identity(), ExecutionCondition::Borrowed(_)),
-        matches!(right.owner_identity(), ExecutionCondition::Borrowed(_)),
-    ) {
-        (true, true) => {
-            let same_owner = left.has_same_owner(right);
-
-            let contents = common_components(
-                &left.clone().into_referent(),
-                &right.clone().into_referent(),
-                if same_owner { result } else { None },
-                conditions,
-                facts,
-                budget,
-            );
-
-            return if same_owner {
-                left.owner_identity().with_referent(contents)
-            } else {
-                // Joining an owned result does not identify different referents.
-                contents.borrowed()
-            };
-        }
-        (true, false) | (false, true) => return ExecutionCondition::Unknown,
-        (false, false) => {}
-    }
-
-    if let (ExecutionCondition::StorageValue(left_owner, left_value), ExecutionCondition::StorageValue(right_owner, right_value)) = (left, right) {
-        if left_owner == right_owner {
-            return ExecutionCondition::storage_value(
+    if let (
+        ExecutionCondition::Observation { owner: left_owner, contents: left_value, kind: ObservationKind::Scalar },
+        ExecutionCondition::Observation { owner: right_owner, contents: right_value, kind: ObservationKind::Scalar },
+    ) = (left, right) {
+        return if left_owner == right_owner {
+            ExecutionCondition::scalar_observation(
                 left_owner.as_ref().clone(),
                 common_components(left_value, right_value, result, conditions, facts, budget),
-            );
+            )
+        } else { ExecutionCondition::Unknown };
+    }
+
+    let reference = |value: &ExecutionCondition| {
+        value.observation_kind() == Some(ObservationKind::Reference) || matches!(value, ExecutionCondition::Borrowed(_))
+    };
+
+    if reference(left) || reference(right) {
+        let same_owner = left.has_same_owner(right);
+
+        // A bare entry value and its refreshed reference have the same value
+        // identity. An owning snapshot is a different semantic role.
+        if (!reference(left) && (left.owner_identity() != left || !same_owner))
+            || (!reference(right) && (right.owner_identity() != right || !same_owner))
+        {
+            return ExecutionCondition::Unknown;
         }
 
-        return ExecutionCondition::Unknown;
+        let contents = common_components(
+            &left.clone().into_referent(), &right.clone().into_referent(),
+            if same_owner { result } else { None }, conditions, facts, budget,
+        );
+
+        return if same_owner {
+            ExecutionCondition::reference_value(left.owner_identity().clone(), contents)
+        } else { contents.borrowed() };
     }
 
     if left.has_same_owner(right)
-        && (matches!(left, ExecutionCondition::CurrentValue(_, _))
-            || matches!(right, ExecutionCondition::CurrentValue(_, _)))
+        && (left.observation_kind() == Some(ObservationKind::Owned)
+            || right.observation_kind() == Some(ObservationKind::Owned))
     {
-        let reference = left.current_referent().is_some() || right.current_referent().is_some();
-
         let contents = |value: &ExecutionCondition| match value {
-            ExecutionCondition::CurrentValue(_, data) => {
-                if reference {
-                    value.current_referent().unwrap_or(data).clone()
-                } else { data.as_ref().clone() }
-            }
+            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => contents.as_ref().clone(),
             value => value.clone(),
         };
 
-        let contents = common_components(&contents(left), &contents(right), result, conditions, facts, budget);
-        let contents = if reference { ExecutionCondition::Borrowed(std::sync::Arc::new(contents)) } else { contents };
-
-        return ExecutionCondition::current_value(left.owner_identity().clone(), contents);
+        return ExecutionCondition::owned_value(
+            left.owner_identity().clone(),
+            common_components(&contents(left), &contents(right), result, conditions, facts, budget),
+        );
     }
 
     let fields = |mut value: &ExecutionCondition| {
@@ -260,11 +254,11 @@ pub(crate) fn owned_snapshot(
     }
 
     match source {
-        ExecutionCondition::StorageValue(_, _) => source.clone(),
-        ExecutionCondition::CurrentValue(_, contents) if matches!(contents.as_ref(), ExecutionCondition::Borrowed(_)) => {
-            ExecutionCondition::current_value(identity, contents.as_ref().clone())
+        ExecutionCondition::Observation { kind: ObservationKind::Scalar, .. } => source.clone(),
+        ExecutionCondition::Observation { contents, kind: ObservationKind::Reference, .. } => {
+            ExecutionCondition::reference_value(identity, contents.as_ref().clone())
         }
-        ExecutionCondition::CurrentValue(_, contents) => owned_snapshot(contents, identity, budget),
+        ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => owned_snapshot(contents, identity, budget),
         ExecutionCondition::Constructed(base, fields) => {
             let base = owned_snapshot(base, identity, budget);
 

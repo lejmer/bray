@@ -7,6 +7,6 @@ mod values;
 #[cfg(test)]
 mod tests;
 
-pub use model::ExecutionCondition;
+pub use model::{ExecutionCondition, ExecutionObservationKind};
 
 pub(crate) use observations::Set as ObservationSet;

@@ -418,7 +418,7 @@ pub(super) fn borrowed_condition(
     if identity == value || value == ExecutionCondition::Unknown {
         identity
     } else {
-        ExecutionCondition::storage_value(identity, value)
+        ExecutionCondition::scalar_observation(identity, value)
     }
 }
 

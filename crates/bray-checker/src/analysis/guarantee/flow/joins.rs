@@ -267,9 +267,9 @@ mod tests {
                 let data = ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone());
 
                 match context {
-                    Context::Owned => ExecutionCondition::current_value(descriptor.clone(), data),
+                    Context::Owned => ExecutionCondition::owned_value(descriptor.clone(), data),
                     Context::Loan => descriptor.clone().borrowed().with_referent(
-                        ExecutionCondition::current_value(descriptor.clone(), data),
+                        ExecutionCondition::owned_value(descriptor.clone(), data),
                     ),
                     Context::Reference => descriptor.with_referent(data),
                 }

@@ -44,6 +44,11 @@ Maintainability, compile cost, generated execution, product size and retained re
 
 ## Refactor plan
 
+Progress: step 1 is implemented and undergoing whole-protocol self-review. Its explicit observation variant has owner,
+contents and owned/reference/scalar role fields. Old observation variants and nested reference-data role tags are gone.
+No build or behavioral test has run on the refactor. Temporary production trace branches have been removed.
+Step 2, execution-owned arenas, is next. Steps 3 through 7 remain pending. Keep checkpoints pushed during implementation.
+
 ### Keep, adjust, replace and remove
 
 | Area and files | Decision | Result |
@@ -335,9 +340,10 @@ without implementing those separate outcomes here.
 
 ## Current verification boundary
 
-Implementation and end-to-end verification remain in progress. Do not request final review yet.
+The following results describe the pre-refactor implementation checkpoint `7c7a70b`, not the new migration.
+No refactor validation has run yet. Do not request final review.
 
-The checker separates a retained value's identity from its current data. A reference value still owns its access
+That checkpoint's checker separates a retained value's identity from its current data. A reference value still owns its access
 capability. Its reached data is `Borrowed` within `CurrentValue`, so it does not own the target storage. Entry inputs
 retain their original identities. Checked type and borrowed-input metadata determine reference role during contents
 refresh, without changing entry values. `StorageValue` remains a non-owning scalar physical observation, while
@@ -363,10 +369,10 @@ but full Source acceptance still fails. Do not request final review.
 
 | Check | Result and limit |
 | --- | --- |
-| Checker library units | Current batch: 415 passed |
-| Runtime Source bodies and certificates | Current batch: 3,160 checks, 22 failures. Earlier canonical-loan sweep: 15 failures. Entry-seeding experiment: 106 failures |
-| Representative Source controls | All 16 behave as expected on the current batch, including genuine/fabricated owners, nested unions, captures, promises, raw transfers and exposed mutable markers |
-| Required style and formatting | Current mutating style workflow passed |
+| Checker library units | Pre-refactor checkpoint: 415 passed |
+| Runtime Source bodies and certificates | Pre-refactor checkpoint: 3,160 checks, 22 failures. Earlier canonical-loan sweep: 15 failures. Entry-seeding experiment: 106 failures |
+| Representative Source controls | All 16 behave as expected on the pre-refactor checkpoint, including genuine/fabricated owners, nested unions, captures, promises, raw transfers and exposed mutable markers |
+| Required style and formatting | Pre-refactor mutating style workflow passed |
 | Native/imported acceptance and comparative costs | Unrun |
 
 Previously failing destructor terminal-effect checks pass. Composition, direct invocation, event registration,

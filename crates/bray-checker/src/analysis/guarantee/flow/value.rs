@@ -22,7 +22,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if reference || matches!(owner, ExecutionCondition::Borrowed(_)) {
             owner.with_referent(contents)
-        } else { ExecutionCondition::current_value(owner, contents) }
+        } else { ExecutionCondition::owned_value(owner, contents) }
     }
 
     pub(in crate::analysis) fn value(

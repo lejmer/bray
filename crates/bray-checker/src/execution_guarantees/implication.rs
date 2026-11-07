@@ -415,13 +415,10 @@ pub fn map_execution_condition_references<E>(
         ExecutionCondition::Projection(field, value) => {
             map_execution_condition_references(value, map, input, literal, call)?.component(*field)
         }
-        ExecutionCondition::CurrentValue(owner, value) => ExecutionCondition::current_value(
+        ExecutionCondition::Observation { owner, contents, kind } => ExecutionCondition::observation(
             map_execution_condition_references(owner, map, input, literal, call)?,
-            map_execution_condition_references(value, map, input, literal, call)?,
-        ),
-        ExecutionCondition::StorageValue(owner, value) => ExecutionCondition::storage_value(
-            map_execution_condition_references(owner, map, input, literal, call)?,
-            map_execution_condition_references(value, map, input, literal, call)?,
+            map_execution_condition_references(contents, map, input, literal, call)?,
+            *kind,
         ),
         ExecutionCondition::Constructed(base, fields) => ExecutionCondition::constructed(map_execution_condition_references(
                 base, map, input, literal, call,
