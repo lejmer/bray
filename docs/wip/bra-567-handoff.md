@@ -209,405 +209,137 @@ preserves the migration before validation, and is not a passing implementation c
 finite-incarnation guard retirement and removed unused map adapters. Mandatory style, formatting and behavioral checks
 cover that final state. Mutating style and explicit formatting passed. The affected unit suites and complete runtime Source checking are building or queued. Do not claim end-to-end acceptance until native/imported execution and costs are established.
 
-## Refactor plan
+## Reconstruction audit and replacement plan
 
-The initial observation and arena migration is implemented. Its latest evidence is recorded above. The architectural
-completion checklist governs remaining work. The original component migration below records what remains useful and
-the full acceptance scope. Where its representation details differ, the explicit consuming transitions above supersede
-the intermediate design.
+The current task includes tracing all ownership reconstruction, including paths that pass. No further behavioral
+runs are authorized by habit or a local edit. Finish the architecture below as a coherent batch before validation.
+The scope is the representation of values, owners, physical targets and evidence through checking, runtime
+boundaries, lowering and imported contracts. Source-text reconstruction and rebuilding a product after its inputs
+change are different operations and do not recover an ownership object.
 
-### Keep, adjust, replace and remove
+The trace follows producers and consumers, including construction factories and missing-value fallbacks that do not
+use the word reconstruction. The local search indexes are diagnostic aids, not a replacement for this assessment.
+The governing rule is to retain an actual symbolic value once produced. Reads select it or project it. A missing
+record cannot silently recreate the object's original identity, shape, lineage or authority from syntax or a marker.
 
-| Area and files | Decision | Result |
+### Inventory
+
+| Mechanism and owning code | Actual authority | Decision and reason |
 | --- | --- | --- |
-| `bray-lowering/src/host.rs`, generated frame cleanup and `activation/run/*` | Keep | Compiler-owned lexical broadcast/resolution precede terminal publication, with direct await inside one run |
-| `host/product/{state,progress,cleanup,operations}.bray`, provider and attachment domains | Keep and adjust integration | One resident teardown state, fixed teardown set, dependency order, callouts outside host locks and incident drain |
-| `execution/{data,context,owner,binding,lifetime}.bray` | Keep distinct execution owners, pins and validated binding | Root outcome and product cleanup retain actual services and genuine execution authority |
-| `worker/context*`, `task/runtime_retirement.bray`, observer scratch output, per-provider operations | Keep complete publication/disposal units | Preserve worker rollback, task pin lifetime, report ownership and absent-service selection |
-| `host/owner.bray` task fields and their cleanup | Move to execution-domain storage | Common host no longer owns concrete task storage or its lifecycle dependencies |
-| Resident external-event name directory | Keep | Unattached native notification can route process-wide names without adding another registry |
-| `task/{native,reference,retirement,runtime_retirement,waiting/*}.bray`, `event/{directory,registration}.bray` | Adjust all directory access together | Each operation reaches the arena through a retained execution domain, rather than an ambient host acquisition |
-| `execution/{start,ownership,task_entry}.bray` | Replace staged loose startup values with a prepared-start owner | Reserved admission, slot, registration, binding and cleanup backing commit together; one rollback protocol |
-| `task/{data,control,ownership,frame_retirement,execution}.bray` | Adjust tagged state | Terminal phase owns its actual outcome; retirement has one tagged status; genuine dispatch and source-claim state remain distinct |
-| `execution_guarantees/condition/*`, `snapshot.rs`, guarantee flow/completion/ownership | Replace implicit observation-role encoding | One explicit observation record separates identity, contents and owned/reference/scalar role |
-| Existing storage targets, regions, borrow capabilities, witnesses, deferred entries and checked dependency contracts | Keep and align consumers | Reuse established semantic owners and one operation transition; no second witness/alias store |
-| Typed transfer footprint, physical variant paths, captured input identities, provenance audits and native fixtures | Keep | Preserve justified fixes and accepted/rejected semantic distinctions |
-| Temporary trace branches and diagnostic runner | Remove traces before implementation; remove local runner before finalization | No diagnostic mechanism becomes production architecture |
-
-### 1. Explicit compiler observations
-
-Introduce a small immutable observation record in `execution_guarantees/condition/` with separate identity, current
-contents and role fields. The closed role is owned value, reference observation or scalar storage observation.
-Replace `CurrentValue` and `StorageValue` encodings with one observation variant. `Borrowed` continues to denote a live
-predicate/access view; it must not double as a hidden role tag inside another observation's contents. A reference's
-value identity and access capability remain retained independently of its non-owning reached data.
-
-Update construction, projection, predicate normalization, const evaluation, substitution, equality rewriting,
-observation indexing, ownership traversal, retirement, joins and portable-term rejection together. Reuse existing
-`ExecutionState.current`, witness carriers and physical storage targets. Do not add a parallel context store or infer
-freshness. Keep immutable copied/captured entry values separate from current storage versions. Keep existing correlated
-nested-case ownership and finite block/place join identities. Extend the existing observation/join regression matrix
-only where needed to protect these semantic distinctions.
-
-### 2. Move task arenas behind the execution owner
-
-Move `HostOwner.tasks` into an explicitly owned task arena retained by the execution domain. Reuse `task.Entries`,
-geometric slab growth, generational handles and cell locks. The low-level native task-control protocol also forms cells
-without an executor, so the arena has its own backing owner and lifetime. Each admitted slot retains the arena until
-its final storage reference ends. The domain retains an arena owner and supplies its separate execution pin before
-publishing an executable task. The existing resident `HostLease` remains the synchronization boundary for arena/list
-mutation. `ArenaAnchor` borrows the actual arena reference and resident lease and provides scoped access to entries. This preserves synchronization without another lock allocation or acquisition. Common host
-shutdown no longer references concrete task storage or its lifecycle.
-
-Keep the resident external-event name directory. `EventSignal` explicitly supports notification without a native-thread
-attachment, and event waits can retain tasks from different execution domains. Moving that directory into a domain and
-resolving an ambient execution would break its contract. The retained directory contains event-name/reference records,
-not an executor owner. Do not introduce another global execution registry.
-
-Replace task-handle queue links with a small copyable `WaitLink` containing an observational stable-slot address word. `WaitRegistration`,
-`Delivery` and event/task queue heads retain the existing complete list ownership protocols. A link is observational
-and grants no storage authority. Scoped link access is introduced from an actual retained task, owned registration or
-owned detached delivery together with the resident lease. All slot recycling and final arena extraction use that same
-lease, preserving backing through the access interval. This supports cross-domain event delivery without global task
-lookup, extra node allocation or another storage reference per traversal.
-
-Rewrite wait admission to duplicate the actual retained child/parent references instead of reducing them to numerical
-coordinates and looking them up again. `duplicate_reference` counts the existing live cell under its cell lock and
-copies its actual coordinates/pointer. Delete superseded forwarding/coordinate helpers. Rewrite wait publication,
-unlink, delivery and event registration as one intrusive-list protocol using the existing preadmitted membership slot.
-Callbacks and registration disposal remain outside the resident acquisition.
-
-Source task admission/retention helpers receive the arena reference explicitly. Native `TaskControlCreation` writes an
-owned arena reference and returns its observational runtime identity. `TaskControlAdmission` and `TaskControlRetention`
-borrow that actual arena through a raw input slot, and a consuming `TaskControlArenaRelease` ends the caller's arena
-reference. Update catalog signatures, Source entry contracts and all native fixtures together. This replaces numerical
-runtime-only lookup without a global registry or ambient execution assumption. Existing task reference C layout remains
-unchanged. Reference-based operations use their actual cell. Domain retirement walks its arena. Source execution pins
-and native context installation remain attached before an executable task is published.
-
-Last storage release produces one retirement packet. Under the resident acquisition, move the complete final slot
-into owned retirement storage and initialize its vacant row. Materialize the actual control, execution pin and arena
-reference, then recycle the row through that arena and release synchronization. Dispose cell, metadata and reports before releasing execution and final arena retention. Runtime retirement reuses that same operation.
-This preserves the useful existing complete retirement unit while moving its storage dependency to the right owner.
-
-Create the arena during domain formation and retain its actual owner in the domain. On domain destruction release that
-owner after all domain work resolves. The final arena reference extracts entries under the resident lease, destroys
-backing outside synchronization and finally releases its allocation. This also supports retained low-level native cells
-without a live executor.
-Delete task swapping/destruction from `shutdown_host`. Keep private ABI names/signatures where their role contracts
-suffice, changing owning declarations, metadata and callers together if a concrete boundary requires more information.
-
-### 3. Complete admission and tagged task state
-
-Keep the existing admitted/active/executing/terminal/resolved distinction where it represents real run state. Attach the
-owned `ReportOutcome` to the terminal alternative instead of maintaining an always-present empty outcome sentinel.
-Replace the `retiring`/`retired` pair with one retirement enum. Keep dispatch reservation and the sole source-resolution
-claim independent because they have different lifetimes. Preserve the C inspection snapshot through explicit projection
-from the new state, without exporting its internal representation.
-
-Add `PreparedStart` beside execution startup. It owns the admitted task reservation, scheduler registration, selected
-lane/initial requirements, actual execution binding and secured rollback resources until activation publication.
-Preparation reserves admission under the domain's closure protocol and completes fallible provider/native installation.
-Enter consumes the prepared owner into one scoped capability. Commit borrows that capability and begins the actual inactive frame, installs complete cell state and publishes ready
-work. Scope exit withdraws an uncommitted exact registration and resolves the service acquisition once. It runs for every
-body exit, including panic. Preparation forms the owner before fallible registration or worker demand. Final destruction
-follows that graceful scope exit. Retire task/context/report ownership through their existing actual owners. Existing frame
-ownership remains with the actual native input until activation accepts it. Root and ordinary task-start entries use
-this same protocol. Preserve existing handle-based native source claims with validated introduction contracts.
-
-### 4. Entry, outcome and host lifecycle integration
-
-Separate source resolution claims from observational arena coordinates. Keep each cell's generation/index handle for
-scheduler lookup and native storage inspection, always paired with its actual arena owner. A protected source task/root
-handle is an opaque claim to the stable cell, introduced by the actual resolution owner. Its existing private word ABI
-can encode the stable cell address because the claim's storage reference and arena retention prevent recycling. Add the
-cell's immutable local index so a valid claim can reconstruct its inspected coordinate. Never use the claim address as
-permission without its complete input contract. This removes ambient-domain lookup and cross-arena coordinate ambiguity
-without a global registry or per-claim allocation.
-
-Update root/task allocation, frame start, resolution, cancellation, observation and wake entries, native task-reference
-handle projection, generated host assumptions and C fixtures together. Scheduler keys remain coordinates. Source claim
-operations use the actual cell's retained execution binding; the current entry supplies physical execution authority and
-restoration rather than selecting which task a numeric coordinate refers to. Borrowed wake access and the sole source
-resolution right remain separate contracts.
-
-Use the `Current` already owned by `EntryScope` throughout root start, observation and completion. Short helpers borrow
-that view and its domain; they do not reacquire counted views. Keep the complete displaced execution owner and its counted view in the scope
-until restoration. When a nested root installs a new context, retain its distinct operation view in the scope and drop
-that view before retiring the nested context. Do not select the displaced parent view as the nested execution view. Keep native-provider and exact-thread attachment ownership through callback and incident disposal.
-Change root APIs, resolution, driver suspension/resumption and worker-context call sites together where needed.
-
-Retain the established host product cleanup engine. Verify the generated host order against frame completion,
-outcome ownership, entry closure, domain cleanup and final service release. Make progress operations take an owned
-reservation before leaving synchronization, and consume its outcome before committing progress. Keep blocked explicit
-shutdown unresolved. Keep provider retention attached to callbacks/reports rather than relying on a running task flag.
-BRA-507 retains the same admitted binding for suspending fallback and BRA-559 retains test-host policy.
-
-### 5. Align the shared semantic transition and portable contract
-
-Use the existing storage-flow operation collector and completion records as the one producer of physical effects and
-reference/lifetime relationships. Preserve effect target, access type and scope through the shared survival query.
-Pass its resolved observations to guarantee invalidation, borrowing and cleanup. Remove any superseded interpretation
-introduced during observation migration. Preserve complete-carrier evidence through actual moves and retire it through
-raw transfers that reach the matching owner. Storage retention does not prove an active conditional clause.
-
-Export the same ownership transfers, reference regions, retained dependencies, normal guarantees and abnormal incident
-dependencies used by Source consumers. Keep physical reference targets distinct from lifetime anchors. Unknown results
-remain conservative without fabricating independence from absent inputs. Reuse checked contracts, existing imported
-interface schemas and role validation. Extend persisted representation only for a concrete required semantic field,
-with owning serialization/validation consumers changed together.
-
-### 6. Remove superseded mechanisms and assess cost
-
-Remove the old observation variants/role normalization, common-host task arena lifecycle, loose startup rollback paths,
-empty terminal outcome storage, duplicate retirement flags and temporary diagnostics. Keep existing Source provider
-bindings rather than introducing a host-wide dispatch table. Keep common orchestration concrete and specialize only
-provider adapters. Check sync/minimal-async dependency selection from actual retained units. Measure production and test
-code separately against the recorded baseline, with movement and formatting excluded from simplification claims.
-
-### 7. Validate the completed migration and finish this PR
-
-No build/test run occurs for each edit or in response to each failing expression. Finish the related ownership and
-semantic migrations and self-review this checklist before mandatory `cargo xtask style` and `cargo xtask format`.
-Use the existing workspace production feature graph and target. Run checker/affected lowering-interface checks, all
-runtime Source bodies and certificates, and representative positive/negative capture, witness, union and raw-transfer
-controls as a completed batch. A failure is assessed against this model and its operation class before choosing edits.
-
-Then run the established runtime-artifact smoke workflow for Source/imported/native startup rollback, blocked-root
-progress, genuine Main identity, compatible children, direct await, success/panic/cancellation, nested entry restoration,
-cleanup-before-publication, retained cleanup access, reports and dependency-ordered shutdown. Audit authenticated native
-units/archive members and link maps. Measure direct, synchronous and minimal async build/startup/size/retained-resource
-costs using normal products and separate instrumentation. No new test runner is committed.
-
-Push coherent checkpoints throughout. After implementation and required verification are complete, use the required final
-reviewer on PR #710, address real findings as batches, then mark the PR ready and Linear In Review. Never mark Done.
-The branch is one PR throughout the migration. No follow-up issue or permission checkpoint is needed for this plan.
-
-### Architecture proposal under assessment
-
-Use ordinary Bray owners for distinct responsibilities: the host root resolution claim, stable task/frame storage,
-retained domain access, exact-thread entry restoration, admitted startup resources, outcome/report custody and product
-teardown. Short operations borrow those owners. A retained storage lease does not acquire a task's sole resolution claim.
-Types represent distinct ownership or lifetime invariants. Enums represent mutually exclusive phases. Traits represent
-selected behavior, while validated runtime roles establish execution authority.
-
-Task admission is preparation followed by publication. Preparation owns the frame, a reserved admission entitlement,
-stable task storage, binding and actual cleanup backing. Native installation and other fallible work occur before
-publication. The admission entitlement accounts for races with entry closure. Commit transfers the complete prepared
-ownership; rollback uses the same owned fields and initialization state.
-
-The task arena stores ordinary task cells, including the host-owned root. Generated frames retain their own body,
-direct-await and cleanup state. Scheduling state does not duplicate the frame's lifecycle state. Only a completed
-generated frame can publish terminal storage, which is taken once by the root observer. The retained host execution
-binding survives observation and payload disposal without resuming a terminal root or inventing Blocking authority.
-
-The common resident host owns one teardown state, the cleanup domain graph, attachment state and report sink.
-It has no concrete executor field or static reference to async implementation units. An async product separately forms
-an execution owner and retains it through payload/static cleanup. Admitted continued cleanup can retain its selected
-execution binding through the existing host state. Graph edges
-record source owners and provider dependencies. External-root status is relative to the fixed teardown set. Internal
-consumer edges order cleanup rather than block it. Extract owned cleanup work before releasing host locks and invoking
-callbacks. Drain incidents while their providers remain retained. Exact-thread cleanup uses the existing attachment
-owner and selected execution binding. BRA-507 integrates suspending fallback with this same state, while BRA-559 owns
-test-host policy.
-
-Keep common orchestration concrete. Use statically selected provider behavior and small per-owner bindings where an ABI
-requires erasure. Separate worker and deadline capabilities so absent demand introduces no concrete provider references.
-Generated frame descriptors remain protected compiler metadata, not an ordinary source-implementable Future trait.
-Ordinary Source callbacks preserve checked incident dependencies. Native bindings use owned values or raw pointers,
-anchor borrows within their entry and consume boundary incidents before returning.
-
-The proposed compiler model uses explicit data terms, storage places/versions, whole-value carriers, loan capabilities,
-physical target regions and dependency-bearing facts. These are semantic responsibilities, not a commitment to new
-stores or a compiler-wide rewrite. A checked operation has one ownership/storage transition consumed by facts, borrowing
-and cleanup. Call summaries carry entry requirements, effects, ownership/reference transfers, normal guarantees and
-abnormal incident dependencies. Deferred frames retain relevant entry data and dependencies rather than mutable caller
-state. Joins retain correlated case/carrier alternatives, with canonical block summaries rather than execution history.
-
-The proposed ownership records have these concrete responsibilities. Names and layouts remain provisional.
-
-| Record | Owned fields or retained dependencies | Exclusive responsibility |
-| --- | --- | --- |
-| Common host record | Attachment registry, report sink, teardown state, admitted cleanup binding and provider retention | Product infrastructure and the shared teardown state |
-| Async execution owner | Execution domain, validated Main binding and host root resolution claim | Retain demanded execution services through root observation and selected product cleanup |
-| Root/task owner | Domain retention, generation-checked task key and introduced resolution authority | Take and resolve one terminal outcome |
-| Task storage lease | Domain retention and task key, without resolution authority | Keep cell/backing available to observers or registrations |
-| Prepared start | Admission entitlement, reserved slot, inactive frame, binding and physical cleanup backing | Commit complete publication or resolve rollback |
-| Task cell | Scheduling state, cancellation request, stable frame, wait linkage and terminal storage | Execute one run and publish its terminal record once |
-| Entry scope | Exact attachment, prior binding, installed binding and admission permit | Restore the displaced execution context on every exit |
-| Outcome owner | Payload/report, incidents, backing still in use and execution/provider dependencies | Dispose or transfer the complete observed result |
-| Teardown state | Fixed domain set, phase, graph progress and in-progress cleanup reservations | Advance one shared product cleanup operation |
-
-A type name, task key or matching fields cannot introduce any of these authorities. Introduction and movement follow
-checked complete-carrier contracts. Only explicit retention creates another storage lease; it never duplicates the
-resolution claim. Runtime phases use tagged state rather than unrelated flags. Scheduling may continue while generated
-cleanup suspends, so scheduling and frame lifecycle state are separate responsibilities.
-
-| Operation | Required semantic transition |
-| --- | --- |
-| Prepare | Reserve admission and backing while retaining the actual inactive frame |
-| Commit | Publish the fully installed frame and transfer the sole resolution claim |
-| Roll back | Resolve initialized resources and frame ownership exactly once |
-| Resume | Run under the validated binding, preserving the frame through suspension |
-| Publish terminal | Commit outcome after generated lexical cleanup, with completion visibility |
-| Observe | Acquire completion visibility, take the outcome once and prevent further resume |
-| Dispose outcome | Preserve execution/providers and release backing only after its last user |
-| Begin teardown | Fix the teardown set, close new admission and retain existing cleanup authority |
-| Blocked attempt | Return control with the unresolved owner and secured resident backing |
-| Clean domain | Own its reservation, run callbacks without host locks, drain incidents and release consumer edges |
-| Finish teardown | Release infrastructure only after all work that can use it has completed |
-
-For compiler semantics, a storage place identifies a location, a data term identifies an immutable observation, a
-carrier identifies a complete witness introduction, and a loan identifies access permission plus its dependencies.
-A reference's physical target set and its authority/lifetime roots are separate fields. Facts record the observations
-and complete carriers they require. One operation transition updates occupancy, versions, capabilities, carriers and
-obligations consistently. Raw publication affects reachability; raw transfer also applies its typed ownership effect.
-Unknown reachability is conservative and does not invent either freshness or authority.
-
-A scalar copy retains data without coupling it to later source writes. A legal witness move retains its carrier and
-revokes its old owner path. Borrowing retains access without transferring target ownership. Deferred captures retain
-copied data, moved carriers or loan dependencies according to their actual capture mode. Joins keep possible dependencies
-and correlated guarded ownership alternatives, and require valid evidence on every relevant path. A finite block/place
-summary bounds loop state. Proof-budget exhaustion can lose a proof but cannot drop an obligation or dependency.
-
-Small compile-time provider traits express replaceable behavior. Closed semantic alternatives and concurrent runtime
-phases use enums. Authority is supplied only by validated roles or established live contracts. Common orchestration
-remains concrete; specialize provider adapters and erase only at actual ABI boundaries. Borrowed local views incur no
-retention operation. Frame and control storage can be co-allocated. Common synchronous host ownership contains no optional concrete
-executor whose lifecycle would statically retain async units. Facts, paths and summaries use shared immutable
-representations, cached per-type classification and dependency-directed invalidation rather than repeated whole-state
-traversal. Broad effects still require conservative broad handling.
-
-Assess this proposal through complete success, panic, cancellation, startup failure, nested entry/restoration, blocked
-shutdown and imported-consumer scenarios before selecting concrete layouts or changing code. The ownership/transition tables above are the starting engineering artifact. Complete the requirement-to-component
-mapping and assess unresolved synchronization, admission and cleanup contracts before choosing representations. Compare the existing implementation
-against that model only after it is coherent. Identify mechanisms to remove and justify every additional concept.
-
-This document is the single current handoff. Update it in place. Keep current verified evidence, architectural decisions,
-open design questions and the next engineering action. Do not promote an experiment into a design commitment merely
-because it improves a test. Do not accumulate parallel progress records.
-
-## Mandatory working instructions
-
-1. Read `AGENTS.md` and the current repository-local `work-on-bray-issues` skill before working.
-   Read the coding conventions and crate responsibilities before code changes.
-2. Use `use-bray-language` before designing Bray behavior or writing Bray code. Read the actual relevant language
-   specification before relying on an assumption or running tests. Select work from this architecture and protocol plan.
-   Existing fixtures and compiler behavior do not override the specification.
-3. Investigate the mechanism end to end: creation, forwarding, mutation, capture, branch and loop merging,
-   cleanup, and final consumption. Explain both accepted and rejected programs through the same rules.
-   Do not investigate and repair one evidence boundary at a time.
-4. Keep facts with the existing owner or context whose identity and lifetime justify them. Pass or borrow that context
-   through ordinary forwarding. Introduce a separate type only for a distinct owner, lifetime or invariant.
-   Actual ownership changes must transfer or retire evidence.
-5. Preserve the distinctions between call-entry facts and current facts, and between ownership and permission to access
-   storage. Distinguish immutable copied values, current storage contents, retained loans and their current referents.
-6. Evaluate the whole mechanism, including what can be deleted. Reusing a type does not help if different consumers
-   interpret it inconsistently. Remove superseded machinery rather than adding compatibility layers.
-7. Consider compilation of large programs. Extend existing traversals and reuse established contexts and cached
-   classifications. Any additional traversal, repeated reachability calculation or cloning needs a concrete justification.
-   Loop analysis must converge without accumulating unbounded histories.
-8. Finish related changes as one coherent batch before rebuilding or testing. Validate assumptions against the spec first.
-   A narrowly focused diagnostic run is justified only when it resolves a specific design uncertainty.
-   Do not use build/test iterations to discover the design one local patch at a time.
-9. Exclude `bray-compilation` test binaries from probes unless code in that crate changes. Its ordinary production library
-   may be an unavoidable transitive dependency. Reuse matching artifacts and one Cargo target directory.
-10. At batch finalization, run the mandatory mutating `cargo xtask style` after Rust changes and `cargo xtask format`
-    for applicable Bray changes. Do not substitute `cargo fmt --all` for repository style tooling.
-    Documentation-only work does not require builds or tests. Run native toolchain workflows outside the Codex sandbox.
-11. Keep the draft PR available for user inspection. **Do not request independent review until implementation and required
-    verification are complete and you believe the issue is done.** Review is a final check for missed problems.
-    Do not repeat the previous practice of reviewing intermediate fixes while Source acceptance still fails.
-    Existing review conclusions are not proof that the current implementation is complete.
-12. Commit and push coherent checkpoints regularly. Do not leave useful implementation or essential handoff evidence
-    solely in ignored files on a temporary VM. Do not commit build products or huge trace archives.
-13. Keep necessary fixes within the active PR. Follow-up issues are exceptional and require independent material work.
-    Do not launch implementation agents. Follow the current skill for a final reviewer, reusing the existing reviewer
-    if available. A reviewer from another thread might not be available.
-14. After implementation, verification and final review, mark the PR ready and Linear In Review. Never mark Linear Done.
-
-The user permits deleting task-owned build output inside `target/` on the isolated VM. This overrides the skill's
-raw-deletion restriction for that task-owned output. Keep useful current caches rather than triggering avoidable rebuilds.
-
-PRs use a lowercase Conventional Commits title without a parenthesized scope. Include Problem, Change Summary,
-Related Issues with ID-only link text, and LLM Contributions. Use imperative summary bullets. Omit test steps unless
-asked. Issues, PRs and ordinary documentation must stand alone and avoid temporary filesystem or conversation context.
-Attribute agent PR comments according to the current workflow skill and verified authenticated account.
-Bray declarations are public by default. Do not add a `public` modifier. In long C lists, put each parameter or condition
-on its own line, leave the opening line empty, and put the closing bracket on its own line.
-
-## Runtime implementation to preserve
-
-The Source `Domain` owns configuration, queues, tasks, counts, pins, completion, services, failures and reports.
-`Host.ExecutionOwner` carries the actual context, `Current` is a counted view, and `EntryScope` retains the displaced
-host context. A task slot's execution owner stays fixed until recycling. Claim ownership before native factory execution,
-and dispose the outcome before physical completion.
-
-The change replaces Rust root, Main and shutdown policy. Retained runtime ownership uses the existing Source owner.
-Worker and deadline services retain independent domain references. Do not add another shutdown engine, an all-runtime
-function table, fabricated lane authority or a C borrow ABI. No language change is authorized.
-
-[BRA-507](https://linear.app/bray-lang/issue/BRA-507) owns suspending host/static fallback integration.
-[BRA-559](https://linear.app/bray-lang/issue/BRA-559) owns test-host policy. Preserve their existing integration contracts
-without implementing those separate outcomes here.
-
-## Current verification boundary
-
-Checkpoint `41cf664` passed mandatory mutating `cargo xtask style` and explicit `cargo xtask format`.
-`cargo run --release --bin bra567 -- runtime` completed with 3,254 checks and 69 failing bodies/certificates.
-`cargo test --release -p bray-checker -p bray-lowering -p bray-runtime-interface -p bray-runtime-abi --lib`
-passed 415 checker units and 37 lowering units, then failed the async host's obsolete fixed-position assertion.
-Later crates were not run in that first command. The follow-on complete unit command added `--no-fail-fast` and passed
-415 checker, 38 lowering, 35 runtime-interface and 29 ABI tests. Follow-on style and explicit formatting passed.
-The follow-on full runtime Source run completed with 3,256 checks and 61 failures across 19 bodies. All native/imported acceptance and cost measurements remain
-pending. Do not start final review before required verification is complete.
-
-Pre-refactor checkpoint `7c7a70ba7c0ff5d153c554bfc49bd926efc5d665` passed 415 checker units and all 16
-representative Source controls. Full runtime Source checking had 3,160 checks and 22 failures. That evidence establishes
-neither current refactor correctness nor end-to-end acceptance. Native/imported acceptance and comparative costs are
-unrun. Preserve the positive/negative controls for real/fabricated owners, correlated union carriers, immutable captures,
-conditional promises, scalar/pointer raw transfers and mutable exposed markers.
-
-The explicit observation model reuses the existing physical storage-flow transitions, checked owned-result transfers,
-reference regions, typed effect scope, active/stored loan survival and portable dependency contracts. Internal observation
-snapshots are not persisted. No new interface field, witness store, alias store or freshness rule is introduced.
-Compiler/lowering/interface checks and Source/imported runtime builds must verify this agreement.
-
-The current whole-protocol self-review separates mutable intrusive membership from retained wait resources. An actual
-`WaitResources` carrier owns endpoints/callbacks. Link address words grant no physical access. Their scoped producers
-reconstruct a pointer only with the actual retained collection or detached chain and current lease. Neighbor access also requires a current membership witness under the
-actual host lease. Popped and withdrawn registrations have cleared links. `Delivery` owns its remaining detached chain.
-Each slot retains its own arena. Final cell retirement moves the complete slot into one owned packet before recycling,
-then disposes metadata/reports/control before execution and arena release outside synchronization. The domain's arena
-retention supplies its resident host lifetime transitively, avoiding a duplicate host-domain count.
-
-Root startup and completion use the same prepared-start and entry-scope protocols as ordinary tasks. A prepared start
-retains actual execution admission through commit or rollback. The entry scope keeps a displaced parent view for
-restoration and, only when a nested root installs another context, a distinct operation view. It releases that operation
-view before retiring its context. Product detachment transfers the actual execution owner into pending progress before
-calling providers, then returns it under the host lease. These are inspection conclusions awaiting execution evidence.
-
-Temporary production traces are removed. The untracked local runner under `xtask/src/bin/` uses the workspace production
-feature graph and existing target, and is excluded from checkpoints. Remove it before finalization. Optional resource
-instrumentation runs separately from normal product builds. Existing runtime-artifact smoke and provenance audit tooling
-must produce Source/imported/native, minimal-demand and build/startup/size receipts.
-
-Connected GitHub account `lejmer` has admin/push access to the public `lejmer/bray` repository. Shell GitHub
-authentication is invalid. Use connected Git object APIs for checkpoints on existing PR #710. Parent #709 remains
-open at the unchanged stack base. Push coherent checkpoints regularly, as requested by the user.
-
-## Final acceptance
-
-Complete Source, imported and relevant native coverage for startup rollback, blocked-root progress, genuine Main
-identity, compatible children, direct await without another task control block, success/panic/cancellation,
-nested foreign entry and restoration, lexical cleanup before terminal publication, retained cleanup access and
-shutdown without waiting on dependencies held by the initiating caller.
-
-Preserve complete incidents and keep services live through outcome disposal and selected static cleanup.
-Prove synchronous products retain no async executor or Rust root policy, and absent deadline/blocking demand omits
-those optional components. Use link maps and retained archive members, not only runtime laziness.
-
-Measure direct, synchronous and minimal async whole-build time, startup, executable size and retained resources.
-Separate production-code growth from tests and do not count formatting or movement as architectural simplification.
-Use existing Cargo/xtask automation, including runtime-artifact smoke coverage and the committed native fixtures.
-Do not introduce a second task runner or commit temporary diagnostic infrastructure merely to preserve a prior workflow.
+| Explicit constructors and intrinsic results in `execution_guarantees/normalize/values.rs`, `flow/inputs.rs`, `flow/numeric.rs` | Checked operation, evaluated inputs, selected conversion and intrinsic contract | Necessary first production of a symbolic value. Perform it at the defining transition and retain its result. Later reads must not run the producer again. |
+| Expression and storage reads in `flow/value.rs`, `normalize/expression.rs`, `normalize/calls.rs` and `ExecutionPlace::value_in` | Evaluated result or current storage record | Remove recovery from old syntax or `Input(place)` after execution. Distinguish declaration/contract normalization from reading an evaluated object. Retain ordinary projection of the actual object. |
+| Implicit invocation results in `storage/expression/access.rs`, `flow/operation.rs`, `flow/inputs.rs`, `flow/value.rs`, and physical reference completion | The planned invocation result slot and completed result | Unify iteration, next and scoped entry. Scoped entry discarded its completed value and reconstructed a capability identity. A partial migration now binds its actual result slot, stores completion and reads that slot. Complete this with the whole inventory. |
+| `flow/value.rs::aggregate_snapshot` | Independently retained field entries after the aggregate was forgotten | Remove. Reassembling an object on read is compensation for lost state. Partial objects must already have one retained description. |
+| Whole and targeted mutation in `flow/invalidation.rs` | Checked storage invalidation, physical survival and normal completion observations | Replace clear/reset and restore of roots, nested descriptors and fields with an update of the existing value. Unknown changed contents are necessary. Recovering supposedly surviving owners from witnesses or marker prefixes is avoidable. Preserve typed physical paths and the same survival query. |
+| Parent/component propagation in `state.rs::update_parent_observations`, `set_current`, `ExecutionValues` | The same actual aggregate and field update | Remove independently writable parent and child data copies. Centralize storage writes in one authoritative value tree. Component initialization metadata may remain separate from contents in that same domain, but must not be another data or initialization solver. |
+| Reference refresh in `flow/invalidation.rs::observe_references` and `trusted/observations.rs` | Physical target and reference layer published by `StorageCompletion` | A current view of changed reached storage is necessary. Multiple consumers rediscovering the target, referent and containing shape are avoidable. Resolve from the authoritative target once and capture an entry or completion view explicitly. The reference's own identity and lifetime remain distinct from reached contents. |
+| Returned ownership in `trusted/borrows.rs::complete_owned_result` and `construct` | Checked owned-result layout and captured actual input values | Necessary call-boundary instantiation. Share actual transferred input nodes. Consolidate projection updates with the same value operation used by storage mutation instead of maintaining a second nullable/union assembly policy. No missing-node recovery. |
+| Returned borrows in `trusted/borrows.rs::complete_returned_references` | Checked reference-preserving relations, actual input reference and actual result | Necessary boundary substitution. Preserve the same reference identity and target. Do not manufacture a reference from a lifetime anchor or an unknown pointer. Use the shared projection operation. |
+| Returned-carrier matching in `trusted/carriers.rs::returned_owners` | The actual returned value's owned nodes | Remove manufactured nullable aliases such as `owner_identity().present()` and recovery projections used to guess another representation of the same owner. Traverse canonical retained nodes and their declared projection views. |
+| Branch/result joins in `flow/merge.rs`, `flow/joins.rs`, `flow/witnesses.rs`, and `snapshot.rs::common_components` | Both actual predecessor states and proofs | Necessary abstract merge, because paths can contain different objects or different data. This creates new joint knowledge rather than recovering a discarded object. Join authoritative nodes once, retain every possible dependency and only proved guarded clauses. Publish the joined record once. |
+| Deferred captures in `flow/deferred.rs`, `snapshot.rs::owned_snapshot`, and `deferred.rs` | Actual captured entry values and actual future owner | Necessary immutable capture and incarnation binding. The frame must survive later changes to its producer's local slots. Share immutable contents and rebind ownership deliberately at capture. Do not rerun initializer syntax or recover an entry after its capture was discarded. |
+| Cleanup entry and completion in `cleanup/transition.rs` and `trusted/completion.rs::complete_trusted_cleanup` | The selected initialized receiver, its actual value and lifecycle contract | Necessary capture and formal-argument rebasing. Stop assembling a receiver independently from a whole value plus unrelated field entries. Use the same invocation snapshot and completion protocol as other calls. |
+| Scope expiry in `trusted/completion.rs::expire_trusted_scope` | Actual terminal input values, surviving borrows and ended storage | Remove save/clear/restore of input observations. Retain the terminal description where postconditions need it, mark its storage unavailable and retire access authority once. A snapshot needed after storage retirement does not resurrect storage. |
+| Repeated evaluation and invalidation in `state.rs::retire_evaluation`, `retirement.rs`, and deferred selection retirement | The checked new incarnation and actual retained frame/value nodes | Necessary expiration of old observations. Use the same structural update mechanism and existing finite identities. Keep immutable captures distinct from mutable current observations. Never recover a retired incarnation on read. |
+| Ownership and dependency summary inference in `ownership.rs`, `trusted/owned.rs`, `dependency/projection.rs`, `dependency/result/state.rs`, and storage reference ownership | Actual checked transfers, selected source operations and input/output paths | Necessary summary production and projection. These describe interprocedural transport. They are not permission to regenerate a lost caller object. Reuse the summary rather than independently guessing ownership in consumers. |
+| Physical regions in `storage_flow/memory/references/transition.rs::owned_references`, `owned_region`, and reference slots | Existing declared input region or actual physical producer/transfer | Mixed. An abstract declared entry region is necessary. Materializing it as a fallback during a later read can confuse initial formation with lost state. Bind region identity at its owning boundary and make subsequent reads use that record. Preserve conservative aliasing and the distinction between ownership and freshness. |
+| Formal terms, predicate normalization, equality substitution and portable contracts in `execution_guarantees/normalize/clauses.rs`, `condition/substitution.rs`, `portable.rs` and package interface decoding | Validated declarations/contracts and explicit actual arguments or results | Necessary translation or substitution across a real boundary. Keep one projection and representation policy. Never encode local incarnation/availability state as portable authority. |
+| Native callbacks, entry storage, task references and arena views in the runtime | Actual retained native/Source owner, exact ABI storage and admitted pointer | Necessary physical boundary access to the actual object. A checked raw read or borrow is not a symbolic recovery fallback. No authority from addresses, marker construction, TLS observations or reconstructed IDs. |
+| Lowering captures, generated helpers, MIR imports and specialization | Checked ownership/storage plan or authenticated portable executable metadata | Necessary lowering or decoding into the next representation. Consume established records and mappings. Do not repeat the checker's value/owner inference to fill missing metadata. |
+| Query memoization and artifact reuse | Complete inputs and validated query/artifact identity | Necessary evaluation and cache policy. This does not justify discarding part of a value and recovering it with a second semantic policy. |
+
+### Implementation order
+
+1. Finish one result-slot protocol for every implicit invocation. The existing local changes include the planner's
+   `InvocationResult(ScopedEnter)` binding, builder validation, shared physical lookup, completion storage and scoped
+   value reads. They are intentionally unvalidated. Remove the remaining bare-capability reads at scope exit.
+2. Make current data authoritative at its storage root. Retain one immutable value tree per root and component
+   availability metadata driven by checked transitions. Do not keep independently writable copies of parent and
+   child values. Reads project retained nodes. First partial initialization constructs the partial value at that
+   transition, rather than an `aggregate_snapshot` fallback later. Keep immutable entry/result/frame snapshots by
+   shared ownership, separate from the current place whose contents can change.
+3. Route assignment, checked movement, physical transfer, mutation and retirement through that representation's
+   update operation. Apply the existing physical invalidation/survival result directly to retained nodes. Preserve
+   surviving identities and replace only changed knowledge. Delete whole-map reset/restore, witness-filtered nested
+   reconstruction and the aggregate recovery helper. Do not replace them with another recovery pass.
+4. Make current reference views consume the physical target already published by storage completion. Capture actual
+   entry values once. Call completion and lifecycle completion use the same stored result and receiver protocol.
+   Retire storage/access separately from retaining a terminal value needed for postconditions.
+5. Consolidate returned-path application, nullable/union projection and updates into one operation. Keep actual
+   transferred objects and legitimate contract instantiation. Delete synthesized matching aliases and missing-value
+   fallbacks. Keep phi joins and captured-frame rebinding as explicit operations over actual input snapshots.
+6. Move abstract physical-region initialization to its genuine entry/result producer. Reads cannot create a new
+   region after losing the old record. Review pruning against retained owners and lifetime roots so it drops only
+   data that no consumer still requires. Preserve the existing raw transfer, epoch, fabricated-owner and alias rules.
+7. Trace the final mechanism through Source, imported contracts, lowering and native consumers. Finish the runtime
+   transitions under those contracts. Current known runtime corrections include extracting initialized retirement
+   fields from their actual storage and fixing a missing mutable-borrow argument. Do not make every remaining
+   diagnostic a new helper, exceptional predicate rule or trusted guarantee.
+8. Self-review the full inventory and naming before validation. Run mutating style, explicit format, affected unit
+   suites (including bound-tree after its planner binding change), all runtime Source bodies/certificates, positive
+   and negative ownership controls, then native/imported/provenance/resource acceptance and costs. Assess structural
+   improvement separately from correctness, remove diagnostic infrastructure, push and complete PR review.
+
+The replacement must remove more synchronization obligations than it adds. In particular, a new CurrentValues facade
+that still exposes independently mutable duplicated data is insufficient. Keep one physical reference/alias model,
+one witness ledger and the existing composite storage flow. No generic object graph, historical event log, new
+initialization solver, runtime-name exceptions or implicit allocation freshness is authorized.
+
+## Current validation and remaining acceptance
+
+The latest validated implementation checkpoint is `e12e722f9867f8cc959b7e6a0d56cf3f4db63e1c`.
+Mutating style and explicit format passed. Affected units passed 418 checker, 38 lowering, 35 runtime-interface and
+29 ABI tests, total 520. All 18 Source controls matched, including the corrected fabricated-owner negative and the
+ownership-transition composition. The complete runtime Source run finished 3,264 checks with 69 failures. These
+results do not establish end-to-end acceptance. Logs use the `availability-` prefix in the ignored task directory.
+The implicit invocation result-slot changes after that checkpoint have not been built or tested.
+
+The remaining failures include scoped entry/exit and prepared start, whole binding ownership transfer, current
+owner/view survival through callbacks and loops, optional result/borrow extraction, arena admission, task retirement,
+wait access and worker formation. The audit above supersedes a per-call-site repair strategy. The runtime's `Binding`
+closure, `EntryRestoration`, `PreparedStart`, wait resources/membership split and `RetiredCell` remain useful protocol
+shapes, but do not assume they establish complete contracts until the full representation migration is validated.
+
+Required end-to-end evidence remains:
+
+- Native root Main identity, direct await, independent child scheduling, startup rejection/rollback, panic and
+  cancellation, lexical cleanup before terminal observation, retained incidents and actual frame destruction.
+- Nested entry restoration on normal and abnormal exits, exact-thread/provider lifetime and one resident shutdown
+  state. A blocked shutdown returns unresolved ownership instead of waiting for a caller-held dependency.
+- Source and imported development/release products with representative ordinary, scoped and operation cleanup.
+- Provenance and link maps prove selected runtime units are Bray. Synchronous execution requires no async executor.
+  Minimal async execution omits worker/deadline startup and implementation units when not demanded.
+- Direct, hosted synchronous and minimal async whole-build time, startup time, size and retained resources, with
+  production/test code growth measured separately. Moving code and formatting do not count as simplification.
+- Remove `xtask/src/bin/bra567.rs`, retain task-owned logs and caches, push the final work, publish the final reviewer
+  artifacts on the draft PR, resolve findings, mark PR ready and move BRA-567 to In Review. Never mark Done.
+
+## Working instructions and environment
+
+Read root `AGENTS.md`, coding conventions and crates documentation. Skills already read and applied are
+`.agents/skills/work-on-bray-issues/SKILL.md`, `.agents/skills/use-bray-language/SKILL.md`, and
+`.agents/skills/debug-bray-end-to-end/SKILL.md`. Do not delegate implementation. Dispatch the required fresh PR reviewer
+only after implementation and required validation finish, with direct attributed publication on PR #710.
+
+Before every build, test or executable probe, check new names against keywords, enclosing bindings and visible
+module declarations. The preflight caught a task-module `admission` conflict, renamed to `arena_admission`.
+Earlier `pin` and nested `scope` conflicts are fixed. Rust names must also be checked for reserved and conflicting
+names. Do not use compiler errors to discover predictable naming conflicts.
+
+Use the existing workspace and Cargo/LLVM caches. Source `/workspace/.bray-tools/env.sh` for Cargo and the configured
+sysroot. Cargo storage is `target/cargo` (about 9.8 GiB), LLVM is `target/toolchains/llvm/active` (about 12 GiB), and
+produced executables are in `target/release`. Do not clean shared storage. The diagnostic runner is untracked and
+must not enter the PR. Native LLVM, archiver, linker and produced-executable workflows run outside the sandbox.
+The intended native command is `cargo xtask runtime-artifact smoke-test --output target/bra-567/native --profile release`.
+
+The shell's GitHub token is invalid. The connected GitHub Git-object API has verified the existing public
+`lejmer/bray` destination and authenticated `lejmer` account with push permission. Use create_tree with the current
+base tree, create_commit and update_ref with expected_sha and force=false. Fetch that branch without the invalid
+credential helper outside the sandbox, then `git reset --mixed` the published commit to align history while preserving
+worktree edits. Keep pushing recovery checkpoints. The latest pushed head is the validated checkpoint above, tree
+`e42969e198ce377515f3c4b28bf4d6dc4601af94`. Verify mutable remote PR/base state before final handoff. Parent PR #709
+remains open and ready, base commit `4ac3ad99259cc5bc02e968f830adaa4c521bed6a`.
+
+All validation processes for that checkpoint finished. No native/imported acceptance or final reviewer has run.
+Do not stop at this record, a push or a passing local suite. Continue the inventory's coherent replacement and finish
+BRA-567's required end-to-end outcome in the same PR.
