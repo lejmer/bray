@@ -626,87 +626,59 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         effects: &[Effect],
-        roots: impl IntoIterator<Item = Target>,
+        roots: impl IntoIterator<Item = Target> + Clone,
     ) -> StorageInvalidation {
-        if effects
-            .iter()
-            .any(Effect::may_reach_all_inputs)
-        {
+        if effects.iter().any(Effect::may_reach_all_inputs) {
             return self.opaque_observations(memory, roots);
         }
 
-        if effects.iter().any(Effect::is_ambient) {
-            // Resolve the union once. Merging an opaque observation with precise
-            // observations would discard its established preservation frame.
-            let inputs = effects
-                .iter()
-                .any(|effect| matches!(effect, Effect::Escape | Effect::Atomic));
+        let atomic = if effects.iter().any(Effect::is_atomic) {
+            let frame = self.input.footprint.atomic.as_ref()
+                .expect("atomic effects prepare their observation frame");
 
-            let escaped = effects.iter().filter_map(|effect| match effect {
-                Effect::Mutation(target, bray_symbols::DependencyMutationKind::Escape, _) => {
-                    Some(target.clone())
-                }
-                _ => None,
-            });
+            let targets = if effects.contains(&Effect::Atomic) {
+                self.opaque_observations(memory, roots.clone())
+            } else {
+                self.target_observations(memory, effects.iter()
+                    .filter_map(Effect::mutation)
+                    .filter(|(_, kind)| *kind == bray_symbols::DependencyMutationKind::Atomic)
+                    .map(|(target, _)| target))
+            };
 
-            let roots = roots
-                .into_iter()
-                .filter(|_| inputs)
-                .chain(memory.escaped_regions(escaped))
-                .chain(
-                    effects
-                        .iter()
-                        .filter_map(Effect::mutation)
-                        .map(|(target, _)| target.clone()),
-                );
+            Some(crate::storage::observation::restrict(targets, frame))
+        } else {
+            None
+        };
 
-            return self.opaque_observations(memory, roots);
-        }
-
-        let atomic = effects.iter().any(Effect::is_atomic);
-
-        let ordinary = effects
-            .iter()
-            .filter_map(Effect::mutation)
+        let ordinary = effects.iter().filter_map(Effect::mutation)
             .filter(|(_, kind)| *kind != bray_symbols::DependencyMutationKind::Atomic)
             .map(|(target, _)| target);
 
-        let mut invalidation = if atomic {
-            let frame = self
-                .input
-                .footprint
-                .atomic
-                .as_ref()
-                .expect("atomic effects prepare their observation frame");
+        let ambient = effects.iter().any(Effect::is_ambient);
 
-            if effects.contains(&Effect::Atomic) {
-                crate::storage::observation::restrict(
-                    self.opaque_observations(
-                        memory,
-                        roots
-                            .into_iter()
-                            .filter(|_| effects.contains(&Effect::Atomic)),
-                    ),
-                    frame,
-                )
-            } else {
-                let targets = self.target_observations(
-                    memory,
-                    effects
-                        .iter()
-                        .filter_map(Effect::mutation)
-                        .filter(|(_, kind)| *kind == bray_symbols::DependencyMutationKind::Atomic)
-                        .map(|(target, _)| target),
-                );
+        if !ambient && ordinary.clone().next().is_none() {
+            return atomic.unwrap_or_else(|| self.target_observations(memory, ordinary));
+        }
 
-                crate::storage::observation::restrict(targets, frame)
-            }
+        let mut invalidation = if ambient {
+            // Atomic access does not expose ordinary input storage. Keep its
+            // protected write domain separate from ambient and ordinary writes.
+            let inputs = effects.contains(&Effect::Escape);
+
+            let escaped = effects.iter().filter_map(|effect| match effect {
+                Effect::Mutation(target, bray_symbols::DependencyMutationKind::Escape, _) => Some(target.clone()),
+                _ => None,
+            });
+
+            self.opaque_observations(memory, roots.into_iter().filter(|_| inputs)
+                .chain(memory.escaped_regions(escaped))
+                .chain(ordinary.cloned()))
         } else {
-            self.target_observations(memory, ordinary.clone())
+            self.target_observations(memory, ordinary)
         };
 
-        if atomic && ordinary.clone().next().is_some() {
-            invalidation.merge(&self.target_observations(memory, ordinary));
+        if let Some(atomic) = atomic {
+            invalidation.merge(&atomic);
         }
 
         invalidation

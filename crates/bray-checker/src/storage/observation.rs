@@ -581,7 +581,10 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                             footprint.owned_observations.entry(root).or_default().push((path.clone(), *observation));
                         }
 
-                        Some(path)
+                        // Atomic operations cannot change ordinary inline values
+                        // or address descriptors. Their protected payload remains
+                        // a separate mutable observation.
+                        None
                     }
                     Observation::Mutable => Some(path),
                 }
