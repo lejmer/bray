@@ -107,7 +107,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .expect("checked deallocation retains its pointer type").ty();
 
                 let kind = bray_symbols::DependencyMutationKind::Retire;
-                let targets = self.expression_reference(state, argument).and_then(|source| source.regions(&state.memory));
+                let targets = self.memory_argument_reference(state, operation, argument).and_then(|source| source.regions(&state.memory));
 
                 return Some(match targets {
                     Some(targets) => targets.into_iter().map(|target| Effect::Mutation(target, kind, Some(ty))).collect(),
@@ -129,7 +129,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         ) {
             // Atomics update their protected word, never retire its owner or unrelated storage.
             let targets = self
-                .expression_reference(state, operation.arguments()[0])
+                .memory_argument_reference(state, operation, operation.arguments()[0])
                 .and_then(|source| source.targets(&state.memory));
 
             let Some(targets) = targets else {
@@ -165,15 +165,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let access_type = (!protected).then(|| self.execution.semantics.types()
             .expression(argument).expect("checked memory access retains its argument type").ty());
 
-        let targets = if protected && !self.expression_is_borrowed(argument) {
-            self.uninit_target(state, argument).map(|target| vec![target])
+        let targets = if protected {
+            self.memory_uninit_target(state, operation, argument).map(|target| vec![target])
         } else {
-            self.expression_reference(state, argument).and_then(|source| source.regions(&state.memory))
-                .map(|targets| if protected {
-                    targets.into_iter().map(|target| target.project(&[
-                        bray_bound_tree::StorageProjection::UninitPayload
-                    ])).collect()
-                } else { targets })
+            self.memory_argument_reference(state, operation, argument).and_then(|source| source.regions(&state.memory))
         };
 
         Some(match targets {

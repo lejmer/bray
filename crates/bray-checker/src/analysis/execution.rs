@@ -305,7 +305,7 @@ where
 
         let Some(selection) = selections
             .and_then(|selections| selections.expression(expression))
-            .filter(|selection| selection.evaluates_defaults())
+            .filter(|selection| selection.stages_inputs())
         else {
             return self.build_expressions(
                 call.arguments()

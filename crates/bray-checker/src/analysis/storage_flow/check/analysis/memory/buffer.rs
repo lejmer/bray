@@ -148,7 +148,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .get(&ty)
             .expect("checked buffer operation prepares its field identities");
 
-        Some((ty, *fields, self.expression_reference(state, argument)?))
+        Some((ty, *fields, self.memory_argument_reference(state, operation, argument)?))
     }
 
     pub(super) fn buffer_transfer_effects(

@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundCallResult, BoundExpression, BoundExpressionId, BoundOperator,
-    BoundStructuredExpressionKind, SemanticSelection, StorageIdentity,
+    BoundStructuredExpressionKind, SemanticSelection,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{MirOperand, MirOperationKind, MirPlace, MirStorageKind, MirStoreKind};
@@ -147,22 +147,7 @@ impl Lowerer<'_> {
             return Ok(lowered);
         };
 
-        let storage = self.input.storage_plan();
-
-        let temporary = self.input.temporary_storage(expression, ty).or_else(|| {
-            // Transparent expressions retain their operand's checked storage identity.
-            self.input
-                .storage_plan()
-                .node_plans((expression).into())
-                .filter(|plan| storage.is_root_access(plan.access()))
-                .filter_map(|plan| storage.root_identity(plan.access()))
-                .find(|identity| {
-                    matches!(
-                        storage.identity(*identity),
-                        Some(StorageIdentity::Temporary(_))
-                    ) && storage.storage_type(*identity) == Some(ty)
-                })
-        });
+        let temporary = self.input.temporary_storage(expression, ty);
 
         let Some(temporary) = temporary else {
             if required {

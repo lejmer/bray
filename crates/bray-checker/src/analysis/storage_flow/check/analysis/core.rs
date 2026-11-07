@@ -1065,11 +1065,11 @@ where
             invalidation.as_ref(),
         );
 
+        self.complete_operation(state, kind, memory_status);
+
         if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
             self.retire_consumed_value_slots(state, kind);
         }
-
-        self.complete_operation(state, kind, memory_status);
 
         crate::analysis::refinement::transfer_operation(
             &mut refinements,
@@ -1084,18 +1084,23 @@ where
     }
 
     fn retire_consumed_value_slots(&self, state: &mut StorageFlowState, kind: AnalysisOperationKind) {
-        let phase = match kind {
-            AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input, .. }
-                | AnalysisOperationKind::Result { phase: crate::analysis::model::AnalysisResultPhase::Begin, .. }
-                | AnalysisOperationKind::ScopeExit { .. }
-                | AnalysisOperationKind::Suspension { .. }
-                | AnalysisOperationKind::PatternObservation(_) => return,
-            AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. } =>
-                bray_bound_tree::StorageValueConsumptionPhase::Admission,
-            _ => bray_bound_tree::StorageValueConsumptionPhase::Completion,
-        };
+        let Some(phase) = kind.value_consumption_phase() else { return; };
 
-        for path in self.storage.value_consumptions(kind.occurrence(), phase) {
+        let completing_call = matches!(kind, AnalysisOperationKind::Call {
+            phase: AnalysisCallPhase::Completion, ..
+        });
+        let private_input = |path: &bray_bound_tree::StoragePath| {
+            matches!(self.storage.identity(path.root),
+                Some(StorageIdentity::InvocationInput { expression, .. })
+                    if kind.occurrence() == expression.into())
+        };
+        let completed_inputs = completing_call.then(|| self.storage.value_consumptions(
+            kind.occurrence(), bray_bound_tree::StorageValueConsumptionPhase::Admission));
+
+        for path in self.storage.value_consumptions(kind.occurrence(), phase)
+            .filter(|path| phase != bray_bound_tree::StorageValueConsumptionPhase::Admission || !private_input(path))
+            .chain(completed_inputs.into_iter().flatten().filter(|path| private_input(path)))
+        {
             let ty = self.storage.storage_type(path.root)
                 .expect("consumed evaluated slot has its checked type");
             let origin = self.storage.identity(path.root).and_then(|identity| identity.definition_node())
@@ -1103,8 +1108,8 @@ where
                 .or_else(|| kind.occurrence().expression())
                 .expect("evaluated slot consumption retains its producing expression");
 
-            // Destination transfer has captured the payload. Retire only this output handle;
-            // the reached allocation belongs to the destination and remains initialized.
+            // Destination transfer has captured the payload. Retire only this output handle.
+            // The reached allocation belongs to the destination and remains initialized.
             state.record_move(path.clone(), origin, ty, true);
             state.memory.clear(path);
         }
@@ -1854,7 +1859,17 @@ where
 
                 if let Some(target) = target {
                     if purpose == StorageAccessPurpose::Move {
-                        state.memory.consume_target(target, ty);
+                        let admitted_input = self.storage.root_identity(plan.access())
+                            .and_then(|root| self.storage.identity(root))
+                            .is_some_and(|identity| matches!(identity,
+                                StorageIdentity::InvocationInput { expression, .. }
+                                    if plan.occurrence() == expression.into()));
+
+                        // Admission transfers the private input to this invocation. Its
+                        // protected payload remains initialized until the callee uses it.
+                        if !admitted_input {
+                            state.memory.consume_target(target, ty);
+                        }
                     } else {
                         state
                             .memory

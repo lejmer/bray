@@ -260,7 +260,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // belongs to this entry, whose result contract will transfer or retire it.
             let mut value = crate::ExecutionPlace::argument(*ordinal).value_in(&entry.arguments)?;
 
-            if !selection.evaluates_defaults() {
+            if !selection.stages_inputs() {
                 let input = selection.input(*ordinal)?;
 
                 if input.conversion().is_some_and(|conversion| {
@@ -570,6 +570,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.retire_evaluation(mutation);
         }
 
+        let admitted = match mutation {
+            bray_bound_tree::StorageMutation::Operation(site) => Some(site),
+            _ => None,
+        };
+
         if let StorageInvalidation::All {
             stable_descriptors: descriptors,
             stable_values,
@@ -637,6 +642,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 },
                 &preserved,
                 &stable_values,
+                admitted,
             );
         }
 
@@ -696,6 +702,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             invalidated_values,
             if content_only { &self.content_predicates } else { &no_predicates },
             &stable_values,
+            admitted,
         );
 
         let masks = self.preservation_masks(

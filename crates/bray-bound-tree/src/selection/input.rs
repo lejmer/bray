@@ -134,6 +134,16 @@ impl SemanticSelection {
             .any(|input| input.default_provider().is_some())
     }
 
+    /// Whether checked input values are captured before runtime admission.
+    /// Intrinsic constructions retain their established default-input staging.
+    pub fn stages_inputs(&self) -> bool {
+        match self {
+            Self::Call(call) => call.stages_inputs(),
+            Self::Operation(SelectedOperation::Construction(_)) => self.evaluates_defaults(),
+            _ => false,
+        }
+    }
+
     /// Returns borrowed formal referents in receiver-first order for one actual invocation.
     pub fn invocation_reference_inputs(
         &self,
@@ -261,7 +271,7 @@ impl SemanticSelection {
         let ordinal = self.input_ordinal(root)?;
         let input = self.input(ordinal)?;
 
-        if self.evaluates_defaults() {
+        if self.stages_inputs() {
             Some(BoundExecutionSite::CallInput {
                 expression,
                 ordinal,

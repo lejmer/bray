@@ -387,13 +387,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         operation: super::super::super::model::AnalysisOperationKind,
         observations: Option<&bray_bound_tree::StorageCompletion>,
     ) {
-        use super::super::super::model::{AnalysisCallPhase, AnalysisOperationKind, AnalysisResultPhase};
-
-        if matches!(operation,
-            AnalysisOperationKind::Call { phase: AnalysisCallPhase::Input | AnalysisCallPhase::Attempt, .. }
-                | AnalysisOperationKind::Result { phase: AnalysisResultPhase::Begin, .. }
-                | AnalysisOperationKind::Suspension { .. })
-        {
+        if operation.value_consumption_phase() != Some(bray_bound_tree::StorageValueConsumptionPhase::Completion) {
             return;
         }
 
@@ -411,10 +405,52 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         phase: bray_bound_tree::StorageValueConsumptionPhase,
     ) {
         for path in self.storage.value_consumptions(occurrence, phase) {
-            let place = crate::ExecutionPlace::storage_path(self.storage, path)
-                .expect("checked evaluated-value consumption selects a produced value slot");
+            let selected = crate::ExecutionPlace::select_storage_value(
+                self.storage, path, &state.current,
+                |place, projection| match projection {
+                    bray_bound_tree::StorageProjection::ElementFromEnd(offset) => {
+                        let actual = place.value_in(&state.current);
+                        let ty = self.observed_types.get(place).copied().flatten()
+                            .or_else(|| if place.projections.is_empty() { self.storage.identity_type(path.root) } else { None })
+                            .or_else(|| actual.as_ref().and_then(|value| self.observation_type(value)))
+                            .or_else(|| actual.as_ref().and_then(|value| self.observation_type(value.owner_identity())))?;
+                        let length = crate::constant::known_array_length(self.request.semantic_values(), ty)?;
+                        let index = length.checked_sub(usize::try_from(offset.raw()).ok()?.checked_add(1)?)?;
 
-            state.vacate(place);
+                        Some(bray_symbols::SymbolOrdinal::new(u32::try_from(index).ok()?))
+                    }
+                    bray_bound_tree::StorageProjection::Element(expression) => {
+                        let mut actual = self.value(state, expression);
+
+                        for _ in 0..ExecutionCondition::WORK_LIMIT {
+                            match actual {
+                                ExecutionCondition::Observation { contents, kind: crate::execution_guarantees::ExecutionObservationKind::Owned | crate::execution_guarantees::ExecutionObservationKind::Scalar, .. } => actual = contents.as_ref().clone(),
+                                ExecutionCondition::Literal(value) => {
+                                    let bray_symbols::ConstantValueKind::Integer(value) = value.kind() else { return None; };
+                                    let index = crate::constant::integer_to_usize(value)?;
+
+                                    return Some(bray_symbols::SymbolOrdinal::new(u32::try_from(index).ok()?));
+                                }
+                                _ => return None,
+                            }
+                        }
+
+                        None
+                    }
+                    _ => None,
+                },
+            ).expect("checked evaluated-value consumption retains its produced root identity");
+
+            match selected {
+                crate::execution_guarantees::ExecutionStorageSelection::Inline(place) => state.current.retire(&place),
+                crate::execution_guarantees::ExecutionStorageSelection::Reached => {}
+                crate::execution_guarantees::ExecutionStorageSelection::UnresolvedInline(place) => {
+                    // No particular child is established as live after an unnamed
+                    // inline selection. Keep its terminal tree, but stop using
+                    // the containing evaluated view as a complete owner.
+                    state.current.retire(&place);
+                }
+            }
         }
     }
 
@@ -533,54 +569,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                 | bray_bound_tree::BoundExecutionSite::ScopedExit(_)
         ) {
-            let invocation = operation.occurrence();
-
-            if let Some(entry) = state.entries.get_mut(&invocation) {
-                entry.pending_execution = false;
-            }
-
-            // This completion defines the result identity. Later reads select the
-            // completed object from this invocation's planned slot.
-            let result = match invocation {
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(expression) => {
-                    ExecutionCondition::ScopedCapability(expression)
-                }
-                bray_bound_tree::BoundExecutionSite::Iterate(_)
-                | bray_bound_tree::BoundExecutionSite::Next(_) => ExecutionCondition::PostState(
-                    bray_bound_tree::StorageMutation::Operation(invocation),
-                    self.input_place(invocation)
-                        .expect("completed protocol invocation retains its result slot"),
-                ),
-                bray_bound_tree::BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
-                _ => unreachable!("implicit completion has a protocol invocation"),
-            };
-
-            let result = self.complete_trusted_call(state, invocation, result, observations);
-
-            if matches!(
-                invocation,
-                bray_bound_tree::BoundExecutionSite::Iterate(_)
-                    | bray_bound_tree::BoundExecutionSite::Next(_)
-                    | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
-            ) {
-                state.assign(
-                    self.input_place(invocation)
-                        .expect("completed protocol invocation retains its result slot"),
-                    result,
-                    None,
-                );
-            }
-
-            if let bray_bound_tree::BoundExecutionSite::ScopedExit(_) = invocation {
-                // Exit consumes the capability. Its captured input survives storage
-                // retirement and names the actual completed entry object.
-                if let Some(capability) = state.entries.get(&invocation).and_then(|entry| {
-                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
-                        .value_in(&entry.arguments)
-                }) {
-                    state.invalidate_trusted(&capability);
-                }
-            }
+            self.complete_implicit_invocation(state, operation.occurrence(), observations);
 
             return;
         }

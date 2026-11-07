@@ -267,7 +267,7 @@ where
 
     fn consume_pattern_value(&mut self, pattern: BoundPatternId, value: Option<&StoragePath>) {
         if let Some(value) = value {
-            self.builder_mut().consume_value(pattern.into(), StorageValueConsumptionPhase::Completion, value.clone())
+            self.builder_mut().consume_value(bray_bound_tree::AnyBoundNodeId::Pattern(pattern).into(), StorageValueConsumptionPhase::Completion, value.clone())
                 .expect("pattern consumption selects its actual evaluated subject component");
         }
     }

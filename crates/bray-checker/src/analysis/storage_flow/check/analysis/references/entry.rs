@@ -239,7 +239,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 let staged = site
                     .expression()
                     .and_then(|expression| selections.expression(expression))
-                    .filter(|selection| selection.evaluates_defaults())
+                    .filter(|selection| selection.stages_inputs())
                     .and_then(|selection| {
                         selection.invocation_input_site(*site, subject.subject_root())
                     })

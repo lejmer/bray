@@ -42,13 +42,13 @@ impl Lowerer<'_> {
                 )
             });
 
-        let (lowered, operand_type) = self.lower_call_receiver(receiver, current)?;
+        let (lowered, operand_type) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
 
         let Some(current) = lowered.block else {
             return Ok(lowered);
         };
 
-        let Some(mut receiver) = lowered.value else {
+        let Some(receiver) = lowered.value else {
             panic!(
                 "lowering contract violation: MissingOperationResult {value:?}",
                 value = receiver.expression()
@@ -60,7 +60,7 @@ impl Lowerer<'_> {
             current,
             &source,
             selection,
-            std::slice::from_mut(&mut receiver),
+            std::slice::from_ref(&receiver),
         )?;
 
         let usize_type = self.representation_type(RepresentationRole::ScalarUsize)?;

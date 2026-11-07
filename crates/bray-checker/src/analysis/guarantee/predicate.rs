@@ -383,7 +383,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         selection.inputs().all(|input| {
             let ty = input.ty(self.request.semantic_values());
 
-            if selection.evaluates_defaults() {
+            if selection.stages_inputs() {
                 let site = selection
                     .input_site(expression, input.root())
                     .expect("evaluated invocation retains every input slot");

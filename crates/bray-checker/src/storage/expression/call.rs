@@ -37,11 +37,9 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         );
         let observational = matches!(semantic_selection, Some(SemanticSelection::Predicate(_)))
             || selection.is_some_and(|call| matches!(call.target(), BoundCallableTarget::Predicate(_)));
-        let phase = if selection.is_some() && !observational {
-            StorageValueConsumptionPhase::Admission
-        } else {
-            self.value_consumer_phase(id)
-        };
+        assert!(selection.is_none_or(|call| !call.stages_inputs()),
+            "runtime selected calls plan their private inputs before admission");
+        let phase = self.value_consumer_phase(id);
 
         if !direct {
             self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;

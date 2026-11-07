@@ -8,6 +8,47 @@ use super::model::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(super) fn complete_implicit_invocation(
+        &self,
+        state: &mut ExecutionState,
+        invocation: BoundExecutionSite,
+        observations: &bray_bound_tree::StorageCompletion,
+    ) {
+        if let Some(entry) = state.entries.get_mut(&invocation) {
+            entry.pending_execution = false;
+        }
+
+        // This transition defines one actual output in the planned protocol slot.
+        let result = match invocation {
+            BoundExecutionSite::ScopedEnter(expression) => ExecutionCondition::ScopedCapability(expression),
+            BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) => ExecutionCondition::PostState(
+                bray_bound_tree::StorageMutation::Operation(invocation),
+                self.input_place(invocation).expect("completed protocol invocation retains its result slot"),
+            ),
+            BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
+            _ => unreachable!("implicit completion has a protocol invocation"),
+        };
+
+        let result = self.complete_trusted_call(state, invocation, result, observations);
+
+        if matches!(invocation, BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_)) {
+            state.assign(
+                self.input_place(invocation).expect("completed protocol invocation retains its result slot"),
+                result,
+                None,
+            );
+        }
+
+        if let BoundExecutionSite::ScopedExit(_) = invocation {
+            // The captured actual input survives physical retirement at exit.
+            if let Some(capability) = state.entries.get(&invocation).and_then(|entry| {
+                ExecutionPlace::argument(SymbolOrdinal::new(0)).value_in(&entry.arguments)
+            }) {
+                state.invalidate_trusted(&capability);
+            }
+        }
+    }
+
     pub(in crate::analysis) fn observe_memory_read(
         &self,
         state: &mut ExecutionState,
@@ -79,7 +120,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     let (bray_bound_tree::SelectedConstructionInput::Explicit { ordinal, .. }
                     | bray_bound_tree::SelectedConstructionInput::Default { ordinal, .. }) = input;
 
-                    if selection.evaluates_defaults() {
+                    if selection.stages_inputs() {
                         return self.invocation_value(
                             state,
                             BoundExecutionSite::CallInput {

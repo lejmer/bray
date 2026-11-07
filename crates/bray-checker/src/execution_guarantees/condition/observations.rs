@@ -523,7 +523,9 @@ impl Set {
         snapshots: &std::collections::BTreeSet<ExecutionCondition>,
         value: &ExecutionCondition,
     ) -> bool {
-        Self::retained_snapshot(snapshots, value, |selected| {
+        let remaining = std::cell::Cell::new(ExecutionCondition::WORK_LIMIT);
+
+        Self::retained_snapshot(snapshots, value, &remaining, |selected| {
             !selected.is_unknown() && matches!((selected.ownership_identity(), value.ownership_identity()),
                 (Some((role, owner)), Some((other_role, other))) if role == other_role && owner == other)
         })
@@ -534,9 +536,31 @@ impl Set {
         snapshots: &std::collections::BTreeSet<ExecutionCondition>,
         value: &ExecutionCondition,
     ) -> bool {
-        Self::retained_snapshot(snapshots, value, |selected| {
-            !selected.is_unknown() && Self::snapshot_contents(selected) == Self::snapshot_contents(value)
+        let remaining = std::cell::Cell::new(ExecutionCondition::WORK_LIMIT);
+
+        Self::retained_snapshot(snapshots, value, &remaining, |selected| {
+            Self::same_snapshot_contents(selected, value)
         })
+    }
+
+    /// Compares actual predecessor and terminal data at the same observed path.
+    pub(crate) fn retains_contents_between(
+        before: &std::collections::BTreeSet<ExecutionCondition>,
+        after: &std::collections::BTreeSet<ExecutionCondition>,
+        observed: &ExecutionCondition,
+    ) -> bool {
+        let remaining = std::cell::Cell::new(ExecutionCondition::WORK_LIMIT);
+
+        Self::retained_snapshot(before, observed, &remaining, |previous| {
+            Self::retained_snapshot(after, observed, &remaining, |current| Self::same_snapshot_contents(previous, current))
+        })
+    }
+
+    fn same_snapshot_contents(left: &ExecutionCondition, right: &ExecutionCondition) -> bool {
+        let left = Self::snapshot_contents(left);
+        let right = Self::snapshot_contents(right);
+
+        !left.contains_unknown() && !right.contains_unknown() && left == right
     }
 
     fn snapshot_contents(mut value: &ExecutionCondition) -> &ExecutionCondition {
@@ -550,18 +574,18 @@ impl Set {
     fn retained_snapshot(
         snapshots: &std::collections::BTreeSet<ExecutionCondition>,
         value: &ExecutionCondition,
+        remaining: &std::cell::Cell<usize>,
         matches: impl Fn(&ExecutionCondition) -> bool,
     ) -> bool {
         let path = Self::indexed_path(value);
         let mut pending = snapshots.iter().collect::<Vec<_>>();
-        let mut remaining = ExecutionCondition::WORK_LIMIT;
 
         while let Some(snapshot) = pending.pop() {
-            if remaining == 0 {
+            if remaining.get() == 0 {
                 return false;
             }
 
-            remaining -= 1;
+            remaining.set(remaining.get() - 1);
 
             if snapshot.has_same_owner(value) && matches(snapshot) {
                 return true;
@@ -573,11 +597,11 @@ impl Set {
                 let mut selected = snapshot.clone();
 
                 for projection in &path[prefix.len()..] {
-                    if remaining == 0 {
+                    if remaining.get() == 0 {
                         return false;
                     }
 
-                    remaining -= 1;
+                    remaining.set(remaining.get() - 1);
                     selected = selected.component(*projection);
                 }
 

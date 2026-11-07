@@ -381,7 +381,7 @@ impl ValueInputs {
         let inputs = selections
             .entries()
             .iter()
-            .filter(|entry| entry.selection().evaluates_defaults())
+            .filter(|entry| entry.selection().stages_inputs())
             .flat_map(|entry| {
                 entry.selection().inputs().map(move |input| {
                     let ordinal = entry

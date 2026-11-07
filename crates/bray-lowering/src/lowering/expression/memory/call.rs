@@ -28,8 +28,7 @@ impl Lowerer<'_> {
         let mut arguments = Vec::with_capacity(operation.arguments().len());
         let mut inline_assembly_labels = None;
 
-        for (index, (ordinal, expression, conversion, reborrow)) in
-            selected_arguments.iter().enumerate()
+        for (ordinal, expression, conversion, reborrow) in &selected_arguments
         {
             let ordinal = memory_argument_index(id, *ordinal);
 
@@ -83,6 +82,16 @@ impl Lowerer<'_> {
                 );
             };
 
+            let input = selection.input_site(id, bray_symbols::DependencySubjectRoot::Parameter(
+                bray_symbols::SymbolOrdinal::new(u32::try_from(ordinal)
+                    .expect("checked memory argument ordinal fits its selected signature")),
+            )).expect("memory input retains its checked private staging occurrence");
+            let (continuation, operand) = self.consume_staged_input(
+                input, *expression, current, &source, operand,
+            )?;
+
+            current = continuation;
+
             let (continuation, operand) = self.convert_memory_operand(
                 id,
                 current,
@@ -106,24 +115,7 @@ impl Lowerer<'_> {
             } else {
                 conversion.target_type()
             };
-
-            let later_expressions =
-                selected_arguments[index + 1..]
-                    .iter()
-                    .filter_map(|(ordinal, expression, _, _)| {
-                        usize::try_from(*ordinal)
-                            .is_ok_and(|ordinal| is_runtime_expression(&kind, ordinal))
-                            .then_some(*expression)
-                    });
-
-            let operand = self.materialize_memory_argument(
-                current,
-                *expression,
-                operand,
-                operand_type,
-                self.later_evaluation_may_change_block(later_expressions)
-                    || matches!(kind, CheckedMemoryOperationKind::RawBufferAllocate),
-            )?;
+            let operand = self.materialize_call_input(input, current, &source, operand, operand_type)?;
 
             arguments.push((runtime_index, operand, operand_type));
         }
@@ -419,34 +411,7 @@ impl Lowerer<'_> {
         )
     }
 
-    fn materialize_memory_argument(
-        &mut self,
-        current: MirBlockId,
-        expression: BoundExpressionId,
-        operand: MirOperand,
-        operand_type: TypeId,
-        crosses_block_boundary: bool,
-    ) -> Result<MirOperand, LoweringError> {
-        if !crosses_block_boundary {
-            return Ok(operand);
-        }
 
-        let lowered = LoweredExpression::continuing(
-            current,
-            Some(operand),
-            self.expression_source(expression),
-        );
-
-        Ok(self
-            .materialize_typed_for_later_evaluation(expression, lowered, operand_type)?
-            .value
-            .unwrap_or_else(|| {
-                panic!(
-                    "lowering contract violation: MissingOperationResult {value:?}",
-                    value = expression
-                )
-            }))
-    }
 }
 
 fn ordered_memory_arguments<'a>(

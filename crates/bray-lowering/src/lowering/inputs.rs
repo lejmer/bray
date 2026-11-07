@@ -328,13 +328,21 @@ impl Lowerer<'_> {
             panic!("selected input materialization has its exact occurrence");
         };
 
-        let Some(access) = self
+        let stages = self.input.semantic_selections().expression(expression)
+            .expect("selected input materialization retains its checked selection")
+            .stages_inputs();
+
+        if !stages {
+            // Intrinsic aggregate construction without defaults captures fields
+            // directly, rather than admitting an executing callee.
+            return self.materialize_owned_input(block, source, value, ty);
+        }
+
+        let access = self
             .input
             .storage_plan()
             .invocation_input(expression, ordinal)
-        else {
-            return self.materialize_owned_input(block, source, value, ty);
-        };
+            .expect("staged selected input retains its planned private storage");
 
         let identity = self
             .input

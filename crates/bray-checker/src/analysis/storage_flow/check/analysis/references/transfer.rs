@@ -896,7 +896,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     {
                         // The first argument retains the loan's lifetime. Only the
                         // pointer argument identifies storage that the loan can reach.
-                        self.expression_reference(state, operation.arguments()[1])
+                        self.memory_argument_reference(state, operation, operation.arguments()[1])
                             .and_then(|source| source.regions(&state.memory))
                             .unwrap_or_default()
                     }

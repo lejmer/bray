@@ -19,7 +19,7 @@ impl Lowerer<'_> {
         block: MirBlockId,
         source: &MirSourceAnchor,
         selection: &SelectedCall,
-        values: &mut [MirOperand],
+        values: &[MirOperand],
     ) -> Result<MirBlockId, LoweringError> {
         if self
             .input
@@ -44,12 +44,7 @@ impl Lowerer<'_> {
         let mut arguments = Vec::with_capacity(values.len());
         let offset = usize::from(selection.receiver().is_some());
 
-        for (index, value) in values.iter_mut().enumerate() {
-            let ty = self.builder.operand_type(value);
-
-            // Staging moves the represented input. Only its descriptor is copied here.
-            *value = self.materialize_owned_input(block, source, value.clone(), ty)?;
-
+        for (index, value) in values.iter().enumerate() {
             let argument = if index < offset {
                 MirCallArgument::Receiver {
                     parameter: selection

@@ -305,8 +305,8 @@ pub struct ExecutionDomain {
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCallEvidence {
     pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
-    /// Caller-owned carriers admitted at invocation. Valid clauses remain in the
-    /// live state. These identities prevent another carrier from lending provenance.
+    /// Exact existing carriers admitted at invocation. Their ledger clauses stay
+    /// private until completion uses this entry's captured truth and actual return.
     pub(crate) witness_inputs: std::collections::BTreeSet<super::ExecutionCondition>,
     /// Copy origins while their observations remain unchanged. These are value
     /// correlations, never language equality predicates or ownership authority.
