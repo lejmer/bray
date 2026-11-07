@@ -477,9 +477,7 @@ impl ExecutionCondition {
                     .find(|(field, _)| *field == StorageProjection::NullableValue)
                     .map(|(_, value)| value.clone().component(projection))
                     .unwrap_or_else(|| {
-                        Self::component_base(base, fields)
-                            .clone()
-                            .component(ConstantProjectionKind::NullableValue)
+                        base.as_ref().clone().component(ConstantProjectionKind::NullableValue)
                             .component(projection)
                     })
             }
@@ -611,18 +609,11 @@ impl ExecutionCondition {
                 *operand = operand.current_contents().clone();
             }
 
-            if let Self::StorageValue(_, value) | Self::CurrentValue(_, value) = operand
+            if let Self::StorageValue(_, value) = operand
                 && matches!(value.as_ref(), Self::Literal(_) | Self::Boolean(_)) {
                 *operand = value.as_ref().clone();
             }
 
-            if let Self::Constructed(base, fields) = operand {
-                let contents = Self::component_base(base, fields);
-
-                if matches!(contents, Self::Literal(_) | Self::Boolean(_)) {
-                    *operand = contents.clone();
-                }
-            }
         }
 
         if !matches!(
