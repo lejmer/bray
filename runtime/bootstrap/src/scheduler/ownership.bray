@@ -48,7 +48,7 @@ trusted internal func retain_reference(pos owner: &Reference) -> Reference
         {
             return
             {
-                acquisition = bray.runtime.bootstrap.host.Acquisition
+                acquisition = Acquisition
                 {
                 },
                 pointer = owner.pointer
@@ -90,7 +90,7 @@ trusted internal func release_reference(pos reference: Reference) -> Reference?
         {
             return
             {
-                acquisition = bray.runtime.bootstrap.host.Acquisition
+                acquisition = Acquisition
                 {
                 },
                 pointer = reference.pointer

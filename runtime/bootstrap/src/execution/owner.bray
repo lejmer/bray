@@ -110,7 +110,7 @@ trusted internal func initialize_context(
 
     return
     {
-        acquisition = bray.runtime.bootstrap.host.Acquisition
+        acquisition = bray.runtime.bootstrap.host.ExecutionAcquisition
         {
         },
         resource = std.memory.byte_address<Context>(pointer),
@@ -156,7 +156,7 @@ trusted internal func borrow_execution(pos owner: &bray.runtime.bootstrap.host.E
 
     return
     {
-        acquisition = Acquisition
+        acquisition = ViewAcquisition
         {
         },
         pointer = pointer,

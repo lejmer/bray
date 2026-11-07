@@ -133,7 +133,7 @@ trusted internal func stored_primary(pos primary: ReportPrimary) -> StoredReport
         release_message = release,
         provider =
         {
-            acquisition = bray.runtime.bootstrap.host.Acquisition
+            acquisition = bray.runtime.bootstrap.provider.Acquisition
             {
             },
             context = primary.provider_context,

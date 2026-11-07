@@ -81,7 +81,7 @@ trusted internal func observe_provider(pos key: usize, pos rollback: bool = fals
 
     let reference: bray.runtime.bootstrap.provider.Reference =
     {
-        acquisition = bray.runtime.bootstrap.host.Acquisition
+        acquisition = bray.runtime.bootstrap.provider.Acquisition
         {
         },
         context = pinned_cell.native_context,

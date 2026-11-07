@@ -31,7 +31,7 @@ trusted internal func prepare(pos input: Input, pos shape: bray.runtime.bootstra
 
     return
     {
-        acquisition = Marker
+        acquisition = PreparationMarker
         {
         },
         input = input,

@@ -34,9 +34,14 @@ internal struct Callbacks
 // A borrowed native view acquires no ownership. The native supplier keeps its
 // immutable resident table and context alive through every acquisition.
 @layout(c)
+internal struct Acquisition
+{
+}
+
+@layout(c)
 internal struct Reference
 {
-    acquisition: bray.runtime.bootstrap.host.Acquisition;
+    acquisition: Acquisition;
     context: usize;
     callbacks: DataPointer<Callbacks>;
 
@@ -55,7 +60,7 @@ trusted internal func resident_reference() -> Reference
 {
     return
     {
-        acquisition = bray.runtime.bootstrap.host.Acquisition
+        acquisition = Acquisition
         {
         },
         context = 0,
@@ -63,7 +68,7 @@ trusted internal func resident_reference() -> Reference
     };
 }
 
-trusted internal predicate reference_owned(owner: &bray.runtime.bootstrap.host.Acquisition);
+trusted internal predicate reference_owned(owner: &Acquisition);
 
 internal predicate native_owned_reference(reference: &Reference) = reference_owned(owner = &reference.acquisition);
 

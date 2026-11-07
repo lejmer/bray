@@ -152,7 +152,7 @@ trusted internal func ensure(pos reference: &Reference, pos workload: u32) -> Fa
                             {
                                 return
                                 {
-                                    marker = Marker
+                                    marker = WorkerMarker
                                     {
                                     },
                                     pointer = std.memory.pointer<Worker>(&rows[index])
@@ -220,12 +220,12 @@ trusted internal func ensure(pos reference: &Reference, pos workload: u32) -> Fa
 
                                 return
                                 {
-                                    marker = Marker
+                                    marker = FormationMarker
                                     {
                                     },
                                     reference =
                                     {
-                                        marker = Marker
+                                        marker = WorkerMarker
                                         {
                                         },
                                         pointer = pointer

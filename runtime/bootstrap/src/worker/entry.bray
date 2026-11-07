@@ -39,12 +39,12 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
     {
         return
         {
-            marker = Marker
+            marker = FormationMarker
             {
             },
             reference =
             {
-                marker = Marker
+                marker = WorkerMarker
                 {
                 },
                 pointer = trusted std.memory.reinterpret<Worker, u8>(context)
@@ -88,7 +88,7 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
     {
         return
         {
-            marker = Marker
+            marker = ScopeMarker
             {
             },
             worker = worker,
