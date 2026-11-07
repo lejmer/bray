@@ -23,6 +23,33 @@ fn const_calls_observe_current_values_without_loan_identity() {
 }
 
 #[test]
+fn borrowed_known_contents_retain_storage_authority_and_const_value_semantics() {
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+    let condition = |value| ExecutionCondition::predicate(symbol.into(), callable.substitution(), vec![value]);
+    let call = |value| ExecutionCondition::call(callable, None, [], vec![value]);
+
+    let stored = |ordinal, value| ExecutionCondition::Constructed(
+        Arc::new(ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)))),
+        [(bray_bound_tree::StorageProjection::OwnedTarget, ExecutionCondition::Boolean(value))].into(),
+    ).borrowed();
+
+    let loan = stored(0, true);
+    let unchanged = loan.with_referent(ExecutionCondition::Boolean(true));
+    let changed = loan.with_referent(ExecutionCondition::Boolean(false));
+    let unrelated = stored(1, true);
+
+    assert_eq!(condition(unchanged), condition(loan.clone()));
+    assert_eq!(condition(changed.clone()), condition(stored(0, false)));
+    assert_ne!(condition(loan.clone()), condition(unrelated.clone()));
+    assert_eq!(call(loan.clone()), call(unrelated));
+    assert_ne!(call(loan.clone()), call(changed.clone()));
+    assert_eq!(changed.owner_identity(), loan.owner_identity());
+    assert_eq!(changed.owned_components().count(), 0);
+}
+
+#[test]
 fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
     let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
 

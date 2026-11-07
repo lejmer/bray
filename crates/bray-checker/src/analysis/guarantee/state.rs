@@ -661,6 +661,39 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
 
     #[test]
+    fn known_value_writes_revoke_only_borrowed_authority_on_the_changed_storage() {
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+
+        let condition = |value| ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
+            symbol.into(), crate::test_support::empty_substitution(symbol.into()), vec![value],
+        )));
+
+        let observed = condition(input(0).borrowed());
+        let other = condition(input(1).borrowed());
+        let copied_value = condition(input(0));
+        let mut state = ExecutionState::default();
+
+        for (owner, condition) in [(input(0), &observed), (input(1), &other), (input(2), &copied_value)] {
+            state.carry_guarantee(owner, condition.clone());
+            state.trusted_assumptions.insert((condition.clone(), true));
+        }
+
+        state.invalidate_contents(
+            &[ExecutionPlace::argument(SymbolOrdinal::new(0))].into(),
+            [ExecutionCondition::Boolean(true)],
+            &BTreeSet::new(),
+            &crate::execution_guarantees::ObservationSet::default(),
+        );
+
+        assert!(!state.trusted_assumptions.contains(&(observed, true)));
+        assert!(state.trusted_assumptions.contains(&(other, true)));
+        assert!(state.trusted_assumptions.contains(&(copied_value, true)));
+        assert!(!state.witnesses.contains_key(&input(0)));
+        assert!(state.witnesses.contains_key(&input(1)));
+        assert!(state.witnesses.contains_key(&input(2)));
+    }
+
+    #[test]
     fn a_transferred_tag_preserves_guards_without_preserving_mutable_payloads() {
         let owner = input(0);
         let observed = owner.clone().borrowed();

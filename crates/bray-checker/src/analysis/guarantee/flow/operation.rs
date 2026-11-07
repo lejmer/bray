@@ -16,10 +16,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         path: &bray_bound_tree::StoragePath,
         ty: bray_symbols::TypeId,
+        observed: &ExecutionCondition,
     ) {
         if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path) {
             if !matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
-                let value = self.storage_path_value(state, path).into_referent();
+                // The checked transition can follow semantic consumption. Its
+                // evaluated source still owns the value that actually moved.
+                let value = observed.clone().into_referent();
 
                 // The successful move owns this transition. A current post-state
                 // or another slot's snapshot cannot invent original input ownership.

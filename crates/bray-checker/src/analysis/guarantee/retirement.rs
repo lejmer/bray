@@ -31,6 +31,7 @@ impl ExecutionState {
             &observations,
             &BTreeSet::new(),
             bray_symbols::DependencyMutationKind::Retire,
+            &BTreeSet::new(),
         );
     }
 
@@ -40,6 +41,7 @@ impl ExecutionState {
         retained_observations: &crate::execution_guarantees::ObservationSet,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         kind: bray_symbols::DependencyMutationKind,
+        places: &BTreeSet<crate::ExecutionPlace>,
     ) {
         let mut pending = values.into_iter().collect::<Vec<_>>();
 
@@ -54,7 +56,7 @@ impl ExecutionState {
                 .collect()
         };
 
-        if pending.is_empty() {
+        if pending.is_empty() && places.is_empty() {
             return;
         }
 
@@ -120,6 +122,12 @@ impl ExecutionState {
                 .any(|observed| invalidated_observations.overlaps(observed))
         };
 
+        let borrowed_changed = |condition: &ExecutionCondition| condition.observes_live_where(|value| {
+            observes(value) || value.observations_except(|value| retained_observations.contains(value))
+                .any(|observed| matches!(observed,
+                    ExecutionCondition::Input(place) if place.overlaps_any(places)))
+        });
+
         let retained_contents = |condition: &ExecutionCondition| {
             kind.is_write()
                 && condition.observes_only(|value| retained_observations.preserves(value))
@@ -144,14 +152,16 @@ impl ExecutionState {
         // A surviving carrier keeps facts about immutable captured contents after
         // their former container ends. Borrowed observations and physical bounds
         // still expire. Writes also invalidate affected by-value observations.
-        let revokes = |condition: &ExecutionCondition| observes(condition) && !stable(condition);
+        let revokes = |condition: &ExecutionCondition| {
+            (observes(condition) || borrowed_changed(condition)) && !stable(condition)
+        };
 
         let revokes_guarantee = |condition: &ExecutionCondition| {
-            revokes(condition) && (kind.is_write() || condition.observes_live_where(observes))
+            revokes(condition) && (kind.is_write() || borrowed_changed(condition))
         };
 
         self.assumptions
-            .retain(|(condition, _)| retained_contents(condition) || !condition.observes_live_where(observes));
+            .retain(|(condition, _)| retained_contents(condition) || !borrowed_changed(condition));
 
         let mut retired_conditions = BTreeSet::new();
 
@@ -433,16 +443,6 @@ impl ExecutionState {
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         stable_values: &crate::execution_guarantees::ObservationSet,
     ) {
-        self.assumptions.retain(|(condition, _)| {
-            condition.observes_only(|value| stable_values.preserves(value))
-                || !condition.observes_live_where(|value| {
-                    value.observations().any(|observed| {
-                        matches!(observed,
-                ExecutionCondition::Input(place) if place.overlaps_any(places))
-                    })
-                })
-        });
-
         // Writes revoke observed contents. A live carrier's lifetime dependencies
         // are retired only when the physical owner or capability ends.
         self.retire_values(
@@ -450,6 +450,7 @@ impl ExecutionState {
             stable_values,
             stable_predicates,
             bray_symbols::DependencyMutationKind::Write,
+            places,
         );
     }
 
