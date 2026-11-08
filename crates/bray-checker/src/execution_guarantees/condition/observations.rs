@@ -77,7 +77,13 @@ impl ExecutionCondition {
                         .enumerate()
                         .map(|(index, argument)| {
                             if index == 0 {
-                                argument.copied_value().owner_identity().clone()
+                                let mut pointer = argument.copied_value();
+
+                                while let Self::Borrowed(reached) = pointer {
+                                    pointer = reached.copied_value();
+                                }
+
+                                pointer.owner_identity().clone()
                             } else {
                                 argument.computed_value().clone()
                             }

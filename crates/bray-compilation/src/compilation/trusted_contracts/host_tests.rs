@@ -22,12 +22,20 @@ fn production_native_paths_preserve_their_admitted_input_contracts() {
         let compilation = crate::test_support::production_standard_library_compilation(
             crate::SelectedTarget::for_native(target), "module probe;");
 
-        for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path"] {
-            let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
+        for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path", "platform_path_rename"] {
+            let key = source_function_body_key(&compilation, name);
+            let lowered = compilation.lowered_unit(key.clone())
                 .expect("the native path wrapper publishes its checked source contract");
 
             if lowered.diagnostics().has_errors() {
-                failures.push((target, name, lowered.diagnostics().clone()));
+                failures.push((target, name, "lowering", lowered.diagnostics().clone()));
+            }
+
+            let output = compilation.source_output_unit(key, &crate::CancellationToken::new())
+                .expect("the native path wrapper completes the production Source-output boundary");
+
+            if output.has_errors() {
+                failures.push((target, name, "Source output", output.diagnostic_bag()));
             }
         }
     }
