@@ -8,15 +8,24 @@ requires the whole composition, including lowering and native execution. This re
 
 ## Active repair checkpoint
 
-The first coordinated repair batch is in progress. Output Read plans use the existing definition classification,
-witness transfer checking consumes the shared operation selector and source-materialization role, and retirement
-uses exact invalidated-set membership. Scalar joins retain explicitly non-owning summaries instead of bare Input
-terms that later become owners. Checker-wide and composition validation is running. These are hypotheses until
-the unchanged tests and adjacent coverage pass. No passing baseline result applies automatically to this batch.
+Continue directly on PR #710's branch, `feature/bra-567-async-root-orchestration`. Checkpoint `235686a17` is committed
+and pushed there. It was a fast-forward from the audit baseline. Preserve and push further coherent checkpoints.
+The worktree remains isolated from develop. Style and formatting are deferred until the end of the audit.
+
+The scalar-value repair passed five focused regressions. Both scoped-exit controls still fail at continuation
+authority, but ordinary entry postconditions and imported provider export now pass. Native execution remains
+unverified. The earlier 440-pass checker result predates the latest producer and scalar repairs.
+
+The native fixture is now `async-ownership-composition.bray`. Its extension retains the previous root cleanup
+assertions and adds witnessed ownership across direct suspension, loop back-edges, both return branches, future
+capture, task-result transport, and disposal of an inactive future without running its body. It checks Main affinity,
+exactly-once finalization/destruction, child cancellation, and lexical-before-static cleanup. These assertions are
+not evidence of success until the fixture actually executes. Retained-error and worker-lane fixtures remain required
+adjacent coverage. The synchronous ownership program is a focused regression, not the async completion criterion.
 
 Reuse the shared Cargo target and LLVM installation. Logs are under the worktree's ignored `target/audit` directory.
-Current runs write `repair-context-checker.log` and `repair-context-composition.log`. Do not launch duplicate builds. The task's
-isolated branch is `feature/bra-567-transition-audit`. No changes have been committed or pushed.
+The current native attempt rebuilds xtask in `async-composition-build.log` and runs in `async-composition-native.log`.
+It uses the installed LLVM-compatible archive producer. Do not launch duplicate builds.
 
 The first repair passed 436/439 checker tests. A controlled baseline comparison with identical tests and original
 production code failed seven tests, including all three remaining failures. The comparison script backed up and
@@ -277,3 +286,21 @@ Remaining work includes the scoped continuation, reached custom-index materializ
 the previously nonterminating generator check, and native execution through standard-library preparation. Keep the
 regression expectations fixed. Complete the maintainability audit and mandatory style/format commands only after the
 semantic audit and repairs are finished.
+
+## Produced trust-boundary result checkpoint
+
+The native attempt no longer hits the returned-borrow lowering panic. It stops during standard-library native planning
+with checking diagnostics, including 578 moved-storage reports. These are diagnostic counts across the standard library,
+not the earlier runtime source-body population, and cannot be compared as a failure-rate regression.
+
+A reduced real-source trust-boundary test reproduced a moved temporary. The planner consumed the operand output and
+then exposed that retired slot as the boundary result. Materialized operands now use the existing transferred-operand
+planner, publishing a distinct live output before retiring the input. Place-valued operands retain their source access.
+No recovery, weakened assertion, or expanded proof budget was added.
+
+The focused repair batch passed all eight selected tests: returned borrowing, scalar and borrowed trust-boundary results,
+the selected async composition bodies, ordinary scalar copying, borrowed-authority copy rejection, and all three ownership
+composition controls including witnessed results through trust boundaries. Broader checking and native execution remain
+pending. Temporary tracing is absent. The expanded async fixture also requires cancellation through async scoped exit
+and explicitly rejects a failed payload producer. Its lifecycle members still need direct source-level coverage in the
+audit test in addition to the required native run. The previous native driver predates those last fixture additions.

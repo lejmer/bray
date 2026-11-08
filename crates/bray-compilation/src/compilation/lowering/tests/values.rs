@@ -261,15 +261,69 @@ fn construction_inputs_lower_nullable_values_before_aggregate_transfer() {
 fn returned_temporary_is_borrowable_after_call_completion() {
     let compilation = compilation(r#"
         module app;
-        struct Value { data: i32; }
-        impl Value {
-            func read() -> i32 { return self.data; }
+
+        struct Value
+        {
+            data: i32;
         }
-        func make() -> Value { return { data = 7 }; }
-        func main() -> i32 { return make().read(); }
+
+        impl Value
+        {
+            func read() -> i32
+            {
+                return self.data;
+            }
+        }
+
+        func make() -> Value
+        {
+            return
+            {
+                data = 7
+            };
+        }
+
+        func main() -> i32
+        {
+            return make().read();
+        }
     "#);
     assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
     let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "main"))
         .expect("checked caller lowers");
     lowered_mir(&lowered);
+}
+
+#[test]
+fn trust_boundary_preserves_a_completed_call_result() {
+    let compilation = compilation(r#"
+        trusted module app;
+
+        trusted func identity(pos value: i32) -> i32
+        {
+            return value;
+        }
+
+        trusted func borrow(pos value: &i32) -> &i32
+        {
+            return value;
+        }
+
+        func forward(pos value: &i32) -> &i32
+        {
+            return trusted borrow(value);
+        }
+
+        func main() -> i32
+        {
+            let first = trusted identity(7);
+            return trusted identity(first);
+        }
+    "#);
+    assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+    for name in ["main", "forward"] {
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
+            .expect("trusted result caller lowers");
+        lowered_mir(&lowered);
+    }
 }
