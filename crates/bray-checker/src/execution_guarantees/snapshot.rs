@@ -89,32 +89,8 @@ pub(crate) fn common_components(
         );
     }
 
-    let fields = |mut value: &ExecutionCondition| {
-        while let Some(snapshot) = value.nullable_payload_snapshot() {
-            value = snapshot;
-        }
-
-        match value {
-            ExecutionCondition::Constructed(_, fields) => fields
-                .iter()
-                .map(|(field, _)| *field)
-                .collect::<std::collections::BTreeSet<_>>(
-            ),
-            ExecutionCondition::Present(_) => {
-                [bray_bound_tree::StorageProjection::NullableValue].into()
-            }
-            ExecutionCondition::Literal(value)
-                if matches!(value.kind(), ConstantValueKind::NullableAbsent) =>
-            {
-                [bray_bound_tree::StorageProjection::NullableValue].into()
-            }
-            _ => Default::default(),
-        }
-    };
-
-    let mut projections = fields(left);
-
-    projections.extend(fields(right));
+    let mut projections = left.component_projections();
+    projections.extend(right.component_projections());
 
     if projections.is_empty() {
         let joined = result.map_or(ExecutionCondition::Unknown, |identity| {

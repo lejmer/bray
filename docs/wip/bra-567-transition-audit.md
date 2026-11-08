@@ -53,16 +53,18 @@ Pushed frame repair a8998d273 frames actual loan contents before retaining the d
 failed because a projected field loan was stored as actual field data. Alias-join laws cover parameter and expression
 identities, common marker proof, rejected missing proof, no owner promotion and repeated-join stabilization.
 
-Current terminal-snapshot repair excludes absent observations from global value replacements, using resolved
-availability. Actual channel trace proved retired storage9 changed the live holder's core-data replacement to Unknown
-at loop header42. A direct boundary law failed before this repair and passes now. Terminal data remains readable for
-postconditions. Checker461 passes. Fixed comparison: 697 passed / 62 failed / 99 ignored, 89s. Six frozen identities
-are repaired, including both yielded-owner join controls. The separately added endpoint positive is the only new
-failing identity. Endpoints still report four call/four cleanup failures, so native composition remains blocked.
+Pushed terminal-snapshot repair 46482b628 excludes absent observations from global value replacements using resolved
+availability. Actual trace proved retired storage9 overwrote a live holder's data replacement at loop header42.
+Its boundary law failed before the repair. Terminal data remains readable. Fixed comparison: 697 passed / 62 failed /
+99 ignored, 89s, with six frozen identities repaired and only the separately added endpoint positive newly failing.
 
-Temporary hooks in guarantee/state.rs, storage_flow/check/analysis/core.rs and model/domain.rs compare marker6421
-through actual operations, edges and all merges in send63738. Next locate the first remaining loss on repaired code,
-then remove hooks. Do not repeat carrier-role, availability, foreign-wait or reference-mask experiments without evidence.
+Current nested-data repair pairs actual retained component paths on both sides of a reference-data join and pins equal
+data against ancestor replacement. Shared component_projections replaces the former snapshot-local projection inventory.
+A direct nested-field law failed red with Unknown before this repair. Checker462 passes. Both actual Sender.send and
+Receiver.receive now pass execution certification/lowering, and the actual marker trace has no common-fact merge loss.
+All diagnostic hooks are removed. The rebuilt compiler passes checker462 and the fixed comparison at 698 passed /
+61 failed / 99 ignored, 100s, with zero new failing identities against frozen7b5dc5634. Rebuild xtask for native next.
+Do not repeat carrier-role, availability, foreign-wait or reference-mask experiments without evidence.
 
 Native remains unverified. Retained xtask6ab61fffe predates Dispose/Cleanup and must rebuild before native checking.
 No native async composition has executed. Fixture Source/lowering and invalid controls passed and remain in the fixed
