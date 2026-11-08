@@ -14,12 +14,12 @@ pub(in crate::dependency) fn prepare_future_effects<C: CheckerRequestContext + ?
 
     for input in inputs {
         captures.extend(resolve_effects(request, &[Effect::Direct {
-            subject: DependencySubject::root(input.root()), kind: Kind::Cleanup(input.ty(request.semantic_values())), access_type: Some(input.ty(request.semantic_values())),
+            subject: DependencySubject::root(input.root()), kind: Kind::Dispose(input.ty(request.semantic_values())), access_type: Some(input.ty(request.semantic_values())),
         }])?);
     }
     let ty = call.resolution().result().completion_type();
     let result = resolve_effects(request, &[Effect::Direct {
-        subject: DependencySubject::root(DependencySubjectRoot::Result), kind: Kind::Cleanup(ty), access_type: Some(ty),
+        subject: DependencySubject::root(DependencySubjectRoot::Result), kind: Kind::Dispose(ty), access_type: Some(ty),
     }])?;
     Ok((captures, result))
 }
@@ -46,7 +46,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     active: &mut BTreeSet<TypeId>,
     resolved: &mut Vec<Effect>,
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-    let Some((Kind::Cleanup(ty), access_type)) = mutation(effect) else {
+    let Some((kind @ (Kind::Dispose(ty) | Kind::Cleanup(ty)), _)) = mutation(effect) else {
         // The result owns its effects while sharing immutable projection paths.
         resolved.push(effect.clone());
         return Ok(());
@@ -56,7 +56,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         return Ok(());
     }
 
-    if access_type.is_none() && !matches!(effect, Effect::UnboundedMutation { .. }) {
+    if matches!(kind, Kind::Cleanup(_)) {
         resolved.push(effect.clone());
         return Ok(());
     }
@@ -84,9 +84,9 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         });
 
         let scope = match scope {
-            Some(path) => project(effect, &path, Kind::Cleanup(*ty), None),
-            None if part.is_some() => Effect::UnboundedMutation { kind: Kind::Cleanup(*ty), access_type: None, ambient: false },
-            None => replace_kind(effect, Kind::Cleanup(*ty), None),
+            Some(path) => project(effect, &path, Kind::Dispose(*ty), None),
+            None if part.is_some() => Effect::UnboundedMutation { kind: Kind::Dispose(*ty), access_type: None, ambient: false },
+            None => replace_kind(effect, Kind::Dispose(*ty), None),
         };
 
         if part.is_none() || matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) | TypeData::TypeValuedMemberProjection { .. })
@@ -125,7 +125,7 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
             _ => Effect::UnboundedMutation { kind: Kind::Retire, access_type: None, ambient: false },
         };
 
-        effects.push(replace_kind(&backing, Kind::Cleanup(fields.element), None));
+        effects.push(replace_kind(&backing, Kind::Dispose(fields.element), None));
         effects.push(backing);
         return Ok(());
     }

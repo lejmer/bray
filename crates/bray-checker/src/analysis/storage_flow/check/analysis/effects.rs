@@ -669,6 +669,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if matches!(target.origin, Origin::Returned { .. })
             && kind != DependencyMutationKind::Atomic
         {
+            // Alias bounds retain the possible region, not the disposed value's layout.
+            let kind = match kind {
+                DependencyMutationKind::Dispose(ty) => DependencyMutationKind::Cleanup(ty),
+                kind => kind,
+            };
             let (origins, unbounded) = memory.effect_origins(target);
 
             if unbounded && kind != DependencyMutationKind::Escape {
@@ -736,7 +741,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         };
 
-        let effect = effect.or_else(|| matches!(kind, DependencyMutationKind::Cleanup(_)).then_some(
+        let effect = effect.or_else(|| matches!(kind, DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)).then_some(
             DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient: true }
         ));
 
@@ -823,6 +828,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 | StorageIdentity::ContractParameter(_)
         ) && identity.is_invocation_owned(self.storage.kind())
             && !borrowed
+            && !matches!(kind, DependencyMutationKind::Dispose(_))
             && (kind != DependencyMutationKind::Escape
                 || self.input.reference_free(self.storage, path).is_some())
             && !path.projections.contains(&StorageProjection::OwnedTarget)

@@ -514,9 +514,10 @@ fn encode_mutation(
         DependencyMutationKind::Clear => 6,
         DependencyMutationKind::Escape => 7,
         DependencyMutationKind::Cleanup(_) => 8,
+        DependencyMutationKind::Dispose(_) => 9,
     });
 
-    if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Cleanup(ty) = kind {
+    if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) = kind {
         encoder.write_u32(ty.raw());
     }
 }

@@ -26,7 +26,7 @@ pub(in crate::analysis::storage_flow) enum Effect {
 
 impl Effect {
     pub(in crate::analysis::storage_flow) fn is_ambient(&self) -> bool {
-        matches!(self, Self::Ambient | Self::UnboundedMutation { ambient: true, .. } | Self::Mutation(_, bray_symbols::DependencyMutationKind::Cleanup(_), _))
+        matches!(self, Self::Ambient | Self::UnboundedMutation { ambient: true, .. } | Self::Mutation(_, bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), _))
     }
 
     pub(in crate::analysis::storage_flow) fn may_reach_all_inputs(&self) -> bool {

@@ -249,7 +249,7 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
     if template
         .effects()
         .iter()
-        .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Direct { kind: bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Cleanup(_), .. }))
+        .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Direct { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. }))
     {
         result = result.with_effects(super::cleanup::resolve_effects(request, template.effects())?);
     }

@@ -147,8 +147,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // receiver address remains governed by the terminal receiver contract.
         let cleanup_references = effects.into_iter().flatten().flat_map(|effect| {
             match effect {
-                Effect::Mutation(target, DependencyMutationKind::Cleanup(_), access_type) => {
-                    Some(access_type.is_none().then_some(target).into_iter().chain(memory.contained_regions(target)))
+                Effect::Mutation(target, kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), _) => {
+                    Some(matches!(kind, DependencyMutationKind::Cleanup(_)).then_some(target).into_iter().chain(memory.contained_regions(target)))
                 }
                 _ => None,
             }.into_iter().flatten().cloned()

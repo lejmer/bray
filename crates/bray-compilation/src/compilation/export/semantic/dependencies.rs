@@ -654,7 +654,7 @@ mod tests {
                     ));
 
                     carriers.push(DependencyWitnessCarrier::new(index, []));
-                    effects.push(DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Cleanup(ty), access_type: None, ambient: false });
+                    effects.push(DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(ty), access_type: None, ambient: false });
                 }
 
                 let data = match category {
@@ -740,7 +740,7 @@ mod tests {
         let outer = values
             .intern_dependency_contract_template(
                 DependencyContractTemplateData::new([])
-                    .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Cleanup(callable), access_type: None, ambient: false }])
+                    .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(callable), access_type: None, ambient: false }])
                     .with_normal_completion(false),
             )
             .expect("fixture dependency contract must be interned");
@@ -765,7 +765,7 @@ mod tests {
                 vec![
                     InterfaceDependencyContract::new([]),
                     InterfaceDependencyContract::new([])
-                        .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Cleanup(callable_id), access_type: None, ambient: false }])
+                        .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(callable_id), access_type: None, ambient: false }])
                         .with_normal_completion(false),
                 ],
             )

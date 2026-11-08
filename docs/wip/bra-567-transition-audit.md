@@ -37,32 +37,39 @@ Accepted earlier fixes cover Boolean production/publication, complete ownership 
 actual borrowed descriptors, local publication, separate completed-await cleanup, report capture and bounded reference
 effects. Async fixture functions/lifecycles and three invalid variants pass source certificates/lowering.
 
-Cleanup now uses Cleanup(T) in existing direct/indirect/unbounded effect locations. Known typed layouts expand selected
+Cleanup uses Dispose(T) for an actual value layout and Cleanup(T) for conditional effects on a region, in the existing
+direct/indirect/unbounded effect locations. Known typed layouts expand selected
 lifecycle effects while composing the receiver scope. Region bounds carry no claim of T's layout. Type-only cleanup and
 receiver-based escape guessing are removed. Selected-call preparation retains capture/result cleanup templates and their
 reference/union paths. Physical effects are captured at future formation into existing Transfer metadata, separately for
 capture cleanup and discarded-result cleanup. Staged result references do not publish result authority or fall back to
 live output storage. task_cleanup_types is removed. Semantic cleanup presence and diagnostic types remain in their plan.
 
-scoped-cleanup-prepared-regressions.log: 24 passed, including all five regression identities, three recursive-summary
+Focused prepared-version checks: 24 passed, including all five regression identities, three recursive-summary
 checks, terminal destructor controls, bounded channel creation and async fixture controls. Prepared checker: 457 passed.
 Interface: 216 passed outside the sandbox. Deferred-move law retains both cleanup phases and staged output references.
-scoped-cleanup-prepared-comparison.log: 692 passed, 66 failed, 99 ignored. No new failing identities. Bounded-channel
+comparison.log: 692 passed, 66 failed, 99 ignored. No new failing identities. Bounded-channel
 failure removed. Runtime was 213s versus 94s, with concurrent driver compilation. Investigate isolated cost before handoff.
 These source runs predate the last semantic-presence simplification and unary release/projection preparation corrections.
 
-Latest rebuilt xtask includes those corrections. scoped-cleanup-current-native.log stops in stdlib planning with nine
+Latest rebuilt xtask includes those corrections. native.log stops in stdlib planning with nine
 E7123: send/receive outer and generation-block cleanup, lock/get on both loop back-edges, and environment_storage cleanup.
 Bounded-channel creation is repaired. The new loop call failures are regressions from the four-error committed baseline.
 Do not expand or claim convergence until repaired. No runtime Source archive or native composition has executed.
 
 production_channel_endpoints_preserve_loop_and_cleanup_authority pins both actual endpoint bodies and is red.
-endpoint-transition-trace.log shows await exporting an escape of the channel generation word address, exposing the core
+endpoint-trace.log shows await exporting an escape of the channel generation word address, exposing the core
 allocation and invalidating sibling lock markers at the back-edge. Next trace that effect through the platform timed-wait
 boundary and preserve its actual contract. Do not weaken alias rules or add unproved library guarantees. Trace hooks are
 restored. The trace executable differs from this checkpoint only in diagnostic output.
-Self-review also found access_type being used to infer value-layout precision. Alias bounds do not establish that.
-Represent exact disposal versus conditional region effects explicitly before treating cleanup specialization as complete.
+Explicit disposal/region distinction is verified: checker 457, interface 216, fixed comparison 692 passed / 67 failed /
+99 ignored in 99.4s without concurrent compilation. Relative to the 7b5dc5634 baseline, bounded-channel failure is removed
+and the newly pinned endpoint positive is added. No other changed failing identities. No inference from access_type
+remains. Endpoint source diagnostics still include four call and four cleanup failures. Native environment cleanup remains.
+
+Retain only current evidence: baseline-failures.txt, comparison.log, endpoint-trace.log, native.log and the executable
+baseline deferred-report-fc4b5160b-baseline.exe. The executable supports the specific pre-existing-failure comparison.
+Native products remain reusable. Replace active logs in place and remove superseded artifacts immediately.
 
 ## Remaining work
 

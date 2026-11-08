@@ -370,8 +370,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.synchronous_cleanup
                     .extend(effects.into_iter().flatten().filter_map(|effect| {
                         match effect {
-                            Effect::Mutation(_, DependencyMutationKind::Cleanup(ty), _)
-                            | Effect::UnboundedMutation { kind: DependencyMutationKind::Cleanup(ty), .. } => deferred(*ty)
+                            Effect::Mutation(_, DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty), _)
+                            | Effect::UnboundedMutation { kind: DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty), .. } => deferred(*ty)
                                 .map(bray_symbols::DependencyRequirement::SynchronousCleanup),
                             _ => None,
                         }
@@ -697,7 +697,7 @@ fn preserve_run_descriptor(
 
     if effects
         .iter()
-        .any(|effect| matches!(effect, Effect::Escape | Effect::UnboundedMutation { kind: DependencyMutationKind::Cleanup(_), .. }))
+        .any(|effect| matches!(effect, Effect::Escape | Effect::UnboundedMutation { kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }))
     {
         return;
     }
