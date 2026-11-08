@@ -3,6 +3,22 @@ use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{DependencyProjection, TypeData, TypeId};
 
+/// Selects a pattern component relative to its already evaluated expression.
+pub(crate) fn expression_storage_projections(
+    storage: &bray_bound_tree::StoragePlan,
+    expression: bray_bound_tree::BoundExpressionId,
+    access: bray_bound_tree::StorageAccessId,
+) -> Option<&[StorageProjection]> {
+    let source = storage.node_plans(expression.into())
+        .filter(|source| storage.access_contains(source.access(), access))
+        .max_by_key(|source| storage.resolved_projections(source.access()).map_or(0, <[_]>::len));
+
+    let source_path = source.and_then(|source| storage.resolved_projections(source.access()))
+        .unwrap_or_default();
+
+    storage.resolved_projections(access)?.strip_prefix(source_path)
+}
+
 /// The present-value projections introduced by a checked nullable adaptation.
 pub(crate) fn nullable_wrapping(
     values: &bray_symbols::SemanticValueStore,

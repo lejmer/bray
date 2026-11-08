@@ -24,98 +24,56 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is 7aa514618. The previous fc4b5160b checkpoint fixes proved-absent conditional cleanup and reference-free byte-copy
-address exposure. Both actual rename paths pass Source and lowering. conditional-cleanup-checker.log has 447 passes.
-conditional-cleanup-native.log still has 25 E7123, 27 E7119, 1 E7113, 8 E7036, 3 E7063 and 2 E7127.
-No native fixture has executed. The compiler repairs below are intermediate steps toward that acceptance gate.
+## Current checkpoint and next decision
 
-The pushed 7aa514618 batch preserves normal and abnormal report formation independently, including symbolic generic
-requirements. Opaque frames retain their captured dependencies. A boundary law checks channel separation, predecessor
-immutability and repeated-join stabilization. Await admission now consumes its Future operand at Suspension(Await),
-matching storage planning. The earlier selector only consumed at CallAttempt, which await never emits. The stale Future
-handle had produced phantom cleanup reports after completion. The actual awaited writer now passes its Source and
-portable-report checks. Real local escapes and fabricated/moved-owner negatives retain their expected rejection.
+The latest pushed source is 3b9d8906d on PR #710's branch. The original audit baseline is
+b90076c1f21f3853ebfd90954b3babe26f122eca. The agreed goal remains in bra-567-handoff.md.
+No native composition has executed and the issue is not complete.
 
-Slice lifetime retention previously dropped an already-recorded local array SliceRange because it cannot name scalar
-contents. The existing storage_owner helper now retains the projectable containing owner for lifetime bounds. Exact
-value selection stays strict. The frozen expired-storage negative and its new active-storage positive both pass.
-await-admission-checker.log has all 448 checker passes. await-admission-trusted.log has 198 passes, 47 failures and
-97 ignored. It newly exposes the composition lowering panic, which blocks expansion until repaired.
+The pushed batch initializes the postcondition Result formal at clause entry, separates successful await completion
+from later source continuation, and preserves each actual descriptor's role when its contents change. It removes the
+type-based current_observation helper and ValuePreservation callback. Its fixed comparison has 449 checker passes,
+38 lowering passes, 204 trusted passes with 41 failures and 97 ignored, and 383 broader export/lowering passes with
+57 failures and two ignored. No unchanged failure identity was added. The original await result cleanup test passes
+without changing its assertions. The extended composition has a mutable async receiver and three intended negatives.
+advance and transport pass, but cancellation after the awaited transport result originally failed in produce.
 
-await-ownership-trace.log proves the panic occurs after the child completes: lower_await materializes the returned
-ChildCleanup for a new cancellation request, but the CFG only models invocation failure before production. The
-speculative operand-temporary truncation was ineffective and is removed. The current coherent repair adds the
-post-completion cancellation edge without InvocationFailure and publishes the completed value in its checked output
-slot before that check. Existing guards distinguish cancellation before and after production. The CFG regression now
-requires both the admission transfer and a cancellation edge from successful completion. Two manual lowering fixtures
-also planned private accesses without their checked decisions. Their setup is corrected without weakening assertions.
-await-completed-cancellation-checker.log has 448 passes and await-completed-cancellation-lowering.log has 38 passes.
-await-completed-cancellation-build-fixed.log completes. The Source composition, both invalid variants, awaited writer
-and slice lifetime controls pass. The trusted comparison has 198 passes, 46 failures and 97 ignored, with only the
-composition failure removed from the preceding identity set. No temporary instrumentation remains.
+completed-owner-trace.log proves storage flow initialized the destination local at initializer completion, before
+ownership analysis or lowering published it at the pattern binding. Cancellation tried cleanup both on the actual
+await result and the unknown local. The current uncommitted batch removes that early-local shortcut and its helper.
+produce now passes. The fixed suite exposed three old regressions in borrowed locals, so expansion is stopped:
+owned_postconditions_follow_a_scoped_mutable_alias, shared_component_borrow_preserves_only_its_marker_observations,
+and nullable_input_adaptation_preserves_physical_owners_and_rejected_values. Do not weaken their expectations.
 
-The current broader comparison await-completed-cancellation-import-lowering.log has 380 passes, 60 failures and
-two ignored in 82.54 seconds, with exactly six old failures removed and none added. These include the restored slice
-negative, completed composite reports, independent pointer origins, protected-frame lowering, partial-array retention
-and implicit panic-report cleanup. The existing await outcome test still fails its immediate-block Store assumption,
-also present before the batch. Inspect the intervening report-retention blocks before correcting that assertion.
-The broader fixed export/lowering run before these await/lifetime changes is deferred-report-import-lowering.log:
-374 passed, 66 failed, two ignored in 81.44 seconds. It introduced one failure identity against the old comparison:
-checked_slice_prefix_authority_expires_with_its_storage. The exact preceding fc4 baseline also fails it, while the
-retained projected-loan executable passes. The current lifetime repair restores the narrow positive/negative check.
-Retained report, origin and completed-await traces establish the actual boundary defects. Comparison identities and
-executables remain in target/audit. Do not equate these Source test populations with native diagnostics or execution.
+The repaired binding consumes a formed borrow descriptor instead of copying the reached object. binding-reference-trace.log
+shows that the earlier transfer selected the referent while memory.values was empty and the actual descriptor remained
+in memory.borrows. Ownership and physical transfer now share expression-relative projection selection. Nullable wrapping
+and payload-absence observation occur at binding completion. The early-local helper and map are removed entirely.
 
-The current fixture adds ChildCleanup.advance as a mutable async receiver, updates visits across suspension and loop
-iterations, and adds a pending-mutable-future conflict negative without changing frozen test identities. All three
-intended negatives pass, but mutable-async-composition.log records the positive's marker-preservation failure.
-The existing await outcome regression still fails its result-store assertion. Its expectations are restored unchanged.
-Expansion is stopped until both transitions and the fixed comparison pass.
+binding-descriptor-boundaries.log passes the real async composition, all three intended negatives, the three borrowed
+controls and the new publication law. The law requires possible result liveness before cancellation, no local before
+binding, and an initialized local plus moved result at a subsequent suspension. Exit records join cancellation before
+and after production, so definite result initialization is deliberately not asserted across that join.
 
-mutable-composition-trace.log proves three exact defects. Contract clauses stage &result with unknown contents despite
-having a known successful-variant guard. The actual PostconditionResult formal was never initialized in current storage.
-The current entry repair installs ExecutionCondition::Result only at clause entry, without creating an owner. Its
-unchanged fallible-pair positive/fabrication-negative test passes in contract-entry-trace.log.
-That trace also shows Await's cancellation plan classifies the newly produced Guard as Moved. The new cancellation edge
-was emitted from resume, but build_await returned that same block, so later source Return consumed the result before
-any outgoing edge. The current repair gives the successful continuation a separate block. The CFG law now requires
-completion to be the last operation before cancellation. No result-store assertion was weakened.
-Finally, the receiver's entry witness is keyed by an owning Input(self). On await, storage flow proves its Marker field
-stable, but current_observation changes the formal to Reference, so same-role carrier retention drops the witness.
-Both direct() and the controlled bare yield_now() variant show this. ADVANCE-EFFECTS records Ambient with the Marker
-in stable_values. The first attempted correction changed borrowed-formal entry representation. The frozen comparison exposed six new
-old-test failures, and the receiver still failed, so that migration is reverted. Entry representation stays fixed.
+The composition main now explicitly requires main_thread_execution. Its Source harness loads it as a library callable,
+not an executable root. binding-source-boundaries.log identified RootCleanup's missing ordinary Main premise. Native
+acceptance must still prove the actual root supplies that authority. No production authority rule was weakened.
 
-All temporary traces and variant hooks are restored. Backups mutable-core-before-trace.rs, mutable-proof-before-trace.rs,
-mutable-host-before-trace.rs preserve the prior semantic sources. The MIR test is restored from 7aa514618, keeping its
-original owner-store and cleanup assertions. formal-loan-completion-boundaries-build.log completes. Its checker and lowering runs have 448 and 38 passes. The
-unchanged await result-store/cleanup regression passes. The trusted comparison has 198 passes, 47 failures and 97
-ignored, with six old failures removed, six old failures introduced and the extended composition failing. No expansion.
-The current repair instead removes current_observation's type-based descriptor reclassification. The existing actual
-source identity and ownership role now determine contents replacement in ExecutionCondition::with_current_contents.
-ValuePreservation uses that canonical operation directly. Its caller-specific callback and the old helper are removed.
-A new boundary law covers owning values, reference views and scalar copies, requiring identical role/identity and new
-contents. The postcondition Result entry and split post-await continuation repairs remain. Build session 28036 writes
-descriptor-role-completion-build.log for checker, lowering and compilation. Current sources contain no diagnostic hooks.
-descriptor-role-checker.log has all 449 passes and descriptor-role-lowering.log has all 38 passes. The fixed trusted
-population has 204 passes, 41 failures and 97 ignored. Exactly six old failures disappear and none is added in unchanged
-cases. The extended async receiver now passes, including its ensures. The real composition reaches produce and fails
-its cleanup marker requirement after awaiting transport. Both invalid-owner cases and the new pending-borrow negative
-still reject as intended. The original await result cleanup check passes unchanged. This is an intermediate checkpoint,
-not completion. Trace produced owner evidence through the post-completion cancellation edge before further migration.
-After completion rerun libraries, fixed trusted population, original await check, real async composition and negatives.
-If no unexplained old regression remains, broaden export/lowering, checkpoint/push, then rebuild xtask for native.
-await-completed-cancellation-native.log at 7aa514618 has 25 E7123, 27 E7119, three E7063 and two E7127. The previous
-E7113 and eight E7036 are gone. No native fixture executes. The retained xtask matches 7aa514618 plus the fixture edits.
-The latest compilation executable contains the diagnostic contract-entry build, not the current borrowed-formal/split
-continuation repair until session 5858 completes. Rebuild xtask only after the coherent current comparison is valid.
+binding-descriptor-build.log completes in 2m30s. The current source contains no temporary diagnostic hooks.
+binding-descriptor-checker.log has 449 passes and binding-descriptor-lowering.log has 38 passes.
+binding-descriptor-trusted.log has 207 passes, 40 failures and 97 ignored. It includes two extra passing adjacent
+controls compared with descriptor-role-trusted.log. Across unchanged identities, only the composition failure disappears.
+binding-descriptor-import-lowering.log has 383 passes, the same 57 failures and two ignored in 112.53 seconds while
+xtask builds concurrently. No unexplained regression remains in either fixed comparison.
 
-The runtime protocol inspection confirms reserve_start stores the registration before demand_lane and graceful exit
-withdraws it before close_owner/release_pin. commit_start calls activation.begin before locking and publishing the task
-control, then clears registration and wakes. Still trace actual abnormal ownership between begin and publication through
-the native frame owner and activation cleanup. Its shape alone is not proof of rollback. EntryRestoration consumes its
-EntryScope and writes completion after finish_entry_scope. RetiredCell disposes control before the execution pin and arena.
-These remain read-only correspondence observations awaiting Source and native acceptance.
+Push this coherent checkpoint, finish xtask build session 78595 and run native acceptance. The last native at 7aa514618 has 25 E7123,
+27 E7119, three E7063 and two E7127. It contains none of 3b9d8906d's Result-entry and descriptor-role repairs.
+
+Runtime protocol inspection confirms reserve_start stores registration before demand_lane and rollback withdraws it
+before close_owner/release_pin. commit_start calls activation.begin before locking/publishing task control. Still prove
+actual abnormal ownership and lock ordering through native frame ownership and activation cleanup before changing it.
+EntryRestoration finishes its EntryScope before writing completion. RetiredCell disposes control before pin and arena.
+These observations await Source and native acceptance.
 
 ### Executable ledger for the current blocking boundaries
 
@@ -199,14 +157,14 @@ Later checks blocked by that probe were unverified. Avoid an unchanged broad rer
 
 ### Remaining completion work
 
-- Finish the post-completion cancellation repair and rerun the fixed comparison before expanding migration. Keep the restored slice negative.
+- Finish local binding publication and restore the three borrowed-local controls before expanding migration. Keep the restored slice negative.
 - Finish the report-formation repair and trace the writer's actual loan through await and report disposal. Preserve open
   generic report equations, distinct normal/abnormal outputs, and conservative opaque-frame dependencies.
-- Keep the trusted comparison identities fixed. Its current 47 failures include the blocked composition. Recompare exact identities after repair. Preserve and explain the
+- Keep the trusted comparison identities fixed. Its last pushed 41 failures include the blocked composition. Recompare exact identities after repair. Preserve and explain the
   broader export/lowering comparison, including the conversion reference-path panic and callback/operator report gaps.
 - Finish the executable ledger across constructors/defaults, branches/loops, suspension and task outcomes, scoped/root
   cleanup, retained incidents, shutdown and imported facts. Source successes do not establish native behavior.
-- Extend the real async composition with mutable async receiver use after that boundary works. Its existing assertions
+- Verify the extended real async composition with mutable async receiver use. Its existing assertions
   cover transport return branches, loop suspension, genuine Main authority, inactive Future disposal without executing
   its body, scoped child cancellation, exactly-once finalization/destruction and lexical cleanup before static cleanup.
   Preserve invalid fabricated/moved-owner variants and their exact intended diagnostics. Execute the program natively.

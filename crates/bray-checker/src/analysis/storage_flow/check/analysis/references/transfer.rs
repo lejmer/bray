@@ -1,6 +1,6 @@
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Place, Target};
+use crate::analysis::storage_flow::memory::{Place, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::storage_projections;
 use bray_bound_tree::BoundExecutionSite;
@@ -22,31 +22,31 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 };
 
-                if self.input.initialization_destination(expression) == Some(destination) {
-                    // The initializer already transferred this whole value, including formed borrows.
-                    continue;
-                }
+                let path = crate::storage::expression_storage_projections(self.storage, expression, access);
 
-                let source = if let Some(result) = self.expression_result_storage(expression) {
-                    let selected = self.storage.access(access).expect("pattern source access is planned");
-
-                    let base = self.storage.node_plans(expression.into())
-                        .filter_map(|plan| self.storage.access(plan.access()))
-                        .filter(|base| base.root() == selected.root()
-                            && selected.projections().starts_with(base.projections()))
-                        .max_by_key(|base| base.projections().len());
-
-                    base.map(|base| Target::storage(result)
-                        .project(&selected.projections()[base.projections().len()..]))
+                let source = if self.expression_is_borrowed(expression) && path.is_some_and(<[_]>::is_empty) {
+                    // The initializer formed a descriptor. Its reached object is
+                    // not a stored descriptor that can be copied into the local.
+                    self.expression_reference(state, expression)
+                } else if let Some(result) = self.expression_result_storage(expression) {
+                    path.map(|path| Source::Value(Target::storage(result).project(path)))
                 } else {
                     self.input.reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
+                        .map(Source::Value)
                 };
 
-                if let Some(source) = source {
-                    state
-                        .memory
-                        .transfer_value(&source, Place::root(destination));
+                let source_type = self.storage.access(access).expect("pattern source is planned").reached_type();
+                let target_type = self.storage.identity_type(destination).expect("pattern binding has its checked type");
+                let destination = Place::root(destination);
+
+                if let Some(wrapping) = crate::storage::nullable_wrapping(self.request.semantic_values(), source_type, target_type)
+                    && let Some(source) = source {
+                    source.transfer(&mut state.memory, Place { root: destination.root, projections: wrapping.into() });
                 }
+
+                let value = state.execution.as_ref().map(|execution| self.execution.storage_value(execution, expression, access));
+
+                self.observe_transferred_value(state, value, &destination, target_type);
             }
 
             return;
@@ -232,13 +232,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             state.initialize_path(&result);
             self.transfer_reference_value(state, expression, result, ty);
-        } else if let Some(destination) = self.input.initialization_destination(expression) {
-            let ty = self
-                .storage
-                .identity_type(destination)
-                .expect("initialized local has a declared type");
-
-            self.transfer_reference_value(state, expression, Place::root(destination), ty);
         }
     }
 
