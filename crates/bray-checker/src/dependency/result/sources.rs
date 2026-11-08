@@ -45,6 +45,18 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         mut expression: BoundExpressionId,
     ) -> Option<BoundExpressionId> {
         loop {
+            if let Some(BoundExpression::Name(name)) = self.request.view().expression(expression)
+                && let BoundReferenceTarget::Surface(bray_symbols::AnySymbolId::ReceiverParameter(receiver)) = name.target()
+                && matches!(
+                    self.storage.binding(bray_bound_tree::StorageBindingTarget::Receiver(receiver)),
+                    Some(bray_bound_tree::StorageBinding::Access(_))
+                )
+            {
+                // Implicit self has the reached Self type. Its checked entry binding
+                // distinguishes a shared or mutable loan from a consuming receiver.
+                return Some(expression);
+            }
+
             let receiver = match self.request.view().expression(expression) {
                 Some(BoundExpression::Name(name)) => match name.target() {
                     BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)) => {

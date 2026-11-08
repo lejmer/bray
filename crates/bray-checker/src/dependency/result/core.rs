@@ -12,6 +12,7 @@ pub(crate) struct Transfer<'a, 'state, C: CheckerRequestContext + ?Sized> {
     pub(super) selections: &'a CheckedSemanticSelections,
     pub(super) patterns: &'a CheckedPatterns,
     pub(super) inputs: &'a crate::dependency::ValueInputs,
+    pub(super) storage: &'a bray_bound_tree::StoragePlan,
     pub(super) state: &'state mut super::state::State,
 }
 
@@ -22,6 +23,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
         selections: &'a CheckedSemanticSelections,
         patterns: &'a CheckedPatterns,
         inputs: &'a crate::dependency::ValueInputs,
+        storage: &'a bray_bound_tree::StoragePlan,
         state: &'state mut super::state::State,
     ) -> Self {
         Self {
@@ -30,6 +32,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
             selections,
             patterns,
             inputs,
+            storage,
             state,
         }
     }

@@ -24,12 +24,15 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is 02d82b5bc. Fixed comparison gates pass with no unexplained
+The latest pushed source is 1ba7a3100. Fixed comparison gates pass with no unexplained
 comparison regression. Native planning has no remaining moved-value diagnostic, but still fails on trusted obligations
 and execution guarantees. No native composition has executed. The copied-pointer owning-boundary regression and
-all 446 checker tests pass at that checkpoint. The fixed trusted population is 187 passed, 49 failed, 97 ignored with
+all 446 checker tests pass at that checkpoint. The fixed trusted population is 189 passed, 48 failed, 97 ignored with
 no newly failed old identity. Native planning remains blocked. The active gate is carried loan requirements versus physical storage anchors
-for returned references. All temporary traces are restored. No native fixture has executed.
+for returned references. The receiver repair passes the real std.format.bytes body and preserves
+the local-owner escape rejection. Projected-input mapping now selects the original evaluated component's
+portable dependencies. The generator still fails in liveness, which retains its container loan.
+All temporary probes are removed. No native fixture has executed.
 The ledger remains incomplete. Source passes do not certify runtime execution.
 
 ### Executable ledger for the current blocking boundaries
@@ -46,8 +49,14 @@ These rows trace code paths, not completed native coverage. The failure edges ar
 | Actual consumer of a projected loan | The source path still identifies the producer's materialized borrow slot. The consumer first captures reached data or forms a new borrow. | Completion consumption retires the temporary descriptor, independently of the original referent owner. User parameter and binding storage are excluded by the producer/value-slot identity check. | `consume_expression_value` records the same consumption metadata read by storage flow and liveness `OperationEffects::from_storage_plan`. The frozen lowering regression passes. |
 | Await suspension, `execution.rs::build_await` | The Future operand has been evaluated. No awaited result exists. The operation branches to a suspended block. | Resume uses InvocationCompletion and only that edge publishes Call Completion. Panic and cancellation use InvocationFailure and resolve scopes through `push_exit`. | `flow/deferred.rs::deferred_alternatives` selects the actual deferred value. Storage flow records suspension before effects and does not publish the awaited result at suspension. Liveness includes current uses and live-out subjects. Async analysis requires the correlated suspension state. Native paths remain unexecuted. |
 | Suspension retention | Current live storage, initialized storage, moved paths, active loans and cleanup dependencies exist. | A merge unions possible live and moved obligations, but intersects definite initialization and active loans. It cannot promise one predecessor's initialized state on all paths. | `core.rs::record_suspension`, `liveness/solve.rs`, `asynchronous/check.rs` and lowering `cleanup/frame.rs::frame_retention` consume the same checked subjects. Frame retention also includes pending report owners and exact execution lane requirements. Source composition lowers, native retention remains unverified. |
-| Opaque effects on a copied descriptor | The private input has Scalar context plus an immutable source value. Physical survival distinguishes complete value from descriptor-only survival. | Descriptor-only survival must replace reached contents without replacing the copied descriptor's origin or creating owning authority. | `ValuePreservation::apply_bounded` discarded that origin. The real dynamic wrappers freeze three failures, and `preserving_a_copied_descriptor_keeps_its_value_origin_without_old_contents` fails before the repair. The repair is under validation. |
-| Nullable component publication at a loop join | The root snapshot already contains payload data. Reading its NullableValue produces an extraction view that retains its parent. | Republishing that view as payload data must not embed the same parent inside its own payload. Otherwise equivalent states alternate and the solver does not stabilize. | `CurrentValues::set_slot` and `update_parent_observations` use `with_storage_component`. The frozen law fails before normalizing its incoming payload view. `generator-loop-state-snapshot.log` isolates this one changing term. The repair is under validation. |
+| Opaque effects on a copied descriptor | The private input has Scalar context plus an immutable source value. Physical survival distinguishes complete value from descriptor-only survival. | Descriptor-only survival must replace reached contents without replacing the copied descriptor's origin or creating owning authority. | `ValuePreservation::apply_bounded` discarded that origin. The real dynamic wrappers and `preserving_a_copied_descriptor_keeps_its_value_origin_without_old_contents` now pass at f1b8bc032. |
+| Nullable component publication at a loop join | The root snapshot already contains payload data. Reading its NullableValue produces an extraction view that retains its parent. | Republishing that view as payload data must not embed the same parent inside its own payload. Otherwise equivalent states alternate and the solver does not stabilize. | `CurrentValues::set_slot` and `update_parent_observations` use `with_storage_component`. The frozen law and both previously stalled generator/default lowering tests pass at 02d82b5bc. |
+| Shared or mutable implicit receiver entry | `self` has reached Self type, while its checked StorageBinding is an Access through the entry loan. A consuming receiver instead has an Identity binding. | Reborrowing a field retains that entry loan. It must not require the private receiver argument slot to outlive the result. A real local owner still cannot escape. | `result/sources.rs::reborrowed_receiver` missed this distinction. The working repair consumes StoragePlan rather than inferring the receiver mode from expression type. Real Buffer and std.format.bytes pass, local escape rejects, and the consuming stored-reference control passes. |
+| Selected input and declaration-owned default | `execution.rs::build_selected_inputs` evaluates each explicit argument, then emits Input, Attempt and Completion for its receiver-first ordinal. Defaults can fail at Attempt. | Only successful Completion initializes the private input. Earlier initialized inputs survive a later default failure for cleanup. Parent invocation admission follows all successful inputs. | Checked source/materialization roles feed the shared operation selector, liveness boundary uses and lowering's checked constructor input metadata. Source operation-cleanup/default lowering passes. Native rollback remains unexecuted. |
+| Pattern observation and binding | `build_pattern_observations` walks child patterns before recording PatternObservation. A checked pattern reads its established subject. | Observation forms no owned value. Binding transport happens at the later Bound pattern operation, with actual subject dependencies. Failed match edges cannot publish successful bindings. | `ResultTransfer::operation` separates pattern observation from binding, and storage flow consumes checked pattern metadata. Generator local-storage escape controls pass. Full pattern alternatives remain to be mapped. |
+| Scope cancellation broadcast | `assembly.rs::push_scope_exit` records TaskCancellationBroadcast before LifecycleResolution. Unresolved nested task owners are still live. | Broadcast requests cancellation without consuming cleanup authority or waiting. A scoped asynchronous exit is shielded and resumes through its own Completion before the remaining phases. | `guarantee/cleanup/transition.rs` and storage-flow cleanup switch on the exact phase. Native cancellation order remains unexecuted. |
+| Scope lifecycle resolution and exit payload | `cleanup.rs::push_exit` preserves Return, ResultErrorPropagation, Yield and normal fallthrough values while resolving scopes. Panic and cancellation retain incidents instead. | Lifecycle cleanup resolves owners before terminal publication. A cleanup failure takes its dedicated failure edge, and catastrophic divergence bypasses cleanup by design. | Liveness `transfer_operation` retains exit dependencies only for the preserving lifecycle phase. `collect_liveness` records actual cleanup suspension subjects. Lowering and native terminal publication still need final correspondence checks. |
+| Task outcome completion | Storage flow splits feasible task outcomes before applying completion effects. A failed outcome cannot publish successful payload guarantees. | `apply_task_outcome` applies failure effects when the selected task completion is false. Completed alternatives merge only after each has its own effects and result evidence. | `apply_operation_branch`, `split_task_completion` and `merge_completed` are the actual analysis path. Source composition checks the real outcome selection. Native payload and incident disposal remain unexecuted. |
 
 Audit baseline: `b90076c1f21f3853ebfd90954b3babe26f122eca`.
 The behavioral contract remains [the implementation handoff](bra-567-handoff.md).
@@ -58,7 +67,7 @@ requires the whole composition, including lowering and native execution. This re
 ## Current implementation and evidence
 
 Worktree: `target/bra-567-audit`, directly on PR #710 branch `feature/bra-567-async-root-orchestration`.
-The original develop checkout is untouched. Latest pushed head is **02d82b5bc**.
+The original develop checkout is untouched. Latest pushed head is **1ba7a3100**.
 The user explicitly authorized continued implementation, checkpoint pushes, and an independent review on the draft PR
 once implementation and verification finish. Continue through resolved review findings until ready for human Review.
 No review agent has been started. No style or formatting pass has run during this audit.
@@ -76,6 +85,7 @@ No review agent has been started. No style or formatting pass has run during thi
 - `1fdbc16e7`: observe copied predicate values without rebinding borrowed storage subjects.
 - `f1b8bc032`: preserve copied descriptor origins while replacing reached contents.
 - `02d82b5bc`: stabilize nullable component publication and unblock generator/default composition checks.
+- `1ba7a3100`: distinguish carried loan requirements from physical storage anchors and accept actual Buffer views.
 
 ### Fixed comparisons and their limits
 
@@ -105,8 +115,11 @@ Later checks blocked by that probe were unverified. Avoid an unchanged broad rer
 
 ### Current gate and owned process
 
-All temporary production traces are removed. The test executables match the current loan-anchor repair and contain
-no diagnostic capture. No task-owned probe remains running. The current coherent repair is ready for checkpoint.
+All temporary production traces are removed. The loan-anchor repair is pushed as 1ba7a3100. The current build adds
+only temporary test tracing for checked dependency contracts, storage plans, exported result summaries and physical
+completion facts. Originals are retained as view-contracts-host-tests-before-trace.rs and
+view-contracts-control-flow-before-trace.rs. The host original already includes the new formatted-bytes regression,
+which must remain when restoring. Active build: view-contracts-trace-build.log, session 41049.
 
 `returned-view-boundary-baseline.log` freezes actual std.bytes.Buffer.as_slice/as_slice_mut rejection, shared generator
 reference rejection and the borrowed-heap positive failure. Local generator references are correctly rejected.
@@ -125,6 +138,14 @@ instead of the old escaping-slot error. Its later owned-Owner negative remains b
 The shared generator test still reports five escaping dependencies. These remain completion work.
 `loan-anchor-trusted.log` has 189 passed, 48 failed, 97 ignored. nested_buffer_views_preserve_checked_storage_effects is
 the only removed old failed identity, and none were added. The added production Buffer-view regression passes.
+
+
+`loan-anchor-native.log` at 1ba7a3100 reports 29 E7113, 28 E7119, 27 E7123, 9 E7036, 3 E7063 and 2 E7127.
+The preceding native run had 48 E7113 and 37 E7119. The first leaf remains std.format.bytes at SourceId(94),
+range 2560..2593. The actual Buffer.as_slice body now passes, so the next gate traces its caller and exported
+result contract. production_formatted_bytes_retain_the_buffer_owner freezes that exact Source caller before any
+further semantic change. The existing first versus first_cursor generator bodies are paired trace controls.
+No native fixture has executed.
 
 The smaller frozen generator_iteration_lowers_selected_cursor_operations test repeated the same blocks beyond
 14,000 updates. Its task-owned process was stopped after sufficient repeated-update evidence. The verbose flow trace
@@ -174,13 +195,23 @@ Earlier repairs and retained evidence:
 
 ### Remaining completion work
 
-`copied-descriptor-native.log` at f1b8bc032 still fails standard-library native planning. It reports 27 E7123,
-37 E7119, 48 E7113, 9 E7036, 3 E7063 and 2 E7127. The earlier copied-value checkpoint had 56 E7123.
-The dynamic write leaf is repaired. The first remaining leaf is CheckingEscapingStorageDependency, SourceId(94),
-range 2560..2593. The product string-sorted source order maps SourceId(94) to std/format/sink.bray. That exact
-byte range is the return of sink.buffer.as_slice() at line 92. SourceId(37) and its earlier dynamic write byte range
-also match this ordering. The returned-reference transport boundary is the current gate.
-No native fixture executed.
+`receiver-entry-native.log` contains 27 E7123, 27 E7119, 2 E7113, 9 E7036, 3 E7063 and 2 E7127.
+The previous native checkpoint had 29 E7113 and 28 E7119. The real std.format.bytes return is repaired.
+The first remaining leaf is a trusted precondition on prepare_native_path at SourceId(102), bytes 11359..11369.
+The product string-sorted source order maps that ID to std/fs/windows.bray. Remaining escaping references occur
+at writer.bray's awaited flush_buffered_async and condition/variable.bray's returned mutex.lock.
+The shared-generator copied element also retains local cursor loans in liveness despite its portable projection
+now resolving to the original parameter. These are the next carried-value versus container-loan consumers to trace.
+No native fixture executed. The native attempt failed in standard-library planning after 22.6 seconds.
+
+The receiver/projection batch passes all 446 checker tests. The fixed trusted population is 191 passed,
+48 failed and 97 ignored with no old failure added or removed. Both new Source tests pass. Nine of ten focused
+boundary tests pass, including the local-owner and generator escape negatives, consuming stored-reference control,
+both async composition checks and operation cleanup lowering. The existing shared-generator positive still fails.
+Its newly added exact portable-contract assertion awaits the next test build. The diagnostic-only projection probe
+resolved the copied element to the original parameter before that physical failure. No trait-view transparency change
+was made. The new local-owner fixture originally used reserved `view` as a method name. Renaming it preserved its
+escape-rejection expectation. Style and formatting remain deferred.
 
 - Finish the executable ledger across remaining operation/failure transitions, including constructors/defaults,
   branches/loops, suspension and task outcomes, scoped and root cleanup, retained incidents, shutdown and imported facts.

@@ -1340,6 +1340,7 @@ where
             self.execution.semantics.selections(),
             self.patterns,
             self.values,
+            self.storage,
             &mut state.result_dependencies,
         );
 
