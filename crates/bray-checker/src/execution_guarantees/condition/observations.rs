@@ -77,7 +77,13 @@ impl ExecutionCondition {
                         .enumerate()
                         .map(|(index, argument)| {
                             if index == 0 {
-                                argument.owner_identity().clone()
+                                let mut descriptor = argument;
+
+                                while let Some((_, contents)) = descriptor.storage_contents() {
+                                    descriptor = contents;
+                                }
+
+                                descriptor.owner_identity().clone()
                             } else {
                                 argument.clone()
                             }

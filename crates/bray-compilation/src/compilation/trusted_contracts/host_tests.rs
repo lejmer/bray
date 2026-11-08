@@ -21,6 +21,32 @@ fn async_ownership_composition_checks_real_source_transitions() {
 }
 
 #[test]
+fn async_ownership_composition_rejects_fabricated_and_moved_owners() {
+    let source = include_str!("../../../../../xtask/fixtures/native-execution/async-ownership-composition.bray");
+
+    for (original, replacement, body, expected) in [
+        ("acquire(false)", r#"ChildCleanup
+        {
+            marker = Marker
+            {
+            },
+            cancelled = false
+        }"#, "produce", DiagnosticKind::CheckingTrustedObligationNotProven),
+        ("let pending = child(owner).start();", r#"let pending = child(owner).start();
+    observe(&owner);"#, "main", DiagnosticKind::CheckingUseOfMovedStorage),
+    ] {
+        assert_eq!(source.matches(original).count(), 1);
+        let invalid = source.replace(original, replacement);
+        let compilation = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::baseline(), &invalid);
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, body))
+            .expect("invalid composition reports source diagnostics");
+
+        bray_testing::assert_goal_state_diagnostic_kind(lowered.diagnostics(), expected);
+    }
+}
+
+#[test]
 #[ignore = "tier:proof"]
 fn production_buffer_views_keep_nested_allocations_bounded() {
     let compilation = production_host_compilation("module probe;");

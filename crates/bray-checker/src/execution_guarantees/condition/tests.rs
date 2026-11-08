@@ -5,6 +5,25 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[test]
+fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority() {
+    let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let pointer = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let copy_identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+    let copied = ExecutionCondition::scalar_observation(copy_identity, pointer.clone());
+    let count = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+    let condition = |value| ExecutionCondition::predicate(predicate.into(), callable.substitution(),
+        vec![value, count.clone()]);
+    let spatial = BTreeSet::from([predicate.into()]);
+
+    assert_eq!(condition(copied.clone()).spatial_observations(&spatial),
+        condition(pointer.clone()).spatial_observations(&spatial));
+    assert_ne!(condition(copied.clone()), condition(pointer));
+    assert!(copied.ownership_identity().is_none());
+}
+
+#[test]
 fn const_calls_observe_current_values_without_loan_identity() {
     let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
     let callable = crate::test_support::callable_instance(definition.into());
