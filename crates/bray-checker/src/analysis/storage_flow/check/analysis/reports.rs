@@ -289,6 +289,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             self.execution.semantics.selections(),
             self.patterns,
             self.values,
+            self.storage,
             &mut state.result_dependencies,
         );
 
@@ -421,6 +422,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                 self.execution.semantics.selections(),
                 self.patterns,
                 self.values,
+                self.storage,
                 &mut state.result_dependencies,
             );
 

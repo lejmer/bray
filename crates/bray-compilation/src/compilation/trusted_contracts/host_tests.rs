@@ -4,6 +4,51 @@ use super::fixtures::production_host_compilation;
 use crate::test_support::source_function_body_key;
 
 #[test]
+fn implicit_receiver_reborrows_do_not_escape_local_owners() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(),
+        r#"
+        module probe;
+
+        struct Owner
+        {
+            value: u32;
+
+            func borrowed_value() -> &u32
+            {
+                return &self.value;
+            }
+        }
+
+        func escape() -> &u32
+        {
+            let owner: Owner =
+            {
+                value = 1,
+            };
+
+            return owner.borrowed_value();
+        }
+        "#,
+    );
+    let checked = compilation.lowered_unit(source_function_body_key(&compilation, "escape"))
+        .expect("receiver escape retains its checked lifetime contract");
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        checked.diagnostics(), DiagnosticKind::CheckingEscapingStorageDependency);
+}
+
+#[test]
+fn production_formatted_bytes_retain_the_buffer_owner() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "bytes"))
+        .expect("production formatted bytes reports its checked source contract");
+
+    assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+}
+
+#[test]
 fn production_buffer_views_retain_external_storage() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");

@@ -1271,6 +1271,17 @@ fn shared_generator_values_keep_their_original_reference_dependency() {
     "#,
     );
 
+    let flow = checked.storage_flow(source_function_body_key(&checked, "first_cursor"))
+        .expect("the cursor publishes its portable result contract");
+
+    assert_eq!(flow.value().dependencies().requirements(), &[
+        bray_symbols::DependencyRequirement::direct(
+            bray_symbols::DependencySubject::root(
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))),
+            bray_symbols::DependencyRequirementKind::ValueDependencies,
+        ),
+    ]);
+
     assert!(
         !checked.check_diagnostics().has_errors(),
         "{:#?}",

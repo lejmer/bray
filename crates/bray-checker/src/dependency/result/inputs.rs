@@ -83,13 +83,27 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             BoundExecutionSite::CallInput {
                 expression,
                 ordinal,
-            } => self
-                .selections
-                .expression(expression)
-                .expect("staged input retains its invocation")
-                .input(ordinal)
-                .expect("staged input retains its checked type")
-                .ty(self.request.semantic_values()),
+            } => {
+                let input = self.selections.expression(expression)
+                    .expect("staged input retains its invocation")
+                    .input(ordinal)
+                    .expect("staged input retains its checked type");
+
+                if kind == DependencyRequirementKind::ValueDependencies
+                    && !path.is_empty()
+                    && let Some(source) = input.expression()
+                {
+                    let Some(path) = crate::storage::unadapted_projections(
+                        self.request.semantic_values(), input.conversion(), path,
+                    ) else { return Ok(Vec::new()); };
+
+                    // The source expression already has its evaluated snapshot. A copied
+                    // component carries that value's dependencies, not the input loan's lifetime.
+                    return Ok(self.projected_values(source, path).into_iter().collect());
+                }
+
+                input.ty(self.request.semantic_values())
+            }
             BoundExecutionSite::Iterate(expression) | BoundExecutionSite::Next(expression) => {
                 let Some(bray_bound_tree::SemanticSelection::Iteration(iteration)) =
                     self.selections.expression(expression)
