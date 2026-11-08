@@ -146,6 +146,40 @@ mod tests {
     }
 
     #[test]
+    fn scalar_joins_produce_usable_stable_data_without_owner_authority() {
+        let literal = |value| ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            crate::test_support::error_type(),
+            bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(value)),
+        )));
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let identity = |version| ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone());
+        let conditions = Default::default();
+        let join = |left: &ExecutionCondition, right: &ExecutionCondition, version| {
+            common_components(left, right, Some(identity(version)), (&conditions, &conditions),
+                &mut Vec::new(), &mut { ExecutionCondition::WORK_LIMIT })
+        };
+
+        for (copy_left, copy_right, same_context) in [(false, false, false), (true, true, false), (true, false, false), (true, true, true)] {
+            let left = if copy_left { ExecutionCondition::scalar_observation(identity(10), literal(0)) } else { literal(0) };
+            let right = if copy_right { ExecutionCondition::scalar_observation(identity(if same_context { 10 } else { 11 }), literal(1)) } else { literal(1) };
+            let joined = join(&left, &right, 1);
+
+            assert_ne!(joined.computed_value(), &ExecutionCondition::Unknown,
+                "two produced scalar alternatives need a guard subject: copied={copy_left}/{copy_right}");
+            assert!(joined.ownership_identity().is_none());
+            assert_eq!(join(&right, &left, 1), joined, "predecessor order cannot change the produced datum");
+            assert_ne!(ExecutionCondition::operation(bray_bound_tree::BoundOperator::Less,
+                vec![joined.clone(), literal(8)]), ExecutionCondition::Unknown);
+            assert_eq!(join(&joined, &right, 1), joined, "repeated analysis must stabilize");
+            assert_ne!(join(&left, &right, 2).computed_value(), joined.computed_value(),
+                "another contents epoch cannot reuse the old scalar datum");
+        }
+
+        assert_eq!(join(&ExecutionCondition::Unknown, &literal(1), 1).computed_value(), &ExecutionCondition::Unknown,
+            "a missing predecessor value is not a produced opaque scalar");
+    }
+
+    #[test]
     fn short_circuit_join_keeps_the_produced_boolean_meaning() {
         for (operator, shortcut, compound) in [
             (bray_bound_tree::BoundOperator::LogicalAnd, false, false),

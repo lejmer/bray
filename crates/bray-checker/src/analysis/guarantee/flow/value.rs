@@ -184,6 +184,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         value: &ExecutionCondition,
     ) -> Option<bray_symbols::TypeId> {
         match value {
+            ExecutionCondition::ScalarValue(identity) => self.observation_type(identity),
             ExecutionCondition::Input(place)
             | ExecutionCondition::Joined(_, _, place)
             | ExecutionCondition::PostState(_, place) => self

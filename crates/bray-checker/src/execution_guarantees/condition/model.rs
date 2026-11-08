@@ -66,6 +66,8 @@ pub enum ExecutionCondition {
         u32,
         crate::execution_guarantees::ExecutionPlace,
     ),
+    /// A produced opaque scalar datum with an immutable execution identity and no owner authority.
+    ScalarValue(Arc<ExecutionCondition>),
     /// Immutable initialized-state observation at an ownership join. The value
     /// identity distinguishes incarnations without becoming access authority.
     InitializedSnapshot(
@@ -157,6 +159,7 @@ impl ExecutionCondition {
             | Self::ScopedCapability(_)
             | Self::PostState(_, _)
             | Self::Joined(_, _, _)
+            | Self::ScalarValue(_)
             | Self::InitializedSnapshot(_, _, _)
             | Self::Unknown => false,
         }
