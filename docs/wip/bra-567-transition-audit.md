@@ -16,6 +16,7 @@ Keep this single record concise. Remove superseded notes. Historical evidence is
 
 Use actual produced values and current storage. Keep immutable captures, copied data, loan descriptors, complete owners,
 physical targets and lifetime roots distinct. No reconstruction from syntax, marker authority or missing-value fallbacks.
+Reconstruction is a last resort only when no robust producer-owned representation can carry the needed state.
 Use one current-value tree, physical alias model, witness ledger and composite storage flow. Preserve inferred contents
 summaries through imports. Replace superseded mechanisms completely. No language change or weaker authority.
 
@@ -42,7 +43,8 @@ The snapshot-key law failed before repair. ExecutionState::join_values now renam
 keeping changed contents snapshots distinct from the original owner identity. Collapsing them previously mixed preservation
 promises and oscillated under precise conditional initialization. The fixed async positive and invalid variants, loop
 cleanup and borrowed-invariant controls pass. The composition test still needs ordinary execution certificates for every
-body as well as lowering. Next extend that check before further implementation changes.
+body as well as lowering. composition-certificates.log now verifies both for every fixture function and lifecycle body.
+Next trace Boolean production, join and publication consumers before changing their phases.
 
 The const-call producer preserves real owner identity independently of symbolic computation. Static initializer/fabrication,
 selected-instance and imported-static controls pass. Two extra static proof tests passed at 771157820. Retained logical
