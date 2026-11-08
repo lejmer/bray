@@ -24,11 +24,11 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is c73547c02. Fixed comparison gates pass with no unexplained
+The latest pushed source is da3e3c779. Fixed comparison gates pass with no unexplained
 comparison regression. Native planning has no remaining moved-value diagnostic, but still fails on trusted obligations
 and execution guarantees. No native composition has executed. The copied-pointer owning-boundary regression and
-all 441 checker tests passed at c73547c02. Native planning still fails. The active gate is the scalar-computation
-repair for staged range extents and actual production buffer contracts. The temporary RANGE PROOF trace is removed.
+all 443 checker tests passed after scalar computation normalization. Native planning still fails. The active gate is
+initialized-range pointer and extent normalization in the actual production buffer contracts. Temporary traces are removed.
 The ledger remains incomplete. Source passes do not certify runtime execution.
 
 ### Executable ledger for the current blocking boundaries
@@ -53,7 +53,7 @@ requires the whole composition, including lowering and native execution. This re
 ## Current implementation and evidence
 
 Worktree: `target/bra-567-audit`, directly on PR #710 branch `feature/bra-567-async-root-orchestration`.
-The original develop checkout is untouched. Latest pushed head is **c73547c02**.
+The original develop checkout is untouched. Latest pushed head is **da3e3c779**.
 The user explicitly authorized continued implementation, checkpoint pushes, and an independent review on the draft PR
 once implementation and verification finish. Continue through resolved review findings until ready for human Review.
 No review agent has been started. No style or formatting pass has run during this audit.
@@ -66,6 +66,7 @@ No review agent has been started. No style or formatting pass has run during thi
 - `0e2e943d3`: custom index returned-borrow publication before reached copies and witness checks.
 - `4b39bfe38`: retain projected loan descriptors until their actual consumer captures data or a new loan.
 - `c73547c02`: match copied pointer descriptors in closed spatial proofs, with async invalid variants and boundary test.
+- `da3e3c779`: share scalar computation reads across arithmetic, const calls and spatial extents, plus real buffer regression.
 
 ### Fixed comparisons and their limits
 
@@ -126,8 +127,41 @@ newly added production buffer regression is the only added failed identity. No e
 The unused superseded current_contents method was removed after the build. Its removal changes no behavior.
 Next trace the newly reached production copy call before changing it. Keep the fixed comparison gate.
 
-The temporary RANGE PROOF trace in `analysis/guarantee/trusted/proof.rs` was restored from pointer-proof-before-trace.rs.
-No temporary trace remains in source.
+Completed trace session: 25622. Log: `target/audit/range-copy-next-transitions-trace.log`.
+The production test now collects diagnostics from all three actual buffer bodies before asserting, so an earlier
+failure no longer prevents observing later contracts. The same build traces Source/imported scoped continuation
+and cleanup-reference output controls.
+
+The trace confirms InitializedRangeAs was absent from the six-predicate descriptor-normalization set. Available
+initialization evidence names the original pointer/count inputs, while its requirement retains Scalar staged inputs.
+fill_spare_bytes passes. copy_spare_bytes fails at copy_spare_raw_bytes, and copy_bytes_from_pointer also has an
+uninitialized raw-copy diagnostic. Both are frozen before the current repair.
+
+The initialized-range-only attempt passes all three production buffer bodies and both async composition tests.
+`initialized-range-boundary-repair.log` still fails the pre-existing unary raw_read_uses_declared_storage_obligations
+control. `initialized-range-checker.log` passes 443. `initialized-range-trusted.log` has 162 passed, 72 failed,
+97 ignored. The production buffer regression and ordinary_observers_supply_extents_to_trusted_memory_operations
+are the only removed failed identities relative to range-staging-trusted.log. None were added.
+
+Catalog inspection confirms three initialization forms with pointer arguments: InitializedAs, InitializedRangeAs and
+DeviceInitializedAs. Current uncommitted repair includes all three in pointer_predicates/pointer_observations.
+One local classification builds the pointer matching set and its contents-write preservation subset. All three
+initialization forms are excluded from the preservation subset, so writes still invalidate initialization facts.
+The old separate initialized-range proof-dispatch case is removed because the shared pointer set includes it.
+The Device form is handled when its compiler-known symbol is available. Device native execution is outside this host audit.
+`initialization-predicates-repair.log` passes both checker properties and all six source tests, including all three
+buffer bodies, the unary raw read, address expiry, contents writes and both async composition variants.
+`initialization-predicates-checker.log` passes all 443. `initialization-predicates-trusted.log` has 171 passed,
+63 failed, 97 ignored. Exactly nine old failures are removed relative to initialized-range-trusted.log, with no added
+failures. The full initialization descriptor batch is ready for checkpoint and native planning.
+
+The scoped trace separately confirms exit postconditions are published, then all are removed by
+invalidate_trusted(capability). An immutable copied-value continuation guarantee still names a projection of the
+retired ScopedCapability. Retain this evidence for the next actual scope-transition repair. Do not fix it by retaining
+authority for a retired owner or letting borrowed facts escape their lifetime.
+
+Both temporary traces were restored before the current repair. proof.rs was restored from pointer-proof-before-trace.rs,
+and flow/inputs.rs from range-scope-inputs-before-trace.rs. No trace remains in source.
 The earlier pointer trace was removed before c73547c02. `pointer-copy-source-trace.log` retains that earlier evidence.
 Both selected address tests failed before the repair. Both async composition tests passed, including invalid variants.
 

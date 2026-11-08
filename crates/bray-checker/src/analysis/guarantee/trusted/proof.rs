@@ -130,7 +130,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     (
                         condition
                             .with_equalities(&equalities)
-                            .spatial_observations(&self.spatial_predicates),
+                            .pointer_observations(&self.pointer_predicates),
                         value,
                     )
                 })
@@ -160,7 +160,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &mut { ExecutionCondition::WORK_LIMIT },
                     )
                     .with_equalities(&equalities)
-                    .spatial_observations(&self.spatial_predicates)
+                    .pointer_observations(&self.pointer_predicates)
             })
             .collect::<Vec<_>>();
 
@@ -198,9 +198,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 return false;
             };
 
-            if !self.spatial_predicates.contains(predicate)
-                && Some(*predicate) != self.initialized_range
-            {
+            if !self.pointer_predicates.contains(predicate) {
                 return false;
             }
 
