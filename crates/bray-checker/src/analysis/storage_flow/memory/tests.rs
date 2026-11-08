@@ -3973,6 +3973,64 @@ fn returned_null_does_not_invent_an_outside_origin() {
 }
 
 #[test]
+fn bounded_returned_references_preserve_input_exclusivity() {
+    use bray_bound_tree::{StorageOrigin, StorageRelationship};
+    use bray_symbols::BorrowKind;
+
+    let ([left, right, result, raw], expressions) = places();
+    let call = expressions[0].into();
+
+    for (shared, opaque, mixed, previous, disjoint) in [
+        (false, false, false, false, true),
+        (true, false, false, false, false),
+        (false, true, false, false, false),
+        (false, false, true, false, false),
+        (false, false, false, true, false),
+    ] {
+        let mut state = State {
+            entry_borrows: Arc::new(std::collections::BTreeMap::from([
+                (left.root, if shared { BorrowKind::Shared } else { BorrowKind::Mutable }),
+                (right.root, BorrowKind::Shared),
+            ])),
+            ..State::default()
+        };
+        let left = Target { previous: false, origin: StorageOrigin::entry(left.clone()) }
+            .project(&[StorageProjection::OwnedTarget, StorageProjection::Element(expressions[0])]);
+        let right = Target { previous: false, origin: StorageOrigin::entry(right.clone()) };
+        let destination = Target::storage(result.clone());
+
+        if opaque {
+            state.stage_returned_reference(call, destination.clone(), result.clone(), error_type(), [left.clone()]);
+        } else {
+            for target in std::iter::once(left.clone()).chain(mixed.then(|| right.clone())) {
+                state.stage_address(call, target, destination.clone(),
+                    &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Borrow));
+            }
+
+            state.bound_staged_reference(call, &destination);
+            state.stage_returned_references(call, [(result.clone(), error_type())], [left.clone()]);
+        }
+
+        state.complete_transition(call);
+        let mut returned = state.value_target(&destination, error_type()).expect("a returned view has a physical identity");
+        returned.previous = previous;
+        let returned = returned.project(&[StorageProjection::UninitPayload]);
+        let expected = if disjoint { StorageRelationship::Disjoint } else { StorageRelationship::PotentiallyOverlapping };
+
+        for (left, right) in [(&returned, &right), (&right, &returned)] {
+            assert_eq!(state.target_relationship(left, right), expected,
+                "shared={shared}, opaque={opaque}, mixed={mixed}, previous={previous}");
+        }
+
+        assert_ne!(state.target_relationship(&returned.project(&[StorageProjection::OwnedTarget]), &right),
+            StorageRelationship::Disjoint, "a reached owner needs its own physical bound");
+        assert_ne!(state.target_relationship(&returned, &left), StorageRelationship::Disjoint);
+        let raw = Target { previous: false, origin: StorageOrigin::entry(raw.clone()) };
+        assert_ne!(state.target_relationship(&returned, &raw), StorageRelationship::Disjoint);
+    }
+}
+
+#[test]
 fn input_exclusivity_follows_mutable_ownership_and_preserves_shared_aliases() {
     use bray_bound_tree::{StorageOrigin, StorageRelationship};
     use bray_symbols::BorrowKind;

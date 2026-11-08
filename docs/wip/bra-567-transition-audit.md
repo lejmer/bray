@@ -34,12 +34,11 @@ WaitResources remains stable while lease-bounded membership changes. Audit actua
 Worktree: target/bra-567-audit under the original repository. Pushed checkpoints use the actual PR branch.
 Audit baseline: b90076c1f21f3853ebfd90954b3babe26f122eca. User authorizes checkpoint commits and pushes.
 
-Current captured-numeric validation: compilation build 2m21s, checker 454 passed, lowering 38 passed. Trusted/adjacent has
-241 passed, 34 failed, 97 ignored. Combined export/lowering/condition selection has 444 passed, 36 failed, two ignored.
-No new failure identities against captured-boolean logs. Twenty-two combined failures and two trusted failures are removed.
-Focused numeric/async selection has 31 passed, two failed, two ignored. The division-guard and joined-index failures also
-occur in retained fc4b5160b baseline. The actual async fixture passes certificates and lowering for every function/lifecycle
-body, plus its three invalid variants and loop controls. Source validity expectations remain fixed.
+Current returned-exclusivity validation: compilation build 2m40s, checker 455 passed, lowering 38 passed. Full fixed
+comparison has 683 passed, 70 failed, 99 ignored in 111s, with identical failure identities to captured-numeric.
+Seven focused source checks pass. The actual async fixture passes certificates and lowering for every function/lifecycle
+body, plus its three invalid variants and loop controls. Source validity expectations remain fixed. The separate division-
+guard and joined-index failures also occur in retained fc4b5160b baseline.
 
 Boolean Begin, private Production and Completion evaluate the left once and right lazily. Actual cached inputs survive
 until Production captures a scalar pending result. The join precedes one publication. No storage or dependency output
@@ -49,9 +48,9 @@ Ownership joins also preserve complete snapshot keys, keeping changed contents d
 Const-call production preserves real owners independently of symbolic computation. Actual ConditionVariable loans use retained
 logical storage without replacing unrepresented physical backing with Unknown. Their fixed regressions pass.
 
-captured-numeric-native.log stops at standard-library planning with nine E7123, one E7119 and two E7127. Four postcondition/
-totality and two Windows call failures are removed. Remaining paths are channel cleanup/store_message, byte-buffer loops,
-Windows scope cleanup and moved collection fields. No native composition or runtime Source archive has executed.
+returned-exclusivity-native.log stops at standard-library planning with nine E7123 and two E7127. All ordinary
+postcondition/totality failures are removed. Remaining paths are channel cleanup, byte-buffer loops, Windows scope cleanup
+and moved collection fields. No native composition or runtime Source archive has executed.
 Terminal-address and partial-stdlib SpinLock checks now pass.
 Missing-slot-as-Absent experiments remain reverted because they lost independent cleanup authority. No diagnostic hooks
 or reviewer are running.
@@ -63,7 +62,13 @@ Source certification and native rollback/publication checks remain required befo
 Numeric range consumers now read attached computed data consistently. Bounded-sum and captured-range laws failed before
 repair, including changed-live-source negatives. Opaque machine snapshots retain checked type bounds without revisiting
 old operands. Actual fill_spare_bytes certificate and lowering now pass. No library contract or reconstruction was added.
-Next trace the first remaining native defect before changing implementation.
+The channel boundary is pinned by production_channel_storage_publishes_its_taken_pending_value. take() establishes
+pending.storage == none, then uninit_write loses it. channel-produced-region-trace.log proves the destination retains a
+complete physical bound to self.storage, but target_relationship ignored it against the separate pending entry.
+The new bounded_returned_references_preserve_input_exclusivity law failed before repair. Its negatives cover shared,
+opaque, mixed, stale and raw origins, plus reaching another owner. The query now consumes stored complete bounds only.
+Actual store_message certificate and lowering pass. All temporary hooks are restored. Next trace moved receiver fields
+at terminal cleanup and the remaining loop/cleanup requirements. No task-owned process or reviewer is running.
 
 ## Remaining verification
 

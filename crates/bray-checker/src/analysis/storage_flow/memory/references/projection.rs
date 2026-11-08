@@ -143,6 +143,26 @@ impl State {
         left: &Target,
         right: &Target,
     ) -> bray_bound_tree::StorageRelationship {
+        if !left.previous && !right.previous {
+            for (returned, other) in [(left, right), (right, left)] {
+                if let Origin::Returned { reference, projections } = &returned.origin
+                    && !projections.contains(&StorageProjection::OwnedTarget)
+                {
+                    let bounds = self.returned_reference_bounds(reference);
+
+                    // Complete producer bounds exclude unrelated storage, without
+                    // equating the returned address to any one possible source.
+                    // Reaching another owner requires its own physical bounds.
+                    if !bounds.unknown && !bounds.targets.is_empty()
+                        && bounds.targets.iter().all(|region| self.target_relationship(region, other)
+                            == bray_bound_tree::StorageRelationship::Disjoint)
+                    {
+                        return bray_bound_tree::StorageRelationship::Disjoint;
+                    }
+                }
+            }
+        }
+
         if !left.previous
             && !right.previous
             && let (
