@@ -531,9 +531,7 @@ impl Set {
         snapshots: &std::collections::BTreeSet<ExecutionCondition>,
         value: &ExecutionCondition,
     ) -> bool {
-        let remaining = std::cell::Cell::new(ExecutionCondition::WORK_LIMIT);
-
-        Self::retained_snapshot(snapshots, value, &remaining, |selected| {
+        Self::retained_snapshot(snapshots, value, false, |selected| {
             !selected.is_unknown() && matches!((selected.ownership_identity(), value.ownership_identity()),
                 (Some((role, owner)), Some((other_role, other))) if role == other_role && owner == other)
         })
@@ -544,9 +542,7 @@ impl Set {
         snapshots: &std::collections::BTreeSet<ExecutionCondition>,
         value: &ExecutionCondition,
     ) -> bool {
-        let remaining = std::cell::Cell::new(ExecutionCondition::WORK_LIMIT);
-
-        Self::retained_snapshot(snapshots, value, &remaining, |selected| {
+        Self::retained_snapshot(snapshots, value, true, |selected| {
             Self::same_snapshot_contents(selected, value)
         })
     }
@@ -557,10 +553,8 @@ impl Set {
         after: &std::collections::BTreeSet<ExecutionCondition>,
         observed: &ExecutionCondition,
     ) -> bool {
-        let remaining = std::cell::Cell::new(ExecutionCondition::WORK_LIMIT);
-
-        Self::retained_snapshot(before, observed, &remaining, |previous| {
-            Self::retained_snapshot(after, observed, &remaining, |current| Self::same_snapshot_contents(previous, current))
+        Self::retained_snapshot(before, observed, true, |previous| {
+            Self::retained_snapshot(after, observed, true, |current| Self::same_snapshot_contents(previous, current))
         })
     }
 
@@ -582,18 +576,19 @@ impl Set {
     fn retained_snapshot(
         snapshots: &std::collections::BTreeSet<ExecutionCondition>,
         value: &ExecutionCondition,
-        remaining: &std::cell::Cell<usize>,
+        observe_referents: bool,
         matches: impl Fn(&ExecutionCondition) -> bool,
     ) -> bool {
         let path = Self::indexed_path(value);
         let mut pending = snapshots.iter().collect::<Vec<_>>();
+        // Actual snapshots form a finite shared graph. Visit each value once so
+        // unrelated roots cannot spend another value's structural work budget.
+        let mut visited = std::collections::BTreeSet::new();
 
         while let Some(snapshot) = pending.pop() {
-            if remaining.get() == 0 {
-                return false;
+            if !visited.insert(snapshot) {
+                continue;
             }
-
-            remaining.set(remaining.get() - 1);
 
             if snapshot.has_same_owner(value) && matches(snapshot) {
                 return true;
@@ -601,15 +596,11 @@ impl Set {
 
             if let (Some((root, path)), Some((base, prefix))) = (&path, Self::indexed_path(snapshot))
                 && *root == base && path.starts_with(&prefix)
+                && path.len() - prefix.len() <= ExecutionCondition::WORK_LIMIT
             {
                 let mut selected = snapshot.clone();
 
                 for projection in &path[prefix.len()..] {
-                    if remaining.get() == 0 {
-                        return false;
-                    }
-
-                    remaining.set(remaining.get() - 1);
                     selected = selected.component(*projection);
                 }
 
@@ -627,6 +618,16 @@ impl Set {
             // The base of a constructed value names its lineage, not another
             // independently retained copy of its former contents.
             pending.extend(snapshot.owned_components());
+
+            if observe_referents {
+                // A live loan retains its actual reached data without owning it.
+                // Ownership queries never traverse this reference boundary.
+                match snapshot {
+                    ExecutionCondition::Borrowed(referent)
+                    | ExecutionCondition::Observation { contents: referent, kind: ObservationKind::Reference, .. } => pending.push(referent),
+                    _ => {}
+                }
+            }
         }
 
         false
