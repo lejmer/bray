@@ -3,6 +3,105 @@ use crate::test_support::source_function_body_key;
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
 
 #[test]
+fn borrowed_method_receivers_retain_the_returned_referent() {
+    let api = r#"
+        module api;
+
+        struct Marker
+        {
+            func guard() -> Guard
+            {
+                return
+                {
+                    owner = &self
+                };
+            }
+        }
+
+        struct Guard
+        {
+            owner: &Marker;
+
+            destruct()
+            {
+            }
+        }
+
+        static ROOT: Marker = Marker
+        {
+        };
+
+        func owner() -> &Marker
+        {
+            return &ROOT;
+        }
+
+        func identity(pos value: &Marker) -> &Marker
+        {
+            return value;
+        }
+
+        func acquire() -> Guard
+        {
+            return owner().guard();
+        }
+    "#;
+
+    let provider = compilation(api);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for imported in [false, true] {
+        let prefix = if imported { "example.package.api" } else { "api" };
+        let caller = format!(r#"
+            module app;
+
+            using {prefix};
+
+            func global()
+            {{
+                let guard = {prefix}.acquire();
+            }}
+
+            func local()
+            {{
+                let marker = {prefix}.Marker
+                {{
+                }};
+                let guard = {prefix}.identity(&marker).guard();
+            }}
+
+            func escaping() -> {prefix}.Guard
+            {{
+                let marker = {prefix}.Marker
+                {{
+                }};
+
+                return {prefix}.identity(&marker).guard();
+            }}
+        "#);
+
+        let consumer = if imported {
+            execution_consumer(&provider, &caller)
+        } else {
+            compilation_from_sources([api, caller.as_str()])
+        };
+
+        for name in ["global", "local", "escaping"] {
+            let checked = consumer.lowered_unit(source_function_body_key(&consumer, name))
+                .expect("borrowed method receiver has checked Source output");
+
+            if name == "escaping" {
+                bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency);
+            } else {
+                assert!(!checked.diagnostics().has_errors(), "{name}, imported={imported}: {:?}", checked.diagnostics());
+            }
+        }
+    }
+}
+
+#[test]
 fn independent_borrowed_results_do_not_claim_owned_marker_preservation() {
     let api = r#"
         trusted module api;

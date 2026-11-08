@@ -55,17 +55,16 @@ Produced owning buffers stage a declared backing-region bound in the existing pe
 or initialization, survives transport, and does not narrow ordinary raw addresses. The actual Windows environment body
 and imported environment cursor check pass. All diagnostic hooks and temporary Source controls are removed.
 
-Current static-formation repair passes checker463 and the fixed comparison:
-700 passed / 60 failed / 99 ignored, 98s, unchanged failing identities and zero new failures against frozen7b5dc5634.
+Current repairs pass checker463 and the fixed comparison:
+701 passed / 60 failed / 99 ignored, 130s, unchanged failing identities and zero new failures against frozen7b5dc5634.
 Static CFG construction excludes runtime admission failure for explicit aggregate formation. Nested retained cleanup
 passes while discarded temporary cleanup remains rejected. The actual imported-library prepared-domain initializer passes.
-Never weaken expectations.
-The declaration batch fixes internal imports through owning std.sync/std.platform namespaces and implementation capability
-clauses. Native checking confirms zero visibility, ordinary type and capability errors. No runtime implementation body
-changed in this batch. Fresh xtask508122b7c passes standard-library native planning/emission, then actual imported-package
-bootstrap checking previously reported350 diagnostics. Its constant failure is repaired, remaining bootstrap diagnostics
-have not been rerun. The active transition-probe.bray isolates an escaping lifetime through a returned borrowed method
-receiver. Direct static acquisition, plain borrowed projections and source function-only owner carriers pass.
+Implicit method inputs now retain an existing borrowed receiver's dependencies rather than its temporary descriptor slot.
+Source/imported guard factories and local use pass, returning a guard over local storage remains rejected. The actual
+imported std guard reproduction passes. Span lookup uses the existing node_span helper. Scratch probes and traces are removed.
+Never weaken expectations. Native bundle planning/emission previously passed, then bootstrap checking reported350 diagnostics
+at231936a0d, with zero visibility, ordinary type or capability errors. Constant formation and returned receiver reproductions
+are repaired. Next rebuild xtask and rerun actual bootstrap checking before continuing through its remaining transitions.
 No native composition has run. Source fixture/lifecycle and invalid controls remain in the fixed comparison. Interface216
 passed before these checker-only repairs and is unchanged.
 

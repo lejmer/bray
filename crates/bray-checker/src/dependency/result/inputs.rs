@@ -43,6 +43,15 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             .expect("input dependency transfer retains its invocation");
 
         if let Some(receiver) = self.borrowed_input_receiver(site) {
+            if self.types.expression(receiver).is_some_and(|ty| {
+                matches!(self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                    bray_symbols::TypeData::Borrow { .. })
+            }) {
+                // Implicit receiver borrowing reaches the existing referent. The
+                // temporary slot containing its descriptor is not a lifetime anchor.
+                return Ok(self.projected_values(receiver, &[]));
+            }
+
             return Ok(self.borrowed_values(receiver, &[]));
         }
 
