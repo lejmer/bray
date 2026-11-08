@@ -63,11 +63,14 @@ The nested-field law reproduced Unknown before repair. Both actual channel endpo
 No common marker fact is lost at their loop merge. Checker462 passes. Current fixed comparison: 698 passed / 61 failed /
 99 ignored, 100s, zero new failing identities against frozen7b5dc5634. Do not weaken expectations.
 
-Fresh xtask1b675ac8c native smoke reaches standard-library planning, then stops on one E7123 at Windows environment_storage
-cleanup, windows.bray142..234. Planning took28s. No native composition has executed. New production Windows body test
-pins this positive. The body test reproduces it. Its environment-owner fact survives until cleanup, with no common-fact merge loss.
-Temporary hook in guarantee/cleanup/transition.rs captures the exact failed lifecycle requirement and receiver. Remove it
-after locating the broken transition.
+Current produced-buffer repair stages a declared owned backing-region bound for independent RawBuffer pointer outputs,
+using the existing pending transfer. It declares no freshness or initialization. Ordinary raw-address bounds are unchanged.
+The Windows environment owner was incorrectly framed by cleanup of a buffer whose opaque pointer included exposed inline
+storage. Pinned production test de19dceca reproduced this E7123 and now passes certificates, lowering and Source output.
+The boundary law covers no early publication, movement, no initialization proof, and the broader ordinary-address control.
+Checker463 passes. Current fixed comparison: 700 passed / 60 failed / 99 ignored, 96s, zero new failing identities.
+The imported native_environment_cursor_requires_live_provider_storage check is also repaired. All hooks and temporary
+Source controls are removed. Native tooling must rebuild from this repair before retrying. No native composition has run.
 Fixture Source/lowering and invalid controls remain in the fixed comparison. Interface216 passed at abe445829.
 
 Retain only frozen baseline-failures.txt, current comparison.log, reusable native artifacts and the deferred-report

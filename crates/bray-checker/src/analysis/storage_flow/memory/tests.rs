@@ -4411,3 +4411,27 @@ fn mutation_summaries_preserve_initialization_only_for_complete_typed_cells() {
         assert_eq!(state.read_value(target.clone(), ty, MemoryReadKind::Copy, Some(origins[0]), None), MemoryOperationStatus::Valid);
     }
 }
+
+#[test]
+fn produced_owned_buffer_bounds_survive_transport_without_publishing_early() {
+    let ([owner, moved, exposed, raw], expressions) = places();
+    let call = expressions[0].into();
+    let pointer = Place { root: owner.root, projections: [BUFFER_POINTER].into() };
+    let mut state = State { owned_storage: [owner.root, moved.root, exposed.root, raw.root].into(), ..State::default() };
+    state.escape_regions([Target::storage(exposed.clone())]);
+    state.stage_owned_buffer_reference(call, Target::storage(owner.clone()), Target::storage(pointer.clone()), pointer.clone(), error_type());
+    assert!(state.referenced_regions(&Target::storage(pointer.clone())).is_none(), "preparation publishes no result");
+    state.complete_transition(call);
+    state.stage_slot(call, &owner, moved.clone());
+    state.complete_transition(call);
+    state.clear(&owner);
+    let pointer = state.value_target(&Target::storage(Place { root: moved.root, projections: [BUFFER_POINTER].into() }), error_type()).expect("moved buffer retains its pointer");
+    assert_eq!(state.target_relationship(&pointer, &Target::storage(exposed.clone())), bray_bound_tree::StorageRelationship::Disjoint);
+    assert!(!state.initialized(&pointer, error_type()), "an owned bound supplies no initialization proof");
+
+    state.stage_returned_reference(call, Target::storage(raw.clone()), raw.clone(), error_type(), []);
+    state.complete_transition(call);
+    let raw = state.value_target(&Target::storage(raw), error_type()).expect("ordinary returned address remains represented");
+    assert_ne!(state.target_relationship(&raw, &Target::storage(exposed)), bray_bound_tree::StorageRelationship::Disjoint,
+        "an ordinary returned raw address can still reach previously published inline storage");
+}
