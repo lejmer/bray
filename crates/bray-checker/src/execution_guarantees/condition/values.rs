@@ -681,6 +681,7 @@ impl ExecutionCondition {
         // Stored components contain payload data. The extraction view retains
         // its owner separately and must not become its own payload's backing.
         let previous = previous.nullable_payload_snapshot().unwrap_or(&previous);
+        let value = value.nullable_payload_snapshot().cloned().unwrap_or(value);
         let child = previous.with_storage_component(rest, value);
 
         if child == *previous {

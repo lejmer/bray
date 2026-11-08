@@ -24,12 +24,12 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is 1fdbc16e7. Fixed comparison gates pass with no unexplained
+The latest pushed source is f1b8bc032. Fixed comparison gates pass with no unexplained
 comparison regression. Native planning has no remaining moved-value diagnostic, but still fails on trusted obligations
 and execution guarantees. No native composition has executed. The copied-pointer owning-boundary regression and
-all 444 checker tests pass at that checkpoint. The fixed trusted population is 185 passed, 50 failed, 97 ignored with
-no newly failed old identity. Native planning remains blocked. The active gate is dynamic-library output contracts
-after preparation and the stalled operation-cleanup probe. Temporary diagnostic traces are removed after the bounded probes.
+all 445 checker tests pass at that checkpoint. The fixed trusted population is 187 passed, 49 failed, 97 ignored with
+no newly failed old identity. Native planning remains blocked. The active gate is nullable payload publication at
+the generator loop join. All temporary traces are restored. No native fixture has executed.
 The ledger remains incomplete. Source passes do not certify runtime execution.
 
 ### Executable ledger for the current blocking boundaries
@@ -47,6 +47,7 @@ These rows trace code paths, not completed native coverage. The failure edges ar
 | Await suspension, `execution.rs::build_await` | The Future operand has been evaluated. No awaited result exists. The operation branches to a suspended block. | Resume uses InvocationCompletion and only that edge publishes Call Completion. Panic and cancellation use InvocationFailure and resolve scopes through `push_exit`. | `flow/deferred.rs::deferred_alternatives` selects the actual deferred value. Storage flow records suspension before effects and does not publish the awaited result at suspension. Liveness includes current uses and live-out subjects. Async analysis requires the correlated suspension state. Native paths remain unexecuted. |
 | Suspension retention | Current live storage, initialized storage, moved paths, active loans and cleanup dependencies exist. | A merge unions possible live and moved obligations, but intersects definite initialization and active loans. It cannot promise one predecessor's initialized state on all paths. | `core.rs::record_suspension`, `liveness/solve.rs`, `asynchronous/check.rs` and lowering `cleanup/frame.rs::frame_retention` consume the same checked subjects. Frame retention also includes pending report owners and exact execution lane requirements. Source composition lowers, native retention remains unverified. |
 | Opaque effects on a copied descriptor | The private input has Scalar context plus an immutable source value. Physical survival distinguishes complete value from descriptor-only survival. | Descriptor-only survival must replace reached contents without replacing the copied descriptor's origin or creating owning authority. | `ValuePreservation::apply_bounded` discarded that origin. The real dynamic wrappers freeze three failures, and `preserving_a_copied_descriptor_keeps_its_value_origin_without_old_contents` fails before the repair. The repair is under validation. |
+| Nullable component publication at a loop join | The root snapshot already contains payload data. Reading its NullableValue produces an extraction view that retains its parent. | Republishing that view as payload data must not embed the same parent inside its own payload. Otherwise equivalent states alternate and the solver does not stabilize. | `CurrentValues::set_slot` and `update_parent_observations` use `with_storage_component`. The frozen law fails before normalizing its incoming payload view. `generator-loop-state-snapshot.log` isolates this one changing term. The repair is under validation. |
 
 Audit baseline: `b90076c1f21f3853ebfd90954b3babe26f122eca`.
 The behavioral contract remains [the implementation handoff](bra-567-handoff.md).
@@ -57,7 +58,7 @@ requires the whole composition, including lowering and native execution. This re
 ## Current implementation and evidence
 
 Worktree: `target/bra-567-audit`, directly on PR #710 branch `feature/bra-567-async-root-orchestration`.
-The original develop checkout is untouched. Latest pushed head is **1fdbc16e7**.
+The original develop checkout is untouched. Latest pushed head is **f1b8bc032**.
 The user explicitly authorized continued implementation, checkpoint pushes, and an independent review on the draft PR
 once implementation and verification finish. Continue through resolved review findings until ready for human Review.
 No review agent has been started. No style or formatting pass has run during this audit.
@@ -73,6 +74,7 @@ No review agent has been started. No style or formatting pass has run during thi
 - `da3e3c779`: share scalar computation reads across arithmetic, const calls and spatial extents, plus real buffer regression.
 - `1af46e380`: normalize all three initialization predicates while preserving contents invalidation, and collect all real buffer controls.
 - `1fdbc16e7`: observe copied predicate values without rebinding borrowed storage subjects.
+- `f1b8bc032`: preserve copied descriptor origins while replacing reached contents.
 
 ### Fixed comparisons and their limits
 
@@ -102,154 +104,65 @@ Later checks blocked by that probe were unverified. Avoid an unchanged broad rer
 
 ### Current gate and owned process
 
-The pointer trace confirms that a spatial requirement names a private input's PostState while available spatial facts
-name the copied address's original field. The actual input is Scalar with that original field as contents. The boundary
-test fails before the repair with Argument(1) versus Argument(0), while generic predicate subjects must remain distinct
-and a scalar copy must retain no owning authority. `pointer-copy-boundary-baseline.log` freezes that failure.
-The repair unwraps copied scalar descriptor contents only inside the existing closed spatial predicate normalization.
-Do not broaden arbitrary trusted predicates or create ownership from pointer equality.
+All temporary production traces are removed. The active regression establishes nullable component publication before
+any repair. The diagnostic compilation executable still contains the temporary exact-state capture. Do not use it
+with BRAY_AUDIT_FLOW_SNAPSHOT for ordinary verification. The next repaired build will replace it.
 
-The pointer regression, selected source controls, all checker tests and fixed trusted comparison have completed.
-Native planning was rerun and remains blocked. The next owning-boundary test freezes copied scalar range extents.
-A production test lowers the actual fill_spare_bytes, copy_spare_bytes and copy_bytes_from_pointer bodies rather than
-reimplementing their behavior in a fixture. A failure in the first body leaves later bodies unverified.
-`range-staging-boundary-baseline.log` freezes failures in both the new extent-normalization unit test and actual
-fill_spare_bytes. Later bodies were unverified after that first failure.
+The smaller frozen generator_iteration_lowers_selected_cursor_operations test repeated the same blocks beyond
+14,000 updates. Its task-owned process was stopped after sufficient repeated-update evidence. The verbose flow trace
+costs enough output time that its wall time is not a compiler performance measurement.
 
-The production trace shows a Scalar staged count whose contents are the original count input. Available valid_write
-evidence contains Subtract(Borrowed(capacity), Borrowed(initialized)), while the ordinary branch bound contains
-Subtract(capacity, initialized). Built-in arithmetic was computing on loan identities instead of the reached values.
-The repair shares computed_value normalization across built-in operations, const calls and spatial extent values.
-It preserves the separate pointer descriptor normalization and generic predicate subject path. Superseded special
-nullable-reference comparison normalization has been removed because the common computation read covers it.
-An added unit property compares arithmetic and const calls over copied and borrowed views of the same scalar.
+A bounded exact-state capture at block 281, after 1,000 updates, takes 0.18 seconds and terminates deliberately.
+`generator-loop-state-snapshot.log` contains the before/after states. Every root field except execution.current agrees.
+One nullable payload alternates between Joined(..., 281, payload place) and a Projection(NullableValue, Constructed(...))
+view containing that same Joined payload. `with_storage_component` unwraps the old payload view but not the newly
+published view, so reading and republishing a joined component adds another parent snapshot. The new owning-boundary
+law freezes this asymmetry. Keep nullable extraction owner identity and witness transport checks intact.
 
-`range-staging-boundary-repair.log` passes both new checker properties, scalar-copy safety and both async composition
-tests. The known Source/imported scoped continuation controls still fail. The buffer test passes fill_spare_bytes,
-then fails copy_spare_bytes at copy_spare_raw_bytes. copy_bytes_from_pointer remains unverified by that fail-fast test.
-`range-staging-checker.log` passes all 443 tests. `range-staging-trusted.log` has 160 passes, 74 failures, 97 ignored.
-Against pointer-copy-trusted.log, conditional_memory_obligations_accept_smaller_proven_ranges is repaired, and the
-newly added production buffer regression is the only added failed identity. No existing test regressed.
-The unused superseded current_contents method was removed after the build. Its removal changes no behavior.
-Next trace the newly reached production copy call before changing it. Keep the fixed comparison gate.
+`nullable-publication-baseline.log` fails only the new republishing assertion. Extraction keeps the payload owner and
+rewrapping keeps the nullable snapshot. The one-line repair unwraps the incoming payload using the same helper
+already applied to the previous payload. `nullable-publication-checker.log` passes all 446 checker tests.
+`nullable-publication-composition.log` passes both the previously stalled generator lowering test and the full
+operation-cleanup/default fixture in 3.83 seconds. No probe remains running, and no temporary trace remains in source.
 
-Completed trace session: 25622. Log: `target/audit/range-copy-next-transitions-trace.log`.
-The production test now collects diagnostics from all three actual buffer bodies before asserting, so an earlier
-failure no longer prevents observing later contracts. The same build traces Source/imported scoped continuation
-and cleanup-reference output controls.
+`nullable-publication-trusted.log` retains exactly 187 passed, 49 failed and 97 ignored, with no changed failed identity.
+`nullable-publication-adjacent.log` completes 51 passes and four failures across storage-flow and lowering/control-flow.
+The three storage-flow failures match the earlier controlled baseline. The fourth,
+shared_generator_values_keep_their_original_reference_dependency, is already in import-lowering-failed.txt and failed
+in live-join-import-lowering.log. It reports an escaping dependency and belongs to the next returned-reference gate.
+The one-line publication repair and its fixed regression are ready for checkpoint. Native planning is still unverified
+after this repair and remains blocked by the returned-reference class in the preceding native run.
 
-The trace confirms InitializedRangeAs was absent from the six-predicate descriptor-normalization set. Available
-initialization evidence names the original pointer/count inputs, while its requirement retains Scalar staged inputs.
-fill_spare_bytes passes. copy_spare_bytes fails at copy_spare_raw_bytes, and copy_bytes_from_pointer also has an
-uninitialized raw-copy diagnostic. Both are frozen before the current repair.
+Earlier repairs and retained evidence:
 
-The initialized-range-only attempt passes all three production buffer bodies and both async composition tests.
-`initialized-range-boundary-repair.log` still fails the pre-existing unary raw_read_uses_declared_storage_obligations
-control. `initialized-range-checker.log` passes 443. `initialized-range-trusted.log` has 162 passed, 72 failed,
-97 ignored. The production buffer regression and ordinary_observers_supply_extents_to_trusted_memory_operations
-are the only removed failed identities relative to range-staging-trusted.log. None were added.
-
-Catalog inspection confirms three initialization forms with pointer arguments: InitializedAs, InitializedRangeAs and
-DeviceInitializedAs. Current uncommitted repair includes all three in pointer_predicates/pointer_observations.
-One local classification builds the pointer matching set and its contents-write preservation subset. All three
-initialization forms are excluded from the preservation subset, so writes still invalidate initialization facts.
-The old separate initialized-range proof-dispatch case is removed because the shared pointer set includes it.
-The Device form is handled when its compiler-known symbol is available. Device native execution is outside this host audit.
-`initialization-predicates-repair.log` passes both checker properties and all six source tests, including all three
-buffer bodies, the unary raw read, address expiry, contents writes and both async composition variants.
-`initialization-predicates-checker.log` passes all 443. `initialization-predicates-trusted.log` has 171 passed,
-63 failed, 97 ignored. Exactly nine old failures are removed relative to initialized-range-trusted.log, with no added
-failures. The full initialization descriptor batch is ready for checkpoint and native planning.
-
-CORRECTED scoped trace diagnosis: the initial retirement example was from the negative variant without an explicit
-exit postcondition. In the positive variant at SemanticValueStoreId(4), SCOPE COMPLETE contains both the old capability
-fact and the correctly rewritten surviving resource-field fact. SCOPE RETIRED removes only the old capability fact,
-and preserves the resource-field fact. Retirement is correct for that positive path. NEXT PROOF then shows the caller's
-by-value bool requirement wrapped in Scalar(PostState(private input), original resource field), while the available
-fact names the original field directly. Investigate admitted scalar-copy proof observation, not scope retention.
-No implementation change was made from the earlier incorrect retirement hypothesis. Keep borrowed and marker-copy
-negative controls fixed. Examine existing ExecutionCallEvidence::proof_facts/copy_sources before introducing machinery.
-
-`initialization-predicates-native.log` at 1af46e380 fails native standard-library planning in 22.4 seconds, now with
-103 E7123, 48 E7113, 39 E7119, 9 E7036, 3 E7063 and 2 E7127. No moved-value diagnostic remains.
-The previous pointer checkpoint had 197 E7123 and 123 E7119. The first leaf is now a write call at SourceId(37),
-range 4060..4089, rather than byte_buffer_fill. No native fixture has executed. Do not claim composition complete.
-
-### Current copied-value predicate experiment
-
-`direct-copy-proof-baseline.log` freezes the existing Source/imported scoped-value failures, a new source negative
-that rejects passing a copied bool where borrowed field authority is required, and a new owning-boundary copy-proof
-projection property. The source negative passes before the repair. The unit property fails on its first value
-correlation assertion, so its later reference assertions were not reached in that baseline run.
-
-Inspection found that Scalar already carries its immutable copy source. A proposed extra direct-call origin registry
-was removed before validation. The current small experiment makes predicate construction observe top-level copied
-data, while Borrowed and Reference subjects retain their storage context. No new direct-call state is introduced.
-The existing deferred copy-origin producer uses the same copied_value helper to avoid retaining a private scalar
-staging context as its origin. Pointer descriptor normalization also reuses that helper.
-
-Copy proof uses with_copy_origins, which shares snapshot lookup with with_snapshots but never substitutes through
-Borrowed or Reference observations. A copy binding now maps a source identity to the complete captured value instead
-of overwriting an exact value mapping with only the captured owner identity. The new boundary property checks value
-correlation and preservation of original borrowed subjects. The typed source negative remains fixed.
-
-Explicit unit-test correction: the pointer unit introduced at c73547c02 asserted inequality of raw by-value predicate
-terms before normalization. That was a representation assertion, not a required language negative. The copied scalar
-still has no ownership, and the test now asserts distinct borrowed storage identities instead. The original spatial
-matching check remains. Source negatives for borrowed authority and witness copying are unchanged.
-
-`copied-value-predicate-repair.log` passes the new checker property and all nine selected source tests, including
-Source/imported scoped value continuation, the new borrowed-field negative, existing scalar and witness-copy negatives,
-all real buffer operations and both async composition variants. `copied-value-predicate-checker.log` passes 444.
-`copied-value-predicate-trusted.log` has 185 passed, 50 failed, 97 ignored. Exactly 13 old failures were removed,
-with no added failed identity. The added source negative passes. The batch is ready for checkpoint and native retry.
-
-Both temporary traces were restored before the current repair. proof.rs was restored from pointer-proof-before-trace.rs,
-and flow/inputs.rs from range-scope-inputs-before-trace.rs. No trace remains in source.
-The earlier pointer trace was removed before c73547c02. `pointer-copy-source-trace.log` retains that earlier evidence.
-Both selected address tests failed before the repair. Both async composition tests passed, including invalid variants.
-
-The new async invalid variants replace only one source fragment each. One fabricates ChildCleanup instead of calling
-acquire and must fail trusted obligations in produce. The other observes owner after child(owner).start() and must
-report moved storage in main. All callable and lifecycle bodies of the valid fixture are checked and lowered
-by the fixed positive test. Both invalid variants are verified before the pointer repair.
+- Scalar computation reads now share computed_value for arithmetic, const calls and extents. The actual three buffer
+  bodies pass. `range-staging-boundary-baseline.log` records the original arithmetic/view mismatch.
+- Nine closed pointer predicates share descriptor normalization. The three initialization predicates remain invalidated
+  by writes. `initialization-predicates-trusted.log` has 171 passes, 63 failures, 97 ignored and no old regression.
+- The scoped positive trace preserves the surviving resource fact at retirement. Its missing consumer was a by-value
+  predicate observing private Scalar context. `copied-value-predicate-trusted.log` has 185 passes, 50 failures, 97 ignored.
+  All 444 checker tests pass there. Direct copied-bool borrowed-authority rejection remains fixed.
+- `copied-descriptor-trusted.log` has 187 passes, 49 failures, 97 ignored. Only the old failure
+  opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authority was removed. The new dynamic-wrapper
+  regression passes. `copied-descriptor-final-checker.log` passes all 445 checker tests.
+- `copied-descriptor-boundary-repair.log` passes seven Source tests, including all three real dynamic output wrappers,
+  both async composition tests and copied-authority negatives. It does not prove native composition.
+- The descriptor unit's initial final assertion mistakenly required an empty owned_values traversal. That API visits
+  a scalar root without owning it. The corrected assertion requires every visited value to lack owning identity.
+  Origin preservation and replacement of reached contents are unchanged requirements.
+- The pointer unit introduced at c73547c02 originally asserted inequality of raw by-value predicate representations.
+  It now asserts distinct borrowed storage identities, while retaining spatial matching and no-copy-ownership checks.
+  Source negatives were not changed.
 
 ### Remaining completion work
 
-`copied-value-predicate-native.log` at 1fdbc16e7 still fails standard-library native planning. It reports 56 E7123,
-37 E7119, 48 E7113, 9 E7036, 3 E7063 and 2 E7127. The first leaf is still the write after dynamic-library preparation.
-No native fixture executed. A new fixed producer test checks all three dynamic output wrappers without failing fast.
-
-The operation-cleanup control was retried once with a bounded 90-second observation period and still did not finish.
-Its task-owned process was stopped. Do not retry unchanged. Temporary unit entry/leave tracing now identifies the
-blocked callable, paired with trusted-proof failure tracing in one build. The originals are retained as
-dynamic-proof-before-trace.rs and cleanup-diagnostics-before-trace.rs in the ignored audit directory.
-
-The initial cleanup lookup trace did not establish body completion. `published_source_output` may return None.
-The corrected trace reaches main's callable contract request before semantic-unit diagnostic work. The next trace
-marks the actual checker phases. All earlier diagnostic and proof traces are restored. Those traces are also restored, with originals retained in cleanup-body-before-trace.rs and
-cleanup-test-before-trace.rs.
-
-The actual dynamic trace shows an admitted pointer as Scalar(private context, original pointer). Descriptor-only
-preservation changed it to Scalar(private context, PostState(private slot)). Completion then published valid_write
-against that private PostState, while the later write requires the original pointer. The preservation repair applies
-the existing descriptor update inside the Scalar context, leaving its source identity and lack of ownership intact.
-The new unit property also requires changed reached contents. No contract expectations are weakened.
-
-`copied-descriptor-boundary-repair.log` passes all seven selected Source tests, including the three real dynamic
-wrappers, async composition and copied-authority negatives. `copied-descriptor-trusted.log` has 187 passed, 49 failed,
-97 ignored. Only opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authority was removed from
-the old failed identities. The new dynamic regression passes. No old failed identity was added.
-
-The new unit property's final assertion initially required an empty owned_values traversal. That API visits its
-root even when the root has no owning identity. The corrected assertion requires every visited value to lack an
-owning identity, which tests the intended no-authority property. Its origin and changed-contents assertions already
-passed after the repair. `copied-descriptor-final-checker.log` passes all 445 checker tests.
-
-`cleanup-body-phase-trace.stderr.log` locates the outstanding probe in storage-flow solve for
-verify_generator_iteration, source range 12394..14494. This is the same generator boundary implicated by the earlier
-stopped broad lowering run. The next build adds incoming/transfer/output progress in the existing fixed-point solver.
-Its original is retained in cleanup-fixed-point-before-trace.rs. The trace is now restored. No loop semantics have been changed from this trace.
+`copied-descriptor-native.log` at f1b8bc032 still fails standard-library native planning. It reports 27 E7123,
+37 E7119, 48 E7113, 9 E7036, 3 E7063 and 2 E7127. The earlier copied-value checkpoint had 56 E7123.
+The dynamic write leaf is repaired. The first remaining leaf is CheckingEscapingStorageDependency, SourceId(94),
+range 2560..2593. Its exact file mapping still needs verification. The rendered escaping-dependency diagnostics also
+include initialized_slice views from std.bytes.Buffer.as_slice and as_slice_mut. The returned-reference transport
+boundary is next after the current generator publication gate.
+No native fixture executed.
 
 - Finish the executable ledger across remaining operation/failure transitions, including constructors/defaults,
   branches/loops, suspension and task outcomes, scoped and root cleanup, retained incidents, shutdown and imported facts.
