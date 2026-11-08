@@ -99,11 +99,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let target = completion.references().get(path)?;
 
-                let target = crate::storage::storage_observation_path(
-                    self.storage,
-                    self.request.semantic_values(),
-                    target,
-                )?;
+                let target = (target).value_observation_path()?;
 
                 if let Some(bray_bound_tree::StorageIdentity::Static(declaration)) =
                     self.storage.identity(target.root)

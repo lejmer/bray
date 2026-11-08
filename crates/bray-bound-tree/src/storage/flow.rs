@@ -1117,7 +1117,8 @@ mod tests {
                         BoundExpressionId::from_slot(selector_unit, 0),
                     )]
                     .into(),
-                },
+                kind: bray_symbols::DependencyReferenceKind::Address,
+},
             };
 
             let flow =

@@ -9,6 +9,8 @@ pub enum StorageOrigin {
         reference: StoragePath,
         /// Successive borrow layers identify distinct entry snapshots at the same path.
         layer: usize,
+        /// The declared reference category at this exact incoming slot.
+        kind: bray_symbols::DependencyReferenceKind,
         /// Components reached within that original referent.
         projections: std::sync::Arc<[crate::StorageProjection]>,
     },
@@ -44,10 +46,11 @@ pub struct StorageTarget {
 
 impl StorageOrigin {
     /// Creates the first referent supplied through this entry reference.
-    pub fn entry(reference: StoragePath) -> Self {
+    pub fn entry(reference: StoragePath, kind: bray_symbols::DependencyReferenceKind) -> Self {
         Self::Entry {
             reference,
             layer: 1,
+            kind,
             projections: std::sync::Arc::from([]),
         }
     }
@@ -112,6 +115,7 @@ impl StorageTarget {
                 reference,
                 layer: 1,
                 projections,
+                            ..
             } if reference.projections.is_empty()
                 && StoragePath::inline_projections(projections)
                 && matches!(
@@ -151,6 +155,7 @@ impl StorageTarget {
                 reference,
                 layer: 1,
                 projections,
+                            ..
             } if reference.projections.is_empty()
                 && StoragePath::inline_projections(projections) =>
             {
@@ -220,10 +225,30 @@ impl StorageTarget {
                 reference,
                 projections,
                 layer: 1,
+                            ..
             } if reference.projections.is_empty() => Some(StoragePath {
                 root: reference.root,
                 projections: projections.clone(),
             }),
+            _ => None,
+        }
+    }
+
+    /// Returns the logical value observed through an incoming borrow.
+    /// Nested entry snapshots cannot be rebound through a descriptor's current slot.
+    /// Raw addresses retain their distinct pointee identity.
+    pub fn value_observation_path(&self) -> Option<StoragePath> {
+        if self.previous || self.projections().contains(&StorageProjection::OwnedTarget) {
+            return None;
+        }
+
+        match &self.origin {
+            StorageOrigin::Storage(path) => Some(path.clone()),
+            StorageOrigin::Entry { reference, layer: 1, kind: bray_symbols::DependencyReferenceKind::Borrow, projections }
+                if reference.projections.is_empty() => Some(StoragePath {
+                    root: reference.root,
+                    projections: projections.clone(),
+                }),
             _ => None,
         }
     }
@@ -292,11 +317,13 @@ impl StorageTarget {
                     reference: left,
                     layer: left_layer,
                     projections: left_path,
+                                    ..
                 },
                 StorageOrigin::Entry {
                     reference: right,
                     layer: right_layer,
                     projections: right_path,
+                                    ..
                 },
             ) if left == right && left_layer == right_layer => {
                 region_relationship(left_path, right_path)
@@ -357,11 +384,13 @@ impl StorageTarget {
                     reference: left,
                     layer: left_layer,
                     projections: prefix,
+                                    ..
                 },
                 StorageOrigin::Entry {
                     reference: right,
                     layer: right_layer,
                     projections,
+                                    ..
                 },
             ) => left == right && left_layer == right_layer && projections.starts_with(prefix),
             (
@@ -406,11 +435,13 @@ impl StorageTarget {
             StorageOrigin::Entry {
                 reference,
                 layer,
+                kind,
                 projections: prefix,
             } => StorageOrigin::Entry {
                 // The original reference identity survives later assignments to its source slot.
                 reference: reference.clone(),
                 layer: *layer,
+                kind: *kind,
                 projections: append(prefix),
             },
             StorageOrigin::Returned {
@@ -468,15 +499,49 @@ mod tests {
     }
 
     #[test]
+    fn entry_reference_kind_separates_values_from_raw_addresses() {
+        let reference = slot(0);
+        let component = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let borrowed = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(reference.clone(), bray_symbols::DependencyReferenceKind::Borrow),
+        }.project(&[component]);
+        let address = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(reference.clone(), bray_symbols::DependencyReferenceKind::Address),
+        }.project(&[component]);
+
+        assert_eq!(borrowed.value_observation_path(), Some(StoragePath {
+            root: reference.root,
+            projections: [component].into(),
+        }));
+        assert!(address.value_observation_path().is_none());
+        assert_eq!(borrowed.relationship(&address), StorageRelationship::Identical);
+        assert!(StorageTarget { previous: true, ..borrowed }.value_observation_path().is_none());
+
+        let nested = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(StoragePath {
+                root: reference.root,
+                projections: [StorageProjection::NullableValue].into(),
+            }, bray_symbols::DependencyReferenceKind::Borrow),
+        };
+
+        // The descriptor's current slot can be overwritten after entry. It
+        // cannot stand in for the captured referent of this incoming borrow.
+        assert!(nested.value_observation_path().is_none());
+    }
+
+    #[test]
     fn independent_reference_slots_do_not_prove_disjoint_referents() {
         let left = StorageTarget {
             previous: false,
-            origin: StorageOrigin::entry(slot(0)),
+            origin: StorageOrigin::entry(slot(0), bray_symbols::DependencyReferenceKind::Address),
         };
 
         let right = StorageTarget {
             previous: false,
-            origin: StorageOrigin::entry(slot(1)),
+            origin: StorageOrigin::entry(slot(1), bray_symbols::DependencyReferenceKind::Address),
         };
 
         assert!(left.is_exact());
@@ -494,7 +559,7 @@ mod tests {
     fn projected_entry_snapshots_keep_their_epoch_and_borrow_layer() {
         let current = StorageTarget {
             previous: false,
-            origin: StorageOrigin::entry(slot(0)),
+            origin: StorageOrigin::entry(slot(0), bray_symbols::DependencyReferenceKind::Address),
         };
 
         let projected = current.project(&[StorageProjection::TupleElement(SymbolOrdinal::new(1))]);
@@ -509,6 +574,7 @@ mod tests {
             origin: StorageOrigin::Entry {
                 reference: slot(0),
                 layer: 2,
+                kind: bray_symbols::DependencyReferenceKind::Address,
                 projections: [].into(),
             },
         };
@@ -593,7 +659,7 @@ mod tests {
 
         let borrowed = StorageTarget {
             previous: false,
-            origin: StorageOrigin::entry(slot(0)),
+            origin: StorageOrigin::entry(slot(0), bray_symbols::DependencyReferenceKind::Address),
         };
 
         assert_eq!(
@@ -609,7 +675,7 @@ mod tests {
         let origins = [
             StorageOrigin::Storage(path.clone()),
             StorageOrigin::Allocation(path.clone()),
-            StorageOrigin::entry(path.clone()),
+            StorageOrigin::entry(path.clone(), bray_symbols::DependencyReferenceKind::Address),
             StorageOrigin::Returned {
                 reference: path,
                 projections: [].into(),

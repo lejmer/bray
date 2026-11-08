@@ -55,6 +55,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
         (
             bray_bound_tree::StorageReferencePath,
             Option<bray_symbols::TypeId>,
+            bray_symbols::DependencyReferenceKind,
         ),
     >,
     pub(in crate::analysis::storage_flow) reference_constructions: BTreeMap<

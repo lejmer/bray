@@ -1379,7 +1379,7 @@ fn original_entry_references_survive_slot_reassignment_without_proving_disjointn
 
     assert_eq!(
         exact,
-        vec![(&captured, &super::model::Origin::entry(first.clone()))]
+        vec![(&captured, &super::model::Origin::entry(first.clone(), bray_symbols::DependencyReferenceKind::Address))]
     );
 
     state.write(
@@ -1513,7 +1513,7 @@ fn exposed_entry_reference_keeps_its_origin_without_claiming_a_physical_place() 
 
     assert_eq!(
         state.exact_references(&pointer).collect::<Vec<_>>(),
-        vec![(&pointer, &super::model::Origin::entry(source))]
+        vec![(&pointer, &super::model::Origin::entry(source, bray_symbols::DependencyReferenceKind::Address))]
     );
 
     assert!(
@@ -1574,7 +1574,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
         projections: [projection].into(),
     };
 
-    state.entry_reference_at(slot.clone(), 1, target.clone(), Some(ty));
+    state.entry_reference_at(slot.clone(), 1, target.clone(), Some(ty), bray_symbols::DependencyReferenceKind::Address);
     state.transfer_value(&target, field_reference.clone());
     state.borrow_target_storage(crate::test_support::semantic_values(), capability, target, ty);
     state.retain_borrow(capability, address.clone());
@@ -1586,7 +1586,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
             .next()
             .expect("fixture iterator must provide its expected item")
             .1,
-        &super::model::Origin::entry(slot)
+        &super::model::Origin::entry(slot, bray_symbols::DependencyReferenceKind::Address)
     );
 
     assert_ne!(
@@ -1617,7 +1617,7 @@ fn entry_targets_alias_other_inputs_but_distinguish_fields_of_the_same_referent(
     let ([first, second, _, _], _) = places();
 
     let target = |reference| super::model::Target {
-        origin: super::model::Origin::entry(reference),
+        origin: super::model::Origin::entry(reference, bray_symbols::DependencyReferenceKind::Address),
         previous: false,
     };
 
@@ -2170,11 +2170,11 @@ fn repeated_dereferences_have_distinct_entry_snapshots() {
     let mut state = State::default();
     let slot = super::model::Target::storage(root.clone());
 
-    state.entry_reference_at(root.clone(), 1, slot.clone(), Some(ty));
+    state.entry_reference_at(root.clone(), 1, slot.clone(), Some(ty), bray_symbols::DependencyReferenceKind::Address);
 
     let first = state.value_target(&slot, ty).expect("first entry target");
 
-    state.entry_reference_at(root.clone(), 2, first.clone(), Some(ty));
+    state.entry_reference_at(root.clone(), 2, first.clone(), Some(ty), bray_symbols::DependencyReferenceKind::Address);
 
     let second = state.value_target(&first, ty).expect("second entry target");
 
@@ -2376,7 +2376,7 @@ fn bounded_owned_views_keep_alternative_regions_without_exact_pointer_identity()
     let mut state = State::default();
 
     let owners = [first, second].map(|owner| Target {
-        origin: Origin::entry(owner),
+        origin: Origin::entry(owner, bray_symbols::DependencyReferenceKind::Address),
         previous: false,
     });
 
@@ -2429,7 +2429,7 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
     let mut state = State::default();
 
     let header = Target {
-        origin: Origin::entry(owner.clone()),
+        origin: Origin::entry(owner.clone(), bray_symbols::DependencyReferenceKind::Address),
         previous: false,
     };
 
@@ -2493,7 +2493,7 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
     assert!(regions[0].observation_path().is_none());
 
     let unrelated = Target {
-        origin: Origin::entry(Place::root(pointer.root)),
+        origin: Origin::entry(Place::root(pointer.root), bray_symbols::DependencyReferenceKind::Address),
         previous: false,
     };
 
@@ -2558,7 +2558,7 @@ fn raw_memory_reads_pointer_values_held_behind_an_entry_borrow() {
     state.address(storage.clone(), pointer.clone(), error_type(), origins[0]);
 
     let indirect = Target {
-        origin: super::Origin::entry(destination),
+        origin: super::Origin::entry(destination, bray_symbols::DependencyReferenceKind::Address),
         previous: false,
     };
 
@@ -2653,7 +2653,7 @@ fn incoming_aliases_can_reach_allocations_under_invocation_owned_headers() {
     let header = Target::storage(owner);
 
     let incoming = Target {
-        origin: Origin::entry(alias),
+        origin: Origin::entry(alias, bray_symbols::DependencyReferenceKind::Address),
         previous: false,
     };
 
@@ -2818,7 +2818,7 @@ fn typed_writes_keep_protected_reference_slots_until_exact_replacement() {
         projections: [projection].into(),
     };
 
-    state.entry_reference_at(slot, 1, target.clone(), Some(ty));
+    state.entry_reference_at(slot, 1, target.clone(), Some(ty), bray_symbols::DependencyReferenceKind::Address);
 
     let expected = state.value_targets(&target);
 
@@ -2833,6 +2833,7 @@ fn typed_writes_keep_protected_reference_slots_until_exact_replacement() {
         origin: super::Origin::Entry {
             reference: other,
             layer: 1,
+            kind: bray_symbols::DependencyReferenceKind::Address,
             projections: Arc::from([]),
         },
     };
@@ -2866,7 +2867,7 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
             projections: [projection].into(),
         };
 
-        state.entry_reference_at(slot.clone(), 1, target.clone(), Some(ty));
+        state.entry_reference_at(slot.clone(), 1, target.clone(), Some(ty), bray_symbols::DependencyReferenceKind::Address);
         state.transfer_value(&target, field_reference.clone());
 
         let expected = state.value_targets(&target);
@@ -3278,7 +3279,7 @@ fn targeted_atomic_effects_preserve_reference_slots_under_possible_aliasing() {
     state.address(source.clone(), slot.clone(), error_type(), origins[0]);
 
     let external = Target {
-        origin: super::Origin::entry(external),
+        origin: super::Origin::entry(external, bray_symbols::DependencyReferenceKind::Address),
         previous: false,
     };
 
@@ -4027,9 +4028,9 @@ fn bounded_returned_references_preserve_input_exclusivity() {
             ])),
             ..State::default()
         };
-        let left = Target { previous: false, origin: StorageOrigin::entry(left.clone()) }
+        let left = Target { previous: false, origin: StorageOrigin::entry(left.clone(), bray_symbols::DependencyReferenceKind::Address) }
             .project(&[StorageProjection::OwnedTarget, StorageProjection::Element(expressions[0])]);
-        let right = Target { previous: false, origin: StorageOrigin::entry(right.clone()) };
+        let right = Target { previous: false, origin: StorageOrigin::entry(right.clone(), bray_symbols::DependencyReferenceKind::Address) };
         let destination = Target::storage(result.clone());
 
         if opaque {
@@ -4060,7 +4061,7 @@ fn bounded_returned_references_preserve_input_exclusivity() {
         assert_ne!(state.target_relationship(&returned.project(&[StorageProjection::OwnedTarget]), &right),
             StorageRelationship::Disjoint, "a reached owner needs its own physical bound");
         assert_ne!(state.target_relationship(&returned, &left), StorageRelationship::Disjoint);
-        let raw = Target { previous: false, origin: StorageOrigin::entry(raw.clone()) };
+        let raw = Target { previous: false, origin: StorageOrigin::entry(raw.clone(), bray_symbols::DependencyReferenceKind::Address) };
         assert_ne!(state.target_relationship(&returned, &raw), StorageRelationship::Disjoint);
     }
 }
@@ -4082,7 +4083,7 @@ fn input_exclusivity_follows_mutable_ownership_and_preserves_shared_aliases() {
 
     let target = |path: Place| Target {
         previous: false,
-        origin: StorageOrigin::entry(path),
+        origin: StorageOrigin::entry(path, bray_symbols::DependencyReferenceKind::Address),
     };
 
     let left = target(left);
@@ -4263,14 +4264,14 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
         1,
         Target::storage(left.clone()),
         Some(container),
-    );
+     bray_symbols::DependencyReferenceKind::Address);
 
     memory.entry_reference_at(
         right.clone(),
         1,
         Target::storage(right.clone()),
         Some(container),
-    );
+     bray_symbols::DependencyReferenceKind::Address);
 
     let left = memory.value_targets(&Target::storage(left)).unwrap()[0].clone();
     let right = memory.value_targets(&Target::storage(right)).unwrap()[0].clone();
@@ -4364,6 +4365,7 @@ fn mutation_summaries_preserve_initialization_only_for_complete_typed_cells() {
         origin: Origin::Entry {
             reference: cell,
             layer: 1,
+            kind: bray_symbols::DependencyReferenceKind::Address,
             projections: Arc::from([]),
         },
     };
@@ -4373,6 +4375,7 @@ fn mutation_summaries_preserve_initialization_only_for_complete_typed_cells() {
         origin: Origin::Entry {
             reference: alias,
             layer: 1,
+            kind: bray_symbols::DependencyReferenceKind::Address,
             projections: Arc::from([]),
         },
     };

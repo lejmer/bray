@@ -60,8 +60,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         };
 
-        if let Some(path) = target.and_then(|target| crate::storage::storage_observation_path(
-            self.storage, self.request.semantic_values(), target)) {
+        if let Some(path) = target.and_then(|target| (target).value_observation_path()) {
             let ty = path.access_id(self.storage)
                 .and_then(|access| self.storage.access(access))
                 .map(|access| access.reached_type())

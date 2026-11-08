@@ -195,7 +195,7 @@ impl State {
 
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn entry_reference(&mut self, slot: Place) {
-        self.entry_reference_at(slot.clone(), 1, Target::storage(slot), None);
+        self.entry_reference_at(slot.clone(), 1, Target::storage(slot), None, bray_symbols::DependencyReferenceKind::Address);
     }
 
     pub(in crate::analysis::storage_flow) fn exit_references(
@@ -503,10 +503,11 @@ impl State {
 fn is_entry_slot(contents: &std::collections::BTreeMap<Target, Contents>, slot: &Place) -> bool {
     // An entry value snapshot remains useful after its local slot's lifetime ends.
     // Keeping its value does not retain initialization or access authority.
-    contents.contains_key(&Target {
-        origin: Origin::entry(slot.clone()),
-        previous: false,
-    })
+    [bray_symbols::DependencyReferenceKind::Borrow, bray_symbols::DependencyReferenceKind::Address]
+        .into_iter().any(|kind| contents.contains_key(&Target {
+            origin: Origin::entry(slot.clone(), kind),
+            previous: false,
+        }))
 }
 
 pub(super) fn take_subtree<'a, V>(

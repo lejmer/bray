@@ -107,9 +107,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let observe = |path: &bray_bound_tree::StoragePath| {
             let target = completion.references().get(path)?;
 
-            let target = crate::storage::storage_observation_path(
-                self.storage, self.request.semantic_values(), target,
-            )?;
+            let target = (target).value_observation_path()?;
 
             self.current_storage_value(state, &target)
         };
@@ -350,11 +348,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        let Some(path) = crate::storage::storage_observation_path(
-            self.storage,
-            self.request.semantic_values(),
-            target,
-        ) else {
+        let Some(path) = (target).value_observation_path() else {
             return;
         };
 
