@@ -687,17 +687,9 @@ fn record_constant_failure<C: CheckerRequestContext + ?Sized>(
     candidate: &mut ExecutionCandidate,
     node: AnyBoundNodeId,
 ) {
-    let anchor = crate::diagnostic::bound_node_origin(request, node)
-        .map_or(request.unit().key().source().syntax(), |origin| {
-            origin.source_anchor().syntax()
-        });
-
     candidate
         .constant_failure
-        .get_or_insert(bray_source::SourceSpan::new(
-            anchor.source_id(),
-            anchor.full_range(),
-        ));
+        .get_or_insert_with(|| node_span(request, node));
 }
 
 fn record_failure<C: CheckerRequestContext + ?Sized>(
@@ -709,15 +701,7 @@ fn record_failure<C: CheckerRequestContext + ?Sized>(
         return;
     }
 
-    let anchor = crate::diagnostic::bound_node_origin(request, node)
-        .map_or(request.unit().key().source().syntax(), |origin| {
-            origin.source_anchor().syntax()
-        });
-
-    candidate.failure = Some(bray_source::SourceSpan::new(
-        anchor.source_id(),
-        anchor.full_range(),
-    ));
+    candidate.failure = Some(node_span(request, node));
 }
 
 fn check_postconditions<C: CheckerRequestContext + ?Sized>(
