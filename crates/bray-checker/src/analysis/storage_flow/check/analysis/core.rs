@@ -1106,9 +1106,8 @@ where
             let ty = self.storage.storage_type(path.root)
                 .expect("consumed evaluated slot has its checked type");
 
-            let origin = self.storage.identity(path.root).and_then(|identity| identity.definition_node())
-                .and_then(|node| match node { AnyBoundNodeId::Expression(expression) => Some(expression), _ => None })
-                .or_else(|| kind.occurrence().expression())
+            let origin = self.storage.identity(path.root).and_then(StorageIdentity::definition_occurrence)
+                .and_then(bray_bound_tree::BoundExecutionSite::expression)
                 .expect("evaluated slot consumption retains its producing expression");
 
             // Destination transfer has captured the payload. Retire only this output handle.
@@ -1153,14 +1152,7 @@ where
         ) {
             self.initialize_operation_storage(state, kind);
 
-            for plan in kind.storage_plans(self.storage)
-                .filter(|plan| {
-                    matches!(plan.purpose(), StorageAccessPurpose::Borrow(_))
-                        && !self
-                            .storage
-                            .access_is_produced_at(plan.access(), kind.occurrence())
-                })
-            {
+            for plan in kind.storage_plans(self.storage) {
                 self.apply_plan(
                     state,
                     plan,

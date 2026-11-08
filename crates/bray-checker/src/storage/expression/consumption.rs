@@ -52,12 +52,18 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
     ) -> Option<StoragePath> {
         let access = self.builder().access(access).expect("pattern retains its checked source access");
 
-        if let StorageAccessRoot::Storage(root) = access.root()
-            && matches!(self.builder().identity(root), Some(
-                StorageIdentity::InvocationResult(_) | StorageIdentity::ScopedCapability { .. }
-            ))
-        {
-            return Some(StoragePath { root, projections: access.projections().into() });
+        if let StorageAccessRoot::Storage(root) = access.root() {
+            match self.builder().identity(root) {
+                Some(StorageIdentity::ScopedCapability { .. }) => {
+                    // Matching may copy capability data. The lifecycle owner
+                    // remains live until its selected scoped exit admits it.
+                    return None;
+                }
+                Some(StorageIdentity::InvocationResult(_)) => {
+                    return Some(StoragePath { root, projections: access.projections().into() });
+                }
+                _ => {}
+            }
         }
 
         self.builder().value_slot(expression).map(StoragePath::root)

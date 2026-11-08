@@ -10,6 +10,29 @@ use crate::test_support::{
 use crate::{Compilation, CompilationRequest};
 
 #[test]
+fn ownership_composition_accepts_complete_transport() {
+    let source = include_str!("../../../../../xtask/fixtures/native-execution/ownership-transitions.bray");
+    let compilation = compilation(source);
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+}
+
+#[test]
+fn ownership_composition_rejects_fabricated_authority() {
+    let source = include_str!("../../../../../xtask/fixtures/native-execution/ownership-transitions.bray")
+        .replace("owner = acquire()", "owner = Owner { marker = Marker {}, value = 7 }");
+
+    let compilation = compilation(&source);
+    let diagnostics = compilation.check_diagnostics();
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        diagnostics,
+        DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
+}
+
+#[test]
 fn sibling_mutation_preserves_a_returned_component_witness() {
     for (mutation, valid) in [
         ("", true),
@@ -6384,4 +6407,34 @@ fn consuming_transitions_introduce_child_owners_without_detaching_parent_authori
             );
         }
     }
+}
+
+
+const COPIED_SCALAR_SOURCE: &str = r#"
+    trusted module app;
+    struct Value { tag: bool; }
+    trusted predicate live(value: &bool);
+    func copied(pos source: &Value) -> Value
+        ensures(result.tag == source.tag)
+        executes(pure, total)
+    { return { tag = source.tag }; }
+    func observe(pos value: &bool) requires(trusted live(value)) {}
+"#;
+
+#[test]
+fn copied_scalar_result_preserves_ordinary_value() {
+    let compilation = compilation(COPIED_SCALAR_SOURCE);
+    assert!(!compilation.check_diagnostics().has_errors(), "{:?}", compilation.check_diagnostics());
+}
+
+#[test]
+fn copied_scalar_result_does_not_copy_borrowed_authority() {
+    let compilation = compilation(&format!("{COPIED_SCALAR_SOURCE} {body}", body = r#"
+        func caller(pos source: &Value) requires(trusted live(&source.tag)) {
+            let result = copied(source);
+            observe(&result.tag);
+        }
+    "#));
+    bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
+        DiagnosticKind::CheckingTrustedObligationNotProven);
 }

@@ -260,11 +260,16 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 capability,
             ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
 
-        if let Some(value) = self.pattern_value_path(id, capability) {
-            self.builder_mut().consume_value(
-                bray_bound_tree::BoundExecutionSite::ScopedExit(id), StorageValueConsumptionPhase::Admission, value,
-            ).expect("scoped exit consumes the actual admitted capability result");
-        }
+        let bray_bound_tree::StorageAccessRoot::Storage(root) = self.builder().access(capability)
+            .expect("scoped entry retains its produced access").root()
+        else {
+            unreachable!("scoped entry produces an owned capability slot");
+        };
+
+        self.builder_mut().consume_value(
+            bray_bound_tree::BoundExecutionSite::ScopedExit(id), StorageValueConsumptionPhase::Admission,
+            bray_bound_tree::StoragePath::root(root),
+        ).expect("scoped exit consumes the actual admitted capability result");
 
         self.plan_pattern(*pattern, id, capability)?;
         self.plan_block(*body)?;
