@@ -47,6 +47,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             )
         });
 
+        if memory.is_some_and(|operation| match operation.kind() {
+            bray_bound_tree::CheckedMemoryOperationKind::Copy { pointee, .. } =>
+                self.input.footprint.complete_reference_types.get(pointee) == Some(&true),
+            bray_bound_tree::CheckedMemoryOperationKind::ByteBufferFill => true,
+            _ => false,
+        }) {
+            // Storing reference-free data publishes neither the source nor the
+            // destination pointer. Its destination mutation is modeled separately.
+            return BTreeSet::new();
+        }
+
         if memory.is_some_and(|operation| matches!(operation.kind(),
             bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelocate { .. }
                 | bray_bound_tree::CheckedMemoryOperationKind::RawBufferReplace { .. }

@@ -365,13 +365,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let absent = definitely_absent.collect::<Vec<_>>();
 
-        for (part, step) in steps.iter().enumerate() {
-            let path = match step {
-                Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
+        'parts: for (part, step) in steps.iter().enumerate() {
+            let (path, guards) = match step {
+                Step::Opaque { path, guards, .. } | Step::Lifecycle { path, guards, .. } => (path.as_ref(), guards),
             };
 
             if path.is_some_and(|path| absent.iter().any(|absent| absent.contains(path))) {
                 continue;
+            }
+
+            let mut present = true;
+
+            for (path, operator, expected) in guards {
+                let condition = crate::ExecutionCondition::pattern(
+                    self.storage_path_value(state, path), *operator, expected.clone());
+
+                match condition.prove(&state.assumptions, &mut { crate::ExecutionCondition::WORK_LIMIT }) {
+                    Some(false) => continue 'parts,
+                    Some(true) => {}
+                    None => present = false,
+                }
             }
 
             let Step::Lifecycle {
@@ -379,11 +392,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 place,
                 path,
                 whole,
-                conditional,
                 guards,
             } = step
             else {
-                let Step::Opaque { ty, path } = step else {
+                let Step::Opaque { ty, path, .. } = step else {
                     unreachable!("non-lifecycle step is opaque cleanup");
                 };
 
@@ -404,7 +416,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 };
 
                 if let Some(mutate) = mutate {
-                    let Step::Opaque { ty, path } = step else {
+                    let Step::Opaque { ty, path, .. } = step else {
                         unreachable!("lifecycle handled below")
                     };
 
@@ -450,7 +462,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             let always = initialized
-                && !conditional
+                && present
                 && path.as_ref().is_some_and(|path| {
                     !moved.iter().any(|moved| {
                         moved.relationship(path) != bray_bound_tree::StorageRelationship::Disjoint

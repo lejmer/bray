@@ -24,15 +24,29 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is cd9520c26, including the validated symbolic-input/liveness batch.
-Fixed comparison gates pass with no unexplained regression. The last native attempt still failed on trusted
-obligations, execution guarantees and two escaping references. No native composition has executed.
-The current batch passes all 447 checker tests. Its trusted population is 192 passed, 49 failed and 97 ignored,
-including two newly frozen failures and one removed old failure. The active gate is retained reports versus
-actual carried values, followed by the Windows path obligation. The receiver repair passes std.format.bytes and preserves
-the local-owner escape rejection. Projected-input mapping now selects the original evaluated component's
-portable dependencies. Direct and generic generator positives now pass and local escape negatives still reject.
-All temporary probes are removed. No native fixture has executed.
+The latest pushed source is ff827c6d8. It passes all 447 checker tests. The trusted population has 192 passed,
+49 failed and 97 ignored, with the exact failure identities preserved from cd9520c26. The last native attempt
+at cd9520c26 has 27 E7123, 27 E7119, 1 E7113, 8 E7036, 3 E7063 and 2 E7127. No native fixture has executed.
+The current semantic batch fixes conditional cleanup and reference-free memory-copy exposure. Before the repair,
+path-disposal-trace.log proves that prepare_native_path cleans RawBuffer payloads whose parent is literal none.
+That phantom cleanup yields Unknown, invalidates literal string temporaries and clears the caller's unrelated facts.
+path-effects-trace.log separately proves copy_spare_raw_bytes exports escapes of both raw pointer arguments.
+The frozen actual rename producer fails on both targets and at both lowering and complete Source output.
+The new byte-copy contract check and absent-versus-possible buffer check protect these boundaries.
+conditional-cleanup-checker.log passes all 447 tests. The fixed trusted comparison adds no old failure.
+conditional-cleanup-trusted.log passes the actual path and byte-copy probes. The new buffer fixture initially
+lacked using std.memory. After that setup correction, both its absent and possible-payload variants pass in
+completed-await-trace.log. conditional-cleanup-adjacent.log passes the three generator and input-cleanup controls.
+conditional-cleanup-native.log removes the two path obligations and still has 25 E7123, 27 E7119, 1 E7113,
+8 E7036, 3 E7063 and 2 E7127. No native fixture executes. Temporary traces are removed.
+The remaining awaited writer retains a completed receiver loan and conflicts with moving self.sink.
+completed-await-trace.log freezes its bound operations, storage, checked contracts, portable result summaries and
+liveness, together with flush_buffered_async and drain_buffered_async. The latter two have independent ordinary
+results but export whole-receiver/field ValueDependencies for both report outcomes. capture_deferred_reports
+currently substitutes the Future's complete captured dependencies whenever either report contract is nonempty.
+It does not capture the selected report's actual symbolic requirements. Normal and abnormal outputs also share
+one union snapshot. Repair that formation boundary while preserving opaque-frame capture and actual report loans.
+Direct and generic generator positives pass and local escape negatives still reject.
 The ledger remains incomplete. Source passes do not certify runtime execution.
 
 ### Executable ledger for the current blocking boundaries
@@ -51,6 +65,8 @@ These rows trace code paths, not completed native coverage. The failure edges ar
 | Suspension retention | Current live storage, initialized storage, moved paths, active loans and cleanup dependencies exist. | A merge unions possible live and moved obligations, but intersects definite initialization and active loans. It cannot promise one predecessor's initialized state on all paths. | `core.rs::record_suspension`, `liveness/solve.rs`, `asynchronous/check.rs` and lowering `cleanup/frame.rs::frame_retention` consume the same checked subjects. Frame retention also includes pending report owners and exact execution lane requirements. Source composition lowers, native retention remains unverified. |
 | Opaque effects on a copied descriptor | The private input has Scalar context plus an immutable source value. Physical survival distinguishes complete value from descriptor-only survival. | Descriptor-only survival must replace reached contents without replacing the copied descriptor's origin or creating owning authority. | `ValuePreservation::apply_bounded` discarded that origin. The real dynamic wrappers and `preserving_a_copied_descriptor_keeps_its_value_origin_without_old_contents` now pass at f1b8bc032. |
 | Nullable component publication at a loop join | The root snapshot already contains payload data. Reading its NullableValue produces an extraction view that retains its parent. | Republishing that view as payload data must not embed the same parent inside its own payload. Otherwise equivalent states alternate and the solver does not stabilize. | `CurrentValues::set_slot` and `update_parent_observations` use `with_storage_component`. The frozen law and both previously stalled generator/default lowering tests pass at 02d82b5bc. |
+| Conditional payload cleanup | `Plan::prepare` derives typed payload paths and presence guards from checked cleanup parts. The parent value exists before cleanup. | A proved-absent payload produces no lifecycle call, effect or retirement. An unknown payload retains its possible cleanup. Proved presence can make lifecycle completion definite, subject to initialization and moves. | `dispose` previously applied opaque cleanup without those guards. The current batch shares guard selection across both step kinds and removes the redundant conditional flag. Actual native-path and absent/possible-buffer probes are pending validation. |
+| Reference-free memory range write | The checked Copy operation identifies source, destination and pointee type. The shared footprint proves whether values of that type contain references. | The operation mutates destination contents. Copying reference-free data or filling bytes does not publish either input pointer. Unknown or reference-containing copies retain their conservative exposure. | `address_escapes` previously treated all memory operations as stores of their input addresses. The current batch uses the existing checked type-shape result. Production byte-copy portable effects and actual two-path preparation protect the boundary. Native evidence remains outstanding. |
 | Shared or mutable implicit receiver entry | `self` has reached Self type, while its checked StorageBinding is an Access through the entry loan. A consuming receiver instead has an Identity binding. | Reborrowing a field retains that entry loan. It must not require the private receiver argument slot to outlive the result. A real local owner still cannot escape. | `result/sources.rs::reborrowed_receiver` missed this distinction. The working repair consumes StoragePlan rather than inferring the receiver mode from expression type. Real Buffer and std.format.bytes pass, local escape rejects, and the consuming stored-reference control passes. |
 | Selected input and declaration-owned default | `execution.rs::build_selected_inputs` evaluates each explicit argument, then emits Input, Attempt and Completion for its receiver-first ordinal. Defaults can fail at Attempt. | Only successful Completion initializes the private input. Earlier initialized inputs survive a later default failure for cleanup. Parent invocation admission follows all successful inputs. | Checked source/materialization roles feed the shared operation selector, liveness boundary uses and lowering's checked constructor input metadata. Source operation-cleanup/default lowering passes. Native rollback remains unexecuted. |
 | Pattern observation and binding | `build_pattern_observations` walks child patterns before recording PatternObservation. A checked pattern reads its established subject. | Observation forms no owned value. Binding transport happens at the later Bound pattern operation, with actual subject dependencies. Failed match edges cannot publish successful bindings. | `ResultTransfer::operation` separates pattern observation from binding, and storage flow consumes checked pattern metadata. Generator local-storage escape controls pass. Full pattern alternatives remain to be mapped. |
