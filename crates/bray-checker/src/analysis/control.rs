@@ -330,11 +330,28 @@ where
             return Some(Some(current));
         }
 
+        use super::model::AnalysisResultPhase;
+
+        self.push_result(current, id, AnalysisResultPhase::Begin);
+
+        let shortcut = operator == BoundOperator::LogicalOr;
+        let right = self.push_block();
+        let skipped = self.push_block();
         let join = self.push_block();
 
-        self.build_condition(id, current,
-            (join, AnalysisEdgeKind::ConditionalTrue),
-            (join, AnalysisEdgeKind::ConditionalFalse))?;
+        self.build_value_branch(operands[0], current,
+            (if shortcut { skipped } else { right }, AnalysisEdgeKind::ConditionalTrue),
+            (if shortcut { right } else { skipped }, AnalysisEdgeKind::ConditionalFalse))?;
+
+        self.push_edge(skipped, join, AnalysisEdgeKind::Sequential,
+            Some(AnalysisRefinement::Condition { expression: id, value: shortcut }));
+
+        if let Some(completed) = self.build_expression(operands[1], right)? {
+            self.push_result(completed, id, AnalysisResultPhase::Production);
+            self.push_edge(completed, join, AnalysisEdgeKind::Sequential, None);
+        }
+
+        self.push_result(join, id, AnalysisResultPhase::Completion);
 
         Some(Some(join))
     }

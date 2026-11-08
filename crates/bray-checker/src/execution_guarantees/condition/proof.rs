@@ -239,6 +239,15 @@ impl ExecutionCondition {
 
         match self {
             Self::Unknown => {}
+            condition @ Self::Observation { kind: crate::execution_guarantees::ExecutionObservationKind::Scalar, .. } => {
+                let contents = condition.computed_value().clone();
+
+                if !condition.contains_unknown() {
+                    insert(condition, value);
+                }
+
+                contents.assume_proof(value, expose_trusted_truth, insert);
+            }
             Self::Entry {
                 condition,
                 captured: true,

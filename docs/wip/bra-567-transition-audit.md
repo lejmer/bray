@@ -34,32 +34,29 @@ WaitResources remains stable while lease-bounded membership changes. Audit actua
 Worktree: target/bra-567-audit under the original repository. Pushed checkpoints use the actual PR branch.
 Audit baseline: b90076c1f21f3853ebfd90954b3babe26f122eca. User authorizes checkpoint commits and pushes.
 
-Current snapshot-ledger validation: build 1m29s, checker 450 passed, lowering 38 passed. Trusted/adjacent has 237 passed,
-37 failed, 97 ignored. Old failure identities are unchanged. The additional failure is the pinned production completion
-predicate check. Export/lowering has 386 passed, 54 failed, two ignored with identical failure identities. Execution
-condition controls have 26 passed and five failed. Logs use snapshot-ledger. No diagnostic hooks or processes remain.
+Current captured-boolean validation: build 1m05s, checker 452 passed, lowering 38 passed. Trusted/adjacent has 238 passed,
+36 failed, 97 ignored. Execution condition controls have 27 passed and four failed. Export/lowering has 386 passed,
+54 failed, two ignored. No old failure identities regress. Both pinned Boolean checks now pass. The actual async fixture
+passes execution certificates and lowering for every function/lifecycle body, plus its three invalid variants and loop controls.
 
-The snapshot-key law failed before repair. ExecutionState::join_values now renames owned_results keys as complete values,
-keeping changed contents snapshots distinct from the original owner identity. Collapsing them previously mixed preservation
-promises and oscillated under precise conditional initialization. The fixed async positive and invalid variants, loop
-cleanup and borrowed-invariant controls pass. The composition test still needs ordinary execution certificates for every
-body as well as lowering. composition-certificates.log now verifies both for every fixture function and lifecycle body.
-Next trace Boolean production, join and publication consumers before changing their phases.
+Boolean values now have explicit Begin, private Production and Completion. Left is evaluated once. Right is selected lazily.
+Production reads actual cached operands into a scalar value. Pending results join before one publication. Value-cache retention
+keeps operands through production, then the pending result carries them. Storage definitions, dependency publication and
+refinements skip Production. Liveness reads inputs without defining output. Literal pruning and true-path pattern binding
+share build_value_branch. Scalar truth and Boolean joins use attached data and the existing implication proof. No reconstruction
+or new authority is introduced. The cache-lifetime and scalar-join laws failed before repair. The CFG phase assertion now checks
+one publication after joining and one left evaluation. Source validity expectations remain fixed.
 
-The const-call producer preserves real owner identity independently of symbolic computation. Static initializer/fabrication,
-selected-instance and imported-static controls pass. Two extra static proof tests passed at 771157820. Retained logical
-storage also preserves actual ConditionVariable loans without replacing unrepresented backing with Unknown.
+Ownership joins also preserve complete snapshot keys, keeping changed contents distinct from the original owner identity.
+Const-call production preserves real owners independently of symbolic computation. Actual ConditionVariable loans use retained
+logical storage without replacing unrepresented physical backing with Unknown. Their fixed regressions pass.
 
-Native evidence remains materialized-owner-native.log at 771157820: standard-library planning stops with 11 E7123,
-10 E7119 and two E7127. No native composition or runtime Source archive has executed. Terminal-address and partial-stdlib
-SpinLock probes stop on buffer/allocation diagnostics. All 13 focused terminal_destructor controls pass.
-
-Pinned Boolean failures: short_circuit_results_preserve_returned_predicate_meaning and
-production_completion_predicates_match_returned_booleans. boolean-publication.log shows produced Boolean outcomes becoming
-Unknown before return. build_condition publishes before the join and merge_values loses differing cached values. Binary
-expressions have no outer result-region completion. Preserve actual operands and conditional meaning without reconstructing
-missing values from syntax or growing path formulas. Treating missing internal slots as Absent exposes independent cleanup
-authority loss, so that experiment is reverted. Changing only cache equality also failed. Keep these expectations fixed.
+Fresh captured-boolean-native.log stops at standard-library planning with 11 E7123, five E7119 and two E7127. Five child-process
+failures are removed. No native composition or runtime Source archive has executed. Remaining locations are channel cleanup,
+byte-buffer reads, Windows loops/calls, buffer postconditions and moved collection fields. Next pin and trace the actual buffer
+postcondition before further changes. Terminal-address and partial-stdlib SpinLock probes stop on buffer/allocation diagnostics.
+All 13 focused terminal_destructor controls pass. Missing-slot-as-Absent experiments remain reverted because they lost independent
+cleanup authority. All diagnostic hooks and their temporary visibility changes are removed. No processes or reviewer are running.
 
 Read-only commit_start trace: begin releases the pool guard before cell locking. The inspected path to publication uses
 spin/atomic operations, total accessors and abort-only invariant checks. No recoverable failure is demonstrated there.

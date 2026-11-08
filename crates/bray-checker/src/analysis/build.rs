@@ -986,9 +986,17 @@ mod tests {
 
         assert_eq!(result_phases, [
             AnalysisResultPhase::Begin,
-            AnalysisResultPhase::Completion,
+            AnalysisResultPhase::Production,
             AnalysisResultPhase::Completion,
         ]);
+
+        let publication = graph.blocks().iter().find(|block| block.operations().iter().any(|id| {
+            graph.operation(*id).is_some_and(|operation| matches!(operation.kind(),
+                AnalysisOperationKind::Result { expression, phase: AnalysisResultPhase::Completion } if expression == binary))
+        })).expect("the selected Boolean publishes after its paths rejoin");
+
+        assert_eq!(publication.predecessors().len(), 2);
+        assert_eq!(graph.operations().iter().filter(|operation| operation.kind().node() == left.into()).count(), 1);
 
         assert!(!graph.operations().iter().any(|operation| matches!(
             operation.kind(), AnalysisOperationKind::Bound(node) if node == binary.into()

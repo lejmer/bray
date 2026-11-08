@@ -146,6 +146,52 @@ mod tests {
     }
 
     #[test]
+    fn short_circuit_join_keeps_the_produced_boolean_meaning() {
+        for (operator, shortcut, compound) in [
+            (bray_bound_tree::BoundOperator::LogicalAnd, false, false),
+            (bray_bound_tree::BoundOperator::LogicalOr, true, false),
+            (bray_bound_tree::BoundOperator::LogicalAnd, false, true),
+            (bray_bound_tree::BoundOperator::LogicalOr, true, true),
+        ] {
+            let data = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+            let data = if compound {
+                ExecutionCondition::operation(operator, vec![data,
+                    ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)))])
+            } else { data };
+            let left = ExecutionCondition::scalar_observation(ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(9))),
+                data);
+            let right = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+            let formula = ExecutionCondition::operation(operator, vec![left.clone(), right]);
+            let produced = ExecutionCondition::scalar_observation(ExecutionCondition::Result, formula);
+            let mut skipped = Default::default();
+            let mut evaluated = Default::default();
+
+            left.clone().assume(shortcut, &mut skipped);
+            left.assume(!shortcut, &mut evaluated);
+
+            for reversed in [false, true] {
+                let constant = ExecutionCondition::Boolean(shortcut);
+                let (first, second, conditions) = if reversed {
+                    (&produced, &constant, (&evaluated, &skipped))
+                } else {
+                    (&constant, &produced, (&skipped, &evaluated))
+                };
+                let joined = common_components(first, second, Some(ExecutionCondition::Result), conditions,
+                    &mut Vec::new(), &mut { ExecutionCondition::WORK_LIMIT });
+
+                assert_eq!(joined, produced);
+                assert!(joined.ownership_identity().is_none(), "equal Boolean data cannot supply owner authority");
+            }
+
+            let incompatible = common_components(&ExecutionCondition::Boolean(!shortcut), &produced,
+                Some(ExecutionCondition::Result), (&skipped, &evaluated), &mut Vec::new(),
+                &mut { ExecutionCondition::WORK_LIMIT });
+
+            assert_ne!(incompatible, produced, "a selected value must agree with both predecessors");
+        }
+    }
+
+    #[test]
     fn repeated_loan_join_stabilizes_without_acquiring_ownership() {
         let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
         let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));

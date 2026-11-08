@@ -587,6 +587,10 @@ impl OperationEffects {
             } => Some(AnalysisCallPhase::Attempt),
             AnalysisOperationKind::Call { phase, .. } => Some(phase),
             AnalysisOperationKind::Result {
+                phase: crate::analysis::model::AnalysisResultPhase::Production,
+                ..
+            } => Some(AnalysisCallPhase::Attempt),
+            AnalysisOperationKind::Result {
                 phase: crate::analysis::model::AnalysisResultPhase::Completion,
                 ..
             } => Some(AnalysisCallPhase::Completion),
