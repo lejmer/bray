@@ -2234,6 +2234,31 @@ using core.target;
 }
 
 #[test]
+fn production_condition_variable_preserves_its_borrowed_queue_authority() {
+    let compilation = production_sync_compilation("module app;");
+    let mut failures = Vec::new();
+    let mut bodies = 0;
+
+    for key in compilation.declared_unit_keys_for_test().expect("production bodies are declared") {
+        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
+            || !body_belongs_to(&compilation, &key, &[], &["ConditionVariable"]) {
+            continue;
+        }
+
+        bodies += 1;
+        let properties = compilation.execution_properties(key.clone()).expect("production body is certified");
+        let checked = compilation.lowered_unit(key.clone()).expect("production body lowers");
+
+        if properties.diagnostics().has_errors() || checked.diagnostics().has_errors() {
+            failures.push((key, properties.diagnostics().clone(), checked.diagnostics().clone()));
+        }
+    }
+
+    assert!(bodies > 0, "the actual condition-variable bodies must be selected");
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
 #[ignore = "tier:proof"]
 fn production_condition_variable_releases_and_reacquires_authority() {
     let compilation = production_sync_compilation(

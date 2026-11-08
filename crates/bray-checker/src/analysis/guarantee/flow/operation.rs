@@ -526,7 +526,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // layers and returned origins for consumers that can interpret them.
         self.observe_references(
             state,
-            bray_bound_tree::StorageMutation::Operation(operation.occurrence()),
             observations.references(),
         );
 

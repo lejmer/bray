@@ -239,7 +239,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 domain.invalidate_observations(execution, identity, &invalidation, false, false);
-                domain.observe_references(execution, identity, completion.references());
+                domain.observe_references(execution, completion.references());
             };
 
         domain.transition_storage_cleanup(
