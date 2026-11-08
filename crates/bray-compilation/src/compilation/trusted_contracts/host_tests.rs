@@ -219,6 +219,18 @@ fn production_buffer_range_contracts_survive_pointer_staging() {
 }
 
 #[test]
+fn production_spare_fill_preserves_its_descriptor_bound() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let key = source_function_body_key(&compilation, "fill_spare_bytes");
+    let properties = compilation.execution_properties(key.clone()).expect("production fill is certified");
+    let body = compilation.lowered_unit(key).expect("production fill lowers");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+}
+
+#[test]
 fn production_completion_predicates_match_returned_booleans() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
