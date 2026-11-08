@@ -231,9 +231,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     transfers: &mut BTreeSet<BoundExpressionId>,
 ) {
-    let occurrence = operation.occurrence();
-
-    for plan in storage.occurrence_plans(occurrence).filter(|plan| {
+    for plan in operation.storage_plans(storage).filter(|plan| {
         matches!(
             plan.purpose(),
             bray_bound_tree::StorageAccessPurpose::Copy
@@ -243,14 +241,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     }) {
         let path = current_access(plan);
 
-        let defining = Some(plan.expression()) == occurrence.expression()
-            && matches!(operation,
-                crate::analysis::model::AnalysisOperationKind::Bound(_)
-                | crate::analysis::model::AnalysisOperationKind::Call {
-                    phase: crate::analysis::model::AnalysisCallPhase::Attempt, ..
-                });
-
-        let value = if defining {
+        let value = if storage.access_plan_role(plan) == bray_bound_tree::StorageAccessPlanRole::SourceMaterialization {
             path.as_ref().map(|path| domain.current_access_value(state, path))
                 .unwrap_or(crate::ExecutionCondition::Unknown)
         } else {

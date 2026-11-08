@@ -586,6 +586,7 @@ mod tests {
             StorageIdentity::Temporary(argument),
             unit.key().source(),
         );
+
         let (identity, argument_access) = push_staged_input(
             &mut storage, call_expression, argument, source_access, error_type(), unit.key().source(), None,
         );
@@ -767,12 +768,15 @@ mod tests {
             (borrowed_type, None),
         ] {
             let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
+
             let (_, argument_access) = push_direct_storage(
                 &mut storage, StorageIdentity::Temporary(argument), unit.key().source(),
             );
+
             let (_, future_access) = push_direct_storage(
                 &mut storage, StorageIdentity::Temporary(call_expression), unit.key().source(),
             );
+
             let capability = reborrow.map(|kind| {
                 let capability = storage.push_borrow_capability(PlannedBorrowCapability::new(
                     BorrowCapabilityOrigin::Operation(argument.into()), kind, argument_access, None,
@@ -781,9 +785,11 @@ mod tests {
 
                 (capability, kind)
             });
+
             let (_, staged_access) = push_staged_input(
                 &mut storage, call_expression, argument, argument_access, target_type, unit.key().source(), capability,
             );
+
             let storage = storage.finish();
             let expected_access = if reborrow.is_some() { staged_access } else { future_access };
 
@@ -883,9 +889,11 @@ mod tests {
             None,
         )
         .with_implementation_hook(Some(implementation));
+
         let (_, staged_access) = push_staged_input(
             &mut storage, call_expression, argument, argument_access, error_type(), unit.key().source(), capability,
         );
+
         let storage = storage.finish();
 
         let contracts = selected_contracts(&unit, &storage, call_expression, &call);
@@ -1130,6 +1138,7 @@ mod tests {
             StorageIdentity::Temporary(expression) => Some(expression),
             _ => None,
         };
+
         let identity = storage
             .push_identity(identity)
             .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
@@ -1164,17 +1173,21 @@ mod tests {
     ) -> (StorageIdentityId, StorageAccessId) {
         let ordinal = SymbolOrdinal::new(0);
         let input = bray_bound_tree::BoundExecutionSite::CallInput { expression: call, ordinal };
+
         let identity = storage.push_identity(StorageIdentity::InvocationInput { expression: call, ordinal })
             .expect("fixture invocation input identity is local");
 
         storage.set_identity_type(identity, ty).expect("fixture input retains its target type");
+
         storage.bind(bray_bound_tree::StorageBindingTarget::InvocationInput { expression: call, ordinal },
             bray_bound_tree::StorageBinding::Identity(identity)).expect("fixture binds its actual private input");
+
         let access = storage.push_access(StorageAccess::new(StorageAccessRoot::Storage(identity), [], ty, source, false))
             .expect("fixture private input access is local");
 
         let (purpose, captured) = if let Some((capability, kind)) = capability {
             let reached = storage.access(source_access).expect("fixture loan retains its source access").reached_type();
+
             let loan = storage.push_access(StorageAccess::new(StorageAccessRoot::Borrow(capability), [], reached, source, false))
                 .expect("fixture source loan names its actual capability");
 
@@ -1187,10 +1200,13 @@ mod tests {
         };
 
         storage.plan_occurrence_access(input, expression, purpose, captured).expect("fixture captures its actual source");
+
         storage.plan_occurrence_access(input, call, bray_bound_tree::StorageAccessPurpose::Initialize, access)
             .expect("fixture input completion initializes its private destination");
+
         storage.plan_occurrence_access(call.into(), call, bray_bound_tree::StorageAccessPurpose::ValueTransfer, access)
             .expect("fixture admission transfers the private input");
+
         storage.consume_value(call.into(), bray_bound_tree::StorageValueConsumptionPhase::Admission,
             bray_bound_tree::StoragePath::root(identity)).expect("fixture admission consumes its produced private handle");
 

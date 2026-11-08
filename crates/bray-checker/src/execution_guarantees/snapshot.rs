@@ -30,28 +30,21 @@ pub(crate) fn common_components(
         return ExecutionCondition::Unknown;
     }
 
-    if let (
-        ExecutionCondition::Observation { owner: left_owner, contents: left_value, kind: ObservationKind::Scalar },
-        ExecutionCondition::Observation { owner: right_owner, contents: right_value, kind: ObservationKind::Scalar },
-    ) = (left, right) {
-        let identity = if left_owner == right_owner { Some(left_owner.as_ref().clone()) } else { result.clone() };
-
-        return match identity {
-            Some(identity) => ExecutionCondition::scalar_observation(identity,
-                common_components(left_value, right_value, result, conditions, facts, budget)),
-            None => ExecutionCondition::Unknown,
-        };
+    if let Some(joined) = common_scalar_components(left, right, result.as_ref(), conditions, facts, budget) {
+        return joined;
     }
 
     let left_owner = left.ownership_identity();
     let right_owner = right.ownership_identity();
+    let left_role = left.observation_kind().or_else(|| left_owner.map(|(role, _)| role));
+    let right_role = right.observation_kind().or_else(|| right_owner.map(|(role, _)| role));
     let same_owner = matches!((left_owner, right_owner), (Some((role, owner)), Some((other_role, other))) if role == other_role && owner == other);
 
-    if left_owner.map(|(role, _)| role) != right_owner.map(|(role, _)| role) {
+    if left_role != right_role {
         return mixed_role_components(left, right, result, conditions, facts, budget);
     }
 
-    if left_owner.is_some_and(|(role, _)| role == ObservationKind::Reference) {
+    if left_role == Some(ObservationKind::Reference) {
         let contents = common_components(
             &left.clone().into_referent(), &right.clone().into_referent(),
             if same_owner { result.clone() } else { None }, conditions, facts, budget,
@@ -107,7 +100,13 @@ pub(crate) fn common_components(
     projections.extend(fields(right));
 
     if projections.is_empty() {
-        let joined = result.unwrap_or(ExecutionCondition::Unknown);
+        let joined = result.map_or(ExecutionCondition::Unknown, |identity| {
+            if left_owner.is_none() && right_owner.is_none() {
+                ExecutionCondition::scalar_observation(identity, ExecutionCondition::Unknown)
+            } else {
+                identity
+            }
+        });
 
         if joined != ExecutionCondition::Unknown
             && let (ExecutionCondition::Literal(left), ExecutionCondition::Literal(right)) =
@@ -228,6 +227,51 @@ pub(crate) fn common_components(
         .collect();
 
     ExecutionCondition::constructed(identity, fields)
+}
+
+fn common_scalar_components(
+    left: &ExecutionCondition,
+    right: &ExecutionCondition,
+    result: Option<&ExecutionCondition>,
+    conditions: (&BTreeSet<(ExecutionCondition, bool)>, &BTreeSet<(ExecutionCondition, bool)>),
+    facts: &mut Vec<(ExecutionCondition, bool)>,
+    budget: &mut usize,
+) -> Option<ExecutionCondition> {
+    if let (
+        ExecutionCondition::Observation { owner: left_owner, contents: left_value, kind: ObservationKind::Scalar },
+        ExecutionCondition::Observation { owner: right_owner, contents: right_value, kind: ObservationKind::Scalar },
+    ) = (left, right) {
+        let identity = if left_owner == right_owner { Some(left_owner.as_ref().clone()) } else { result.cloned() };
+
+        return Some(match identity {
+            Some(identity) => ExecutionCondition::scalar_observation(identity,
+                common_components(left_value, right_value, result.cloned(), conditions, facts, budget)),
+            None => ExecutionCondition::Unknown,
+        });
+    }
+
+    let left_owner = left.ownership_identity();
+    let right_owner = right.ownership_identity();
+    let left_role = left.observation_kind().or_else(|| left_owner.map(|(role, _)| role));
+    let right_role = right.observation_kind().or_else(|| right_owner.map(|(role, _)| role));
+
+    if left_owner.is_none() && right_owner.is_none()
+        && !matches!(left_role, Some(ObservationKind::Reference | ObservationKind::Owned))
+        && !matches!(right_role, Some(ObservationKind::Reference | ObservationKind::Owned))
+        && (left.observation_kind() == Some(ObservationKind::Scalar)
+            || right.observation_kind() == Some(ObservationKind::Scalar))
+    {
+        let data = |value: &ExecutionCondition| match value {
+            ExecutionCondition::Observation { contents, kind: ObservationKind::Scalar, .. } => contents.as_ref().clone(),
+            value => value.clone(),
+        };
+        let Some(identity) = result.cloned() else { return Some(ExecutionCondition::Unknown); };
+
+        return Some(ExecutionCondition::scalar_observation(identity,
+            common_components(&data(left), &data(right), None, conditions, facts, budget)));
+    }
+
+    None
 }
 
 fn mixed_role_components(

@@ -138,13 +138,24 @@ struct ScopedOwner
 
 func exercise_scope(pos callback: func() -> unit, pos early_exit: bool)
 {
+    let initial_state: State =
+    {
+        owner = acquire(),
+        progress = 0
+    };
+
+    let mut returned_state = update_state(initial_state, early_exit);
+
+    while returned_state.progress != 10
+    {
+        callback();
+        returned_state.progress += 1;
+        observe(&returned_state.owner);
+    }
+
     let scoped_owner: ScopedOwner =
     {
-        state =
-        {
-            owner = acquire(),
-            progress = 0
-        }
+        state = returned_state
     };
 
     _ = with entered_state = scoped_owner

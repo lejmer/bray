@@ -255,3 +255,21 @@ fn construction_inputs_lower_nullable_values_before_aggregate_transfer() {
         )).count(), 1, "{name}: {mir:#?}");
     }
 }
+
+
+#[test]
+fn returned_temporary_is_borrowable_after_call_completion() {
+    let compilation = compilation(r#"
+        module app;
+        struct Value { data: i32; }
+        impl Value {
+            func read() -> i32 { return self.data; }
+        }
+        func make() -> Value { return { data = 7 }; }
+        func main() -> i32 { return make().read(); }
+    "#);
+    assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "main"))
+        .expect("checked caller lowers");
+    lowered_mir(&lowered);
+}

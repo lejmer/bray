@@ -385,8 +385,18 @@ impl ExecutionCondition {
     pub(crate) fn predicate(
         predicate: bray_symbols::PredicateDefinitionSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
-        arguments: Vec<Self>,
+        mut arguments: Vec<Self>,
     ) -> Self {
+        for argument in &mut arguments {
+            if let Self::Observation { contents, kind: ObservationKind::Reference, .. } = argument
+                && contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
+            {
+                // Aliases observe the actual reached owner, independently of the
+                // loan handle that supplies access. Scalar data has no such owner.
+                *argument = contents.as_ref().clone().borrowed();
+            }
+        }
+
         for argument in &arguments {
             if argument.contains_unknown() {
                 return Self::Unknown;
@@ -746,8 +756,7 @@ impl ExecutionCondition {
                 *operand = operand.current_contents().clone();
             }
 
-            if let Self::Observation { contents: value, kind: ObservationKind::Scalar, .. } = operand
-                && matches!(value.as_ref(), Self::Literal(_) | Self::Boolean(_)) {
+            if let Self::Observation { contents: value, kind: ObservationKind::Scalar, .. } = operand {
                 *operand = value.as_ref().clone();
             }
 

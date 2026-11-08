@@ -172,8 +172,7 @@ fn join_observations<'a>(
     let mut owned_results = BTreeMap::new();
     let mut joined_facts = Vec::new();
     let mut needs_condition_proof = false;
-    let mut stable_values = std::collections::BTreeSet::new();
-    let mut stable_identities = std::collections::BTreeSet::new();
+    let (stable_values, stable_identities) = stable_observations(target, incoming);
     let mut availability = BTreeMap::new();
     let mut availability_guards = std::collections::BTreeSet::new();
     let mut availability_facts = Vec::new();
@@ -195,17 +194,6 @@ fn join_observations<'a>(
 
         let left_available = resolved_availability(target, place);
         let right_available = resolved_availability(incoming, place);
-
-        if let Some((role, owner)) = value.ownership_identity()
-            && other.ownership_identity() == Some((role, owner))
-        {
-            stable_identities.insert(owner.clone());
-        }
-
-        if value == other {
-            stable_values.insert(value.clone());
-            stable_values.insert(value.clone().borrowed());
-        }
 
         let slot = join_current_value(
             (target, &value, &left_available), (incoming, &other, &right_available),
@@ -435,6 +423,43 @@ fn join_current_value(
     };
 
     CurrentValue { value, availability }
+}
+
+/// Only independently live objects can prevent rebasing a moved result. Retired
+/// storage keeps terminal data, but that snapshot is no longer another owner.
+pub(super) fn stable_observations(
+    left: &ExecutionState,
+    right: &ExecutionState,
+) -> (
+    std::collections::BTreeSet<ExecutionCondition>,
+    std::collections::BTreeSet<ExecutionCondition>,
+) {
+    let right_values = right.current.live_entries().collect::<BTreeMap<_, _>>();
+    let mut values = std::collections::BTreeSet::new();
+    let mut identities = std::collections::BTreeSet::new();
+
+    for (place, value) in left.current.live_entries() {
+        let Some(other) = right_values.get(&place) else { continue; };
+
+        if resolved_availability(left, &place) == ValueAvailability::Absent
+            || resolved_availability(right, &place) == ValueAvailability::Absent
+        {
+            continue;
+        }
+
+        if let Some((role, owner)) = value.ownership_identity()
+            && other.ownership_identity() == Some((role, owner))
+        {
+            identities.insert(owner.clone());
+        }
+
+        if &value == other {
+            values.insert(value.clone().borrowed());
+            values.insert(value);
+        }
+    }
+
+    (values, identities)
 }
 
 fn resolved_availability(state: &ExecutionState, place: &crate::ExecutionPlace) -> ValueAvailability {

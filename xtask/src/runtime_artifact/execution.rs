@@ -46,8 +46,8 @@ pub(super) fn smoke_test(
             42,
         ),
         (
-            "async-root-cleanup",
-            include_str!("../../fixtures/native-execution/async-root-cleanup.bray"),
+            "async-ownership-composition",
+            include_str!("../../fixtures/native-execution/async-ownership-composition.bray"),
             0,
         ),
         (

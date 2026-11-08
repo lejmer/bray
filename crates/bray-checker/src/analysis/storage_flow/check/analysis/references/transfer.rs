@@ -403,6 +403,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         target: bray_symbols::TypeId,
     ) -> bool {
         let value = state.execution.as_ref().map(|execution| self.execution.value(execution, expression));
+
         self.observe_transferred_value(state, value, destination, target)
     }
 
@@ -478,6 +479,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         let source_type = self.execution.semantics.types().expression(expression)
             .expect("transferred value has a checked type").ty();
+
         self.transfer_reference_producer(state, expression.into(), source_type, destination, target);
     }
 
@@ -495,7 +497,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .map(|place| crate::analysis::storage_flow::memory::Source::Value(Target::storage(place))),
             _ => unreachable!("reference construction retains an evaluated value producer"),
         };
+
         let value = state.execution.as_ref().map(|execution| self.execution.invocation_value(execution, producer));
+
         // The transfer owns its converted destination path.
         if let Some(projections) = crate::storage::nullable_wrapping(self.request.semantic_values(), source_type, target)
             && let Some(source) = source

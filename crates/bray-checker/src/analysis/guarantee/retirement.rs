@@ -81,8 +81,12 @@ impl ExecutionState {
         let invalidated_observations = invalidated.iter().cloned()
             .collect::<crate::execution_guarantees::ObservationSet>();
 
+        let invalidated_owners = invalidated.iter()
+            .filter_map(ExecutionCondition::ownership_identity)
+            .collect::<BTreeSet<_>>();
+
         let retired_owner = |value: &ExecutionCondition| if retained_snapshots.is_some() {
-            crate::execution_guarantees::ObservationSet::retains_owner(&invalidated, value)
+            value.ownership_identity().is_some_and(|owner| invalidated_owners.contains(&owner))
         } else {
             invalidated_observations.contains(value)
         };
@@ -638,6 +642,26 @@ mod tests {
     use crate::ExecutionPlace;
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
+
+    #[test]
+    fn retirement_revokes_owners_beyond_the_proof_budget() {
+        for count in [1, ExecutionCondition::WORK_LIMIT + 1] {
+            let owners = (0..count).map(|index| {
+                ExecutionCondition::Input(ExecutionPlace::argument(
+                    SymbolOrdinal::new(u32::try_from(index).expect("test owner index fits ordinal")),
+                ))
+            }).collect::<BTreeSet<_>>();
+
+            let first = owners.first().expect("test has an owner").clone();
+            let mut state = ExecutionState::default();
+
+            state.carry_guarantee(first.clone(), first.clone());
+            state.trusted_assumptions.insert((first.clone(), true));
+            state.retire_trusted_values(owners, &BTreeSet::new());
+
+            assert!(!state.owns_witness(&first), "retirement retained authority with {count} invalidated owners");
+        }
+    }
 
     #[test]
     fn retained_parent_identity_does_not_republish_changed_borrowed_data() {

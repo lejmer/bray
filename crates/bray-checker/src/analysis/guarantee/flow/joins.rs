@@ -48,25 +48,7 @@ pub(in crate::analysis::guarantee) fn merge_returned(
     let mut right = BTreeMap::new();
     let mut left_ids = BTreeMap::new();
     let mut right_ids = BTreeMap::new();
-    let mut stable_values = BTreeSet::new();
-    let mut stable_identities = BTreeSet::new();
-
-    for (place, value) in &target.current {
-        let Some(other) = place.value_in(&incoming.current) else {
-            continue;
-        };
-
-        if let Some((role, owner)) = value.ownership_identity()
-            && other.ownership_identity() == Some((role, owner))
-        {
-            stable_identities.insert(owner.clone());
-        }
-
-        if value == &other {
-            stable_values.insert(value.clone());
-            stable_values.insert(value.clone().borrowed());
-        }
-    }
+    let (stable_values, stable_identities) = super::merge::stable_observations(target, &incoming);
 
     for (source, replacements, identities) in [
         (left_value, &mut left, &mut left_ids),
@@ -161,6 +143,19 @@ mod tests {
             &mut Vec::new(),
             &mut { ExecutionCondition::WORK_LIMIT },
         )
+    }
+
+    #[test]
+    fn repeated_loan_join_stabilizes_without_acquiring_ownership() {
+        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let before = owner.with_component(&[field], ExecutionCondition::Boolean(true), None).borrowed();
+        let after = before.with_referent(owner.with_component(&[field], ExecutionCondition::Boolean(false), None));
+        let joined = join_components(&before, &after);
+
+        assert_eq!(join_components(&joined, &after), joined);
+        assert_eq!(join_components(&after, &joined), joined);
+        assert_eq!(joined.owned_components().count(), 0);
     }
 
     #[test]
@@ -629,4 +624,48 @@ mod nested_guard_tests {
             assert_eq!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions) == Some(true), valid);
         }
     }
+
+    #[test]
+    fn retired_source_snapshot_does_not_pin_a_moved_payload_owner() {
+        let variant = |id| UnionVariantSymbolId::from_symbol_id(SymbolId::new(id));
+        let active = variant(910);
+        let empty = variant(911);
+        let field = StorageProjection::ActiveUnionPayloadField {
+            variant: active,
+            field: UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(912)),
+        };
+        let source_place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let source = ExecutionCondition::Input(source_place.clone());
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let substitution = crate::test_support::empty_substitution(predicate.into());
+        let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.borrowed()]),
+        ));
+        let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
+        ]);
+        let mut left = ExecutionState::default();
+        left.current.insert(source_place.clone(), source.clone());
+        left.current.retire(&source_place);
+        let right = left.clone();
+        let condition = held(source.clone());
+        left.carry_guarantee(source.clone(), condition.clone());
+        condition.assume(true, &mut left.trusted_assumptions);
+        let accepted = ExecutionCondition::constructed(
+            ExecutionCondition::Tagged(active, Arc::new(ExecutionCondition::Input(
+                ExecutionPlace::argument(SymbolOrdinal::new(1)),
+            ))),
+            [(field, source)].into(),
+        );
+        let rejected = ExecutionCondition::Tagged(empty, Arc::new(ExecutionCondition::Input(
+            ExecutionPlace::argument(SymbolOrdinal::new(2)),
+        )));
+        let joined = merge_returned(&mut left, &right, &accepted, &rejected,
+            &ExecutionCondition::Result, expressions[0]);
+        joined.clone().matches_variant(active).assume(true, &mut left.assumptions);
+        assert_eq!(held(joined.project(field)).prove_trusted(
+            &left.trusted_assumptions, &left.assumptions,
+        ), Some(true));
+    }
+
 }

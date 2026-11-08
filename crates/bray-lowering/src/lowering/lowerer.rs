@@ -1362,6 +1362,7 @@ mod tests {
             assert_eq!(operation.kind(), &kind);
             assert_eq!(operation.operands().len(), argument_count);
             assert_eq!(operation.result_type().is_some(), kind.produces_value());
+
             assert!(operation.operands().iter().all(|operand| matches!(operand, bray_ir::MirOperand::Move(_))),
                 "runtime memory operands must come from their actual staged input slots");
 
@@ -2121,6 +2122,7 @@ mod tests {
 
             storage.set_identity_type(identity, ty).expect("fixture value retains its checked type");
             storage.set_value_slot(expression, identity).expect("fixture declares its actual evaluated output");
+
             storage.push_access(StorageAccess::new(StorageAccessRoot::Storage(identity), [], ty,
                 unit.key().source(), false)).expect("fixture evaluated output access is local");
         }
@@ -2132,31 +2134,38 @@ mod tests {
                 let ordinal = entry.selection().input_ordinal(input.root()).expect("fixture input has its ordinal");
                 let occurrence = bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal };
                 let ty = input.ty(values);
+
                 let identity = storage.push_identity(StorageIdentity::InvocationInput { expression, ordinal })
                     .expect("fixture private input identity is local");
 
                 storage.set_identity_type(identity, ty).expect("fixture private input retains its target type");
+
                 storage.bind(StorageBindingTarget::InvocationInput { expression, ordinal }, StorageBinding::Identity(identity))
                     .expect("fixture binds the selected private input");
+
                 let access = storage.push_access(StorageAccess::new(StorageAccessRoot::Storage(identity), [], ty,
                     unit.key().source(), false)).expect("fixture private input access is local");
 
                 if let Some(source) = input.expression() {
                     let source_root = storage.value_slot(source).expect("fixture explicit input has its produced value slot");
                     let source_ty = types.expression(source).expect("fixture input source has its checked type").ty();
+
                     let source_access = storage.push_access(StorageAccess::new(StorageAccessRoot::Storage(source_root), [], source_ty,
                         unit.key().source(), false)).expect("fixture source access names its produced value");
 
                     storage.plan_occurrence_access(occurrence, source, StorageAccessPurpose::ValueTransfer, source_access)
                         .expect("fixture stage captures its actual evaluated source");
+
                     storage.consume_value(occurrence, StorageValueConsumptionPhase::Completion, StoragePath::root(source_root))
                         .expect("fixture stage consumes its produced source after capture");
                 }
 
                 storage.plan_occurrence_access(occurrence, expression, StorageAccessPurpose::Initialize, access)
                     .expect("fixture stage publishes the private input");
+
                 storage.plan_occurrence_access(expression.into(), expression, StorageAccessPurpose::ValueTransfer, access)
                     .expect("fixture callee receives the actual staged input");
+
                 storage.consume_value(expression.into(), StorageValueConsumptionPhase::Admission, StoragePath::root(identity))
                     .expect("fixture admission consumes the private handle");
             }

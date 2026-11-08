@@ -1,4 +1,4 @@
-module async_root_cleanup;
+trusted module async_ownership_composition;
 
 using core.atomic;
 using std.run;
