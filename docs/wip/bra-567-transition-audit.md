@@ -34,9 +34,10 @@ WaitResources remains stable while lease-bounded membership changes. Audit actua
 Worktree: target/bra-567-audit under the original repository. Pushed checkpoints use the actual PR branch.
 Audit baseline: b90076c1f21f3853ebfd90954b3babe26f122eca. User authorizes checkpoint commits and pushes.
 
-Current scalar-join-datum validation: compilation build 3m15s, checker 456 passed, lowering 38 passed. Full fixed
-comparison has 690 passed, 66 failed, 99 ignored in 125s. No new failures against bounded-effect. Imported joined bounds,
-raw-byte access and runtime text storage now pass. Ten focused source checks pass. The async fixture passes certificates and lowering for every function/lifecycle
+Current channel-owner-introduction validation: checker 456 and lowering 38 passed on unchanged compiler semantics. The
+retained compiler checks the changed Bray source. Fixed comparison has 691 passed, 67 failed, 99 ignored in 94s. Its only
+added failure is the newly pinned bounded-channel check, which reproduces the existing tuple cleanup defect. The early/
+late wrapping law passes. Imported joined bounds, raw-byte access and runtime text storage pass. The async fixture passes certificates and lowering for every function/lifecycle
 body, plus its three invalid variants and loop controls. Source validity expectations remain fixed. The separate division-
 guard and joined-index failures also occur in retained fc4b5160b baseline.
 
@@ -48,8 +49,8 @@ Ownership joins also preserve complete snapshot keys, keeping changed contents d
 Const-call production preserves real owners independently of symbolic computation. Actual ConditionVariable loans use retained
 logical storage without replacing unrepresented physical backing with Unknown. Their fixed regressions pass.
 
-scalar-join-datum-native.log stops at standard-library planning with six scope-cleanup E7123. Remaining paths are bounded
-channel creation and its two lambdas, endpoint send/receive and Windows environment_storage. No native composition or
+channel-owner-introduction-native.log stops at standard-library planning with four scope-cleanup E7123. Remaining paths
+are bounded channel creation, endpoint send/receive and Windows environment_storage. Both lambda failures are removed. No native composition or
 runtime Source archive has executed.
 Terminal-address and partial-stdlib SpinLock checks now pass.
 Missing-slot-as-Absent experiments remain reverted because they lost independent cleanup authority. No diagnostic hooks
@@ -70,8 +71,22 @@ actual read_native_u64 trace previously admitted Scalar(Joined(...), Unknown), l
 Scalar joins now produce usable data with the requested epoch. The red-before scalar law checks stable repeated joins,
 predecessor order, same storage context, distinct epochs, no ownership and missing-predecessor conservatism. Type lookup
 uses the immutable identity, finite evaluation dependency is retained, and runtime-only data stays unportable. Actual
-byte reads now pass. Next pin and trace cleanup lifecycle entry for bounded channel creation, then the remaining scopes.
-No diagnostic hooks, task-owned processes or reviewer are running.
+byte reads now pass.
+
+Current bounded-channel probe checks certificates, lowering and Source output. bounded-channel-cleanup-trace.log proves
+two defects: nested Owner literals lack live evidence when wrapper admission fails, and tuple cleanup part zero replaces
+the whole value before part one. Existing Sender.clone used an earlier Owner producer. Shared owner.from_core now owns
+that introduction for cloning and both channel factories. Retained compiler rerun removes both lambda failures, leaving
+the tuple failure. New ownership_guarantees_precede_fallible_wrapping checks early introduction versus late output claims.
+The early/late wrapping law passes both variants. tuple-cleanup-reach-trace.log proves a complete tuple footprint and
+exact element-one receiver. escape_effects sees type-only Cleanup(T), exposes the enclosing receiver, and widens to the
+whole tuple allocation. That loses the independent sibling. Diagnostic hooks are restored. No compiler cleanup fix yet.
+
+Next hypothesis: carry cleanup's target and type through the existing direct/indirect/unbounded effect locations. Remove
+type-only Cleanup effects and receiver-based escape guessing. Preserve substitutions and imports. Capture cleanup targets
+when forming deferred values rather than reconstructing them from task_cleanup_types. Keep truly unresolved scope explicit.
+Stop for unexplained fixed-suite regressions or new parallel representations. Verify from_core admission/refcount failure
+ownership when native/MIR paths are available. Then finish endpoint and environment cleanup. No reviewer is running.
 
 ## Remaining verification
 
