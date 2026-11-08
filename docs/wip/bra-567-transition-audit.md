@@ -24,11 +24,12 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is da3e3c779. Fixed comparison gates pass with no unexplained
+The latest pushed source is 1af46e380. Fixed comparison gates pass with no unexplained
 comparison regression. Native planning has no remaining moved-value diagnostic, but still fails on trusted obligations
 and execution guarantees. No native composition has executed. The copied-pointer owning-boundary regression and
-all 443 checker tests passed after scalar computation normalization. Native planning still fails. The active gate is
-initialized-range pointer and extent normalization in the actual production buffer contracts. Temporary traces are removed.
+all 443 checker tests pass at that checkpoint. The fixed trusted population is 171 passed, 63 failed, 97 ignored with
+no newly failed old identity. Native planning remains blocked. The active gate is copied-value predicate observation
+and reference-safe copy proof. Temporary traces are removed.
 The ledger remains incomplete. Source passes do not certify runtime execution.
 
 ### Executable ledger for the current blocking boundaries
@@ -53,7 +54,7 @@ requires the whole composition, including lowering and native execution. This re
 ## Current implementation and evidence
 
 Worktree: `target/bra-567-audit`, directly on PR #710 branch `feature/bra-567-async-root-orchestration`.
-The original develop checkout is untouched. Latest pushed head is **da3e3c779**.
+The original develop checkout is untouched. Latest pushed head is **1af46e380**.
 The user explicitly authorized continued implementation, checkpoint pushes, and an independent review on the draft PR
 once implementation and verification finish. Continue through resolved review findings until ready for human Review.
 No review agent has been started. No style or formatting pass has run during this audit.
@@ -67,6 +68,7 @@ No review agent has been started. No style or formatting pass has run during thi
 - `4b39bfe38`: retain projected loan descriptors until their actual consumer captures data or a new loan.
 - `c73547c02`: match copied pointer descriptors in closed spatial proofs, with async invalid variants and boundary test.
 - `da3e3c779`: share scalar computation reads across arithmetic, const calls and spatial extents, plus real buffer regression.
+- `1af46e380`: normalize all three initialization predicates while preserving contents invalidation, and collect all real buffer controls.
 
 ### Fixed comparisons and their limits
 
@@ -155,10 +157,48 @@ buffer bodies, the unary raw read, address expiry, contents writes and both asyn
 63 failed, 97 ignored. Exactly nine old failures are removed relative to initialized-range-trusted.log, with no added
 failures. The full initialization descriptor batch is ready for checkpoint and native planning.
 
-The scoped trace separately confirms exit postconditions are published, then all are removed by
-invalidate_trusted(capability). An immutable copied-value continuation guarantee still names a projection of the
-retired ScopedCapability. Retain this evidence for the next actual scope-transition repair. Do not fix it by retaining
-authority for a retired owner or letting borrowed facts escape their lifetime.
+CORRECTED scoped trace diagnosis: the initial retirement example was from the negative variant without an explicit
+exit postcondition. In the positive variant at SemanticValueStoreId(4), SCOPE COMPLETE contains both the old capability
+fact and the correctly rewritten surviving resource-field fact. SCOPE RETIRED removes only the old capability fact,
+and preserves the resource-field fact. Retirement is correct for that positive path. NEXT PROOF then shows the caller's
+by-value bool requirement wrapped in Scalar(PostState(private input), original resource field), while the available
+fact names the original field directly. Investigate admitted scalar-copy proof observation, not scope retention.
+No implementation change was made from the earlier incorrect retirement hypothesis. Keep borrowed and marker-copy
+negative controls fixed. Examine existing ExecutionCallEvidence::proof_facts/copy_sources before introducing machinery.
+
+`initialization-predicates-native.log` at 1af46e380 fails native standard-library planning in 22.4 seconds, now with
+103 E7123, 48 E7113, 39 E7119, 9 E7036, 3 E7063 and 2 E7127. No moved-value diagnostic remains.
+The previous pointer checkpoint had 197 E7123 and 123 E7119. The first leaf is now a write call at SourceId(37),
+range 4060..4089, rather than byte_buffer_fill. No native fixture has executed. Do not claim composition complete.
+
+### Current copied-value predicate experiment
+
+`direct-copy-proof-baseline.log` freezes the existing Source/imported scoped-value failures, a new source negative
+that rejects passing a copied bool where borrowed field authority is required, and a new owning-boundary copy-proof
+projection property. The source negative passes before the repair. The unit property fails on its first value
+correlation assertion, so its later reference assertions were not reached in that baseline run.
+
+Inspection found that Scalar already carries its immutable copy source. A proposed extra direct-call origin registry
+was removed before validation. The current small experiment makes predicate construction observe top-level copied
+data, while Borrowed and Reference subjects retain their storage context. No new direct-call state is introduced.
+The existing deferred copy-origin producer uses the same copied_value helper to avoid retaining a private scalar
+staging context as its origin. Pointer descriptor normalization also reuses that helper.
+
+Copy proof uses with_copy_origins, which shares snapshot lookup with with_snapshots but never substitutes through
+Borrowed or Reference observations. A copy binding now maps a source identity to the complete captured value instead
+of overwriting an exact value mapping with only the captured owner identity. The new boundary property checks value
+correlation and preservation of original borrowed subjects. The typed source negative remains fixed.
+
+Explicit unit-test correction: the pointer unit introduced at c73547c02 asserted inequality of raw by-value predicate
+terms before normalization. That was a representation assertion, not a required language negative. The copied scalar
+still has no ownership, and the test now asserts distinct borrowed storage identities instead. The original spatial
+matching check remains. Source negatives for borrowed authority and witness copying are unchanged.
+
+`copied-value-predicate-repair.log` passes the new checker property and all nine selected source tests, including
+Source/imported scoped value continuation, the new borrowed-field negative, existing scalar and witness-copy negatives,
+all real buffer operations and both async composition variants. `copied-value-predicate-checker.log` passes 444.
+`copied-value-predicate-trusted.log` has 185 passed, 50 failed, 97 ignored. Exactly 13 old failures were removed,
+with no added failed identity. The added source negative passes. The batch is ready for checkpoint and native retry.
 
 Both temporary traces were restored before the current repair. proof.rs was restored from pointer-proof-before-trace.rs,
 and flow/inputs.rs from range-scope-inputs-before-trace.rs. No trace remains in source.

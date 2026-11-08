@@ -379,7 +379,7 @@ impl ExecutionCallEvidence {
 
         facts
             .iter()
-            .map(move |(condition, holds)| (condition.with_snapshots(&bindings), *holds))
+            .map(move |(condition, holds)| (condition.with_copy_origins(&bindings), *holds))
     }
 
     fn copy_bindings(
@@ -396,7 +396,7 @@ impl ExecutionCallEvidence {
 
             bindings.insert(
                 source.owner_identity().clone(),
-                captured.owner_identity().clone(),
+                captured,
             );
         }
 

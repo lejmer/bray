@@ -1,8 +1,34 @@
 use super::ExecutionCondition;
 use crate::ExecutionPlace;
 use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+
+#[test]
+fn copy_proof_correlations_preserve_borrowed_storage_identity() {
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let substitution = crate::test_support::callable_instance(definition.into()).substitution();
+    let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(901));
+    let source = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let copied = ExecutionCondition::scalar_observation(
+        ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))), source.clone());
+    let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+    let evidence = crate::ExecutionCallEvidence {
+        arguments: BTreeMap::from([(place.clone(), copied.clone())]),
+        copy_sources: BTreeMap::from([(place, source.clone())]),
+        ..Default::default()
+    };
+    let condition = |value| ExecutionCondition::predicate(predicate.into(), substitution, vec![value]);
+    let facts = BTreeSet::from([
+        (condition(source.clone()), true),
+        (condition(source.clone().borrowed()), true),
+    ]);
+    let observed = evidence.proof_facts(&facts).collect::<BTreeSet<_>>();
+
+    assert!(observed.contains(&(condition(copied.clone()), true)));
+    assert!(observed.contains(&(condition(source.borrowed()), true)));
+    assert!(!observed.contains(&(condition(copied.borrowed()), true)));
+}
 
 #[test]
 fn arithmetic_and_const_calls_read_the_same_current_scalar_value() {
@@ -58,7 +84,7 @@ fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority(
 
     assert_eq!(condition(copied.clone()).pointer_observations(&spatial),
         condition(pointer.clone()).pointer_observations(&spatial));
-    assert_ne!(condition(copied.clone()), condition(pointer));
+    assert_ne!(copied.clone().borrowed().owner_identity(), pointer.borrowed().owner_identity());
     assert!(copied.ownership_identity().is_none());
 }
 
