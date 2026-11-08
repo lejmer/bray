@@ -388,7 +388,7 @@ fn bounded_collection_storage_effects_keep_their_physical_scope() {
 
         assert!(!dependencies.effects().iter().any(|effect| matches!(effect,
             bray_symbols::DependencyStorageEffect::UnboundedMutation { kind, ambient, .. }
-                if !*ambient || !matches!(kind, bray_symbols::DependencyMutationKind::Cleanup(_)))),
+                if !*ambient || !matches!(kind, bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_)))),
             "{name}: {:?}", dependencies.effects());
     }
 }

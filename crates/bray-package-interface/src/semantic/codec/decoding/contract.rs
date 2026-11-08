@@ -769,6 +769,7 @@ fn decode_mutation(
         6 => DependencyMutationKind::Clear,
         7 => DependencyMutationKind::Escape,
         8 => DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(read_u32(reader)?)),
+        9 => DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(read_u32(reader)?)),
         raw => {
             return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Dependency,

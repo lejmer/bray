@@ -48,7 +48,7 @@ fn cleanup_retains_its_value_scope_and_follows_actual_contained_references() {
 
         let effects = state.cleanup_effects(Some(&Target::storage(right.clone())), error_type());
         assert!(effects.iter().filter_map(super::Effect::mutation)
-            .all(|(_, kind)| kind == DependencyMutationKind::Cleanup(error_type())));
+            .all(|(_, kind)| kind == DependencyMutationKind::Dispose(error_type())));
 
         let storage = StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
         let protected = [left.clone()];
@@ -4149,7 +4149,7 @@ fn staged_future_moves_retain_completion_effects_and_references() {
     let movement = expressions[1].into();
     let observation = expressions[2].into();
     let producers = [producer].into();
-    let effect = super::Effect::unbounded(bray_symbols::DependencyMutationKind::Cleanup(error_type()), None, false);
+    let effect = super::Effect::unbounded(bray_symbols::DependencyMutationKind::Dispose(error_type()), None, false);
     let mut state = State::default();
 
     state.begin_transition(producer);

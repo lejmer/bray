@@ -47,7 +47,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut captured = Vec::new();
         for effect in effects {
             match effect {
-                Effect::Mutation(target, Kind::Cleanup(ty), _) => {
+                Effect::Mutation(target, Kind::Dispose(ty), _) => {
                     let (mut regions, unknown) = if output.contains(&target) {
                         state.memory.staged_contained_regions(invocation, &target)
                     } else {
@@ -69,7 +69,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // Region bounds identify captured referents. They do not claim
                     // that each referent has the disposed value's type or layout.
                     captured.extend(regions.into_iter().map(|region| Effect::Mutation(region, Kind::Cleanup(ty), None)));
-                    captured.push(Effect::UnboundedMutation { kind: Kind::Cleanup(ty), access_type: None, ambient: true });
+                    captured.push(Effect::UnboundedMutation { kind: Kind::Dispose(ty), access_type: None, ambient: true });
                 }
                 Effect::Unknown | Effect::Escape => {
                     let kind = if effect == Effect::Escape { Kind::Escape } else { Kind::Write };

@@ -32,7 +32,7 @@ impl State {
         receiver: Option<&Target>,
         ty: bray_symbols::TypeId,
     ) -> Vec<Effect> {
-        let kind = DependencyMutationKind::Cleanup(ty);
+        let kind = DependencyMutationKind::Dispose(ty);
         let Some(receiver) = receiver else {
             return vec![Effect::unbounded(kind, None, false)];
         };
@@ -60,7 +60,7 @@ impl State {
         for effect in effects {
             match effect {
                 Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, DependencyMutationKind::Cleanup(_), _) => {
+                Effect::Mutation(target, DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _) => {
                     let (targets, _) = self.transitive_regions([target.clone()], |_| true);
                     self.invalidate(invalidation, storage, DependencyMutationKind::Retire);
 

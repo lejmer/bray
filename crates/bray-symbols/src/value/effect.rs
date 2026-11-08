@@ -15,8 +15,9 @@ pub enum DependencyMutationKind<Type = super::TypeId> {
     Replace(Type),
     /// Install an absent payload while retaining initialized containing storage.
     Clear,
-    /// Possible effects of disposing this type within the named value or reference region.
-    /// A checked access type identifies the value's layout. Without it, only the region is known.
+    /// Dispose a value at this location, whose layout is the stated type.
+    Dispose(Type),
+    /// Conditional effects of disposing this type on a region with no corresponding layout claim.
     Cleanup(Type),
     /// Remove initialized contents without retiring the storage.
     Consume,
@@ -90,7 +91,7 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
             | Self::UnboundedMutation { access_type, kind, .. } => [
                 access_type.as_ref(),
                 match kind {
-                    DependencyMutationKind::Replace(ty) | DependencyMutationKind::Cleanup(ty) => Some(ty),
+                    DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) => Some(ty),
                     _ => None,
                 },
             ],
@@ -116,6 +117,7 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
             DependencyMutationKind::Escape => Self::Escape,
             DependencyMutationKind::Write
             | DependencyMutationKind::Replace(_)
+            | DependencyMutationKind::Dispose(_)
             | DependencyMutationKind::Cleanup(_)
             | DependencyMutationKind::Clear
             | DependencyMutationKind::Consume
@@ -141,6 +143,7 @@ impl<Type> DependencyMutationKind<Type> {
             Self::Write => DependencyMutationKind::Write,
             Self::Clear => DependencyMutationKind::Clear,
             Self::Replace(ty) => DependencyMutationKind::Replace(map(ty)?),
+            Self::Dispose(ty) => DependencyMutationKind::Dispose(map(ty)?),
             Self::Cleanup(ty) => DependencyMutationKind::Cleanup(map(ty)?),
             Self::Consume => DependencyMutationKind::Consume,
             Self::Retire => DependencyMutationKind::Retire,
@@ -240,6 +243,7 @@ mod tests {
             DependencyMutationKind::Escape,
             DependencyMutationKind::Write,
             DependencyMutationKind::Replace(()),
+            DependencyMutationKind::Dispose(()),
             DependencyMutationKind::Cleanup(()),
             DependencyMutationKind::Clear,
             DependencyMutationKind::Consume,
