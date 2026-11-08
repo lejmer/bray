@@ -219,6 +219,34 @@ fn production_buffer_range_contracts_survive_pointer_staging() {
 }
 
 #[test]
+fn production_completion_predicates_match_returned_booleans() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let symbols = compilation.symbol_graph().expect("production symbols are available");
+    let mut failures = Vec::new();
+    let mut bodies = 0;
+
+    for key in compilation.declared_unit_keys_for_test().expect("production bodies are declared") {
+        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
+            || !symbols.symbol_for_key(key.declared_owner()).and_then(|owner| symbols.member_name(owner))
+                .is_some_and(|name| name.as_str() == "is_complete") {
+            continue;
+        }
+
+        bodies += 1;
+        let properties = compilation.execution_properties(key.clone()).expect("completion predicate is certified");
+        let body = compilation.lowered_unit(key.clone()).expect("completion predicate lowers");
+
+        if properties.diagnostics().has_errors() || body.diagnostics().has_errors() {
+            failures.push((key, properties.diagnostics().clone(), body.diagnostics().clone()));
+        }
+    }
+
+    assert!(bodies > 0, "actual completion predicates must be selected");
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
 fn production_process_context_preserves_static_once_authority() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");

@@ -2061,4 +2061,38 @@ mod tests {
             DiagnosticKind::CheckingExecutionGuaranteeNotProven,
         );
     }
+
+    #[test]
+    fn short_circuit_results_preserve_returned_predicate_meaning() {
+        for (condition, returned, valid) in [
+            ("!state.open && state.input == 0 && state.output == 0", "!state.open && state.input == 0 && state.output == 0", true),
+            ("state.open || state.input != 0 || state.output != 0", "state.open || state.input != 0 || state.output != 0", true),
+            ("!state.open && state.input == 0 && state.output == 0", "!state.open && state.input == 0", false),
+        ] {
+            let compilation = compilation(&format!(r#"
+                module app;
+
+                struct State
+                {{
+                    mut open: bool;
+                    mut input: u64;
+                    mut output: u64;
+                }}
+
+                predicate complete(state: &State) = {condition};
+
+                func inspect(pos state: &State) -> bool
+                    executes(pure, total)
+                    ensures(result == complete(state = state))
+                {{
+                    return {returned};
+                }}
+            "#));
+            let diagnostics = compilation.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "{condition}: {diagnostics:?}");
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingExecutionGuaranteeNotProven);
+            }
+        }
+    }
 }

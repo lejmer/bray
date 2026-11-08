@@ -4525,6 +4525,52 @@ fn static_once_keeps_initializer_authority() {
 }
 
 #[test]
+fn equal_const_results_retain_independent_owner_authority() {
+    for (observed, valid) in [("first", true), ("second", false)] {
+        let application = compilation(&format!(r#"
+            trusted module app;
+
+            struct Marker {{}}
+            struct Owner
+            {{
+                marker: Marker;
+            }}
+
+            trusted predicate active(marker: &Marker);
+
+            const func create() -> Owner executes(pure, total)
+            {{
+                return {{ marker = Marker {{}} }};
+            }}
+
+            trusted func activate(pos owner: &Owner)
+                ensures(trusted active(&owner.marker))
+                executes(pure, total)
+            {{}}
+
+            func observe(pos owner: &Owner)
+                requires(trusted active(&owner.marker))
+            {{}}
+
+            func caller()
+            {{
+                let first = create();
+                let second = create();
+                trusted activate(&first);
+                observe(&{observed});
+            }}
+        "#));
+        let body = application.lowered_unit(source_function_body_key(&application, "caller"))
+            .expect("const-owner fixture lowers");
+        assert_eq!(!body.diagnostics().has_errors(), valid, "{observed}: {:?}", body.diagnostics());
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(body.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
 fn static_initializers_preserve_only_established_owner_authority() {
     for (initializer, mutation, valid) in [
         ("create()", "", true),
