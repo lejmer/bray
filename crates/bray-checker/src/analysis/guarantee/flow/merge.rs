@@ -269,12 +269,12 @@ fn join_observations<'a>(
         }
     }
 
-    for (current, values, identities) in [
-        (&target.current, &mut left, &mut left_identities),
-        (&incoming.current, &mut right, &mut right_identities),
+    for (state, values, identities) in [
+        (&*target, &mut left, &mut left_identities),
+        (incoming, &mut right, &mut right_identities),
     ] {
         needs_condition_proof |= current_replacements(
-            current,
+            state,
             &joined_values,
             &stable_values,
             &stable_identities,
@@ -553,7 +553,7 @@ fn publish_owned_results(
 }
 
 fn current_replacements(
-    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
+    state: &ExecutionState,
     joined_values: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     stable_values: &std::collections::BTreeSet<ExecutionCondition>,
     stable_identities: &std::collections::BTreeSet<ExecutionCondition>,
@@ -563,8 +563,14 @@ fn current_replacements(
     let mut needs_condition_proof = false;
 
     for (place, joined) in joined_values {
+        // Terminal snapshots remain readable for postconditions. They cannot
+        // rename data retained by live storage through another alias.
+        if resolved_availability(state, place) == ValueAvailability::Absent {
+            continue;
+        }
+
         let value = place
-            .value_in(current)
+            .value_in(&state.current)
             .unwrap_or(ExecutionCondition::Unknown);
 
         let value = &value;
@@ -874,4 +880,33 @@ fn insert_replacement(
             }
         })
         .or_insert_with(|| joined.clone());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BTreeMap, ExecutionCondition, ExecutionState, current_replacements};
+
+    #[test]
+    fn retired_snapshots_cannot_rename_live_loan_data() {
+        let place = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1)));
+        let source = owner.clone().borrowed();
+        let field = bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+        let joined = source.with_referent(ExecutionCondition::constructed(owner,
+            [(field, ExecutionCondition::Boolean(false))].into()));
+
+        for retired in [false, true] {
+            let mut state = ExecutionState::default();
+            state.current.insert(place.clone(), source.clone());
+            if retired { state.current.retire(&place); }
+            let mut values = BTreeMap::new();
+            let mut identities = BTreeMap::new();
+            current_replacements(&state, &[(place.clone(), joined.clone())].into(),
+                &Default::default(), &Default::default(), &mut values, &mut identities);
+
+            assert_eq!(values.is_empty(), retired, "only a live observation contributes a value replacement");
+            assert!(identities.is_empty(), "loan contents cannot replace their physical identity");
+            assert_eq!(state.current.get(&place), Some(&source), "terminal data remains available for contract checking");
+        }
+    }
 }
