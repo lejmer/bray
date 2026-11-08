@@ -818,27 +818,34 @@ fn reference_data_replacements(
     *budget = remaining;
 
     if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = source {
-        let joined = match joined {
-            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => contents.as_ref(),
-            value => value,
-        };
-
         reference_data_replacements(contents, joined, stable_values, values, budget);
         return;
     }
+    if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = joined {
+        reference_data_replacements(source, contents, stable_values, values, budget);
+        return;
+    }
 
-    if source != joined && !stable_values.contains(source)
+    if source == joined {
+        // An unchanged datum shields itself from replacements of its changed
+        // container, including implicit fields exposed by the joined snapshot.
+        values.insert(source.clone(), source.clone());
+        return;
+    }
+
+    if !stable_values.contains(source)
         && !matches!(source, ExecutionCondition::Unknown | ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_))
     {
-        // Rebase actual reached DATA only. Its owner is never entered in the
-        // carrier identity substitution domain of this reference transition.
+        // Rebase actual reached data, without replacing any carrier identity.
         insert_replacement(values, source, joined);
     }
 
-    if let ExecutionCondition::Constructed(_, fields) = source {
-        for (field, value) in fields.iter() {
-            reference_data_replacements(value, &joined.clone().project(*field), stable_values, values, budget);
-        }
+    let mut projections = source.component_projections();
+    projections.extend(joined.component_projections());
+
+    for field in projections {
+        reference_data_replacements(&source.clone().project(field), &joined.clone().project(field),
+            stable_values, values, budget);
     }
 }
 
@@ -909,4 +916,23 @@ mod tests {
             assert_eq!(state.current.get(&place), Some(&source), "terminal data remains available for contract checking");
         }
     }
+    #[test]
+    fn reference_data_join_preserves_unchanged_nested_data() {
+        let (_, expressions) = crate::test_support::expression_unit(bray_bound_tree::BoundUnitId::new(0), |tree, origin| {
+            vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
+        });
+        let source = ExecutionCondition::Expression(expressions[0]);
+        let field = bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+        let marker = source.clone().project(field).project(field).project(field);
+        let data = ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(9)))
+            .with_component(&[bray_symbols::ConstantProjectionKind::TupleElement(bray_symbols::SymbolOrdinal::new(0)); 3], marker.clone(), None);
+        let joined = ExecutionCondition::owned_value(source.clone(), data);
+        let mut values = BTreeMap::new();
+        super::reference_data_replacements(&source, &joined, &Default::default(), &mut values,
+            &mut { ExecutionCondition::WORK_LIMIT });
+
+        assert_eq!(marker.with_joined_values(&values, &BTreeMap::new()), marker,
+            "joining changed containers must not erase unchanged nested data");
+    }
+
 }

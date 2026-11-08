@@ -318,6 +318,22 @@ impl ExecutionCondition {
         false
     }
 
+    /// Component paths explicitly retained by this snapshot.
+    pub(crate) fn component_projections(&self) -> std::collections::BTreeSet<bray_bound_tree::StorageProjection> {
+        let mut value = self;
+        while let Some(snapshot) = value.nullable_payload_snapshot() {
+            value = snapshot;
+        }
+
+        match value {
+            Self::Constructed(_, fields) => fields.iter().map(|(field, _)| *field).collect(),
+            Self::Present(_) => [bray_bound_tree::StorageProjection::NullableValue].into(),
+            Self::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) =>
+                [bray_bound_tree::StorageProjection::NullableValue].into(),
+            _ => Default::default(),
+        }
+    }
+
     pub(crate) fn owned_components(&self) -> impl Iterator<Item = &Self> {
         let present = match self {
             Self::Observation { contents: value, kind: ObservationKind::Owned, .. }
