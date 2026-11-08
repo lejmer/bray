@@ -224,7 +224,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let count = call.arguments().len() + usize::from(call.receiver().is_some());
 
-        Some(crate::execution_guarantees::selected_call_condition(
+        let result = crate::execution_guarantees::selected_call_condition(
             self.request.semantic_values(),
             self.request
                 .trusted_contracts()
@@ -243,7 +243,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .collect()
             },
             &mut { ExecutionCondition::WORK_LIMIT },
-        ))
+        );
+
+        if matches!(result, ExecutionCondition::Call(..))
+            && let bray_bound_tree::BoundCallResult::Immediate(ty) = call.resolution().result()
+            && !crate::representation::type_representation(self.request, ty)
+                .is_some_and(crate::representation::is_scalar)
+        {
+            // Const computation describes data, not the identity of an owner
+            // produced by this invocation. Returned transfers refine this slot.
+            return Some(ExecutionCondition::Expression(expression));
+        }
+
+        Some(result)
     }
 
     pub(in crate::analysis::guarantee) fn input_place(
