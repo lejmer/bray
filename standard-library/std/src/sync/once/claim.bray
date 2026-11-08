@@ -15,7 +15,7 @@ impl Once<T>
             result matches none || trusted std.sync.once.acquired(std.sync.once.marker<T>(&result)),
             !(result matches none) || trusted std.sync.once.ready(&self.prepared.instance),
         )
-        uses(raw_memory, unchecked_alias, intrinsic)
+        uses(intrinsic)
     {
         let state = trusted self.state();
 

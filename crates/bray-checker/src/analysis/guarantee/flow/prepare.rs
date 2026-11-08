@@ -94,6 +94,12 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
                 ("InitializedAs", false),
                 ("InitializedRangeAs", false),
                 ("DeviceInitializedAs", false),
+                ("SharedAliasValid", false),
+                ("ExclusiveAliasValid", false),
+                ("EpochCurrent", false),
+                ("SynchronizedAccess", false),
+                ("MovementStable", false),
+                ("FinalizationPending", false),
             ]
         })
         .filter_map(|(name, preserves_contents)| {
