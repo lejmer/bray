@@ -4,6 +4,29 @@ use super::fixtures::production_host_compilation;
 use crate::test_support::source_function_body_key;
 
 #[test]
+fn production_buffer_views_retain_external_storage() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let symbols = compilation.symbol_graph().expect("production symbols are available");
+    let mut failures = Vec::new();
+
+    for name in ["as_slice", "as_slice_mut"] {
+        let key = crate::test_support::source_type_callable_member_body_key(&compilation, name);
+        let member = symbols.symbol_for_key(key.declared_owner()).expect("buffer method is declared");
+        let owner = symbols.containing_symbol(member).expect("buffer method has its owning type");
+        assert_eq!(symbols.member_name(owner).map(|name| name.as_str()), Some("Buffer"));
+        let lowered = compilation.lowered_unit(key)
+            .expect("production buffer view reports its checked source contract");
+
+        if lowered.diagnostics().has_errors() {
+            failures.push((name, lowered.diagnostics().clone()));
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
 fn production_dynamic_outputs_preserve_their_write_contracts() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");

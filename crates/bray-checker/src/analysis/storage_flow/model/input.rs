@@ -596,7 +596,9 @@ fn collect_retained_storage(
             bray_bound_tree::BoundDependencyRequirement::Direct {
                 subject: BoundDependencySubject::StorageAccess(access),
                 kind,
-            } if *kind != bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies => {
+            } if !matches!(kind,
+                bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies
+                    | bray_bound_tree::BoundDependencyRequirementKind::BorrowCapabilityActive(_)) => {
                 output.insert(*access);
             }
             bray_bound_tree::BoundDependencyRequirement::Guarded(guard) => {
