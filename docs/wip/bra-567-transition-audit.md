@@ -24,30 +24,47 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is ff827c6d8. It passes all 447 checker tests. The trusted population has 192 passed,
-49 failed and 97 ignored, with the exact failure identities preserved from cd9520c26. The last native attempt
-at cd9520c26 has 27 E7123, 27 E7119, 1 E7113, 8 E7036, 3 E7063 and 2 E7127. No native fixture has executed.
-The current semantic batch fixes conditional cleanup and reference-free memory-copy exposure. Before the repair,
-path-disposal-trace.log proves that prepare_native_path cleans RawBuffer payloads whose parent is literal none.
-That phantom cleanup yields Unknown, invalidates literal string temporaries and clears the caller's unrelated facts.
-path-effects-trace.log separately proves copy_spare_raw_bytes exports escapes of both raw pointer arguments.
-The frozen actual rename producer fails on both targets and at both lowering and complete Source output.
-The new byte-copy contract check and absent-versus-possible buffer check protect these boundaries.
-conditional-cleanup-checker.log passes all 447 tests. The fixed trusted comparison adds no old failure.
-conditional-cleanup-trusted.log passes the actual path and byte-copy probes. The new buffer fixture initially
-lacked using std.memory. After that setup correction, both its absent and possible-payload variants pass in
-completed-await-trace.log. conditional-cleanup-adjacent.log passes the three generator and input-cleanup controls.
-conditional-cleanup-native.log removes the two path obligations and still has 25 E7123, 27 E7119, 1 E7113,
-8 E7036, 3 E7063 and 2 E7127. No native fixture executes. Temporary traces are removed.
-The remaining awaited writer retains a completed receiver loan and conflicts with moving self.sink.
-completed-await-trace.log freezes its bound operations, storage, checked contracts, portable result summaries and
-liveness, together with flush_buffered_async and drain_buffered_async. The latter two have independent ordinary
-results but export whole-receiver/field ValueDependencies for both report outcomes. capture_deferred_reports
-currently substitutes the Future's complete captured dependencies whenever either report contract is nonempty.
-It does not capture the selected report's actual symbolic requirements. Normal and abnormal outputs also share
-one union snapshot. Repair that formation boundary while preserving opaque-frame capture and actual report loans.
-Direct and generic generator positives pass and local escape negatives still reject.
-The ledger remains incomplete. Source passes do not certify runtime execution.
+The latest pushed source is fc4b5160b. It fixes proved-absent conditional cleanup and reference-free byte-copy
+address exposure. Both actual rename paths pass Source and lowering. conditional-cleanup-checker.log has 447 passes.
+conditional-cleanup-native.log still has 25 E7123, 27 E7119, 1 E7113, 8 E7036, 3 E7063 and 2 E7127.
+No native fixture has executed. The compiler repairs below are intermediate steps toward that acceptance gate.
+
+The current uncommitted batch preserves normal and abnormal report formation independently, including symbolic generic
+requirements. Opaque frames retain their captured dependencies. A boundary law checks channel separation, predecessor
+immutability and repeated-join stabilization. Await admission now consumes its Future operand at Suspension(Await),
+matching storage planning. The earlier selector only consumed at CallAttempt, which await never emits. The stale Future
+handle had produced phantom cleanup reports after completion. The actual awaited writer now passes its Source and
+portable-report checks. Real local escapes and fabricated/moved-owner negatives retain their expected rejection.
+
+Slice lifetime retention previously dropped an already-recorded local array SliceRange because it cannot name scalar
+contents. The existing storage_owner helper now retains the projectable containing owner for lifetime bounds. Exact
+value selection stays strict. The frozen expired-storage negative and its new active-storage positive both pass.
+await-admission-checker.log has all 448 checker passes. await-admission-trusted.log has 198 passes, 47 failures and
+97 ignored. It newly exposes the composition lowering panic, which blocks expansion until repaired.
+
+await-ownership-trace.log proves the panic occurs after the child completes: lower_await materializes the returned
+ChildCleanup for a new cancellation request, but the CFG only models invocation failure before production. The
+speculative operand-temporary truncation was ineffective and is removed. The current coherent repair adds the
+post-completion cancellation edge without InvocationFailure and publishes the completed value in its checked output
+slot before that check. Existing guards distinguish cancellation before and after production. The CFG regression now
+requires both the admission transfer and a cancellation edge from successful completion. Two manual lowering fixtures
+also planned private accesses without their checked decisions. Their setup is corrected without weakening assertions.
+await-completed-cancellation-checker.log has 448 passes and await-completed-cancellation-lowering.log has 38 passes.
+await-completed-cancellation-build-fixed.log completes. The Source composition, both invalid variants, awaited writer
+and slice lifetime controls pass. The trusted comparison has 198 passes, 46 failures and 97 ignored, with only the
+composition failure removed from the preceding identity set. No temporary instrumentation remains.
+
+The current broader comparison await-completed-cancellation-import-lowering.log has 380 passes, 60 failures and
+two ignored in 82.54 seconds, with exactly six old failures removed and none added. These include the restored slice
+negative, completed composite reports, independent pointer origins, protected-frame lowering, partial-array retention
+and implicit panic-report cleanup. The existing await outcome test still fails its immediate-block Store assumption,
+also present before the batch. Inspect the intervening report-retention blocks before correcting that assertion.
+The broader fixed export/lowering run before these await/lifetime changes is deferred-report-import-lowering.log:
+374 passed, 66 failed, two ignored in 81.44 seconds. It introduced one failure identity against the old comparison:
+checked_slice_prefix_authority_expires_with_its_storage. The exact preceding fc4 baseline also fails it, while the
+retained projected-loan executable passes. The current lifetime repair restores the narrow positive/negative check.
+Retained report, origin and completed-await traces establish the actual boundary defects. Comparison identities and
+executables remain in target/audit. Do not equate these Source test populations with native diagnostics or execution.
 
 ### Executable ledger for the current blocking boundaries
 
@@ -129,202 +146,39 @@ The older `live-join-import-lowering.log` completed 332 passes, 104 failures and
 was stopped after over four CPU minutes. `import-lowering-failed.txt` freezes the 104 completed failed identities.
 Later checks blocked by that probe were unverified. Avoid an unchanged broad rerun.
 
-### Current gate and owned process
-
-All temporary production traces are removed. The loan-anchor repair is pushed as 1ba7a3100. The current build adds
-only temporary test tracing for checked dependency contracts, storage plans, exported result summaries and physical
-completion facts. Originals are retained as view-contracts-host-tests-before-trace.rs and
-view-contracts-control-flow-before-trace.rs. The host original already includes the new formatted-bytes regression,
-which must remain when restoring. Active build: view-contracts-trace-build.log, session 41049.
-
-`returned-view-boundary-baseline.log` freezes actual std.bytes.Buffer.as_slice/as_slice_mut rejection, shared generator
-reference rejection and the borrowed-heap positive failure. Local generator references are correctly rejected.
-The actual Buffer views are checked through production source bodies, with the selected owning type asserted.
-The trace identifies an escaping InvocationInput slot, rather than the external owner reached by its stored loan.
-
-`callee_result_template` retains ValueDependencies and BorrowCapabilityActive for trusted borrowed views. Instantiation
-correctly names the staged loan value. Liveness expands the loans carried by that value. The storage-input collector
-incorrectly also classified BorrowCapabilityActive on a staged slot as a physical storage anchor. The repair excludes
-that value-level requirement from collect_retained_storage, just as ValueDependencies is excluded. StorageAlive,
-StorageInitialized and exclusive-storage dependencies still retain physical storage.
-
-`loan-anchor-checker.log` passes 446. `loan-anchor-boundary-repair.log` passes both actual Buffer methods, local generator
-rejection, async composition and operation cleanup. The borrowed-heap positive now reaches a trusted-obligation failure
-instead of the old escaping-slot error. Its later owned-Owner negative remains blocked by that positive failure.
-The shared generator test still reports five escaping dependencies. These remain completion work.
-`loan-anchor-trusted.log` has 189 passed, 48 failed, 97 ignored. nested_buffer_views_preserve_checked_storage_effects is
-the only removed old failed identity, and none were added. The added production Buffer-view regression passes.
-
-
-`loan-anchor-native.log` at 1ba7a3100 reports 29 E7113, 28 E7119, 27 E7123, 9 E7036, 3 E7063 and 2 E7127.
-The preceding native run had 48 E7113 and 37 E7119. The first leaf remains std.format.bytes at SourceId(94),
-range 2560..2593. The actual Buffer.as_slice body now passes, so the next gate traces its caller and exported
-result contract. production_formatted_bytes_retain_the_buffer_owner freezes that exact Source caller before any
-further semantic change. The existing first versus first_cursor generator bodies are paired trace controls.
-No native fixture has executed.
-
-The smaller frozen generator_iteration_lowers_selected_cursor_operations test repeated the same blocks beyond
-14,000 updates. Its task-owned process was stopped after sufficient repeated-update evidence. The verbose flow trace
-costs enough output time that its wall time is not a compiler performance measurement.
-
-A bounded exact-state capture at block 281, after 1,000 updates, takes 0.18 seconds and terminates deliberately.
-`generator-loop-state-snapshot.log` contains the before/after states. Every root field except execution.current agrees.
-One nullable payload alternates between Joined(..., 281, payload place) and a Projection(NullableValue, Constructed(...))
-view containing that same Joined payload. `with_storage_component` unwraps the old payload view but not the newly
-published view, so reading and republishing a joined component adds another parent snapshot. The new owning-boundary
-law freezes this asymmetry. Keep nullable extraction owner identity and witness transport checks intact.
-
-`nullable-publication-baseline.log` fails only the new republishing assertion. Extraction keeps the payload owner and
-rewrapping keeps the nullable snapshot. The one-line repair unwraps the incoming payload using the same helper
-already applied to the previous payload. `nullable-publication-checker.log` passes all 446 checker tests.
-`nullable-publication-composition.log` passes both the previously stalled generator lowering test and the full
-operation-cleanup/default fixture in 3.83 seconds. No probe remains running, and no temporary trace remains in source.
-
-`nullable-publication-trusted.log` retains exactly 187 passed, 49 failed and 97 ignored, with no changed failed identity.
-`nullable-publication-adjacent.log` completes 51 passes and four failures across storage-flow and lowering/control-flow.
-The three storage-flow failures match the earlier controlled baseline. The fourth,
-shared_generator_values_keep_their_original_reference_dependency, is already in import-lowering-failed.txt and failed
-in live-join-import-lowering.log. It reports an escaping dependency and belongs to the next returned-reference gate.
-The one-line publication repair and its fixed regression are pushed as 02d82b5bc. Native planning is still unverified
-after this repair and remains blocked by the returned-reference class in the preceding native run.
-
-Earlier repairs and retained evidence:
-
-- Scalar computation reads now share computed_value for arithmetic, const calls and extents. The actual three buffer
-  bodies pass. `range-staging-boundary-baseline.log` records the original arithmetic/view mismatch.
-- Nine closed pointer predicates share descriptor normalization. The three initialization predicates remain invalidated
-  by writes. `initialization-predicates-trusted.log` has 171 passes, 63 failures, 97 ignored and no old regression.
-- The scoped positive trace preserves the surviving resource fact at retirement. Its missing consumer was a by-value
-  predicate observing private Scalar context. `copied-value-predicate-trusted.log` has 185 passes, 50 failures, 97 ignored.
-  All 444 checker tests pass there. Direct copied-bool borrowed-authority rejection remains fixed.
-- `copied-descriptor-trusted.log` has 187 passes, 49 failures, 97 ignored. Only the old failure
-  opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authority was removed. The new dynamic-wrapper
-  regression passes. `copied-descriptor-final-checker.log` passes all 445 checker tests.
-- `copied-descriptor-boundary-repair.log` passes seven Source tests, including all three real dynamic output wrappers,
-  both async composition tests and copied-authority negatives. It does not prove native composition.
-- The descriptor unit's initial final assertion mistakenly required an empty owned_values traversal. That API visits
-  a scalar root without owning it. The corrected assertion requires every visited value to lack owning identity.
-  Origin preservation and replacement of reached contents are unchanged requirements.
-- The pointer unit introduced at c73547c02 originally asserted inequality of raw by-value predicate representations.
-  It now asserts distinct borrowed storage identities, while retaining spatial matching and no-copy-ownership checks.
-  Source negatives were not changed.
-
 ### Remaining completion work
 
-`receiver-entry-native.log` contains 27 E7123, 27 E7119, 2 E7113, 9 E7036, 3 E7063 and 2 E7127.
-The previous native checkpoint had 29 E7113 and 28 E7119. The real std.format.bytes return is repaired.
-The first remaining leaf is a trusted precondition on prepare_native_path at SourceId(102), bytes 11359..11369.
-The product string-sorted source order maps that ID to std/fs/windows.bray, line 319, in platform_path_rename's
-second preparation. Remaining escaping references occur
-at writer.bray's awaited flush_buffered_async and condition/variable.bray's returned mutex.lock.
-The shared-generator copied element also retains local cursor loans in liveness despite its portable projection
-now resolving to the original parameter. These are the next carried-value versus container-loan consumers to trace.
-No native fixture executed. The native attempt failed in standard-library planning after 22.6 seconds.
+- Finish the post-completion cancellation repair and rerun the fixed comparison before expanding migration. Keep the restored slice negative.
+- Finish the report-formation repair and trace the writer's actual loan through await and report disposal. Preserve open
+  generic report equations, distinct normal/abnormal outputs, and conservative opaque-frame dependencies.
+- Keep the trusted comparison identities fixed. Its current 47 failures include the blocked composition. Recompare exact identities after repair. Preserve and explain the
+  broader export/lowering comparison, including the conversion reference-path panic and callback/operator report gaps.
+- Finish the executable ledger across constructors/defaults, branches/loops, suspension and task outcomes, scoped/root
+  cleanup, retained incidents, shutdown and imported facts. Source successes do not establish native behavior.
+- Extend the real async composition with mutable async receiver use after that boundary works. Its existing assertions
+  cover transport return branches, loop suspension, genuine Main authority, inactive Future disposal without executing
+  its body, scoped child cancellation, exactly-once finalization/destruction and lexical cleanup before static cleanup.
+  Preserve invalid fabricated/moved-owner variants and their exact intended diagnostics. Execute the program natively.
+- Audit and complete the agreed runtime protocols from bra-567-handoff.md. PreparedStart owns admission and registration
+  until publication. EntryRestoration owns displaced context through abnormal exits. RetiredCell physically owns control,
+  pin and arena before vacancy. WaitResources stays stable while linked access is acquired before mutation. Trace actual
+  producers and consumers through native acceptance rather than treating these structures as proof.
+- Run all required runtime Source bodies/certificates and Source/imported/native acceptance, including worker continuation,
+  retained errors, root panic/cancellation, partial startup rollback, blocked shutdown, result/static disposal and nested
+  foreign entry. Verify zero Rust implementation for migrated consumers, synchronous no-async demand and comparative costs.
+- Reread AGENTS and perform the mechanical maintainability/DRY audit over the full active diff. Remove superseded machinery.
+  Only at finalization run mandatory cargo xtask style and cargo xtask format, inspect edits and run affected checks.
+- Push checkpoints. After implementation and verification are complete, dispatch the independent draft-PR reviewer.
+  The reviewer must publish its review and actionable findings directly on PR #710 and return artifact IDs. Verify them,
+  resolve findings, reuse the reviewer for material fixes, then make the PR ready and move BRA-567 to In Review.
 
-The receiver/projection batch passes all 446 checker tests. The fixed trusted population is 191 passed,
-48 failed and 97 ignored with no old failure added or removed. Both new Source tests pass. Nine of ten focused
-boundary tests pass, including the local-owner and generator escape negatives, consuming stored-reference control,
-both async composition checks and operation cleanup lowering. The existing shared-generator positive still fails.
-Its exact portable-contract assertion now passes. The diagnostic-only projection probe
-resolved the copied element to the original parameter before that physical failure. No trait-view transparency change
-was made. The new local-owner fixture originally used reserved `view` as a method name. Renaming it preserved its
-escape-rejection expectation. Style and formatting remain deferred.
+Two older negatives were identified as unsupported by the language contract: forwarding an unchanged whole witness does
+not create undeclared authority, and a callback taking a mutable reference without changing or exposing its owner need
+not revoke that owner. Correct those fixtures with explicit positive forwarding and real fabrication/opaque mutation
+controls when reached. Do not change production semantics to satisfy them or treat the other failures as fixture errors.
 
-The carried-value baseline now executes that exact portable assertion successfully, then still fails the existing
-shared-generator diagnostic expectation. The new real into_sink_async regression fails with both escaping storage
-and a conflicting move of self.sink after await. Its failure is in carried-value-baseline.log. The initial native-path
-probe passed on SelectedTarget::baseline(), which is Linux. It did not reproduce the Windows native failure.
-The test now selects both Linux and Windows explicitly. Its traced source headers prove that both platform
-implementations are selected. The Windows Source failure is absolute_windows_path's admitted read obligation in
-prepare_dynamic_library_open_path. prepare_native_path and prepare_file_open pass there. The last native attempt
-predates the liveness batch and still requires a matching rerun. Source and native targets must be stated separately.
-
-The uncommitted liveness batch separates explicit operand consumption from result retention,
-adds consumed owners' dependencies to the existing phase-indexed uses, and resolves copied component requirements
-through the checked evaluated producer and existing ValueInputs projection metadata. Portable inference, liveness and
-report retention use the same projected_input_value/copy-source mapping. Unknown origins keep their existing
-conservative behavior. No new owner, witness, alias registry or runtime bypass was added. All 446 checker tests
-pass for that batch. carried-value-trusted.log records 192 passed, 49 failed and 97 ignored. The two added failures
-are the new writer and Windows path probes. The only removed old failure is
-consuming_reference_carriers_preserves_referent_evidence. No old test identity regressed.
-The direct first_cursor escaping errors are repaired. Three escaping errors remain in the two generic cursor
-variants, and the writer's await/move pair still fails. The existing heap-anchor test now collects both outcomes
-before asserting, with identical expected results. Its owned-input negative executes and reports escaping storage,
-but also retains the pre-existing helper obligation error. That negative has not passed its exact diagnostic check.
-
-carried-retention-cursor.log proves that generic step exports DependencyCallInput.values and .storage both as
-StorageAlive(parameter 0). This loses the already defined data versus storage distinction before specialization.
-first_generic_cursor and first_generic_move_cursor then export an erroneous local storage requirement. The writer's
-result data is separate, but its normal and abnormal reports retain StorageAlive(Receiver). The actual normalized
-deferred reports include both the whole receiver input and the sink component. That report path remains required.
-The test-only traces were removed after separate retained cursor, writer and path runs.
-
-The active symbolic-input batch preserves the existing input value/storage channels while mapping deferred result
-equations. A RequirementMappingRole makes the mapper use the reached receiver's evaluated data for the symbolic
-value channel, and the actual descriptor's loan for storage. Ordinary explicit borrowed arguments keep their loan.
-The same rule covers selected calls and borrowed operator receivers. Scoped-exit and cleanup-owner mapping already
-receive their actual by-value capability/owner dependencies, so they do not substitute an implicit receiver loan.
-Conversion projection and symbolic-call substitution only rename existing subjects and preserve these channels.
-The old mapper API was replaced at every consumer. No compatibility wrapper or alternate result representation was added.
-An exact Source assertion freezes generic step's distinct channels. A new equation-binding law protects outer variables
-when guards are removed inside a recursive equation. The new test's iteration over Arc-backed equation definitions
-was corrected. symbolic-input-boundary.log passes all generator positives, including both generic variants and both
-exact contract assertions, and retains the local generator/receiver escape rejections. It passes seven of ten selected
-tests. The writer, Windows path and heap-anchor probes still fail with their recorded diagnostics.
-symbolic-input-trusted.log has exactly the same old failures as carried-value-trusted.log. All 447 checker tests pass
-in symbolic-input-checker.log. No native result is yet available for this batch. Keep the comparison suite fixed.
-
-After those checks, the shared copied-value source helper moved unchanged into ValueInputs in dependency/projection.rs,
-its owning namespace. The temporary liveness reexports were removed. The private-input special case in retention
-was also removed because inputs.rs::plan_input_storage always records that exact consumption in the shared phase
-metadata, and the generic consumer path now handles it before output retention. The native runner compiles in
-symbolic-input-native-build.log. symbolic-input-native.log still fails standard-library planning, with 27 E7123,
-27 E7119, 1 E7113, 8 E7036, 3 E7063 and 2 E7127. The returned condition-variable guard no longer escapes.
-The remaining escape is the awaited writer. No native fixture executes. The first native leaf remains the
-prepare_native_path obligation in platform_path_rename's second preparation. An earlier comparison incorrectly
-used prepare_file_open's passing Source check. The raw byte span identifies rename, so it did not establish a
-Source/native discrepancy. source-output-boundary.log confirms that lowering and complete Source output agree
-for the three originally probed bodies. The path comparison now also includes platform_path_rename, which prepares
-one path, branches on its result and then prepares the second path. This new case is frozen before another proof repair.
-Automated style and formatting remain deferred.
-
-The current uncommitted work only extends the path probe through source_output_unit as well as lowering,
-and adds the actual rename caller. path-proof-trace.log reproduces rename's second-call failure on both Linux and
-Windows in both layers. The first preparation has the expected trusted facts. The second has an empty normalized
-known set, while its argument still denotes the untouched second input. prepare_native_path exports
-Cleanup(type 2), Cleanup(type 16) and Indirect Escape(parameter 0.address). Both caller contracts resolve these to
-Unknown plus the source-address escape. Trace the cleanup/effect export and physical invalidation before a repair.
-Do not assume that copying source bytes or returning a pointer externally publishes their source address.
-
-The same retained probe isolates the dynamic-path failure separately: its admitted read requirements refer to
-Borrowed(Input(path.address)), while the available facts refer to Input(path.address). The length matches and the
-original facts remain present. This is a by-value raw-pointer observation through a shared borrow. Preserve the
-existing no-copy-witness-authority negatives while investigating it. The temporary proof and host-test traces were
-restored from path-proof-before-trace.rs and path-proof-host-before-trace.rs. The actual rename case and full Source
-output checks remain in the host test.
-
-Closed raw-pointer predicates now follow a shared borrow to the pointer's copied descriptor observation.
-They do not use a borrowed copy slot as the original pointer and do not transfer owner authority.
-The existing spatial-predicate law checks both cases. All 447 checker tests pass in
-borrowed-pointer-checker-final.log. borrowed-pointer-trusted.log retains exactly the same 49 failed test identities
-as symbolic-input-trusted.log, with 192 passing and 97 ignored. The dynamic Windows path producer now passes both
-lowering and complete Source output. The retained path probe still rejects rename's second preparation on both
-platforms. This repair does not address its cleanup summary or establish native execution. No task-owned process is active.
-
-- Finish the executable ledger across remaining operation/failure transitions, including constructors/defaults,
-  branches/loops, suspension and task outcomes, scoped and root cleanup, retained incidents, shutdown and imported facts.
-- Preserve the fixed comparisons while resolving the next actual transition that blocks native planning.
-- Execute async-ownership-composition.bray. Its assertions cover both transport return branches, loop suspension,
-  genuine root Main authority, returned inactive Future disposal without executing its body, scoped child cancellation,
-  exactly-once finalization/destruction, and lexical cleanup before static cleanup.
-- Execute adjacent worker continuation, retained-error, panic/cancellation, partial startup, shutdown/disposal and
-  imported/native acceptance paths. Synchronous ownership-transitions.bray is a focused control, not async completion.
-- Complete the agreed runtime ownership protocols from bra-567-handoff.md, rather than assuming current runtime code
-  satisfies them. Required Source-body/certificate runs must converge to the supported expected outcomes.
-- Perform mechanical maintainability/DRY and AGENTS compliance review across the full active diff. Keep owned data,
-  copied data, loan descriptors, physical references and lifetime dependencies distinct. Remove superseded mechanisms.
-- Only at finalization run mandatory cargo xtask style and cargo xtask format, inspect their edits, and run required
-  affected checks. Then push, dispatch the independent draft-PR review, resolve findings and move to human Review.
+No independent review agent has been started. The user authorizes unattended work and pushes to the PR branch.
+Automated style and formatting have not run during this audit, as requested.
 
 ### Build and retained product rules
 

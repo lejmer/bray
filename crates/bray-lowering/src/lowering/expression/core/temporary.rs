@@ -103,7 +103,7 @@ impl Lowerer<'_> {
         false
     }
 
-    pub(super) fn materialize_temporary(
+    pub(in crate::lowering) fn materialize_temporary(
         &mut self,
         expression: BoundExpressionId,
         lowered: LoweredExpression,

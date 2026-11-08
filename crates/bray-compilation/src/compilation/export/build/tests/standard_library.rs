@@ -410,10 +410,22 @@ fn checked_slice_prefix_authority_expires_with_its_storage() {
             using std.memory;
 
             func observe(pos pointer: DataPointer<i32>)
-                requires(trusted core.memory.valid_read<i32>(pointer = pointer, count = 2)) {}
+                requires(trusted core.memory.valid_read<i32>(pointer = pointer, count = 2))
+            {
+            }
 
-            func expired() {
-                let pointer: DataPointer<i32> = {
+            func active()
+            {
+                let values: [i32; 2] = [1, 2];
+                let pointer = internal std.memory.slice_pointer<i32>(&values[0..2], count = 2);
+
+                observe(pointer);
+            }
+
+            func expired()
+            {
+                let pointer: DataPointer<i32> =
+                {
                     let values: [i32; 2] = [1, 2];
 
                     yield internal std.memory.slice_pointer<i32>(&values[0..2], count = 2);
@@ -423,6 +435,11 @@ fn checked_slice_prefix_authority_expires_with_its_storage() {
             }
         "#,
     ]);
+
+    let active = compilation.lowered_unit(source_function_body_key(&compilation, "active"))
+        .expect("a checked slice retains its live containing storage");
+
+    assert!(!active.diagnostics().has_errors(), "{:?}", active.diagnostics());
 
     bray_testing::assert_goal_state_diagnostic_kind(
         compilation.check_diagnostics(),

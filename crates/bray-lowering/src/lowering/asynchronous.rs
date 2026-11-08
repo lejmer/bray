@@ -86,15 +86,12 @@ impl Lowerer<'_> {
         )?;
 
         // Take the child's outcome before observing a new cancellation request.
-        // A completed value is an owned temporary until the enclosing expression
-        // accepts it, so cancellation uses the same cleanup as other inputs.
-        let retained = self.input_temporaries.len();
-
-        let value = if self.input_cleanup_phases(completion).is_some() {
-            self.materialize_owned_input(block, &source, value, completion)?
-        } else {
-            value
-        };
+        // Publish the completed value in its checked output slot before the new
+        // cancellation edge. Its initialization guard distinguishes this path
+        // from cancellation before the child produced a result.
+        let completed = self.materialize_temporary(id, LoweredExpression::continuing(
+            block, Some(value), Self::retained_source(&source)))?;
+        let value = completed.value.expect("await completion retains its produced value");
 
         let retention = self.frame_retention(&source, id.into())?;
         let cancellation = self.suspension_cleanup_edge(&source, id.into(), retention)?;
@@ -114,8 +111,6 @@ impl Lowerer<'_> {
         )?;
 
         self.branch_frame_cancellation(block, &source, continuation, cancellation)?;
-        self.input_temporaries.truncate(retained);
-
         Ok(LoweredExpression::continuing(resume, value, source))
     }
 

@@ -9,8 +9,8 @@ type Selection = BTreeSet<(ExecutionCondition, bool)>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct DeferredInvocation<Entry = Arc<ExecutionCallEvidence>> {
     pub(super) entry: Entry,
-    /// Actual frame ownership, captured only when a report can retain inputs.
-    pub(super) reports: Option<Arc<crate::dependency::ReportDependencies>>,
+    /// Each report owns its formation snapshot, independently of frame captures.
+    pub(super) reports: BTreeMap<bray_bound_tree::CallReportOutput, Arc<crate::dependency::ReportDependencies>>,
     pub(super) selection: Selection,
 }
 
@@ -44,11 +44,11 @@ impl<Entry> DeferredInvocation<Entry> {
 
         let mut changed = before != self.selection.len();
 
-        if let Some(incoming) = &incoming.reports {
-            if let Some(reports) = &mut self.reports {
+        for (output, incoming) in &incoming.reports {
+            if let Some(reports) = self.reports.get_mut(output) {
                 changed |= reports.merge(incoming);
             } else {
-                self.reports = Some(Arc::clone(incoming));
+                self.reports.insert(*output, Arc::clone(incoming));
                 changed = true;
             }
         }
@@ -61,7 +61,7 @@ impl DeferredValue {
     pub(super) fn unknown(facts: &Selection) -> Self {
         Self {
             unknown: Some(DeferredInvocation {
-                entry: (), selection: selection(facts), reports: None,
+                entry: (), selection: selection(facts), reports: BTreeMap::new(),
             }),
             ..Self::default()
         }
@@ -172,6 +172,36 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn joining_frame_reports_preserves_output_channels_and_predecessors() {
+        use bray_bound_tree::CallReportOutput::{DeferredAbnormal, DeferredCompleted};
+        use bray_symbols::{DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot};
+
+        let requirement = |ordinal| DependencyRequirement::direct(
+            DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(ordinal))),
+            DependencyRequirementKind::ValueDependencies);
+        let captured = |ordinal| Arc::new(crate::dependency::ReportDependencies {
+            requirements: [requirement(ordinal)].into(), ..Default::default()
+        });
+        let completed = captured(0);
+        let abnormal = captured(1);
+        let mut first = DeferredInvocation {
+            entry: (), selection: Default::default(),
+            reports: [(DeferredCompleted, Arc::clone(&completed)), (DeferredAbnormal, Arc::clone(&abnormal))].into(),
+        };
+        let second = DeferredInvocation {
+            entry: (), selection: Default::default(),
+            reports: [(DeferredCompleted, captured(2))].into(),
+        };
+
+        assert!(first.merge_capture(&second));
+        assert_eq!(first.reports[&DeferredCompleted].requirements, [requirement(0), requirement(2)].into());
+        assert_eq!(first.reports[&DeferredAbnormal].requirements, [requirement(1)].into());
+        assert_eq!(completed.requirements, [requirement(0)].into());
+        assert!(Arc::ptr_eq(&first.reports[&DeferredAbnormal], &abnormal));
+        assert!(!first.merge_capture(&second));
+    }
+
+    #[test]
     fn unrelated_value_joins_share_pending_evidence_without_modifying_predecessors() {
         let (_, source) = expression_unit(BoundUnitId::new(91), |tree, origin| {
             vec![push_expression(
@@ -200,7 +230,7 @@ mod tests {
                     source,
                     DeferredInvocation {
                         entry: Arc::clone(&entry),
-                        reports: None,
+                        reports: Default::default(),
                         selection: Default::default(),
                     },
                 )]

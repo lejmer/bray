@@ -1264,6 +1264,24 @@ mod tests {
                 kind: AnalysisSuspensionKind::Await,
             } if occurrence == await_expression.into()
         )));
+
+        let completion = graph.blocks().iter().find(|block| block.operations().iter().any(|id|
+            matches!(graph.operation(*id).expect("block retains its operation").kind(),
+                AnalysisOperationKind::Call { invocation, phase: super::super::model::AnalysisCallPhase::Completion }
+                    if invocation == await_expression.into())))
+            .expect("await publishes a normal completion");
+
+        assert!(graph.edges().iter().any(|edge| edge.source() == completion.id()
+            && edge.kind() == AnalysisEdgeKind::RunCancellation && edge.refinement().is_none()),
+            "post-completion cancellation retains the produced result instead of applying invocation failure");
+
+        let suspension = graph.operations().iter().find(|operation| matches!(operation.kind(),
+            AnalysisOperationKind::Suspension { occurrence, kind: AnalysisSuspensionKind::Await }
+                if occurrence == await_expression.into())).expect("await has its admission boundary");
+
+        assert_eq!(suspension.kind().value_consumption_phase(),
+            Some(bray_bound_tree::StorageValueConsumptionPhase::Admission),
+            "suspending await transfers the operand before either outcome");
     }
 
     #[test]

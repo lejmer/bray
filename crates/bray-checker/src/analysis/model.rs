@@ -65,14 +65,15 @@ impl AnalysisOperationKind {
         use bray_bound_tree::StorageValueConsumptionPhase;
 
         match self {
-            Self::Call { phase: AnalysisCallPhase::Attempt, .. } => Some(StorageValueConsumptionPhase::Admission),
+            Self::Call { phase: AnalysisCallPhase::Attempt, .. }
+                | Self::Suspension { kind: AnalysisSuspensionKind::Await, .. } => Some(StorageValueConsumptionPhase::Admission),
             Self::Bound(_)
                 | Self::Call { phase: AnalysisCallPhase::Completion, .. }
                 | Self::Result { phase: AnalysisResultPhase::Completion, .. } => Some(StorageValueConsumptionPhase::Completion),
             Self::Call { phase: AnalysisCallPhase::Input, .. }
                 | Self::Result { phase: AnalysisResultPhase::Begin, .. }
                 | Self::PatternObservation(_)
-                | Self::Suspension { .. }
+                | Self::Suspension { kind: AnalysisSuspensionKind::Yield | AnalysisSuspensionKind::ScopedCall, .. }
                 | Self::ScopeExit { .. }
                 | Self::Recovery(_) => None,
         }

@@ -351,56 +351,44 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             panic!("await suspension retains its consumed Future")
         };
 
-        let reports = self
-            .execution
-            .awaited_invocations(execution, expression)
-            .map(|(source, _)| {
-                self.dependencies.calls()[&source]
-                    .deferred_reports()
-                    .expect("lazy call has its checked deferred outputs")
-            })
-            .collect::<Vec<_>>();
-
-        let unknown = self.execution.awaited_unknown(execution, expression);
-
         for output in [CallReportOutput::Completed, CallReportOutput::Abnormal] {
-            let known = reports
-                .iter()
-                .map(|reports| match output {
-                    CallReportOutput::Completed => reports.completed(),
-                    CallReportOutput::Abnormal => reports.abnormal(),
-                    _ => unreachable!("await publishes only completion and abnormal reports"),
-                })
-                .collect::<Vec<_>>();
-
-            if !unknown && !known.is_empty() && known.iter().all(Option::is_none) {
+            let Some(dependencies) = self.execution
+                .awaited_report_dependencies(execution, expression, output) else {
                 continue;
-            }
-
-            // Frame identity and entry snapshots travel with the consumed value. Several
-            // frames may originate at one factory site, so that site cannot own this snapshot.
-            let dependencies = if !unknown
-                && !known.is_empty()
-                && known.iter().all(|contract| {
-                    contract.is_some_and(|contract| contract.requirements().is_empty())
-                }) {
-                std::sync::Arc::new(crate::dependency::ReportDependencies::default())
-            } else {
-                let Some(dependencies) = self
-                    .execution
-                    .awaited_report_dependencies(execution, expression)
-                else {
-                    // A consumed operand has no frame. Storage checking reports the invalid use.
-                    return;
-                };
-
-                dependencies
             };
 
             state
                 .result_dependencies
                 .prepare_reports(occurrence, output, dependencies);
         }
+    }
+
+    pub(super) fn deferred_report_dependencies(
+        &self,
+        state: &mut crate::dependency::ResultState,
+        expression: bray_bound_tree::BoundExpressionId,
+        source: Option<BoundExecutionSite>,
+        output: CallReportOutput,
+    ) -> Result<crate::dependency::ReportDependencies, crate::CheckerQueryError<C::UpstreamError>> {
+        let Some(source) = source else {
+            return Ok(crate::dependency::ReportDependencies {
+                subjects: self.liveness.retained_by(expression).collect(),
+                requirements: state.value_requirements(expression).cloned().collect(),
+            });
+        };
+
+        let transfer = crate::dependency::ResultTransfer::new(
+            self.request, self.execution.semantics.types(), self.execution.semantics.selections(),
+            self.patterns, self.values, self.storage, state);
+        let requirements = transfer.report_values(source, output)?
+            .expect("a formed future's selected report has its portable contract");
+        let contract = self.dependencies.calls()[&source].report(output)
+            .expect("a formed future's selected report has its checked contract");
+
+        Ok(crate::dependency::ReportDependencies {
+            subjects: self.report_subjects(contract),
+            requirements,
+        })
     }
 
     fn prepare_call_reports(
