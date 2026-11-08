@@ -53,8 +53,18 @@ Fresh materialized-owner-native.log stops at standard-library planning with 11 E
 All three process-context failures are removed. No native composition has executed. Runtime Source compilation and
 native fixtures remain unverified. The terminal-address and partial-stdlib SpinLock probes stop on buffer/allocation
 diagnostics before testing their full intended cases. All 13 focused terminal_destructor module controls pass.
-No process or reviewer is running. Next trace actual postcondition/loop contents and moved receiver dependencies.
-Use known log filenames only.
+Semantic checkpoint: 771157820. New fixed checks cover short-circuit predicate positives/negative, all production
+is_complete methods, and equal-const-result owner separation. boolean-publication-baseline.log has two failures and
+the owner-separation pass. These checks explicitly request execution certificates. Lowering alone omits ordinary
+certificate checking. boolean-publication.log traces the reduced fixture's root expression 12: each outcome publishes
+Boolean, but return 13 receives Unknown. The same loss affects ChildProcess.is_complete. No diagnostic hooks remain.
+
+Next repair must preserve actual Boolean production across the join. build_short_circuit delegates to build_condition,
+which publishes true/false on separate paths. merge_values then turns differing expression-cache values into Unknown.
+Binary expressions have no outer result-region completion. Pending result joins already have finite expression identity,
+but preserving the output's relationship to evaluated operands also needs proof. Do not reconstruct missing operands
+from syntax or introduce growing path formulas. Existing CFG phase expectations need deliberate review if staging changes.
+No process or reviewer is running. Use known log filenames only.
 
 ## Remaining verification
 
