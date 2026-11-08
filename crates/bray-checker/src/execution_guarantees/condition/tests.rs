@@ -38,8 +38,8 @@ fn spatial_extents_observe_copied_values_without_owning_them() {
         vec![pointer.clone(), extent]);
     let spatial = BTreeSet::from([predicate.into()]);
 
-    assert_eq!(condition(copied.clone()).spatial_observations(&spatial),
-        condition(count).spatial_observations(&spatial));
+    assert_eq!(condition(copied.clone()).pointer_observations(&spatial),
+        condition(count).pointer_observations(&spatial));
     assert!(copied.ownership_identity().is_none());
 }
 
@@ -56,8 +56,8 @@ fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority(
         vec![value, count.clone()]);
     let spatial = BTreeSet::from([predicate.into()]);
 
-    assert_eq!(condition(copied.clone()).spatial_observations(&spatial),
-        condition(pointer.clone()).spatial_observations(&spatial));
+    assert_eq!(condition(copied.clone()).pointer_observations(&spatial),
+        condition(pointer.clone()).pointer_observations(&spatial));
     assert_ne!(condition(copied.clone()), condition(pointer));
     assert!(copied.ownership_identity().is_none());
 }

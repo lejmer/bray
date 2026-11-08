@@ -50,20 +50,20 @@ impl ExecutionCondition {
         }
     }
 
-    /// Closed spatial predicates observe pointer descriptors, not their payload snapshots.
-    pub(crate) fn spatial_observations(
+    /// Closed memory predicates observe pointer descriptors and current scalar extents.
+    pub(crate) fn pointer_observations(
         &self,
         predicates: &std::collections::BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
     ) -> Self {
         match self {
             Self::Trusted(value) => {
-                Self::Trusted(std::sync::Arc::new(value.spatial_observations(predicates)))
+                Self::Trusted(std::sync::Arc::new(value.pointer_observations(predicates)))
             }
             Self::Operation(operator, operands) => Self::Operation(
                 *operator,
                 operands
                     .iter()
-                    .map(|value| value.spatial_observations(predicates))
+                    .map(|value| value.pointer_observations(predicates))
                     .collect(),
             ),
             Self::Predicate(predicate, substitution, arguments)

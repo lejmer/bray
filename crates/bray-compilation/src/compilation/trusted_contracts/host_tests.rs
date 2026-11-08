@@ -6,13 +6,18 @@ use crate::test_support::source_function_body_key;
 #[test]
 fn production_buffer_range_contracts_survive_pointer_staging() {
     let compilation = production_host_compilation("module probe;");
+    let mut failures = Vec::new();
 
     for name in ["fill_spare_bytes", "copy_spare_bytes", "copy_bytes_from_pointer"] {
         let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
             .expect("production buffer operation reports its checked source contract");
 
-        assert!(!lowered.diagnostics().has_errors(), "{name}: {:?}", lowered.diagnostics());
+        if lowered.diagnostics().has_errors() {
+            failures.push((name, lowered.diagnostics().clone()));
+        }
     }
+
+    assert!(failures.is_empty(), "{failures:?}");
 }
 
 #[test]

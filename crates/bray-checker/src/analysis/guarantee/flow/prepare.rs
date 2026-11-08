@@ -79,32 +79,43 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     disposal: &'a super::super::cleanup::Cleanup<'a>,
     dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
 ) -> ExecutionFlowDomain<'a, 'view, C> {
-    let spatial_predicates: BTreeSet<_> = request
+    let (pointer_predicates, mut content_predicates): (BTreeSet<_>, BTreeSet<_>) = request
         .trusted_contracts()
         .filter(|contracts| !contracts.requirements.is_empty() || !contracts.calls.is_empty())
         .into_iter()
         .flat_map(|_| {
             [
-                "ValidRead",
-                "ValidWrite",
-                "AlignedFor",
-                "DeviceValidRead",
-                "DeviceValidWrite",
-                "DeviceAlignedFor",
+                ("ValidRead", true),
+                ("ValidWrite", true),
+                ("AlignedFor", true),
+                ("DeviceValidRead", true),
+                ("DeviceValidWrite", true),
+                ("DeviceAlignedFor", true),
+                ("InitializedAs", false),
+                ("InitializedRangeAs", false),
+                ("DeviceInitializedAs", false),
             ]
         })
-        .filter_map(|name| {
+        .filter_map(|(name, preserves_contents)| {
             let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
-                .expect("closed spatial predicate key must be valid");
+                .expect("closed pointer predicate key must be valid");
 
             request
                 .context()
                 .available_compiler_known_symbols()
                 .provider()
                 .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
-                .map(Into::into)
+                .map(|predicate| (predicate.into(), preserves_contents))
         })
-        .collect();
+        .fold((BTreeSet::new(), BTreeSet::new()), |(mut pointers, mut contents), (predicate, preserves_contents)| {
+            pointers.insert(predicate);
+
+            // Initialization observes pointer values too, but writes must still
+            // invalidate it independently of spatial permissions.
+            if preserves_contents { contents.insert(predicate); }
+
+            (pointers, contents)
+        });
 
     let owned_allocation = request
         .context()
@@ -116,11 +127,17 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         )
         .map(Into::into);
 
-    let content_predicates = spatial_predicates
-        .iter()
-        .copied()
-        .chain(owned_allocation)
-        .collect();
+    let initialized_range = request
+        .context()
+        .available_compiler_known_symbols()
+        .provider()
+        .declaration_symbol::<bray_symbols::PredicateSymbolId>(
+            &bray_compiler_known::CompilerKnownDeclarationKey::try_new("InitializedRangeAs")
+                .expect("closed initialized range predicate key must be valid"),
+        )
+        .map(Into::into);
+
+    content_predicates.extend(owned_allocation);
 
     ExecutionFlowDomain {
         dependencies,
@@ -155,17 +172,9 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         refinements,
         memory,
         checked_body: None,
-        spatial_predicates,
+        pointer_predicates,
         content_predicates,
         owned_allocation,
-        initialized_range: request
-            .context()
-            .available_compiler_known_symbols()
-            .provider()
-            .declaration_symbol::<bray_symbols::PredicateSymbolId>(
-                &bray_compiler_known::CompilerKnownDeclarationKey::try_new("InitializedRangeAs")
-                    .expect("closed initialized range predicate key must be valid"),
-            )
-            .map(Into::into),
+        initialized_range,
     }
 }

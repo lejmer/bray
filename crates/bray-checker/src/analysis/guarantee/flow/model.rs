@@ -88,7 +88,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
         bray_bound_tree::BoundExecutionSite,
         bray_bound_tree::StorageInvalidation,
     >,
-    pub(in crate::analysis::guarantee) spatial_predicates:
+    pub(in crate::analysis::guarantee) pointer_predicates:
         BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
     pub(in crate::analysis::guarantee) content_predicates:
         BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
