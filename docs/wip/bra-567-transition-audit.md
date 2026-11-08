@@ -24,10 +24,11 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The current source includes the copied-pointer proof repair after 4b39bfe38. Fixed comparison gates pass with no unexplained
+The latest pushed source is c73547c02. Fixed comparison gates pass with no unexplained
 comparison regression. Native planning has no remaining moved-value diagnostic, but still fails on trusted obligations
 and execution guarantees. No native composition has executed. The copied-pointer owning-boundary regression and
-all 441 checker tests now pass. The active gate is native planning after that repair. The temporary trace is removed.
+all 441 checker tests passed at c73547c02. Native planning still fails. The active gate is the scalar-computation
+repair for staged range extents and actual production buffer contracts. The temporary RANGE PROOF trace is removed.
 The ledger remains incomplete. Source passes do not certify runtime execution.
 
 ### Executable ledger for the current blocking boundaries
@@ -52,7 +53,7 @@ requires the whole composition, including lowering and native execution. This re
 ## Current implementation and evidence
 
 Worktree: `target/bra-567-audit`, directly on PR #710 branch `feature/bra-567-async-root-orchestration`.
-The original develop checkout is untouched. Latest pushed head is **4b39bfe38**.
+The original develop checkout is untouched. Latest pushed head is **c73547c02**.
 The user explicitly authorized continued implementation, checkpoint pushes, and an independent review on the draft PR
 once implementation and verification finish. Continue through resolved review findings until ready for human Review.
 No review agent has been started. No style or formatting pass has run during this audit.
@@ -64,6 +65,7 @@ No review agent has been started. No style or formatting pass has run during thi
 - `777ffb930`: ordinary scalar operator semantics, trust-boundary output transfer, real async composition extension.
 - `0e2e943d3`: custom index returned-borrow publication before reached copies and witness checks.
 - `4b39bfe38`: retain projected loan descriptors until their actual consumer captures data or a new loan.
+- `c73547c02`: match copied pointer descriptors in closed spatial proofs, with async invalid variants and boundary test.
 
 ### Fixed comparisons and their limits
 
@@ -83,6 +85,7 @@ No review agent has been started. No style or formatting pass has run during thi
 | `pointer-copy-boundary-repair.log` | Pointer repair, one checker boundary and eight source controls passed | Both formerly failing address cases, async positive and negative variants, witness movement/copy rejection and scalar-copy authority. |
 | `pointer-copy-checker.log` | Pointer repair, 441 passed | All current checker properties pass. |
 | `pointer-copy-trusted.log` | Pointer repair, 159 passed, 74 failed, 97 ignored | Exactly 19 old failed identities removed, no added failures. Includes address expiry, range bounds and invalidation controls. |
+| `pointer-copy-native.log` | c73547c02, native standard-library planning still fails | 197 E7123, down from 233. Other diagnostic category totals unchanged. No fixture executed. First leaf remains byte_buffer_fill in std.memory.fill_spare_bytes. |
 
 Earlier `live-join-trusted.log` had 123 passes and 103 failures. The nine removed failure identities at 777ffb930
 are recorded by the comparison logs. Do not equate these test populations with runtime Source-body populations.
@@ -100,11 +103,33 @@ The repair unwraps copied scalar descriptor contents only inside the existing cl
 Do not broaden arbitrary trusted predicates or create ownership from pointer equality.
 
 The pointer regression, selected source controls, all checker tests and fixed trusted comparison have completed.
-Next build xtask and rerun native planning. Keep the native result distinct from the passing source composition.
+Native planning was rerun and remains blocked. The next owning-boundary test freezes copied scalar range extents.
+A production test lowers the actual fill_spare_bytes, copy_spare_bytes and copy_bytes_from_pointer bodies rather than
+reimplementing their behavior in a fixture. A failure in the first body leaves later bodies unverified.
+`range-staging-boundary-baseline.log` freezes failures in both the new extent-normalization unit test and actual
+fill_spare_bytes. Later bodies were unverified after that first failure.
 
-The temporary trace in `analysis/guarantee/trusted/proof.rs` was restored from `pointer-proof-before-trace.rs`.
-No trace remains in source. `pointer-copy-source-trace.log` retains the source evidence. Both selected address tests
-failed before the repair. The two async composition tests passed, including both negative variants.
+The production trace shows a Scalar staged count whose contents are the original count input. Available valid_write
+evidence contains Subtract(Borrowed(capacity), Borrowed(initialized)), while the ordinary branch bound contains
+Subtract(capacity, initialized). Built-in arithmetic was computing on loan identities instead of the reached values.
+The repair shares computed_value normalization across built-in operations, const calls and spatial extent values.
+It preserves the separate pointer descriptor normalization and generic predicate subject path. Superseded special
+nullable-reference comparison normalization has been removed because the common computation read covers it.
+An added unit property compares arithmetic and const calls over copied and borrowed views of the same scalar.
+
+`range-staging-boundary-repair.log` passes both new checker properties, scalar-copy safety and both async composition
+tests. The known Source/imported scoped continuation controls still fail. The buffer test passes fill_spare_bytes,
+then fails copy_spare_bytes at copy_spare_raw_bytes. copy_bytes_from_pointer remains unverified by that fail-fast test.
+`range-staging-checker.log` passes all 443 tests. `range-staging-trusted.log` has 160 passes, 74 failures, 97 ignored.
+Against pointer-copy-trusted.log, conditional_memory_obligations_accept_smaller_proven_ranges is repaired, and the
+newly added production buffer regression is the only added failed identity. No existing test regressed.
+The unused superseded current_contents method was removed after the build. Its removal changes no behavior.
+Next trace the newly reached production copy call before changing it. Keep the fixed comparison gate.
+
+The temporary RANGE PROOF trace in `analysis/guarantee/trusted/proof.rs` was restored from pointer-proof-before-trace.rs.
+No temporary trace remains in source.
+The earlier pointer trace was removed before c73547c02. `pointer-copy-source-trace.log` retains that earlier evidence.
+Both selected address tests failed before the repair. Both async composition tests passed, including invalid variants.
 
 The new async invalid variants replace only one source fragment each. One fabricates ChildCleanup instead of calling
 acquire and must fail trusted obligations in produce. The other observes owner after child(owner).start() and must

@@ -5,6 +5,45 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[test]
+fn arithmetic_and_const_calls_read_the_same_current_scalar_value() {
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let value = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+    let copied = ExecutionCondition::scalar_observation(identity.clone(), value.clone());
+    let loan = ExecutionCondition::reference_value(identity.borrowed(), copied.clone());
+
+    for observed in [copied, loan, value.clone().borrowed()] {
+        for operator in [bray_bound_tree::BoundOperator::Add, bray_bound_tree::BoundOperator::Subtract,
+            bray_bound_tree::BoundOperator::LessEqual] {
+            assert_eq!(ExecutionCondition::operation(operator, vec![observed.clone(), value.clone()]),
+                ExecutionCondition::operation(operator, vec![value.clone(), value.clone()]));
+        }
+
+        assert_eq!(ExecutionCondition::call(callable, None, [], vec![observed]),
+            ExecutionCondition::call(callable, None, [], vec![value.clone()]));
+    }
+}
+
+#[test]
+fn spatial_extents_observe_copied_values_without_owning_them() {
+    let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let pointer = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let count = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+    let copied = ExecutionCondition::scalar_observation(
+        ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))), count.clone());
+    let condition = |extent| ExecutionCondition::predicate(predicate.into(), callable.substitution(),
+        vec![pointer.clone(), extent]);
+    let spatial = BTreeSet::from([predicate.into()]);
+
+    assert_eq!(condition(copied.clone()).spatial_observations(&spatial),
+        condition(count).spatial_observations(&spatial));
+    assert!(copied.ownership_identity().is_none());
+}
+
+#[test]
 fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority() {
     let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
     let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
