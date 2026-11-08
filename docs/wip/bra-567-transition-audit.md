@@ -33,24 +33,28 @@ WaitResources remains stable while lease-bounded membership changes. Audit actua
 Worktree: target/bra-567-audit under the original repository. Pushed checkpoints use the actual PR branch.
 Audit baseline: b90076c1f21f3853ebfd90954b3babe26f122eca. User authorizes checkpoint commits and pushes.
 
-Current compiler validation uses the retained-reference log prefix. Build passes in 2m32s. Checker has 449 passes,
-lowering 38. The trusted/adjacent selection has 229 passed, 39 failed, 97 ignored. Across frozen trusted identities,
-38 failures remain. The additional terminal address-formation probe still fails. All 13 terminal_destructor module
-controls pass. Export/lowering has 383 passed, 57 failed, two ignored, with no new old-test failure identities.
-The real mutable-async composition, three invalid variants, publication law and original await cleanup control pass.
+Current validation uses materialized-owner logs. Build passes in 2m15s. Checker has 449 passes, lowering 38.
+The expanded trusted/adjacent selection has 236 passed, 36 failed, 97 ignored. Four old failure identities are removed,
+with no new failures among frozen identities. Two extra static proof tests pass. Export/lowering has 386 passed,
+54 failed, two ignored, removing three old failures without regressions. The real mutable-async composition, three
+invalid variants, publication law and original await cleanup control pass.
 
-The new production_condition_variable_preserves_its_borrowed_queue_authority regression checks every actual body and
-execution certificate. It now passes. Alias refresh previously converted unrepresented physical backing into Unknown,
-erasing a correctly produced loan during input staging. Only new temporaries had a protective special case. The repair
-uses current_storage_value to read actual retained logical storage. Explicit unknown logical contents still propagate.
-The temporary exception, unused mutation argument and diagnostic hooks are removed. No global Unknown rule changed.
+The call-result producer now distinguishes a computed const value from an actual produced owner. Previously its
+identity-free symbolic Call made marker borrowing substitute valid completion clauses into Trusted(Unknown), leaving
+static initializers without carriers. static-completion.log locates that loss. The real process-context getters and
+fixed initializer/fabrication, selected-instance and imported-static controls now pass. Pointer identity projections
+and scalar computation are preserved. All diagnostic hooks are removed.
 
-retained-reference-xtask-build.log passes in 1m43s. Run native acceptance next. The preceding borrow-predicate-native.log
-stops at standard-library planning with 25 E7123, 12 E7119 and two E7127. No native composition has executed. Runtime
-Source compilation and native fixtures remain unverified. Their counts must not be conflated with compiler test counts.
+The prior loan-refresh repair reads retained logical storage through current_storage_value, rather than replacing
+unrepresented physical backing with Unknown. Its actual ConditionVariable regression still passes. Explicit unknown
+logical contents still propagate. No global Unknown or predicate rule changed.
 
-No build, test or reviewer process is running. After the next native result, replace these status lines in place.
-Do not inventory historical artifacts or reread superseded logs. Use known comparison filenames only.
+Fresh materialized-owner-native.log stops at standard-library planning with 11 E7123, 10 E7119 and two E7127.
+All three process-context failures are removed. No native composition has executed. Runtime Source compilation and
+native fixtures remain unverified. The terminal-address and partial-stdlib SpinLock probes stop on buffer/allocation
+diagnostics before testing their full intended cases. All 13 focused terminal_destructor module controls pass.
+No process or reviewer is running. Next trace actual postcondition/loop contents and moved receiver dependencies.
+Use known log filenames only.
 
 ## Remaining verification
 

@@ -219,6 +219,24 @@ fn production_buffer_range_contracts_survive_pointer_staging() {
 }
 
 #[test]
+fn production_process_context_preserves_static_once_authority() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let mut failures = Vec::new();
+
+    for name in ["argument_context_table", "environment_context_table", "directory_context"] {
+        let body = compilation.lowered_unit(source_function_body_key(&compilation, name))
+            .expect("production process-context getter lowers");
+
+        if body.diagnostics().has_errors() {
+            failures.push((name, body.diagnostics().clone()));
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
 fn async_ownership_composition_checks_real_source_transitions() {
     let source = include_str!("../../../../../xtask/fixtures/native-execution/async-ownership-composition.bray");
     let compilation = crate::test_support::production_standard_library_compilation(
