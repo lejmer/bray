@@ -275,6 +275,9 @@ fn async_ownership_composition_checks_real_source_transitions() {
 
     for key in keys.iter().filter(|key| key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
         && key.source().syntax().source_id() == source_id) {
+          let properties = compilation.execution_properties(key.clone())
+              .expect("every composition function and lifecycle body is certified");
+          assert!(!properties.diagnostics().has_errors(), "{key:?}: {:?}", properties.diagnostics());
         let checked = compilation.lowered_unit(key.clone())
             .expect("every composition function and lifecycle body lowers");
         assert!(!checked.diagnostics().has_errors(), "{key:?}: {:?}", checked.diagnostics());
