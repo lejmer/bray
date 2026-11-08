@@ -231,6 +231,18 @@ fn production_spare_fill_preserves_its_descriptor_bound() {
 }
 
 #[test]
+fn production_channel_storage_publishes_its_taken_pending_value() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let key = crate::test_support::source_type_callable_member_body_key(&compilation, "store_message");
+    let properties = compilation.execution_properties(key.clone()).expect("channel storage is certified");
+    let body = compilation.lowered_unit(key).expect("channel storage lowers");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+}
+
+#[test]
 fn production_completion_predicates_match_returned_booleans() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
