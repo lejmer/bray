@@ -56,15 +56,26 @@ or initialization, survives transport, and does not narrow ordinary raw addresse
 and imported environment cursor check pass. All diagnostic hooks and temporary Source controls are removed.
 
 Current repairs pass checker463 and the fixed comparison:
-701 passed / 60 failed / 99 ignored, 130s, unchanged failing identities and zero new failures against frozen7b5dc5634.
+701 passed / 60 failed / 99 ignored, 119s, unchanged failing identities and zero new failures against frozen7b5dc5634.
 Static CFG construction excludes runtime admission failure for explicit aggregate formation. Nested retained cleanup
 passes while discarded temporary cleanup remains rejected. The actual imported-library prepared-domain initializer passes.
 Implicit method inputs now retain an existing borrowed receiver's dependencies rather than its temporary descriptor slot.
 Source/imported guard factories and local use pass, returning a guard over local storage remains rejected. The actual
 imported std guard reproduction passes. Span lookup uses the existing node_span helper. Scratch probes and traces are removed.
-Never weaken expectations. Native bundle planning/emission previously passed, then bootstrap checking reported350 diagnostics
-at231936a0d, with zero visibility, ordinary type or capability errors. Constant formation and returned receiver reproductions
-are repaired. Next rebuild xtask and rerun actual bootstrap checking before continuing through its remaining transitions.
+Never weaken expectations. Fresh xtask191122aaf passes native standard-library planning/emission. Bootstrap diagnostics
+fall350 to237: E7119=99, E7123=117, E7036=4, E7113=2, E7035=14, E7087=1. Constant formation is repaired and escaping
+lifetimes fall100 to2. The two remaining escapes involve borrowing an owner before transferring it during creation.
+Next trace the remaining moved-storage and trusted-condition transitions against current native.log.
+Active fixed regression: nullable_borrow_contracts_keep_the_actual_contained_owner fails its first valid return-owner case.
+The result and trusted owner fact survive. One normalized clause is already Unknown, another retains a clause-local
+storage identity that becomes Unknown in the body. Inspect completed-reference publication into clause normalization.
+Completed reference origins retain a staged input plus NullableValue, rather than the enclosing result slot.
+Canonical entry classification does not repair this case, but removes duplicated input-kind lists and aligns reference
+preparation with storage initialization. Retain design improvements even when they do not fix the active failure, per user.
+Both entry-reference checks use StorageIdentity::is_initialized_at_entry, verified by unchanged comparison701/60 and
+checker463. Test binaries match this change, brayc/xtask remain191122aaf. All temporary Rust trace hooks are removed.
+The active probe is the first existing nullable variant. Its bound clause gives staged slot6 type&&Owner?, output slot7
+type&Marker and actual result slot3 type&Owner?. Trace nested reference transport through that staged input next.
 No native composition has run. Source fixture/lifecycle and invalid controls remain in the fixed comparison. Interface216
 passed before these checker-only repairs and is unchanged.
 

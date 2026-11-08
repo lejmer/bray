@@ -146,13 +146,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         demands: &Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         for (identity, source) in storage.identity_entries() {
-            let entry = matches!(
-                source,
-                bray_bound_tree::StorageIdentity::Parameter(_)
-                    | bray_bound_tree::StorageIdentity::Receiver(_)
-                    | bray_bound_tree::StorageIdentity::ContractParameter(_)
-                    | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
-            );
+            let entry = source.is_initialized_at_entry();
 
             let Some(ty) = storage.storage_type(identity) else {
                 continue;
@@ -312,15 +306,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         ty: bray_symbols::TypeId,
         prepared: &bray_bound_tree::StorageReferencePath,
     ) {
-        if !matches!(
-            storage.identity(path.root),
-            Some(
-                bray_bound_tree::StorageIdentity::Parameter(_)
-                    | bray_bound_tree::StorageIdentity::Receiver(_)
-                    | bray_bound_tree::StorageIdentity::ContractParameter(_)
-                    | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
-            )
-        ) {
+        if !storage.identity(path.root).is_some_and(bray_bound_tree::StorageIdentity::is_initialized_at_entry) {
             return;
         }
 
