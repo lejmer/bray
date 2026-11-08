@@ -20,6 +20,18 @@ trusted internal predicate access(marker: &Marker);
 
 trusted internal predicate valid(marker: &Marker);
 
+trusted internal func from_core<T>(pos pointer: DataPointer<std.channel.ChannelCore<T>>) -> Owner<T>
+    ensures(trusted std.channel.owner.live(&result.instance))
+{
+    return
+    {
+        instance = std.channel.owner.Marker
+        {
+        },
+        core = pointer,
+    };
+}
+
 struct Owner<T>
 {
     instance: std.channel.owner.Marker;

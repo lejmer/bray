@@ -243,6 +243,98 @@ fn production_channel_storage_publishes_its_taken_pending_value() {
 }
 
 #[test]
+fn ownership_guarantees_precede_fallible_wrapping() {
+    for (initializer, valid) in [
+        ("introduce()", true),
+        (r"Owner
+            {
+                marker = Marker
+                {
+                },
+            }", false),
+    ] {
+        let source = r#"
+        trusted module app;
+
+        struct Marker
+        {
+        }
+
+        trusted predicate live(marker: &Marker);
+
+        struct Owner
+        {
+            marker: Marker;
+
+            trusted destruct()
+                requires(trusted live(&self.marker))
+            {
+            }
+        }
+
+        struct Wrapped
+        {
+            owner: Owner;
+        }
+
+        trusted func introduce() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return
+            {
+                marker = Marker
+                {
+                },
+            };
+        }
+
+        func inspect(pos fail: bool)
+        {
+            if fail
+            {
+                panic("owner wrapping probe");
+            }
+        }
+
+        trusted func wrap(pos fail: bool) -> Wrapped
+            ensures(trusted live(&result.owner.marker))
+        {
+            let owner: Owner = INITIAL_VALUE;
+
+            inspect(fail);
+
+            return
+            {
+                owner = owner,
+            };
+        }
+        "#.replace("INITIAL_VALUE", initializer);
+        let compilation = crate::test_support::compilation(&source);
+
+        assert_eq!(!compilation.check_diagnostics().has_errors(), valid, "{source}: {:?}", compilation.check_diagnostics());
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
+fn production_bounded_channel_creation_retains_its_cleanup_evidence() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let key = source_function_body_key(&compilation, "bounded");
+    let properties = compilation.execution_properties(key.clone()).expect("channel creation is certified");
+    let body = compilation.lowered_unit(key.clone()).expect("channel creation lowers");
+    let output = compilation.source_output_unit(key, &crate::CancellationToken::new())
+        .expect("channel creation publishes Source output");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+    assert!(!output.has_errors(), "{:?}", output.diagnostic_bag());
+}
+
+#[test]
 fn production_byte_reads_keep_their_loop_entry_evidence() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
