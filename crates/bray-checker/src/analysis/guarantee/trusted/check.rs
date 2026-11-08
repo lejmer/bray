@@ -84,7 +84,8 @@ impl TrustedChecks {
             domain.storage,
             domain,
             state,
-            operation,
+            operation.storage_plans(domain.storage).filter(|plan|
+                !domain.storage.access_is_produced_at(plan.access(), operation.occurrence())),
             current_access,
             &mut self.transfers,
         );
@@ -116,7 +117,19 @@ impl TrustedChecks {
         state: &ExecutionState,
         operation: crate::analysis::model::AnalysisOperationKind,
         evidence: Option<bool>,
+        current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     ) {
+        super::transfers::check_witness_transfers(
+            domain.request,
+            domain.storage,
+            domain,
+            state,
+            operation.storage_plans(domain.storage).filter(|plan|
+                domain.storage.access_is_produced_at(plan.access(), operation.occurrence())),
+            current_access,
+            &mut self.transfers,
+        );
+
         // Completion facts can prove that a potential extraction never occurred.
         for (invocation, condition) in self.pending_transfers.drain(..) {
             let active = condition.is_none_or(|condition| {

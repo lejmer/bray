@@ -42,7 +42,7 @@ impl StoragePlan {
         )
     }
 
-    /// Returns the complete result slot for an implicit invocation.
+    /// Returns a separately planned invocation result, including a custom indexer's returned borrow.
     pub fn invocation_result(
         &self,
         occurrence: crate::BoundExecutionSite,

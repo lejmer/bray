@@ -39,14 +39,17 @@ impl AnalysisOperationKind {
 
             if role == Role::OutputDefinition { return false; }
 
+            let produced = storage.access_is_produced_at(plan.access(), self.occurrence());
+
             match self {
                 Self::Call { phase: AnalysisCallPhase::Input, .. } => matches!(plan.purpose(), Purpose::Borrow(_))
-                    && !storage.access_is_produced_at(plan.access(), self.occurrence()),
-                Self::Call { phase: AnalysisCallPhase::Attempt, .. } => !matches!(plan.purpose(), Purpose::Borrow(_) | Purpose::Initialize),
+                    && !produced,
+                Self::Call { phase: AnalysisCallPhase::Attempt, .. } => !produced
+                    && !matches!(plan.purpose(), Purpose::Borrow(_) | Purpose::Initialize),
                 Self::Call { phase: AnalysisCallPhase::Completion, .. } => {
-                    role == Role::PrivateInputInitialization
-                        || role == Role::Observation && (!matches!(plan.purpose(), Purpose::Borrow(_))
-                            || storage.access_is_produced_at(plan.access(), self.occurrence()))
+                    produced
+                        || role == Role::PrivateInputInitialization
+                        || role == Role::Observation && !matches!(plan.purpose(), Purpose::Borrow(_))
                 }
                 Self::Bound(_) | Self::Recovery(_) => role != Role::PrivateInputInitialization,
                 Self::Result { .. } | Self::PatternObservation(_) | Self::ScopeExit { .. } => false,

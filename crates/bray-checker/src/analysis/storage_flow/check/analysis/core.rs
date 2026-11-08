@@ -1294,8 +1294,16 @@ where
                     }
             )
         {
-            self.trusted
-                .after_operation(self.execution, execution, kind, self.memory_evidence);
+            let input = self.input;
+            let storage = self.storage;
+            let values = self.request.semantic_values();
+            let memory = &state.memory;
+
+            self.trusted.after_operation(self.execution, execution, kind, self.memory_evidence, &|plan| {
+                let target = input.reference_target(values, memory, storage, plan.access())?;
+
+                crate::storage::storage_observation_path(storage, values, &target)
+            });
         }
 
         if !matches!(
@@ -1540,7 +1548,10 @@ where
 
         self.initialize_operation_storage(state, operation.kind());
 
-        for plan in operation.kind().storage_plans(self.storage) {
+        let storage = self.storage;
+
+        for plan in operation.kind().storage_plans(storage).filter(|plan|
+            !storage.access_is_produced_at(plan.access(), operation.kind().occurrence())) {
             self.apply_plan(state, plan, refinements.clone(), invalidation);
         }
 
@@ -1577,6 +1588,13 @@ where
             }
 
             self.transfer_memory_result_state(state, operation.kind().node());
+
+            // Result accesses can reach storage through a newly returned borrow.
+            // Resolve and validate them only after that borrow has been published.
+            for plan in operation.kind().storage_plans(storage).filter(|plan|
+                storage.access_is_produced_at(plan.access(), operation.kind().occurrence())) {
+                self.apply_plan(state, plan, refinements.clone(), invalidation);
+            }
         }
 
         state.memory.finish_value_transfers();

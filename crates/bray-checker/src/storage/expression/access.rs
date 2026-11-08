@@ -628,6 +628,21 @@ where
         self.builder_mut()
             .set_identity_type(storage, stored_type).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in retain_borrow_value: {error:?}"));
 
+        if matches!(identity, StorageIdentity::CustomIndexBorrow(_)) {
+            self.builder_mut().bind(
+                StorageBindingTarget::InvocationResult(expression.into()),
+                bray_bound_tree::StorageBinding::Identity(storage),
+            ).expect("custom indexing retains its returned borrow separately from reached data");
+
+            let node = self.request.view().expression(expression)
+                .expect("returned index borrow belongs to its expression");
+            let access = StorageAccess::new(StorageAccessRoot::Storage(storage), [], stored_type,
+                node.origin().source_anchor(), node.is_recovered());
+
+            self.builder_mut().push_access(access)
+                .expect("returned index borrow has a complete result-slot access");
+        }
+
         self.push_expression_access(
             expression,
             StorageAccessRoot::BorrowedStorage {

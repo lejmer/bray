@@ -962,7 +962,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             BoundExecutionSite::ScopedExit(_) => None,
             BoundExecutionSite::Cleanup(_) => panic!("cleanup suspension has no invocation result"),
-            BoundExecutionSite::Node(_) => self.expression_result_storage(occurrence.expression()?),
+            BoundExecutionSite::Node(_) => self.storage.invocation_result(occurrence)
+                .map(|access| self.storage.logical_path(access)
+                    .expect("explicit invocation result retains its complete path").clone())
+                .or_else(|| self.expression_result_storage(occurrence.expression()?)),
         }
     }
 }

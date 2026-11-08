@@ -227,11 +227,11 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     storage: &StoragePlan,
     domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
     state: &ExecutionState,
-    operation: crate::analysis::model::AnalysisOperationKind,
+    plans: impl Iterator<Item = bray_bound_tree::StorageAccessPlan>,
     current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     transfers: &mut BTreeSet<BoundExpressionId>,
 ) {
-    for plan in operation.storage_plans(storage).filter(|plan| {
+    for plan in plans.filter(|plan| {
         matches!(
             plan.purpose(),
             bray_bound_tree::StorageAccessPurpose::Copy
