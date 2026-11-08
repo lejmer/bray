@@ -34,9 +34,9 @@ WaitResources remains stable while lease-bounded membership changes. Audit actua
 Worktree: target/bra-567-audit under the original repository. Pushed checkpoints use the actual PR branch.
 Audit baseline: b90076c1f21f3853ebfd90954b3babe26f122eca. User authorizes checkpoint commits and pushes.
 
-Current bounded-effect validation: compilation build 2m39s, checker 455 passed, lowering 38 passed. Full fixed
-comparison has 686 passed, 69 failed, 99 ignored in 119s. No new failures against returned-exclusivity. The HashTable
-ownership/removal test now passes. Nine focused source checks pass. The async fixture passes certificates and lowering for every function/lifecycle
+Current scalar-join-datum validation: compilation build 3m15s, checker 456 passed, lowering 38 passed. Full fixed
+comparison has 690 passed, 66 failed, 99 ignored in 125s. No new failures against bounded-effect. Imported joined bounds,
+raw-byte access and runtime text storage now pass. Ten focused source checks pass. The async fixture passes certificates and lowering for every function/lifecycle
 body, plus its three invalid variants and loop controls. Source validity expectations remain fixed. The separate division-
 guard and joined-index failures also occur in retained fc4b5160b baseline.
 
@@ -48,9 +48,9 @@ Ownership joins also preserve complete snapshot keys, keeping changed contents d
 Const-call production preserves real owners independently of symbolic computation. Actual ConditionVariable loans use retained
 logical storage without replacing unrepresented physical backing with Unknown. Their fixed regressions pass.
 
-bounded-effect-native.log stops at standard-library planning with nine E7123. Ordinary postcondition/totality and
-collection destructor failures are removed. Remaining paths are channel cleanup, byte-buffer loops and Windows scope
-cleanup. No native composition or runtime Source archive has executed.
+scalar-join-datum-native.log stops at standard-library planning with six scope-cleanup E7123. Remaining paths are bounded
+channel creation and its two lambdas, endpoint send/receive and Windows environment_storage. No native composition or
+runtime Source archive has executed.
 Terminal-address and partial-stdlib SpinLock checks now pass.
 Missing-slot-as-Absent experiments remain reverted because they lost independent cleanup authority. No diagnostic hooks
 or reviewer are running.
@@ -59,23 +59,19 @@ Read-only commit_start trace: begin releases the pool guard before cell locking.
 spin/atomic operations, total accessors and abort-only invariant checks. No recoverable failure is demonstrated there.
 Source certification and native rollback/publication checks remain required before treating the protocol as verified.
 
-Numeric range consumers now read attached computed data consistently. Bounded-sum and captured-range laws failed before
-repair, including changed-live-source negatives. Opaque machine snapshots retain checked type bounds without revisiting
-old operands. Actual fill_spare_bytes certificate and lowering now pass. No library contract or reconstruction was added.
-The channel boundary is pinned by production_channel_storage_publishes_its_taken_pending_value. take() establishes
-pending.storage == none, then uninit_write loses it. channel-produced-region-trace.log proves the destination retains a
-complete physical bound to self.storage, but target_relationship ignored it against the separate pending entry.
-The new bounded_returned_references_preserve_input_exclusivity law failed before repair. Its negatives cover shared,
-opaque, mixed, stale and raw origins, plus reaching another owner. The query now consumes stored complete bounds only.
-Actual store_message certificate and lowering pass. All temporary hooks are restored.
+Numeric ranges read attached data. Actual fill_spare_bytes passes, with changed-live-source negatives. Opaque machine
+snapshots retain checked type bounds without source replay. Returned-reference relationships consume complete stored bounds.
+Actual store_message passes, with shared/opaque/mixed/stale/raw/further-owner negatives. Effect export carries flat physical
+regions and remaining origin uncertainty together. Both collection destructors and bounded summaries pass. Terminal checks
+are unchanged. No library contracts or reconstructed state were added.
 
-The terminal boundary is pinned by production_collection_destructors_release_transferred_backing for both real generic bodies.
-terminal-collection-boundary.log proves both buffers are moved and excluded from receiver reachability. Their helper effect
-summaries nevertheless add ambient writes for completely bounded returned references. record_target_effect discarded that
-producer distinction. effect_origins now returns its flat regions and unbounded-origin flag together. Opaque, stale and
-further-owner cases remain unbounded. Both actual destructors and their bounded-effect summary check now pass, including
-native planning. Terminal validation itself is unchanged. Next pin and trace read_native_u64 loop call entry before
-implementation changes. All diagnostic hooks are restored. No task-owned process or reviewer is running.
+ScalarValue represents a produced opaque non-owning datum, separate from missing meaning and ownership identity. The
+actual read_native_u64 trace previously admitted Scalar(Joined(...), Unknown), losing guards before call admission.
+Scalar joins now produce usable data with the requested epoch. The red-before scalar law checks stable repeated joins,
+predecessor order, same storage context, distinct epochs, no ownership and missing-predecessor conservatism. Type lookup
+uses the immutable identity, finite evaluation dependency is retained, and runtime-only data stays unportable. Actual
+byte reads now pass. Next pin and trace cleanup lifecycle entry for bounded channel creation, then the remaining scopes.
+No diagnostic hooks, task-owned processes or reviewer are running.
 
 ## Remaining verification
 

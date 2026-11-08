@@ -290,6 +290,7 @@ impl ExecutionCondition {
                 Self::PostState(site, _) if *site == mutation => {
                     return true;
                 }
+                Self::ScalarValue(identity) => pending.push(identity),
                 Self::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
                 Self::Constructed(base, fields) => {
                     pending.push(base);

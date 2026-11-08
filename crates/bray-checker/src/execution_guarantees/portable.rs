@@ -247,7 +247,8 @@ fn encode(
         | ExecutionCondition::ScopedCapability(_)
         | ExecutionCondition::PostState(_, _)
         | ExecutionCondition::InitializedSnapshot(_, _, _)
-        | ExecutionCondition::Joined(_, _, _) => return Ok(None),
+        | ExecutionCondition::Joined(_, _, _)
+        | ExecutionCondition::ScalarValue(_) => return Ok(None),
     };
 
     values.intern_constant_term(data).map(Some)

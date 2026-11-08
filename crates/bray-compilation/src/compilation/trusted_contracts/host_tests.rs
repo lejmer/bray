@@ -243,6 +243,18 @@ fn production_channel_storage_publishes_its_taken_pending_value() {
 }
 
 #[test]
+fn production_byte_reads_keep_their_loop_entry_evidence() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let key = source_function_body_key(&compilation, "read_native_u64");
+    let properties = compilation.execution_properties(key.clone()).expect("native byte reads are certified");
+    let body = compilation.lowered_unit(key).expect("native byte reads lower");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+}
+
+#[test]
 fn bounded_collection_storage_effects_keep_their_physical_scope() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
