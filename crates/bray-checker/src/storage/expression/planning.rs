@@ -399,8 +399,13 @@ where
 
                 let access = self.plan_expression(operand, None)?;
 
-                self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
-                    operand, StorageAccessPurpose::ValueTransfer);
+                let access = if self.builder().value_slot(operand).is_some() {
+                    // A produced value moves through the boundary. The boundary's
+                    // result cannot remain an access to the retired operand slot.
+                    self.plan_transferred_operand(id, operand, StorageValueConsumptionPhase::Completion)?
+                } else {
+                    access
+                };
 
                 for operand in &operands[1..] {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::Read))?;
