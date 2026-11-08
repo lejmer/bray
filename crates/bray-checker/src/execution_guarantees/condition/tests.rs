@@ -196,6 +196,20 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
 }
 
 #[test]
+fn republishing_a_nullable_payload_keeps_one_parent_snapshot() {
+    let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let payload = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+    let field = bray_bound_tree::StorageProjection::NullableValue;
+    let snapshot = ExecutionCondition::constructed(identity, [(field, payload.clone())].into());
+
+    let extraction = snapshot.clone().project(field);
+
+    assert_eq!(extraction.owner_identity(), payload.owner_identity());
+    assert_eq!(extraction.clone().present(), snapshot);
+    assert_eq!(snapshot.with_storage_component(&[field], extraction), snapshot);
+}
+
+#[test]
 fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
     let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
 
