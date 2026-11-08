@@ -82,7 +82,11 @@ fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority(
         vec![value, count.clone()]);
     let spatial = BTreeSet::from([predicate.into()]);
 
-    assert_eq!(condition(copied.clone()).pointer_observations(&spatial),
+    for observed in [copied.clone(), pointer.clone().borrowed()] {
+        assert_eq!(condition(observed).pointer_observations(&spatial),
+            condition(pointer.clone()).pointer_observations(&spatial));
+    }
+    assert_ne!(condition(copied.clone().borrowed()).pointer_observations(&spatial),
         condition(pointer.clone()).pointer_observations(&spatial));
     assert_ne!(copied.clone().borrowed().owner_identity(), pointer.borrowed().owner_identity());
     assert!(copied.ownership_identity().is_none());

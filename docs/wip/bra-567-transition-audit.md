@@ -24,7 +24,7 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is 02cd343d6. A validated symbolic-input/liveness batch is not yet committed.
+The latest pushed source is cd9520c26, including the validated symbolic-input/liveness batch.
 Fixed comparison gates pass with no unexplained regression. The last native attempt still failed on trusted
 obligations, execution guarantees and two escaping references. No native composition has executed.
 The current batch passes all 447 checker tests. Its trusted population is 192 passed, 49 failed and 97 ignored,
@@ -67,7 +67,7 @@ requires the whole composition, including lowering and native execution. This re
 ## Current implementation and evidence
 
 Worktree: `target/bra-567-audit`, directly on PR #710 branch `feature/bra-567-async-root-orchestration`.
-The original develop checkout is untouched. Latest pushed head is **02cd343d6**.
+The original develop checkout is untouched. Latest pushed head is **cd9520c26**.
 The user explicitly authorized continued implementation, checkpoint pushes, and an independent review on the draft PR
 once implementation and verification finish. Continue through resolved review findings until ready for human Review.
 No review agent has been started. No style or formatting pass has run during this audit.
@@ -198,7 +198,8 @@ Earlier repairs and retained evidence:
 `receiver-entry-native.log` contains 27 E7123, 27 E7119, 2 E7113, 9 E7036, 3 E7063 and 2 E7127.
 The previous native checkpoint had 29 E7113 and 28 E7119. The real std.format.bytes return is repaired.
 The first remaining leaf is a trusted precondition on prepare_native_path at SourceId(102), bytes 11359..11369.
-The product string-sorted source order maps that ID to std/fs/windows.bray. Remaining escaping references occur
+The product string-sorted source order maps that ID to std/fs/windows.bray, line 319, in platform_path_rename's
+second preparation. Remaining escaping references occur
 at writer.bray's awaited flush_buffered_async and condition/variable.bray's returned mutex.lock.
 The shared-generator copied element also retains local cursor loans in liveness despite its portable projection
 now resolving to the original parameter. These are the next carried-value versus container-loan consumers to trace.
@@ -264,11 +265,35 @@ metadata, and the generic consumer path now handles it before output retention. 
 symbolic-input-native-build.log. symbolic-input-native.log still fails standard-library planning, with 27 E7123,
 27 E7119, 1 E7113, 8 E7036, 3 E7063 and 2 E7127. The returned condition-variable guard no longer escapes.
 The remaining escape is the awaited writer. No native fixture executes. The first native leaf remains the
-prepare_native_path obligation in the Windows file wrapper, although its targeted Source check passes.
-Before another proof repair, establish the first difference between targeted Source checking and the native product's
-diagnostic/certification path. Verify source inventory, target, options, query order and any imported facts.
-Do not explain this discrepancy by an individual pointer expression without that trace.
+prepare_native_path obligation in platform_path_rename's second preparation. An earlier comparison incorrectly
+used prepare_file_open's passing Source check. The raw byte span identifies rename, so it did not establish a
+Source/native discrepancy. source-output-boundary.log confirms that lowering and complete Source output agree
+for the three originally probed bodies. The path comparison now also includes platform_path_rename, which prepares
+one path, branches on its result and then prepares the second path. This new case is frozen before another proof repair.
 Automated style and formatting remain deferred.
+
+The current uncommitted work only extends the path probe through source_output_unit as well as lowering,
+and adds the actual rename caller. path-proof-trace.log reproduces rename's second-call failure on both Linux and
+Windows in both layers. The first preparation has the expected trusted facts. The second has an empty normalized
+known set, while its argument still denotes the untouched second input. prepare_native_path exports
+Cleanup(type 2), Cleanup(type 16) and Indirect Escape(parameter 0.address). Both caller contracts resolve these to
+Unknown plus the source-address escape. Trace the cleanup/effect export and physical invalidation before a repair.
+Do not assume that copying source bytes or returning a pointer externally publishes their source address.
+
+The same retained probe isolates the dynamic-path failure separately: its admitted read requirements refer to
+Borrowed(Input(path.address)), while the available facts refer to Input(path.address). The length matches and the
+original facts remain present. This is a by-value raw-pointer observation through a shared borrow. Preserve the
+existing no-copy-witness-authority negatives while investigating it. The temporary proof and host-test traces were
+restored from path-proof-before-trace.rs and path-proof-host-before-trace.rs. The actual rename case and full Source
+output checks remain in the host test.
+
+Closed raw-pointer predicates now follow a shared borrow to the pointer's copied descriptor observation.
+They do not use a borrowed copy slot as the original pointer and do not transfer owner authority.
+The existing spatial-predicate law checks both cases. All 447 checker tests pass in
+borrowed-pointer-checker-final.log. borrowed-pointer-trusted.log retains exactly the same 49 failed test identities
+as symbolic-input-trusted.log, with 192 passing and 97 ignored. The dynamic Windows path producer now passes both
+lowering and complete Source output. The retained path probe still rejects rename's second preparation on both
+platforms. This repair does not address its cleanup summary or establish native execution. No task-owned process is active.
 
 - Finish the executable ledger across remaining operation/failure transitions, including constructors/defaults,
   branches/loops, suspension and task outcomes, scoped and root cleanup, retained incidents, shutdown and imported facts.
