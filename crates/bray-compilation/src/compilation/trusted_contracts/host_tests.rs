@@ -4,6 +4,38 @@ use super::fixtures::production_host_compilation;
 use crate::test_support::source_function_body_key;
 
 #[test]
+fn production_awaited_writer_does_not_return_its_completed_receiver_loan() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let key = crate::test_support::source_type_callable_member_body_key(&compilation, "into_sink_async");
+    let lowered = compilation.lowered_unit(key)
+        .expect("the consuming async writer publishes its checked completion");
+
+    assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+}
+
+#[test]
+fn production_native_paths_preserve_their_admitted_input_contracts() {
+    let mut failures = Vec::new();
+
+    for target in [bray_target::NativeTarget::X86_64LinuxGnu, bray_target::NativeTarget::X86_64WindowsMsvc] {
+        let compilation = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::for_native(target), "module probe;");
+
+        for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path"] {
+            let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
+                .expect("the native path wrapper publishes its checked source contract");
+
+            if lowered.diagnostics().has_errors() {
+                failures.push((target, name, lowered.diagnostics().clone()));
+            }
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
 fn implicit_receiver_reborrows_do_not_escape_local_owners() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(),

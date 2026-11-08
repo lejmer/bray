@@ -73,6 +73,8 @@ impl OperationEffects {
                         request,
                         call.result().requirements(),
                         storage,
+                        &self.value_inputs,
+                        selections,
                     ));
             }
         }
@@ -143,6 +145,8 @@ impl OperationEffects {
                                 request,
                                 contract.requirements(),
                                 storage,
+                                &self.value_inputs,
+                                selections,
                             ));
                     }
 
@@ -189,6 +193,8 @@ impl OperationEffects {
                             request,
                             contract.requirements(),
                             storage,
+                            &self.value_inputs,
+                            selections,
                         )
                     })
                     .collect::<BTreeSet<_>>();
@@ -210,13 +216,15 @@ impl OperationEffects {
         &mut self,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
     ) where
         C: CheckerRequestContext + ?Sized,
     {
-        let mut accesses_by_root = index_storage_roots(storage);
+        let accesses_by_root = index_storage_roots(storage);
+        let mut consumers_by_root = BTreeMap::<_, BTreeSet<_>>::new();
 
-        for (occurrence, _, path) in storage.value_consumption_entries() {
-            accesses_by_root.entry(path.root).or_default().push(occurrence);
+        for (occurrence, phase, path) in storage.value_consumption_entries() {
+            consumers_by_root.entry(path.root).or_default().insert((occurrence, phase));
         }
 
         let borrowed_reads = storage
@@ -301,10 +309,20 @@ impl OperationEffects {
                     };
 
                     let (subject, copy_address) = match requirement {
-                        BoundDependencyRequirement::Value { source, ty, .. }
+                        BoundDependencyRequirement::Value { source, path, ty } => {
+                            if let Some(value) = self.value_inputs.copied_value_source(
+                                request.semantic_values(), storage, selections, *source, path,
+                            ) {
+                                nested.extend(retained_subtree_subjects(
+                                    &self.value_inputs, value, &retained_by_expression,
+                                ));
+                                continue;
+                            }
                             if crate::representation::reference_kind(request, *ty)
-                                == Some(bray_symbols::DependencyReferenceKind::Address) =>
-                        {
+                                != Some(bray_symbols::DependencyReferenceKind::Address) {
+                                continue;
+                            }
+
                             (BoundDependencySubject::StorageAccess(*source), true)
                         }
                         BoundDependencyRequirement::Direct {
@@ -363,6 +381,10 @@ impl OperationEffects {
                         continue;
                     };
 
+                    for consumer in consumers_by_root.get(&root).into_iter().flatten() {
+                        self.boundary_uses.entry(*consumer).or_default().extend(retained.iter().copied());
+                    }
+
                     for occurrence in accesses_by_root.get(&root).into_iter().flatten() {
                         let expression = occurrence.expression();
 
@@ -378,6 +400,9 @@ impl OperationEffects {
                         }
 
                         if self.value_inputs.is_independent(*occurrence)
+                            || consumers_by_root.get(&root).is_some_and(|consumers| {
+                                consumers.iter().any(|(consumer, _)| consumer == occurrence)
+                            })
                             || matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
                                 && expression.is_some_and(|expression| {
                                     self.value_inputs
@@ -385,16 +410,6 @@ impl OperationEffects {
                                         .is_some()
                                 })
                         {
-                            continue;
-                        }
-
-                        if matches!(storage.identity(root),
-                            Some(bray_bound_tree::StorageIdentity::InvocationInput { expression: call, .. })
-                                if *occurrence == call.into())
-                        {
-                            // Callee entry consumes every staged input. Only its checked result
-                            // contract determines which of those dependencies survive the call.
-                            self.extend_uses(*occurrence, retained.iter().copied());
                             continue;
                         }
 

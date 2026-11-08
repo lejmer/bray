@@ -20,6 +20,8 @@ impl StorageFlowInput {
         liveness: &bray_bound_tree::Liveness,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         cleanup: &crate::analysis::guarantee::CleanupPlan,
+        values: &crate::dependency::ValueInputs,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
     ) {
         let subjects = dependencies
             .calls()
@@ -38,7 +40,7 @@ impl StorageFlowInput {
                     )
             })
             .flat_map(|contract| {
-                dependency_subjects(request, contract.requirements(), storage)
+                dependency_subjects(request, contract.requirements(), storage, values, selections)
                     .into_iter()
                     .chain(contract.required_subjects())
             })
@@ -508,7 +510,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             self.formal_root(root),
         );
 
-        let portable = crate::dependency::map_requirements(requirements, &mut |subject, kind| {
+        let portable = crate::dependency::map_requirements(requirements, &mut |subject, kind, _| {
             if subject.subject_root() != bray_symbols::DependencySubjectRoot::Receiver {
                 return Ok(vec![bray_symbols::DependencyRequirement::direct(
                     subject.clone(),
@@ -569,10 +571,20 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                             self.request,
                             std::slice::from_ref(requirement),
                             self.storage,
+                            self.values,
+                            self.execution.semantics.selections(),
                         ));
                     }
                 }
-                bray_bound_tree::BoundDependencyRequirement::Value { source, .. } => {
+                bray_bound_tree::BoundDependencyRequirement::Value { source, path, .. } => {
+                    if let Some(value) = self.values.copied_value_source(
+                        self.request.semantic_values(), self.storage,
+                        self.execution.semantics.selections(), *source, path,
+                    ) {
+                        subjects.extend(self.liveness.retained_by(value));
+                        continue;
+                    }
+
                     if let Some(root) = self.storage.root_identity(*source) {
                         subjects.extend(
                             self.input
@@ -589,6 +601,8 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                         self.request,
                         std::slice::from_ref(requirement),
                         self.storage,
+                        self.values,
+                        self.execution.semantics.selections(),
                     ));
                 }
                 bray_bound_tree::BoundDependencyRequirement::Guarded(guarded) => {

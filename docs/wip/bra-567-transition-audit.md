@@ -24,14 +24,14 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is 1ba7a3100. Fixed comparison gates pass with no unexplained
-comparison regression. Native planning has no remaining moved-value diagnostic, but still fails on trusted obligations
-and execution guarantees. No native composition has executed. The copied-pointer owning-boundary regression and
-all 446 checker tests pass at that checkpoint. The fixed trusted population is 189 passed, 48 failed, 97 ignored with
-no newly failed old identity. Native planning remains blocked. The active gate is carried loan requirements versus physical storage anchors
-for returned references. The receiver repair passes the real std.format.bytes body and preserves
+The latest pushed source is 02cd343d6. A validated symbolic-input/liveness batch is not yet committed.
+Fixed comparison gates pass with no unexplained regression. The last native attempt still failed on trusted
+obligations, execution guarantees and two escaping references. No native composition has executed.
+The current batch passes all 447 checker tests. Its trusted population is 192 passed, 49 failed and 97 ignored,
+including two newly frozen failures and one removed old failure. The active gate is retained reports versus
+actual carried values, followed by the Windows path obligation. The receiver repair passes std.format.bytes and preserves
 the local-owner escape rejection. Projected-input mapping now selects the original evaluated component's
-portable dependencies. The generator still fails in liveness, which retains its container loan.
+portable dependencies. Direct and generic generator positives now pass and local escape negatives still reject.
 All temporary probes are removed. No native fixture has executed.
 The ledger remains incomplete. Source passes do not certify runtime execution.
 
@@ -67,7 +67,7 @@ requires the whole composition, including lowering and native execution. This re
 ## Current implementation and evidence
 
 Worktree: `target/bra-567-audit`, directly on PR #710 branch `feature/bra-567-async-root-orchestration`.
-The original develop checkout is untouched. Latest pushed head is **1ba7a3100**.
+The original develop checkout is untouched. Latest pushed head is **02cd343d6**.
 The user explicitly authorized continued implementation, checkpoint pushes, and an independent review on the draft PR
 once implementation and verification finish. Continue through resolved review findings until ready for human Review.
 No review agent has been started. No style or formatting pass has run during this audit.
@@ -208,10 +208,67 @@ The receiver/projection batch passes all 446 checker tests. The fixed trusted po
 48 failed and 97 ignored with no old failure added or removed. Both new Source tests pass. Nine of ten focused
 boundary tests pass, including the local-owner and generator escape negatives, consuming stored-reference control,
 both async composition checks and operation cleanup lowering. The existing shared-generator positive still fails.
-Its newly added exact portable-contract assertion awaits the next test build. The diagnostic-only projection probe
+Its exact portable-contract assertion now passes. The diagnostic-only projection probe
 resolved the copied element to the original parameter before that physical failure. No trait-view transparency change
 was made. The new local-owner fixture originally used reserved `view` as a method name. Renaming it preserved its
 escape-rejection expectation. Style and formatting remain deferred.
+
+The carried-value baseline now executes that exact portable assertion successfully, then still fails the existing
+shared-generator diagnostic expectation. The new real into_sink_async regression fails with both escaping storage
+and a conflicting move of self.sink after await. Its failure is in carried-value-baseline.log. The initial native-path
+probe passed on SelectedTarget::baseline(), which is Linux. It did not reproduce the Windows native failure.
+The test now selects both Linux and Windows explicitly. Its traced source headers prove that both platform
+implementations are selected. The Windows Source failure is absolute_windows_path's admitted read obligation in
+prepare_dynamic_library_open_path. prepare_native_path and prepare_file_open pass there. The last native attempt
+predates the liveness batch and still requires a matching rerun. Source and native targets must be stated separately.
+
+The uncommitted liveness batch separates explicit operand consumption from result retention,
+adds consumed owners' dependencies to the existing phase-indexed uses, and resolves copied component requirements
+through the checked evaluated producer and existing ValueInputs projection metadata. Portable inference, liveness and
+report retention use the same projected_input_value/copy-source mapping. Unknown origins keep their existing
+conservative behavior. No new owner, witness, alias registry or runtime bypass was added. All 446 checker tests
+pass for that batch. carried-value-trusted.log records 192 passed, 49 failed and 97 ignored. The two added failures
+are the new writer and Windows path probes. The only removed old failure is
+consuming_reference_carriers_preserves_referent_evidence. No old test identity regressed.
+The direct first_cursor escaping errors are repaired. Three escaping errors remain in the two generic cursor
+variants, and the writer's await/move pair still fails. The existing heap-anchor test now collects both outcomes
+before asserting, with identical expected results. Its owned-input negative executes and reports escaping storage,
+but also retains the pre-existing helper obligation error. That negative has not passed its exact diagnostic check.
+
+carried-retention-cursor.log proves that generic step exports DependencyCallInput.values and .storage both as
+StorageAlive(parameter 0). This loses the already defined data versus storage distinction before specialization.
+first_generic_cursor and first_generic_move_cursor then export an erroneous local storage requirement. The writer's
+result data is separate, but its normal and abnormal reports retain StorageAlive(Receiver). The actual normalized
+deferred reports include both the whole receiver input and the sink component. That report path remains required.
+The test-only traces were removed after separate retained cursor, writer and path runs.
+
+The active symbolic-input batch preserves the existing input value/storage channels while mapping deferred result
+equations. A RequirementMappingRole makes the mapper use the reached receiver's evaluated data for the symbolic
+value channel, and the actual descriptor's loan for storage. Ordinary explicit borrowed arguments keep their loan.
+The same rule covers selected calls and borrowed operator receivers. Scoped-exit and cleanup-owner mapping already
+receive their actual by-value capability/owner dependencies, so they do not substitute an implicit receiver loan.
+Conversion projection and symbolic-call substitution only rename existing subjects and preserve these channels.
+The old mapper API was replaced at every consumer. No compatibility wrapper or alternate result representation was added.
+An exact Source assertion freezes generic step's distinct channels. A new equation-binding law protects outer variables
+when guards are removed inside a recursive equation. The new test's iteration over Arc-backed equation definitions
+was corrected. symbolic-input-boundary.log passes all generator positives, including both generic variants and both
+exact contract assertions, and retains the local generator/receiver escape rejections. It passes seven of ten selected
+tests. The writer, Windows path and heap-anchor probes still fail with their recorded diagnostics.
+symbolic-input-trusted.log has exactly the same old failures as carried-value-trusted.log. All 447 checker tests pass
+in symbolic-input-checker.log. No native result is yet available for this batch. Keep the comparison suite fixed.
+
+After those checks, the shared copied-value source helper moved unchanged into ValueInputs in dependency/projection.rs,
+its owning namespace. The temporary liveness reexports were removed. The private-input special case in retention
+was also removed because inputs.rs::plan_input_storage always records that exact consumption in the shared phase
+metadata, and the generic consumer path now handles it before output retention. The native runner compiles in
+symbolic-input-native-build.log. symbolic-input-native.log still fails standard-library planning, with 27 E7123,
+27 E7119, 1 E7113, 8 E7036, 3 E7063 and 2 E7127. The returned condition-variable guard no longer escapes.
+The remaining escape is the awaited writer. No native fixture executes. The first native leaf remains the
+prepare_native_path obligation in the Windows file wrapper, although its targeted Source check passes.
+Before another proof repair, establish the first difference between targeted Source checking and the native product's
+diagnostic/certification path. Verify source inventory, target, options, query order and any imported facts.
+Do not explain this discrepancy by an individual pointer expression without that trace.
+Automated style and formatting remain deferred.
 
 - Finish the executable ledger across remaining operation/failure transitions, including constructors/defaults,
   branches/loops, suspension and task outcomes, scoped and root cleanup, retained incidents, shutdown and imported facts.

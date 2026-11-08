@@ -10,6 +10,53 @@ use bray_symbols::{AnyLocalSymbolId, DependencyProjection, LocalBindingSymbolId,
 use super::ValueInputs;
 
 impl ValueInputs {
+    /// Resolves the evaluated data source of a copied component requirement.
+    pub(crate) fn copied_value_source(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        storage: &bray_bound_tree::StoragePlan,
+        selections: &CheckedSemanticSelections,
+        source: bray_bound_tree::StorageAccessId,
+        path: &bray_bound_tree::StorageReferencePath,
+    ) -> Option<BoundExpressionId> {
+        let root = storage.root_identity(source)?;
+        let producer = storage.identity(root)?.definition_occurrence()?;
+        let projections = storage.resolved_projections(source)?.iter()
+            .chain(path.projections().iter()).copied().collect::<Vec<_>>();
+        let projections = crate::storage::dependency_projections(&projections)?;
+
+        self.projected_input_value(values, selections, producer, &projections)
+            .map(|(source, _)| source)
+    }
+
+    /// Selects the evaluated dependency source of a copied input component.
+    /// This selects carried data and never reconstructs an owner or physical referent.
+    pub(crate) fn projected_input_value<'p>(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        selections: &CheckedSemanticSelections,
+        site: bray_bound_tree::BoundExecutionSite,
+        path: &'p [DependencyProjection],
+    ) -> Option<(BoundExpressionId, &'p [DependencyProjection])> {
+        let (source, path) = match site {
+            bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(source)) => (source, path),
+            bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } => {
+                let input = selections.expression(expression)
+                    .expect("evaluated input retains its checked invocation")
+                    .input(ordinal)
+                    .expect("evaluated input retains its checked selection");
+
+                let source = input.expression()?;
+                let path = crate::storage::unadapted_projections(values, input.conversion(), path)?;
+
+                (source, path)
+            }
+            _ => return None,
+        };
+
+        Some(self.project(source, path))
+    }
+
     pub(super) fn collect_projections(
         &mut self,
         unit: &BoundUnit,
