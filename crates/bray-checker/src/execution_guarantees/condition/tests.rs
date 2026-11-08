@@ -93,6 +93,24 @@ fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority(
 }
 
 #[test]
+fn contents_replacement_preserves_descriptor_role_without_old_data() {
+    let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let previous = ExecutionCondition::Boolean(true);
+    let next = ExecutionCondition::Boolean(false);
+
+    for source in [
+        ExecutionCondition::owned_value(owner.clone(), previous.clone()),
+        owner.clone().borrowed().with_referent(previous.clone()),
+        ExecutionCondition::scalar_observation(owner, previous),
+    ] {
+        let changed = source.with_current_contents(next.clone());
+
+        assert_eq!(source.ownership_identity(), changed.ownership_identity());
+        assert_eq!(changed.computed_value(), &next);
+    }
+}
+
+#[test]
 fn const_calls_observe_current_values_without_loan_identity() {
     let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
     let callable = crate::test_support::callable_instance(definition.into());

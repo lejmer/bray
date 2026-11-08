@@ -400,6 +400,17 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
         }
 
+        for (identity, storage) in self.storage.identity_entries() {
+            if matches!(storage, bray_bound_tree::StorageIdentity::PostconditionResult(_)) {
+                let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
+                    .expect("a postcondition result retains its formal storage identity");
+
+                // The caller's produced result is an input to this clause. Its
+                // symbolic contents exist at entry without creating an owner.
+                state.current.insert(place, ExecutionCondition::Result);
+            }
+        }
+
         for assumption in self.assumptions.iter().chain(
             self.request
                 .trusted_contracts()

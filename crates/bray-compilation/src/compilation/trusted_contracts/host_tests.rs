@@ -245,10 +245,14 @@ fn async_ownership_composition_rejects_fabricated_and_moved_owners() {
             marker = Marker
             {
             },
-            cancelled = false
+            cancelled = false,
+            visits = 0
         }"#, "produce", DiagnosticKind::CheckingTrustedObligationNotProven),
         ("let pending = child(owner).start();", r#"let pending = child(owner).start();
     observe(&owner);"#, "main", DiagnosticKind::CheckingUseOfMovedStorage),
+        ("await owner.advance();", r#"let pending = owner.advance();
+        observe(&owner);
+        await pending;"#, "transport", DiagnosticKind::CheckingConflictingBorrow),
     ] {
         assert_eq!(source.matches(original).count(), 1);
         let invalid = source.replace(original, replacement);
