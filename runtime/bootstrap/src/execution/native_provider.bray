@@ -77,7 +77,7 @@ trusted internal func create_native_provider(pos configuration: &Configuration) 
         trusted native_configuration(owner = configuration),
         !(result matches Ok(_)) || trusted native_provider_option_owned(owner = created_native_provider(&result))
     )
-    uses(intrinsic, foreign_call, layout_reinterpret)
+    uses(foreign_call, layout_reinterpret)
 {
     if configuration.scope_enter == 0 && configuration.scope_finish == 0
     {
@@ -174,7 +174,7 @@ trusted internal func install_native_provider(pos selected: &Current, pos provid
         trusted native_provider_option_owned(owner = &provider)
     )
     ensures(trusted view_owned(owner = &selected.acquisition))
-    uses(raw_memory, unchecked_alias, intrinsic)
+    uses(raw_memory, unchecked_alias, intrinsic, unchecked_init)
 {
     let pointer = std.memory.uninit_pointer<(NativeProviderScope?)>(&(trusted context(selected)).provider);
 
@@ -215,7 +215,7 @@ trusted internal func take_native_provider(
         trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
         trusted native_provider_option_owned(owner = &result)
     )
-    uses(raw_memory)
+    uses(raw_memory, unchecked_init)
 {
     let selected = trusted borrow_execution(owner);
     let pointer = std.memory.uninit_pointer<(NativeProviderScope?)>(&(trusted context(&selected)).provider);

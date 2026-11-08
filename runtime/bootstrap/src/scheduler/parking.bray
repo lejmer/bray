@@ -22,7 +22,6 @@ trusted internal func parking_registration(pos pointer: DataPointer<Reference>) 
 @abi(c)
 trusted internal func parking_withdrawal(pos pointer: DataPointer<Reference>, pos group: u32)
     requires(trusted reference_slot(pointer = pointer))
-    uses(intrinsic)
 {
     let owner = trusted borrow_reference(&pointer, pointer);
 

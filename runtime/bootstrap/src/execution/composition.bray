@@ -32,6 +32,7 @@ trusted internal func awaited_composition(
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
+    uses(intrinsic, layout_reinterpret)
 {
     let selected = trusted current();
 

@@ -92,7 +92,7 @@ trusted internal func native_scope_enter(
 ) -> u64
     requires(trusted native_scope_storage(owner = &storage, bytes = bytes, align = align))
     ensures(trusted native_scope_initialized(owner = &storage))
-    uses(raw_memory, unchecked_init, layout_reinterpret, intrinsic)
+    uses(intrinsic)
 {
     trusted validate_native_scope(bytes, align);
 
@@ -106,7 +106,8 @@ trusted internal func native_scope_enter(
     return trusted publish_native_scope(output, trusted entry_scope(isolate != 0));
 }
 
-internal func validate_native_scope(pos bytes: usize, pos align: usize)
+trusted internal func validate_native_scope(pos bytes: usize, pos align: usize)
+    uses(intrinsic)
 {
     // Check before changing ownership, so an ABI mismatch cannot strand a live
     // Source scope in undersized native storage.
@@ -204,7 +205,7 @@ trusted internal func borrow_native_scope(pos input: &DataPointer<u8>) -> &Entry
 @abi(c)
 trusted internal func native_scope_finish(pos storage: DataPointer<u8>) -> u32
     requires(trusted native_scope_initialized(owner = &storage))
-    uses(raw_memory, layout_reinterpret, intrinsic)
+    uses(raw_memory, layout_reinterpret)
 {
     let address = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(&storage));
     let pointer = trusted std.memory.reinterpret<EntryScope, u8>(address);
@@ -242,7 +243,6 @@ trusted internal func entry_scope(pos isolate: bool) -> EntryScope
     {
         ensures(trusted bray.runtime.bootstrap.entry.native_entry())
     }
-    uses(intrinsic)
 {
     let selected = trusted current();
 
@@ -458,7 +458,7 @@ trusted internal func suspend_current(pos selected: &Current) -> bool
 trusted internal func resume_current(pos selected: &Current)
     requires(trusted view_owned(owner = &selected.acquisition))
     ensures(trusted view_owned(owner = &selected.acquisition))
-    uses(foreign_call)
+    uses(foreign_call, intrinsic)
 {
     if selected.status != 0
     {

@@ -38,6 +38,7 @@ trusted internal func main_startup(pos configuration: Configuration) -> u32
 @abi(c)
 trusted internal func startup(pos configuration: Configuration) -> u32
     requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted native_configuration(owner = &configuration))
+    uses(intrinsic)
 {
     if configuration.tasks == 0 || configuration.timers == 0
     {

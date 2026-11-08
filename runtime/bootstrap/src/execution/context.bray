@@ -155,7 +155,7 @@ trusted internal func current() -> Current
     {
         ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
     }
-    uses(raw_memory, unchecked_alias, layout_reinterpret, intrinsic)
+    uses(raw_memory, unchecked_alias, layout_reinterpret)
 {
     let address = match consume trusted bray.runtime.bootstrap.host.execution_context(none)
     {
@@ -234,7 +234,6 @@ trusted internal func context(pos owner: &Current) -> &Context
     requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
     ensures(trusted view_owned(owner = &owner.acquisition))
     executes(pure, total)
-    uses(raw_memory, unchecked_alias)
 {
     return trusted view_context(owner);
 }

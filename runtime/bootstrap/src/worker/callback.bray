@@ -140,7 +140,7 @@ trusted internal func perform(
         )
     )
     ensures(trusted callback_returned(outcome = outcome))
-    uses(foreign_call, raw_memory)
+    uses(foreign_call)
 {
     let address = trusted lambda(
         pos context: usize,
@@ -198,6 +198,7 @@ trusted internal func invoke_pool(pos owner: &Reference, pos operation: u32)
     {
         ensures(trusted retiring(owner = owner))
     }
+    uses(intrinsic)
 {
     let value = trusted domain(owner);
     let input = std.memory.address_of<Reference>(owner);
@@ -251,7 +252,6 @@ trusted internal func retain_descriptor(pos formation: Descriptor) -> (Descripto
         trusted retained_worker(owner = &result.0.reference.marker),
         trusted retained_worker(owner = &result.1.marker)
     )
-    uses(intrinsic)
 {
     let observer: WorkerReference =
     {
@@ -269,7 +269,6 @@ trusted internal func release_descriptor(pos descriptor: Descriptor)
         trusted descriptor_owned(owner = &descriptor.marker),
         trusted retained_worker(owner = &descriptor.reference.marker)
     )
-    uses(intrinsic)
 {
     trusted release_descriptor_resources(&descriptor);
 }

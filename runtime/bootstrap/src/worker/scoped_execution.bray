@@ -41,7 +41,7 @@ trusted internal func install_execution(pos owner: &Scope, pos execution: bray.r
         trusted bray.runtime.bootstrap.host.execution_owned(owner = &execution)
     )
     ensures(trusted scope_live(owner = &owner.marker))
-    uses(raw_memory, unchecked_init)
+    uses(raw_memory, unchecked_init, intrinsic)
 {
     let pointer = trusted execution_storage(owner);
     let previous = trusted std.memory.read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer);
@@ -61,7 +61,7 @@ trusted internal func install_execution(pos owner: &Scope, pos execution: bray.r
 trusted internal func enter_scope_execution(pos owner: &Scope)
     requires(trusted scope_live(owner = &owner.marker))
     ensures(trusted scope_live(owner = &owner.marker))
-    uses(raw_memory, unchecked_init, intrinsic)
+    uses(raw_memory, unchecked_init)
 {
     let take = trusted lambda(pos owner: &Scope) -> bray.runtime.bootstrap.host.ExecutionOwner?
         requires(trusted scope_live(owner = &owner.marker))
@@ -134,7 +134,7 @@ trusted internal func take_scope_execution(
         trusted scope_descriptor_retired(owner = owner),
         result matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result)
     )
-    uses(raw_memory, unchecked_init, layout_reinterpret, unchecked_alias)
+    uses(raw_memory, unchecked_init)
 {
     // Only the initialized execution slot remains accessible after descriptor
     // retirement. The original OS-entry stack keeps its backing through return.

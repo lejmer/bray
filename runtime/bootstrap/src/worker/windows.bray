@@ -4,6 +4,7 @@ trusted internal module bray.runtime.bootstrap.worker;
 using core.memory;
 using std.memory;
 using std.memory.function;
+using internal std.platform;
 using internal std.os.windows;
 using internal std.thread;
 

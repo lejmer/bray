@@ -54,7 +54,6 @@ trusted internal func invoke_producer(pos mut owner: Invocation) -> Invocation
         trusted outputs_owned(owner = &owner.acquisition)
     )
     ensures(trusted returned(owner = &result.acquisition))
-    uses(layout_reinterpret, foreign_call, intrinsic)
 {
     trusted execute_producer(&mut owner);
     return owner;
@@ -69,7 +68,7 @@ trusted internal func execute_producer(pos owner: &mut Invocation)
         trusted outputs_owned(owner = &owner.acquisition)
     )
     ensures(trusted returned(owner = &owner.acquisition))
-    uses(layout_reinterpret, foreign_call, intrinsic)
+    uses(layout_reinterpret, foreign_call)
 {
     let description = trusted prepare_producer(&owner);
 
@@ -139,7 +138,7 @@ trusted internal func prepare_producer(pos owner: &Invocation) -> bray.runtime.b
         trusted producer_callback<CompletionAction>(owner = owner, pointer = result.move_completion),
         trusted producer_callback<DestructionAction>(owner = owner, pointer = result.destroy),
     )
-    uses(raw_memory, intrinsic)
+    uses(raw_memory)
 {
     let slots = trusted lambda(pos call: &Invocation)
         requires(trusted authorized(owner = &call.acquisition))

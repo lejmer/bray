@@ -252,7 +252,7 @@ trusted internal func take_returned(
 ) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
     requires(trusted returned(owner = &owner.acquisition))
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
-    uses(raw_memory, intrinsic)
+    uses(raw_memory)
 {
     let readable = trusted lambda(pos call: &Invocation)
         requires(trusted returned(owner = &call.acquisition))
@@ -285,6 +285,7 @@ trusted internal func take_returned(
 
 trusted internal func selected_operation(pos operation: u32, pos argument: usize) -> Operation
     requires(operation < 6, operation != 3 || argument < 7)
+    uses(intrinsic)
 {
     return match operation
     {

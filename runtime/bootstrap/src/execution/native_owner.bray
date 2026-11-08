@@ -131,6 +131,7 @@ trusted internal func native_owner_clone(pos input: DataPointer<Owner>, pos mut 
 trusted internal func native_owner_worker(pos input: DataPointer<Owner>) -> u32
     requires(trusted native_owner_slot(owner = &input))
     ensures(trusted native_owner_slot(owner = &input))
+    uses(intrinsic)
 {
     let owner = trusted borrow_native_owner(&input);
     let selected = trusted current();
@@ -176,7 +177,6 @@ trusted internal func native_owner_release(pos input: DataPointer<Owner>, pos sc
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     ensures(trusted native_scope_initialized(owner = &scope))
-    uses(raw_memory, intrinsic)
 {
     let take = trusted lambda(pos input: &DataPointer<Owner>) -> Owner
         requires(trusted native_owner_slot(owner = input))
@@ -226,6 +226,7 @@ trusted internal func owner_entry_scope(pos owner: &Owner) -> EntryScope
         trusted pinned(owner = &owner.execution),
         trusted entry_scope_owned(owner = &result)
     )
+    uses(intrinsic)
 {
     let same =
     {

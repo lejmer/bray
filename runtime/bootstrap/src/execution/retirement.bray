@@ -113,7 +113,7 @@ trusted internal func prepare_retirement(pos owner: &bray.runtime.bootstrap.host
     return incidents;
 }
 
-internal func retire_driver_resources(
+trusted internal func retire_driver_resources(
     pos attachment: bray.runtime.bootstrap.host.attachment.Owner?,
     pos mut previous: bray.runtime.bootstrap.host.ExecutionOwner?,
     pos identity: u64
@@ -123,6 +123,7 @@ internal func retire_driver_resources(
         previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous),
         identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
+    uses(intrinsic)
 {
     if identity != 0
     {
@@ -151,7 +152,7 @@ trusted internal func retire_driver(pos owner: bray.runtime.bootstrap.host.Execu
         trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner),
         identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
-    uses(raw_memory, unchecked_alias, layout_reinterpret, intrinsic)
+    uses(raw_memory, unchecked_alias, intrinsic)
 {
     let (attachment, previous) = trusted take_retiring_resources(&owner, identity);
     let incidents = trusted prepare_retirement(&owner);

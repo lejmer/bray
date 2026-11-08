@@ -107,6 +107,7 @@ trusted internal func nested_context(
         trusted context_owned(owner = &result),
         result.allocation matches none
     )
+    uses(intrinsic)
 {
     let active = trusted context(parent);
     let lane = trusted selected_lane(parent);
@@ -144,6 +145,7 @@ trusted internal func retain_owner(pos owner: &Owner) -> Owner
         trusted service_owner(owner = &result),
         trusted pinned(owner = &result.execution)
     )
+    uses(intrinsic)
 {
     return match consume trusted try_retain_owner(&owner.execution)
     {
@@ -252,6 +254,7 @@ trusted internal func resume_operation() -> BindingResume
 @abi(c)
 trusted internal func resume_binding(pos pointer: DataPointer<Context>)
     requires(trusted driver_binding_entry(context = pointer), blocking_execution())
+    uses(intrinsic)
 {
     let selected = trusted binding_driver(pointer);
     let owner = bound_execution(&selected);

@@ -343,6 +343,7 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>)
 
 trusted internal func destroy_storage(pos owner: Reference)
     requires(trusted retained(owner = &owner.marker), trusted retiring(owner = &owner))
+    uses(intrinsic)
 {
     let complete =
     {
@@ -447,6 +448,7 @@ trusted internal func scheduler_reference(pos owner: &Reference) -> &bray.runtim
 trusted internal func execution_reference(pos owner: &Reference) -> &bray.runtime.bootstrap.execution.Reference
     requires(trusted retained(owner = &owner.marker))
     ensures(trusted retained(owner = &owner.marker), trusted bray.runtime.bootstrap.execution.retained(owner = result))
+    uses(intrinsic)
 {
     let execution = &(trusted domain(owner)).execution;
 
@@ -491,7 +493,6 @@ trusted internal func take_execution_backing(
         trusted bray.runtime.bootstrap.execution.retained(owner = &result),
         trusted bray.runtime.bootstrap.execution.pinned(owner = &result)
     )
-    uses(raw_memory, unchecked_init, intrinsic)
 {
     let pointer = std.memory.address_of<(bray.runtime.bootstrap.execution.Reference?)>(
         &(trusted domain(owner)).execution

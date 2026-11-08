@@ -3,7 +3,7 @@ trusted internal module bray.runtime.bootstrap.execution;
 
 using core.atomic;
 using core.target;
-using std.sync;
+using internal std.sync;
 using internal std.sync.once;
 using internal bray.runtime.bootstrap.worker;
 using internal bray.runtime.bootstrap.scheduler;
@@ -17,7 +17,6 @@ trusted internal func ensure_workers(pos owner: &bray.runtime.bootstrap.executio
         trusted bray.runtime.bootstrap.entry.native_entry()
     )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    uses(intrinsic)
 {
     let value = trusted domain(owner);
 

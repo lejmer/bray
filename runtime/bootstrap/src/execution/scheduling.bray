@@ -156,7 +156,7 @@ trusted internal func demand_lane(
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    uses(foreign_call)
+    uses(intrinsic)
 {
     if lane.placement != 0
     {

@@ -66,7 +66,6 @@ trusted internal func release(
     pos now: u64
 ) -> u32
     requires(trusted reference_slot(pointer = pointer), trusted lane_slot(pointer = lane_pointer))
-    uses(intrinsic)
 {
     let lane = trusted read_lane(lane_pointer);
     let owner = trusted borrow_reference(&pointer, pointer);

@@ -17,7 +17,6 @@ trusted internal func exchange_attachment_execution(pos execution: ExecutionOwne
     {
         ensures(result.0 == 0 || result.1 matches ?_)
     }
-    uses(intrinsic)
 {
     let mut needs_exit = false;
 

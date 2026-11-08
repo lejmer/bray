@@ -147,7 +147,6 @@ trusted internal func scope_withdrawal(pos pointer: DataPointer<Reference>, pos 
 @abi(c)
 trusted internal func next(pos pointer: DataPointer<Reference>, pos output: DataPointer<u64>) -> u32
     requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
-    uses(raw_memory)
 {
     if let ?deadline = trusted next_deadline(trusted borrow_reference(&pointer, pointer))
     {

@@ -271,6 +271,7 @@ trusted internal func arena_entries(pos anchor: &mut ArenaAnchor) -> &mut Entrie
 trusted internal func take_arena(pos owner: ArenaReference?) -> ArenaReference
     requires(owner matches ?_, trusted optional_arena(owner = &owner))
     ensures(trusted arena_retained(owner = &result))
+    uses(intrinsic)
 {
     return match consume owner
     {
@@ -297,7 +298,7 @@ trusted internal func last_arena_reference(pos owner: &ArenaReference) -> bool
 
 trusted internal func release_arena(pos owner: ArenaReference)
     requires(trusted arena_retained(owner = &owner))
-    uses(unchecked_init)
+    uses(unchecked_init, intrinsic)
 {
     if !trusted last_arena_reference(&owner)
     {
@@ -401,7 +402,6 @@ trusted internal func arena_reference_release(pos input: DataPointer<ArenaRefere
         trusted arena_reference_disposal(owner = &input),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
-    uses(raw_memory)
 {
     let take = trusted lambda(pos input: &DataPointer<ArenaReference>) -> ArenaReference
         requires(trusted arena_reference_slot(owner = input), trusted arena_reference_disposal(owner = input))

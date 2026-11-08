@@ -18,7 +18,6 @@ trusted internal func acquisition(
     pos output: DataPointer<bray.runtime.bootstrap.scheduler.Observation>
 ) -> u32
     requires(trusted scope_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
-    uses(intrinsic)
 {
     let reference = trusted read_scope(&pointer, pointer);
 
@@ -68,7 +67,6 @@ trusted internal func acquire_ready(pos owner: &Scope, pos lanes: u32) -> bray.r
 @abi(c)
 trusted internal func notification(pos pointer: DataPointer<Reference>)
     requires(trusted reference_slot(pointer = pointer))
-    uses(raw_memory)
 {
     trusted notify_reference(trusted borrow_reference(&pointer, pointer));
 }
@@ -110,7 +108,6 @@ trusted internal func notify_scheduler(pos reference: &Reference)
 @abi(c)
 trusted internal func stop(pos pointer: DataPointer<Reference>)
     requires(trusted stop_entry(), blocking_execution())
-    uses(intrinsic, raw_memory)
 {
     let authorize = trusted lambda(pos pointer: DataPointer<Reference>)
         requires(trusted stop_entry())
@@ -125,7 +122,7 @@ trusted internal func stop(pos pointer: DataPointer<Reference>)
 trusted internal func stop_reference(pos reference: &Reference, pos defer: bool = false)
     requires(trusted retained(owner = &reference.marker), blocking_execution())
     ensures(trusted retained(owner = &reference.marker))
-    uses(intrinsic, raw_memory)
+    uses(intrinsic, raw_memory, foreign_call)
 {
     let native = internal std.thread.current_platform_identity();
     let mut from_worker: bool = defer;

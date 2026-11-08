@@ -191,6 +191,7 @@ trusted internal func worker_current(pos scope: &bray.runtime.bootstrap.worker.S
         trusted view_owned(owner = &result.acquisition),
         result.status == 0
     )
+    uses(intrinsic)
 {
     let execution = trusted bray.runtime.bootstrap.worker.scope_execution(scope);
 

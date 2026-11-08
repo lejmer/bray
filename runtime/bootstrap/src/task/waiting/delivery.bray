@@ -169,7 +169,6 @@ trusted internal func release_wait_target(pos owner: WaitRegistration) -> Refere
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
-    uses(intrinsic)
 {
     return match owner.resources.target
     {

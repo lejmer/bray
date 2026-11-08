@@ -51,7 +51,6 @@ trusted internal func close_cancellation(pos owner: &Reference)
 @abi(c)
 trusted internal func cancellation_control(pos pointer: DataPointer<Reference>, pos operation: u32) -> u32
     requires(trusted reference_slot(owner = &pointer))
-    uses(intrinsic)
 {
     return trusted cancellation_change(trusted borrow_reference(&pointer), operation);
 }

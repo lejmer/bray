@@ -37,7 +37,7 @@ trusted internal func acquire_resolution(
         trusted resolution_owned(owner = &result),
         trusted bray.runtime.bootstrap.execution.resolution_input(owner = result.task)
     )
-    uses(raw_memory, intrinsic)
+    uses(raw_memory)
 {
     let permit = trusted lambda(pos task: &u64, pos native: &DataPointer<u8>, pos layout: DataPointer<Layout>)
         requires(

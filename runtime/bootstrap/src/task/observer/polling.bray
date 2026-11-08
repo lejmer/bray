@@ -29,7 +29,6 @@ trusted internal func request_cancel(pos owner: &mut Invocation)
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(trusted invoked(owner = &owner.acquisition.claim))
-    uses(foreign_call, intrinsic)
 {
     trusted set_request_cancellation(owner, false);
 
@@ -48,7 +47,6 @@ trusted internal func wait_terminal(pos owner: &Invocation) -> u32
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(trusted invoked(owner = &owner.acquisition.claim))
-    uses(intrinsic)
 {
     let selected = trusted bray.runtime.bootstrap.execution.current();
 

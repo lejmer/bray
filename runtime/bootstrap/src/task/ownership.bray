@@ -59,7 +59,6 @@ trusted internal func observation(
 trusted internal func observe_reference(pos reference: &Reference) -> Result<bray.runtime.bootstrap.ReportOutcome, u32>
     requires(trusted retained(owner = reference), trusted resolution_owner(owner = reference))
     ensures(trusted retained(owner = reference), trusted resolution_owner(owner = reference))
-    uses(intrinsic)
 {
     let mut guard = trusted lock_cell(reference);
     let control = trusted guard.get();
@@ -87,7 +86,6 @@ trusted internal func publish_terminal(
 )
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
     ensures(trusted terminal_output(pointer = output))
-    uses(intrinsic)
 {
     trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(output, outcome);
 }
@@ -99,7 +97,6 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>) -> u32
         trusted resolution_slot(owner = &pointer),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    uses(intrinsic)
 {
     let reference = trusted borrow_resolution_reference(&pointer);
 
@@ -119,6 +116,7 @@ trusted internal func destroy_claim(pos reference: &Reference) -> u32
     {
         ensures(trusted owned_reference(owner = reference))
     }
+    uses(intrinsic)
 {
 
     let unused =
