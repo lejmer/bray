@@ -9,10 +9,14 @@ fn async_ownership_composition_checks_real_source_transitions() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), source);
 
-    for name in ["transport", "inactive", "produce", "dispose_returned", "child", "direct", "main"] {
-        let checked = compilation.lowered_unit(source_function_body_key(&compilation, name))
-            .expect("composition source body is checked");
-        assert!(!checked.diagnostics().has_errors(), "{name}: {:?}", checked.diagnostics());
+    let source_id = source_function_body_key(&compilation, "main").source().syntax().source_id();
+    let keys = compilation.declared_unit_keys_for_test().expect("composition units are declared");
+
+    for key in keys.iter().filter(|key| key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
+        && key.source().syntax().source_id() == source_id) {
+        let checked = compilation.lowered_unit(key.clone())
+            .expect("every composition function and lifecycle body lowers");
+        assert!(!checked.diagnostics().has_errors(), "{key:?}: {:?}", checked.diagnostics());
     }
 }
 

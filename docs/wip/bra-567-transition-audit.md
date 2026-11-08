@@ -1,5 +1,39 @@
 # BRA-567 transition audit
 
+## Completion contract and compaction guard
+
+The objective is to implement BRA-567 and complete the agreed design in [the implementation handoff](bra-567-handoff.md).
+The compiler repairs and regression reductions below are intermediate evidence. They do not replace that objective.
+After compaction, reread this section before choosing more work.
+
+1. Derive the transition inventory from executable CFG producers and the actual ownership, storage-flow, liveness,
+   and lowering consumers. For every relevant operation and failure edge, record what exists before it, what it
+   produces, what it consumes, and what survives failure. A category such as calls is not a completed inventory.
+2. Prove one complete real async composition before expanding the migration. Trace the same owner across temporary
+   production, calls, borrows or mutation, branches, loops, suspension, task outcomes, cancellation, and cleanup.
+   Pair the valid program with invalid variants whose intended rejection is demonstrated. Native execution is required.
+3. Test the architectural properties at their owning boundaries: no consumption before production, no authority left
+   usable after owner movement, no overwritten contents preserved merely by retained identity, and stable repeated
+   loop analysis. Passing incidental examples does not substitute for these properties.
+4. Keep test identities, expected outcomes, and code versions fixed for comparison. An unexplained regression blocks
+   migration expansion until explained and repaired. Investigate transition defects, not individual runtime failures.
+   Correct a demonstrably invalid new fixture explicitly, with the specification reason and evidence retained.
+5. Make every verification claim name its paths, evidence, and exclusions. Unit or Source passes cannot become an
+   end-to-end claim. The agreed design remains unverified while required composition paths are blocked or unexecuted.
+
+Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
+Defer automated style and formatting passes until the audit and semantic repairs are complete.
+
+The custom-index publication gate passes. The trace proved that direct field copying found and rejected the live
+witness, while indexed copying resolved no physical source path and therefore checked Unknown. The temporary trace
+has been removed. The repair registers the indexer's returned borrow separately from reached data in the existing
+invocation-result binding map. `index-result-slot-repair.log` records 11 passes, including owned-witness rejection,
+lowering, lifetime conflicts, imported effects, and the const-contract control. `index-result-trusted.log` records
+138 passes, 94 failures, and 97 ignored. Its failed identities exactly match `trust-result-trusted.log` at 777ffb930.
+The active gate is now `returned_borrow_survives_field_and_index_projection`, frozen with two moved-value diagnostics
+before its production repair. The existing coarse
+transition table is an entry-point inventory, not the complete executable transition ledger required above.
+
 Audit baseline: `b90076c1f21f3853ebfd90954b3babe26f122eca`.
 The behavioral contract remains [the implementation handoff](bra-567-handoff.md).
 The fixed regressions below were established before semantic repairs. The user has now authorized repairing the
@@ -304,3 +338,28 @@ composition controls including witnessed results through trust boundaries. Broad
 pending. Temporary tracing is absent. The expanded async fixture also requires cancellation through async scoped exit
 and explicitly rejects a failed payload producer. Its lifecycle members still need direct source-level coverage in the
 audit test in addition to the required native run. The previous native driver predates those last fixture additions.
+
+## Index publication and projected-loan boundaries
+
+At checkpoint `777ffb930`, all 440 checker tests pass. The trusted-contract population reports 136 passed, 94 failed,
+97 ignored. Comparing failing identities with the prior 123/103/97 result removes nine failures and introduces none.
+Four newly added tests account for the rest of the pass-count increase. Native standard-library planning still fails,
+but moved-storage diagnostics fall from 578 to 11 on the same workload. Native composition remains unexecuted.
+
+The async source regression now discovers every callable body in its fixture source, including lifecycle members,
+rather than enumerating selected function names. Every such body passed checking and lowering before the index repair.
+
+The index-copy baseline panics because Attempt reads through CustomIndexBorrow before that result exists. The pending
+repair selects these accesses at Completion, publishes physical result references before checking reached accesses,
+and performs their witness checks after completion. Ten focused controls pass, including ordinary indexed copying,
+existing imported/index lowering controls, and async ownership composition. The initial negative used only a borrowed
+predicate requirement and did not construct an owning witness. Its rejection expectation is retained, but the setup is
+corrected to acquire a witness through trusted ensures, with direct field copying as a control for indexed copying.
+The first setup also omitted @copy, which was corrected before the publication repair. Do not use either setup error
+as evidence about compiler safety. The acquired-witness control is currently running.
+
+A separate frozen source regression, returned_borrow_survives_field_and_index_projection, reports premature moves for
+field_view(value).value and array_view(values)[0].value. Projection planning consumes the receiver loan at an intermediate
+place-valued expression, before a later consumer captures the reached value. A repair is not yet applied. Preserve loan
+descriptors through projection and retire them at the actual consumer, without retaining temporary owned resources or
+weakening borrow checks. Do not replace runtime source validation with source-only composition evidence.

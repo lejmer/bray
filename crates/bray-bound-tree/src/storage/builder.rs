@@ -451,6 +451,10 @@ impl StoragePlanBuilder {
                 Some(StorageIdentity::InvocationResult(actual)),
             ) => expected == actual,
             (
+                StorageBindingTarget::InvocationResult(crate::BoundExecutionSite::Node(crate::AnyBoundNodeId::Expression(expected))),
+                Some(StorageIdentity::CustomIndexBorrow(actual)),
+            ) => expected == actual,
+            (
                 StorageBindingTarget::InvocationResult(crate::BoundExecutionSite::ScopedEnter(expected)),
                 Some(StorageIdentity::ScopedCapability { expression, .. }),
             ) => expected == expression,

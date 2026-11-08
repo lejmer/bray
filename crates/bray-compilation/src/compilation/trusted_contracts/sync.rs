@@ -6471,3 +6471,77 @@ fn copied_scalar_result_does_not_copy_borrowed_authority() {
     bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
         DiagnosticKind::CheckingTrustedObligationNotProven);
 }
+
+const INDEX_COPY_SOURCE: &str = r#"
+    trusted module app;
+
+    @copy
+    struct Item
+    {
+        value: i32;
+    }
+
+    struct Values
+    {
+        value: Item;
+    }
+
+    trusted predicate live(value: &Item);
+
+    impl Values(ElementIndex<i32>)
+    {
+        type Output = Item;
+
+        func index(pos selector: &i32) -> &Item
+        {
+            return &self.value;
+        }
+    }
+
+    func copy(pos values: &Values) -> Item
+    {
+        return values[0];
+    }
+"#;
+
+#[test]
+fn custom_index_copy_waits_for_the_returned_borrow() {
+    let compilation = compilation(INDEX_COPY_SOURCE);
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "copy"))
+        .expect("copy through a returned index borrow lowers");
+    assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+}
+
+#[test]
+fn custom_index_copy_rejects_witness_duplication() {
+    for selected in ["values.value", "values[0]"] {
+        let source = format!(r#"{INDEX_COPY_SOURCE}
+
+            trusted func acquire() -> Item
+                ensures(trusted live(&result))
+            {{
+                return
+                {{
+                    value = 7
+                }};
+            }}
+
+            func duplicate()
+            {{
+                let values: Values =
+                {{
+                    value = acquire()
+                }};
+
+                let copied = {selected};
+            }}
+        "#);
+        let compilation = compilation(&source);
+        bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
+            DiagnosticKind::CheckingTrustedWitnessTransferNotProven);
+    }
+}

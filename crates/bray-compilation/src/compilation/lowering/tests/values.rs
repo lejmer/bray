@@ -327,3 +327,43 @@ fn trust_boundary_preserves_a_completed_call_result() {
         lowered_mir(&lowered);
     }
 }
+
+#[test]
+fn returned_borrow_survives_field_and_index_projection() {
+    let compilation = compilation(r#"
+        module app;
+
+        struct Item
+        {
+            value: i32;
+        }
+
+        func field_view(pos value: &Item) -> &Item
+        {
+            return value;
+        }
+
+        func array_view(pos values: &[Item; 2]) -> &[Item; 2]
+        {
+            return values;
+        }
+
+        func borrow_field(pos value: &Item) -> &i32
+        {
+            return &field_view(value).value;
+        }
+
+        func read_index(pos values: &[Item; 2]) -> i32
+        {
+            return array_view(values)[0].value;
+        }
+    "#);
+    let diagnostics = compilation.check_diagnostics();
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for name in ["borrow_field", "read_index"] {
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
+            .expect("projection through a returned borrow lowers");
+        lowered_mir(&lowered);
+    }
+}
