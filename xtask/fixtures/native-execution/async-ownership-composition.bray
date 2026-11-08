@@ -238,6 +238,7 @@ async func dispose_returned()
 }
 
 async func main() -> i32
+    requires(main_thread_execution())
 {
     assert(FINAL_OBSERVER.value == 1);
 

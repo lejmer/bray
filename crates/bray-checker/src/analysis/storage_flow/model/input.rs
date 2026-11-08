@@ -1,4 +1,3 @@
-use crate::storage::local_initialization_destinations;
 use crate::{CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView};
 use bray_bound_tree::{
     BorrowCapabilityId, BoundDependencySubject, BoundExpressionId, Liveness, StorageAccessId,
@@ -15,7 +14,6 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     expression_places:
         BTreeMap<BoundExpressionId, Vec<crate::analysis::storage_flow::memory::Place>>,
     definitions: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
-    initialization_destinations: BTreeMap<BoundExpressionId, StorageIdentityId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
     storage_last_uses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
@@ -95,8 +93,6 @@ impl StorageFlowInput {
         let (mutable_storage, mut diagnostics) =
             crate::analysis::storage_flow::authority::mutable_storage(request, storage)?;
 
-        let initialization_destinations = local_initialization_destinations(request, storage);
-
         let mut retained_storage = BTreeSet::new();
 
         for call in dependencies.calls().values() {
@@ -164,7 +160,6 @@ impl StorageFlowInput {
             opaque_values,
             opaque_candidates,
             retained_storage,
-            initialization_destinations,
             mutable_storage,
             suspension_borrows: liveness
                 .live_across_suspensions()
@@ -322,24 +317,8 @@ impl StorageFlowInput {
             }
         }
 
-        // A simple local receives its value when the initializer completes. Its
-        // storage incarnation must begin there, before the value is installed.
-        let initialized_at = self
-            .initialization_destinations
-            .iter()
-            .map(|(expression, identity)| {
-                (
-                    *identity,
-                    bray_bound_tree::BoundExecutionSite::from(*expression),
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-
         for (storage, identity) in storage.identity_entries() {
-            let Some(node) = initialized_at
-                .get(&storage)
-                .copied()
-                .or_else(|| identity_definition_occurrence(identity))
+            let Some(node) = identity_definition_occurrence(identity)
             else {
                 continue;
             };
@@ -530,13 +509,6 @@ impl StorageFlowInput {
             .get(&occurrence)
             .map(Vec::as_slice)
             .unwrap_or_default()
-    }
-
-    pub(in crate::analysis::storage_flow) fn initialization_destination(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Option<StorageIdentityId> {
-        self.initialization_destinations.get(&expression).copied()
     }
 
     pub(in crate::analysis::storage_flow) fn mutation_authority_access(

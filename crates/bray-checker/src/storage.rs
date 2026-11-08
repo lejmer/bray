@@ -12,12 +12,12 @@ pub(crate) use bray_bound_tree::StorageScopeOwners;
 pub(crate) use plan::plan_storage;
 pub use projection::projected_storage_type;
 pub(crate) use projection::{
-    dependency_projection, dependency_projections, nullable_wrapping, owned_storage_projections, projected_value_type,
+    dependency_projection, dependency_projections, expression_storage_projections, nullable_wrapping, owned_storage_projections, projected_value_type,
     reference_path, unadapted_projections, resolve_storage_projections, storage_observation_path, storage_projections,
 };
 pub(crate) use protocol::selected_storage_protocol_call;
 pub(crate) use scope::{
-    local_initialization_destinations, pattern_binding_sources, storage_scope_owners,
+    pattern_binding_sources, storage_scope_owners,
     value_transfer_bindings,
 };
 

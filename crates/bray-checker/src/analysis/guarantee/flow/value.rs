@@ -291,7 +291,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.storage_path_value(state, path)
     }
 
-    pub(in crate::analysis::guarantee) fn storage_value(
+    pub(in crate::analysis) fn storage_value(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
@@ -311,33 +311,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => (self.value(state, expression), false),
         };
 
-        let source = self
-            .storage
-            .node_plans((expression).into())
-            .filter(|source| {
-                source.node() == AnyBoundNodeId::Expression(expression)
-                    && self.storage.access_contains(source.access(), access)
-            })
-            .max_by_key(|source| {
-                self.storage
-                    .resolved_projections(source.access())
-                    .map_or(0, <[_]>::len)
-            });
-
         // A scoped root names the whole retained capability, even when this occurrence
         // observes one of its fields. Ordinary expression values already include their source path.
-        let source_path = if scoped {
-            &[][..]
+        let path = if scoped {
+            self.storage.resolved_projections(access)
         } else {
-            source
-                .and_then(|source| self.storage.resolved_projections(source.access()))
-                .unwrap_or(&[])
+            crate::storage::expression_storage_projections(self.storage, expression, access)
         };
-
-        let path = self
-            .storage
-            .resolved_projections(access)
-            .and_then(|path| path.strip_prefix(source_path));
 
         if let Some(path) = path {
             for projection in path {
