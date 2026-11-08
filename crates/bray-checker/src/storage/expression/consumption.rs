@@ -25,24 +25,33 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         expression: BoundExpressionId,
         purpose: StorageAccessPurpose,
     ) {
-        let Some(root) = self.builder().value_slot(expression) else {
-            // Nonmaterialized aliases, compile-time and nonreturning expressions
-            // have no independently produced handle to consume.
-            return;
-        };
-
-        if matches!(purpose, StorageAccessPurpose::Borrow(_) | StorageAccessPurpose::Read)
-            && !matches!(self.builder().identity(root), Some(StorageIdentity::Evaluated(_)))
+        let value = self.builder().value_slot(expression).filter(|root| {
+            !(matches!(purpose, StorageAccessPurpose::Borrow(_) | StorageAccessPurpose::Read)
+            && !matches!(self.builder().identity(*root), Some(StorageIdentity::Evaluated(_)))
             && !matches!(self.request.semantic_values().type_data(self.expression_type(expression).ty()).as_ref(),
-                bray_symbols::TypeData::Borrow { .. })
-        {
-            // Observing a fresh owned temporary retains its physical owner.
-            // An evaluated alias or a loan handle is independently consumable.
-            return;
-        }
+                bray_symbols::TypeData::Borrow { .. }))
+        });
 
-        self.builder_mut().consume_value(occurrence, phase, StoragePath::root(root))
-            .expect("evaluated operand consumption names its registered output slot");
+        // Place projections keep their produced loan descriptor until the actual
+        // consumer has captured the reached data or formed a new borrow.
+        let projected = self.projected_borrow_value(expression).filter(|root| Some(*root) != value);
+
+        for root in value.into_iter().chain(projected) {
+            self.builder_mut().consume_value(occurrence, phase, StoragePath::root(root))
+                .expect("evaluated operand consumption names its registered output slot");
+        }
+    }
+
+    fn projected_borrow_value(&self, expression: BoundExpressionId) -> Option<bray_bound_tree::StorageIdentityId> {
+        let access = self.builder().access(*self.expression_accesses.get(&expression)?)?;
+        let StorageAccessRoot::Storage(root) = access.root() else { return None; };
+        let producer = self.builder().identity(root)?.definition_occurrence()?.expression()?;
+
+        (producer != expression
+            && self.builder().value_slot(producer) == Some(root)
+            && matches!(self.request.semantic_values().type_data(self.expression_type(producer).ty()).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }))
+            .then_some(root)
     }
 
     pub(in crate::storage) fn pattern_value_path(

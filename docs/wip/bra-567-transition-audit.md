@@ -30,9 +30,31 @@ has been removed. The repair registers the indexer's returned borrow separately 
 invocation-result binding map. `index-result-slot-repair.log` records 11 passes, including owned-witness rejection,
 lowering, lifetime conflicts, imported effects, and the const-contract control. `index-result-trusted.log` records
 138 passes, 94 failures, and 97 ignored. Its failed identities exactly match `trust-result-trusted.log` at 777ffb930.
-The active gate is now `returned_borrow_survives_field_and_index_projection`, frozen with two moved-value diagnostics
-before its production repair. The existing coarse
+The projected-loan repair passes all nine value-lowering tests. The fixed trusted population is now 139 passed,
+93 failed, 97 ignored. Only `transparent_predicate_getters_preserve_the_contained_owner` changed from failure to pass.
+The adjacent storage/index population completed 41 passes and three failures before its expensive
+`operation_cleanup_native_fixture_lowers_its_checked_inputs` probe was stopped after about two minutes. That probe
+is unverified. The three failures are callback report outputs, operator report borrowing, and conversion report
+borrowing. A controlled build of exactly those three at production checkpoint 0e2e943d3 fails all three in
+`projected-loan-controlled-baseline.log`. The baseline files and executable have been restored to the repair.
+The preserved repaired executable is `target/audit/projected-loan-compilation.exe`, and the baseline executable is
+`index-slot-baseline-compilation.exe`. Run preserved executables with the shared dependency directory on PATH.
+The fixed comparison gate passes. Next rebuild xtask and retry native composition. Source acceptance still does not
+certify runtime execution. The existing coarse
 transition table is an entry-point inventory, not the complete executable transition ledger required above.
+
+### Executable ledger for the current blocking boundaries
+
+These rows trace code paths, not completed native coverage. The failure edges are part of each transition.
+
+| Operation and producer | Before and production | Consumption and failure | Actual consumers and evidence |
+| --- | --- | --- | --- |
+| Invocation Input, `execution.rs::begin_invocation` | Actual receiver and argument values exist. Borrow inputs are prepared. No result exists. | A failed precondition bypasses Attempt and Completion. Existing input owners remain cleanup obligations. | `AnalysisOperationKind::storage_plans` excludes self-produced accesses. Liveness `collect_edge_lifetime_ends` includes failed-invocation subjects on the bypass edge. Existing admission and cleanup controls still require final native evidence. |
+| Invocation Attempt, `execution.rs::push_invocation` | Admitted inputs exist. Input transfers use Admission consumption. | Invocation failure cannot publish a result. Completion is only on the successful continuation edge. | Storage and trusted transfer checks use the shared phase selector. OutputDefinition plans never act as source reads. |
+| Invocation Completion | Returned references are staged, then `memory.complete_transition` publishes them. | Result-reaching operations run after publication. Failure does not traverse this operation. | `apply_storage_operation` publishes before applying produced accesses. `TrustedChecks::after_operation` checks those transfers after semantic completion. |
+| Custom index returned borrow, `expression/access.rs::custom_index_access` | Receiver and selector borrows are inputs. The indexer produces a borrow descriptor with its own stored borrow type. The reached item is a different value. | An ordinary item copy does not consume the reached owner. A live witness forbids that copy. | The existing InvocationResult binding identifies the descriptor. `invocation_result` stages its reference contract. `reference_target` resolves reached storage for the later copy. All 11 custom-index controls pass at 0e2e943d3. |
+| Built-in field or index projection, `project_access` | A produced loan descriptor and its reached storage already exist. Projection extends the same source path. It produces no independent owner. | Retiring the descriptor at an intermediate projection destroys the source of subsequent projections. The repair defers retirement to the actual consumer. | Frozen `returned_borrow_survives_field_and_index_projection` had two baseline moved-value errors. It and all eight adjacent value-lowering tests now pass. |
+| Actual consumer of a projected loan | The source path still identifies the producer's materialized borrow slot. The consumer first captures reached data or forms a new borrow. | Completion consumption retires the temporary descriptor, independently of the original referent owner. User parameter and binding storage are excluded by the producer/value-slot identity check. | `consume_expression_value` records the same consumption metadata read by storage flow and liveness `OperationEffects::prepare`. Lowering must still pass the frozen regression. |
 
 Audit baseline: `b90076c1f21f3853ebfd90954b3babe26f122eca`.
 The behavioral contract remains [the implementation handoff](bra-567-handoff.md).
