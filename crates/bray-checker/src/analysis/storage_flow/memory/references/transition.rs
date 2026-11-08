@@ -451,6 +451,20 @@ impl State {
             .or_else(|| self.values.get(&owner.project(&[pointer])))
     }
 
+    pub(in crate::analysis::storage_flow) fn stage_owned_buffer_reference(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        owner: Target,
+        destination: Target,
+        reference: Place,
+        element: TypeId,
+    ) {
+        // A produced owning descriptor names its backing region, just as an
+        // owning formal does. This declares neither freshness nor initialization.
+        let backing = owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]);
+        self.stage_bounded_reference(call, destination, reference, element, References::one(backing));
+    }
+
     pub(in crate::analysis::storage_flow) fn entry_owned_buffer(
         &mut self,
         owner: Target,
