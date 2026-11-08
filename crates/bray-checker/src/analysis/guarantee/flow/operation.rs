@@ -820,6 +820,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         {
             let mut value = self.storage_value(state, expression, access);
 
+            let place = crate::ExecutionPlace::binding(self.storage, binding)
+                .expect("checked pattern binding has an execution place");
+
+            for plan in self.storage.node_plans(pattern.into()).filter(|plan| plan.access() == access) {
+                value = self.copied_access_value(ExecutionCondition::Input(place.clone()), value, plan);
+            }
+
             if let Some(bray_bound_tree::StorageBinding::Identity(identity)) =
                 self.storage.binding(binding)
             {
@@ -833,13 +840,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .identity_type(identity)
                         .expect("binding retains its checked type"),
                 );
-            }
-
-            let place = crate::ExecutionPlace::binding(self.storage, binding)
-                .expect("checked pattern binding has an execution place");
-
-            for plan in self.storage.node_plans(pattern.into()).filter(|plan| plan.access() == access) {
-                value = self.copied_access_value(ExecutionCondition::Input(place.clone()), value, plan);
             }
 
             // Named and discarded owners retain the same committed value and cleanup evidence.
