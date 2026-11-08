@@ -728,7 +728,7 @@ where
             self.trusted.before_operation(self.execution, &execution, kind, &|plan| {
                 let target = input.reference_target(values, memory, storage, plan.access())?;
 
-                crate::storage::storage_observation_path(storage, values, &target)
+                (&target).value_observation_path()
             });
         }
 
@@ -1296,7 +1296,7 @@ where
             self.trusted.after_operation(self.execution, execution, kind, self.memory_evidence, &|plan| {
                 let target = input.reference_target(values, memory, storage, plan.access())?;
 
-                crate::storage::storage_observation_path(storage, values, &target)
+                (&target).value_observation_path()
             });
         }
 

@@ -840,11 +840,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .any(|target| memory.unknown_reference_may_reach(target));
 
         for (target, targets, unknown) in memory.observed_references() {
-            let Some(slot) = crate::storage::storage_observation_path(
-                self.storage,
-                self.request.semantic_values(),
-                target,
-            ) else {
+            let Some(slot) = (target).value_observation_path() else {
                 continue;
             };
 

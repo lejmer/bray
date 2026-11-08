@@ -859,11 +859,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let aliases = observations
             .iter()
             .filter_map(|(path, target)| {
-                let target = crate::storage::storage_observation_path(
-                    self.storage,
-                    self.request.semantic_values(),
-                    target,
-                )?;
+                let target = (target).value_observation_path()?;
 
                 if *path == target {
                     return None;

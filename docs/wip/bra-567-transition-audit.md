@@ -56,7 +56,7 @@ or initialization, survives transport, and does not narrow ordinary raw addresse
 and imported environment cursor check pass. All diagnostic hooks and temporary Source controls are removed.
 
 Current repairs pass checker463 and the fixed comparison:
-701 passed / 60 failed / 99 ignored, 119s, unchanged failing identities and zero new failures against frozen7b5dc5634.
+701 passed / 60 failed / 99 ignored, 105s, unchanged failing identities and zero new failures against frozen7b5dc5634.
 Static CFG construction excludes runtime admission failure for explicit aggregate formation. Nested retained cleanup
 passes while discarded temporary cleanup remains rejected. The actual imported-library prepared-domain initializer passes.
 Implicit method inputs now retain an existing borrowed receiver's dependencies rather than its temporary descriptor slot.
@@ -73,9 +73,14 @@ Completed reference origins retain a staged input plus NullableValue, rather tha
 Canonical entry classification does not repair this case, but removes duplicated input-kind lists and aligns reference
 preparation with storage initialization. Retain design improvements even when they do not fix the active failure, per user.
 Both entry-reference checks use StorageIdentity::is_initialized_at_entry, verified by unchanged comparison701/60 and
-checker463. Test binaries match this change, brayc/xtask remain191122aaf. All temporary Rust trace hooks are removed.
-The active probe is the first existing nullable variant. Its bound clause gives staged slot6 type&&Owner?, output slot7
-type&Marker and actual result slot3 type&Owner?. Trace nested reference transport through that staged input next.
+checker463 at0c8745dec. WIP retains DependencyReferenceKind in Entry origins from reference preparation through completion.
+value_observation_path replaces storage_observation_path's root-type reconstruction. Body readers must not rebind nested
+entry snapshots to their descriptor's current slot. Clause inputs instead name their enclosing evaluation frame, so clause
+normalization composes nested Entry/Borrow paths directly. Structural observation paths retain their old role.
+Bound133/checker463 and comparison701/60 pass with zero new failures. Consuming cleanup/carriers and condition-variable
+authority pass, including rejection after a descriptor is overwritten. Direct nullable forwarding passes, local nullable
+forwarding remains open. Next inspect typed local binding coercion in guarantee/flow/operation.rs and trace its exit value.
+Temporary traces/probes are removed. brayc/xtask remain191122aaf and do not include this reference-kind checkpoint.
 No native composition has run. Source fixture/lifecycle and invalid controls remain in the fixed comparison. Interface216
 passed before these checker-only repairs and is unchanged.
 

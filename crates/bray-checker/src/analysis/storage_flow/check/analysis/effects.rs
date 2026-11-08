@@ -696,6 +696,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 reference,
                 projections,
                 layer: 1,
+                ..
             } => {
                 let Some(root) = self.formal_root(reference.root) else {
                     return;

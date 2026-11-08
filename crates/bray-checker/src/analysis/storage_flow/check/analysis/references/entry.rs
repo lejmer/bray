@@ -337,6 +337,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                             prepared.borrows()[..step].into(),
                         ),
                         Some(*target),
+                        bray_symbols::DependencyReferenceKind::Borrow,
                     )
                 });
         }
@@ -348,26 +349,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             .take_while(|(index, _)| *index == path.projections.len())
             .count();
 
-        if is_entry_reference(request, ty, &path)
-            || layer > 1 && crate::representation::reference_kind(request, ty).is_some()
-        {
+        if let Some(kind) = crate::representation::reference_kind(request, ty)
+            && (kind == bray_symbols::DependencyReferenceKind::Address
+                || !path.projections.is_empty() || layer > 1) {
             let target = crate::representation::reference_target_type(request, ty);
 
             self.entry_references
-                .insert((path, layer), (prepared.clone(), target));
+                .insert((path, layer), (prepared.clone(), target, kind));
         }
     }
 }
 
-fn is_entry_reference<C: CheckerRequestContext + ?Sized>(
-    request: crate::CheckerUnitView<'_, C>,
-    ty: bray_symbols::TypeId,
-    path: &Place,
-) -> bool {
-    // Root borrow inputs already have their own entry capabilities.
-    match crate::representation::reference_kind(request, ty) {
-        Some(bray_symbols::DependencyReferenceKind::Address) => true,
-        Some(bray_symbols::DependencyReferenceKind::Borrow) => !path.projections.is_empty(),
-        None => false,
-    }
-}

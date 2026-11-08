@@ -90,7 +90,7 @@ pub fn predicate_conditions_with_inputs(
     let patterns = super::pattern_conditions(unit, patterns, values);
 
     let references = storage.map_or_else(BTreeMap::new, |(plan, flow)| {
-        reference_conditions(plan, flow, values)
+        reference_conditions(plan, flow)
     });
 
     let mut pending = roots
@@ -234,8 +234,7 @@ fn predicate_domain(
 fn reference_conditions(
     storage: &bray_bound_tree::StoragePlan,
     flow: &bray_bound_tree::StorageFlow,
-    values: &bray_symbols::SemanticValueStore,
-) -> BTreeMap<BoundExpressionId, ExecutionCondition> {
+ ) -> BTreeMap<BoundExpressionId, ExecutionCondition> {
     let mut references = BTreeMap::new();
 
     for (identity, kind) in storage.identity_entries() {
@@ -260,14 +259,22 @@ fn reference_conditions(
 
         // Clauses are observations. A returned borrow can reach a contained input
         // reference even when that reference has no direct invocation-local slot.
-        // Keep entry layers distinct and never grant raw storage authority here.
+        // Clause entry values are supplied by the enclosing evaluation frame.
+        // Nested borrowed inputs name that frame, while raw pointees stay distinct.
         let place = match &target.origin {
+            bray_bound_tree::StorageOrigin::Entry {
+                reference,
+                projections,
+                layer: 1,
+                kind: bray_symbols::DependencyReferenceKind::Borrow,
+            }
+            |
             bray_bound_tree::StorageOrigin::Returned {
                 reference,
                 projections,
             } => crate::ExecutionPlace::storage_path(storage, reference)
                 .and_then(|place| place.project(projections)),
-            _ => crate::storage::storage_observation_path(storage, values, target)
+            _ => (target).value_observation_path()
                 .and_then(|path| crate::ExecutionPlace::storage_path(storage, &path)),
         };
 

@@ -176,11 +176,13 @@ impl State {
                     reference: left,
                     layer: 1,
                     projections: left_path,
+                                    ..
                 },
                 Origin::Entry {
                     reference: right,
                     layer: 1,
                     projections: right_path,
+                                    ..
                 },
             ) = (&left.origin, &right.origin)
             && left.root != right.root
@@ -415,11 +417,13 @@ impl State {
         layer: usize,
         location: Target,
         ty: Option<TypeId>,
+        kind: bray_symbols::DependencyReferenceKind,
     ) {
         let target = Target {
             origin: Origin::Entry {
                 reference,
                 layer,
+                kind,
                 projections: std::sync::Arc::from([]),
             },
             previous: false,
@@ -460,7 +464,7 @@ impl State {
         ty: TypeId,
     ) {
         let target = Target {
-            origin: Origin::entry(reference.clone()),
+            origin: Origin::entry(reference.clone(), bray_symbols::DependencyReferenceKind::Borrow),
             previous: false,
         };
 

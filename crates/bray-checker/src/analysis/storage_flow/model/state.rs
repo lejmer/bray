@@ -315,7 +315,7 @@ impl StorageFlowState {
             }
         }
 
-        for ((slot, layer), (path, ty)) in &input.entry_references {
+        for ((slot, layer), (path, ty, kind)) in &input.entry_references {
             if let Some(target) =
                 StorageFlowInput::reference_location(values, &memory, slot.root, path, None)
             {
@@ -344,7 +344,7 @@ impl StorageFlowState {
                     continue;
                 }
 
-                memory.entry_reference_at(slot.clone(), *layer, target, *ty);
+                memory.entry_reference_at(slot.clone(), *layer, target, *ty, *kind);
             }
         }
 
