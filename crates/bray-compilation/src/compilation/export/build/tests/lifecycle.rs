@@ -2410,6 +2410,23 @@ fn static_formation_defers_retained_cleanup_but_rejects_temporary_cleanup() {
             true,
         ),
         (
+            "Uninit<Wrapper>",
+            r#"
+            {
+                let prepared = Resource
+                {
+                };
+
+                yield core.memory.uninit_from<Wrapper>(
+                    {
+                        value = prepared
+                    }
+                );
+            }
+        "#,
+            true,
+        ),
+        (
             "u32",
             r#"
             {
@@ -2425,8 +2442,15 @@ fn static_formation_defers_retained_cleanup_but_rejects_temporary_cleanup() {
             r#"
             module api;
 
+            using core.memory;
+
             struct Resource
             {{
+            }}
+
+            struct Wrapper
+            {{
+                value: Resource;
             }}
 
             impl Resource

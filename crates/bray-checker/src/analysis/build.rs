@@ -525,7 +525,8 @@ where
         {
             Some(SemanticSelection::Operation(operation)) => {
                 if let bray_bound_tree::SelectedOperation::Construction(construction) = operation
-                    && self.cleanup_free_operations.contains(&expression)
+                    && (self.request.unit().key().is_static_initializer()
+                        || self.cleanup_free_operations.contains(&expression))
                     && !matches!(
                         construction.target(),
                         bray_bound_tree::ConstructionTarget::TypeForm { .. }
@@ -537,8 +538,8 @@ where
                         )
                     })
                 {
-                    // Explicit inputs have their own failure edges. This owner adds
-                    // neither an implicit call nor any cleanup admission.
+                    // Explicit inputs retain their own failures. Static formation admits
+                    // the materialized owner separately from constant evaluation.
                     return false;
                 }
 

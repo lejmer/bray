@@ -55,13 +55,17 @@ Produced owning buffers stage a declared backing-region bound in the existing pe
 or initialization, survives transport, and does not narrow ordinary raw addresses. The actual Windows environment body
 and imported environment cursor check pass. All diagnostic hooks and temporary Source controls are removed.
 
-Current Rust checkpoint508122b7c passes checker463. Current fixed comparison, including the bootstrap declaration batch:
-700 passed / 60 failed / 99 ignored, 96s, zero new failing identities against frozen7b5dc5634. Never weaken expectations.
+Current static-formation repair passes checker463 and the fixed comparison:
+700 passed / 60 failed / 99 ignored, 98s, unchanged failing identities and zero new failures against frozen7b5dc5634.
+Static CFG construction excludes runtime admission failure for explicit aggregate formation. Nested retained cleanup
+passes while discarded temporary cleanup remains rejected. The actual imported-library prepared-domain initializer passes.
+Never weaken expectations.
 The declaration batch fixes internal imports through owning std.sync/std.platform namespaces and implementation capability
 clauses. Native checking confirms zero visibility, ordinary type and capability errors. No runtime implementation body
 changed in this batch. Fresh xtask508122b7c passes standard-library native planning/emission, then actual imported-package
-bootstrap checking reports350 diagnostics: one constant initializer, 349 ownership/storage/guarantee failures. Next isolate
-pool/access.bray STORAGE constant failure with the real imported standard library before continuing ownership transitions.
+bootstrap checking previously reported350 diagnostics. Its constant failure is repaired, remaining bootstrap diagnostics
+have not been rerun. The active transition-probe.bray isolates an escaping lifetime through a returned borrowed method
+receiver. Direct static acquisition, plain borrowed projections and source function-only owner carriers pass.
 No native composition has run. Source fixture/lifecycle and invalid controls remain in the fixed comparison. Interface216
 passed before these checker-only repairs and is unchanged.
 
