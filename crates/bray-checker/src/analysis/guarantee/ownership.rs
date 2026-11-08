@@ -424,6 +424,28 @@ mod tests {
     }
 
     #[test]
+    fn joins_keep_distinct_contents_snapshots_of_the_same_owner() {
+        let original = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let original_layout = DependencyOwnedResult::Transfer(
+            DependencyOwnedTransfer::new(original.clone(), []).with_preservation(DependencyValuePreservation::all()),
+        );
+        let mut state = ExecutionState::default();
+
+        state.owned_results.insert(original.clone(), original_layout.clone());
+        let changed = original.with_storage_component(&[field], ExecutionCondition::Unknown);
+        let changed_layout = state.owned_result(&changed);
+
+        state.owned_results.insert(changed.clone(), changed_layout.clone());
+        let unrelated = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+
+        state.join_values(&[(unrelated(1), unrelated(2))].into(), &Default::default());
+        assert_eq!(state.owned_results.get(&original), Some(&original_layout), "a changed snapshot cannot alter the original value's preservation");
+        assert_eq!(state.owned_results.get(&changed), Some(&changed_layout), "a snapshot's identity does not erase its changed contents");
+        assert_eq!(state.owned_result(&changed), changed_layout);
+    }
+
+    #[test]
     fn mutated_formal_retains_its_top_lineage_and_current_child_lineage() {
         let original = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
         let old_child = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
