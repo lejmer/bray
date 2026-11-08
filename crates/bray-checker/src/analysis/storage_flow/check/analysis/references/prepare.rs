@@ -493,6 +493,7 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
 
         let inputs = memory
             .effect_origins(&container)
+            .0
             .cloned()
             .collect::<Vec<_>>();
 

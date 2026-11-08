@@ -133,7 +133,7 @@ impl State {
         // Keep its own identity for backing produced independently of those inputs.
         targets
             .iter()
-            .flat_map(|target| std::iter::once(target).chain(self.effect_origins(target)))
+            .flat_map(|target| std::iter::once(target).chain(self.effect_origins(target).0))
             .map(exposure_region)
             .collect()
     }

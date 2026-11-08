@@ -124,18 +124,24 @@ impl State {
         )
     }
 
+    /// Physical input regions and whether an independent origin remains possible.
     pub(in crate::analysis::storage_flow) fn effect_origins<'a>(
         &'a self,
         target: &'a Target,
-    ) -> impl Iterator<Item = &'a Target> {
+    ) -> (impl Iterator<Item = &'a Target>, bool) {
         let returned = match &target.origin {
             Origin::Returned { reference, .. } => Some(self.returned_reference_bounds(reference)),
             _ => None,
         };
 
-        std::iter::once(target)
+        let unbounded = returned.is_some_and(|bounds| bounds.unknown || target.previous
+            || target.projections().contains(&StorageProjection::OwnedTarget));
+
+        let origins = std::iter::once(target)
             .filter(|target| !matches!(target.origin, Origin::Returned { .. }))
-            .chain(returned.into_iter().flat_map(|bounds| &bounds.targets))
+            .chain(returned.into_iter().flat_map(|bounds| &bounds.targets));
+
+        (origins, unbounded)
     }
 
     pub(in crate::analysis::storage_flow) fn target_relationship(

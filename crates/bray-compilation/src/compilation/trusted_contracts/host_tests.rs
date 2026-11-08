@@ -243,6 +243,50 @@ fn production_channel_storage_publishes_its_taken_pending_value() {
 }
 
 #[test]
+fn bounded_collection_storage_effects_keep_their_physical_scope() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+
+    for name in ["hash_table_clear_storage", "ordered_tree_clear_storage"] {
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(&compilation, name);
+
+        assert!(!dependencies.effects().iter().any(|effect| matches!(effect,
+            bray_symbols::DependencyStorageEffect::UnboundedMutation { .. })),
+            "{name}: {:?}", dependencies.effects());
+    }
+}
+
+#[test]
+fn production_collection_destructors_release_transferred_backing() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let symbols = compilation.symbol_graph().expect("production symbols are available");
+    let mut failures = Vec::new();
+    let mut bodies = 0;
+
+    for key in compilation.declared_unit_keys_for_test().expect("production bodies are declared") {
+        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
+            || key.declared_owner().kind() != bray_symbols::SymbolKind::Destructor
+            || !symbols.symbol_for_key(key.declared_owner()).and_then(|owner| symbols.containing_symbol(owner))
+                .and_then(|owner| symbols.member_name(owner))
+                .is_some_and(|name| matches!(name.as_str(), "HashTable" | "OrderedTree")) {
+            continue;
+        }
+
+        bodies += 1;
+        let properties = compilation.execution_properties(key.clone()).expect("collection cleanup is certified");
+        let body = compilation.lowered_unit(key.clone()).expect("collection cleanup lowers");
+
+        if properties.diagnostics().has_errors() || body.diagnostics().has_errors() {
+            failures.push((key, properties.diagnostics().clone(), body.diagnostics().clone()));
+        }
+    }
+
+    assert_eq!(bodies, 2, "both actual collection destructors must be selected");
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
 fn production_completion_predicates_match_returned_booleans() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
