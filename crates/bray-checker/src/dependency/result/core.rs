@@ -61,7 +61,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                 phase: AnalysisCallPhase::Input | AnalysisCallPhase::Attempt,
                 ..
             } | AnalysisOperationKind::Result {
-                phase: crate::analysis::AnalysisResultPhase::Begin,
+                phase: crate::analysis::AnalysisResultPhase::Begin | crate::analysis::AnalysisResultPhase::Production,
                 ..
             } | AnalysisOperationKind::ScopeExit { .. }
                 | AnalysisOperationKind::Suspension { .. }

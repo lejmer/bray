@@ -119,6 +119,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     state.expressions.remove(&expression);
                     state.pending_results.remove(&expression);
                 }
+                super::super::super::model::AnalysisResultPhase::Production => {
+                    let value = self.produce_value(state, expression);
+
+                    state.pending_results.insert(expression, ExecutionCondition::scalar_observation(
+                        ExecutionCondition::Expression(expression), value.computed_value().clone(),
+                    ));
+                }
                 super::super::super::model::AnalysisResultPhase::Completion => {
                     self.publish_result(state, expression);
                 }

@@ -71,7 +71,7 @@ impl AnalysisOperationKind {
                 | Self::Call { phase: AnalysisCallPhase::Completion, .. }
                 | Self::Result { phase: AnalysisResultPhase::Completion, .. } => Some(StorageValueConsumptionPhase::Completion),
             Self::Call { phase: AnalysisCallPhase::Input, .. }
-                | Self::Result { phase: AnalysisResultPhase::Begin, .. }
+                | Self::Result { phase: AnalysisResultPhase::Begin | AnalysisResultPhase::Production, .. }
                 | Self::PatternObservation(_)
                 | Self::Suspension { kind: AnalysisSuspensionKind::Yield | AnalysisSuspensionKind::ScopedCall, .. }
                 | Self::ScopeExit { .. }
@@ -123,6 +123,8 @@ impl AnalysisOperationKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum AnalysisResultPhase {
     Begin,
+    /// Form the selected private value from its evaluated operands.
+    Production,
     Completion,
 }
 

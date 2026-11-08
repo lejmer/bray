@@ -298,7 +298,7 @@ fn record_node_refinements(
     if matches!(
         operation,
         AnalysisOperationKind::Result {
-            phase: crate::analysis::model::AnalysisResultPhase::Begin,
+            phase: crate::analysis::model::AnalysisResultPhase::Begin | crate::analysis::model::AnalysisResultPhase::Production,
             ..
         }
     ) {
@@ -663,7 +663,7 @@ where
 
         match kind {
             AnalysisOperationKind::Result {
-                phase: crate::analysis::model::AnalysisResultPhase::Begin,
+                phase: crate::analysis::model::AnalysisResultPhase::Begin | crate::analysis::model::AnalysisResultPhase::Production,
                 ..
             } => {
                 self.initialize_operation_storage(state, kind);
@@ -1980,6 +1980,9 @@ where
         let begins = match operation {
             AnalysisOperationKind::Call {
                 phase: AnalysisCallPhase::Attempt,
+                ..
+            } | AnalysisOperationKind::Result {
+                phase: AnalysisResultPhase::Production,
                 ..
             } => return,
             AnalysisOperationKind::Call {

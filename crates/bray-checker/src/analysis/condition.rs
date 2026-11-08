@@ -159,6 +159,16 @@ where
             return Some(());
         }
 
+        self.build_value_branch(id, current, matched, unmatched)
+    }
+
+    pub(super) fn build_value_branch(
+        &mut self,
+        id: BoundExpressionId,
+        current: AnalysisBlockId,
+        matched: (AnalysisBlockId, AnalysisEdgeKind),
+        unmatched: (AnalysisBlockId, AnalysisEdgeKind),
+    ) -> Option<()> {
         let pattern = match self.view().expression(id)? {
             bray_bound_tree::BoundExpression::Structured(expression)
                 if expression.kind() == BoundStructuredExpressionKind::PatternBinding =>
