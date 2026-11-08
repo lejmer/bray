@@ -49,19 +49,20 @@ Pushed checkpoint c8afbd974 separates actual reached-data traversal from ownersh
 retiring a temporary loan, unchanged versus overwritten marker data, no owner promotion, and 256 unrelated loans.
 The shared scan quota is removed. No identity-based reconstruction or weaker ownership matching.
 
-Current uncommitted repair frames actual loan contents before retaining the descriptor. The boundary regression failed
-because a projected field loan was stored as actual field data. It now passes. Alias-join laws cover parameter and
-produced-expression identities, two live aliases, common marker proof, rejected missing proof, no owner promotion,
-and repeated-join stabilization. No join-policy change. Checker460 passes. Fixed comparison: 695 passed / 64 failed /
-99 ignored, 89s. Relative to frozen7b5dc5634, four identities are repaired and no unexpected new failure appears.
-The separately added production_channel_endpoints_preserve_loop_and_cleanup_authority positive remains red.
+Pushed frame repair a8998d273 frames actual loan contents before retaining the descriptor. Its boundary regression
+failed because a projected field loan was stored as actual field data. Alias-join laws cover parameter and expression
+identities, common marker proof, rejected missing proof, no owner promotion and repeated-join stabilization.
 
-Endpoints still report four call/four cleanup failures. c8afbd974 repaired loop-body scope-expiration fact loss.
-The last actual trace located another loss at loop header42: both inputs prove the same lock fact, merge drops it,
-and conflicting alias renamings turn core Expression11 and its borrowed identity into Unknown. The frame repair has
-not repaired that endpoint. Next trace the first actual malformed reached datum or conflicting alias on current code.
-All diagnostic hooks are removed. Do not repeat carrier-role, availability, foreign-wait or reference-mask experiments
-without new evidence.
+Current terminal-snapshot repair excludes absent observations from global value replacements, using resolved
+availability. Actual channel trace proved retired storage9 changed the live holder's core-data replacement to Unknown
+at loop header42. A direct boundary law failed before this repair and passes now. Terminal data remains readable for
+postconditions. Checker461 passes. Fixed comparison: 697 passed / 62 failed / 99 ignored, 89s. Six frozen identities
+are repaired, including both yielded-owner join controls. The separately added endpoint positive is the only new
+failing identity. Endpoints still report four call/four cleanup failures, so native composition remains blocked.
+
+Temporary hooks in guarantee/state.rs, storage_flow/check/analysis/core.rs and model/domain.rs compare marker6421
+through actual operations, edges and all merges in send63738. Next locate the first remaining loss on repaired code,
+then remove hooks. Do not repeat carrier-role, availability, foreign-wait or reference-mask experiments without evidence.
 
 Native remains unverified. Retained xtask6ab61fffe predates Dispose/Cleanup and must rebuild before native checking.
 No native async composition has executed. Fixture Source/lowering and invalid controls passed and remain in the fixed
