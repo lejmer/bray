@@ -580,7 +580,7 @@ impl ExecutionState {
         let mut ownership = BTreeMap::new();
 
         for (value, result) in std::mem::take(&mut self.owned_results) {
-            let value = rename_identity(&value);
+            let value = rename(&value);
 
             if value != ExecutionCondition::Unknown {
                 ownership
