@@ -2051,4 +2051,38 @@ mod tests {
         assert!(!state.trusted_assumptions.contains(&(owner_condition, true)));
         assert!(state.trusted_assumptions.contains(&(child_condition, true)));
     }
+    #[test]
+    fn retiring_a_temporary_loan_preserves_only_unchanged_referent_facts() {
+        let owner = input(0);
+        let field = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let marker = owner.clone().project(field);
+        let view = |contents| ExecutionCondition::reference_value(owner.clone().borrowed(),
+            ExecutionCondition::constructed(input(2), [(field, contents)].into()));
+        let before = view(marker.clone().borrowed());
+        let temporary = ExecutionCondition::constructed(input(1), [(field, before)].into());
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+        let condition = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+            symbol.into(), crate::test_support::empty_substitution(symbol.into()), [marker.clone().borrowed()].into(),
+        )));
+
+        for noise in [0, 256] {
+            for unchanged in [true, false] {
+                let mut retained = BTreeSet::from([view(if unchanged { marker.clone().borrowed() } else { input(3).borrowed() })]);
+                retained.extend((100..100 + noise).map(|ordinal| {
+                    let owner = input(ordinal);
+
+                    ExecutionCondition::reference_value(owner.clone().borrowed(), owner)
+                }));
+                let mut state = ExecutionState::default();
+
+                state.carry_guarantee(owner.clone().borrowed(), condition.clone());
+                state.trusted_assumptions.insert((condition.clone(), true));
+                state.retire_trusted_values([temporary.clone()], &retained);
+
+                assert_eq!(state.trusted_assumptions.contains(&(condition.clone(), true)), unchanged);
+                assert!(!crate::execution_guarantees::ObservationSet::retains_owner(&retained, &marker));
+            }
+        }
+    }
+
 }
