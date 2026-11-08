@@ -54,21 +54,21 @@ failed because a projected field loan was stored as actual field data. Alias-joi
 identities, common marker proof, rejected missing proof, no owner promotion and repeated-join stabilization.
 
 Pushed terminal-snapshot repair 46482b628 excludes absent observations from global value replacements using resolved
-availability. Actual trace proved retired storage9 overwrote a live holder's data replacement at loop header42.
-Its boundary law failed before the repair. Terminal data remains readable. Fixed comparison: 697 passed / 62 failed /
-99 ignored, 89s, with six frozen identities repaired and only the separately added endpoint positive newly failing.
+availability. Retired storage9 had overwritten a live holder's data replacement at loop header42. Terminal data remains
+readable. The boundary law reproduced the bug before repair.
 
-Current nested-data repair pairs actual retained component paths on both sides of a reference-data join and pins equal
-data against ancestor replacement. Shared component_projections replaces the former snapshot-local projection inventory.
-A direct nested-field law failed red with Unknown before this repair. Checker462 passes. Both actual Sender.send and
-Receiver.receive now pass execution certification/lowering, and the actual marker trace has no common-fact merge loss.
-All diagnostic hooks are removed. The rebuilt compiler passes checker462 and the fixed comparison at 698 passed /
-61 failed / 99 ignored, 100s, with zero new failing identities against frozen7b5dc5634. Rebuild xtask for native next.
-Do not repeat carrier-role, availability, foreign-wait or reference-mask experiments without evidence.
+Pushed nested-data repair 1b675ac8c pairs actual retained component paths on both sides of reference-data joins and
+pins equal data against ancestor replacement. Shared component_projections replaces the snapshot-local inventory.
+The nested-field law reproduced Unknown before repair. Both actual channel endpoints now pass certificates/lowering.
+No common marker fact is lost at their loop merge. Checker462 passes. Current fixed comparison: 698 passed / 61 failed /
+99 ignored, 100s, zero new failing identities against frozen7b5dc5634. Do not weaken expectations.
 
-Native remains unverified. Retained xtask6ab61fffe predates Dispose/Cleanup and must rebuild before native checking.
-No native async composition has executed. Fixture Source/lowering and invalid controls passed and remain in the fixed
-comparison. Interface216 passed at abe445829 and is unaffected by these checker-only repairs.
+Fresh xtask1b675ac8c native smoke reaches standard-library planning, then stops on one E7123 at Windows environment_storage
+cleanup, windows.bray142..234. Planning took28s. No native composition has executed. New production Windows body test
+pins this positive. The body test reproduces it. Its environment-owner fact survives until cleanup, with no common-fact merge loss.
+Temporary hook in guarantee/cleanup/transition.rs captures the exact failed lifecycle requirement and receiver. Remove it
+after locating the broken transition.
+Fixture Source/lowering and invalid controls remain in the fixed comparison. Interface216 passed at abe445829.
 
 Retain only frozen baseline-failures.txt, current comparison.log, reusable native artifacts and the deferred-report
 baseline executable needed for two pre-existing negative controls. Use probe.log for the active diagnostic, then delete

@@ -335,6 +335,21 @@ fn production_bounded_channel_creation_retains_its_cleanup_evidence() {
 }
 
 #[test]
+fn production_windows_environment_storage_retains_its_cleanup_evidence() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc), "module app;");
+    let key = source_function_body_key(&compilation, "environment_storage");
+    let properties = compilation.execution_properties(key.clone()).expect("environment storage is certified");
+    let body = compilation.lowered_unit(key.clone()).expect("environment storage lowers");
+    let output = compilation.source_output_unit(key, &crate::CancellationToken::new())
+        .expect("environment storage publishes Source output");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+    assert!(!output.has_errors(), "{:?}", output.diagnostic_bag());
+}
+
+#[test]
 fn production_channel_endpoints_preserve_loop_and_cleanup_authority() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
