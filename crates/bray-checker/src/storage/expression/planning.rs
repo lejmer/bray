@@ -7,6 +7,7 @@ use bray_bound_tree::{
 use bray_symbols::{BorrowKind, TypeData};
 
 use super::super::plan::{PlanError, Planner, iteration_purpose, missing_node};
+use super::access::MemberStorage;
 use crate::CheckerRequestContext;
 
 impl<C> Planner<'_, C>
@@ -73,12 +74,15 @@ where
                 } else {
                     let receiver = self.plan_expression(member.receiver(), None)?;
                     let projection = self.member_projection(id, member.selector())?;
+                    let projects = matches!(projection, MemberStorage::Projection(_));
                     let access = self.member_access(id, receiver, projection)?;
 
                     self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
 
-                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
-                        member.receiver(), StorageAccessPurpose::Read);
+                    if !projects {
+                        self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                            member.receiver(), StorageAccessPurpose::Read);
+                    }
 
                     access
                 }
@@ -93,12 +97,15 @@ where
                 } else {
                     let receiver = self.plan_expression(member.receiver(), None)?;
                     let projection = self.selected_member_projection(id)?;
+                    let projects = matches!(projection, MemberStorage::Projection(_));
                     let access = self.member_access(id, receiver, projection)?;
 
                     self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
 
-                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
-                        member.receiver(), StorageAccessPurpose::Read);
+                    if !projects {
+                        self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                            member.receiver(), StorageAccessPurpose::Read);
+                    }
 
                     access
                 }
@@ -647,8 +654,9 @@ where
 
         let phase = self.value_consumer_phase(id);
 
-        self.consume_expression_value(id.into(), phase, receiver,
-            custom_borrow_kind.map_or(StorageAccessPurpose::Read, StorageAccessPurpose::Borrow));
+        if let Some(kind) = custom_borrow_kind {
+            self.consume_expression_value(id.into(), phase, receiver, StorageAccessPurpose::Borrow(kind));
+        }
 
         for selector in &operands[1..] {
             let purpose = match (kind, custom) {
