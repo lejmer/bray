@@ -6545,3 +6545,31 @@ fn custom_index_copy_rejects_witness_duplication() {
             DiagnosticKind::CheckingTrustedWitnessTransferNotProven);
     }
 }
+
+#[test]
+fn direct_value_copy_cannot_rebind_borrowed_field_authority() {
+    let compilation = compilation(r#"
+        trusted module app;
+
+        struct Owner
+        {
+            tag: bool;
+        }
+
+        trusted predicate live(value: &bool);
+
+        func observe_copy(pos value: bool)
+            requires(trusted live(&value))
+        {
+        }
+
+        func caller(pos owner: &Owner)
+            requires(trusted live(&owner.tag))
+        {
+            observe_copy(owner.tag);
+        }
+    "#);
+
+    bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
+        DiagnosticKind::CheckingTrustedObligationNotProven);
+}

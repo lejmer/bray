@@ -355,6 +355,17 @@ impl ExecutionCondition {
         }
     }
 
+    /// The immutable value copied into a new context, without renaming its source owner.
+    pub(crate) fn copied_value(&self) -> &Self {
+        let mut value = self;
+
+        while let Some((_, contents)) = value.storage_contents() {
+            value = contents;
+        }
+
+        value
+    }
+
     /// Observe the current reached value. Only checked ownership transitions may move it.
     pub(crate) fn into_referent(self) -> Self {
         match self {
@@ -385,6 +396,10 @@ impl ExecutionCondition {
         mut arguments: Vec<Self>,
     ) -> Self {
         for argument in &mut arguments {
+            // A by-value predicate observes copied data. A borrowed argument
+            // retains its storage context even when the contents are equal.
+            *argument = argument.copied_value().clone();
+
             if let Self::Observation { contents, kind: ObservationKind::Reference, .. } = argument
                 && contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
             {

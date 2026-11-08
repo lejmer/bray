@@ -1,4 +1,5 @@
 use super::ExecutionCondition;
+use crate::execution_guarantees::ExecutionObservationKind;
 use bray_bound_tree::BoundOperator;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -24,30 +25,18 @@ impl ExecutionCondition {
     /// surviving owner, so recursively resolving it as an equality would cycle.
     pub(crate) fn with_snapshots(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
         self.substitute_values(
-            &|condition| {
-                if let Some(value) = snapshots.get(condition) {
-                    return Some(value.clone());
-                }
+            &|condition| snapshot_value(condition, snapshots),
+            &mut { Self::WORK_LIMIT },
+        )
+    }
 
-                let Self::Input(place) = condition else {
-                    return None;
-                };
-
-                for length in (0..place.projections.len()).rev() {
-                    let mut prefix = place.clone();
-
-                    prefix.projections = place.projections[..length].into();
-
-                    if let Some(value) = snapshots.get(&Self::Input(prefix)) {
-                        return Some(
-                            place.projections[length..]
-                                .iter()
-                                .fold(value.clone(), |value, field| value.component(*field)),
-                        );
-                    }
-                }
-
-                None
+    /// Copy correlations apply to values. They cannot relocate borrowed observations.
+    pub(crate) fn with_copy_origins(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
+        self.substitute_values(
+            &|condition| match condition {
+                Self::Borrowed(_) | Self::Observation { kind: ExecutionObservationKind::Reference, .. } =>
+                    Some(condition.clone()),
+                _ => snapshot_value(condition, snapshots),
             },
             &mut { Self::WORK_LIMIT },
         )
@@ -277,6 +266,30 @@ impl ExecutionCondition {
             Self::WORK_LIMIT
         })
     }
+}
+
+fn snapshot_value(
+    condition: &ExecutionCondition,
+    snapshots: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+) -> Option<ExecutionCondition> {
+    if let Some(value) = snapshots.get(condition) {
+        return Some(value.clone());
+    }
+
+    let ExecutionCondition::Input(place) = condition else { return None; };
+
+    for length in (0..place.projections.len()).rev() {
+        let mut prefix = place.clone();
+
+        prefix.projections = place.projections[..length].into();
+
+        if let Some(value) = snapshots.get(&ExecutionCondition::Input(prefix)) {
+            return Some(place.projections[length..].iter()
+                .fold(value.clone(), |value, field| value.component(*field)));
+        }
+    }
+
+    None
 }
 
 fn resolve_equality(

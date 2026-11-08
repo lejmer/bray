@@ -360,10 +360,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
+            let source = value.copied_value().clone();
+
             let captured = entry
                 .copy_sources
                 .iter()
-                .find(|(_, source)| **source == value)
+                .find(|(_, candidate)| **candidate == source)
                 .and_then(|(previous, _)| previous.value_in(&entry.arguments))
                 .unwrap_or_else(|| {
                     let identity = ExecutionCondition::CapturedInput {
@@ -393,7 +395,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     *argument = argument.with_snapshots(&snapshots);
                 }
 
-                entry.copy_sources.insert(place.clone(), value);
+                entry.copy_sources.insert(place.clone(), source);
             }
 
             entry.arguments.insert(place, captured);
