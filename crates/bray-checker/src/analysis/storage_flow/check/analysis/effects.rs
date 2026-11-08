@@ -108,11 +108,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             task_effects(
                 state.memory.deferred_effects(&source, &[body].into()),
-                self.execution.task_cleanup_types(sources, false)?,
+                state.memory.deferred_cleanup_effects(&source, sources, false)?,
             )
         });
 
         if let Some(effects) = contracts.deferred_effects() {
+            self.capture_deferred_cleanup(state, invocation);
             let effects = task_effects
                 .take()
                 .unwrap_or_else(|| self.call_effects(state, invocation, effects));
@@ -204,7 +205,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // Normal and abnormal snapshots own descriptors with shared projection paths.
             task_effects(
                 body_effects.clone(),
-                self.execution.task_cleanup_types(&producers, false)?,
+                state.memory.deferred_cleanup_effects(&source, &producers, false)?,
             )
         } else {
             body_effects.take()
@@ -498,7 +499,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         );
     }
 
-    fn call_effects(
+    pub(super) fn call_effects(
         &self,
         state: &crate::analysis::storage_flow::model::StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
@@ -562,10 +563,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
                 DependencyStorageEffect::Atomic => {
                     resolved.push(Effect::Atomic);
-                    continue;
-                }
-                DependencyStorageEffect::Cleanup(ty) => {
-                    resolved.push(Effect::Cleanup(*ty));
                     continue;
                 }
                 DependencyStorageEffect::Direct { subject, kind, access_type } => {
@@ -649,9 +646,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
                 Effect::Unknown => {
                     self.record_effect(DependencyStorageEffect::Unknown, normal_effects)
-                }
-                Effect::Cleanup(ty) => {
-                    self.record_effect(DependencyStorageEffect::Cleanup(*ty), normal_effects)
                 }
                 Effect::Atomic => {
                     self.record_effect(DependencyStorageEffect::Atomic, normal_effects)
@@ -741,6 +735,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 })
             }
         };
+
+        let effect = effect.or_else(|| matches!(kind, DependencyMutationKind::Cleanup(_)).then_some(
+            DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient: true }
+        ));
 
         if let Some(mut effect) = effect {
             if let DependencyStorageEffect::Direct { access_type: original, .. }
@@ -879,12 +877,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
 pub(super) fn task_effects(
     effects: Option<Vec<Effect>>,
-    cleanup: impl IntoIterator<Item = bray_symbols::TypeId>,
+    cleanup: impl IntoIterator<Item = Effect>,
 ) -> Option<Vec<Effect>> {
     let mut effects = effects?;
 
-    for ty in cleanup {
-        let effect = Effect::Cleanup(ty);
+    for effect in cleanup {
 
         if !effects.contains(&effect) {
             effects.push(effect);

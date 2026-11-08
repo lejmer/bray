@@ -252,9 +252,6 @@ impl SemanticValueStore {
                     DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                     DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                    DependencyStorageEffect::Cleanup(ty) => DependencyStorageEffect::Cleanup(
-                        self.substitute_type_data(*ty, substitution)?,
-                    ),
                     DependencyStorageEffect::Direct { subject, kind, access_type } => {
                         DependencyStorageEffect::Direct {
                             subject: self.substitute_dependency_subject(subject, substitution)?,

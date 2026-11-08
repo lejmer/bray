@@ -73,7 +73,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let task_sources = match &mutation {
                     CleanupMutation::Opaque { ty, .. } => task_path
-                        .and_then(|path| domain.task_cleanup_invocations(execution, *ty, path)),
+                        .and_then(|path| domain.deferred_cleanup_invocations(execution, *ty, path)),
                     _ => None,
                 };
 
@@ -112,20 +112,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     CleanupMutation::Opaque { ty, .. } => Some(
                         inactive_captures
                             .as_ref()
-                            .map(|captures| captures.iter().copied().map(Effect::Cleanup).collect())
+                            .and_then(|_| memory.deferred_cleanup_effects(task_source.as_ref()?, task_sources.as_ref()?, false))
                             .or_else(|| {
                                 super::effects::task_effects(
                                     memory.deferred_effects(
                                         task_source.as_ref()?,
                                         task_sources.as_ref()?,
                                     ),
-                                    domain.task_cleanup_types(task_sources.as_ref()?, true)?,
+                                    memory.deferred_cleanup_effects(task_source.as_ref()?, task_sources.as_ref()?, true)?,
                                 )
                             })
                             .or_else(|| {
                                 self.buffer_cleanup_effects(&memory, receiver.as_ref()?, ty)
                             })
-                            .unwrap_or_else(|| vec![Effect::Cleanup(ty)]),
+                            .unwrap_or_else(|| memory.cleanup_effects(receiver.as_ref(), ty)),
                     ),
                     CleanupMutation::Lifecycle(ref call) => {
                         self.lifecycle_effects(&memory, call.access, call.path, call.lifecycle)
@@ -370,7 +370,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.synchronous_cleanup
                     .extend(effects.into_iter().flatten().filter_map(|effect| {
                         match effect {
-                            Effect::Cleanup(ty) => deferred(*ty)
+                            Effect::Mutation(_, DependencyMutationKind::Cleanup(ty), _)
+                            | Effect::UnboundedMutation { kind: DependencyMutationKind::Cleanup(ty), .. } => deferred(*ty)
                                 .map(bray_symbols::DependencyRequirement::SynchronousCleanup),
                             _ => None,
                         }
@@ -476,16 +477,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             bray_bound_tree::StorageProjection::ProductField(fields.pointer),
         )?;
 
-        let has_backing = !targets.is_empty();
-
-        let mut effects = targets
+        let effects = targets
             .into_iter()
-            .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire, None))
+            .flat_map(|target| {
+                let mut effects = if *elements {
+                    memory.cleanup_effects(Some(&target), fields.element)
+                } else {
+                    Vec::new()
+                };
+                effects.push(Effect::Mutation(target, DependencyMutationKind::Retire, None));
+                effects
+            })
             .collect::<Vec<_>>();
-
-        if has_backing && *elements {
-            effects.push(Effect::Cleanup(fields.element));
-        }
 
         Some(effects)
     }
@@ -694,7 +697,7 @@ fn preserve_run_descriptor(
 
     if effects
         .iter()
-        .any(|effect| matches!(effect, Effect::Cleanup(_) | Effect::Escape))
+        .any(|effect| matches!(effect, Effect::Escape | Effect::UnboundedMutation { kind: DependencyMutationKind::Cleanup(_), .. }))
     {
         return;
     }

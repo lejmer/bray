@@ -173,12 +173,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Effect::Mutation(_, DependencyMutationKind::Replace(ty), _) | Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(ty), .. } => {
                     self.input.graceful_types.contains(ty)
                 }
-                Effect::Mutation(_, DependencyMutationKind::Write | DependencyMutationKind::Escape, _)
-                | Effect::UnboundedMutation { kind: DependencyMutationKind::Write | DependencyMutationKind::Escape, .. }
+                Effect::Mutation(_, DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Cleanup(_), _)
+                | Effect::UnboundedMutation { kind: DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Cleanup(_), .. }
                 | Effect::Escape
                 | Effect::Unknown
                 | Effect::Ambient
-                | Effect::Cleanup(_) => true,
+                => true,
                 _ => false,
             })
         });
@@ -227,7 +227,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             effects.iter().any(|effect| {
                 matches!(
                     effect,
-                    Effect::Unknown | Effect::Ambient | Effect::Escape | Effect::Cleanup(_) | Effect::UnboundedMutation { .. }
+                    Effect::Unknown | Effect::Ambient | Effect::Escape | Effect::UnboundedMutation { .. }
                 )
             })
         });
@@ -236,7 +236,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             effects.iter().any(|effect| {
                 matches!(
                     effect,
-                    Effect::Unknown | Effect::Escape | Effect::Cleanup(_) | Effect::UnboundedMutation { ambient: false, .. }
+                    Effect::Unknown | Effect::Escape | Effect::UnboundedMutation { ambient: false, .. }
                 )
             })
         });
@@ -244,7 +244,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let reached = memory.reachable_targets(roots.into_iter().filter(|_| inputs));
 
         let unproved = effects.into_iter().flatten().any(|effect| {
-            matches!(effect, Effect::Mutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape, _) if overlaps(target))
+            matches!(effect, Effect::Mutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Cleanup(_), _) if overlaps(target))
         }) || opaque && (unknown || reached.iter().any(overlaps)
             || unbounded_overlap && effects.into_iter().flatten().any(|effect| matches!(effect, Effect::UnboundedMutation { .. })));
 

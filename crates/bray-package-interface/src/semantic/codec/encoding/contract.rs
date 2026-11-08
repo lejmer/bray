@@ -110,10 +110,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                     DependencyStorageEffect::Ambient => encoder.write_u32(6),
                     DependencyStorageEffect::Escape => encoder.write_u32(5),
                     DependencyStorageEffect::Atomic => encoder.write_u32(4),
-                    DependencyStorageEffect::Cleanup(ty) => {
-                        encoder.write_u32(3);
-                        encoder.write_u32(ty.raw());
-                    }
+
                     DependencyStorageEffect::Direct { subject, kind, access_type } => {
                         encoder.write_u32(1);
                         encode_dependency_subject(encoder, subject);
@@ -516,9 +513,10 @@ fn encode_mutation(
         DependencyMutationKind::Replace(_) => 5,
         DependencyMutationKind::Clear => 6,
         DependencyMutationKind::Escape => 7,
+        DependencyMutationKind::Cleanup(_) => 8,
     });
 
-    if let DependencyMutationKind::Replace(ty) = kind {
+    if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Cleanup(ty) = kind {
         encoder.write_u32(ty.raw());
     }
 }

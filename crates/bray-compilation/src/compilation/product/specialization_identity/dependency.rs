@@ -289,11 +289,6 @@ impl StructuralValueEncoder<'_, '_> {
 
                 (kind, access_type)
             }
-            DependencyStorageEffect::Cleanup(ty) => {
-                self.tag(3);
-
-                return self.ty(*ty);
-            }
             DependencyStorageEffect::Atomic => {
                 self.tag(4);
 
@@ -346,9 +341,10 @@ impl StructuralValueEncoder<'_, '_> {
             DependencyMutationKind::Replace(_) => 5,
             DependencyMutationKind::Clear => 6,
             DependencyMutationKind::Escape => 7,
+            DependencyMutationKind::Cleanup(_) => 8,
         });
 
-        if let DependencyMutationKind::Replace(ty) = kind {
+        if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Cleanup(ty) = kind {
             self.ty(*ty)?;
         }
 

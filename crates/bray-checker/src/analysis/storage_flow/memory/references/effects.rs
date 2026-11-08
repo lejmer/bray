@@ -27,6 +27,21 @@ impl State {
         })
     }
 
+    pub(in crate::analysis::storage_flow) fn cleanup_effects(
+        &self,
+        receiver: Option<&Target>,
+        ty: bray_symbols::TypeId,
+    ) -> Vec<Effect> {
+        let kind = DependencyMutationKind::Cleanup(ty);
+        let Some(receiver) = receiver else {
+            return vec![Effect::unbounded(kind, None, false)];
+        };
+
+        // The target is the disposed value, not each differently typed referent.
+        // Consumers follow its stored references while the value is still live.
+        vec![Effect::Mutation(receiver.clone(), kind, Some(ty))]
+    }
+
     pub(in crate::analysis::storage_flow) fn apply_effects(
         &mut self,
         effects: Option<&[Effect]>,
@@ -36,7 +51,7 @@ impl State {
         let Some(effects) = effects.filter(|effects| {
             !effects
                 .iter()
-                .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
+                .any(|effect| matches!(effect, Effect::Unknown))
         }) else {
             self.invalidate(invalidation, storage, DependencyMutationKind::Retire);
             return;
@@ -45,6 +60,14 @@ impl State {
         for effect in effects {
             match effect {
                 Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
+                Effect::Mutation(target, DependencyMutationKind::Cleanup(_), _) => {
+                    let (targets, _) = self.transitive_regions([target.clone()], |_| true);
+                    self.invalidate(invalidation, storage, DependencyMutationKind::Retire);
+
+                    for target in targets {
+                        self.invalidate_target(&target, DependencyMutationKind::Retire, invalidation, false);
+                    }
+                }
                 Effect::Mutation(target, kind, access_type) => {
                     self.invalidate_target(target, *kind, invalidation, access_type.is_none())
                 }
@@ -89,7 +112,7 @@ impl State {
                     storage,
                     DependencyMutationKind::Atomic,
                 ),
-                Effect::Unknown | Effect::Cleanup(_) => {
+                Effect::Unknown => {
                     unreachable!("opaque effects handled above")
                 }
                 Effect::Ambient | Effect::Atomic | Effect::UnboundedMutation { .. } => {

@@ -15,6 +15,9 @@ pub enum DependencyMutationKind<Type = super::TypeId> {
     Replace(Type),
     /// Install an absent payload while retaining initialized containing storage.
     Clear,
+    /// Possible effects of disposing this type within the named value or reference region.
+    /// A checked access type identifies the value's layout. Without it, only the region is known.
+    Cleanup(Type),
     /// Remove initialized contents without retiring the storage.
     Consume,
     /// End the storage lifetime and revoke dependencies on that lifetime.
@@ -28,8 +31,6 @@ pub enum DependencyStorageEffect<
     Projection = DependencyProjection,
     Type = super::TypeId,
 > {
-    /// Opaque effects of disposing this type. No effects occur when the type needs no cleanup.
-    Cleanup(Type),
     /// Protected atomic payloads may change through unresolved aliases.
     Atomic,
     /// Mutate externally reachable storage without exposing invocation-local inputs.
@@ -72,16 +73,24 @@ pub enum DependencyStorageEffect<
 }
 
 impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
+    /// Entry slot whose value or reference bounds this effect.
+    pub fn subject(&self) -> Option<&Subject> {
+        match self {
+            Self::Direct { subject, .. } => Some(subject),
+            Self::Indirect { reference, .. } => Some(reference),
+            _ => None,
+        }
+    }
+
     /// Types required to retain and interpret this effect across semantic boundaries.
     pub fn referenced_types(&self) -> impl Iterator<Item = &Type> {
         match self {
-            Self::Cleanup(ty) => [Some(ty), None],
             Self::Direct { access_type, kind, .. }
             | Self::Indirect { access_type, kind, .. }
             | Self::UnboundedMutation { access_type, kind, .. } => [
                 access_type.as_ref(),
                 match kind {
-                    DependencyMutationKind::Replace(ty) => Some(ty),
+                    DependencyMutationKind::Replace(ty) | DependencyMutationKind::Cleanup(ty) => Some(ty),
                     _ => None,
                 },
             ],
@@ -107,6 +116,7 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
             DependencyMutationKind::Escape => Self::Escape,
             DependencyMutationKind::Write
             | DependencyMutationKind::Replace(_)
+            | DependencyMutationKind::Cleanup(_)
             | DependencyMutationKind::Clear
             | DependencyMutationKind::Consume
             | DependencyMutationKind::Retire => Self::UnboundedMutation { kind, access_type, ambient: false },
@@ -120,7 +130,7 @@ impl<Type> DependencyMutationKind<Type> {
         matches!(self, Self::Write | Self::Replace(_) | Self::Clear)
     }
 
-    /// Translates the installed type while preserving the storage transition.
+    /// Translates the payload type while preserving the storage transition.
     pub fn try_map_type<Other, Error>(
         self,
         map: impl FnOnce(Type) -> Result<Other, Error>,
@@ -131,6 +141,7 @@ impl<Type> DependencyMutationKind<Type> {
             Self::Write => DependencyMutationKind::Write,
             Self::Clear => DependencyMutationKind::Clear,
             Self::Replace(ty) => DependencyMutationKind::Replace(map(ty)?),
+            Self::Cleanup(ty) => DependencyMutationKind::Cleanup(map(ty)?),
             Self::Consume => DependencyMutationKind::Consume,
             Self::Retire => DependencyMutationKind::Retire,
         })
@@ -229,6 +240,7 @@ mod tests {
             DependencyMutationKind::Escape,
             DependencyMutationKind::Write,
             DependencyMutationKind::Replace(()),
+            DependencyMutationKind::Cleanup(()),
             DependencyMutationKind::Clear,
             DependencyMutationKind::Consume,
             DependencyMutationKind::Retire,

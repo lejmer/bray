@@ -143,7 +143,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .cloned()
             .collect::<Vec<_>>();
 
-        let mut escaped = memory.escaped_regions(targets);
+        // Cleanup can publish references stored in the disposed value. Its own
+        // receiver address remains governed by the terminal receiver contract.
+        let cleanup_references = effects.into_iter().flatten().flat_map(|effect| {
+            match effect {
+                Effect::Mutation(target, DependencyMutationKind::Cleanup(_), access_type) => {
+                    Some(access_type.is_none().then_some(target).into_iter().chain(memory.contained_regions(target)))
+                }
+                _ => None,
+            }.into_iter().flatten().cloned()
+        });
+
+        let escaped = memory.escaped_regions(targets.into_iter().chain(cleanup_references));
 
         for target in &escaped {
             self.record_target_effect(
@@ -153,16 +164,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 None,
                 normal_effects,
             );
-        }
-
-        // Generic cleanup retains its conditional effect in the exported summary.
-        // Only local exposure is conservative before that type is instantiated.
-        if !all_inputs
-            && effects.is_some_and(|effects| {
-                effects.iter().any(|effect| matches!(effect, Effect::Cleanup(_)))
-            })
-        {
-            escaped.extend(memory.escaped_regions(roots.iter().cloned()));
         }
 
         escaped

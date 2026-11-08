@@ -746,8 +746,19 @@ mod tests {
             },
             DependencyStorageEffect::Ambient,
             DependencyStorageEffect::Unknown,
-            DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(0)),
+            DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(0)), access_type: None, ambient: false },
             DependencyStorageEffect::Escape,
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(0)),
+                access_type: Some(crate::InterfaceTypeId::new(0)),
+            },
+            DependencyStorageEffect::Indirect {
+                reference: subject.clone(),
+                projections: [InterfaceDependencyProjection::OwnedTarget].into(),
+                kind: DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(0)),
+                access_type: None,
+            },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Escape,
@@ -840,7 +851,7 @@ mod tests {
 
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
-        assert_eq!(template.effects().len(), 14);
+        assert_eq!(template.effects().len(), 16);
 
         assert!(template.effects().iter().any(|effect| matches!(effect,
             DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Consume, access_type: Some(ty), ambient: true }
@@ -886,10 +897,16 @@ mod tests {
             }
         )));
 
-        assert_eq!(
-            template.effects()[0],
-            DependencyStorageEffect::Cleanup(imported.types()[0])
-        );
+        assert!(template.effects().contains(
+            &DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Cleanup(imported.types()[0]), access_type: None, ambient: false }
+        ));
+
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::Direct { kind: DependencyMutationKind::Cleanup(ty), access_type: Some(access), .. }
+                if *ty == imported.types()[0] && *access == imported.types()[0])));
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Cleanup(ty), projections, .. }
+                if *ty == imported.types()[0] && projections.as_ref() == [bray_symbols::DependencyProjection::OwnedTarget])));
 
         assert!(template.effects().iter().any(|effect| matches!(effect,
             DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), .. }

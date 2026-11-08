@@ -335,6 +335,38 @@ fn production_bounded_channel_creation_retains_its_cleanup_evidence() {
 }
 
 #[test]
+fn production_channel_endpoints_preserve_loop_and_cleanup_authority() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let symbols = compilation.symbol_graph().expect("production symbols are available");
+    let mut failures = Vec::new();
+    let mut bodies = 0;
+
+    for key in compilation.declared_unit_keys_for_test().expect("production bodies are declared") {
+        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
+            continue;
+        }
+        let Some(owner) = symbols.symbol_for_key(key.declared_owner()) else { continue; };
+        let member = symbols.member_name(owner).map(|name| name.as_str());
+        let ty = symbols.containing_symbol(owner).and_then(|ty| symbols.member_name(ty)).map(|name| name.as_str());
+        if !matches!((ty, member), (Some("Sender"), Some("send")) | (Some("Receiver"), Some("receive"))) {
+            continue;
+        }
+
+        bodies += 1;
+        let properties = compilation.execution_properties(key.clone()).expect("endpoint execution is certified");
+        if properties.diagnostics().has_errors() {
+            failures.push((key, properties.diagnostics().clone()));
+        } else {
+            let body = compilation.lowered_unit(key.clone()).expect("endpoint body lowers");
+            if body.diagnostics().has_errors() { failures.push((key, body.diagnostics().clone())); }
+        }
+    }
+    assert_eq!(bodies, 2, "both actual endpoint bodies must be selected");
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
 fn production_byte_reads_keep_their_loop_entry_evidence() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
@@ -355,7 +387,8 @@ fn bounded_collection_storage_effects_keep_their_physical_scope() {
         let dependencies = crate::compilation::result_dependencies::source_function_dependencies(&compilation, name);
 
         assert!(!dependencies.effects().iter().any(|effect| matches!(effect,
-            bray_symbols::DependencyStorageEffect::UnboundedMutation { .. })),
+            bray_symbols::DependencyStorageEffect::UnboundedMutation { kind, ambient, .. }
+                if !*ambient || !matches!(kind, bray_symbols::DependencyMutationKind::Cleanup(_)))),
             "{name}: {:?}", dependencies.effects());
     }
 }

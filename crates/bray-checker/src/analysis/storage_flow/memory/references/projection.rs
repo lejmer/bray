@@ -257,9 +257,61 @@ impl State {
     pub(in crate::analysis::storage_flow) fn reference_location(
         &self,
         values: &bray_symbols::SemanticValueStore,
+        target: Target,
+        path: &bray_bound_tree::StorageReferencePath,
+        root_borrow: Option<Target>,
+    ) -> Option<Target> {
+        self.reference_location_in(values, target, path, root_borrow, |target| self.values.get(target))
+    }
+
+    pub(in crate::analysis::storage_flow) fn staged_reference_location(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        values: &bray_symbols::SemanticValueStore,
+        root: &Target,
+        path: &bray_bound_tree::StorageReferencePath,
+    ) -> Option<Target> {
+        let staged = self.pending.get(&invocation)?;
+        self.reference_location_in(values, root.clone(), path, None, |target| {
+            if root.contains(target) { staged.values.get(target) } else { self.values.get(target) }
+        })
+    }
+
+    pub(in crate::analysis::storage_flow) fn staged_reference_regions(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        root: &Target,
+        location: &Target,
+    ) -> Option<Vec<Target>> {
+        if root.contains(location) {
+            self.pending.get(&invocation)?.values.get(location)?.regions()
+        } else {
+            self.referenced_regions(location)
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn staged_contained_regions(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        value: &Target,
+    ) -> (std::collections::BTreeSet<Target>, bool) {
+        let staged = self.pending.get(&invocation).expect("captured completion references retain their prepared transfer");
+        let mut targets = std::collections::BTreeSet::new();
+        let mut unknown = false;
+        for (_, references) in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot)) {
+            targets.extend(references.targets.iter().cloned());
+            unknown |= references.unknown || references.displaced;
+        }
+        (targets, unknown)
+    }
+
+    fn reference_location_in<'a>(
+        &'a self,
+        values: &bray_symbols::SemanticValueStore,
         mut target: Target,
         path: &bray_bound_tree::StorageReferencePath,
         mut root_borrow: Option<Target>,
+        lookup: impl Fn(&Target) -> Option<&'a References>,
     ) -> Option<Target> {
         let mut copied = 0;
 
@@ -268,14 +320,14 @@ impl State {
 
             target = match root_borrow.take().filter(|_| step == 0 && *index == 0) {
                 Some(root) => root,
-                None => self.value_target(&target, *ty).or_else(|| {
+                None => lookup(&target).and_then(|reference| self.typed_target(reference, *ty)).or_else(|| {
                     let data = values.type_data(*ty);
 
                     let bray_symbols::TypeData::Slice(element) = data.as_ref() else {
                         return None;
                     };
 
-                    let reference = self.values.get(&target)?;
+                    let reference = lookup(&target)?;
 
                     if reference.unknown || reference.displaced || reference.targets.len() != 1 {
                         return None;

@@ -446,7 +446,12 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             .effects()
             .iter()
             .chain(call.deferred_effects().into_iter().flatten())
+            .chain(call.deferred_capture_cleanup().into_iter().flatten())
+            .chain(call.deferred_result_cleanup().into_iter().flatten())
         {
+            if let Some(subject) = effect.subject() {
+                retain(subject.projections());
+            }
             if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
                 retain(projections);
             }
@@ -463,6 +468,9 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
 
         for effect in contract.effects() {
+            if let Some(subject) = effect.subject() {
+                retain(subject.projections());
+            }
             if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
                 retain(projections);
             }

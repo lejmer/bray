@@ -21,9 +21,9 @@ pub(crate) struct Plan {
     pub(crate) expression_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
-    pub(in crate::analysis::guarantee) future_cleanup: BTreeMap<
+    pub(in crate::analysis::guarantee) future_capture_cleanup: BTreeMap<
         bray_bound_tree::BoundExpressionId,
-        (Vec<TypeId>, bray_bound_tree::AsyncStorageCleanupRequirement),
+        Vec<TypeId>,
     >,
     pub(crate) scoped_error_quiescence:
         BTreeMap<bray_bound_tree::StorageScope, bray_bound_tree::BoundExpressionId>,

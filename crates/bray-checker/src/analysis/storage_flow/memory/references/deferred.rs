@@ -163,6 +163,38 @@ impl State {
         Some(effects.into_iter().collect())
     }
 
+    pub(in crate::analysis::storage_flow) fn capture_deferred_cleanup(
+        &mut self,
+        invocation: BoundExecutionSite,
+        captures: Vec<Effect>,
+        result: Vec<Effect>,
+    ) {
+        let transfer = self.pending.get_mut(&invocation)
+            .expect("deferred cleanup is captured with its prepared value transition");
+        transfer.captured_cleanup = Some(captures.into_iter().collect());
+        transfer.result_cleanup = Some(result.into_iter().collect());
+    }
+
+    pub(in crate::analysis::storage_flow) fn deferred_cleanup_effects(
+        &self,
+        source: &Source,
+        producers: &std::collections::BTreeSet<BoundExecutionSite>,
+        discard_result: bool,
+    ) -> Option<Vec<Effect>> {
+        let Source::Value(source) = source else { return None; };
+        let entries = self.deferred.get(source)?;
+        let mut effects = std::collections::BTreeSet::new();
+
+        for (_, entry) in entries.iter().filter(|(source, _)| producers.contains(source)) {
+            effects.extend(entry.captured_cleanup.as_ref()?.iter().cloned());
+            if discard_result {
+                effects.extend(entry.result_cleanup.as_ref()?.iter().cloned());
+            }
+        }
+
+        Some(effects.into_iter().collect())
+    }
+
     pub(in crate::analysis::storage_flow) fn prepare_deferred_completion(
         &mut self,
         invocation: BoundExecutionSite,
@@ -296,7 +328,7 @@ impl Transfer {
                     .iter()
                     .any(|target| current.contains(target))
             })
-            || self.deferred_effects.iter().flatten().any(|effect| {
+            || [&self.deferred_effects, &self.captured_cleanup, &self.result_cleanup].into_iter().flatten().flatten().any(|effect| {
                 effect
                     .mutation()
                     .is_some_and(|(target, _)| current.contains(target))
@@ -324,7 +356,7 @@ impl Transfer {
             references.retire(current);
         }
 
-        if let Some(effects) = &mut self.deferred_effects {
+        for effects in [&mut self.deferred_effects, &mut self.captured_cleanup, &mut self.result_cleanup].into_iter().flatten() {
             *effects = std::mem::take(effects)
                 .into_iter()
                 .map(|mut effect| {

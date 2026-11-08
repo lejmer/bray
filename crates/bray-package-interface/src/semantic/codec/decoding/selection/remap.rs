@@ -332,9 +332,6 @@ fn remap_dependency_contract(
             | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}
-            DependencyStorageEffect::Cleanup(ty) => {
-                *ty = maps.type_id(*ty)?;
-            }
             DependencyStorageEffect::Direct { subject, .. } => {
                 remap_dependency_subject(subject, maps)?
             }
