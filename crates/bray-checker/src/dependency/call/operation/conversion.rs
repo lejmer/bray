@@ -203,8 +203,7 @@ fn project_effect(
         | DependencyStorageEffect::Atomic
         | DependencyStorageEffect::Escape
         | DependencyStorageEffect::Ambient
-        | DependencyStorageEffect::Unknown
-        | DependencyStorageEffect::Cleanup(_) => effect.clone(),
+        | DependencyStorageEffect::Unknown => effect.clone(),
     }
 }
 

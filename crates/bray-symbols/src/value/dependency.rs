@@ -647,16 +647,7 @@ impl DependencyContractTemplateData {
                     .into_iter()
                     .chain(std::iter::once(relation.exit()))
             })
-            .chain(self.effects().iter().filter_map(|effect| match effect {
-                DependencyStorageEffect::UnboundedMutation { .. }
-                | DependencyStorageEffect::Atomic
-                | DependencyStorageEffect::Ambient
-                | DependencyStorageEffect::Unknown
-                | DependencyStorageEffect::Escape
-                | DependencyStorageEffect::Cleanup(_) => None,
-                DependencyStorageEffect::Direct { subject, .. } => Some(subject),
-                DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
-            }))
+            .chain(self.effects().iter().filter_map(DependencyStorageEffect::subject))
     }
 
     /// Returns requirements for one selected output.

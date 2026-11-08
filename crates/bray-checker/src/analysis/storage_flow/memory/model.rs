@@ -22,16 +22,15 @@ pub(in crate::analysis::storage_flow) enum Effect {
         access_type: Option<TypeId>,
         ambient: bool,
     },
-    Cleanup(TypeId),
 }
 
 impl Effect {
     pub(in crate::analysis::storage_flow) fn is_ambient(&self) -> bool {
-        matches!(self, Self::Ambient | Self::UnboundedMutation { ambient: true, .. })
+        matches!(self, Self::Ambient | Self::UnboundedMutation { ambient: true, .. } | Self::Mutation(_, bray_symbols::DependencyMutationKind::Cleanup(_), _))
     }
 
     pub(in crate::analysis::storage_flow) fn may_reach_all_inputs(&self) -> bool {
-        matches!(self, Self::Unknown | Self::Cleanup(_) | Self::UnboundedMutation { ambient: false, .. })
+        matches!(self, Self::Unknown | Self::UnboundedMutation { ambient: false, .. })
     }
 
     pub(in crate::analysis::storage_flow) fn unbounded(
@@ -80,7 +79,7 @@ impl Effect {
                     })
             }
             Self::UnboundedMutation { kind, .. } => kind.is_write() && *kind != bray_symbols::DependencyMutationKind::Clear,
-            Self::Unknown | Self::Escape | Self::Cleanup(_) => true,
+            Self::Unknown | Self::Escape => true,
             Self::Ambient | Self::Atomic => false,
         }
     }
@@ -91,7 +90,7 @@ impl Effect {
         match self {
             Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape, _) => None,
             Self::Mutation(target, kind, _) => Some((target, *kind)),
-            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::Cleanup(_) | Self::UnboundedMutation { .. } => None,
+            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::UnboundedMutation { .. } => None,
         }
     }
 }
@@ -279,6 +278,8 @@ pub(super) struct Transfer {
     pub(super) payloads: BTreeMap<Target, Contents>,
     pub(super) failure_effects: Option<std::sync::Arc<CapturedEffects>>,
     pub(super) deferred_effects: Option<BTreeSet<Effect>>,
+    pub(super) captured_cleanup: Option<BTreeSet<Effect>>,
+    pub(super) result_cleanup: Option<BTreeSet<Effect>>,
     pub(super) deferred: super::references::DeferredTransitions,
     pub(super) returned_inputs: BTreeMap<Place, References>,
 }
@@ -299,15 +300,20 @@ impl Transfer {
                 .merge(bounds);
         }
 
-        if let Some(effects) = &mut self.deferred_effects {
-            if let Some(incoming) = &incoming.deferred_effects {
-                let before = effects.len();
-
-                effects.extend(incoming.iter().cloned());
-                changed |= before != effects.len();
-            } else {
-                self.deferred_effects = None;
-                changed = true;
+        for (effects, incoming) in [
+            (&mut self.deferred_effects, &incoming.deferred_effects),
+            (&mut self.captured_cleanup, &incoming.captured_cleanup),
+            (&mut self.result_cleanup, &incoming.result_cleanup),
+        ] {
+            if let Some(current) = effects {
+                if let Some(incoming) = incoming {
+                    let before = current.len();
+                    current.extend(incoming.iter().cloned());
+                    changed |= before != current.len();
+                } else {
+                    *effects = None;
+                    changed = true;
+                }
             }
         }
 

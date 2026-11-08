@@ -1017,7 +1017,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 | DependencyStorageEffect::Ambient
                 | DependencyStorageEffect::Unknown
                 | DependencyStorageEffect::Escape => {}
-                DependencyStorageEffect::Cleanup(_) => {},
+
                 DependencyStorageEffect::Direct { subject, .. } => {
                     self.include_dependency_subject(subject)
                 }

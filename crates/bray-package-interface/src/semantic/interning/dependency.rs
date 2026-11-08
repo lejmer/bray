@@ -483,13 +483,6 @@ impl InternState {
                 DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                 DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                 DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                DependencyStorageEffect::Cleanup(ty) => {
-                    let Some(ty) = self.type_id(*ty) else {
-                        return Ok(None);
-                    };
-
-                    DependencyStorageEffect::Cleanup(ty)
-                }
                 DependencyStorageEffect::Direct { subject, kind, access_type } => {
                     let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
                         return Ok(None);

@@ -126,6 +126,7 @@ pub struct BoundCallDependencyContracts {
     normal_storage_preserved: bool,
     deferred_effects: Option<Arc<[bray_symbols::DependencyStorageEffect]>>,
     deferred_completion: bool,
+    deferred_cleanup: Option<(Arc<[bray_symbols::DependencyStorageEffect]>, Arc<[bray_symbols::DependencyStorageEffect]>)>,
     deferred_storage_preserved: bool,
 }
 
@@ -191,6 +192,7 @@ impl BoundCallDependencyContracts {
             normal_storage_preserved: false,
             deferred_effects: None,
             deferred_completion: true,
+            deferred_cleanup: None,
             deferred_storage_preserved: false,
         }
     }
@@ -277,6 +279,26 @@ impl BoundCallDependencyContracts {
     /// Body effects applied when this lazy invocation is driven.
     pub fn deferred_effects(&self) -> Option<&[bray_symbols::DependencyStorageEffect]> {
         self.deferred_effects.as_deref()
+    }
+
+    /// Retains cleanup contracts for captured values and the discarded completion result.
+    pub fn with_deferred_cleanup(
+        mut self,
+        captures: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
+        result: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
+    ) -> Self {
+        self.deferred_cleanup = Some((bray_symbols::DependencyStorageEffect::normalize(captures), bray_symbols::DependencyStorageEffect::normalize(result)));
+        self
+    }
+
+    /// Cleanup that can execute for values captured by this lazy invocation.
+    pub fn deferred_capture_cleanup(&self) -> Option<&[bray_symbols::DependencyStorageEffect]> {
+        self.deferred_cleanup.as_ref().map(|(captures, _)| captures.as_ref())
+    }
+
+    /// Additional cleanup when this lazy invocation's completion result is discarded.
+    pub fn deferred_result_cleanup(&self) -> Option<&[bray_symbols::DependencyStorageEffect]> {
+        self.deferred_cleanup.as_ref().map(|(_, result)| result.as_ref())
     }
 
     /// Whether driving this invocation can return normally.

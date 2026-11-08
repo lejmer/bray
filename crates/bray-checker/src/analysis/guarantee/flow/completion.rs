@@ -310,7 +310,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return Vec::new();
         };
 
-        let Some(cleanup) = self.task_cleanup_types(&sources, false) else {
+        let Some(cleanup) = self.task_has_capture_cleanup(&sources) else {
             return Vec::new();
         };
 
@@ -320,7 +320,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .is_none_or(|effects| !effects.is_empty())
         });
 
-        if sources.is_empty() || (cleanup.is_empty() && !body_effects) {
+        if sources.is_empty() || (!cleanup && !body_effects) {
             return Vec::new();
         }
 

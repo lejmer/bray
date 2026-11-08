@@ -31,6 +31,38 @@ fn addressed_reference(
 }
 
 #[test]
+fn cleanup_retains_its_value_scope_and_follows_actual_contained_references() {
+    use bray_symbols::DependencyMutationKind;
+
+    for references_sibling in [false, true] {
+        let ([owner, left_source, right_source, _], origins) = places();
+        let left = Place { root: owner.root, projections: [StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0))].into() };
+        let right = Place { root: owner.root, projections: [StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(1))].into() };
+        let mut state = State {
+            owned_storage: vec![owner.root, left_source.root, right_source.root].into(),
+            ..State::default()
+        };
+
+        state.address(left_source.clone(), left.clone(), error_type(), origins[0]);
+        state.address(if references_sibling { left.clone() } else { right_source.clone() }, right.clone(), error_type(), origins[1]);
+
+        let effects = state.cleanup_effects(Some(&Target::storage(right.clone())), error_type());
+        assert!(effects.iter().filter_map(super::Effect::mutation)
+            .all(|(_, kind)| kind == DependencyMutationKind::Cleanup(error_type())));
+
+        let storage = StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
+        let protected = [left.clone()];
+        let stable = state.unexposed_storage(&protected, [Target::storage(right.clone())]).cloned().collect();
+        let invalidation = bray_bound_tree::StorageInvalidation::All {
+            stable_descriptors: stable, stable_values: Default::default(), normal_snapshots: Default::default(),
+        };
+        state.apply_effects(Some(&effects), &invalidation, &storage);
+        assert_eq!(state.referent(&left, error_type()), (!references_sibling).then_some(left_source));
+        assert_eq!(state.referent(&right, error_type()), None);
+    }
+}
+
+#[test]
 fn projected_region_types_keep_array_elements_distinct_from_array_valued_cells() {
     use crate::test_support::{
         TestCheckerContext, array_type, callable_entry, semantic_values, tuple_type,
@@ -4117,11 +4149,14 @@ fn staged_future_moves_retain_completion_effects_and_references() {
     let movement = expressions[1].into();
     let observation = expressions[2].into();
     let producers = [producer].into();
-    let effect = super::Effect::Cleanup(error_type());
+    let effect = super::Effect::unbounded(bray_symbols::DependencyMutationKind::Cleanup(error_type()), None, false);
     let mut state = State::default();
 
     state.begin_transition(producer);
     state.defer_effects(producer, Some(vec![effect.clone()]));
+    let captured_cleanup = super::Effect::Mutation(Target::storage(payload.clone()), bray_symbols::DependencyMutationKind::Clear, None);
+    let result_cleanup = super::Effect::Mutation(Target::storage(payload.clone()), bray_symbols::DependencyMutationKind::Escape, None);
+    state.capture_deferred_cleanup(producer, vec![captured_cleanup.clone()], vec![result_cleanup.clone()]);
 
     state.stage_address(
         producer,
@@ -4142,6 +4177,11 @@ fn staged_future_moves_retain_completion_effects_and_references() {
         state.deferred_effects(&source, &producers),
         Some(vec![effect])
     );
+
+    assert_eq!(state.deferred_cleanup_effects(&source, &producers, false), Some(vec![captured_cleanup.clone()]));
+    let mut discarded = vec![captured_cleanup, result_cleanup];
+    discarded.sort_unstable();
+    assert_eq!(state.deferred_cleanup_effects(&source, &producers, true), Some(discarded));
 
     assert!(state.prepare_deferred_completion(
         observation,

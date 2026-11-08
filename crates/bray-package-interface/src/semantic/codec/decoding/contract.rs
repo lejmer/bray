@@ -187,7 +187,6 @@ pub(super) fn decode_dependency_contract(
             6 => DependencyStorageEffect::Ambient,
             5 => DependencyStorageEffect::Escape,
             4 => DependencyStorageEffect::Atomic,
-            3 => DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(read_u32(reader)?)),
             1 => DependencyStorageEffect::Direct {
                 subject: decode_dependency_subject(reader, limits, context)?,
                 kind: decode_mutation(reader)?,
@@ -769,6 +768,7 @@ fn decode_mutation(
         5 => DependencyMutationKind::Replace(crate::InterfaceTypeId::new(read_u32(reader)?)),
         6 => DependencyMutationKind::Clear,
         7 => DependencyMutationKind::Escape,
+        8 => DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(read_u32(reader)?)),
         raw => {
             return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Dependency,

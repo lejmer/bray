@@ -1,6 +1,7 @@
 mod access;
 mod cleanup;
 mod core;
+mod deferred;
 mod effects;
 mod escape;
 mod memory;

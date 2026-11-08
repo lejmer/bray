@@ -5,7 +5,7 @@ pub(crate) const BYTE_ORDER_MARKER: u32 = 0x0102_0304;
 pub(crate) const MAGIC: [u8; 8] = *b"BRAYI\0\r\n";
 
 /// Exact package-interface format revision implemented by this crate.
-pub const CURRENT_FORMAT_REVISION: InterfaceFormatRevision = InterfaceFormatRevision::new(3);
+pub const CURRENT_FORMAT_REVISION: InterfaceFormatRevision = InterfaceFormatRevision::new(4);
 
 /// Exact revision of the package-interface wire format.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

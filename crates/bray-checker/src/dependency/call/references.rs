@@ -20,7 +20,8 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         .contains(&bray_symbols::ExecutionProperty::Pure);
 
     let contracts = if deferred {
-        contracts
+        let (captures, result) = super::super::cleanup::prepare_future_effects(request, call)?;
+        contracts.with_deferred_cleanup(captures, result)
             .with_deferred_execution(
                 template.effects().iter().cloned(),
                 template.normal_completion(),
@@ -164,6 +165,7 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
 
     for subject in template
         .reference_subjects()
+        .chain(contracts.deferred_capture_cleanup().into_iter().flatten().chain(contracts.deferred_result_cleanup().into_iter().flatten()).filter_map(bray_symbols::DependencyStorageEffect::subject))
         .collect::<std::collections::BTreeSet<_>>()
     {
         if let Some(prepared) = input_type(subject)? {

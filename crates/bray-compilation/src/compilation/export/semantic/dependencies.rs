@@ -93,9 +93,6 @@ impl<'a> SemanticExporter<'a> {
                     DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                     DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                    DependencyStorageEffect::Cleanup(ty) => {
-                        DependencyStorageEffect::Cleanup(self.type_id(*ty)?)
-                    }
                     DependencyStorageEffect::Direct { subject, kind, access_type } => {
                         DependencyStorageEffect::Direct {
                             subject: self.dependency_subject(subject)?,
@@ -657,7 +654,7 @@ mod tests {
                     ));
 
                     carriers.push(DependencyWitnessCarrier::new(index, []));
-                    effects.push(DependencyStorageEffect::Cleanup(ty));
+                    effects.push(DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Cleanup(ty), access_type: None, ambient: false });
                 }
 
                 let data = match category {
@@ -743,7 +740,7 @@ mod tests {
         let outer = values
             .intern_dependency_contract_template(
                 DependencyContractTemplateData::new([])
-                    .with_effects([DependencyStorageEffect::Cleanup(callable)])
+                    .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Cleanup(callable), access_type: None, ambient: false }])
                     .with_normal_completion(false),
             )
             .expect("fixture dependency contract must be interned");
@@ -768,7 +765,7 @@ mod tests {
                 vec![
                     InterfaceDependencyContract::new([]),
                     InterfaceDependencyContract::new([])
-                        .with_effects([DependencyStorageEffect::Cleanup(callable_id)])
+                        .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Cleanup(callable_id), access_type: None, ambient: false }])
                         .with_normal_completion(false),
                 ],
             )

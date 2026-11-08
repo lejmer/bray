@@ -261,7 +261,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // Await and start consume a source future before driving it. An
                 // inactive frame with inert captures cannot execute user cleanup.
                 matches!(value, Some(ExecutionCondition::Expression(source))
-                    if self.disposal.plan.future_cleanup.get(&source).is_some_and(|(captures, _)| captures.is_empty()))
+                    if self.disposal.plan.future_capture_cleanup.get(&source).is_some_and(|captures| captures.is_empty()))
             }
             Some(bray_compiler_known::RepresentationRole::String) => {
                 // Materialized string constants have static backing and no reference-counted owner.

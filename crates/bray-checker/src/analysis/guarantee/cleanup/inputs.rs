@@ -83,13 +83,7 @@ impl Plan {
                 }
             }
 
-            self.future_cleanup.insert(
-                entry.expression(),
-                (
-                    captures,
-                    cleanup_shapes.requirement(call.resolution().result().completion_type())?,
-                ),
-            );
+            self.future_capture_cleanup.insert(entry.expression(), captures);
         }
 
         Ok(())

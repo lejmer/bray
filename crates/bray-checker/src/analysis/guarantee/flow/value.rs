@@ -454,10 +454,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut captures = std::collections::BTreeSet::new();
 
         for source in entries.known_sources(&state.assumptions)? {
-            let (types, _) = self
+            let types = self
                 .disposal
                 .plan
-                .future_cleanup
+                .future_capture_cleanup
                 .get(&source.expression()?)?;
 
             captures.extend(types.iter().copied());
@@ -466,14 +466,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(captures.into_iter().collect())
     }
 
-    pub(in crate::analysis) fn task_cleanup_invocations(
+    pub(in crate::analysis) fn deferred_cleanup_invocations(
         &self,
         state: &ExecutionState,
         ty: bray_symbols::TypeId,
         path: &bray_bound_tree::StoragePath,
     ) -> Option<std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>> {
         if crate::representation::type_representation(self.request, ty)
-            != Some(bray_compiler_known::RepresentationRole::Task)
+            .is_none_or(|role| !matches!(role, bray_compiler_known::RepresentationRole::Task | bray_compiler_known::RepresentationRole::Future))
         {
             return None;
         }
@@ -483,33 +483,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .known_sources(&state.assumptions)
     }
 
-    /// Complete known task effects with the cleanup phases that can execute.
-    /// Observations transfer the body result. Disposal also destroys that result.
-    pub(in crate::analysis) fn task_cleanup_types(
+    /// Whether a known task can run cleanup for its captured values.
+    pub(in crate::analysis) fn task_has_capture_cleanup(
         &self,
         sources: &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
-        discard_result: bool,
-    ) -> Option<std::collections::BTreeSet<bray_symbols::TypeId>> {
-        let mut types = std::collections::BTreeSet::new();
-
+    ) -> Option<bool> {
+        let mut cleanup = false;
         for source in sources {
-            let expression = source.expression()?;
-
-            let (captures, result) = self.disposal.plan.future_cleanup.get(&expression)?;
-
-            types.extend(captures.iter().copied());
-
-            if discard_result && *result != bray_bound_tree::AsyncStorageCleanupRequirement::None {
-                let Some(bray_bound_tree::SemanticSelection::Call(call)) =
-                    self.semantics.selections().expression(expression)
-                else {
-                    unreachable!("prepared future cleanup retains its selected call");
-                };
-
-                types.insert(call.resolution().result().completion_type());
-            }
+            cleanup |= !self.disposal.plan.future_capture_cleanup.get(&source.expression()?)?.is_empty();
         }
-
-        Some(types)
+        Some(cleanup)
     }
 }
