@@ -4,6 +4,28 @@ use super::fixtures::production_host_compilation;
 use crate::test_support::source_function_body_key;
 
 #[test]
+fn production_dynamic_outputs_preserve_their_write_contracts() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let mut failures = Vec::new();
+
+    for name in [
+        "platform_dynamic_library_open_path",
+        "platform_dynamic_library_open_system",
+        "platform_dynamic_library_symbol",
+    ] {
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
+            .expect("production dynamic operation reports its checked source contract");
+
+        if lowered.diagnostics().has_errors() {
+            failures.push((name, lowered.diagnostics().clone()));
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
 fn production_buffer_range_contracts_survive_pointer_staging() {
     let compilation = production_host_compilation("module probe;");
     let mut failures = Vec::new();

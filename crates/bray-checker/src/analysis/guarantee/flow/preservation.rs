@@ -58,6 +58,15 @@ impl ValuePreservation {
 
         if self.value { return source.clone(); }
 
+        if self.descriptor && let Some((context, copied)) = source.storage_contents() {
+            // The private copy context is not the descriptor it contains. Update
+            // the copied descriptor's reached data without replacing its origin.
+            return ExecutionCondition::scalar_observation(
+                context.clone(),
+                self.apply_bounded(copied, place, mutation, wrap, budget),
+            );
+        }
+
         let mut contents = place.map_or(ExecutionCondition::Unknown, |place| {
             ExecutionCondition::PostState(mutation, place.clone())
         });
@@ -87,6 +96,28 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::{BoundExecutionSite, BoundUnitId, StorageMutation, StorageProjection};
     use bray_symbols::SymbolOrdinal;
+
+    #[test]
+    fn preserving_a_copied_descriptor_keeps_its_value_origin_without_old_contents() {
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let origin = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let context = ExecutionCondition::Input(place.clone());
+        let copied = ExecutionCondition::scalar_observation(context.clone(), origin.clone());
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            vec![push_expression(tree, integer_literal_expression(origin, None))]
+        });
+        let mutation = StorageMutation::Operation(sites[0].into());
+        let mask = ValuePreservation { descriptor: true, ..Default::default() };
+
+        let updated = mask.apply(&copied, Some(&place), mutation,
+            &|_, owner, contents| ExecutionCondition::owned_value(owner, contents));
+
+        assert_eq!(updated.storage_contents().map(|(owner, _)| owner), Some(&context));
+        assert_eq!(updated.copied_value().owner_identity(), &origin);
+        assert_eq!(updated.computed_value(), &ExecutionCondition::PostState(mutation, place));
+        assert!(super::super::super::state::ExecutionState::default().owned_values(&updated)
+            .all(|value| value.ownership_identity().is_none()));
+    }
 
     #[test]
     fn repeated_effects_keep_actual_nested_owners_and_only_unchanged_data() {

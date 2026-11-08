@@ -24,12 +24,12 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is 1af46e380. Fixed comparison gates pass with no unexplained
+The latest pushed source is 1fdbc16e7. Fixed comparison gates pass with no unexplained
 comparison regression. Native planning has no remaining moved-value diagnostic, but still fails on trusted obligations
 and execution guarantees. No native composition has executed. The copied-pointer owning-boundary regression and
-all 443 checker tests pass at that checkpoint. The fixed trusted population is 171 passed, 63 failed, 97 ignored with
-no newly failed old identity. Native planning remains blocked. The active gate is copied-value predicate observation
-and reference-safe copy proof. Temporary traces are removed.
+all 444 checker tests pass at that checkpoint. The fixed trusted population is 185 passed, 50 failed, 97 ignored with
+no newly failed old identity. Native planning remains blocked. The active gate is dynamic-library output contracts
+after preparation and the stalled operation-cleanup probe. Temporary diagnostic traces are removed after the bounded probes.
 The ledger remains incomplete. Source passes do not certify runtime execution.
 
 ### Executable ledger for the current blocking boundaries
@@ -44,6 +44,9 @@ These rows trace code paths, not completed native coverage. The failure edges ar
 | Custom index returned borrow, `expression/access.rs::custom_index_access` | Receiver and selector borrows are inputs. The indexer produces a borrow descriptor with its own stored borrow type. The reached item is a different value. | An ordinary item copy does not consume the reached owner. A live witness forbids that copy. | The existing InvocationResult binding identifies the descriptor. `invocation_result` stages its reference contract. `reference_target` resolves reached storage for the later copy. All 11 custom-index controls pass at 0e2e943d3. |
 | Built-in field or index projection, `project_access` | A produced loan descriptor and its reached storage already exist. Projection extends the same source path. It produces no independent owner. | Retiring the descriptor at an intermediate projection destroys the source of subsequent projections. The repair defers retirement to the actual consumer. | Frozen `returned_borrow_survives_field_and_index_projection` had two baseline moved-value errors. It and all eight adjacent value-lowering tests now pass. |
 | Actual consumer of a projected loan | The source path still identifies the producer's materialized borrow slot. The consumer first captures reached data or forms a new borrow. | Completion consumption retires the temporary descriptor, independently of the original referent owner. User parameter and binding storage are excluded by the producer/value-slot identity check. | `consume_expression_value` records the same consumption metadata read by storage flow and liveness `OperationEffects::from_storage_plan`. The frozen lowering regression passes. |
+| Await suspension, `execution.rs::build_await` | The Future operand has been evaluated. No awaited result exists. The operation branches to a suspended block. | Resume uses InvocationCompletion and only that edge publishes Call Completion. Panic and cancellation use InvocationFailure and resolve scopes through `push_exit`. | `flow/deferred.rs::deferred_alternatives` selects the actual deferred value. Storage flow records suspension before effects and does not publish the awaited result at suspension. Liveness includes current uses and live-out subjects. Async analysis requires the correlated suspension state. Native paths remain unexecuted. |
+| Suspension retention | Current live storage, initialized storage, moved paths, active loans and cleanup dependencies exist. | A merge unions possible live and moved obligations, but intersects definite initialization and active loans. It cannot promise one predecessor's initialized state on all paths. | `core.rs::record_suspension`, `liveness/solve.rs`, `asynchronous/check.rs` and lowering `cleanup/frame.rs::frame_retention` consume the same checked subjects. Frame retention also includes pending report owners and exact execution lane requirements. Source composition lowers, native retention remains unverified. |
+| Opaque effects on a copied descriptor | The private input has Scalar context plus an immutable source value. Physical survival distinguishes complete value from descriptor-only survival. | Descriptor-only survival must replace reached contents without replacing the copied descriptor's origin or creating owning authority. | `ValuePreservation::apply_bounded` discarded that origin. The real dynamic wrappers freeze three failures, and `preserving_a_copied_descriptor_keeps_its_value_origin_without_old_contents` fails before the repair. The repair is under validation. |
 
 Audit baseline: `b90076c1f21f3853ebfd90954b3babe26f122eca`.
 The behavioral contract remains [the implementation handoff](bra-567-handoff.md).
@@ -54,7 +57,7 @@ requires the whole composition, including lowering and native execution. This re
 ## Current implementation and evidence
 
 Worktree: `target/bra-567-audit`, directly on PR #710 branch `feature/bra-567-async-root-orchestration`.
-The original develop checkout is untouched. Latest pushed head is **1af46e380**.
+The original develop checkout is untouched. Latest pushed head is **1fdbc16e7**.
 The user explicitly authorized continued implementation, checkpoint pushes, and an independent review on the draft PR
 once implementation and verification finish. Continue through resolved review findings until ready for human Review.
 No review agent has been started. No style or formatting pass has run during this audit.
@@ -69,6 +72,7 @@ No review agent has been started. No style or formatting pass has run during thi
 - `c73547c02`: match copied pointer descriptors in closed spatial proofs, with async invalid variants and boundary test.
 - `da3e3c779`: share scalar computation reads across arithmetic, const calls and spatial extents, plus real buffer regression.
 - `1af46e380`: normalize all three initialization predicates while preserving contents invalidation, and collect all real buffer controls.
+- `1fdbc16e7`: observe copied predicate values without rebinding borrowed storage subjects.
 
 ### Fixed comparisons and their limits
 
@@ -211,6 +215,41 @@ report moved storage in main. All callable and lifecycle bodies of the valid fix
 by the fixed positive test. Both invalid variants are verified before the pointer repair.
 
 ### Remaining completion work
+
+`copied-value-predicate-native.log` at 1fdbc16e7 still fails standard-library native planning. It reports 56 E7123,
+37 E7119, 48 E7113, 9 E7036, 3 E7063 and 2 E7127. The first leaf is still the write after dynamic-library preparation.
+No native fixture executed. A new fixed producer test checks all three dynamic output wrappers without failing fast.
+
+The operation-cleanup control was retried once with a bounded 90-second observation period and still did not finish.
+Its task-owned process was stopped. Do not retry unchanged. Temporary unit entry/leave tracing now identifies the
+blocked callable, paired with trusted-proof failure tracing in one build. The originals are retained as
+dynamic-proof-before-trace.rs and cleanup-diagnostics-before-trace.rs in the ignored audit directory.
+
+The initial cleanup lookup trace did not establish body completion. `published_source_output` may return None.
+The corrected trace reaches main's callable contract request before semantic-unit diagnostic work. The next trace
+marks the actual checker phases. All earlier diagnostic and proof traces are restored. Those traces are also restored, with originals retained in cleanup-body-before-trace.rs and
+cleanup-test-before-trace.rs.
+
+The actual dynamic trace shows an admitted pointer as Scalar(private context, original pointer). Descriptor-only
+preservation changed it to Scalar(private context, PostState(private slot)). Completion then published valid_write
+against that private PostState, while the later write requires the original pointer. The preservation repair applies
+the existing descriptor update inside the Scalar context, leaving its source identity and lack of ownership intact.
+The new unit property also requires changed reached contents. No contract expectations are weakened.
+
+`copied-descriptor-boundary-repair.log` passes all seven selected Source tests, including the three real dynamic
+wrappers, async composition and copied-authority negatives. `copied-descriptor-trusted.log` has 187 passed, 49 failed,
+97 ignored. Only opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authority was removed from
+the old failed identities. The new dynamic regression passes. No old failed identity was added.
+
+The new unit property's final assertion initially required an empty owned_values traversal. That API visits its
+root even when the root has no owning identity. The corrected assertion requires every visited value to lack an
+owning identity, which tests the intended no-authority property. Its origin and changed-contents assertions already
+passed after the repair. `copied-descriptor-final-checker.log` passes all 445 checker tests.
+
+`cleanup-body-phase-trace.stderr.log` locates the outstanding probe in storage-flow solve for
+verify_generator_iteration, source range 12394..14494. This is the same generator boundary implicated by the earlier
+stopped broad lowering run. The next build adds incoming/transfer/output progress in the existing fixed-point solver.
+Its original is retained in cleanup-fixed-point-before-trace.rs. The trace is now restored. No loop semantics have been changed from this trace.
 
 - Finish the executable ledger across remaining operation/failure transitions, including constructors/defaults,
   branches/loops, suspension and task outcomes, scoped and root cleanup, retained incidents, shutdown and imported facts.
