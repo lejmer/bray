@@ -200,7 +200,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         let input = self.scoped_values(scoped)?;
 
         Ok(
-            crate::dependency::witness::map_requirements(requirements, &mut |subject, kind| {
+            crate::dependency::witness::map_requirements(requirements, &mut |subject, kind, _| {
                 if subject.subject_root()
                     != bray_symbols::DependencySubjectRoot::Parameter(
                         bray_symbols::SymbolOrdinal::new(0),
@@ -382,7 +382,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             crate::dependency::call::operation_inputs(self.request.view(), expression, operation);
 
         Ok(
-            crate::dependency::witness::map_requirements(requirements, &mut |subject, kind| {
+            crate::dependency::witness::map_requirements(requirements, &mut |subject, kind, role| {
                 let Some((_, input)) = inputs
                     .iter()
                     .find(|(root, _)| *root == subject.subject_root())
@@ -391,6 +391,13 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 };
 
                 match *input {
+                    crate::dependency::call::OperationInput::Borrow(operand, _)
+                        if role == crate::dependency::witness::RequirementMappingRole::InputValue
+                            && kind == DependencyRequirementKind::ValueDependencies
+                            && subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver =>
+                    {
+                        Ok(self.projected_values(operand, subject.projections()).into_iter().collect())
+                    }
                     crate::dependency::call::OperationInput::Borrow(operand, _)
                         if kind == DependencyRequirementKind::ValueDependencies
                             && !subject.projections().is_empty() =>
@@ -424,10 +431,17 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         ) -> Option<bray_bound_tree::BoundExecutionSite>,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         Ok(
-            crate::dependency::witness::map_requirements(requirements, &mut |subject, kind| {
+            crate::dependency::witness::map_requirements(requirements, &mut |subject, kind, role| {
                 let Some(argument) = argument(subject.subject_root()) else {
                     return Ok(vec![DependencyRequirement::direct(subject.clone(), kind)]);
                 };
+
+                if role == crate::dependency::witness::RequirementMappingRole::InputValue
+                    && kind == DependencyRequirementKind::ValueDependencies
+                    && let Some(receiver) = self.borrowed_input_receiver(argument)
+                {
+                    return Ok(self.projected_values(receiver, subject.projections()).into_iter().collect());
+                }
 
                 self.mapped_site_values(argument, subject.projections(), kind)
             }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in mapped_result_values: {error:?}"))

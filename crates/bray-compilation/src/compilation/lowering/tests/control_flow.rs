@@ -1271,6 +1271,27 @@ fn shared_generator_values_keep_their_original_reference_dependency() {
     "#,
     );
 
+    let step = checked.storage_flow(source_function_body_key(&checked, "step"))
+        .expect("generic iteration publishes its deferred input snapshot");
+    let [bray_symbols::DependencyRequirement::FixedPoint { definitions, .. }] = step.value().dependencies().requirements()
+        else { panic!("generic iteration retains its symbolic result equation"); };
+    let input = definitions.iter().flat_map(|definition| definition.iter()).find_map(|requirement| {
+        if let bray_symbols::DependencyRequirement::ResultCall { inputs, .. } = requirement {
+            inputs.first()
+        } else { None }
+    }).expect("the iterator result has its supplied receiver");
+    let parameter = bray_symbols::DependencySubject::root(
+        bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)));
+
+    assert_eq!(input.values(), &[
+        bray_symbols::DependencyRequirement::direct(parameter.clone(),
+            bray_symbols::DependencyRequirementKind::ValueDependencies),
+    ]);
+    assert_eq!(input.storage(), &[
+        bray_symbols::DependencyRequirement::direct(parameter,
+            bray_symbols::DependencyRequirementKind::StorageAlive),
+    ]);
+
     let flow = checked.storage_flow(source_function_body_key(&checked, "first_cursor"))
         .expect("the cursor publishes its portable result contract");
 

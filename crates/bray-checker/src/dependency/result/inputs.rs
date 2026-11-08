@@ -9,6 +9,16 @@ use super::core::Transfer;
 use crate::{CheckerQueryError, CheckerRequestContext};
 
 impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
+    pub(super) fn borrowed_input_receiver(&self, input: BoundExecutionSite) -> Option<bray_bound_tree::BoundExpressionId> {
+        let BoundExecutionSite::CallInput { expression, ordinal } = input else { return None; };
+        let bray_bound_tree::SelectedInput::Receiver(receiver) = self.selections.expression(expression)
+            .expect("input dependency transfer retains its invocation")
+            .input(ordinal).expect("input dependency transfer retains its exact input") else { return None; };
+
+        matches!(receiver.mode(), bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable)
+            .then_some(receiver.expression())
+    }
+
     pub(super) fn input_values(
         &self,
         input: BoundExecutionSite,
@@ -32,17 +42,8 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             .expression(expression)
             .expect("input dependency transfer retains its invocation");
 
-        let input = selection
-            .input(ordinal)
-            .expect("input dependency transfer retains its exact input");
-
-        if let bray_bound_tree::SelectedInput::Receiver(receiver) = input
-            && matches!(
-                receiver.mode(),
-                bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable
-            )
-        {
-            return Ok(self.borrowed_values(receiver.expression(), &[]));
+        if let Some(receiver) = self.borrowed_input_receiver(site) {
+            return Ok(self.borrowed_values(receiver, &[]));
         }
 
         let template =
@@ -91,12 +92,10 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
                 if kind == DependencyRequirementKind::ValueDependencies
                     && !path.is_empty()
-                    && let Some(source) = input.expression()
+                    && let Some((source, path)) = self.inputs.projected_input_value(
+                        self.request.semantic_values(), self.selections, argument, path,
+                    )
                 {
-                    let Some(path) = crate::storage::unadapted_projections(
-                        self.request.semantic_values(), input.conversion(), path,
-                    ) else { return Ok(Vec::new()); };
-
                     // The source expression already has its evaluated snapshot. A copied
                     // component carries that value's dependencies, not the input loan's lifetime.
                     return Ok(self.projected_values(source, path).into_iter().collect());

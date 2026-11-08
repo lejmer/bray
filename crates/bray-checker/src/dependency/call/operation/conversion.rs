@@ -59,7 +59,7 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
 
                         crate::dependency::witness::map_requirements(
                             requirements,
-                            &mut |subject, kind| {
+                            &mut |subject, kind, _| {
                                 // Array elements form one dependency summary. Retain the
                                 // aggregate instead of manufacturing an element identity.
                                 let subject = project_subject(subject, ordinal, shape.as_ref())

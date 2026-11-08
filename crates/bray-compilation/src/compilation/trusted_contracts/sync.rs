@@ -529,6 +529,8 @@ fn copied_addresses_keep_value_dependencies_without_the_container_loan() {
 
 #[test]
 fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
+    let mut failures = Vec::new();
+
     for (parameter, argument, valid) in [("&Owner", "owner", true), ("Owner", "&owner", false)] {
         let source = format!(
             r#"
@@ -582,26 +584,22 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
             application.syntax_tree_result().diagnostics()
         );
 
-        if valid {
-            let diagnostics = application.check_diagnostics();
+        let diagnostics = application.check_diagnostics();
+        let expected = DiagnosticKind::CheckingEscapingStorageDependency;
 
-            assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
-        }
+        let matches_expected = if valid {
+            !diagnostics.has_errors()
+        } else {
+            diagnostics.iter().any(|diagnostic| diagnostic.kind() == expected)
+                && diagnostics.iter().all(|diagnostic| diagnostic.kind() == expected)
+        };
 
-        if !valid {
-            let diagnostics = application.check_diagnostics();
-            let expected = DiagnosticKind::CheckingEscapingStorageDependency;
-
-            bray_testing::assert_goal_state_diagnostic_kind(&diagnostics, expected);
-
-            assert!(
-                diagnostics
-                    .iter()
-                    .all(|diagnostic| diagnostic.kind() == expected),
-                "{source}: {diagnostics:#?}"
-            );
+        if !matches_expected {
+            failures.push((valid, source, diagnostics.clone()));
         }
     }
+
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 #[test]

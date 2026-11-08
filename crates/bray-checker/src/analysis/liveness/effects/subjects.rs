@@ -10,10 +10,12 @@ pub(in crate::analysis) fn dependency_subjects<C: CheckerRequestContext + ?Sized
     request: CheckerUnitView<'_, C>,
     requirements: &[BoundDependencyRequirement],
     storage: &StoragePlan,
+    inputs: &crate::dependency::ValueInputs,
+    selections: &bray_bound_tree::CheckedSemanticSelections,
 ) -> BTreeSet<BoundDependencySubject> {
     let mut subjects = BTreeSet::new();
 
-    collect_dependency_subjects(request, requirements, storage, &mut subjects);
+    collect_dependency_subjects(request, requirements, storage, inputs, selections, &mut subjects);
 
     subjects
 }
@@ -22,6 +24,8 @@ pub(super) fn collect_dependency_subjects<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     requirements: &[BoundDependencyRequirement],
     storage: &StoragePlan,
+    inputs: &crate::dependency::ValueInputs,
+    selections: &bray_bound_tree::CheckedSemanticSelections,
     subjects: &mut BTreeSet<BoundDependencySubject>,
 ) {
     for requirement in requirements {
@@ -29,12 +33,13 @@ pub(super) fn collect_dependency_subjects<C: CheckerRequestContext + ?Sized>(
             BoundDependencyRequirement::Direct { subject, .. } => {
                 collect_subject(*subject, storage, subjects);
             }
-            BoundDependencyRequirement::Value { source, ty, .. } => {
-                // Address copies carry the source value's dependencies, not the
-                // loan used to read its container. Resolve those carried loans
-                // in the existing ownership fixed point, with the complete requirement.
+            BoundDependencyRequirement::Value { source, path, ty } => {
+                // A resolved component or address copy carries the source value's
+                // dependencies. The reading loan is an invocation use. Resolve
+                // carried loans in the ownership fixed point with the full requirement.
                 if crate::representation::reference_kind(request, *ty)
                     != Some(bray_symbols::DependencyReferenceKind::Address)
+                    && inputs.copied_value_source(request.semantic_values(), storage, selections, *source, path).is_none()
                 {
                     collect_subject(
                         BoundDependencySubject::StorageAccess(*source),
@@ -47,7 +52,7 @@ pub(super) fn collect_dependency_subjects<C: CheckerRequestContext + ?Sized>(
                 let guard = requirement.guard().subject();
 
                 collect_subject(guard, storage, subjects);
-                collect_dependency_subjects(request, requirement.requirements(), storage, subjects);
+                collect_dependency_subjects(request, requirement.requirements(), storage, inputs, selections, subjects);
             }
         }
     }

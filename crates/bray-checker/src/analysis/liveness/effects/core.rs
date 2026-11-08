@@ -23,7 +23,7 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct OperationEffects {
-    boundary_uses: BTreeMap<(bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageValueConsumptionPhase), BTreeSet<BoundDependencySubject>>,
+    pub(super) boundary_uses: BTreeMap<(bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageValueConsumptionPhase), BTreeSet<BoundDependencySubject>>,
     pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
     operation_result_definitions:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
@@ -88,6 +88,8 @@ impl OperationEffects {
                     request,
                     completed.requirements(),
                     storage,
+                    &effects.value_inputs,
+                    selections,
                 ));
         }
 
@@ -172,7 +174,7 @@ impl OperationEffects {
             }
         }
 
-        effects.retain_owned_call_dependencies(request, storage);
+        effects.retain_owned_call_dependencies(request, storage, selections);
         effects.retain_input_dependencies(request.unit(), dependencies);
 
         if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
@@ -416,10 +418,10 @@ impl OperationEffects {
                 .extend(contracts.result().requirements().iter().cloned());
 
             let mut invocation =
-                dependency_subjects(request, contracts.invocation().requirements(), storage);
+                dependency_subjects(request, contracts.invocation().requirements(), storage, &self.value_inputs, selections);
 
             let mut returned =
-                dependency_subjects(request, contracts.result().requirements(), storage);
+                dependency_subjects(request, contracts.result().requirements(), storage, &self.value_inputs, selections);
 
             if let Some(SemanticSelection::Call(call)) = occurrence
                 .expression()
@@ -459,6 +461,8 @@ impl OperationEffects {
                     request,
                     deferred.requirements(),
                     storage,
+                    &self.value_inputs,
+                    selections,
                     &mut invocation,
                 );
             }
