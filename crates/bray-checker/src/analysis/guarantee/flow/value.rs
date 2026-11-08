@@ -111,8 +111,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.storage, self.request.semantic_values(), target,
             )?;
 
-            crate::ExecutionPlace::storage_path(self.storage, &target)
-                .and_then(|place| place.value_in(&state.current))
+            self.current_storage_value(state, &target)
         };
 
         let contents = self.storage.node_plans(expression.into())
@@ -269,8 +268,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         path: &bray_bound_tree::StoragePath,
     ) -> ExecutionCondition {
-        if let Some(value) = crate::ExecutionPlace::storage_path(self.storage, path)
-            .and_then(|place| place.value_in(&state.current))
+        if let Some(value) = self.current_storage_value(state, path)
         {
             return value;
         }
@@ -279,6 +277,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.storage_identity_value(state, path.root),
             |value, projection| value.project(*projection),
         )
+    }
+
+    /// Reads an actual retained logical value, excluding unrepresented physical backing.
+    pub(in crate::analysis::guarantee) fn current_storage_value(
+        &self,
+        state: &ExecutionState,
+        path: &bray_bound_tree::StoragePath,
+    ) -> Option<ExecutionCondition> {
+        crate::ExecutionPlace::storage_path(self.storage, path)?.value_in(&state.current)
     }
 
     /// Read the current source selected by the owning storage transition before

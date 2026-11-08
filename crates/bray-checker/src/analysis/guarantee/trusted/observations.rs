@@ -132,7 +132,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     );
                 }
 
-                Some(self.storage_path_value(state, &target))
+                self.current_storage_value(state, &target)
             };
 
             let observed = match input {
