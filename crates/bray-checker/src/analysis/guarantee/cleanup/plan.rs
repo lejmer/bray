@@ -40,13 +40,17 @@ pub(super) enum Step {
     Opaque {
         ty: TypeId,
         path: Option<bray_bound_tree::StoragePath>,
+        guards: Vec<(
+            bray_bound_tree::StoragePath,
+            bray_bound_tree::BoundOperator,
+            ExecutionCondition,
+        )>,
     },
     Lifecycle {
         ty: TypeId,
         place: Option<ExecutionPlace>,
         path: Option<bray_bound_tree::StoragePath>,
         whole: bool,
-        conditional: bool,
         guards: Vec<(
             bray_bound_tree::StoragePath,
             bray_bound_tree::BoundOperator,
@@ -392,9 +396,10 @@ impl Plan {
                 .into_iter()
                 .map(|(ty, part)| {
                     let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
+                    let guards = cleanup_guards(request.semantic_values(), storage, access, part.as_ref());
 
                     if !has_source_lifecycle(cleanup_shapes, request, ty, part.as_ref())? {
-                        Ok(Step::Opaque { ty, path })
+                        Ok(Step::Opaque { ty, path, guards })
                     } else {
                         types.insert(ty);
 
@@ -402,15 +407,9 @@ impl Plan {
 
                         Ok(Step::Lifecycle {
                             ty,
-                            guards: cleanup_guards(request.semantic_values(), storage, access, part.as_ref()),
+                            guards,
                             path,
                             place,
-                            conditional: part.as_ref().is_none_or(|part| part.projections().iter().any(|projection| {
-                                matches!(projection.projection(),
-                                    bray_bound_tree::StorageCleanupProjectionKind::Component(
-                                        bray_bound_tree::StorageProjection::NullableValue
-                                        | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
-                            })),
                             whole: part
                                 .as_ref()
                                 .is_some_and(|part| part.projections().is_empty()),
@@ -424,6 +423,7 @@ impl Plan {
                 steps.push(Step::Opaque {
                     ty,
                     path: storage.logical_path(access).cloned(),
+                    guards: Vec::new(),
                 });
             }
 

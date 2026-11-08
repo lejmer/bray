@@ -4,6 +4,63 @@ use super::fixtures::production_host_compilation;
 use crate::test_support::source_function_body_key;
 
 #[test]
+fn production_byte_copy_does_not_publish_its_input_addresses() {
+    use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
+
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+        &compilation, "copy_spare_raw_bytes");
+
+    assert!(!dependencies.effects().iter().any(|effect| matches!(effect,
+        DependencyStorageEffect::Escape
+        | DependencyStorageEffect::Direct { kind: DependencyMutationKind::Escape, .. }
+        | DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Escape, .. })),
+        "{:?}", dependencies.effects());
+}
+
+#[test]
+fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
+    for (value, valid) in [("none", true), ("maybe_buffer()", false)] {
+        let source = format!(r#"
+            trusted module probe;
+
+            using core.memory;
+
+            using std.memory;
+
+            extern trusted func maybe_buffer() -> std.memory.RawBuffer<u8>?
+                executes(pure, total);
+
+            extern trusted func observe(pos pointer: DataPointer<u8>)
+                requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1))
+                executes(pure, total);
+
+            trusted func caller(pos pointer: DataPointer<u8>)
+                requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1))
+            {{
+                {{
+                    let buffer: std.memory.RawBuffer<u8>? = {value};
+                }}
+
+                trusted observe(pointer);
+            }}
+        "#);
+        let compilation = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::baseline(), &source);
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "caller"))
+            .expect("conditional buffer disposal retains its checked transition");
+
+        assert_eq!(!lowered.diagnostics().has_errors(), valid, "{value}: {:?}", lowered.diagnostics());
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
 fn production_awaited_writer_does_not_return_its_completed_receiver_loan() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");
