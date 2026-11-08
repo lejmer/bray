@@ -24,12 +24,12 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is f1b8bc032. Fixed comparison gates pass with no unexplained
+The latest pushed source is 02d82b5bc. Fixed comparison gates pass with no unexplained
 comparison regression. Native planning has no remaining moved-value diagnostic, but still fails on trusted obligations
 and execution guarantees. No native composition has executed. The copied-pointer owning-boundary regression and
-all 445 checker tests pass at that checkpoint. The fixed trusted population is 187 passed, 49 failed, 97 ignored with
-no newly failed old identity. Native planning remains blocked. The active gate is nullable payload publication at
-the generator loop join. All temporary traces are restored. No native fixture has executed.
+all 446 checker tests pass at that checkpoint. The fixed trusted population is 187 passed, 49 failed, 97 ignored with
+no newly failed old identity. Native planning remains blocked. The active gate is carried loan requirements versus physical storage anchors
+for returned references. All temporary traces are restored. No native fixture has executed.
 The ledger remains incomplete. Source passes do not certify runtime execution.
 
 ### Executable ledger for the current blocking boundaries
@@ -58,7 +58,7 @@ requires the whole composition, including lowering and native execution. This re
 ## Current implementation and evidence
 
 Worktree: `target/bra-567-audit`, directly on PR #710 branch `feature/bra-567-async-root-orchestration`.
-The original develop checkout is untouched. Latest pushed head is **f1b8bc032**.
+The original develop checkout is untouched. Latest pushed head is **02d82b5bc**.
 The user explicitly authorized continued implementation, checkpoint pushes, and an independent review on the draft PR
 once implementation and verification finish. Continue through resolved review findings until ready for human Review.
 No review agent has been started. No style or formatting pass has run during this audit.
@@ -75,6 +75,7 @@ No review agent has been started. No style or formatting pass has run during thi
 - `1af46e380`: normalize all three initialization predicates while preserving contents invalidation, and collect all real buffer controls.
 - `1fdbc16e7`: observe copied predicate values without rebinding borrowed storage subjects.
 - `f1b8bc032`: preserve copied descriptor origins while replacing reached contents.
+- `02d82b5bc`: stabilize nullable component publication and unblock generator/default composition checks.
 
 ### Fixed comparisons and their limits
 
@@ -104,9 +105,26 @@ Later checks blocked by that probe were unverified. Avoid an unchanged broad rer
 
 ### Current gate and owned process
 
-All temporary production traces are removed. The active regression establishes nullable component publication before
-any repair. The diagnostic compilation executable still contains the temporary exact-state capture. Do not use it
-with BRAY_AUDIT_FLOW_SNAPSHOT for ordinary verification. The next repaired build will replace it.
+All temporary production traces are removed. The test executables match the current loan-anchor repair and contain
+no diagnostic capture. No task-owned probe remains running. The current coherent repair is ready for checkpoint.
+
+`returned-view-boundary-baseline.log` freezes actual std.bytes.Buffer.as_slice/as_slice_mut rejection, shared generator
+reference rejection and the borrowed-heap positive failure. Local generator references are correctly rejected.
+The actual Buffer views are checked through production source bodies, with the selected owning type asserted.
+The trace identifies an escaping InvocationInput slot, rather than the external owner reached by its stored loan.
+
+`callee_result_template` retains ValueDependencies and BorrowCapabilityActive for trusted borrowed views. Instantiation
+correctly names the staged loan value. Liveness expands the loans carried by that value. The storage-input collector
+incorrectly also classified BorrowCapabilityActive on a staged slot as a physical storage anchor. The repair excludes
+that value-level requirement from collect_retained_storage, just as ValueDependencies is excluded. StorageAlive,
+StorageInitialized and exclusive-storage dependencies still retain physical storage.
+
+`loan-anchor-checker.log` passes 446. `loan-anchor-boundary-repair.log` passes both actual Buffer methods, local generator
+rejection, async composition and operation cleanup. The borrowed-heap positive now reaches a trusted-obligation failure
+instead of the old escaping-slot error. Its later owned-Owner negative remains blocked by that positive failure.
+The shared generator test still reports five escaping dependencies. These remain completion work.
+`loan-anchor-trusted.log` has 189 passed, 48 failed, 97 ignored. nested_buffer_views_preserve_checked_storage_effects is
+the only removed old failed identity, and none were added. The added production Buffer-view regression passes.
 
 The smaller frozen generator_iteration_lowers_selected_cursor_operations test repeated the same blocks beyond
 14,000 updates. Its task-owned process was stopped after sufficient repeated-update evidence. The verbose flow trace
@@ -130,7 +148,7 @@ operation-cleanup/default fixture in 3.83 seconds. No probe remains running, and
 The three storage-flow failures match the earlier controlled baseline. The fourth,
 shared_generator_values_keep_their_original_reference_dependency, is already in import-lowering-failed.txt and failed
 in live-join-import-lowering.log. It reports an escaping dependency and belongs to the next returned-reference gate.
-The one-line publication repair and its fixed regression are ready for checkpoint. Native planning is still unverified
+The one-line publication repair and its fixed regression are pushed as 02d82b5bc. Native planning is still unverified
 after this repair and remains blocked by the returned-reference class in the preceding native run.
 
 Earlier repairs and retained evidence:
@@ -159,9 +177,9 @@ Earlier repairs and retained evidence:
 `copied-descriptor-native.log` at f1b8bc032 still fails standard-library native planning. It reports 27 E7123,
 37 E7119, 48 E7113, 9 E7036, 3 E7063 and 2 E7127. The earlier copied-value checkpoint had 56 E7123.
 The dynamic write leaf is repaired. The first remaining leaf is CheckingEscapingStorageDependency, SourceId(94),
-range 2560..2593. Its exact file mapping still needs verification. The rendered escaping-dependency diagnostics also
-include initialized_slice views from std.bytes.Buffer.as_slice and as_slice_mut. The returned-reference transport
-boundary is next after the current generator publication gate.
+range 2560..2593. The product string-sorted source order maps SourceId(94) to std/format/sink.bray. That exact
+byte range is the return of sink.buffer.as_slice() at line 92. SourceId(37) and its earlier dynamic write byte range
+also match this ordering. The returned-reference transport boundary is the current gate.
 No native fixture executed.
 
 - Finish the executable ledger across remaining operation/failure transitions, including constructors/defaults,
