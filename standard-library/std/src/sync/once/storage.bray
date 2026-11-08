@@ -60,7 +60,7 @@ impl Once<T>
 
     internal trusted consume mut func into_inner() -> T?
         requires(trusted std.sync.once.valid(&self.prepared.instance))
-        uses(raw_memory, intrinsic)
+        uses(intrinsic)
     {
         if !trusted self.initialized()
         {

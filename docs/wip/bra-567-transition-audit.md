@@ -26,7 +26,7 @@ Defer automated style and formatting passes until the audit and semantic repairs
 
 ## Current checkpoint and next decision
 
-The latest pushed source is 3b9d8906d on PR #710's branch. The original audit baseline is
+The latest pushed source is 7def79a80 on PR #710's branch. The original audit baseline is
 b90076c1f21f3853ebfd90954b3babe26f122eca. The agreed goal remains in bra-567-handoff.md.
 No native composition has executed and the issue is not complete.
 
@@ -40,7 +40,7 @@ advance and transport pass, but cancellation after the awaited transport result 
 
 completed-owner-trace.log proves storage flow initialized the destination local at initializer completion, before
 ownership analysis or lowering published it at the pattern binding. Cancellation tried cleanup both on the actual
-await result and the unknown local. The current uncommitted batch removes that early-local shortcut and its helper.
+await result and the unknown local. The pushed 7def79a80 batch removes that early-local shortcut and its helper.
 produce now passes. The fixed suite exposed three old regressions in borrowed locals, so expansion is stopped:
 owned_postconditions_follow_a_scoped_mutable_alias, shared_component_borrow_preserves_only_its_marker_observations,
 and nullable_input_adaptation_preserves_physical_owners_and_rejected_values. Do not weaken their expectations.
@@ -66,8 +66,37 @@ controls compared with descriptor-role-trusted.log. Across unchanged identities,
 binding-descriptor-import-lowering.log has 383 passes, the same 57 failures and two ignored in 112.53 seconds while
 xtask builds concurrently. No unexplained regression remains in either fixed comparison.
 
-Push this coherent checkpoint, finish xtask build session 78595 and run native acceptance. The last native at 7aa514618 has 25 E7123,
-27 E7119, three E7063 and two E7127. It contains none of 3b9d8906d's Result-entry and descriptor-role repairs.
+binding-descriptor-xtask-build.log completes in 1m55s. binding-descriptor-native.log uses this fresh compiler and Rust
+1.98.1 archives with LLVM 22. Standard-library native planning still stops before runtime Source compilation and all
+fixture execution. It records 25 E7123, 12 E7119, three E7063 and two E7127. E7119 falls from 27 at 7aa514618.
+
+pointer-completion-trace.log proves the borrowed-heap control's pointer facts were live, but six alias/lifetime
+predicates kept Borrowed(Input(pointer-field)) while the actual pointer copy required Input(pointer-field). The existing
+closed pointer normalization inventory covered spatial and initialization predicates only. The current batch adds the
+six borrow-formation predicates to that same inventory without changing contents-write preservation or authority.
+The clean proof/completion backups are restored and no diagnostic hooks remain.
+
+borrow-predicate-build.log completes in 2m45s. Checker and lowering have 449 and 38 passes. The trusted/adjacent
+population has 227 passes, 40 failures and 97 ignored. The frozen trusted set loses exactly the borrowed-heap failure,
+leaving 39. The larger population additionally establishes an existing failure in
+raw_pointer_storage::terminal_destructor_distinguishes_local_address_formation_from_escape. All 13 terminal_destructor
+module tests pass, including clearing inherited nullable owners and rejecting new graceful ownership. This new baseline
+is separate from the frozen trusted comparison. The broader export/lowering comparison is unchanged at 383 passes,
+57 failures and two ignored in 105.67 seconds. No old failure identity is added.
+
+borrow-predicate-xtask-build.log completes in 1m32s. borrow-predicate-native.log still stops at standard-library native
+planning with 25 E7123, 12 E7119 and two E7127. The three E7063 errors are removed by deleting unused raw_memory and
+unchecked_alias declarations from Once.claim and into_inner. Exact body capabilities are required by the language.
+The six-predicate repair restores its frozen Source control but does not remove a current native E7123 location.
+Do not claim the native condition-variable queue boundary was fixed by it.
+
+The next actual native boundary is ConditionVariable's queue authorization, lock/get and cleanup. Inspect carried loan
+roles in input_witness_owner and borrowed_result_carrier. They still classify borrowed values by matching Borrowed
+inside owner_identity, while explicit Reference observations can have expression identities. This is a hypothesis until
+an actual failing Source body shows the rejected role. Reuse existing production_sync_compilation and body_belongs_to
+for a focused real-body regression. Do not patch the runtime call sites or weaken the fixed comparisons.
+
+No build or test process remains running. No independent review agent has been started. Native composition is unexecuted.
 
 Runtime protocol inspection confirms reserve_start stores registration before demand_lane and rollback withdraws it
 before close_owner/release_pin. commit_start calls activation.begin before locking/publishing task control. Still prove
