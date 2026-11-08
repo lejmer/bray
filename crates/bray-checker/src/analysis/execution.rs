@@ -196,6 +196,14 @@ where
 
         self.push_call(resume, id.into(), AnalysisCallPhase::Completion);
 
+        // A new cancellation request can arrive after the child's completed
+        // value has transferred. This path owns that value, unlike invocation
+        // failure, and must resolve it before leaving the current frame.
+        let completed_cancellation = self.push_block();
+
+        self.push_edge(resume, completed_cancellation, AnalysisEdgeKind::RunCancellation, None);
+        self.push_exit(completed_cancellation, AnalysisExitKind::Cancellation, id.into());
+
         self.push_edge(
             suspended,
             cancellation,

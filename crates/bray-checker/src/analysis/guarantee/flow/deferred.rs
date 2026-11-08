@@ -170,57 +170,42 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .known_sources(&state.assumptions)
     }
 
-    pub(in crate::analysis) fn capture_deferred_reports(
+    pub(in crate::analysis) fn capture_deferred_reports<E>(
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
-        snapshot: impl FnOnce() -> crate::dependency::ReportDependencies,
-    ) {
+        mut snapshot: impl FnMut(Option<BoundExecutionSite>, bray_bound_tree::CallReportOutput)
+            -> Result<crate::dependency::ReportDependencies, E>,
+    ) -> Result<(), E> {
         let value = self.value(state, expression);
 
         let Some(deferred) = state.deferred_invocations.get_mut(value.owner_identity()) else {
-            return;
+            return Ok(());
         };
 
-        let mut snapshot = Some(snapshot);
-        let mut captured = None;
+        for output in [bray_bound_tree::CallReportOutput::DeferredCompleted,
+            bray_bound_tree::CallReportOutput::DeferredAbnormal] {
+            for (source, candidate) in &mut deferred.producers {
+                if self.dependencies.calls()[source].report(output).is_some()
+                    && !candidate.reports.contains_key(&output) {
+                    candidate.reports.insert(output, Arc::new(snapshot(Some(*source), output)?));
+                }
+            }
 
-        for reports in deferred
-            .producers
-            .iter_mut()
-            .filter(|(source, _)| {
-                self.dependencies.calls()[source]
-                    .deferred_reports()
-                    .is_some_and(|reports| {
-                        [reports.completed(), reports.abnormal()]
-                            .into_iter()
-                            .flatten()
-                            .any(|contract| !contract.requirements().is_empty())
-                    })
-            })
-            .map(|(_, candidate)| &mut candidate.reports)
-            .chain(
-                deferred
-                    .unknown
-                    .iter_mut()
-                    .map(|candidate| &mut candidate.reports),
-            )
-        {
-            if reports.is_none() {
-                *reports = Some(Arc::clone(captured.get_or_insert_with(|| {
-                    Arc::new(snapshot
-                        .take()
-                        .expect("one frame capture computes its report snapshot once")(
-                    ))
-                })));
+            if let Some(candidate) = &mut deferred.unknown
+                && !candidate.reports.contains_key(&output) {
+                candidate.reports.insert(output, Arc::new(snapshot(None, output)?));
             }
         }
+
+        Ok(())
     }
 
     pub(in crate::analysis) fn awaited_report_dependencies(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
+        output: bray_bound_tree::CallReportOutput,
     ) -> Option<Arc<crate::dependency::ReportDependencies>> {
         let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
             self.request.view().expression(expression)
@@ -231,23 +216,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let value = self.value(state, awaited.operand());
         let deferred = state.deferred_entries(&value)?;
         let mut reports = None;
+        let output = if output.is_abnormal() {
+            bray_bound_tree::CallReportOutput::DeferredAbnormal
+        } else {
+            bray_bound_tree::CallReportOutput::DeferredCompleted
+        };
 
         for captured in deferred
             .producers
-            .values()
-            .map(|candidate| (&candidate.selection, &candidate.reports))
+            .iter()
+            .filter_map(|(source, candidate)| self.dependencies.calls()[source].report(output)
+                .map(|_| (&candidate.selection, candidate.reports.get(&output)
+                    .expect("a formed future retains each selected report's dependency snapshot"))))
             .chain(
                 deferred
                     .unknown
                     .iter()
-                    .map(|candidate| (&candidate.selection, &candidate.reports)),
+                    .map(|candidate| (&candidate.selection, candidate.reports.get(&output)
+                        .expect("an opaque future retains its captured report dependencies"))),
             )
             .filter(|(guard, _)| super::super::deferred::possible(guard, &state.assumptions))
-            .map(|(_, reports)| {
-                reports
-                    .as_ref()
-                    .expect("formed future retains its captured report dependencies")
-            })
+            .map(|(_, reports)| reports)
         {
             if let Some(previous) = &mut reports {
                 crate::dependency::ReportDependencies::merge(previous, captured);
@@ -421,7 +410,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 invocation,
                 super::super::deferred::DeferredInvocation {
                     entry: Arc::new(entry),
-                    reports: None,
+                    reports: Default::default(),
                     selection: super::super::deferred::selection(&state.assumptions),
                 },
             );

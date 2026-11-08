@@ -331,8 +331,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .occurrence_plans(operand)
                     .filter(|_| retain_authority)
                 {
-                    if let Some(owner) =
-                        crate::ExecutionPlace::storage_owner(self.storage, access.access())
+                    if let Some(owner) = self.storage.logical_path(access.access())
+                        .and_then(|path| crate::ExecutionPlace::storage_owner(self.storage, path))
                     {
                         owners.entry(operand).or_default().borrowed.insert(owner);
                     }
@@ -427,7 +427,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             owners.extend(
                 paths
                     .iter()
-                    .filter_map(|path| crate::ExecutionPlace::storage_path(self.storage, path)),
+                    .filter_map(|path| crate::ExecutionPlace::storage_owner(self.storage, path)),
             );
         } else if let Some(place) = place {
             // Provisional execution analysis has no completed storage transition yet.

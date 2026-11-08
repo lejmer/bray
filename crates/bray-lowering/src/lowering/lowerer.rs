@@ -2002,7 +2002,12 @@ mod tests {
         let storage_flow = StorageFlow::try_new(
             unit.unit(),
             unit.key().kind(),
-            [],
+            storage.access_plans().iter().map(|plan| bray_bound_tree::StorageOperationDecision::new(
+                plan.node(), plan.expression(),
+                if plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer {
+                    bray_bound_tree::StorageAccessPurpose::Move
+                } else { plan.purpose() },
+                plan.access(), None, bray_bound_tree::StorageOperationStatus::Valid)),
             [],
             unit.tree().blocks().map(|(block, _)| block),
             scope_exits

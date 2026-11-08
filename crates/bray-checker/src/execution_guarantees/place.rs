@@ -192,7 +192,8 @@ impl ExecutionPlace {
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<Self> {
-        Self::storage_owner(storage, access)?.project(storage.resolved_projections(access)?)
+        Self::storage_identity(storage, storage.root_identity(access)?)?
+            .project(storage.resolved_projections(access)?)
     }
 
     pub(crate) fn storage_path(
@@ -202,13 +203,17 @@ impl ExecutionPlace {
         Self::storage_identity(storage, path.root)?.project(&path.projections)
     }
 
+    /// Selects the containing storage that bounds a checked path's lifetime.
+    /// Dynamic elements and ranges keep their containing owner without naming a scalar value.
     pub(crate) fn storage_owner(
         storage: &bray_bound_tree::StoragePlan,
-        access: bray_bound_tree::StorageAccessId,
+        path: &bray_bound_tree::StoragePath,
     ) -> Option<Self> {
-        let identity = storage.root_identity(access)?;
+        let mut owner = Self::storage_identity(storage, path.root)?;
 
-        Self::storage_identity(storage, identity)
+        owner.projections = path.projections.iter().copied().map_while(Self::projection_kind).collect();
+
+        Some(owner)
     }
 
     pub(crate) fn storage_identity(

@@ -304,6 +304,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if let Some(expression) = awaited {
             self.set_awaited_execution(state, expression, true);
+            // The suspended run owns the evaluated frame. Its original output
+            // slot cannot remain an independent cleanup owner on any outcome.
+            self.consume_value_slots(state, expression.into(), bray_bound_tree::StorageValueConsumptionPhase::Admission);
         }
     }
 

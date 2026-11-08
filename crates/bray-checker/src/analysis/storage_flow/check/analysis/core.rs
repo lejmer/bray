@@ -1270,17 +1270,11 @@ where
                     }
             ) && let Some(expression) = kind.occurrence().expression()
             {
-                self.execution
-                    .capture_deferred_reports(execution, expression, || {
-                        crate::dependency::ReportDependencies {
-                            subjects: self.liveness.retained_by(expression).collect(),
-                            requirements: state
-                                .result_dependencies
-                                .value_requirements(expression)
-                                .cloned()
-                                .collect(),
-                        }
-                    });
+                if let Err(error) = self.execution.capture_deferred_reports(
+                    execution, expression, |source, output| self.deferred_report_dependencies(
+                        &mut state.result_dependencies, expression, source, output)) {
+                    self.query_failure = Some(error);
+                }
             }
         }
 
