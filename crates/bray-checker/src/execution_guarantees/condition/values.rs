@@ -67,11 +67,7 @@ impl ExecutionCondition {
         for argument in &mut arguments {
             // Const calls compute from current values, independently of the
             // loan that supplies them. Flow values retain that loan separately.
-            let value = std::mem::replace(argument, Self::Unknown).into_referent();
-
-            let value = value.current_contents().clone();
-
-            *argument = value.storage_contents().map(|(_, contents)| contents.clone()).unwrap_or(value);
+            *argument = argument.computed_value().clone();
 
             if argument.contains_unknown() {
                 return Self::Unknown;
@@ -339,15 +335,16 @@ impl ExecutionCondition {
         }
     }
 
-    /// Value observations carry contents independently of storage identity.
-    fn current_contents(&self) -> &Self {
-        let mut current = self;
+    /// Built-in computations read values rather than their storage or loan identities.
+    pub(crate) fn computed_value(&self) -> &Self {
+        let mut value = self;
 
-        while let Self::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } = current {
-            current = contents;
+        loop {
+            match value {
+                Self::Borrowed(contents) | Self::Observation { contents, .. } => value = contents,
+                _ => return value,
+            }
         }
-
-        current
     }
 
     /// A scalar storage context and its current copied contents are distinct observations.
@@ -752,14 +749,7 @@ impl ExecutionCondition {
 
     pub(crate) fn operation(operator: BoundOperator, mut operands: Vec<Self>) -> Self {
         for operand in &mut operands {
-            if matches!(operand, Self::Observation { kind: ObservationKind::Owned, .. }) {
-                *operand = operand.current_contents().clone();
-            }
-
-            if let Self::Observation { contents: value, kind: ObservationKind::Scalar, .. } = operand {
-                *operand = value.as_ref().clone();
-            }
-
+            *operand = operand.computed_value().clone();
         }
 
         if matches!(operator, BoundOperator::LogicalAnd | BoundOperator::LogicalOr) {
@@ -805,27 +795,6 @@ impl ExecutionCondition {
         }
 
         if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
-            if let [reference @ Self::Observation { kind: ObservationKind::Reference, .. }, Self::Literal(absent)]
-            | [Self::Literal(absent), reference @ Self::Observation { kind: ObservationKind::Reference, .. }] = operands.as_slice()
-                && matches!(absent.kind(), bray_symbols::ConstantValueKind::NullableAbsent)
-            {
-                return Self::operation(operator, vec![reference.clone().into_referent(), Self::Literal(Arc::clone(absent))]);
-            }
-
-            if let [Self::Borrowed(subject), Self::Literal(absent)]
-            | [Self::Literal(absent), Self::Borrowed(subject)] = operands.as_slice()
-                && matches!(
-                    absent.kind(),
-                    bray_symbols::ConstantValueKind::NullableAbsent
-                )
-            {
-                // Nullable tests observe the reached value, as union tag tests do.
-                return Self::operation(
-                    operator,
-                    vec![subject.as_ref().clone(), Self::Literal(Arc::clone(absent))],
-                );
-            }
-
             if let [left, Self::Literal(absent)] | [Self::Literal(absent), left] =
                 operands.as_slice()
                 && matches!(

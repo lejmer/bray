@@ -85,7 +85,7 @@ impl ExecutionCondition {
 
                                 descriptor.owner_identity().clone()
                             } else {
-                                argument.clone()
+                                argument.computed_value().clone()
                             }
                         })
                         .collect(),
