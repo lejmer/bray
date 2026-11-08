@@ -33,6 +33,16 @@ struct ChildCleanup
 {
     marker: Marker;
     cancelled: bool;
+    mut visits: u32;
+
+    mut async func advance()
+        requires(main_thread_execution(), trusted retained(marker = &self.marker))
+        ensures(trusted retained(marker = &self.marker))
+    {
+        await direct();
+        self.visits += 1;
+        observe(&self);
+    }
 
     async finalize()
         requires(main_thread_execution(), trusted retained(marker = &self.marker))
@@ -78,7 +88,8 @@ trusted func acquire(pos cancelled: bool) -> ChildCleanup
         marker = Marker
         {
         },
-        cancelled = cancelled
+        cancelled = cancelled,
+        visits = 0
     };
 }
 
@@ -170,7 +181,7 @@ async func direct()
     assert(std.thread.is_main());
 }
 
-async func transport(pos owner: ChildCleanup, pos early: bool) -> ChildCleanup
+async func transport(pos mut owner: ChildCleanup, pos early: bool) -> ChildCleanup
     requires(main_thread_execution(), trusted retained(marker = &owner.marker))
     ensures(trusted retained(marker = &result.marker))
 {
@@ -178,9 +189,10 @@ async func transport(pos owner: ChildCleanup, pos early: bool) -> ChildCleanup
 
     while progress != 2
     {
-        await direct();
+        await owner.advance();
         observe(&owner);
         progress += 1;
+        assert(owner.visits == progress);
     }
 
     if early

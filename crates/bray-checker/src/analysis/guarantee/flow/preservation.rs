@@ -37,9 +37,8 @@ impl ValuePreservation {
         source: &ExecutionCondition,
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
-        wrap: &impl Fn(&ExecutionPlace, ExecutionCondition, ExecutionCondition) -> ExecutionCondition,
     ) -> ExecutionCondition {
-        self.apply_bounded(source, place, mutation, wrap, &mut { ExecutionCondition::WORK_LIMIT })
+        self.apply_bounded(source, place, mutation, &mut { ExecutionCondition::WORK_LIMIT })
     }
 
     fn apply_bounded(
@@ -47,7 +46,6 @@ impl ValuePreservation {
         source: &ExecutionCondition,
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
-        wrap: &impl Fn(&ExecutionPlace, ExecutionCondition, ExecutionCondition) -> ExecutionCondition,
         budget: &mut usize,
     ) -> ExecutionCondition {
         let Some(remaining) = budget.checked_sub(1) else {
@@ -63,7 +61,7 @@ impl ValuePreservation {
             // the copied descriptor's reached data without replacing its origin.
             return ExecutionCondition::scalar_observation(
                 context.clone(),
-                self.apply_bounded(copied, place, mutation, wrap, budget),
+                self.apply_bounded(copied, place, mutation, budget),
             );
         }
 
@@ -74,15 +72,13 @@ impl ValuePreservation {
         for (projection, preservation) in &self.children {
             let child = source.clone().project(*projection);
             let child_place = place.and_then(|place| place.clone().project(&[*projection]));
-            let next = preservation.apply_bounded(&child, child_place.as_ref(), mutation, wrap, budget);
+            let next = preservation.apply_bounded(&child, child_place.as_ref(), mutation, budget);
 
             contents = contents.with_storage_component(&[*projection], next);
         }
 
-        if self.descriptor {
-            if let Some(place) = place {
-                return wrap(place, source.clone(), contents);
-            }
+        if self.descriptor && place.is_some() {
+            return source.with_current_contents(contents);
         }
 
         contents
@@ -109,8 +105,7 @@ mod tests {
         let mutation = StorageMutation::Operation(sites[0].into());
         let mask = ValuePreservation { descriptor: true, ..Default::default() };
 
-        let updated = mask.apply(&copied, Some(&place), mutation,
-            &|_, owner, contents| ExecutionCondition::owned_value(owner, contents));
+        let updated = mask.apply(&copied, Some(&place), mutation);
 
         assert_eq!(updated.storage_contents().map(|(owner, _)| owner), Some(&context));
         assert_eq!(updated.copied_value().owner_identity(), &origin);
@@ -144,8 +139,7 @@ mod tests {
 
         for site in sites {
 
-            value = mask.apply(&value, Some(&root), StorageMutation::Operation(BoundExecutionSite::from(site)),
-                &|_, owner, contents| ExecutionCondition::owned_value(owner, contents));
+            value = mask.apply(&value, Some(&root), StorageMutation::Operation(BoundExecutionSite::from(site)));
 
             let retained = value.clone().project(child);
 

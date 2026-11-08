@@ -1275,6 +1275,10 @@ mod tests {
             && edge.kind() == AnalysisEdgeKind::RunCancellation && edge.refinement().is_none()),
             "post-completion cancellation retains the produced result instead of applying invocation failure");
 
+        assert!(matches!(completion.operations().last().and_then(|id| graph.operation(*id)).map(|operation| operation.kind()),
+            Some(AnalysisOperationKind::Call { phase: super::super::model::AnalysisCallPhase::Completion, .. })),
+            "source continuation cannot consume the completed value before the cancellation edge");
+
         let suspension = graph.operations().iter().find(|operation| matches!(operation.kind(),
             AnalysisOperationKind::Suspension { occurrence, kind: AnalysisSuspensionKind::Await }
                 if occurrence == await_expression.into())).expect("await has its admission boundary");

@@ -273,6 +273,15 @@ impl ExecutionCondition {
         Self::reference_value(identity.clone(), contents)
     }
 
+    /// Replaces current contents without reclassifying the actual descriptor.
+    pub(crate) fn with_current_contents(&self, contents: Self) -> Self {
+        match self.ownership_identity() {
+            Some((ObservationKind::Reference, _)) => self.with_referent(contents),
+            Some((ObservationKind::Owned, identity)) => Self::owned_value(identity.clone(), contents),
+            _ => Self::scalar_observation(self.owner_identity().clone(), contents),
+        }
+    }
+
     /// Structural overlays retain the existing value's identity and ownership role.
     pub(crate) fn constructed(
         base: Self,

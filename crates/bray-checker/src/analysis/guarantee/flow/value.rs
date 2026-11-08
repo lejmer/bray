@@ -8,31 +8,6 @@ use crate::execution_guarantees::{ExecutionCondition, expression_condition};
 use super::super::state::ExecutionState;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    /// Update actual contents while retaining the source descriptor's role and identity.
-    pub(super) fn current_observation(
-        &self,
-        place: &crate::ExecutionPlace,
-        source: ExecutionCondition,
-        contents: ExecutionCondition,
-    ) -> ExecutionCondition {
-        let reference = self.borrowed_inputs.contains(place)
-            || self.observed_types.get(place).copied().flatten().is_some_and(|ty| {
-                matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
-            });
-
-        let identity = source.ownership_identity().map(|(role, identity)| (role, identity.clone()));
-
-        if reference {
-            return source.borrowed().with_referent(contents);
-        }
-
-        match identity {
-            Some((crate::execution_guarantees::ExecutionObservationKind::Reference, _)) => source.with_referent(contents),
-            Some((crate::execution_guarantees::ExecutionObservationKind::Owned, identity)) => ExecutionCondition::owned_value(identity, contents),
-            _ => ExecutionCondition::scalar_observation(source.owner_identity().clone(), contents),
-        }
-    }
-
     pub(in crate::analysis) fn value(
         &self,
         state: &ExecutionState,

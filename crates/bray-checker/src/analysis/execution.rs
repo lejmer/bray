@@ -228,7 +228,12 @@ where
 
         self.push_exit(failure, AnalysisExitKind::Panic, id.into());
 
-        Some(Some(resume))
+        // Later source evaluation must not precede the cancellation check.
+        let continued = self.push_block();
+
+        self.push_edge(resume, continued, AnalysisEdgeKind::Sequential, None);
+
+        Some(Some(continued))
     }
 
     pub(super) fn build_call(

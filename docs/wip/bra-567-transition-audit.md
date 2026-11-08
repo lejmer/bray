@@ -24,12 +24,12 @@ After compaction, reread this section before choosing more work.
 Continue on PR #710's branch and commit/push coherent checkpoints. Write inline Bray fixtures in Bray formatting.
 Defer automated style and formatting passes until the audit and semantic repairs are complete.
 
-The latest pushed source is fc4b5160b. It fixes proved-absent conditional cleanup and reference-free byte-copy
+The latest pushed source is 7aa514618. The previous fc4b5160b checkpoint fixes proved-absent conditional cleanup and reference-free byte-copy
 address exposure. Both actual rename paths pass Source and lowering. conditional-cleanup-checker.log has 447 passes.
 conditional-cleanup-native.log still has 25 E7123, 27 E7119, 1 E7113, 8 E7036, 3 E7063 and 2 E7127.
 No native fixture has executed. The compiler repairs below are intermediate steps toward that acceptance gate.
 
-The current uncommitted batch preserves normal and abnormal report formation independently, including symbolic generic
+The pushed 7aa514618 batch preserves normal and abnormal report formation independently, including symbolic generic
 requirements. Opaque frames retain their captured dependencies. A boundary law checks channel separation, predecessor
 immutability and repeated-join stabilization. Await admission now consumes its Future operand at Suspension(Await),
 matching storage planning. The earlier selector only consumed at CallAttempt, which await never emits. The stale Future
@@ -65,6 +65,57 @@ checked_slice_prefix_authority_expires_with_its_storage. The exact preceding fc4
 retained projected-loan executable passes. The current lifetime repair restores the narrow positive/negative check.
 Retained report, origin and completed-await traces establish the actual boundary defects. Comparison identities and
 executables remain in target/audit. Do not equate these Source test populations with native diagnostics or execution.
+
+The current fixture adds ChildCleanup.advance as a mutable async receiver, updates visits across suspension and loop
+iterations, and adds a pending-mutable-future conflict negative without changing frozen test identities. All three
+intended negatives pass, but mutable-async-composition.log records the positive's marker-preservation failure.
+The existing await outcome regression still fails its result-store assertion. Its expectations are restored unchanged.
+Expansion is stopped until both transitions and the fixed comparison pass.
+
+mutable-composition-trace.log proves three exact defects. Contract clauses stage &result with unknown contents despite
+having a known successful-variant guard. The actual PostconditionResult formal was never initialized in current storage.
+The current entry repair installs ExecutionCondition::Result only at clause entry, without creating an owner. Its
+unchanged fallible-pair positive/fabrication-negative test passes in contract-entry-trace.log.
+That trace also shows Await's cancellation plan classifies the newly produced Guard as Moved. The new cancellation edge
+was emitted from resume, but build_await returned that same block, so later source Return consumed the result before
+any outgoing edge. The current repair gives the successful continuation a separate block. The CFG law now requires
+completion to be the last operation before cancellation. No result-store assertion was weakened.
+Finally, the receiver's entry witness is keyed by an owning Input(self). On await, storage flow proves its Marker field
+stable, but current_observation changes the formal to Reference, so same-role carrier retention drops the witness.
+Both direct() and the controlled bare yield_now() variant show this. ADVANCE-EFFECTS records Ambient with the Marker
+in stable_values. The first attempted correction changed borrowed-formal entry representation. The frozen comparison exposed six new
+old-test failures, and the receiver still failed, so that migration is reverted. Entry representation stays fixed.
+
+All temporary traces and variant hooks are restored. Backups mutable-core-before-trace.rs, mutable-proof-before-trace.rs,
+mutable-host-before-trace.rs preserve the prior semantic sources. The MIR test is restored from 7aa514618, keeping its
+original owner-store and cleanup assertions. formal-loan-completion-boundaries-build.log completes. Its checker and lowering runs have 448 and 38 passes. The
+unchanged await result-store/cleanup regression passes. The trusted comparison has 198 passes, 47 failures and 97
+ignored, with six old failures removed, six old failures introduced and the extended composition failing. No expansion.
+The current repair instead removes current_observation's type-based descriptor reclassification. The existing actual
+source identity and ownership role now determine contents replacement in ExecutionCondition::with_current_contents.
+ValuePreservation uses that canonical operation directly. Its caller-specific callback and the old helper are removed.
+A new boundary law covers owning values, reference views and scalar copies, requiring identical role/identity and new
+contents. The postcondition Result entry and split post-await continuation repairs remain. Build session 28036 writes
+descriptor-role-completion-build.log for checker, lowering and compilation. Current sources contain no diagnostic hooks.
+descriptor-role-checker.log has all 449 passes and descriptor-role-lowering.log has all 38 passes. The fixed trusted
+population has 204 passes, 41 failures and 97 ignored. Exactly six old failures disappear and none is added in unchanged
+cases. The extended async receiver now passes, including its ensures. The real composition reaches produce and fails
+its cleanup marker requirement after awaiting transport. Both invalid-owner cases and the new pending-borrow negative
+still reject as intended. The original await result cleanup check passes unchanged. This is an intermediate checkpoint,
+not completion. Trace produced owner evidence through the post-completion cancellation edge before further migration.
+After completion rerun libraries, fixed trusted population, original await check, real async composition and negatives.
+If no unexplained old regression remains, broaden export/lowering, checkpoint/push, then rebuild xtask for native.
+await-completed-cancellation-native.log at 7aa514618 has 25 E7123, 27 E7119, three E7063 and two E7127. The previous
+E7113 and eight E7036 are gone. No native fixture executes. The retained xtask matches 7aa514618 plus the fixture edits.
+The latest compilation executable contains the diagnostic contract-entry build, not the current borrowed-formal/split
+continuation repair until session 5858 completes. Rebuild xtask only after the coherent current comparison is valid.
+
+The runtime protocol inspection confirms reserve_start stores the registration before demand_lane and graceful exit
+withdraws it before close_owner/release_pin. commit_start calls activation.begin before locking and publishing the task
+control, then clears registration and wakes. Still trace actual abnormal ownership between begin and publication through
+the native frame owner and activation cleanup. Its shape alone is not proof of rollback. EntryRestoration consumes its
+EntryScope and writes completion after finish_entry_scope. RetiredCell disposes control before the execution pin and arena.
+These remain read-only correspondence observations awaiting Source and native acceptance.
 
 ### Executable ledger for the current blocking boundaries
 
