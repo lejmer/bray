@@ -675,7 +675,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if matches!(target.origin, Origin::Returned { .. })
             && kind != DependencyMutationKind::Atomic
         {
-            if kind != DependencyMutationKind::Escape {
+            let (origins, unbounded) = memory.effect_origins(target);
+
+            if unbounded && kind != DependencyMutationKind::Escape {
                 // An independent alternative may reach external storage, without granting freshness.
                 self.record_effect(DependencyStorageEffect::UnboundedMutation {
                     kind, access_type, ambient: true,
@@ -683,7 +685,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             // Preserve every possible input region and the actual ownership transition.
-            for origin in memory.effect_origins(target) {
+            for origin in origins {
                 self.record_target_effect(memory, origin, kind, access_type, normal_effects);
             }
 

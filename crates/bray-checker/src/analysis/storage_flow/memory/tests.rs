@@ -3435,7 +3435,7 @@ fn returned_references_capture_external_exposure_when_they_are_created() {
     );
 
     assert!(
-        state.effect_origins(&pointer).next().is_none(),
+        state.effect_origins(&pointer).0.next().is_none(),
         "external reachability does not imply this call received a local input"
     );
 
@@ -3451,7 +3451,7 @@ fn returned_references_capture_external_exposure_when_they_are_created() {
         bray_bound_tree::StorageRelationship::Disjoint
     );
 
-    assert!(state.effect_origins(&later).any(|target| target == &local));
+    assert!(state.effect_origins(&later).0.any(|target| target == &local));
 }
 
 #[test]
@@ -3651,6 +3651,7 @@ fn rewritten_returned_references_keep_flat_input_bounds() {
         assert!(
             state
                 .effect_origins(&input)
+                .0
                 .all(|target| !matches!(target.origin, super::Origin::Returned { .. })),
             "effect bounds contain physical input regions"
         );
@@ -3911,7 +3912,7 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
         .expect("a bounded returned cell retains its declared view type");
 
     assert_eq!(
-        state.effect_origins(&target).collect::<Vec<_>>(),
+        state.effect_origins(&target).0.collect::<Vec<_>>(),
         vec![&payload]
     );
 
@@ -4015,6 +4016,8 @@ fn bounded_returned_references_preserve_input_exclusivity() {
         let mut returned = state.value_target(&destination, error_type()).expect("a returned view has a physical identity");
         returned.previous = previous;
         let returned = returned.project(&[StorageProjection::UninitPayload]);
+        assert_eq!(state.effect_origins(&returned).1, opaque || previous);
+        assert!(state.effect_origins(&returned.project(&[StorageProjection::OwnedTarget])).1);
         let expected = if disjoint { StorageRelationship::Disjoint } else { StorageRelationship::PotentiallyOverlapping };
 
         for (left, right) in [(&returned, &right), (&right, &returned)] {
