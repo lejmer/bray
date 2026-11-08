@@ -14,7 +14,7 @@ using internal bray.runtime.bootstrap.host;
 
 trusted internal func task_services() -> bray.runtime.bootstrap.task.Services
     ensures(trusted bray.runtime.bootstrap.task.native_services(owner = &result))
-    uses(intrinsic)
+    uses(layout_reinterpret)
 {
     let invoke: bray.runtime.bootstrap.activation.callback.Invoke = invoke_task;
     let ready: bray.runtime.bootstrap.activation.callback.Ready = action_readiness;
@@ -131,7 +131,6 @@ trusted internal func leave_producer(
 )
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
     ensures(trusted view_owned(owner = &selected.acquisition))
-    uses(intrinsic)
 {
     let task = trusted current_task(selected);
 

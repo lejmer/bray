@@ -63,7 +63,6 @@ trusted internal func retire_runtime_slot(pos owner: &bray.runtime.bootstrap.exe
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
         trusted bray.runtime.bootstrap.execution.services_retiring(owner = &owner.acquisition)
     )
-    uses(intrinsic)
 {
     let (unused, metadata, retired) = trusted detach_runtime_slot(owner, index);
 

@@ -44,7 +44,7 @@ trusted internal func take_previous(pos owner: &Current) -> bray.runtime.bootstr
         trusted view_owned(owner = &owner.acquisition),
         (result matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result))
     )
-    uses(raw_memory, unchecked_init, intrinsic)
+    uses(raw_memory, unchecked_init)
 {
     let value = trusted context(owner);
     let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&value.previous);

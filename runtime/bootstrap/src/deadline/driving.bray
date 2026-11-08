@@ -73,7 +73,8 @@ trusted internal func close(pos owner: &Reference)
     }
 }
 
-internal func monotonic_now() -> Result<u64, std.platform.PlatformStatus>
+trusted internal func monotonic_now() -> Result<u64, std.platform.PlatformStatus>
+    uses(raw_memory, unchecked_init)
 {
     let mut ticks: u64 = 0;
     let status = trusted std.platform.clock_monotonic_now(std.memory.address_of_mut<u64>(&mut ticks));

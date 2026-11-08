@@ -44,7 +44,7 @@ trusted internal func destroy_reference(pos owner: Reference)
 
 // Operations belong to the pool that owns their backing and provider. Root-only
 // consumers can borrow this interface without retaining native worker creation.
-internal func request(pos owner: &Reference, pos lane: bray.runtime.bootstrap.scheduler.Lane) -> Failure
+trusted internal func request(pos owner: &Reference, pos lane: bray.runtime.bootstrap.scheduler.Lane) -> Failure
     requires(
         trusted retained(owner = &owner.marker),
         trusted bray.runtime.bootstrap.host.product.native_host(),
@@ -68,7 +68,7 @@ internal func request(pos owner: &Reference, pos lane: bray.runtime.bootstrap.sc
     return trusted operation(trusted service_pointer(owner), workload);
 }
 
-internal func close(pos owner: &Reference, pos defer: bool)
+trusted internal func close(pos owner: &Reference, pos defer: bool)
     requires(trusted retained(owner = &owner.marker), blocking_execution())
     ensures(trusted retained(owner = &owner.marker))
     uses(foreign_call)
@@ -78,7 +78,7 @@ internal func close(pos owner: &Reference, pos defer: bool)
     trusted operation(trusted service_pointer(owner), defer);
 }
 
-internal func detach(pos owner: &Reference)
+trusted internal func detach(pos owner: &Reference)
     requires(trusted retained(owner = &owner.marker))
     ensures(trusted retained(owner = &owner.marker))
     uses(foreign_call)

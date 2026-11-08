@@ -388,7 +388,7 @@ trusted internal func create_worker(pos formation: Descriptor) -> Failure
 
 trusted internal func await_worker(pos reference: &WorkerReference) -> Failure
     requires(trusted retained_worker(owner = &reference.marker), blocking_execution())
-    uses(intrinsic)
+    uses(intrinsic, foreign_call)
 {
     let row = trusted retained_worker_value(reference);
 

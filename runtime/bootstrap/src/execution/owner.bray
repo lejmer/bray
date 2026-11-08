@@ -83,7 +83,7 @@ trusted internal func initialize_context(
         trusted context_owned(owner = &owner)
     )
     ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = &result))
-    uses(raw_memory, unchecked_init, layout_reinterpret)
+    uses(raw_memory, unchecked_init)
 {
     let typed = trusted lambda(pos allocation: &std.memory.RawAllocation) -> DataPointer<Context>
         requires(
@@ -126,7 +126,7 @@ trusted internal func borrow_execution(pos owner: &bray.runtime.bootstrap.host.E
         trusted view_owned(owner = &result.acquisition),
         result.status == 0
     )
-    uses(raw_memory, unchecked_alias, layout_reinterpret, intrinsic)
+    uses(raw_memory, unchecked_alias, intrinsic)
 {
     let address = trusted core.target.expose_address<u8>(owner.resource);
     let pointer = trusted core.target.from_exposed_address<Context>(address = address);
@@ -170,6 +170,7 @@ trusted internal func enter_driver(
 ) -> bray.runtime.bootstrap.host.ExecutionOwner
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner))
     ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = &result))
+    uses(intrinsic)
 {
     // Native key destructors may have cleared execution TLS before the host's
     // attachment callback. The actual owner, rather than key order, binds it.

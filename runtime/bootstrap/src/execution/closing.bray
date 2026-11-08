@@ -83,7 +83,7 @@ trusted internal func begin_driver_close(pos owner: &Current) -> bool
 trusted internal func take_driver_attachment(pos owner: &Current) -> bray.runtime.bootstrap.host.attachment.Owner?
     requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0, trusted driver_closing(owner = owner))
     ensures(trusted view_owned(owner = &owner.acquisition), trusted acquired_attachment_option(owner = &result))
-    uses(raw_memory, unchecked_init, intrinsic)
+    uses(raw_memory, unchecked_init)
 {
     let value = trusted context(owner);
     let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.attachment.Owner?)>(&value.attachment);
@@ -133,7 +133,7 @@ trusted internal func close_driver_binding(pos owner: &bray.runtime.bootstrap.ho
 trusted internal func close_binding(pos owner: Binding) -> Binding
     requires(trusted kernel_binding(owner = &owner))
     ensures(trusted kernel_binding(owner = &result))
-    uses(foreign_call, intrinsic)
+    uses(foreign_call)
 {
     let release = owner.release;
     let suspend = owner.suspend;
@@ -154,7 +154,7 @@ trusted internal func close_binding(pos owner: Binding) -> Binding
     };
 }
 
-internal func take_acquired_attachment(
+trusted internal func take_acquired_attachment(
     pos owner: bray.runtime.bootstrap.host.attachment.Owner?
 ) -> bray.runtime.bootstrap.host.attachment.Owner
     requires(owner matches ?_, trusted acquired_attachment_option(owner = &owner))

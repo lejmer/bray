@@ -261,6 +261,7 @@ trusted internal func native_context_publication(pos pointer: DataPointer<Refere
         trusted native_context_transfer(owner = &pointer, context = context),
         context != 0
     )
+    uses(intrinsic)
 {
     let reference = trusted borrow_reference(&pointer);
     let mut guard = trusted lock_cell(reference);

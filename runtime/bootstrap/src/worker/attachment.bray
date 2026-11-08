@@ -16,6 +16,7 @@ trusted internal func publish_scope(pos owner: &mut Scope) -> (u32, bray.runtime
         result.0 == 0 || result.1 matches ?_,
         result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1)
     )
+    uses(intrinsic)
 {
     let acquire = trusted lambda(pos owner: &Scope) -> bray.runtime.bootstrap.host.ExecutionOwner
         requires(trusted scope_owned(owner = &owner.marker))

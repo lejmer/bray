@@ -75,7 +75,7 @@ trusted internal func execution_reference(pos reference: &Reference) -> &bray.ru
     {
         ensures(trusted resolution_owner(owner = reference))
     }
-    uses(raw_memory, unchecked_alias)
+    uses(raw_memory, unchecked_alias, intrinsic)
 {
     let slot = trusted cell(reference);
     let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.execution.Reference?)>(&slot.execution_owner);

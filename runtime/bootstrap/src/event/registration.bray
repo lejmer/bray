@@ -347,7 +347,6 @@ trusted internal func wait_execution(
     {
         ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = waiter))
     }
-    uses(intrinsic)
 {
     let (acquired, observed) = trusted prepare_execution_wait(execution, waiter, identity);
 
@@ -419,7 +418,6 @@ trusted internal func prepare_execution_wait(
     {
         ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = waiter))
     }
-    uses(intrinsic)
 {
     let acquired = trusted lookup(
         (trusted bray.runtime.bootstrap.execution.domain(execution)).identity,

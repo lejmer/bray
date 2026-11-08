@@ -236,6 +236,7 @@ trusted internal func scheduler_reference(pos owner: &Reference) -> &bray.runtim
 trusted internal func execution_reference(pos owner: &Reference) -> &bray.runtime.bootstrap.execution.Reference
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner), trusted bray.runtime.bootstrap.execution.retained(owner = result))
+    uses(intrinsic)
 {
     let execution = &(trusted domain(owner)).execution;
 
@@ -285,7 +286,6 @@ trusted internal func notify(pos owner: &Reference)
 @abi(c)
 trusted internal func destruction(pos pointer: DataPointer<Reference>)
     requires(trusted reference_slot(pointer = pointer), trusted retirement_entry(pointer = pointer))
-    uses(intrinsic)
 {
     let retire = trusted lambda(pos slot: DataPointer<Reference>) -> Reference
         requires(trusted reference_slot(pointer = slot), trusted retirement_entry(pointer = slot))
@@ -398,7 +398,6 @@ trusted internal func retire_backing(pos pointer: DataPointer<Reference>)
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    uses(raw_memory, unchecked_init, intrinsic)
 {
     let authority = pointer;
     let owner = trusted borrow_reference(&pointer, pointer);

@@ -41,7 +41,7 @@ trusted internal func install_binding(pos owner: &Current, pos binding: Binding)
         trusted kernel_binding(owner = &binding)
     )
     ensures(trusted view_owned(owner = &owner.acquisition))
-    uses(raw_memory, unchecked_init)
+    uses(raw_memory, unchecked_init, intrinsic)
 {
     let value = trusted context(owner);
     let pointer = std.memory.uninit_pointer<(Binding?)>(&value.binding);
@@ -77,7 +77,7 @@ trusted internal func take_retiring_binding(pos owner: &bray.runtime.bootstrap.h
         trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
         trusted owned_binding_option(owner = &result)
     )
-    uses(raw_memory, unchecked_init, intrinsic)
+    uses(intrinsic)
 {
     let selected = trusted borrow_execution(owner);
     let value = trusted context(&selected);
@@ -147,7 +147,7 @@ const internal func present_binding(pos owner: &(Binding?)) -> &Binding
 trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> u32
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
     ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
-    uses(foreign_call)
+    uses(foreign_call, intrinsic)
 {
     let previous = match consume trusted bray.runtime.bootstrap.host.execution_context(owner.resource)
     {

@@ -233,7 +233,7 @@ trusted internal func store_registration(pos owner: WaitRegistration, pos lease:
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
-    uses(raw_memory, intrinsic)
+    uses(raw_memory, intrinsic, unchecked_init)
 {
     let pointer =
     {

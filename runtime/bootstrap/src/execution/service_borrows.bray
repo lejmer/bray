@@ -3,7 +3,7 @@ trusted internal module bray.runtime.bootstrap.execution;
 
 using core.memory;
 using std.memory;
-using std.sync;
+using internal std.sync;
 using internal std.sync.once;
 using internal bray.runtime.bootstrap.worker;
 using internal bray.runtime.bootstrap.deadline;
@@ -111,7 +111,6 @@ trusted internal func release_services(pos owner: &bray.runtime.bootstrap.execut
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
         trusted bray.runtime.bootstrap.execution.retiring(owner = owner)
     )
-    uses(raw_memory, unchecked_init)
 {
     {
         let take = trusted lambda(pos owner: &bray.runtime.bootstrap.execution.Reference) -> std.sync.Once<

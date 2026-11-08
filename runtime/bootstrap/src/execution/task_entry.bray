@@ -183,7 +183,6 @@ trusted internal func request_cancellation(pos owner: &bray.runtime.bootstrap.ta
         trusted bray.runtime.bootstrap.task.retained(owner = owner),
         trusted bray.runtime.bootstrap.task.owned_reference(owner = owner)
     )
-    uses(intrinsic)
 {
     let requested = trusted bray.runtime.bootstrap.task.cancellation_change(owner, 1);
 

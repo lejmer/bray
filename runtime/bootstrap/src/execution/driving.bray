@@ -91,7 +91,7 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
-    uses(raw_memory, unchecked_init, unchecked_alias, intrinsic)
+    uses(raw_memory, unchecked_init, intrinsic)
 {
     if trusted pending_observation(selected) matches ?_
     {
@@ -153,7 +153,7 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
-    uses(raw_memory, unchecked_init)
+    uses(intrinsic)
 {
     let ready = trusted take_ready(selected, owner);
 
@@ -251,6 +251,7 @@ trusted internal func release_ready(
         trusted bray.runtime.bootstrap.task.retained(owner = reference),
         trusted bray.runtime.bootstrap.task.owned_reference(owner = reference)
     )
+    uses(intrinsic)
 {
     if trusted bray.runtime.bootstrap.scheduler.release_registration(
         trusted scheduler_reference(owner),
@@ -275,7 +276,6 @@ trusted internal func wait_ready(pos selected: &Current, pos owner: &Reference)
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
-    uses(intrinsic)
 {
     let group = trusted bray.runtime.bootstrap.scheduler.register_parking(trusted scheduler_reference(owner));
 
@@ -302,7 +302,6 @@ trusted internal func poll_deadlines(pos owner: &bray.runtime.bootstrap.executio
         trusted bray.runtime.bootstrap.entry.native_entry()
     )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    uses(foreign_call)
 {
     if let ?service = trusted deadlines(owner)
     {
@@ -360,7 +359,6 @@ trusted internal func destroy_reference(
         trusted bray.runtime.bootstrap.task.retained(owner = reference),
         trusted bray.runtime.bootstrap.task.owned_reference(owner = reference)
     )
-    uses(intrinsic)
 {
     let status = trusted bray.runtime.bootstrap.task.destroy_claim(reference);
 

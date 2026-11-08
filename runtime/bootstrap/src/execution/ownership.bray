@@ -101,7 +101,7 @@ trusted internal func admit_task_context(
     {
         ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
     }
-    uses(foreign_call, intrinsic)
+    uses(foreign_call)
 {
     trusted bray.runtime.bootstrap.task.attach_execution(reference, trusted pin(bound_execution(selected)));
 

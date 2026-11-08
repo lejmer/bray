@@ -79,7 +79,7 @@ trusted internal func context_admission(pos owner: &Reference) -> AdmitContext?
 trusted internal func release_context(pos owner: &Reference, pos metadata: usize)
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
-    uses(layout_reinterpret, foreign_call)
+    uses(layout_reinterpret, foreign_call, intrinsic)
 {
     if metadata == 0
     {

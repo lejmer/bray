@@ -85,7 +85,6 @@ trusted internal func driver_startup() -> u32
 // Return an inactive owner only after the scoped view used to withdraw it ends.
 trusted internal func withdraw_current_driver() -> (u32, bray.runtime.bootstrap.host.ExecutionOwner?)
     ensures((result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1)))
-    uses(intrinsic)
 {
     let previous = trusted current();
 

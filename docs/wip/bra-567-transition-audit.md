@@ -45,33 +45,25 @@ reference/union paths. Physical effects are captured at future formation into ex
 capture cleanup and discarded-result cleanup. Staged result references do not publish result authority or fall back to
 live output storage. task_cleanup_types is removed. Semantic cleanup presence and diagnostic types remain in their plan.
 
-Pushed checkpoint c8afbd974 separates actual reached-data traversal from ownership matching. Its regression law covers
-retiring a temporary loan, unchanged versus overwritten marker data, no owner promotion, and 256 unrelated loans.
-The shared scan quota is removed. No identity-based reconstruction or weaker ownership matching.
+Current data rules follow actual retained loan contents without promoting them to owners. Retirement checks unchanged
+versus overwritten data and 256 unrelated loans. Framing updates reached data before retaining a loan descriptor.
+Absent terminal snapshots remain readable but cannot rename live data. Joins pair actual component paths and shield
+unchanged nested data against ancestor replacement. Laws cover parameter/expression origins, missing proof, no owner
+promotion and repeated-join stabilization. Both actual channel endpoints pass certificates/lowering.
 
-Pushed frame repair a8998d273 frames actual loan contents before retaining the descriptor. Its boundary regression
-failed because a projected field loan was stored as actual field data. Alias-join laws cover parameter and expression
-identities, common marker proof, rejected missing proof, no owner promotion and repeated-join stabilization.
+Produced owning buffers stage a declared backing-region bound in the existing pending transfer. It supplies no freshness
+or initialization, survives transport, and does not narrow ordinary raw addresses. The actual Windows environment body
+and imported environment cursor check pass. All diagnostic hooks and temporary Source controls are removed.
 
-Pushed terminal-snapshot repair 46482b628 excludes absent observations from global value replacements using resolved
-availability. Retired storage9 had overwritten a live holder's data replacement at loop header42. Terminal data remains
-readable. The boundary law reproduced the bug before repair.
-
-Pushed nested-data repair 1b675ac8c pairs actual retained component paths on both sides of reference-data joins and
-pins equal data against ancestor replacement. Shared component_projections replaces the snapshot-local inventory.
-The nested-field law reproduced Unknown before repair. Both actual channel endpoints now pass certificates/lowering.
-No common marker fact is lost at their loop merge. Checker462 passes. Current fixed comparison: 698 passed / 61 failed /
-99 ignored, 100s, zero new failing identities against frozen7b5dc5634. Do not weaken expectations.
-
-Current produced-buffer repair stages a declared owned backing-region bound for independent RawBuffer pointer outputs,
-using the existing pending transfer. It declares no freshness or initialization. Ordinary raw-address bounds are unchanged.
-The Windows environment owner was incorrectly framed by cleanup of a buffer whose opaque pointer included exposed inline
-storage. Pinned production test de19dceca reproduced this E7123 and now passes certificates, lowering and Source output.
-The boundary law covers no early publication, movement, no initialization proof, and the broader ordinary-address control.
-Checker463 passes. Current fixed comparison: 700 passed / 60 failed / 99 ignored, 96s, zero new failing identities.
-The imported native_environment_cursor_requires_live_provider_storage check is also repaired. All hooks and temporary
-Source controls are removed. Native tooling must rebuild from this repair before retrying. No native composition has run.
-Fixture Source/lowering and invalid controls remain in the fixed comparison. Interface216 passed at abe445829.
+Current Rust checkpoint508122b7c passes checker463. Current fixed comparison, including the bootstrap declaration batch:
+700 passed / 60 failed / 99 ignored, 96s, zero new failing identities against frozen7b5dc5634. Never weaken expectations.
+The declaration batch fixes internal imports through owning std.sync/std.platform namespaces and implementation capability
+clauses. Native checking confirms zero visibility, ordinary type and capability errors. No runtime implementation body
+changed in this batch. Fresh xtask508122b7c passes standard-library native planning/emission, then actual imported-package
+bootstrap checking reports350 diagnostics: one constant initializer, 349 ownership/storage/guarantee failures. Next isolate
+pool/access.bray STORAGE constant failure with the real imported standard library before continuing ownership transitions.
+No native composition has run. Source fixture/lifecycle and invalid controls remain in the fixed comparison. Interface216
+passed before these checker-only repairs and is unchanged.
 
 Retain only frozen baseline-failures.txt, current comparison.log, reusable native artifacts and the deferred-report
 baseline executable needed for two pre-existing negative controls. Use probe.log for the active diagnostic, then delete

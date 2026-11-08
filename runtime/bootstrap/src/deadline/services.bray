@@ -39,7 +39,7 @@ internal callable Retire = @abi(c) trusted func(pos pointer: DataPointer<Referen
         trusted bray.runtime.bootstrap.pool.protocol_access()
     );
 
-internal func poll(pos owner: &Reference) -> Result<u32, std.platform.PlatformStatus>
+trusted internal func poll(pos owner: &Reference) -> Result<u32, std.platform.PlatformStatus>
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
     uses(foreign_call)
@@ -57,7 +57,7 @@ internal func poll(pos owner: &Reference) -> Result<u32, std.platform.PlatformSt
     };
 }
 
-internal func wait(pos owner: &Reference, pos maximum: u32) -> Result<u32, std.platform.PlatformStatus>
+trusted internal func wait(pos owner: &Reference, pos maximum: u32) -> Result<u32, std.platform.PlatformStatus>
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
     uses(foreign_call)

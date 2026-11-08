@@ -68,7 +68,6 @@ trusted internal func release_reference(pos reference: Reference) -> Reference?
             owner = optional_reference(&result)
         ))
     )
-    uses(intrinsic)
 {
     let transition = trusted lambda(pos reference: Reference) -> Reference?
         requires(trusted retained(owner = &reference), trusted owned_reference(owner = &reference))

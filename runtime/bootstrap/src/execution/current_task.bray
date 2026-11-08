@@ -13,7 +13,7 @@ trusted internal predicate current_task_view(owner: &((&bray.runtime.bootstrap.t
 trusted internal func current_task(pos selected: &Current) -> (&bray.runtime.bootstrap.task.Reference)?
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
     ensures(trusted view_owned(owner = &selected.acquisition), trusted current_task_view(owner = &result))
-    uses(raw_memory, unchecked_alias)
+    uses(raw_memory, unchecked_alias, intrinsic)
 {
     let value = trusted context(selected);
     let address = core.atomic.load<usize, 0>(&value.task);
@@ -49,6 +49,7 @@ trusted internal func take_task_view(
     requires(owner matches ?_, trusted current_task_view(owner = &owner))
     ensures(trusted bray.runtime.bootstrap.task.retained(owner = result))
     executes(pure, total)
+    uses(intrinsic)
 {
     return match owner
     {
@@ -174,7 +175,6 @@ trusted internal func task_failure(
     {
         ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
     }
-    uses(intrinsic)
 {
     let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
     let failure = trusted guard.get().failure;

@@ -8,7 +8,6 @@ using core.target;
 @abi(c)
 trusted internal func slot_release(pos pointer: DataPointer<Reference>, pos registration: u64) -> u32
     requires(trusted reference_slot(pointer = pointer))
-    uses(intrinsic)
 {
     let owner = trusted borrow_reference(&pointer, pointer);
 
@@ -18,7 +17,6 @@ trusted internal func slot_release(pos pointer: DataPointer<Reference>, pos regi
 @abi(c)
 trusted internal func slot_acquisition(pos pointer: DataPointer<Reference>, pos registration: u64) -> u32
     requires(trusted reference_slot(pointer = pointer))
-    uses(intrinsic)
 {
     let owner = trusted borrow_reference(&pointer, pointer);
 

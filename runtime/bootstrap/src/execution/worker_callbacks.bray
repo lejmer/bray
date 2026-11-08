@@ -37,7 +37,7 @@ trusted internal func worker_callback(
         trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
         trusted bray.runtime.bootstrap.worker.callback_returned(outcome = outcome)
     )
-    uses(raw_memory, unchecked_init)
+    uses(raw_memory, intrinsic)
 {
     let reference = trusted bray.runtime.bootstrap.worker.callback_pool(
         context,
@@ -228,7 +228,7 @@ trusted internal func record_worker_failure(
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(trusted view_owned(owner = &selected.acquisition))
-    uses(raw_memory)
+    uses(raw_memory, intrinsic)
 {
     let ready = match trusted std.memory.read<(bray.runtime.bootstrap.scheduler.Observation?)>(
         trusted pending_storage(selected)
