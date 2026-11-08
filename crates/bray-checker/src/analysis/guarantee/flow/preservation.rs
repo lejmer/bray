@@ -56,6 +56,18 @@ impl ValuePreservation {
 
         if self.value { return source.clone(); }
 
+        if self.descriptor
+            && let Some(referent) = match source {
+                ExecutionCondition::Borrowed(referent)
+                | ExecutionCondition::Observation { contents: referent, kind: crate::execution_guarantees::ExecutionObservationKind::Reference, .. } => Some(referent.as_ref()),
+                _ => None,
+            }
+        {
+            // Frame reached data before retaining the loan descriptor. Its
+            // fields keep their actual values rather than projected field loans.
+            return source.with_referent(self.apply_bounded(referent, place, mutation, budget));
+        }
+
         if self.descriptor && let Some((context, copied)) = source.storage_contents() {
             // The private copy context is not the descriptor it contains. Update
             // the copied descriptor's reached data without replacing its origin.
@@ -148,4 +160,24 @@ mod tests {
             assert_ne!(value.clone().project(progress), ExecutionCondition::Boolean(true));
         }
     }
+    #[test]
+    fn framing_a_loan_retains_field_data_without_storing_a_field_loan() {
+        let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(root.clone());
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let source = owner.clone().borrowed();
+        let mut mask = ValuePreservation { descriptor: true, ..Default::default() };
+
+        mask.at_mut(&[field]).value = true;
+
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            vec![push_expression(tree, integer_literal_expression(origin, None))]
+        });
+        let updated = mask.apply(&source, Some(&root), StorageMutation::Operation(sites[0].into()));
+        let data = updated.clone().into_referent().project(field);
+
+        assert_eq!(data, owner.project(field));
+        assert_eq!(updated.ownership_identity(), source.ownership_identity());
+    }
+
 }

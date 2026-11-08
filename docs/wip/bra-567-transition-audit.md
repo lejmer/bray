@@ -45,29 +45,31 @@ reference/union paths. Physical effects are captured at future formation into ex
 capture cleanup and discarded-result cleanup. Staged result references do not publish result authority or fall back to
 live output storage. task_cleanup_types is removed. Semantic cleanup presence and diagnostic types remain in their plan.
 
-Current repair separates reached-data traversal from ownership matching. Data queries follow actual retained loan
-contents. Ownership queries still follow only owned components. A finite visited-node walk replaces the shared scan
-quota, with the existing depth bound applied to each candidate projection. No identity-based data reconstruction.
+Pushed checkpoint c8afbd974 separates actual reached-data traversal from ownership matching. Its regression law covers
+retiring a temporary loan, unchanged versus overwritten marker data, no owner promotion, and 256 unrelated loans.
+The shared scan quota is removed. No identity-based reconstruction or weaker ownership matching.
 
-Regression law retires a temporary containing a loan. Unchanged marker facts survive, changed contents under the same
-identity fail, and the loan cannot preserve ownership. Both cases also run with 256 unrelated loans. Both defects were
-reproduced red before their fixes. Current checker458 passes. Current comparison: 694 passed / 65 failed / 99 ignored,
-89s. Relative to frozen7b5dc5634, bounded creation and two cleanup paths are repaired: imported_cleanup_postconditions_follow_the_updated_borrowed_storage
-and cleanup_reference_outputs_feed_the_next_lifecycle. The separately added endpoint positive remains red. No other new
-failing identities. All diagnostics, Source controls and failed carrier/mask experiments are removed.
+Current uncommitted repair frames actual loan contents before retaining the descriptor. The boundary regression failed
+because a projected field loan was stored as actual field data. It now passes. Alias-join laws cover parameter and
+produced-expression identities, two live aliases, common marker proof, rejected missing proof, no owner promotion,
+and repeated-join stabilization. No join-policy change. Checker460 passes. Fixed comparison: 695 passed / 64 failed /
+99 ignored, 89s. Relative to frozen7b5dc5634, four identities are repaired and no unexpected new failure appears.
+The separately added production_channel_endpoints_preserve_loop_and_cleanup_authority positive remains red.
 
-Endpoint still has four call/four cleanup failures. Prior trace located loss at loop-body scope expiration retiring wake
-and a later LoopBack into the header. On the repaired version retirement no longer reports removal of an already-proved
-witness clause. Trace the actual first loss anew through all solver operations/propagation/joins, not failure counts.
-Do not repeat carrier-role, availability, foreign-wait or reference-mask experiments without new evidence.
+Endpoints still report four call/four cleanup failures. c8afbd974 repaired loop-body scope-expiration fact loss.
+The last actual trace located another loss at loop header42: both inputs prove the same lock fact, merge drops it,
+and conflicting alias renamings turn core Expression11 and its borrowed identity into Unknown. The frame repair has
+not repaired that endpoint. Next trace the first actual malformed reached datum or conflicting alias on current code.
+All diagnostic hooks are removed. Do not repeat carrier-role, availability, foreign-wait or reference-mask experiments
+without new evidence.
 
-Native remains unverified. Retained xtask6ab61fffe predates Dispose/Cleanup and data-query fixes and must rebuild before
-native checking. native.log records that older nine-error stdlib planning stop, not current behavior. No native async
-composition has executed. Async fixture Source/lowering and invalid controls passed before this checkpoint and are in
-current comparison. Interface216 passed at abe445829 and is unaffected by the data-query-only repair.
+Native remains unverified. Retained xtask6ab61fffe predates Dispose/Cleanup and must rebuild before native checking.
+No native async composition has executed. Fixture Source/lowering and invalid controls passed and remain in the fixed
+comparison. Interface216 passed at abe445829 and is unaffected by these checker-only repairs.
 
-Retain baseline-failures.txt, comparison.log, native.log and deferred-report-fc4b5160b-baseline.exe for necessary comparisons.
-Reuse probe.log only for the current diagnostic. Delete passed build/check logs and superseded probes after recording.
+Retain only frozen baseline-failures.txt, current comparison.log, reusable native artifacts and the deferred-report
+baseline executable needed for two pre-existing negative controls. Use probe.log for the active diagnostic, then delete
+it once its result is recorded. Delete passed build/check logs and superseded native/probe logs immediately.
 
 ## Remaining work
 
