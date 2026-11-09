@@ -5,6 +5,7 @@
 mod argument;
 mod build_progress;
 mod catalog;
+mod code_snippet;
 pub mod command_help;
 mod language_server;
 mod locale;
