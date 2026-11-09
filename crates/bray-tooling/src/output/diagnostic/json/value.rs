@@ -109,14 +109,14 @@ impl DiagnosticTypeJson {
 }
 
 #[derive(Serialize)]
-struct DiagnosticTypeArgumentJson {
+pub(in crate::output::diagnostic::json) struct DiagnosticTypeArgumentJson {
     kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     r#type: Option<Box<DiagnosticTypeJson>>,
 }
 
 impl DiagnosticTypeArgumentJson {
-    fn from_argument(argument: &bray_diagnostics::DiagnosticTypeArgument) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_argument(argument: &bray_diagnostics::DiagnosticTypeArgument) -> Self {
         match argument {
             bray_diagnostics::DiagnosticTypeArgument::Type(ty) => Self {
                 kind: "type",
