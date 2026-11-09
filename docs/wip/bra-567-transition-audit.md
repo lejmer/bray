@@ -30,13 +30,15 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:730 passed /55 failed /99 ignored, unchanged55 identities after equality canonicalization. Checker469,
+Fixed comparison:731 passed /55 failed /99 ignored, unchanged55 identities after pointer-range normalization. Checker470,
 bound-tree133, failure-diagnostics6 and conformance7 pass. Earlier diagnostics44, messages90 and JSON48 pass.
-Readiness has not been rerun after the latest cause additions.
+Diagnostic readiness passes at snippet checkpoint8b08d8aab. No diagnostic kinds changed afterward.
 Expanded predicate group:25 passed /2 failed /2 ignored. Both reproduce in the retainedfc4 baseline.
 
-Accepted native.log uses compiler4b1b31d19 and unchanged runtime Source64a4e5490:136 diagnostics
-(E7123=72,E7135=40,E7119=23,E7087=1). Address preservation removed17 identities from153 and added none.
+Accepted native.log uses compilere0c71052c and unchanged runtime Source64a4e5490:130 diagnostics
+(E7123=65,E7135=41,E7119=23,E7087=1). Equality canonicalization removes all7 targeted provider identities.
+The new initialization99 E7135 reports DependencyErrors at arena39..77, whose arena72 E7123 persists.
+proof.rs61 skips caller certification on local errors, then proof.rs557 exposes this existing dependency failure.
 The matching native standard library rebuild succeeds. Diagnostic readiness passes. Native execution remains blocked.
 
 Typed execution causes now distinguish loops, panic, cancellation, recovery, nonreturn and input mutation. CFG producers
@@ -74,8 +76,18 @@ comparisons are unchanged. A guarded trusted-proof regression and14 Source/impor
 owners remain rejected. The actual carrier, availability and refined clause survived opaque invalidation correctly.
 No witness or owner reconstruction was added. Trace hooks are removed.
 
-Next rebuild the matching native product and compare its136 identities. nullable-owner.bray is the current native-library
-source control. Remove it after the fresh native check establishes this transition, then audit the remaining classes.
+The matching native-library nullable source control rejects only the fabricated owner. Its source/log and trace logs
+are removed. Continue through the130 remaining diagnostics. No unexplained native failures are accepted.
+
+Result318's tuple-pointer proof retained its evidence but Borrowed scalar extents differed at non-overlap. The existing
+closed memory-predicate table now records pointer operands alongside invalidation policy, including NonOverlapping0,2.
+Pointer descriptors retain storage identity and numeric extents observe current values. No parallel argument-role table
+or owner reconstruction is added. Source/import16 cases, checker470 and unchanged text-storage regression pass. The
+complete fixed comparison retains exactly55 failures. Scratch pointer probe and temporary traces are removed.
+A contextual invariant panic remains in dependency/result/copying.rs. Matching native verification is next.
+
+The uninitialized-storage diagnostic may cascade from a different failed trusted requirement because memory analysis
+collapses Err into absent evidence. Its diagnostic model remains to audit. Do not weaken copy initialization policy.
 
 ## Remaining
 

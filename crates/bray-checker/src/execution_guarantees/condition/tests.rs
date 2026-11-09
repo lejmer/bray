@@ -114,7 +114,7 @@ fn spatial_extents_observe_copied_values_without_owning_them() {
         ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))), count.clone());
     let condition = |extent| ExecutionCondition::predicate(predicate.into(), callable.substitution(),
         vec![pointer.clone(), extent]);
-    let spatial = BTreeSet::from([predicate.into()]);
+    let spatial = BTreeMap::from([(predicate.into(), &[0][..])]);
 
     assert_eq!(condition(copied.clone()).pointer_observations(&spatial),
         condition(count).pointer_observations(&spatial));
@@ -132,7 +132,7 @@ fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority(
     let count = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
     let condition = |value| ExecutionCondition::predicate(predicate.into(), callable.substitution(),
         vec![value, count.clone()]);
-    let spatial = BTreeSet::from([predicate.into()]);
+    let spatial = BTreeMap::from([(predicate.into(), &[0][..])]);
 
     for observed in [copied.clone(), pointer.clone().borrowed()] {
         assert_eq!(condition(observed).pointer_observations(&spatial),
@@ -142,6 +142,37 @@ fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority(
         condition(pointer.clone()).pointer_observations(&spatial));
     assert_ne!(copied.clone().borrowed().owner_identity(), pointer.borrowed().owner_identity());
     assert!(copied.ownership_identity().is_none());
+}
+
+#[test]
+fn disjoint_ranges_observe_both_descriptors_and_borrowed_extents() {
+    let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("NonOverlapping");
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let values = (0..4).map(|ordinal| ExecutionCondition::Input(
+        ExecutionPlace::argument(SymbolOrdinal::new(ordinal)))).collect::<Vec<_>>();
+    let observed = values.iter().enumerate().map(|(index, value)| {
+        ExecutionCondition::scalar_observation(
+            ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(4 + index as u32))),
+            value.clone(),
+        ).borrowed()
+    }).collect::<Vec<_>>();
+    let condition = |arguments| ExecutionCondition::predicate(predicate.into(), callable.substitution(), arguments);
+    let spatial = BTreeMap::from([(predicate.into(), &[0, 2][..])]);
+
+    // Borrowing a copied scalar observes its separate storage identity.
+    assert_ne!(condition(observed).pointer_observations(&spatial),
+        condition(values.clone()).pointer_observations(&spatial));
+    assert_eq!(condition(values.iter().cloned().map(ExecutionCondition::borrowed).collect()).pointer_observations(&spatial),
+        condition(values.clone()).pointer_observations(&spatial));
+    let mut materialized = values.clone();
+    materialized[1] = ExecutionCondition::owned_value(values[3].clone(), values[1].clone());
+    assert_eq!(condition(materialized).pointer_observations(&spatial),
+        condition(values.clone()).pointer_observations(&spatial));
+    let mut changed = values.clone();
+    changed.swap(0, 2);
+    assert_ne!(condition(changed).pointer_observations(&spatial),
+        condition(values).pointer_observations(&spatial));
 }
 
 #[test]

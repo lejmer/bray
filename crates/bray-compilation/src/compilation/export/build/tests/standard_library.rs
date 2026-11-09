@@ -4356,3 +4356,108 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
         }
     }
 }
+
+#[test]
+fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
+    for (extent, sized, destructured, initialized, separated) in [
+        ("1", false, false, true, true),
+        ("count", true, false, true, true),
+        ("owner.count", false, false, true, true),
+        ("owner.count", false, true, true, true),
+        ("1", false, true, true, true),
+        ("count", true, true, true, true),
+        ("1", false, false, false, true),
+        ("1", false, false, true, false),
+    ] {
+        let parameter = if sized { ", pos count: usize" } else { "" };
+        let argument = if sized { ", owner.count" } else { "" };
+        let count = if extent == "1" { "1" } else { "owner.count" };
+        let initialization = if initialized { format!(
+            "trusted core.memory.initialized_range_as<Uninit<u8>>(pointer = result.0, count = {extent}),"
+        ) } else { String::new() };
+        let separation = if separated { format!(r#"
+                trusted core.memory.non_overlapping<Uninit<u8>>(
+                    left = result.0,
+                    left_count = {extent},
+                    right = result.1,
+                    right_count = {extent}
+                ),
+        "#) } else { String::new() };
+        let declarations = format!(r#"
+            trusted module std.range_test;
+
+            using core.memory;
+
+            struct RangeMarker
+            {{
+            }}
+
+            struct RangeOwner
+            {{
+                acquisition: RangeMarker;
+                source: DataPointer<Uninit<u8>>;
+                destination: DataPointer<Uninit<u8>>;
+                count: usize;
+            }}
+
+            trusted predicate range_owned(owner: &RangeMarker);
+
+            trusted func ranges(pos owner: &RangeOwner{parameter}) -> (DataPointer<Uninit<u8>>, DataPointer<Uninit<u8>>)
+                requires(trusted range_owned(owner = &owner.acquisition))
+                ensures(
+                    trusted range_owned(owner = &owner.acquisition),
+                    trusted core.memory.valid_read<Uninit<u8>>(pointer = result.0, count = {extent}),
+                    {initialization}
+                    trusted core.memory.valid_write<Uninit<u8>>(pointer = result.1, count = {extent}),
+                    {separation}
+                )
+                executes(pure, total)
+            {{
+                return (owner.source, owner.destination);
+            }}
+        "#);
+        let sources = [
+            include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+            declarations.as_str(),
+        ];
+        let provider = standard_library_compilation(sources);
+        assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+        let (binding, source, destination) = if destructured {
+            ("(source, destination)", "source", "destination")
+        } else { ("pointers", "pointers.0", "pointers.1") };
+        let source = format!(r#"
+            trusted module app;
+
+            using core.memory;
+            using std.memory;
+            using std.range_test;
+
+            trusted func caller(pos owner: std.range_test.RangeOwner)
+                requires(trusted std.range_test.range_owned(owner = &owner.acquisition))
+                uses(raw_memory, unchecked_init)
+            {{
+                let {binding} = trusted std.range_test.ranges(&owner{argument});
+
+                trusted std.memory.copy<Uninit<u8>>({source}, {destination}, count = {count});
+            }}
+        "#);
+        for imported in [false, true] {
+            let application = if imported {
+                super::fixtures::execution_consumer(&provider, &source)
+            } else { standard_library_compilation(sources.into_iter().chain([source.as_str()])) };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), initialized && separated,
+                "extent={extent}, destructured={destructured}, imported={imported}: {diagnostics:#?}");
+            if !initialized {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingUninitializedRawStorage);
+            } else if !separated {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}

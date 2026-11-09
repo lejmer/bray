@@ -25,7 +25,10 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         for projection in path {
             let projected = crate::storage::projected_value_type(self.request, ty, *projection)?;
 
-            ty = projected.value().expect("checked contents projection retains its selected field type");
+            ty = projected.value().unwrap_or_else(|| panic!(
+                "checked dependency copy projection has no selected type: expression={value:?}, node={:?}, owner={:?}, projection={projection:?}, path={path:?}",
+                self.request.view().expression(value), self.request.semantic_values().type_data(ty),
+            ));
         }
 
         if !self.inputs.value_carries_no_borrows(ty) {
