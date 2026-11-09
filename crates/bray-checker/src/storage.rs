@@ -18,7 +18,7 @@ pub(crate) use projection::{
 pub(crate) use protocol::selected_storage_protocol_call;
 pub(crate) use scope::{
     pattern_binding_sources, storage_scope_owners,
-    value_transfer_bindings,
+    value_transfer_destinations,
 };
 
 pub use copyability::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};

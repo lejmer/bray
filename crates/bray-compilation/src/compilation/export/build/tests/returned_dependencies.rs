@@ -3,6 +3,102 @@ use crate::test_support::source_function_body_key;
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
 
 #[test]
+fn owned_match_results_release_the_subject_loan() {
+    let api = r#"
+        module api;
+
+        using core.memory;
+
+        struct Control
+        {
+            value: usize;
+        }
+
+        struct Slot
+        {
+            mut control: Uninit<Control>?;
+            generation: usize;
+        }
+
+        func clear(pos slot: &mut Slot)
+        {
+            slot.control = none;
+        }
+    "#;
+    let provider = compilation(api);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for imported in [false, true] {
+        let prefix = if imported { "example.package.api" } else { "api" };
+        let caller = r#"
+            module app;
+
+            using core.memory;
+            using API;
+
+            func take_constructed(pos slot: &mut API.Slot) -> API.Control
+            {
+                let retired_control = match &mut slot.control
+                {
+                    case ?storage
+                    {
+                        yield API.Control
+                        {
+                            value = 1
+                        };
+                    }
+                    case none
+                    {
+                        panic("missing control");
+                    }
+                };
+
+                API.clear(slot);
+
+                return retired_control;
+            }
+
+            func take_view(pos slot: &mut API.Slot) -> &Uninit<API.Control>
+            {
+                let view = match &slot.control
+                {
+                    case ?storage
+                    {
+                        yield &storage;
+                    }
+                    case none
+                    {
+                        panic("missing control");
+                    }
+                };
+
+                API.clear(slot);
+
+                return view;
+            }
+        "#.replace("API", prefix);
+        let consumer = if imported {
+            execution_consumer(&provider, &caller)
+        } else {
+            compilation_from_sources([api, caller.as_str()])
+        };
+
+        for (name, valid) in [("take_view", false), ("take_constructed", true)] {
+            let checked = consumer.lowered_unit(source_function_body_key(&consumer, name))
+                .expect("owned match result retains its checked Source body");
+
+            assert_eq!(!checked.diagnostics().has_errors(), valid,
+                "{name}, imported={imported}: {:?}", checked.diagnostics());
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow);
+            }
+        }
+    }
+}
+
+#[test]
 fn guarded_borrowed_fields_compose_through_construction_and_calls() {
     let api = r#"
         trusted module api;

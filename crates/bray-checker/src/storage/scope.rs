@@ -19,10 +19,10 @@ where
         }),
     )
 }
-pub(crate) fn value_transfer_bindings<C>(
+pub(crate) fn value_transfer_destinations<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-) -> BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageBinding>>
+) -> BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<bray_bound_tree::StorageIdentityId>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -46,11 +46,19 @@ where
     result
 }
 
+/// A view names existing storage and does not initialize its containing owner.
+fn owned_binding(storage: &StoragePlan, target: StorageBindingTarget) -> Option<bray_bound_tree::StorageIdentityId> {
+    match storage.binding(target)? {
+        StorageBinding::Identity(identity) => Some(identity),
+        StorageBinding::Access(_) => None,
+    }
+}
+
 fn extend_pattern_bindings(
     view: BoundUnitView<'_>,
     storage: &StoragePlan,
     root: BoundPatternId,
-    bindings: &mut Vec<StorageBinding>,
+    bindings: &mut Vec<bray_bound_tree::StorageIdentityId>,
 ) {
     let mut pending = vec![root];
 
@@ -62,7 +70,7 @@ fn extend_pattern_bindings(
         };
 
         if pattern.kind() == bray_bound_tree::BoundPatternKind::Discard {
-            bindings.extend(storage.binding(StorageBindingTarget::PatternDiscard(id)));
+            bindings.extend(owned_binding(storage, StorageBindingTarget::PatternDiscard(id)));
         }
 
         bindings.extend(
@@ -71,7 +79,7 @@ fn extend_pattern_bindings(
                 .iter()
                 .copied()
                 .chain(pattern.entries().iter().filter_map(|entry| entry.binding()))
-                .filter_map(|binding| storage.binding(StorageBindingTarget::Local(binding))),
+                .filter_map(|binding| owned_binding(storage, StorageBindingTarget::Local(binding))),
         );
 
         pending.extend(pattern.children().iter().copied());
