@@ -139,7 +139,7 @@ The annotation on `oats` supplies the type. Bray also uses `=` between field nam
 
 Rust developers are familiar with `Option<T>` and `Result<T, E>`. Sometimes a value doesn't exist. Sometimes an operation fails. Sometimes life wasn't complicated enough and both happen in the same function. Bray also distinguishes absence from errors, but uses different propagation operators.
 
-In our first version, we ignored the result of `print_line`. If printing failed, the application wouldn't report the error. It is unlikely to fail, so we can safely ignore that value. On the off chance that you are alergic to warnings, however, we can handle it with `try`.
+In our first version, we ignored the result of `print_line`. If printing failed, the application wouldn't report the error. It is unlikely to fail, so we can safely ignore that value. On the off chance that you are allergic to warnings, however, we can handle it with `try`.
 
 Replace `main` in `src/main.bray` with:
 
@@ -624,7 +624,7 @@ else
 
 Here, the local `internal` acknowledges only this particular call. Without either form of acknowledgment, the compiler rejects access.
 
-And yes, in the this case we still need:
+And yes, in this case we still need:
 
 ```bray
 using stock.inventory;
@@ -632,7 +632,7 @@ using stock.inventory;
 
 The local `internal` prefix doesn't declare the module dependency itself.
 
-### Why not just use something akin to `publ(crate)`?
+### Why not just use something akin to `pub(crate)`?
 
 Rust's `pub(crate)` makes a declaration accessible within its crate but inaccessible to external crates. Bray's `internal` follows a different philosophy.
 
