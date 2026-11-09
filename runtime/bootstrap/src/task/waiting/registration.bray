@@ -52,16 +52,15 @@ internal predicate registration_owned(owner: &WaitResources) = retained(owner = 
             owned_reference(owner = task_wait_target(&owner.target))
         ) ||
         (
-            (owner.target matches WaitTarget.Event(_, _, _) || owner.target matches WaitTarget.ExecutionEvent(_, _)) &&
+            owner.target matches WaitTarget.Event(_, _, _) &&
             bray.runtime.bootstrap.event.retained(owner = event_wait_target(&owner.target)) &&
             bray.runtime.bootstrap.event.owned_reference(owner = event_wait_target(&owner.target)) &&
-            (
-                owner.target matches WaitTarget.ExecutionEvent(_, _) ||
-                (
-                    owner.target matches WaitTarget.Event(_, _, _) &&
-                    bray.runtime.bootstrap.event.callback_owned(owner = callback_wait_target(&owner.target))
-                )
-            )
+            bray.runtime.bootstrap.event.callback_owned(owner = callback_wait_target(&owner.target))
+        ) ||
+        (
+            owner.target matches WaitTarget.ExecutionEvent(_, _) &&
+            bray.runtime.bootstrap.event.retained(owner = execution_event_wait_target(&owner.target)) &&
+            bray.runtime.bootstrap.event.owned_reference(owner = execution_event_wait_target(&owner.target))
         )
     );
 
@@ -89,13 +88,22 @@ internal const func task_wait_target(pos owner: &WaitTarget) -> &Reference
 }
 
 internal const func event_wait_target(pos owner: &WaitTarget) -> &bray.runtime.bootstrap.event.Reference
-    requires(owner matches WaitTarget.Event(_, _, _) || owner matches WaitTarget.ExecutionEvent(_, _))
+    requires(owner matches WaitTarget.Event(_, _, _))
 {
     return match owner
     {
         case WaitTarget.Event(reference, _, _) { yield &reference; }
+        case WaitTarget.Task(_) | WaitTarget.ExecutionEvent(_, _) { panic("missing event wait target"); }
+    };
+}
+
+internal const func execution_event_wait_target(pos owner: &WaitTarget) -> &bray.runtime.bootstrap.event.Reference
+    requires(owner matches WaitTarget.ExecutionEvent(_, _))
+{
+    return match owner
+    {
         case WaitTarget.ExecutionEvent(reference, _) { yield &reference; }
-        case WaitTarget.Task(_) { panic("missing event wait target"); }
+        case WaitTarget.Task(_) | WaitTarget.Event(_, _, _) { panic("missing execution event wait target"); }
     };
 }
 
@@ -297,10 +305,8 @@ trusted internal func event_reference(pos owner: &WaitRegistration) -> &bray.run
 {
     return match owner.resources.target
     {
-        case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _)
-        {
-            yield event_wait_target(&owner.resources.target);
-        }
+        case WaitTarget.Event(_, _, _) { yield event_wait_target(&owner.resources.target); }
+        case WaitTarget.ExecutionEvent(_, _) { yield execution_event_wait_target(&owner.resources.target); }
         case WaitTarget.Task(_) { yield trusted core.target.abort(); }
     };
 }

@@ -4779,3 +4779,170 @@ fn entry_union_observations_preserve_sibling_owner_values() {
     }
 }
 
+#[test]
+fn conditional_component_guarantees_survive_complete_union_consumption() {
+    let source = r#"
+        trusted module api;
+
+        struct Acquisition
+        {
+        }
+
+        struct Owner
+        {
+            acquisition: Acquisition;
+            pointer: DataPointer<u32>;
+        }
+
+        union Target
+        {
+            First(pos owner: Owner);
+            Second(pos owner: Owner, pos callback: Owner);
+            Third(pos owner: Owner);
+        }
+
+        struct Registration
+        {
+            resources: Resources;
+            mut next: usize;
+        }
+
+        struct Resources
+        {
+            target: Target;
+            other: Owner;
+        }
+
+        trusted predicate acquired(owner: &Acquisition);
+
+        trusted predicate ready();
+
+        trusted predicate authorized(owner: &Acquisition);
+
+        predicate retained(owner: &Owner) = acquired(&owner.acquisition);
+
+        predicate permitted(owner: &Owner) = authorized(&owner.acquisition);
+
+        const func first(pos target: &Target) -> &Owner
+            requires(target matches Target.First(_))
+        {
+            return match target
+            {
+                case Target.First(owner) { yield &owner; }
+                case Target.Second(_, _) | Target.Third(_) { panic("missing first owner"); }
+            };
+        }
+
+        const func second(pos target: &Target) -> &Owner
+            requires(target matches Target.Second(_, _))
+        {
+            return match target
+            {
+                case Target.Second(owner, _) { yield &owner; }
+                case Target.First(_) | Target.Third(_) { panic("missing second owner"); }
+            };
+        }
+
+        predicate owned(owner: &Resources) = retained(&owner.other) && permitted(&owner.other) &&
+            (
+                (owner.target matches Target.First(_) && retained(first(&owner.target)) && permitted(first(&owner.target))) ||
+                (owner.target matches Target.Second(_, _) && retained(second(&owner.target)) && permitted(second(&owner.target)) &&
+                 retained(callback_owner(&owner.target)) && permitted(callback_owner(&owner.target))) ||
+                (owner.target matches Target.Third(_) && retained(third(&owner.target)) && permitted(third(&owner.target)))
+            );
+
+        func inspect(pos owner: &Owner)
+            requires(trusted retained(owner), trusted permitted(owner))
+        {
+        }
+
+        func borrowed(pos owner: &Resources)
+            requires(trusted owned(owner))
+        {
+            match owner.target
+            {
+                case Target.First(payload) { inspect(&payload); }
+                case Target.Second(payload, _) { inspect(&payload); }
+                case Target.Third(payload) { inspect(&payload); }
+            }
+        }
+
+        func split(pos owner: Registration) -> Owner
+            requires(trusted owned(&owner.resources), trusted ready())
+            ensures(trusted acquired(&result.acquisition))
+        {
+            let other = owner.resources.other;
+
+            match consume owner.resources.target
+            {
+                case Target.First(payload) { retire(payload); }
+                case Target.Second(payload, callback) { retire(callback); retire(payload); }
+                case Target.Third(payload) { retire(payload); }
+            }
+
+            inspect(&other);
+            return other;
+        }
+
+        func retire(pos owner: Owner)
+            requires(trusted retained(&owner), trusted permitted(&owner), trusted ready())
+        {
+        }
+
+        const func third(pos target: &Target) -> &Owner
+            requires(target matches Target.Third(_))
+        {
+            return match target
+            {
+                case Target.Third(owner) { yield &owner; }
+                case Target.First(_) | Target.Second(_, _) { panic("missing third owner"); }
+            };
+        }
+
+        const func callback_owner(pos target: &Target) -> &Owner
+            requires(target matches Target.Second(_, _))
+        {
+            return match target
+            {
+                case Target.Second(_, callback) { yield &callback; }
+                case Target.First(_) | Target.Third(_) { panic("missing callback"); }
+            };
+        }
+    "#;
+    let provider = compilation(source);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for (argument, valid) in [("owner", true), ("replacement", false)] {
+        let caller = format!(r#"
+            module app;
+            using example.package.api;
+
+            func caller(pos owner: api.Registration, pos replacement: api.Registration) -> api.Owner
+                requires(trusted api.owned(&owner.resources), trusted api.ready())
+                ensures(trusted api.acquired(&result.acquisition))
+            {{
+                return api.split({argument});
+            }}
+        "#).replace("api.", "example.package.api.");
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(&provider, &caller)
+            } else {
+                compilation_from_sources([source, &caller.replace("example.package.", "")])
+            };
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(!diagnostics.has_errors(), valid, "{argument}, imported={imported}: {diagnostics:#?}");
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}

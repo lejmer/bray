@@ -26,19 +26,17 @@ control, pin and arena before vacancy. WaitResources retains leased storage thro
 
 ## Current evidence
 
-Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca. Pushed HEAD1ffaadf09.
-Entry-state repair comparison721 passed /55 failed /99 ignored in89s, zero new failing identities. Checker466 passed.
+Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca. Pushed HEADc91787784.
+Comparison722 passed /55 failed /99 ignored in98s, unchanged55 failing identities. Checker466 passed.
 Repaired const_borrowed_getters_preserve_the_existing_carrier_identity and union owner forwarding.
 Compiler/foreign42 passed /1 ignored, diagnostics44, messages86 and JSON47 passed after diagnostic changes.
 Source/import laws cover copied addresses versus carried loans, acquisition versus pointee mutation/replacement,
 and disjunctive variant reachability. Callable diagnostics retain actual signatures through rendering and JSON.
 
-Accepted native.log at8f68e51fa has182 errors: E7123=96, E7135=57, E7119=28, E7087=1.
-Fresh entry-repair drivers built. Candidate native-current.log has188: E7123=102, E7135=57, E7119=28, E7087=1.
-All old identities remain, with six added E7123:
-delivery179 dispose_reference,183 release_callback,184/188 release_event, withdrawal64 optional registration,
-observer/polling226 set_phase. The last appears after entry repair in an already-invalid poll body.
-These six failures are unaccepted. Existing publish_wait requirement also remains unproven.
+Current native run has183 diagnostics: E7123=96, E7135=58, E7119=28, E7087=1. The five wait-resource regressions
+are repaired. publish_wait's local ownership requirement now proves. Two diagnostics differ from the old182 run:
+observer/polling226 read_state is newly reached after entry repair in the already-invalid poll body, and publish_wait's
+certificate now exposes an existing Pure failure at waiting/links39. Keep both active, with their root causes.
 No native async composition has executed. Full transition inventory remains incomplete.
 
 Structural registration ownership uses actual retained/acquisition component claims and guarded const getters.
@@ -53,12 +51,21 @@ whole input with Unknown. CurrentValues.observe_input now seeds one complete sym
 entry_union_observations_preserve_sibling_owner_values failed before and passes after, including Source/import invalid
 replacement controls. Fixed comparison improves57 to55. Native failures remain.
 
-Closer three-variant/callback source reproduces native losses without pointer operations. Its normalized owned contract
-becomes an opaque predicate instead of its defined structure. conditional_component_guarantees_survive_complete_union_consumption
-is an active failing regression. Inspect the first loss, not downstream calls. Build session52726 has temporary gated
-AUDIT normalization/portable hooks and temporary requirement prints in that test. Encoding/decoding and normalization
-budget exhaustion are ruled out. Encoding receives Unknown. Capture the first Unknown expression before changing code.
-Remove all hooks before commit. Active probe.bray/probe.log captures the three-variant case. No other process.
+Wait ownership uses one exact getter per active variant. Returning any of several origin alternatives does not establish
+exact per-branch identity. Do not promote possible aliases or reconstruct callee bodies. The contract-reasoning specification
+permits bounded implication. The new three-variant composition uses actual variant fields, consumes the callback and target,
+and returns the independent sibling. Source/import positive and replacement controls pass. All466 checker tests pass and
+comparison722/55/99 has unchanged55 failures. A symbolic-borrow experiment broke the existing nested-join law and is fully
+removed. No hooks or scratch probes remain.
+
+Diagnostic batch in progress: E7139 CheckingPredicateBlockNotAllowed retains BlockExpression/MatchExpression, a primary
+label and const-helper guidance. It validates source blocks independently of reachability once per public Pure candidate.
+Producer/text/JSON focused checks pass. Full validation session91843 is running. No other process.
+
+Next semantic class: waiting/links.wait_link promises Pure but calls core.target.expose_address at39. Numerical address
+exposure is explicitly impure under execution-guarantees.md73-77. Audit related runtime Pure promises and preservation
+consumers before changing anything. Do not weaken the checker to accept that promise. This existing root now explains
+publish_wait's exposed E7135. Also trace poll/read_state's lost invoked acquisition across retire_reference.
 Always set LLVM bin on PATH and capture exit status when using retained drivers.
 
 ## Remaining work
@@ -76,8 +83,7 @@ trusted_implementation_does_not_export_undeclared_authority and
 shared_marker_borrows_preserve_the_original_owner_without_mutable_authority.
 The terminating-branch positive passes. Its negative opaque call has no owner input. Add a mutable-authority control
 before changing expectations. Do not implement the disproven normal_effects hypothesis.
-Forbidden match/block predicate syntax currently emits vague E7119. Add its specific owning diagnostic without
-relaxing predicate restrictions, then run diagnostic readiness. No new diagnostic is implemented yet.
+Finish and verify the predicate-block diagnostic batch, including diagnostic readiness. Keep predicate restrictions unchanged.
 
 At semantic completion, reread AGENTS and mechanically audit changed files and behaviors, DRY, APIs, contracts and
 structural cost. Only then run mutating cargo xtask style and cargo xtask format, inspect edits and affected checks.
