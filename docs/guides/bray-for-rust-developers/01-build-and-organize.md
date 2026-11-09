@@ -23,9 +23,10 @@ bray init pantry --package pantry
 cd pantry
 ```
 
-You now have `bray-workspace.json`, `bray-package.json`, and `src/main.bray`. The workspace manifest lists your
-packages and targets. The package manifest describes where its source lives and which products to build. A product can
-be an executable, a library, or a test program.
+You now have `bray-workspace.json`, `bray-package.json`, and `src/main.bray`. Cargo uses `Cargo.toml` for package and
+workspace configuration. Bray gives them separate manifests. The workspace manifest lists your packages and targets.
+The package manifest describes where its source lives and which products to build. A product can be an executable, a
+library, or a test program.
 
 Run the generated application:
 
@@ -105,13 +106,16 @@ As in Rust, `let mut oats` permits mutation through the binding, and `&mut oats`
 Bray also requires `mut quantity` on the field. The immutable `name` field cannot be replaced after initialization,
 even through a mutable `Item`.
 
-Bray uses `func` for functions. Parameters are named at the call site by default. The `pos` on `item` permits a
-positional argument, so the call is `add(&mut oats, amount = 2)`. A `pos` parameter can also be passed by name. A
-function's positional parameters must come before its named-only parameters.
+Bray uses `func` where Rust uses `fn`. Unlike Rust's positional function arguments, Bray's arguments are named by
+default. The `pos` on `item` permits a positional argument, so the call is `add(&mut oats, amount = 2)`. A `pos`
+parameter can also be passed by name. A function's positional parameters must come before its named-only parameters.
 
-The type of `oats` supplies the type for the construction expression. Each field initializer uses `=` to give the field
-its value. The examples follow Bray's standard source style: a multiline construction puts the opening brace on the next
-line and includes a trailing comma after the final field. Neither choice is required by the grammar.
+In Rust, we would write the type in a struct literal such as `Item { ... }`. Here, the annotation on `oats` already
+supplies the type, so Bray lets us omit it from the construction expression. Bray uses `=` between each field name and
+value, where Rust uses `:`.
+
+The examples follow Bray's standard source style: a multiline construction puts the opening brace on the next line and
+includes a trailing comma after the final field. Neither choice is required by the grammar.
 
 ## Handle absence and errors
 
@@ -171,22 +175,26 @@ func low(pos item: &Item) -> bool
 
 Run `bray run` again. The application still prints `Stock is ready`.
 
-The shared borrow passed to `find` lets it inspect the item without taking ownership.
-`find` returns `(&Item)?`: a nullable borrow. The parentheses matter here. The borrow is the value that may be absent.
-Returning `item` supplies a present value; `none` supplies an absent value. The `if let ?item` condition binds the
-borrow only when the lookup succeeds. That borrow cannot outlive the item it refers to.
+The shared borrow passed to `find` lets it inspect the item without taking ownership. Like Rust's `Option<&Item>`,
+Bray's `(&Item)?` can hold a borrow or represent absence. The parentheses matter: the borrow is the value that may be
+absent. Return `item` directly for a present value, or `none` for absence. There is no `Some(item)` wrapper to write.
+`if let ?item` binds the borrow when present, much like `if let Some(item)` in Rust. The borrow cannot outlive the item.
 
-`std.io.print_line` returns `Result<unit, std.io.IoError>`. The prefix `try` continues on success and propagates an
-error from `main`. `Ok(unit)` reports successful completion. Bray's postfix `?` propagates *absence*; it is not the
-operator used for a `Result` error. We will return to both forms in part 2.
+`std.io.print_line` returns `Result<unit, std.io.IoError>`. For this call, Bray's `try` plays the part of Rust's
+postfix `?`: it continues on success and propagates the error from `main`. Bray's own postfix `?` propagates *absence*
+instead. We will return to both forms in part 2.
+
+Bray's `unit` is the unit value, like Rust's `()`. Returning `Ok(unit)` here is the Bray equivalent of returning
+`Ok(())` in Rust. Unlike a Rust function with a tail expression, a Bray function returning a non-`unit` value uses an
+explicit `return` on each normal path.
 
 Change the quantity passed to `add` from `2` to `1` and run the program again. It prints `Low stock`. Restore `2`
 before continuing.
 
 ## Split the application into modules
 
-A Rust module can separate inventory code from `main`. Bray also has modules, but a `using` declaration records a
-module dependency; it does not bring the module's declarations into unqualified scope.
+A Rust module can separate inventory code from `main`. In Rust, `use` can bring a name into scope. Bray's `using`
+declares a module dependency instead. It doesn't bring the module's declarations into unqualified scope.
 
 Create `src/inventory.bray` with the declarations from `src/main.bray`, under a new module declaration:
 
@@ -448,9 +456,10 @@ The call to `low` now crosses a package boundary. Without `using internal stock.
 that access. The acknowledgment applies to that path, so the call itself can use `stock.inventory.low(item)` without
 another `internal` keyword. Bray also supports a local acknowledgment at the use site.
 
-`internal` doesn't make a declaration private. A consuming package can use it by acknowledging the internal path.
-That acknowledgment makes the dependency visible, but it doesn't turn an internal detail into a stable public API.
-Acknowledging one path doesn't grant access to unrelated internal declarations.
+Rust's `pub(crate)` restricts access to the crate. Bray's `internal` works differently: a consuming package can still
+use the declaration by acknowledging the internal path. That acknowledgment makes the dependency visible, but it
+doesn't turn an internal detail into a stable public API. Acknowledging one path doesn't grant access to unrelated
+internal declarations.
 
 ## Add a test
 
