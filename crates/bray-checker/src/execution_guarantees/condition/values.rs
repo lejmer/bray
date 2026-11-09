@@ -307,6 +307,11 @@ impl ExecutionCondition {
         Self::observation(owner, contents, ObservationKind::Reference)
     }
 
+    /// Data produced without a known scalar payload still has its defining identity.
+    pub(crate) fn opaque_scalar(identity: Self) -> Self {
+        Self::scalar_observation(identity.clone(), Self::ScalarValue(Arc::new(identity)))
+    }
+
     pub(crate) fn scalar_observation(owner: Self, contents: Self) -> Self {
         let owner = owner.owner_identity().clone().into_referent().owner_identity().clone();
 

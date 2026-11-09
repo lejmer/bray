@@ -4483,6 +4483,7 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
         trusted module std.function_evidence;
 
         using core.memory;
+        using std.memory;
         using std.memory.function;
 
         callable Callback = @abi(c) trusted func() -> unit;
@@ -4524,6 +4525,44 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
         {
             return trusted std.memory.function.from_data<Callback>(pointer);
         }
+
+        func construct_owner(pos pointer: FunctionPointer<Callback>, pos replacement: FunctionPointer<Callback>) -> Owner
+            executes(pure, total)
+        {
+            return
+            {
+                pointer = pointer,
+                replacement = replacement
+            };
+        }
+
+        struct PointerState
+        {
+            pointer: DataPointer<u8>;
+            alternate: DataPointer<u8>;
+        }
+
+        trusted func supply_state(pos owner: &Owner, pos pointer: DataPointer<PointerState>) -> &PointerState
+            uses(raw_memory, unchecked_alias)
+        {
+            let permit = trusted lambda(pos pointer: DataPointer<PointerState>)
+                ensures(
+                    trusted core.memory.valid_read<PointerState>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<PointerState>(pointer = pointer),
+                    trusted core.memory.initialized_as<PointerState>(pointer = pointer),
+                    trusted core.memory.shared_alias_valid<PointerState>(pointer = pointer),
+                    trusted core.memory.epoch_current<PointerState>(pointer = pointer),
+                    trusted core.memory.synchronized_access<PointerState>(pointer = pointer),
+                    trusted core.memory.movement_stable<PointerState>(pointer = pointer),
+                    trusted core.memory.finalization_pending<PointerState>(pointer = pointer)
+                )
+                executes(pure, total)
+            {
+            };
+
+            trusted permit(pointer);
+            return trusted std.memory.borrow_from<PointerState, Owner>(owner, pointer);
+        }
     "#;
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
@@ -4546,6 +4585,42 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
         ("value", "", "trusted std.function_evidence.supply_value(owner.pointer);", "owner.pointer", true),
         ("borrowed field", "", "trusted std.function_evidence.supply_field(&owner);", "owner.pointer", true),
         ("result", "", "let pointer = trusted std.function_evidence.supply_result(core.memory.null<u8>());", "pointer", true),
+        ("constructed field", "", r#"
+                let produced = std.function_evidence.construct_owner(owner.pointer, owner.replacement);
+
+                trusted std.function_evidence.supply_field(&produced);
+        "#, "produced.pointer", true),
+        ("different constructed field", "", r#"
+                let produced = std.function_evidence.construct_owner(owner.pointer, owner.replacement);
+
+                trusted std.function_evidence.supply_field(&produced);
+        "#, "produced.replacement", false),
+        ("opaque borrowed field", "", r#"
+                let state = trusted std.function_evidence.supply_state(&owner,
+                    core.memory.null<std.function_evidence.PointerState>());
+                let data = if branch
+                {
+                    yield state.pointer;
+                }
+                else
+                {
+                    yield state.alternate;
+                };
+                let pointer = trusted std.function_evidence.supply_result(data);
+        "#, "pointer", true),
+        ("different opaque result", "", r#"
+                let state = trusted std.function_evidence.supply_state(&owner,
+                    core.memory.null<std.function_evidence.PointerState>());
+                let data = if branch
+                {
+                    yield state.pointer;
+                }
+                else
+                {
+                    yield state.alternate;
+                };
+                let pointer = trusted std.function_evidence.supply_result(data);
+        "#, "owner.pointer", false),
         ("different value", "", "trusted std.function_evidence.supply_field(&owner);", "owner.replacement", false),
         ("replacement", "", r#"
                 trusted std.function_evidence.supply_field(&owner);
@@ -4586,7 +4661,7 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
             using std.memory;
             using std.function_evidence;
 
-            trusted func caller(pos mut owner: std.function_evidence.Owner) -> std.function_evidence.Callback
+            trusted func caller(pos mut owner: std.function_evidence.Owner, pos branch: bool) -> std.function_evidence.Callback
                 {requirement}
                 uses(layout_reinterpret)
             {{

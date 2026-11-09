@@ -95,8 +95,7 @@ pub(crate) fn common_components(
     if projections.is_empty() {
         let joined = result.map_or(ExecutionCondition::Unknown, |identity| {
             if left_owner.is_none() && right_owner.is_none() {
-                ExecutionCondition::scalar_observation(identity.clone(),
-                    ExecutionCondition::ScalarValue(std::sync::Arc::new(identity)))
+                ExecutionCondition::opaque_scalar(identity)
             } else {
                 identity
             }
