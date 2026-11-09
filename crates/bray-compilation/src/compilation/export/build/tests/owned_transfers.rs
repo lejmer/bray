@@ -1995,3 +1995,127 @@ fn source_owned_transfers_preserve_complete_carriers_and_dependencies() {
 fn imported_owned_transfers_preserve_complete_carriers_and_dependencies() {
     check_owned_transfers(true);
 }
+
+#[test]
+fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
+    let created = r#"
+                let mut owner = match consume api.make(flag)
+                {
+                    case Ok(value) { yield value; }
+                    case Error(status) { return status; }
+                };
+    "#;
+    let branch = r#"
+                if api.opaque() != 0
+                {
+                    api.take(owner);
+                    return 1;
+                }
+
+                api.take(owner);
+    "#;
+    for (published, setup, body, valid) in [
+        (false, created, "_ = api.opaque();\n                api.take(owner);", true),
+        (true, created, "api.take(owner);", true),
+        (true, created, "_ = api.opaque();\n                api.take(owner);", true),
+        (true, created, branch, true),
+        (true, "let owner: api.Owner? = api.Owner\n                {\n                    value = 0\n                };", "api.take(owner);", false),
+        (true, created, "owner = api.Owner\n                {\n                    value = 1\n                };\n                api.take(owner);", false),
+        (true, "let owner: api.Owner? = none;", "api.take(owner);", true),
+    ] {
+        let publication = if published { "publish(&owner);" } else { "" };
+        let declarations = format!(r#"
+            trusted module api;
+
+            struct Owner
+            {{
+                value: u32;
+            }}
+
+            trusted predicate owned(owner: &Owner);
+
+            predicate optional_owned(owner: &(Owner?)) = owner matches none || owned(owner = present(owner));
+
+            const func present(pos owner: &(Owner?)) -> &Owner
+                requires(owner matches ?_)
+                executes(pure, total)
+            {{
+                return match owner
+                {{
+                    case ?value {{ yield &value; }}
+                    case none {{ panic("missing owner"); }}
+                }};
+            }}
+
+            const func created(pos owner: &Result<(Owner?), u32>) -> &(Owner?)
+                requires(owner matches Ok(_))
+                executes(pure, total)
+            {{
+                return match owner
+                {{
+                    case Ok(value) {{ yield &value; }}
+                    case Error(_) {{ panic("failed creation"); }}
+                }};
+            }}
+
+            trusted func publish(pos owner: &Owner)
+                ensures(trusted owned(owner = owner))
+                executes(pure, total)
+            {{
+            }}
+
+            trusted func make(pos flag: bool) -> Result<(Owner?), u32>
+                ensures(!(result matches Ok(_)) || trusted optional_owned(owner = created(&result)))
+            {{
+                if flag
+                {{
+                    let owner: Owner =
+                    {{
+                        value = 0
+                    }};
+
+                    {publication}
+                    return Ok(owner);
+                }}
+
+                return Error(1);
+            }}
+
+            func take(pos owner: Owner?)
+                requires(trusted optional_owned(owner = &owner))
+            {{
+            }}
+
+            extern func opaque() -> u32;
+        "#);
+        let provider = compilation(&declarations);
+        assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+        let source = format!(r#"
+            module app;
+
+            using api;
+
+            func caller(pos flag: bool) -> u32
+            {{
+                {setup}
+                {body}
+                return 0;
+            }}
+        "#);
+        for imported in [false, true] {
+            let application = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                compilation_from_sources([declarations.as_str(), &source])
+            };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "published={published}, imported={imported}: {source}\n{diagnostics:#?}\n{:#?}",
+                crate::compilation::result_dependencies::source_function_dependencies(&provider, "make"));
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}

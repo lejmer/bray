@@ -145,13 +145,7 @@ impl ExecutionCondition {
             return Some(value);
         }
 
-        let inverse = match operator {
-            BoundOperator::Equal => Some(BoundOperator::NotEqual),
-            BoundOperator::NotEqual => Some(BoundOperator::Equal),
-            _ => None,
-        };
-
-        if let Some(inverse) = inverse {
+        if let Some(inverse) = operator.equality_complement() {
             let inverse = Self::Operation(inverse, operands.clone());
 
             for value in [true, false] {

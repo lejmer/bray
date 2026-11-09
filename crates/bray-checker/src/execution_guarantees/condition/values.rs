@@ -829,6 +829,13 @@ impl ExecutionCondition {
             }
         }
 
+        if operator == BoundOperator::LogicalNot
+            && let [Self::Operation(comparison, inner)] = operands.as_slice()
+            && let Some(complement) = comparison.equality_complement()
+        {
+            return Self::operation(complement, inner.to_vec());
+        }
+
         match (operator, operands.as_slice()) {
             (
                 BoundOperator::Equal | BoundOperator::NotEqual,
@@ -872,6 +879,31 @@ mod tests {
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{ConstantProjectionKind, SymbolId, SymbolOrdinal, UnionVariantSymbolId};
     use std::sync::Arc;
+
+    #[test]
+    fn equality_polarity_keeps_guarded_trusted_evidence_composable() {
+        use bray_bound_tree::BoundOperator;
+        use std::collections::BTreeSet;
+
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let predicate = ExecutionCondition::Trusted(Arc::new(input(2)));
+
+        for (operator, opposite) in [(BoundOperator::Equal, BoundOperator::NotEqual),
+            (BoundOperator::NotEqual, BoundOperator::Equal)]
+        {
+            let compare = |operator| ExecutionCondition::operation(operator, vec![input(0), input(1)]);
+            let premise = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
+                ExecutionCondition::operation(BoundOperator::LogicalNot, vec![compare(opposite)]), predicate.clone(),
+            ]);
+            let required = ExecutionCondition::operation(BoundOperator::LogicalOr,
+                vec![compare(operator), predicate.clone()]);
+            let facts = BTreeSet::from([(premise, true)]);
+
+            assert_eq!(required.prove_trusted(&facts, &BTreeSet::new()), Some(true));
+            assert_eq!(required.prove_trusted(&BTreeSet::new(), &facts), None,
+                "ordinary occurrences cannot establish the guarded authority");
+        }
+    }
 
     #[test]
     fn repeated_guard_qualification_has_one_exact_boolean_shape() {
