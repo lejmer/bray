@@ -58,9 +58,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let initialized = predicate("InitializedAs");
         let equalities = ExecutionCondition::equalities(&state.assumptions, None);
 
-        let normalize = |condition: &ExecutionCondition| condition.with_equalities(&equalities);
+        let normalize = |condition: &ExecutionCondition| condition.with_equalities(&equalities)
+            .pointer_observations(&self.pointer_predicates);
 
-        let pointer = normalize(&pointer);
+        let pointer = normalize(&pointer).pointer_identity().clone();
 
         if pointer.observation_path().is_none() {
             return BTreeSet::new();
@@ -628,6 +629,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         == Some(bray_symbols::DependencyReferenceKind::Address)
                 }) {
                     address_slots.insert(value.owner_identity().clone());
+                    let pointer = value.pointer_identity().clone();
+
+                    address_slots.insert(pointer.clone());
+                    observed.push(pointer);
                 }
 
                 observed.push(value);

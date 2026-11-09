@@ -370,7 +370,7 @@ where
     pub(super) patterns: &'analysis bray_bound_tree::CheckedPatterns,
     pub(super) results: crate::dependency::ResultState,
     pub(super) trusted: crate::analysis::guarantee::TrustedChecks,
-    pub(super) memory_evidence: Option<Result<bool, crate::UnprovenExecutionCondition>>,
+    pub(super) memory_evidence: Option<crate::analysis::guarantee::MemoryCallEvidence>,
     preconditions: BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, StorageSuspensionState>,
@@ -1293,7 +1293,7 @@ where
             let values = self.request.semantic_values();
             let memory = &state.memory;
 
-            self.trusted.after_operation(self.execution, execution, kind, self.memory_evidence.as_ref(), &|plan| {
+            self.trusted.after_operation(self.execution, execution, kind, self.memory_evidence.as_ref().map(|evidence| &evidence.requirements), &|plan| {
                 let target = input.reference_target(values, memory, storage, plan.access())?;
 
                 (&target).value_observation_path()

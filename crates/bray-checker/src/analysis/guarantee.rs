@@ -21,7 +21,7 @@ pub use check::check_execution_candidate;
 pub(in crate::analysis) use flow::{ExecutionJoin, merge_execution};
 pub(crate) use flow::{ExecutionFlowDomain, prepare_execution_flow};
 pub(in crate::analysis) use state::ExecutionState;
-pub(in crate::analysis) use trusted::{OwnedReturnCondition, TrustedChecks};
+pub(in crate::analysis) use trusted::{MemoryCallEvidence, OwnedReturnCondition, TrustedChecks};
 pub(in crate::analysis) use trusted::portable_carrier_path;
 mod flow;
 

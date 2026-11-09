@@ -4451,12 +4451,27 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
             let diagnostics = application.check_diagnostics();
             assert_eq!(!diagnostics.has_errors(), initialized && separated,
                 "extent={extent}, destructured={destructured}, imported={imported}: {diagnostics:#?}");
-            if !initialized {
-                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
-                    bray_diagnostics::DiagnosticKind::CheckingUninitializedRawStorage);
-            } else if !separated {
+            if !initialized || !separated {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+                let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| {
+                    match argument.value() {
+                        bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+                        _ => None,
+                    }
+                }).expect("rejected memory operation retains its failed condition");
+                let bray_diagnostics::DiagnosticCondition::Application { path, .. } = &obligation.actual else {
+                    panic!("memory requirement retains its predicate: {obligation:#?}");
+                };
+                let expected = if initialized { "non_overlapping" } else { "initialized_range_as" };
+                assert_eq!(path.last().map(String::as_str), Some(expected));
+                if initialized {
+                    assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingUninitializedRawStorage).next().is_none(),
+                        "a different failed requirement must not erase proven initialization: {diagnostics:#?}");
+                } else {
+                    bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                        bray_diagnostics::DiagnosticKind::CheckingUninitializedRawStorage);
+                }
             }
         }
     }

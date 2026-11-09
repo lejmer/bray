@@ -99,19 +99,24 @@ impl ExecutionCondition {
                                 return argument.computed_value().clone();
                             }
 
-                            let mut pointer = argument.copied_value();
-
-                            while let Self::Borrowed(reached) = pointer {
-                                pointer = reached.copied_value();
-                            }
-
-                            pointer.owner_identity().clone()
+                            argument.pointer_identity().clone()
                         })
                         .collect(),
                 )
             }
             _ => self.clone(),
         }
+    }
+
+    /// The copied address descriptor, independently of the scalar slot holding it.
+    pub(crate) fn pointer_identity(&self) -> &Self {
+        let mut pointer = self.copied_value();
+
+        while let Self::Borrowed(reached) = pointer {
+            pointer = reached.copied_value();
+        }
+
+        pointer.owner_identity()
     }
 
     /// The carrier's identity survives changes to the component snapshot.
