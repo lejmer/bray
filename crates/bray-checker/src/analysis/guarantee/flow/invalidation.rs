@@ -691,7 +691,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .filter_map(|place| {
                     if self.observed_types.get(place).copied().flatten()
                         .and_then(|ty| crate::representation::type_representation(self.request, ty))
-                        .is_some_and(crate::representation::is_scalar)
+                        .is_some_and(crate::representation::is_scalar_value)
                     {
                         // A write retires this slot's borrowed observation, not
                         // the immutable value also held by another scalar copy.
@@ -743,6 +743,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         for (place, value) in updates { state.observe(place, value, None); }
+
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
             self.observe_references(state, snapshots);

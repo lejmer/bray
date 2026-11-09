@@ -30,15 +30,15 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:748 passed /54 failed /99 ignored, including raw-memory16. No added failures. The existing
+Fixed comparison:749 passed /54 failed /99 ignored, including raw-memory16. No added failures. The existing
 raw_slot_moves_preserve_only_live_disjoint_initialization now passes without expectation changes. Checker470 and
 bound-tree133 pass. Source/import16 range cases pass, including exact failed predicates and genuine initialization errors.
 Earlier failure-diagnostics6, conformance7, messages90 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
 Expanded predicate group:25 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
 
-Accepted native.log uses compiler sourcesb25a6c43b and unchanged runtime Source64a4e5490:128 diagnostics
-(E7123=64,E7135=41,E7119=23). Pointer-range normalization removed exactly result318 E7087/E7123, with no additions.
-Matching native library built. The pending repair below has not yet had native verification. No native async composition
+Accepted native.log uses compiler sources69a6e7dba and unchanged runtime Source64a4e5490:128 diagnostics
+(E7123=64,E7135=41,E7119=23), exactly the same identities asb25a6c43b. Pointer-range normalization previously removed
+result318 E7087/E7123. Matching native library built. No native async composition
 has executed. Source/MIR success remains narrower evidence. Host/attachment/cleanup192 still has a generic local cause.
 Use the canonical complete233-file Windows request. Partial production_host_request has129 files and cannot certify it.
 
@@ -57,9 +57,17 @@ Shared pointer_identity now serves proof, disjoint-range preservation and retire
 Stable address bits cannot preserve reached initialization claims. Double moves reject, reinitialization succeeds, spatial
 permissions survive, and empty-copy0/1 physical storage decisions pass. No temporary trace hooks remain.
 
-The fixed comparison passes its identity gate. The fresh CLI reports only non-overlap E7123 for the initialized-copy
-negative, and E7087 plus initialized_as E7123 for the fully authorized double move. Both scratch sources/logs are removed.
-Run the matching native comparison next. No style/format has run. No agent is active.
+The fresh CLI reports only non-overlap E7123 for the initialized-copy negative, and E7087 plus initialized_as E7123 for the
+fully authorized double move. Both scratch sources/logs are removed. Checkpoint69a6e7dba is pushed.
+
+Callable-address repair:CallableAddressValid shares the pointer policy. Clauses normalize at actual publication after
+substitution, including call/cleanup completion, entry/static guarantees and intrinsic range evidence. Scalar slot writes
+retire storage borrows, while copies retain data facts. Shared is_scalar_value includes address bits for borrowing, call
+results and overwrite handling. Storage observations still distinguish Address from ordinary Value.
+Checker470, Source/import20 callable controls, range16 and raw-memory16 pass. Copied values survive replacement, while
+copied/replaced slot authority rejects with slot_ready. The fixed comparison retains exactly54 failures. Fresh CLI value,
+borrowed-field and returned-pointer controls all pass. Probe and trace files are removed. Matching native verification is next.
+No style/format has run. No agent is active.
 
 ## Remaining
 

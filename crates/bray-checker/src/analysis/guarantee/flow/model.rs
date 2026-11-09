@@ -451,7 +451,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                         &|_| ExecutionCondition::Unknown,
                         &value,
                         &mut { ExecutionCondition::WORK_LIMIT },
-                    );
+                    ).pointer_observations(&self.pointer_predicates);
 
                     let subject = super::super::trusted::static_carrier(
                         self.request.semantic_values(),
@@ -484,19 +484,19 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
 
             for condition in &contracts.requirements {
+                let condition = condition.pointer_observations(&self.pointer_predicates);
+
                 if condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
                     == Some(false)
                 {
                     return None;
                 }
 
-                condition
-                    .clone()
-                    .assume(true, &mut state.trusted_assumptions);
+                condition.assume(true, &mut state.trusted_assumptions);
             }
 
             for (condition, subject) in &contracts.required_witnesses {
-                state.carry_guarantee(ExecutionCondition::Input(subject.clone()), condition.clone());
+                state.carry_guarantee(ExecutionCondition::Input(subject.clone()), condition.pointer_observations(&self.pointer_predicates));
             }
 
             for (condition, owner) in self.allocation_subjects(&contracts.requirements) {

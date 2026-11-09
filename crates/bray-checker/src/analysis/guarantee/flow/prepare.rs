@@ -83,6 +83,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         ("ValidRead", true, &[0]),
         ("ValidWrite", true, &[0]),
         ("AlignedFor", true, &[0]),
+        ("CallableAddressValid", true, &[0]),
         ("NonOverlapping", true, &[0, 2]),
         ("DeviceValidRead", true, &[0]),
         ("DeviceValidWrite", true, &[0]),
@@ -99,7 +100,6 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     ];
     let (pointer_predicates, mut content_predicates): (BTreeMap<_, _>, BTreeSet<_>) = request
         .trusted_contracts()
-        .filter(|contracts| !contracts.requirements.is_empty() || !contracts.calls.is_empty())
         .into_iter()
         .flat_map(|_| POINTER_PREDICATES.iter().copied())
         .filter_map(|(name, preserves_contents, pointers)| {

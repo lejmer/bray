@@ -718,7 +718,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             },
                             &ExecutionCondition::Unknown,
                             &mut { ExecutionCondition::WORK_LIMIT },
-                        );
+                        ).pointer_observations(&self.pointer_predicates);
 
                         condition.assume(true, &mut evidence.trusted_assumptions);
                     }

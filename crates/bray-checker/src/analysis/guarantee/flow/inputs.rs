@@ -247,7 +247,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if matches!(result, ExecutionCondition::Call(..))
             && let bray_bound_tree::BoundCallResult::Immediate(ty) = call.resolution().result()
             && !crate::representation::type_representation(self.request, ty)
-                .is_some_and(crate::representation::is_scalar)
+                .is_some_and(crate::representation::is_scalar_value)
         {
             // Const computation describes data, not the identity of an owner
             // produced by this invocation. Returned transfers refine this slot.

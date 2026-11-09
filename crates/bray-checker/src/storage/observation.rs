@@ -74,12 +74,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
 
     let observation = if scalar {
         Observation::Value
-    } else if matches!(
-        role,
-        RepresentationRole::RawPointer
-            | RepresentationRole::FunctionPointer
-            | RepresentationRole::DevicePointer
-    ) {
+    } else if crate::representation::is_address(role) {
         Observation::Address
     } else if matches!(role, RepresentationRole::Future | RepresentationRole::Task) {
         // Runtime progress changes the protected frame, not the owned handle's identity.

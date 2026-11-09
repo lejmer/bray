@@ -100,19 +100,29 @@ impl ExecutionState {
                             if place.overlaps_any(places)))
         };
 
-        let borrowed_changed = |condition: &ExecutionCondition| condition.observes_live_where(|value| {
-            let owner = value.owner_identity();
+        let borrowed_slot_changed = |condition: &ExecutionCondition| {
+            condition.observations_except(&retained_data).any(|observed| {
+                let ExecutionCondition::Borrowed(value) = observed else { return false; };
 
+                if retained_data(value) { return false; }
+
+                match value.owner_identity() {
+                    ExecutionCondition::Input(place) | ExecutionCondition::PostState(_, place)
+                        | ExecutionCondition::Joined(_, _, place) => place.overlaps_any(places),
+                    _ => false,
+                }
+            })
+        };
+        let borrowed_changed = |condition: &ExecutionCondition| condition.observes_live_where(|value| {
             observes(value, false)
                 || matches!((&retiring_snapshots, retained_snapshots), (Some(before), Some(after))
                     if retiring_observations.overlaps(value)
                         && !crate::execution_guarantees::ObservationSet::retains_contents_between(before, after, value))
-                || !retained_data(value)
-                && matches!(owner, ExecutionCondition::Input(place) if place.overlaps_any(places))
-        }, &retained_data);
+        }, &retained_data) || borrowed_slot_changed(condition);
 
         let retained_contents = |condition: &ExecutionCondition| {
             kind.is_write()
+                && !borrowed_slot_changed(condition)
                 && condition.observes_only(|value| retained_observations.preserves(value))
                 && condition
                     .observations()
