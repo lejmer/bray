@@ -109,8 +109,9 @@ Bray uses `func` for functions. Parameters are named at the call site by default
 positional argument, so the call is `add(&mut oats, amount = 2)`. A `pos` parameter can also be passed by name. A
 function's positional parameters must come before its named-only parameters.
 
-The type of `oats` supplies the type for the construction expression. Its field initializers use `=`, and each field
-ends with a comma. The opening brace goes on the next line. Bray may be stubborn, but at least its braces are consistent.
+The type of `oats` supplies the type for the construction expression. Each field initializer uses `=` to give the field
+its value. The examples follow Bray's standard source style: a multiline construction puts the opening brace on the next
+line and includes a trailing comma after the final field. Neither choice is required by the grammar.
 
 ## Handle absence and errors
 
