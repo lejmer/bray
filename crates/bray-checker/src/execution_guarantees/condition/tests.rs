@@ -54,6 +54,15 @@ fn projecting_a_stored_reference_preserves_its_independent_referent() {
     let view = ExecutionCondition::reference_value(input(0).borrowed(), owned);
 
     assert_eq!(view.component(logical).ownership_identity().map(|(kind, _)| kind), Some(crate::execution_guarantees::ExecutionObservationKind::Reference));
+
+    let scalar = ExecutionCondition::scalar_observation(input(3), input(1));
+    let contents = ExecutionCondition::constructed(input(0), Arc::from([(physical, scalar)]));
+    let view = ExecutionCondition::reference_value(input(0).borrowed(), contents);
+    let projected = view.component(logical);
+
+    assert_eq!(projected.observation_kind(), Some(crate::execution_guarantees::ExecutionObservationKind::Scalar));
+    assert_eq!(projected.copied_value(), &input(1));
+    assert_ne!(projected.borrowed().owner_identity(), input(1).borrowed().owner_identity());
 }
 
 #[test]

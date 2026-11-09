@@ -17,6 +17,9 @@ impl ExecutionCondition {
         match kind {
             ObservationKind::Owned => selected,
             ObservationKind::Scalar => Self::scalar_observation(owner(), selected),
+            ObservationKind::Reference if selected.observation_kind() == Some(ObservationKind::Scalar) => {
+                Self::scalar_observation(owner(), selected)
+            }
             ObservationKind::Reference => Self::reference_value(owner().borrowed(), selected),
         }
     }
