@@ -103,7 +103,7 @@ fn diagnostic_type_at_depth<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if depth >= 256 {
+    if depth >= DiagnosticType::NESTING_LIMIT {
         return Ok(DiagnosticType::Unknown);
     }
 
@@ -136,13 +136,24 @@ where
         TypeData::Slice(_) => DiagnosticType::Slice,
         TypeData::Generator(_) => DiagnosticType::Generator,
         TypeData::Nullable(_) => DiagnosticType::Nullable,
-        TypeData::Borrow { .. } => DiagnosticType::Borrow,
+        TypeData::Borrow { kind, target } => DiagnosticType::Borrow {
+            kind: diagnostic_borrow_kind(*kind),
+            target: Box::new(diagnostic_type_at_depth(context, *target, depth + 1)?),
+        },
         TypeData::TraitView(_) => DiagnosticType::TraitView,
         TypeData::OwnedIndirection { .. } => DiagnosticType::OwnedIndirection,
         TypeData::Callable(_) => DiagnosticType::Callable,
     };
 
     Ok(diagnostic)
+}
+
+/// Preserves a checked borrow capability in structured diagnostics.
+pub const fn diagnostic_borrow_kind(kind: bray_symbols::BorrowKind) -> bray_diagnostics::DiagnosticBorrowKind {
+    match kind {
+        bray_symbols::BorrowKind::Shared => bray_diagnostics::DiagnosticBorrowKind::Shared,
+        bray_symbols::BorrowKind::Mutable => bray_diagnostics::DiagnosticBorrowKind::Mutable,
+    }
 }
 
 pub(crate) fn expression_span<C>(

@@ -4,7 +4,7 @@ use super::super::interface::{
 use super::super::source::format_english_type;
 use bray_diagnostics::{
     DiagnosticCallableOverloadArm, DiagnosticCallableOverloadContext,
-    DiagnosticCallableOverloadProblem, DiagnosticImplementationBorrowKind,
+    DiagnosticCallableOverloadProblem, DiagnosticBorrowKind,
     DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
     DiagnosticImplementationOverloadProblem,
 };
@@ -64,8 +64,8 @@ fn format_english_implementation_family(family: &DiagnosticImplementationFamily)
         }
         DiagnosticImplementationFamilySubject::Borrowed { kind, subject } => {
             let borrow = match kind {
-                DiagnosticImplementationBorrowKind::Shared => "shared borrow of",
-                DiagnosticImplementationBorrowKind::Mutable => "mutable borrow of",
+                DiagnosticBorrowKind::Shared => "shared borrow of",
+                DiagnosticBorrowKind::Mutable => "mutable borrow of",
             };
 
             format!(

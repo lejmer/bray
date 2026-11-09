@@ -81,6 +81,19 @@ All temporary hooks, traces and Source probes are removed. The permanent regress
  The two escape errors borrow execution before transferring it into
 creation. Native191122aaf identity baseline remains frozen in native-baseline-identities.txt.
 
+Current uncommitted diagnostic batch replaces the Borrow type placeholder with kind plus target. The existing
+implementation-family borrow kind is moved/renamed DiagnosticBorrowKind and reused, with one checker conversion.
+Source/foreign conversion, English and JSON preserve the payload. Checker465/diagnostics44/messages85/JSON46 pass.
+The new compiler conflict diagnostic checks StorageAccess.reached_type, and all six focused diagnostics now pass.
+The comparison713/57/99 in89s passes with zero new failing identities, using all-package tooling tests (a64b618a hash).
+No semantic lifetime change is included yet.
+A small real CLI program reproduces retirement E7036 using plain Control in a nullable Uninit slot. Its permanent
+Source/import paired regression is initialized_owner_extraction_ends_the_match_loan_before_replacement in returned_dependencies.rs.
+It requires owned extraction to release the match loan and preserves rejection when the result actually borrows the slot.
+This new test is uncompiled and must remain red until the owning transition is repaired. Current Source probe files are
+active only until that regression supplies the evidence. Next trace end_last_use_borrows/end_scope: distinguish actual
+report retention, live cleanup owners and liveness. No retention relaxation without that evidence.
+
 Retain frozen baseline-failures.txt and native-baseline-identities.txt, current compact comparison.log/native.log, native
 artifacts and the deferred-report baseline executable for two pre-existing negative controls. Remove passed build/check
 logs, superseded diagnostic outputs and temporary traces immediately after recording needed results. Keep only one active

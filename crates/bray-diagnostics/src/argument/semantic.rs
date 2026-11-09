@@ -8,4 +8,4 @@ mod types;
 pub use callable::DiagnosticCallableAbi;
 pub use representation::DiagnosticAlignmentKind;
 pub use selection::DiagnosticSelectionKind;
-pub use types::{DiagnosticNamedType, DiagnosticType, DiagnosticTypeArgument};
+pub use types::{DiagnosticBorrowKind, DiagnosticNamedType, DiagnosticType, DiagnosticTypeArgument};

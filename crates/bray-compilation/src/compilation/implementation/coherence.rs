@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_binder::NameAccess;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticImplementationBorrowKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, 
     DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
     DiagnosticImplementationOverloadProblem, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticType, SeverityKind,
@@ -635,12 +635,7 @@ fn diagnostic_implementation_family(
         }
         ImplementationFamilySubject::Borrowed(kind, subject) => {
             DiagnosticImplementationFamilySubject::Borrowed {
-                kind: match kind {
-                    bray_symbols::BorrowKind::Shared => DiagnosticImplementationBorrowKind::Shared,
-                    bray_symbols::BorrowKind::Mutable => {
-                        DiagnosticImplementationBorrowKind::Mutable
-                    }
-                },
+                kind: bray_checker::diagnostic_borrow_kind(kind),
                 subject: symbol_diagnostic_identity(symbols, imported, named_type_symbol(subject))?,
             }
         }

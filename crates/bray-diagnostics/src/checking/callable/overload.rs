@@ -1,13 +1,4 @@
-use crate::{DiagnosticInterfaceSymbolIdentity, DiagnosticType};
-
-/// Borrow layer used by an implementation overload family subject.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticImplementationBorrowKind {
-    /// Shared observation through the subject borrow.
-    Shared,
-    /// Mutable access through the subject borrow.
-    Mutable,
-}
+use crate::{DiagnosticBorrowKind, DiagnosticInterfaceSymbolIdentity, DiagnosticType};
 
 /// Exact named subject selected by an implementation overload family.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -17,7 +8,7 @@ pub enum DiagnosticImplementationFamilySubject {
     /// A borrowed named structural type.
     Borrowed {
         /// Borrow capability applied to the subject.
-        kind: DiagnosticImplementationBorrowKind,
+        kind: DiagnosticBorrowKind,
         /// Named structural type beneath the borrow.
         subject: DiagnosticInterfaceSymbolIdentity,
     },

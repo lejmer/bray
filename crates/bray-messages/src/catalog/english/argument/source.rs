@@ -66,7 +66,10 @@ pub(super) fn format_english_type(ty: &bray_diagnostics::DiagnosticType) -> Stri
         DiagnosticType::Slice => "slice type".to_owned(),
         DiagnosticType::Generator => "generator type".to_owned(),
         DiagnosticType::Nullable => "nullable type".to_owned(),
-        DiagnosticType::Borrow => "borrow type".to_owned(),
+        DiagnosticType::Borrow { kind, target } => match kind {
+            bray_diagnostics::DiagnosticBorrowKind::Shared => format!("&{}", format_english_type(target)),
+            bray_diagnostics::DiagnosticBorrowKind::Mutable => format!("&mut {}", format_english_type(target)),
+        },
         DiagnosticType::TraitView => "trait view type".to_owned(),
         DiagnosticType::OwnedIndirection => "owned indirection type".to_owned(),
         DiagnosticType::Callable => "callable type".to_owned(),
@@ -242,5 +245,23 @@ fn format_english_source_origin(source_id: u32, origin: &SourceOrigin) -> String
         | SourceOrigin::TestFixture { name } => name.clone(),
         SourceOrigin::LspDocument { uri } => uri.clone(),
         SourceOrigin::Stdin => format!("source {source_id}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{DiagnosticBorrowKind, DiagnosticNamedType, DiagnosticType, DiagnosticTypeArgument};
+
+    #[test]
+    fn borrowed_types_render_their_target_and_mutability() {
+        for (kind, expected) in [(DiagnosticBorrowKind::Shared, "&std.memory.Uninit<i32>"),
+            (DiagnosticBorrowKind::Mutable, "&mut std.memory.Uninit<i32>")]
+        {
+            let target = DiagnosticType::Named(DiagnosticNamedType::new(
+                ["std".to_owned(), "memory".to_owned(), "Uninit".to_owned()],
+                [DiagnosticTypeArgument::Type(DiagnosticType::I32)],
+            ));
+            assert_eq!(super::format_english_type(&DiagnosticType::Borrow { kind, target: Box::new(target) }), expected);
+        }
     }
 }

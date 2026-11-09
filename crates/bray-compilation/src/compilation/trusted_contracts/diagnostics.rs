@@ -3,6 +3,40 @@ use bray_diagnostics::{DiagnosticArgValue, DiagnosticCondition, DiagnosticContra
 use crate::test_support::compilation;
 
 #[test]
+fn conflicting_borrows_retain_the_concrete_target_and_capability() {
+    let application = compilation(r#"
+        module app;
+
+        struct Slot
+        {
+            mut value: usize;
+        }
+
+        func inspect(pos owner: &mut Slot)
+        {
+        }
+
+        func caller(pos owner: &mut Slot)
+        {
+            let child = &mut owner.value;
+            inspect(owner);
+            _ = child;
+        }
+    "#);
+    let diagnostics = application.check_diagnostics();
+
+    assert!(diagnostics.iter().filter(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingConflictingBorrow)
+        .flat_map(|diagnostic| diagnostic.args()).any(|argument| {
+            let DiagnosticArgValue::StorageAccess(access) = argument.value() else { return false; };
+            let bray_diagnostics::DiagnosticType::Borrow {
+                kind: bray_diagnostics::DiagnosticBorrowKind::Mutable, target,
+            } = access.reached_type() else { return false; };
+            matches!(target.as_ref(), bray_diagnostics::DiagnosticType::Named(named)
+                if named.path().last().map(String::as_str) == Some("Slot"))
+        }), "the conflict must retain &mut Slot: {diagnostics:#?}");
+}
+
+#[test]
 fn failed_conditions_name_the_complete_producer_call() {
     for (producer, input_count) in [("acquire()", 0), ("factory.acquire()", 1)] {
     let source = r#"

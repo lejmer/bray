@@ -14,7 +14,7 @@ pub use callable::{
     DiagnosticCallableExecution, DiagnosticCallableOverloadArm, DiagnosticCallableOverloadContext,
     DiagnosticCallableOverloadProblem, DiagnosticCallableParameterMode, DiagnosticCallablePosition,
     DiagnosticCallableTrust, DiagnosticConstraintCategory, DiagnosticGenericConstraintMismatch,
-    DiagnosticGenericParameterCategory, DiagnosticImplementationBorrowKind,
+    DiagnosticGenericParameterCategory, 
     DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
     DiagnosticImplementationOverloadProblem, DiagnosticReceiverMode,
     DiagnosticTraitFulfillmentMismatch,

@@ -5,6 +5,24 @@ use serde::Serialize;
 use crate::output::diagnostic::source_map::DiagnosticSourceMap;
 use crate::output::{SourceLocationOutput, SourceOriginOutput, path_to_output_string};
 
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{DiagnosticBorrowKind, DiagnosticType};
+
+    #[test]
+    fn borrowed_type_json_keeps_nested_capabilities_and_targets() {
+        let ty = DiagnosticType::Borrow { kind: DiagnosticBorrowKind::Mutable, target: Box::new(
+            DiagnosticType::Borrow { kind: DiagnosticBorrowKind::Shared, target: Box::new(DiagnosticType::U32) },
+        ) };
+        let json = serde_json::to_value(super::DiagnosticTypeJson::from_type(&ty)).expect("borrow type JSON serializes");
+
+        assert_eq!(json["kind"], "borrow");
+        assert_eq!(json["borrow_kind"], "mutable");
+        assert_eq!(json["target"]["borrow_kind"], "shared");
+        assert_eq!(json["target"]["target"]["kind"], "u32");
+    }
+}
+
 #[derive(Serialize)]
 pub(in crate::output::diagnostic::json) struct DiagnosticLinkRequirementJson {
     kind: &'static str,
@@ -37,6 +55,10 @@ pub(in crate::output::diagnostic::json) struct DiagnosticTypeJson {
     path: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     arguments: Option<Vec<DiagnosticTypeArgumentJson>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    borrow_kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<Box<Self>>,
 }
 
 impl DiagnosticTypeJson {
@@ -93,7 +115,10 @@ impl DiagnosticTypeJson {
             DiagnosticType::Slice => ("slice", None, None, None),
             DiagnosticType::Generator => ("generator", None, None, None),
             DiagnosticType::Nullable => ("nullable", None, None, None),
-            DiagnosticType::Borrow => ("borrow", None, None, None),
+            DiagnosticType::Borrow { kind, target } => return Self {
+                kind: "borrow", element_count: None, path: None, arguments: None,
+                borrow_kind: Some(kind.as_str()), target: Some(Box::new(Self::from_type(target))),
+            },
             DiagnosticType::TraitView => ("trait_view", None, None, None),
             DiagnosticType::OwnedIndirection => ("owned_indirection", None, None, None),
             DiagnosticType::Callable => ("callable", None, None, None),
@@ -104,6 +129,8 @@ impl DiagnosticTypeJson {
             element_count,
             path,
             arguments,
+            borrow_kind: None,
+            target: None,
         }
     }
 }
