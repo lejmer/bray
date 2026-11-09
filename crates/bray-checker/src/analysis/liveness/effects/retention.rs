@@ -311,7 +311,7 @@ impl OperationEffects {
                     let (subject, copy_address) = match requirement {
                         BoundDependencyRequirement::Value { source, path, ty } => {
                             if let Some(value) = self.value_inputs.copied_value_source(
-                                request.semantic_values(), storage, selections, *source, path,
+                                request, storage, selections, *source, path, *ty,
                             ) {
                                 nested.extend(retained_subtree_subjects(
                                     &self.value_inputs, value, &retained_by_expression,

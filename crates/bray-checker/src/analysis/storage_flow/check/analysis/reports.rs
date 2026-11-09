@@ -564,10 +564,10 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                         ));
                     }
                 }
-                bray_bound_tree::BoundDependencyRequirement::Value { source, path, .. } => {
+                bray_bound_tree::BoundDependencyRequirement::Value { source, path, ty } => {
                     if let Some(value) = self.values.copied_value_source(
-                        self.request.semantic_values(), self.storage,
-                        self.execution.semantics.selections(), *source, path,
+                        self.request, self.storage,
+                        self.execution.semantics.selections(), *source, path, *ty,
                     ) {
                         subjects.extend(self.liveness.retained_by(value));
                         continue;

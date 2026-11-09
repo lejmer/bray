@@ -4331,3 +4331,141 @@ fn exclusive_inputs_preserve_guarantees_through_protected_storage_writes() {
         assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:#?}");
     }
 }
+
+#[test]
+fn copied_handle_fields_do_not_retain_returned_view_loans() {
+    let source = r#"
+        module api;
+
+        struct Handle
+        {
+            pointer: DataPointer<u32>;
+        }
+
+        struct Execution
+        {
+            handle: Handle;
+        }
+
+        struct Service
+        {
+            handle: Handle;
+            execution: Execution;
+        }
+
+        struct View
+        {
+            handle: &Handle;
+        }
+
+        func reference(pos owner: &Execution) -> &Handle
+        {
+            return &owner.handle;
+        }
+
+        func retain(pos owner: &Handle) -> Handle
+        {
+            return
+            {
+                pointer = owner.pointer
+            };
+        }
+
+        func borrow(pos owner: &Handle) -> View
+        {
+            return
+            {
+                handle = owner
+            };
+        }
+
+        func assemble(pos execution: Execution) -> Service
+        {
+            let handle = retain(reference(&execution));
+
+            return
+            {
+                handle = handle,
+                execution = execution
+            };
+        }
+    "#;
+
+    let provider = compilation(source);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for (result, body, valid) in [
+        (
+            "Service",
+            r#"
+                let handle = api.retain(api.reference(&execution));
+
+                return
+                {
+                    handle = handle,
+                    execution = execution
+                };
+            "#,
+            true,
+        ),
+        ("Service", "return api.assemble(execution);", true),
+        ("View", "return api.borrow(api.reference(&execution));", false),
+        (
+            "Handle",
+            r#"
+                let value: u32 = 7;
+
+                let local: api.Execution =
+                {
+                    handle =
+                    {
+                        pointer = core.memory.address_of<u32>(&value)
+                    }
+                };
+
+                return api.retain(api.reference(&local));
+            "#,
+            // Raw addresses carry no access authority or borrow lifetime.
+            true,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            module app;
+            using example.package.api;
+            using core.memory;
+
+            func caller(pos execution: api.Execution) -> api.{result}
+            {{
+                {body}
+            }}
+            "#
+        ).replace("api.", "example.package.api.");
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(&provider, &caller)
+            } else {
+                compilation_from_sources([source, &caller.replace("example.package.", "")])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{result}, imported={imported}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+                );
+            }
+        }
+    }
+}
+
