@@ -32,26 +32,12 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 bray_symbols::TypeData::Borrow { .. }))
         });
 
-        // Place projections keep their produced loan descriptor until the actual
-        // consumer has captured the reached data or formed a new borrow.
-        let projected = self.projected_borrow_value(expression).filter(|root| Some(*root) != value);
-
-        for root in value.into_iter().chain(projected) {
+        // A projected place does not own its receiver's descriptor. Only the
+        // operand's produced output is transferred by this consumer.
+        if let Some(root) = value {
             self.builder_mut().consume_value(occurrence, phase, StoragePath::root(root))
                 .expect("evaluated operand consumption names its registered output slot");
         }
-    }
-
-    fn projected_borrow_value(&self, expression: BoundExpressionId) -> Option<bray_bound_tree::StorageIdentityId> {
-        let access = self.builder().access(*self.expression_accesses.get(&expression)?)?;
-        let StorageAccessRoot::Storage(root) = access.root() else { return None; };
-        let producer = self.builder().identity(root)?.definition_occurrence()?.expression()?;
-
-        (producer != expression
-            && self.builder().value_slot(producer) == Some(root)
-            && matches!(self.request.semantic_values().type_data(self.expression_type(producer).ty()).as_ref(),
-                bray_symbols::TypeData::Borrow { .. }))
-            .then_some(root)
     }
 
     pub(in crate::storage) fn pattern_value_path(

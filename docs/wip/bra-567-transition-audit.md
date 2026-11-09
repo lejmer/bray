@@ -56,12 +56,18 @@ The expanded certificate suite is127/7/2. Its seven remaining proof/validity fai
 Source async fixture and three invalid controls remain in the comparison. Bound133/interface216 previously passed and
 are unchanged by diagnostic work. No native composition has executed.
 
-Latest native brayc/xtask and std bundle include6f6237a5b plus JSON transport. Standard-library planning/emission pass.
-Bootstrap213: E7119=28, E7135=64, E7123=107, E7035=7, E7036=4, E7113=2, E7087=1. Its normalized failing code/location
-identities equal846a110b9. One duplicate cleanup diagnostic explains the additional count and is repaired in current WIP.
+Latest native brayc/xtask and std bundle represent6d2c96315 code. Standard-library planning/emission pass.
+Bootstrap209: E7119=28, E7135=64, E7123=106, E7035=4, E7036=4, E7113=2, E7087=1. Zero new failing locations.
+The three repaired moved-storage locations and duplicate cleanup diagnostic are absent.
 PatternBinding completion now retains its observed subject through condition scope exit. Source/import tests cover
 borrowed nullable fields and callable projections, nested returned-owner projections and invalid local-owner escape.
-The real minimal CLI reproduced E7035 before the repair. Current native verification of the repair is pending. The two escape errors borrow execution before transferring it into
+The real minimal CLI reproduced E7035 before the repair. Four scheduler reads still fail after the first read consumes
+the same descriptor. Current WIP deletes projected_borrow_value: a place does not own its receiver descriptor. Consumers
+retire only the operand's registered produced output. The strengthened short-circuit/repeated-use test passes Source/import,
+checker464 and comparison710/57/99 with zero new identities. Native refresh is pending.
+An independent small guarded-lease composition reproduces the remaining predicate loss as ().active. Shared/mutable
+receivers, presence/absence of execution properties and direct/factory construction all reproduce it. Keep only the active
+guard-composition.bray reproduction until it becomes a regression. No guard implementation change has been made. The two escape errors borrow execution before transferring it into
 creation. Native191122aaf identity baseline remains frozen in native-baseline-identities.txt.
 
 Retain frozen baseline-failures.txt and native-baseline-identities.txt, current compact comparison.log/native.log, native

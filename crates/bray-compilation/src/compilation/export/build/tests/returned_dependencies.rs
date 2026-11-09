@@ -44,6 +44,11 @@ fn observed_nullable_patterns_keep_their_subject_until_scope_exit() {
             {{
                 if let ?binding = trusted {prefix}.select(owner)
                 {{
+                    if binding.value != 0 && binding.value != 42
+                    {{
+                        return binding.callback(binding.value);
+                    }}
+
                     return binding.callback(binding.value);
                 }}
 
@@ -54,6 +59,11 @@ fn observed_nullable_patterns_keep_their_subject_until_scope_exit() {
             {{
                 if let ?binding = (trusted {prefix}.container(owner)).payload
                 {{
+                    if binding.value != 0 && binding.value != 42
+                    {{
+                        return binding.callback(binding.value);
+                    }}
+
                     return binding.callback(binding.value);
                 }}
 
