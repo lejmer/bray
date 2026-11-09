@@ -222,51 +222,6 @@ pub(in crate::output::diagnostic::json) const fn receiver_mode_key(
     }
 }
 
-pub(in crate::output::diagnostic::json) const fn callable_constness_key(
-    value: bray_diagnostics::DiagnosticCallableConstness,
-) -> &'static str {
-    match value {
-        bray_diagnostics::DiagnosticCallableConstness::Runtime => "runtime",
-        bray_diagnostics::DiagnosticCallableConstness::Constant => "constant",
-    }
-}
-
-pub(in crate::output::diagnostic::json) const fn callable_execution_key(
-    value: bray_diagnostics::DiagnosticCallableExecution,
-) -> &'static str {
-    match value {
-        bray_diagnostics::DiagnosticCallableExecution::Synchronous => "synchronous",
-        bray_diagnostics::DiagnosticCallableExecution::Asynchronous => "asynchronous",
-    }
-}
-
-pub(in crate::output::diagnostic::json) const fn callable_trust_key(
-    value: bray_diagnostics::DiagnosticCallableTrust,
-) -> &'static str {
-    match value {
-        bray_diagnostics::DiagnosticCallableTrust::Safe => "safe",
-        bray_diagnostics::DiagnosticCallableTrust::Trusted => "trusted",
-    }
-}
-
-pub(in crate::output::diagnostic::json) const fn callable_position_key(
-    value: bray_diagnostics::DiagnosticCallablePosition,
-) -> &'static str {
-    match value {
-        bray_diagnostics::DiagnosticCallablePosition::NamedOnly => "named_only",
-        bray_diagnostics::DiagnosticCallablePosition::PositionalOrNamed => "positional_or_named",
-    }
-}
-
-pub(in crate::output::diagnostic::json) const fn callable_parameter_mode_key(
-    value: bray_diagnostics::DiagnosticCallableParameterMode,
-) -> &'static str {
-    match value {
-        bray_diagnostics::DiagnosticCallableParameterMode::Immutable => "immutable",
-        bray_diagnostics::DiagnosticCallableParameterMode::Mutable => "mutable",
-    }
-}
-
 pub(in crate::output::diagnostic::json) const fn callable_contract_surface_key(
     value: bray_diagnostics::DiagnosticCallableContractSurface,
 ) -> &'static str {

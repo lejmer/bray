@@ -96,12 +96,7 @@ pub(in crate::output::diagnostic::json) fn platform_service_signature_problem_js
                 problem_count_u64("role_id", u64::from(role.id())),
                 problem_text(
                     "actual",
-                    match actual {
-                        bray_diagnostics::DiagnosticCallableExecution::Synchronous => "synchronous",
-                        bray_diagnostics::DiagnosticCallableExecution::Asynchronous => {
-                            "asynchronous"
-                        }
-                    },
+                    actual.as_str(),
                 ),
             ],
         },

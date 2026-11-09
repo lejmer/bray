@@ -38,7 +38,7 @@ pub use model::DiagnosticArg;
 pub use protocol::{DiagnosticArgName, DiagnosticArgValue};
 pub use runtime::DiagnosticRuntimeAbiVersion;
 pub use semantic::{
-    DiagnosticAlignmentKind, DiagnosticBorrowKind, DiagnosticCallableAbi, DiagnosticNamedType, DiagnosticSelectionKind,
+    DiagnosticAlignmentKind, DiagnosticBorrowKind, DiagnosticCallableAbi, DiagnosticCallableParameter, DiagnosticNamedType, DiagnosticSelectionKind,
     DiagnosticType, DiagnosticTypeArgument,
 };
 pub use source::{DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticVisibility};

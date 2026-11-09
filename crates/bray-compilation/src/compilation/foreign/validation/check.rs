@@ -16,7 +16,7 @@ use bray_symbols::{
 use bray_syntax::FunctionDeclarationSyntax;
 
 use super::super::super::Compilation;
-use super::super::diagnostic::{diagnostic_abi, source_diagnostic, template_diagnostic_type};
+use super::super::diagnostic::{source_diagnostic, template_diagnostic_type};
 use super::abi::{compiler_known_representation, target_abi_value};
 use super::temporal::{DATE_TIME_FIELDS, OBSERVATION_FIELDS, RESOLUTION_FIELDS, VALUE_FIELDS};
 use crate::compilation::{
@@ -124,7 +124,7 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
                 anchor,
                 bray_diagnostics::DiagnosticKind::CheckingForeignCallableExecutionUnsupported,
             )
-            .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi))),
+            .with_arg(DiagnosticArg::callable_abi(diagnostic_callable_abi(abi))),
         );
     }
 
@@ -164,7 +164,7 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
                 bray_diagnostics::DiagnosticKind::CheckingForeignAbiTypeUnsupported,
             )
             .with_arg(DiagnosticArg::actual_type(DiagnosticType::TypeParameter))
-            .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi))),
+            .with_arg(DiagnosticArg::callable_abi(diagnostic_callable_abi(abi))),
         );
     }
 
@@ -244,7 +244,7 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
                 anchor,
                 bray_diagnostics::DiagnosticKind::CheckingForeignCallableRequiresTrusted,
             )
-            .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi))),
+            .with_arg(DiagnosticArg::callable_abi(diagnostic_callable_abi(abi))),
         );
     }
 
@@ -927,7 +927,7 @@ fn validate_foreign_type(
         template,
         cancellation,
     )?))
-    .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi)));
+    .with_arg(DiagnosticArg::callable_abi(diagnostic_callable_abi(abi)));
 
     diagnostics.add(diagnostic);
 

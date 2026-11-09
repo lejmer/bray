@@ -10,6 +10,39 @@ mod tests {
     use bray_diagnostics::{DiagnosticBorrowKind, DiagnosticType};
 
     #[test]
+    fn callable_type_json_keeps_parameter_authority_and_signature() {
+        use bray_diagnostics::{DiagnosticCallableAbi, DiagnosticCallableConstness, DiagnosticCallableExecution,
+            DiagnosticCallableParameter, DiagnosticCallableParameterMode, DiagnosticCallablePosition, DiagnosticCallableTrust};
+
+        let ty = DiagnosticType::Callable {
+            parameters: vec![DiagnosticCallableParameter {
+                name: "value".to_owned(), position: DiagnosticCallablePosition::NamedOnly,
+                mode: DiagnosticCallableParameterMode::Mutable, ty: DiagnosticType::Borrow {
+                    kind: DiagnosticBorrowKind::Mutable, target: Box::new(DiagnosticType::U32),
+                },
+            }],
+            variadic: false, result: Box::new(DiagnosticType::Boolean),
+            constness: DiagnosticCallableConstness::Constant, execution: DiagnosticCallableExecution::Synchronous,
+            trust: DiagnosticCallableTrust::Trusted, abi: DiagnosticCallableAbi::Bray,
+        };
+        let json = serde_json::to_value(super::DiagnosticTypeJson::from_type(&ty)).expect("callable type JSON serializes");
+        let signature = &json["callable"];
+
+        assert_eq!(json["kind"], "callable");
+        assert_eq!(signature["abi"], "bray");
+        assert_eq!(signature["execution"], "synchronous");
+        assert_eq!(signature["constness"], "constant");
+        assert_eq!(signature["trust"], "trusted");
+        assert_eq!(signature["variadic"], false);
+        assert_eq!(signature["result"]["kind"], "boolean");
+        assert_eq!(signature["parameters"][0]["name"], "value");
+        assert_eq!(signature["parameters"][0]["position"], "named_only");
+        assert_eq!(signature["parameters"][0]["mode"], "mutable");
+        assert_eq!(signature["parameters"][0]["type"]["borrow_kind"], "mutable");
+        assert_eq!(signature["parameters"][0]["type"]["target"]["kind"], "u32");
+    }
+
+    #[test]
     fn borrowed_type_json_keeps_nested_capabilities_and_targets() {
         let ty = DiagnosticType::Borrow { kind: DiagnosticBorrowKind::Mutable, target: Box::new(
             DiagnosticType::Borrow { kind: DiagnosticBorrowKind::Shared, target: Box::new(DiagnosticType::U32) },
@@ -59,6 +92,27 @@ pub(in crate::output::diagnostic::json) struct DiagnosticTypeJson {
     borrow_kind: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<Box<Self>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    callable: Option<DiagnosticCallableTypeJson>,
+}
+
+#[derive(Serialize)]
+struct DiagnosticCallableTypeJson {
+    parameters: Vec<DiagnosticCallableParameterJson>,
+    variadic: bool,
+    result: Box<DiagnosticTypeJson>,
+    constness: &'static str,
+    execution: &'static str,
+    trust: &'static str,
+    abi: &'static str,
+}
+
+#[derive(Serialize)]
+struct DiagnosticCallableParameterJson {
+    name: String,
+    position: &'static str,
+    mode: &'static str,
+    r#type: DiagnosticTypeJson,
 }
 
 impl DiagnosticTypeJson {
@@ -117,11 +171,22 @@ impl DiagnosticTypeJson {
             DiagnosticType::Nullable => ("nullable", None, None, None),
             DiagnosticType::Borrow { kind, target } => return Self {
                 kind: "borrow", element_count: None, path: None, arguments: None,
-                borrow_kind: Some(kind.as_str()), target: Some(Box::new(Self::from_type(target))),
+                borrow_kind: Some(kind.as_str()), target: Some(Box::new(Self::from_type(target))), callable: None,
             },
             DiagnosticType::TraitView => ("trait_view", None, None, None),
             DiagnosticType::OwnedIndirection => ("owned_indirection", None, None, None),
-            DiagnosticType::Callable => ("callable", None, None, None),
+            DiagnosticType::Callable { parameters, variadic, result, constness, execution, trust, abi } => return Self {
+                kind: "callable", element_count: None, path: None, arguments: None,
+                borrow_kind: None, target: None,
+                callable: Some(DiagnosticCallableTypeJson {
+                    parameters: parameters.iter().map(|parameter| DiagnosticCallableParameterJson {
+                        name: parameter.name.clone(), position: parameter.position.as_str(), mode: parameter.mode.as_str(),
+                        r#type: Self::from_type(&parameter.ty),
+                    }).collect(),
+                    variadic: *variadic, result: Box::new(Self::from_type(result)), constness: constness.as_str(),
+                    execution: execution.as_str(), trust: trust.as_str(), abi: abi.as_str(),
+                }),
+            },
         };
 
         Self {
@@ -131,6 +196,7 @@ impl DiagnosticTypeJson {
             arguments,
             borrow_kind: None,
             target: None,
+            callable: None,
         }
     }
 }

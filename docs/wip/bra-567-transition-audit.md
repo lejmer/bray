@@ -43,7 +43,7 @@ retain Source/import callable and argument identities, and show known current-va
 and target through checker, renderer and JSON. English stays in bray-messages. E7119 is no longer used for postconditions.
 Fifteen expected diagnostic codes changed to E7135 without changing validity expectations or frozen test identities.
 
-Current comparison715 passed /57 failed /99 ignored in88s, zero changed failing identities against accepted57.
+Current comparison716 passed /57 failed /99 ignored in96s, zero changed failing identities against accepted57.
 Checker465 passed. Diagnostics44/messages85/JSON46 passed after the diagnostic batch. Focused Source/import laws pass.
 The real CLI initialized-extraction and independent-result probe now passes using the freshly built 3bd2aaf72 driver.
 Its permanent boundary test owned_match_results_release_the_subject_loan uses clear() in the core-only fixture harness.
@@ -52,7 +52,7 @@ The actual std.memory.move_initialized + replace_value case is verified by the r
 Accepted native.log is 3bd2aaf72: standard-library planning/emission pass, bootstrap186 errors
 (E7123=95, E7135=58, E7119=28, E7036=2, E7113=2, E7087=1), zero E7035.
 The E7135 in task/retirement267 is an explained unmasking after a local E7123 repair, not a new invalid body.
-The two retirement E7036 diagnostics disappear, with no added diagnostic identities. The CLI probe and stale logs are removed.
+The two retirement E7036 diagnostics disappear, with no added diagnostic identities. The initialized-extraction CLI probe and stale logs are removed.
 No native async composition has executed. The source fixture and three invalid controls remain in the fixed comparison.
 
 ## Remaining work
@@ -67,10 +67,14 @@ Two old negatives need genuine forwarding/fabrication and mutation controls:
 trusted_implementation_does_not_export_undeclared_authority and
 shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. Do not weaken production to satisfy them.
 
-The copied-address boundary repair distinguishes a loan used to read an address from loans carried by a borrowed component. Source/import regressions pass direct composition, a second exported call boundary, genuine borrowed-field escape rejection and non-authorizing raw addresses. The three frozen borrow-carrier regressions are repaired. Checker465 and comparison715/57/99 pass. The real retry-loop CLI and native bootstrap are next. Remaining native errors include deadline/worker execution transfers and result copying. Retirement whole-slot conflicts are verified repaired. Trace actual proof data before
+The copied-address boundary repair distinguishes a loan used to read an address from loans carried by a borrowed component. Source/import regressions pass direct composition, a second exported call boundary, genuine borrowed-field escape rejection and non-authorizing raw addresses. The three frozen borrow-carrier regressions are repaired. Checker465 and comparison715/57/99 pass. The real retry-loop CLI passes at8f68e51fa. The new native run has182 errors and removes all E7036/E7113, but remains unaccepted pending the changed publish_wait failure. Remaining native errors include deadline/worker execution transfers and result copying. Retirement whole-slot conflicts are verified repaired. Trace actual proof data before
 changing runtime contracts, initialized-memory policy or authority. Do not adopt unverified hypotheses from old notes.
 
-Callable type diagnostics still discard signatures and show "callable type". Preserve structured signatures through checker, templates, rendering and JSON after the active regression batch.\n\nAt semantic completion, reread AGENTS and audit every changed file/behavior for DRY, APIs, contracts, errors and structural
+Active diagnostic batch replaces the callable placeholder with parameter names/types/authority, result, ABI, trust, constness and async mode. It reuses existing typed enums, moves shared semantic converters to bray-symbols, removes duplicate ABI converters and shares machine keys on diagnostic enums. Source, template, rendering and JSON consumers are changed. Compiler conflict, renderer and JSON tests are added. Compiler/foreign42 passed/1 ignored, checker465, diagnostics44, messages86 and JSON47 pass. Comparison716/57/99 has unchanged57 failing identities. No driver rebuild is needed for this diagnostic-only batch yet.
+
+Native-current.log at8f68e51fa has182 errors: E7123=96/E7135=57/E7119=28/E7087=1. One E7135 at publish_wait130 becomes E7123 at207 in the same already-invalid callable. Keep both current/baseline logs until explained. The terminating-branch positive control already passes. Its frozen failure is the capture-free opaque negative, so it does not establish a normal/abnormal effect leak. Do not make the speculative normal_effects change. Trace publish_wait with its actual owner and mutation boundaries. The opaque negative needs an explicit mutable-authority control before any expected-outcome correction.
+
+At semantic completion, reread AGENTS and audit every changed file/behavior for DRY, APIs, contracts, errors and structural
 cost. Only then run mandatory mutating cargo xtask style and cargo xtask format, inspect and check affected behavior.
 No style/format pass has run. No goal, agent or reviewer is running. Dispatch the authorized independent reviewer on
 committed draft PR710 only after semantic completion. Reviewer publishes its own GitHub review artifacts. Resolve and
@@ -88,6 +92,8 @@ Retain frozen baseline-failures.txt (67 IDs), native-baseline-identities.txt, ac
 native intermediates and deferred-report baseline executable for the two controls. Keep only active build/probe/native logs.
 Delete stale task-owned logs/probes/traces immediately after preserving necessary evidence. No debug hooks remain.
 Git trust verified: public lejmer/bray, git@github.com:lejmer/bray.git, authenticated lejmer. Reuse until destination/auth changes.
+
+
 
 
 

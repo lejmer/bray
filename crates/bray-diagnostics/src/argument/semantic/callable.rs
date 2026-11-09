@@ -1,5 +1,18 @@
 use super::super::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue};
 
+/// One ordered parameter in a diagnostic callable signature.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticCallableParameter {
+    /// The source-visible parameter name, including `_` for an unnamed input.
+    pub name: String,
+    /// Whether the parameter accepts positional arguments.
+    pub position: crate::DiagnosticCallablePosition,
+    /// The owned parameter binding's mutation authority.
+    pub mode: crate::DiagnosticCallableParameterMode,
+    /// The parameter type retained for rendering.
+    pub ty: super::DiagnosticType,
+}
+
 impl DiagnosticArg {
     /// Creates an exact invalid native-link directive problem argument.
     pub const fn native_link_directive_problem(

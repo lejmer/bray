@@ -162,7 +162,22 @@ pub enum DiagnosticType {
     /// An owned indirection type.
     OwnedIndirection,
     /// A callable type.
-    Callable,
+    Callable {
+        /// Parameters in declaration order.
+        parameters: Vec<super::callable::DiagnosticCallableParameter>,
+        /// Whether promoted trailing arguments are accepted.
+        variadic: bool,
+        /// The completed result type.
+        result: Box<Self>,
+        /// Constant evaluation eligibility.
+        constness: crate::DiagnosticCallableConstness,
+        /// Synchronous invocation or deferred async execution.
+        execution: crate::DiagnosticCallableExecution,
+        /// The callable's trust boundary.
+        trust: crate::DiagnosticCallableTrust,
+        /// The callable's native or Bray calling convention.
+        abi: super::callable::DiagnosticCallableAbi,
+    },
 }
 
 impl DiagnosticType {

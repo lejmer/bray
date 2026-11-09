@@ -3,8 +3,8 @@ use serde::Serialize;
 use super::super::DiagnosticTypeJson;
 use super::contract_mismatch::{
     DiagnosticCallableContractMismatchJson, DiagnosticGenericConstraintMismatchJson,
-    callable_constness_key, callable_execution_key, callable_parameter_mode_key,
-    callable_position_key, callable_trust_key, generic_parameter_category_key, receiver_mode_key,
+      
+      generic_parameter_category_key, receiver_mode_key,
 };
 
 #[derive(Serialize)]
@@ -149,16 +149,16 @@ impl DiagnosticTraitFulfillmentMismatchJson {
                 provided: provided.map(receiver_mode_key),
             },
             Mismatch::CallableConstness { required, provided } => Self::CallableConstness {
-                required: callable_constness_key(*required),
-                provided: callable_constness_key(*provided),
+                required: required.as_str(),
+                provided: provided.as_str(),
             },
             Mismatch::CallableExecution { required, provided } => Self::CallableExecution {
-                required: callable_execution_key(*required),
-                provided: callable_execution_key(*provided),
+                required: required.as_str(),
+                provided: provided.as_str(),
             },
             Mismatch::CallableTrust { required, provided } => Self::CallableTrust {
-                required: callable_trust_key(*required),
-                provided: callable_trust_key(*provided),
+                required: required.as_str(),
+                provided: provided.as_str(),
             },
             Mismatch::CallableAbi { required, provided } => Self::CallableAbi {
                 required: required.as_str(),
@@ -185,8 +185,8 @@ impl DiagnosticTraitFulfillmentMismatchJson {
                 provided,
             } => Self::CallableParameterPosition {
                 ordinal: *ordinal,
-                required: callable_position_key(*required),
-                provided: callable_position_key(*provided),
+                required: required.as_str(),
+                provided: provided.as_str(),
             },
             Mismatch::CallableParameterMode {
                 ordinal,
@@ -194,8 +194,8 @@ impl DiagnosticTraitFulfillmentMismatchJson {
                 provided,
             } => Self::CallableParameterMode {
                 ordinal: *ordinal,
-                required: callable_parameter_mode_key(*required),
-                provided: callable_parameter_mode_key(*provided),
+                required: required.as_str(),
+                provided: provided.as_str(),
             },
             Mismatch::CallableParameterType {
                 ordinal,
