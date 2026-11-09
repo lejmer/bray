@@ -63,6 +63,12 @@ impl DiagnosticLabel {
 /// Stable category for a diagnostic source label.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticLabelKind {
+    /// The checked condition cannot be encoded for an imported consumer.
+    ContractConditionNotPortable,
+    /// A declared contract which has not been certified.
+    ContractNotVerified,
+    /// The exact operation, dependency or resource limit blocking certification.
+    ExecutionProofFailure,
     /// Label for a character that the lexer cannot accept.
     InvalidCharacter,
     /// Label for a byte order mark after the start of the source.
@@ -217,6 +223,9 @@ impl DiagnosticLabelKind {
     /// Returns the stable machine key for this label category.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::ContractConditionNotPortable => "contract_condition_not_portable",
+            Self::ContractNotVerified => "contract_not_verified",
+            Self::ExecutionProofFailure => "execution_proof_failure",
             Self::InvalidCharacter => "invalid_character",
             Self::MisplacedBom => "misplaced_bom",
             Self::LoneCarriageReturn => "lone_carriage_return",

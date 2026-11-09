@@ -1122,7 +1122,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1290,7 +1290,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1335,7 +1335,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1348,13 +1348,13 @@ mod tests {
                 "mut",
                 "true",
                 true,
-                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                DiagnosticKind::CheckingPostconditionNotProven,
             ),
             (
                 "mut",
                 "false",
                 false,
-                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                DiagnosticKind::CheckingPostconditionNotProven,
             ),
             (
                 "",
@@ -1520,7 +1520,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1842,7 +1842,7 @@ mod tests {
 
         bray_testing::assert_goal_state_diagnostic_kind(
             compilation.check_diagnostics(),
-            DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            DiagnosticKind::CheckingPostconditionNotProven,
         );
     }
 
@@ -2036,7 +2036,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     compilation.check_diagnostics(),
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -2058,7 +2058,7 @@ mod tests {
 
         bray_testing::assert_goal_state_diagnostic_kind(
             compilation.check_diagnostics(),
-            DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            DiagnosticKind::CheckingPostconditionNotProven,
         );
     }
 
@@ -2091,7 +2091,7 @@ mod tests {
             let diagnostics = compilation.check_diagnostics();
             assert_eq!(!diagnostics.has_errors(), valid, "{condition}: {diagnostics:?}");
             if !valid {
-                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingExecutionGuaranteeNotProven);
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingPostconditionNotProven);
             }
         }
     }

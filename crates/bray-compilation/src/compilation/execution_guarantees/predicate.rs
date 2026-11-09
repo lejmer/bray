@@ -100,8 +100,8 @@ impl Compilation {
                 cancellation,
             )?;
 
-            if let Some((source, _)) = rejected {
-                failure.get_or_insert(source);
+            if let Some(rejected) = rejected {
+                failure.get_or_insert(rejected.source);
             }
         }
 
@@ -144,9 +144,9 @@ impl Compilation {
                 cancellation,
             )?;
 
-            if let Some((cause, circular)) = failure {
-                diagnostics.add(super::proof::guarantee_diagnostic(
-                    obligation, source, cause, circular,
+            if let Some(failure) = failure {
+                diagnostics.add(super::failure::guarantee_diagnostic(
+                    obligation, source, failure,
                 ));
             }
         }
@@ -283,7 +283,7 @@ mod tests {
 
         bray_testing::assert_goal_state_diagnostic_kind(
             checked.check_diagnostics(),
-            DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            DiagnosticKind::CheckingPostconditionNotProven,
         );
     }
 

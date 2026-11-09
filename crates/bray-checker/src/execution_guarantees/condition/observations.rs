@@ -276,48 +276,6 @@ impl ExecutionCondition {
         inputs
     }
 
-    pub(crate) fn depends_on(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
-        let mut pending = vec![self];
-
-        while let Some(condition) = pending.pop() {
-            match condition {
-                Self::Expression(candidate) | Self::ScopedCapability(candidate)
-                    if mutation
-                        == bray_bound_tree::StorageMutation::Operation((*candidate).into()) =>
-                {
-                    return true;
-                }
-                Self::PostState(site, _) if *site == mutation => {
-                    return true;
-                }
-                Self::ScalarValue(identity) => pending.push(identity),
-                Self::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
-                Self::Constructed(base, fields) => {
-                    pending.push(base);
-
-                    pending.extend(fields.iter().map(|(_, value)| value))
-                }
-                Self::Operation(_, operands)
-                | Self::Predicate(_, _, operands)
-                | Self::Call(_, _, _, operands) => pending.extend(operands.iter()),
-                Self::Tagged(_, value)
-                | Self::VariantTest(_, value)
-                | Self::Projection(_, value)
-                | Self::Trusted(value)
-                | Self::Borrowed(value)
-                | Self::Present(value)
-                | Self::Entry {
-                    condition: value, ..
-                }
-                | Self::CapturedInput { owner: value, .. } => pending.push(value),
-                Self::InitializedSnapshot(_, join, value) => pending.extend([join.as_ref(), value.as_ref()]),
-                _ => {}
-            }
-        }
-
-        false
-    }
-
     /// Component paths explicitly retained by this snapshot.
     pub(crate) fn component_projections(&self) -> std::collections::BTreeSet<bray_bound_tree::StorageProjection> {
         let mut value = self;

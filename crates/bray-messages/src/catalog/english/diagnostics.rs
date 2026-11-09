@@ -2577,7 +2577,7 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         ]),
         DiagnosticKind::CheckingCircularExecutionGuarantee => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
-                "this callable's total execution guarantee depends on a recursive call or cleanup cycle",
+                "this callable's execution guarantee depends on a recursive call or cleanup cycle",
             )])
         }
         DiagnosticKind::CheckingCallableAddressTypeUnsupported => {
@@ -2786,6 +2786,13 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingExecutionRequirementNotProven => MessageTemplate::new(&[
             MessageTemplatePart::Text("cannot establish "),
             MessageTemplatePart::Arg(DiagnosticArgName::ContractObligation),
+        ]),
+        DiagnosticKind::CheckingContractConditionNotPortable => MessageTemplate::new(&[MessageTemplatePart::Text("cannot represent this contract condition in a package interface")]),
+        DiagnosticKind::CheckingPostconditionNotProven => MessageTemplate::new(&[MessageTemplatePart::Text("cannot verify this postcondition")]),
+        DiagnosticKind::CheckingCircularPostcondition => MessageTemplate::new(&[MessageTemplatePart::Text("this postcondition depends on its own unverified completion")]),
+        DiagnosticKind::CheckingExecutionProofDepthExceeded => MessageTemplate::new(&[
+            MessageTemplatePart::Text("cannot verify this contract: "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ExecutionProofFailure),
         ]),
         DiagnosticKind::CheckingTrustedObligationNotProven => MessageTemplate::new(&[
             MessageTemplatePart::Text("cannot establish "),

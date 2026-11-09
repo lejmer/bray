@@ -88,8 +88,10 @@ impl Compilation {
                 valid = false;
 
                 if let Some(source) = source {
-                    diagnostics.add(super::proof::guarantee_diagnostic(
-                        obligation, source, source, false,
+                    diagnostics.add(super::failure::guarantee_diagnostic(
+                        obligation, source, super::failure::ExecutionVerificationFailure {
+                            source, cause: bray_diagnostics::DiagnosticExecutionProofFailure::ContractMismatch,
+                        },
                     ));
                 }
             }

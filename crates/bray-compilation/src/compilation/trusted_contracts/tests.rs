@@ -2805,7 +2805,7 @@ fn spare_capacity_bounds_prove_unsigned_sums_without_wrapping_subtraction() {
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
                 compilation.check_diagnostics(),
-                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                DiagnosticKind::CheckingPostconditionNotProven,
             );
         }
     }
@@ -2833,7 +2833,7 @@ fn spare_capacity_bounds_prove_unsigned_sums_without_wrapping_subtraction() {
 
     bray_testing::assert_goal_state_diagnostic_kind(
         compilation.check_diagnostics(),
-        DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+        DiagnosticKind::CheckingPostconditionNotProven,
     );
 }
 

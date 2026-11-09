@@ -2,6 +2,7 @@ mod model;
 mod observations;
 mod proof;
 mod substitution;
+mod traversal;
 mod values;
 
 #[cfg(test)]

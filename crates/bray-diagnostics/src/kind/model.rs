@@ -495,6 +495,14 @@ define_diagnostic_kinds! {
     CheckingUnknownExecutionProperty,
     /// A body or selected dependency cannot establish an execution promise.
     CheckingExecutionGuaranteeNotProven,
+    /// A normal-completion promise could not be certified.
+    CheckingPostconditionNotProven,
+    /// A postcondition depends on its own unverified completion.
+    CheckingCircularPostcondition,
+    /// Contract verification stopped at its configured dependency depth.
+    CheckingExecutionProofDepthExceeded,
+    /// A checked condition has no package-interface representation.
+    CheckingContractConditionNotPortable,
     /// Normal ownership end retains a possibly fallible finalization obligation.
     CheckingUnresolvedFinalization,
     /// Remaining implicit finalization requires asynchronous execution.
@@ -937,6 +945,10 @@ impl DiagnosticKind {
             Self::CheckingVariadicCallableContractUnsupported => 7104,
             Self::CheckingUnknownExecutionProperty => 7118,
             Self::CheckingExecutionGuaranteeNotProven => 7119,
+            Self::CheckingPostconditionNotProven => 7135,
+            Self::CheckingCircularPostcondition => 7136,
+            Self::CheckingExecutionProofDepthExceeded => 7137,
+            Self::CheckingContractConditionNotPortable => 7138,
             Self::CheckingUnresolvedFinalization => 7125,
             Self::CheckingAsyncFinalizationOutsideAsyncCallable => 7126,
             Self::CheckingCircularExecutionGuarantee => 7120,
@@ -1401,6 +1413,10 @@ impl DiagnosticKind {
             }
             Self::CheckingUnknownExecutionProperty => "checking_unknown_execution_property",
             Self::CheckingExecutionGuaranteeNotProven => "checking_execution_guarantee_not_proven",
+            Self::CheckingPostconditionNotProven => "checking_postcondition_not_proven",
+            Self::CheckingCircularPostcondition => "checking_circular_postcondition",
+            Self::CheckingExecutionProofDepthExceeded => "checking_execution_proof_depth_exceeded",
+            Self::CheckingContractConditionNotPortable => "checking_contract_condition_not_portable",
             Self::CheckingUnresolvedFinalization => "checking_unresolved_finalization",
             Self::CheckingAsyncFinalizationOutsideAsyncCallable => {
                 "checking_async_finalization_outside_async_callable"

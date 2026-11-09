@@ -10,6 +10,11 @@ pub struct DiagnosticArg {
 }
 
 impl DiagnosticArg {
+    /// Creates a precise contract-certification cause argument.
+    pub const fn execution_proof_failure(cause: crate::DiagnosticExecutionProofFailure) -> Self {
+        Self::new(DiagnosticArgName::ExecutionProofFailure, DiagnosticArgValue::ExecutionProofFailure(cause))
+    }
+
     /// Creates a condition-proof failure argument.
     pub fn contract_obligation(obligation: crate::DiagnosticContractObligation) -> Self {
         Self::new(DiagnosticArgName::ContractObligation, DiagnosticArgValue::ContractObligation(obligation))

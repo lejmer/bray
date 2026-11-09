@@ -566,12 +566,7 @@ impl Compilation {
                 {
                     entry_terms.push(term);
                 } else {
-                    diagnostics.add(super::proof::guarantee_diagnostic(
-                        ExecutionObligation::Postcondition((*source).into()),
-                        *source,
-                        *source,
-                        false,
-                    ));
+                    diagnostics.add(super::failure::unrepresentable_condition_diagnostic(*source));
                 }
             }
 
@@ -608,12 +603,7 @@ impl Compilation {
                 let Some(term) = execution_condition_term(values, condition, &inputs, boolean)
                     .map_err(FactQueryError::SemanticValueStore)?
                 else {
-                    diagnostics.add(super::proof::guarantee_diagnostic(
-                        ExecutionObligation::Postcondition((*source).into()),
-                        *source,
-                        *source,
-                        false,
-                    ));
+                    diagnostics.add(super::failure::unrepresentable_condition_diagnostic(*source));
 
                     continue;
                 };

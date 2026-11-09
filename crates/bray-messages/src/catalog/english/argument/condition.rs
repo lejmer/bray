@@ -49,7 +49,8 @@ fn format_condition(condition: &DiagnosticCondition) -> String {
             let value = format_condition(value);
             match projection {
                 DiagnosticConditionProjection::Field(field) => format!("{value}.{field}"),
-                DiagnosticConditionProjection::Element(index) => format!("{value}[{index}]"),
+                DiagnosticConditionProjection::TupleElement(index) => format!("{value}.{index}"),
+                DiagnosticConditionProjection::ArrayElement(index) => format!("{value}[{index}]"),
                 DiagnosticConditionProjection::Index(index) => format!("{value}[{}]", format_condition(index)),
                 DiagnosticConditionProjection::Slice { lower, upper } => format!("{value}[{}..{}]",
                     lower.as_deref().map(format_condition).unwrap_or_default(),
@@ -91,5 +92,34 @@ const fn operation_token(operation: DiagnosticConstantOperation) -> &'static str
         DiagnosticConstantOperation::GreaterEqual => ">=",
         DiagnosticConstantOperation::MatrixMultiply => "@",
         DiagnosticConstantOperation::Conversion => "as",
+    }
+}
+
+pub(super) fn format_proof_failure(cause: bray_diagnostics::DiagnosticExecutionProofFailure) -> String {
+    use bray_diagnostics::DiagnosticExecutionProofFailure;
+
+    match cause {
+        DiagnosticExecutionProofFailure::Unproven => "this operation or its cleanup does not establish the required contract".to_owned(),
+        DiagnosticExecutionProofFailure::DependencyErrors => "this required callable has checking errors".to_owned(),
+        DiagnosticExecutionProofFailure::MissingEvidence => "this dependency has no checked evidence for the required contract".to_owned(),
+        DiagnosticExecutionProofFailure::ContractMismatch => "this callable's declared contract does not provide the required guarantee".to_owned(),
+        DiagnosticExecutionProofFailure::Circular => "this dependency assumes its own unverified completion".to_owned(),
+        DiagnosticExecutionProofFailure::DepthLimit { depth, limit } => format!("proof depth {depth} exceeds the configured limit of {limit}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_condition;
+    use bray_diagnostics::{DiagnosticCondition, DiagnosticConditionProjection};
+
+    #[test]
+    fn tuple_and_array_components_keep_their_source_access_forms() {
+        let component = |projection| DiagnosticCondition::Projection {
+            value: Box::new(DiagnosticCondition::Source("packet".to_owned())), projection,
+        };
+
+        assert_eq!(format_condition(&component(DiagnosticConditionProjection::TupleElement(0))), "packet.0");
+        assert_eq!(format_condition(&component(DiagnosticConditionProjection::ArrayElement(0))), "packet[0]");
     }
 }
