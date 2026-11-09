@@ -163,7 +163,7 @@ func find(pos item: &Item, name: string) -> (&Item)?
     return none;
 }
 
-internal func low(pos item: &Item) -> bool
+func low(pos item: &Item) -> bool
 {
     return item.quantity < 3;
 }
@@ -214,7 +214,7 @@ func find(pos item: &Item, name: string) -> (&Item)?
     return none;
 }
 
-internal func low(pos item: &Item) -> bool
+func low(pos item: &Item) -> bool
 {
     return item.quantity < 3;
 }
@@ -227,7 +227,6 @@ module app;
 
 using std.io;
 using inventory;
-using internal inventory.low;
 
 func main() -> Result<unit, std.io.IoError>
 {
@@ -260,13 +259,8 @@ Run `bray run`. Our oats are still ready, and the output is still `Stock is read
 `using inventory;` declares the dependency on the other logical module. We still write `inventory.Item` and
 `inventory.add`. Bray wants both the dependency and the qualified path.
 
-Bray declarations are public by default where visibility applies. `Item`, `add`, and `find` need no `pub` spelling.
-`low` is `internal`, so we acknowledge the path with `using internal inventory.low;` before calling it. The ordinary
-`using inventory;` declaration covers our references to the module's public declarations.
-
-`internal` doesn't make a declaration private. A consuming package can use it by acknowledging the internal path.
-That acknowledgment makes the dependency visible, but it doesn't turn an internal detail into a stable public API.
-Acknowledging one path doesn't grant access to unrelated internal declarations.
+Bray declarations are public by default where visibility applies. `Item`, `add`, `find`, and `low` need no `pub`
+spelling. For now, both modules belong to the same executable package, so we haven't marked any of them `internal`.
 
 ## Move the inventory into a library package
 
@@ -276,6 +270,16 @@ likewise separates the package dependency in a manifest from the module dependen
 Create the directories `stock/src` and `checks` under the workspace root. Move `src/inventory.bray` to
 `stock/src/inventory.bray`. Its `module inventory;` declaration stays the same: a source module path is relative to its
 package and does not include the package identity.
+
+We are turning the inventory into a library used by another package. Its `low` function is an implementation detail, so add
+`internal` to its declaration in `stock/src/inventory.bray`:
+
+```bray
+internal func low(pos item: &Item) -> bool
+{
+    return item.quantity < 3;
+}
+```
 
 In `bray-workspace.json`, replace the `packages` property with the following. Leave the generated target and other fields
 unchanged, so `native` still names your host target.
@@ -335,9 +339,10 @@ Create `stock/bray-package.json`:
 
 The workspace owns both package directories. The `vendored` role identifies `stock` as a workspace dependency. Bray
 doesn't fetch it for us; we just created it. Its package identity is `stock`, and its library product is `inventory`.
+This library has no `main`. The `main` function remains in the separate `pantry` executable.
 
-Replace the root `bray-package.json` with the following. It gives the application an explicit dependency on that library
-and adds a test product for the next step:
+Replace the root `bray-package.json` with the following. Its `application` product is still an executable, and it gives
+that executable an explicit dependency on the `stock` library. It also adds a test product for the next step:
 
 ```json
 {
@@ -442,6 +447,10 @@ and `using stock.inventory;` records the source module dependency.
 The call to `low` now crosses a package boundary. Without `using internal stock.inventory.low;`, the compiler rejects
 that access. The acknowledgment applies to that path, so the call itself can use `stock.inventory.low(item)` without
 another `internal` keyword. Bray also supports a local acknowledgment at the use site.
+
+`internal` doesn't make a declaration private. A consuming package can use it by acknowledging the internal path.
+That acknowledgment makes the dependency visible, but it doesn't turn an internal detail into a stable public API.
+Acknowledging one path doesn't grant access to unrelated internal declarations.
 
 ## Add a test
 
