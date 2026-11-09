@@ -452,9 +452,26 @@ func main() -> Result<unit, std.io.IoError>
 Run `bray run --product application`. It prints `Stock is ready` again. The manifest makes the library product available,
 and `using stock.inventory;` records the source module dependency.
 
-The call to `low` now crosses a package boundary. Without `using internal stock.inventory.low;`, the compiler rejects
-that access. The acknowledgment applies to that path, so the call itself can use `stock.inventory.low(item)` without
-another `internal` keyword. Bray also supports a local acknowledgment at the use site.
+The call to `low` now crosses a package boundary, so we must acknowledge access to the internal function. Here,
+`using internal stock.inventory.low;` acknowledges the path for the module. That lets us call
+`stock.inventory.low(item)` without adding `internal` at each call.
+
+We can instead acknowledge the call itself. If we remove `using internal stock.inventory.low;` but keep the ordinary
+`using stock.inventory;`, we can replace the inner `if` with:
+
+```bray
+if internal stock.inventory.low(item)
+{
+    try std.io.print_line("Low stock");
+}
+else
+{
+    try std.io.print_line("Stock is ready");
+}
+```
+
+The local `internal` acknowledges this call only. Without either form of acknowledgment, the compiler rejects the
+access. We still need `using stock.inventory;` to declare the module dependency: the local prefix doesn't do that.
 
 Rust's `pub(crate)` restricts access to the crate. Bray's `internal` works differently: a consuming package can still
 use the declaration by acknowledging the internal path. That acknowledgment makes the dependency visible, but it
