@@ -717,8 +717,17 @@ pub(super) fn result_replacements(
     values: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
     identities: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
 ) {
-    if value == joined
-        || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. })
+    // A retained component is a complete unchanged observation. Shield it from
+    // broader substitutions of the container's changed contents.
+    if value == joined {
+        if let Some((_, owner)) = value.ownership_identity() {
+            values.insert(value.clone(), value.clone());
+            identities.insert(owner.clone(), owner.clone());
+        }
+        return;
+    }
+
+    if value == joined.owner_identity() && !matches!(joined, ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. })
         || joined == &ExecutionCondition::Unknown
         || matches!(
             value,
@@ -778,31 +787,17 @@ pub(super) fn result_replacements(
 
             result_replacements(source, joined, stable_values, stable_identities, values, identities);
         }
-        ExecutionCondition::Constructed(_, fields) => {
-            for (field, component) in fields.iter() {
+        _ => {
+            let mut projections = value.computed_value().component_projections();
+            projections.extend(joined.computed_value().component_projections());
+
+            for field in projections {
                 result_replacements(
-                    component,
-                    &joined.clone().project(*field),
-                    stable_values,
-                    stable_identities,
-                    values,
-                    identities,
+                    &value.clone().project(field), &joined.clone().project(field),
+                    stable_values, stable_identities, values, identities,
                 );
             }
         }
-        ExecutionCondition::Present(component) => {
-            result_replacements(
-                component,
-                &joined
-                    .clone()
-                    .project(bray_bound_tree::StorageProjection::NullableValue),
-                stable_values,
-                stable_identities,
-                values,
-                identities,
-            );
-        }
-        _ => {}
     }
 }
 

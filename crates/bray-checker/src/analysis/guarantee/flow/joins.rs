@@ -748,4 +748,34 @@ mod nested_guard_tests {
         ), Some(true));
     }
 
+    #[test]
+    fn unchanged_owned_components_shield_ancestor_renaming() {
+        let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let changed = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let component = root.clone().project(StorageProjection::TupleElement(SymbolOrdinal::new(0)));
+        let mut values = [(root.clone(), changed.clone())].into_iter().collect();
+        let mut identities = [(root, changed)].into_iter().collect();
+
+        super::super::merge::result_replacements(&component, &component,
+            &Default::default(), &Default::default(), &mut values, &mut identities);
+
+        assert_eq!(component.with_joined_values(&values, &identities), component);
+
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let nested = component.clone().project(field);
+        for unchanged in [true, false] {
+            let changed = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+            let current = if unchanged { nested.clone() } else { changed.clone().project(field) };
+            let joined = ExecutionCondition::owned_value(component.clone(), ExecutionCondition::constructed(
+                changed, [(field, current)].into(),
+            ));
+            let mut values = Default::default();
+            let mut identities = Default::default();
+            super::super::merge::result_replacements(&component, &joined,
+                &Default::default(), &Default::default(), &mut values, &mut identities);
+            assert_eq!(nested.with_joined_values(&values, &identities) == nested, unchanged,
+                "implicit retained field unchanged={unchanged}");
+        }
+    }
+
 }

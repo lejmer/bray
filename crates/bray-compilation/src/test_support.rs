@@ -796,7 +796,7 @@ pub(crate) fn source_type_callable_member_body_key(
     source_symbol_body_key(compilation, symbols, member.id().into())
 }
 
-fn source_symbol_body_key(
+pub(crate) fn source_symbol_body_key(
     compilation: &Compilation,
     symbols: &SymbolGraph,
     symbol: AnySymbolId,
