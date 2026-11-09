@@ -399,16 +399,48 @@ and adds a test product for the next step:
 }
 ```
 
-In `src/main.bray`, replace `using inventory;` with `using stock.inventory;` and add
-`using internal stock.inventory.low;` below it. Then replace each `inventory.` path in `main` with `stock.inventory.`.
-For example, the item type becomes `stock.inventory.Item`, and the call becomes
-`stock.inventory.add(&mut oats, amount = 2);`.
+Replace `src/main.bray` with the following. The paths now start with the `stock` package identity, and the
+`using internal` declaration acknowledges the call to `low`:
 
-Run `bray run --product application`. It prints `Stock is ready` again. The manifest makes the library product available;
-`using stock.inventory;` records the source module dependency. The package identity is now the first path component.
-The call to `low` now crosses a package boundary, so it needs its own internal-use acknowledgment.
-`using internal stock.inventory.low;` acknowledges that particular path. Bray also supports a local `internal`
-acknowledgment at a use site.
+```bray
+module app;
+
+using std.io;
+using stock.inventory;
+using internal stock.inventory.low;
+
+func main() -> Result<unit, std.io.IoError>
+{
+    let mut oats: stock.inventory.Item =
+    {
+        name = "oats",
+        quantity = 1,
+    };
+
+    stock.inventory.add(&mut oats, amount = 2);
+
+    if let ?item = stock.inventory.find(&oats, name = "oats")
+    {
+        if stock.inventory.low(item)
+        {
+            try std.io.print_line("Low stock");
+        }
+        else
+        {
+            try std.io.print_line("Stock is ready");
+        }
+    }
+
+    return Ok(unit);
+}
+```
+
+Run `bray run --product application`. It prints `Stock is ready` again. The manifest makes the library product available,
+and `using stock.inventory;` records the source module dependency.
+
+The call to `low` now crosses a package boundary. Without `using internal stock.inventory.low;`, the compiler rejects
+that access. The acknowledgment applies to that path, so the call itself can use `stock.inventory.low(item)` without
+another `internal` keyword. Bray also supports a local acknowledgment at the use site.
 
 ## Add a test
 
