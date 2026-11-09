@@ -58,6 +58,17 @@ module app;
 
 using std.io;
 
+struct Item
+{
+    name: string;
+    mut quantity: i32;
+}
+
+func add(pos item: &mut Item, amount: i32)
+{
+    item.quantity += amount;
+}
+
 func main()
 {
     let mut oats: Item =
@@ -72,17 +83,6 @@ func main()
     {
         _ = std.io.print_line("Stock is ready");
     }
-}
-
-struct Item
-{
-    name: string;
-    mut quantity: i32;
-}
-
-func add(pos item: &mut Item, amount: i32)
-{
-    item.quantity += amount;
 }
 ```
 
