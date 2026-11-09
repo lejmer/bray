@@ -30,15 +30,17 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:749 passed /54 failed /99 ignored, including raw-memory16. No added failures. The existing
+Fixed comparison:749 passed /55 failed /99 ignored, including raw-memory16. Original54 failures are unchanged. The sole
+addition is the new numeric_field_requirements_match_shared_borrow_observations goal test, confirmed as an existing gap
+under prior/current projection behavior. Checker470 and bound-tree133 pass. The existing
 raw_slot_moves_preserve_only_live_disjoint_initialization now passes without expectation changes. Checker470 and
 bound-tree133 pass. Source/import16 range cases pass, including exact failed predicates and genuine initialization errors.
 Earlier failure-diagnostics6, conformance7, messages90 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
 Expanded predicate group:25 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
 
-Accepted native.log uses compiler sourcesa74685189 and unchanged runtime Source64a4e5490:118 diagnostics
-(E7123=59,E7135=36,E7119=23). Callable publication/copy repair removed5 callable-address failures and5 dependent
-postcondition failures, with0 additions. Pointer-range normalization previously removed result318 E7087/E7123.
+Accepted native.log uses1b6bc0307 plus the address-only copy correction and unchanged runtime Source64a4e5490:
+111 diagnostics(E7123=55,E7135=33,E7119=23). The scalar projection/address-read batch removed7 diagnostics with0 additions,
+including all3 remaining callable-address failures. Pointer-range normalization previously removed result318 E7087/E7123.
 Matching native library built. No native async composition
 has executed. Source/MIR success remains narrower evidence. Host/attachment/cleanup192 still has a generic local cause.
 Use the canonical complete233-file Windows request. Partial production_host_request has129 files and cannot certify it.
@@ -62,7 +64,15 @@ Known scalar projections now remain scalar. Checked copy materialization produce
 shared opaque_scalar producer when reached contents are unknown. No pointer policy or existing expectation changed.
 The extended projection property was red before repair. Checker470 and all28 callable Source/import cases now pass,
 including constructed/opaque result controls and wrong-pointer, replacement and borrowed-slot negatives. The fixed
-comparison retains exactly54 failure identities. Matching driver/native verification is pending. No temporary hooks remain.
+comparison at1b6bc0307 retains exactly54 failure identities. No temporary hooks remain.
+Checkpoint1b6bc0307 is pushed. Its broad numeric-copy branch introduced prepared_start232 entry_authorized. Restricting
+that branch to address representations repairs the regression. The canonical native comparison is111 with0 additions.
+The separate numeric probe supply(&holder) ensuring ready(holder.value), then require_value(holder.value), fails identically
+under prior/current projection behavior. Actual required Input(field) differs from known Borrowed(Input(field)). This is an
+existing predicate-argument mode gap, not a faithful reduction of the repaired native regression. A new Source/import goal
+test exposes it. Source positive fails first, so its later cases remain unverified. The rerun preserves every original failure.
+Next trace typed predicate argument construction, portable clauses and substitution/publication. Preserve explicit borrowed
+arguments rather than adding predicate-name policies or reconstructing values from facts. Active numeric probe/logs only.
 No style/format has run. No agent is active.
 
 ## Remaining

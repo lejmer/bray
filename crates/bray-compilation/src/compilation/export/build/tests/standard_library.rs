@@ -4689,3 +4689,55 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
         }
     }
 }
+
+#[test]
+fn numeric_field_requirements_match_shared_borrow_observations() {
+    let declarations = r#"
+        trusted module std.scalar_evidence;
+
+        struct Holder
+        {
+            value: u64;
+            other: u64;
+        }
+
+        trusted predicate ready(value: u64);
+
+        trusted func supply(pos owner: &Holder)
+            ensures(trusted ready(value = owner.value))
+            executes(pure, total)
+        {
+        }
+
+        func require_value(pos value: u64)
+            requires(trusted ready(value = value))
+        {
+        }
+    "#;
+    let sources = [include_str!("../../../../../../../standard-library/std/src/std.bray"), declarations];
+    let provider = standard_library_compilation(sources);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+    for (field, valid) in [("value", true), ("other", false)] {
+        let source = format!(r#"
+            module app;
+
+            using std.scalar_evidence;
+
+            func caller(pos owner: &std.scalar_evidence.Holder)
+            {{
+                trusted std.scalar_evidence.supply(owner);
+                std.scalar_evidence.require_value(owner.{field});
+            }}
+        "#);
+        for imported in [false, true] {
+            let application = if imported { super::fixtures::execution_consumer(&provider, &source) }
+                else { standard_library_compilation(sources.into_iter().chain([source.as_str()])) };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "{field}, imported={imported}: {diagnostics:#?}");
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}

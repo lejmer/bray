@@ -66,11 +66,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if crate::representation::type_representation(self.request, ty)
-            .is_some_and(crate::representation::is_scalar_value)
+            .is_some_and(crate::representation::is_address)
             && value.ownership_identity().is_some_and(|(kind, _)|
                 kind == crate::execution_guarantees::ExecutionObservationKind::Reference)
         {
-            // Copying through a loan produces scalar data, independently of the
+            // Copying an address through a loan produces data, independently of the
             // storage access. Opaque reached data still has this actual read's identity.
             let contents = value.into_referent();
             return if contents == ExecutionCondition::Unknown {
