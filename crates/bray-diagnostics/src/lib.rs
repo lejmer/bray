@@ -29,7 +29,7 @@ mod target_predicate;
 mod type_representation;
 
 pub use argument::{
-    DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
+    DiagnosticAlignmentKind, DiagnosticBorrowKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
     DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
     DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticCallableAbi,
     DiagnosticDebugInformationMode, DiagnosticDebugOutputMode, DiagnosticDependencyRequirementKind,
@@ -58,7 +58,7 @@ pub use checking::{
     DiagnosticCallbackStateProblem, DiagnosticConstantOperation, DiagnosticConstraintCategory, DiagnosticCondition, DiagnosticConditionProjection, DiagnosticContractObligation, DiagnosticContractObligationKind, DiagnosticExecutionProofFailure,
     DiagnosticConstructionInputRejection, DiagnosticDirectiveArgumentProblem,
     DiagnosticExpressionCategory, DiagnosticGenericConstraintMismatch,
-    DiagnosticGenericParameterCategory, DiagnosticImplementationBorrowKind,
+    DiagnosticGenericParameterCategory, 
     DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
     DiagnosticImplementationOverloadProblem, DiagnosticMemoryOperation,
     DiagnosticNativeLinkDirectiveProblem, DiagnosticNativeLinkKind,

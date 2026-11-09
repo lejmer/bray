@@ -239,10 +239,7 @@ impl DiagnosticImplementationFamilySubjectJson {
                 identity: DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
             },
             Subject::Borrowed { kind, subject } => Self::Borrowed {
-                borrow: match kind {
-                    bray_diagnostics::DiagnosticImplementationBorrowKind::Shared => "shared",
-                    bray_diagnostics::DiagnosticImplementationBorrowKind::Mutable => "mutable",
-                },
+                borrow: kind.as_str(),
                 identity: DiagnosticInterfaceSymbolIdentityJson::from_identity(subject),
             },
         }

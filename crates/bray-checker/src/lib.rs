@@ -68,7 +68,7 @@ pub use context::{
     CheckerSource, GenericConstraintScope, ImplementationHookResolution,
 };
 pub use dependency::generator_result_dependencies;
-pub use diagnostic::diagnostic_type;
+pub use diagnostic::{diagnostic_borrow_kind, diagnostic_type};
 pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates, UnprovenExecutionCondition,
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,

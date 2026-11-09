@@ -62,6 +62,17 @@ pub(in crate::compilation) fn template_diagnostic_type(
     template: &TypeExpressionTemplate,
     cancellation: &crate::fact::CancellationToken,
 ) -> Result<DiagnosticType, FactQueryError> {
+    template_diagnostic_type_at_depth(compilation, template, cancellation, 0)
+}
+
+fn template_diagnostic_type_at_depth(
+    compilation: &Compilation, template: &TypeExpressionTemplate,
+    cancellation: &crate::fact::CancellationToken, depth: usize,
+) -> Result<DiagnosticType, FactQueryError> {
+    if depth >= DiagnosticType::NESTING_LIMIT {
+        return Ok(DiagnosticType::Unknown);
+    }
+
     let diagnostic = match template {
         TypeExpressionTemplate::Resolved(ty) => {
             let context = compilation.checker_context(cancellation)?;
@@ -81,7 +92,10 @@ pub(in crate::compilation) fn template_diagnostic_type(
         }
         TypeExpressionTemplate::Slice(_) => DiagnosticType::Slice,
         TypeExpressionTemplate::Nullable(_) => DiagnosticType::Nullable,
-        TypeExpressionTemplate::Borrow { .. } => DiagnosticType::Borrow,
+        TypeExpressionTemplate::Borrow { kind, target } => DiagnosticType::Borrow {
+            kind: bray_checker::diagnostic_borrow_kind(*kind),
+            target: Box::new(template_diagnostic_type_at_depth(compilation, target, cancellation, depth + 1)?),
+        },
         TypeExpressionTemplate::TraitView(_) => DiagnosticType::TraitView,
         TypeExpressionTemplate::OwnedIndirection { .. } => DiagnosticType::OwnedIndirection,
         TypeExpressionTemplate::Callable(_) => DiagnosticType::Callable,
