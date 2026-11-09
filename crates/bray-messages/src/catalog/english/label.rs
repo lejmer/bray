@@ -332,6 +332,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
                 "the caller must establish this execution-context condition",
             )])
         }
+        DiagnosticLabelKind::ForbiddenPredicateBlock => MessageTemplate::new(&[
+            MessageTemplatePart::Text("this expression introduces a block in a predicate context"),
+        ]),
         DiagnosticLabelKind::ExecutionGuaranteeFailure => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
                 "this operation or its cleanup cannot establish the required execution guarantee",

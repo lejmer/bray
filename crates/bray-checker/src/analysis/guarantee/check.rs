@@ -118,6 +118,10 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 
     let mut candidate = reachable.candidate(memory, obligation);
 
+    if property == Some(ExecutionProperty::Pure) && !internal {
+        reachable.domain.check_predicate_blocks(body.storage_flow(), &mut diagnostics);
+    }
+
     if internal {
         for occurrence in candidate.calls.keys().copied() {
             if conditional_invalidations.get(&occurrence)
@@ -585,11 +589,12 @@ fn check_expression_eligibility<C: CheckerRequestContext + ?Sized>(
         record_constant_failure(request, candidate, expression.into());
     }
 
-    if eligibility == super::predicate::ExpressionEligibility::Forbidden {
+    if matches!(eligibility, super::predicate::ExpressionEligibility::Forbidden | super::predicate::ExpressionEligibility::ForbiddenBlock(_)) {
         candidate
             .observation_failure
             .get_or_insert(node_span(request, expression.into()));
     }
+
 }
 
 fn classify_mutation<C: CheckerRequestContext + ?Sized>(

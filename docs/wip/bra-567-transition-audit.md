@@ -26,14 +26,14 @@ control, pin and arena before vacancy. WaitResources retains leased storage thro
 
 ## Current evidence
 
-Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca. Pushed HEADc91787784.
+Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca. Pushed HEAD2fc405bf7.
 Comparison722 passed /55 failed /99 ignored in98s, unchanged55 failing identities. Checker466 passed.
 Repaired const_borrowed_getters_preserve_the_existing_carrier_identity and union owner forwarding.
 Compiler/foreign42 passed /1 ignored, diagnostics44, messages86 and JSON47 passed after diagnostic changes.
 Source/import laws cover copied addresses versus carried loans, acquisition versus pointee mutation/replacement,
 and disjunctive variant reachability. Callable diagnostics retain actual signatures through rendering and JSON.
 
-Current native run has183 diagnostics: E7123=96, E7135=58, E7119=28, E7087=1. The five wait-resource regressions
+Accepted native.log uses compiler Rust atc91787784 and runtime Source2fc405bf7. It has183 diagnostics: E7123=96, E7135=58, E7119=28, E7087=1. The five wait-resource regressions
 are repaired. publish_wait's local ownership requirement now proves. Two diagnostics differ from the old182 run:
 observer/polling226 read_state is newly reached after entry repair in the already-invalid poll body, and publish_wait's
 certificate now exposes an existing Pure failure at waiting/links39. Keep both active, with their root causes.
@@ -58,14 +58,19 @@ and returns the independent sibling. Source/import positive and replacement cont
 comparison722/55/99 has unchanged55 failures. A symbolic-borrow experiment broke the existing nested-join law and is fully
 removed. No hooks or scratch probes remain.
 
-Diagnostic batch in progress: E7139 CheckingPredicateBlockNotAllowed retains BlockExpression/MatchExpression, a primary
-label and const-helper guidance. It validates source blocks independently of reachability once per public Pure candidate.
-Producer/text/JSON focused checks pass. Full validation session91843 is running. No other process.
+E7139 CheckingPredicateBlockNotAllowed retains BlockExpression/MatchExpression, a primary label and const-helper guidance.
+It checks source syntax independently of reachability once per public Pure candidate. Producer/text/JSON checks pass.
+Checker466, diagnostics44, messages87 and JSON48 pass. Readiness passes after quality assertions were added to the three
+existing certificate conversion tests. The expanded predicate group has25 passed /2 failed /2 ignored. Both failures also
+fail in the retainedfc4 baseline: checked_unsigned_division_guards_preserve_exact_products and
+joined_index_bounds_require_each_predecessors_actual_value. Keep them active alongside the unchanged55 comparison failures.
+No process is running. No hooks or scratch probes remain.
 
-Next semantic class: waiting/links.wait_link promises Pure but calls core.target.expose_address at39. Numerical address
-exposure is explicitly impure under execution-guarantees.md73-77. Audit related runtime Pure promises and preservation
-consumers before changing anything. Do not weaken the checker to accept that promise. This existing root now explains
-publish_wait's exposed E7135. Also trace poll/read_state's lost invoked acquisition across retire_reference.
+Next semantic class: WaitLink stores an integer address, exposing and reconstructing numerical addresses in five helpers
+that promise Pure. That is impure under execution-guarantees.md73-77. Store the actual DataPointer<Slot> instead, with
+std.memory.is_null for empty. All address consumers are in task/waiting/links.bray and no Rust/manifest names WaitLink.
+Retain lease/membership requirements so copied links grant no access. Establish a focused regression before runtime edits.
+Then trace poll/read_state's lost invoked acquisition across retire_reference. Do not weaken the checker for false promises.
 Always set LLVM bin on PATH and capture exit status when using retained drivers.
 
 ## Remaining work
@@ -99,7 +104,6 @@ Native LLVM/linker/executables run outside sandbox with Rust1.98.1, LLVM bin on 
 Native command: target/tooling/xtask.exe runtime-artifact smoke-test --output target/audit/native --profile release.
 Five-package tooling compilation test hash a64b618a384421e7, checker0bc5fe31253c00a4.
 
-Retain frozen baseline-failures.txt67 IDs and native-baseline-identities.txt, accepted comparison.log/native.log,
-unaccepted native-current.log, native intermediates and deferred-report baseline executable for two old controls.
+Retain frozen baseline-failures.txt67 IDs and native-baseline-identities.txt, accepted comparison.log/native.log, native intermediates and deferred-report baseline executable for two old controls.
 Keep only active build/probe logs. Delete stale task-owned logs/probes/traces by exact path after preserving evidence.
 No debug hooks remain. Git trust: public lejmer/bray, git@github.com:lejmer/bray.git, authenticated lejmer.

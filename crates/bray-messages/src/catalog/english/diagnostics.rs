@@ -2066,6 +2066,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::UnionTagDirectiveForms
         | DiagnosticNoteKind::CopyContractRequirements
         | DiagnosticNoteKind::ConstructArrayElementsIndividually
+        | DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper
         | DiagnosticNoteKind::TrustedObligationEvidenceRequired
         | DiagnosticNoteKind::ExecutionRequirementEvidenceRequired
         | DiagnosticNoteKind::ConstantCallArgumentsMustSatisfyRequirements
@@ -2787,6 +2788,10 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplatePart::Text("cannot establish "),
             MessageTemplatePart::Arg(DiagnosticArgName::ContractObligation),
         ]),
+        DiagnosticKind::CheckingPredicateBlockNotAllowed => MessageTemplate::new(&[
+            MessageTemplatePart::Text("predicate expressions cannot contain a "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
+        ]),
         DiagnosticKind::CheckingContractConditionNotPortable => MessageTemplate::new(&[MessageTemplatePart::Text("cannot represent this contract condition in a package interface")]),
         DiagnosticKind::CheckingPostconditionNotProven => MessageTemplate::new(&[MessageTemplatePart::Text("cannot verify this postcondition")]),
         DiagnosticKind::CheckingCircularPostcondition => MessageTemplate::new(&[MessageTemplatePart::Text("this postcondition depends on its own unverified completion")]),
@@ -3188,6 +3193,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::UnionTagDirectiveForms => {
             MessageTemplate::new(NOTE_UNION_TAG_DIRECTIVE_FORMS)
         }
+        DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper => MessageTemplate::new(&[
+            MessageTemplatePart::Text("move this control flow into a const function and call it from the predicate"),
+        ]),
         DiagnosticNoteKind::ConstructArrayElementsIndividually => MessageTemplate::new(&[
             MessageTemplatePart::Text("use an element-list array or an array generator to construct each non-copyable element separately"),
         ]),

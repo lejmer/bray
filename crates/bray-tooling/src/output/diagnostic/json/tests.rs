@@ -1949,3 +1949,27 @@ fn repeated_array_copy_failure_preserves_json_type_and_guidance() {
     assert_eq!(diagnostic["labels"][0]["kind"], "repeated_array_element");
     assert_eq!(diagnostic["notes"][0]["kind"], "construct_array_elements_individually");
 }
+
+#[test]
+fn predicate_block_failure_preserves_syntax_and_remedy_in_json() {
+    let span = SourceSpan::new(bray_source::SourceId::new(0), TextRange::empty(TextSize::ZERO));
+    let diagnostic = Diagnostic::new(DiagnosticId::new(0), DiagnosticKind::CheckingPredicateBlockNotAllowed, SeverityKind::Error)
+        .with_primary_span(span)
+        .with_arg(DiagnosticArg::actual_syntax_kind(bray_syntax::SyntaxKind::MatchExpression))
+        .with_label(bray_diagnostics::DiagnosticLabel::primary(bray_diagnostics::DiagnosticLabelKind::ForbiddenPredicateBlock, span))
+        .with_note(DiagnosticNote::new(DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper));
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output).expect("predicate block diagnostic JSON");
+
+    let report: serde_json::Value = serde_json::from_slice(&output).expect("diagnostic JSON");
+    let diagnostic = &report["diagnostics"][0];
+
+    assert_eq!(diagnostic["code"], 7139);
+    assert_eq!(diagnostic["kind"], "checking_predicate_block_not_allowed");
+    assert_eq!(diagnostic["args"][0], serde_json::json!({
+        "name": "actual_syntax_kind", "value": {"kind": "syntax_kind", "value": "match_expression"}
+    }));
+    assert_eq!(diagnostic["labels"][0]["kind"], "forbidden_predicate_block");
+    assert_eq!(diagnostic["notes"][0]["kind"], "predicate_control_flow_requires_const_helper");
+}

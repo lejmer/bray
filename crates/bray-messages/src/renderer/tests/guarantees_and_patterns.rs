@@ -200,3 +200,24 @@ fn repeated_array_copy_failure_names_the_element_type_and_alternative() {
     assert_eq!(rendered.notes()[0].rendered_kind(), RenderedDiagnosticNoteKind::Help);
     assert_eq!(rendered.notes()[0].message(), "use an element-list array or an array generator to construct each non-copyable element separately");
 }
+
+#[test]
+fn forbidden_predicate_blocks_name_the_syntax_and_const_helper_remedy() {
+    let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+
+    for (kind, expected) in [
+        (bray_syntax::SyntaxKind::BlockExpression, "predicate expressions cannot contain a block expression"),
+        (bray_syntax::SyntaxKind::MatchExpression, "predicate expressions cannot contain a match expression"),
+    ] {
+        let diagnostic = Diagnostic::new(DiagnosticId::new(0), DiagnosticKind::CheckingPredicateBlockNotAllowed, SeverityKind::Error)
+            .with_primary_span(span)
+            .with_arg(DiagnosticArg::actual_syntax_kind(kind))
+            .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::ForbiddenPredicateBlock, span))
+            .with_note(DiagnosticNote::new(DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper));
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(rendered.message(), expected);
+        assert_eq!(rendered.labels()[0].message(), "this expression introduces a block in a predicate context");
+        assert_eq!(rendered.notes()[0].message(), "move this control flow into a const function and call it from the predicate");
+    }
+}

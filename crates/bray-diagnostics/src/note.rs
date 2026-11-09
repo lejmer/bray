@@ -119,6 +119,8 @@ pub enum DiagnosticNoteKind {
     CopyContractRequirements,
     /// Guidance for constructing arrays of non-copyable values.
     ConstructArrayElementsIndividually,
+    /// Move predicate control flow into a const helper.
+    PredicateControlFlowRequiresConstHelper,
     /// Recovery guidance for a type that cannot be stored inline.
     StoredTypeRequiresIndirection,
     /// Recovery guidance for propagation without a compatible result boundary.
@@ -230,6 +232,7 @@ impl DiagnosticNoteKind {
             Self::UnionTagDirectiveForms => "union_tag_directive_forms",
             Self::CopyContractRequirements => "copy_contract_requirements",
             Self::ConstructArrayElementsIndividually => "construct_array_elements_individually",
+            Self::PredicateControlFlowRequiresConstHelper => "predicate_control_flow_requires_const_helper",
             Self::StoredTypeRequiresIndirection => "stored_type_requires_indirection",
             Self::PropagationBoundaryMustMatch => "propagation_boundary_must_match",
             Self::ArrayGeneratorMustYieldOncePerElement => {
