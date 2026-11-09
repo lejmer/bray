@@ -289,31 +289,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 owners.entry(operand).or_default().addresses = addresses.clone();
             }
 
-            if reference.is_none() {
-                continue;
-            }
-
-            if reference == Some(bray_symbols::DependencyReferenceKind::Address) {
-                if let Some(current) = self
-                    .input_place(operand)
-                    .and_then(|place| place.value_in(&state.current))
-                    && current.owner_identity() != &ExecutionCondition::Unknown
-                    && arguments
-                        .get(&ordinal)
-                        .is_some_and(|entry| entry.owner_identity() == current.owner_identity())
-                {
-                    // Completion clauses observe current contents of the evaluated address.
-                    // A reassigned or exposed pointer slot cannot establish this identity.
-                    if let Some(parameter) = parameter {
-                        arguments.insert(
-                            bray_bound_tree::BoundReferenceTarget::Surface(parameter.into()).into(),
-                            current.clone(),
-                        );
-                    }
-
-                    arguments.insert(ordinal.clone(), current);
-                }
-
+            if reference != Some(bray_symbols::DependencyReferenceKind::Borrow) {
                 continue;
             }
 
