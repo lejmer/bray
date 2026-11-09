@@ -36,6 +36,17 @@ pub(super) struct CurrentValues {
 }
 
 impl CurrentValues {
+    /// Seed the complete entry snapshot once. Observing a component does not write it.
+    pub(super) fn observe_input(&mut self, place: &ExecutionPlace) {
+        let root = root_place(place);
+
+        self.roots.entry(root.clone()).or_insert_with(|| CurrentRoot {
+            value: ExecutionCondition::Input(root),
+            availability: ValueAvailability::Present,
+            components: BTreeMap::new(),
+        });
+    }
+
     pub(super) fn slot(&self, place: &ExecutionPlace) -> Option<CurrentValue> {
         Some(CurrentValue {
             value: place.value_in(self)?,

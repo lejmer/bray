@@ -357,7 +357,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 // Entry places and their immutable snapshots retain the shared field path.
                 let input = ExecutionCondition::Input(place.clone());
 
-                state.current.insert(place.clone(), input.clone());
+                state.current.observe_input(place);
 
                 // Only the formal value owns storage at entry. Observations of
                 // its components can cross loans and do not establish ownership.
@@ -417,16 +417,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 .flat_map(|contracts| &contracts.requirements),
         ) {
             for place in assumption.inputs() {
-                // The state owns a key and immutable entry snapshot for each observed input field.
-                let mut root = place.clone();
-
-                root.projections = std::sync::Arc::new([]);
-
-                for input in [root, place.clone()] {
-                    if state.current.get(&input).is_none() {
-                        state.current.insert(input.clone(), ExecutionCondition::Input(input));
-                    }
-                }
+                state.current.observe_input(place);
             }
         }
 
