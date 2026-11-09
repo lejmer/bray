@@ -72,7 +72,7 @@ impl ExecutionCondition {
     /// Closed memory predicates observe pointer descriptors and current scalar extents.
     pub(crate) fn pointer_observations(
         &self,
-        predicates: &std::collections::BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
+        predicates: &std::collections::BTreeMap<bray_symbols::PredicateDefinitionSymbolId, &'static [usize]>,
     ) -> Self {
         match self {
             Self::Trusted(value) => {
@@ -86,7 +86,7 @@ impl ExecutionCondition {
                     .collect(),
             ),
             Self::Predicate(predicate, substitution, arguments)
-                if predicates.contains(predicate) =>
+                if let Some(pointers) = predicates.get(predicate) =>
             {
                 Self::predicate(
                     *predicate,
@@ -95,17 +95,17 @@ impl ExecutionCondition {
                         .iter()
                         .enumerate()
                         .map(|(index, argument)| {
-                            if index == 0 {
-                                let mut pointer = argument.copied_value();
-
-                                while let Self::Borrowed(reached) = pointer {
-                                    pointer = reached.copied_value();
-                                }
-
-                                pointer.owner_identity().clone()
-                            } else {
-                                argument.computed_value().clone()
+                            if !pointers.contains(&index) {
+                                return argument.computed_value().clone();
                             }
+
+                            let mut pointer = argument.copied_value();
+
+                            while let Self::Borrowed(reached) = pointer {
+                                pointer = reached.copied_value();
+                            }
+
+                            pointer.owner_identity().clone()
                         })
                         .collect(),
                 )

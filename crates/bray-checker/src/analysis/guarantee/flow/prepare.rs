@@ -79,30 +79,30 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     disposal: &'a super::super::cleanup::Cleanup<'a>,
     dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
 ) -> ExecutionFlowDomain<'a, 'view, C> {
-    let (pointer_predicates, mut content_predicates): (BTreeSet<_>, BTreeSet<_>) = request
+    const POINTER_PREDICATES: &[(&str, bool, &[usize])] = &[
+        ("ValidRead", true, &[0]),
+        ("ValidWrite", true, &[0]),
+        ("AlignedFor", true, &[0]),
+        ("NonOverlapping", true, &[0, 2]),
+        ("DeviceValidRead", true, &[0]),
+        ("DeviceValidWrite", true, &[0]),
+        ("DeviceAlignedFor", true, &[0]),
+        ("InitializedAs", false, &[0]),
+        ("InitializedRangeAs", false, &[0]),
+        ("DeviceInitializedAs", false, &[0]),
+        ("SharedAliasValid", false, &[0]),
+        ("ExclusiveAliasValid", false, &[0]),
+        ("EpochCurrent", false, &[0]),
+        ("SynchronizedAccess", false, &[0]),
+        ("MovementStable", false, &[0]),
+        ("FinalizationPending", false, &[0]),
+    ];
+    let (pointer_predicates, mut content_predicates): (BTreeMap<_, _>, BTreeSet<_>) = request
         .trusted_contracts()
         .filter(|contracts| !contracts.requirements.is_empty() || !contracts.calls.is_empty())
         .into_iter()
-        .flat_map(|_| {
-            [
-                ("ValidRead", true),
-                ("ValidWrite", true),
-                ("AlignedFor", true),
-                ("DeviceValidRead", true),
-                ("DeviceValidWrite", true),
-                ("DeviceAlignedFor", true),
-                ("InitializedAs", false),
-                ("InitializedRangeAs", false),
-                ("DeviceInitializedAs", false),
-                ("SharedAliasValid", false),
-                ("ExclusiveAliasValid", false),
-                ("EpochCurrent", false),
-                ("SynchronizedAccess", false),
-                ("MovementStable", false),
-                ("FinalizationPending", false),
-            ]
-        })
-        .filter_map(|(name, preserves_contents)| {
+        .flat_map(|_| POINTER_PREDICATES.iter().copied())
+        .filter_map(|(name, preserves_contents, pointers)| {
             let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
                 .expect("closed pointer predicate key must be valid");
 
@@ -111,10 +111,10 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
                 .available_compiler_known_symbols()
                 .provider()
                 .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
-                .map(|predicate| (predicate.into(), preserves_contents))
+                .map(|predicate| (predicate.into(), preserves_contents, pointers))
         })
-        .fold((BTreeSet::new(), BTreeSet::new()), |(mut pointers, mut contents), (predicate, preserves_contents)| {
-            pointers.insert(predicate);
+        .fold((BTreeMap::new(), BTreeSet::new()), |(mut pointers, mut contents), (predicate, preserves_contents, arguments)| {
+            pointers.insert(predicate, arguments);
 
             // Initialization observes pointer values too, but writes must still
             // invalidate it independently of spatial permissions.

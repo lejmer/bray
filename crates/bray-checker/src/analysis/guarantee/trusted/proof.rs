@@ -198,7 +198,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 return false;
             };
 
-            if !self.pointer_predicates.contains(predicate) {
+            if !self.pointer_predicates.contains_key(predicate) {
                 return false;
             }
 
