@@ -1,5 +1,9 @@
 # Bray for Rust developers, part 1: Build and organize an application
 
+Bray is a programming language with ownership and borrowing, explicit resource management, and a compiler that checks
+how values are used. Its name comes from the sound a donkey makes. Like its namesake, Bray is stubborn: when the code
+stops making sense, it would rather bray than budge.
+
 In this guide, we will build a small pantry inventory, split it into modules, and move the inventory into a library package.
 The program adds stock, looks up an item, and prints whether its quantity is low.
 
