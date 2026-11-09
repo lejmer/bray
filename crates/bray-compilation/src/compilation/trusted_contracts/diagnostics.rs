@@ -4,11 +4,22 @@ use crate::test_support::compilation;
 
 #[test]
 fn failed_conditions_name_the_complete_producer_call() {
-    let application = compilation(r#"
+    for (producer, input_count) in [("acquire()", 0), ("factory.acquire()", 1)] {
+    let source = r#"
         trusted module app;
 
         struct Owner
         {
+        }
+
+        struct Factory
+        {
+            func acquire() -> Owner
+            {
+                return
+                {
+                };
+            }
         }
 
         trusted predicate live(owner: &Owner);
@@ -20,11 +31,12 @@ fn failed_conditions_name_the_complete_producer_call() {
         {
         }
 
-        func caller()
+        func caller(pos factory: &Factory)
         {
-            inspect(acquire());
+            inspect(PRODUCER);
         }
-    "#);
+    "#.replace("PRODUCER", producer);
+    let application = compilation(&source);
     let diagnostics = application.check_diagnostics();
     let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
         DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
@@ -34,7 +46,16 @@ fn failed_conditions_name_the_complete_producer_call() {
         panic!("{obligation:#?}");
     };
 
-    assert_eq!(arguments[0], DiagnosticCondition::Source("acquire()".to_owned()));
+    let DiagnosticCondition::Application { path, arguments: inputs, .. } = &arguments[0] else {
+        panic!("the producer must retain its checked callable and inputs: {obligation:#?}");
+    };
+
+    assert_eq!(path.last().map(String::as_str), Some("acquire"));
+    assert_eq!(inputs.len(), input_count);
+    if input_count != 0 {
+        assert_eq!(inputs[0], DiagnosticCondition::Source("factory".to_owned()));
+    }
+    }
 }
 
 #[test]

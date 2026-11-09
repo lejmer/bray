@@ -56,9 +56,11 @@ The expanded certificate suite is127/7/2. Its seven remaining proof/validity fai
 Source async fixture and three invalid controls remain in the comparison. Bound133/interface216 previously passed and
 are unchanged by diagnostic work. No native composition has executed.
 
-Latest native brayc/xtask and std bundle represent912701e45 code. Standard-library planning/emission pass.
-Bootstrap202: E7119=28, E7135=61, E7123=106, E7036=4, E7113=2, E7087=1. Zero E7035 and zero new failing locations.
-The descriptor-retirement failure class and three dependent postconditions are repaired.
+Latest native brayc/xtask and std bundle represent0ed3a30fe code. Standard-library planning/emission pass.
+Bootstrap188: E7119=28, E7135=58, E7123=95, E7036=4, E7113=2, E7087=1. Zero E7035.
+The new E7135 in task/retirement267 replaces the repaired local requirement at277: certification now reaches the already
+invalid take_retired_cell154..237 dependency. proof.rs skips certification after local body errors, explaining this unmasking.
+No previously valid native body regressed. Eleven requirement locations and four prior postcondition locations disappear.
 PatternBinding completion now retains its observed subject through condition scope exit. Source/import tests cover
 borrowed nullable fields and callable projections, nested returned-owner projections and invalid local-owner escape.
 The real minimal CLI reproduced E7035 before the repair. Checkpoint912701e45 deletes projected_borrow_value: a place does not own its receiver descriptor. Consumers
@@ -68,8 +70,13 @@ Stored-reference projection preserves the selected reference's own identity thro
 projection routes, sharing one projected_observation rule. Owned fields reached through a borrow remain Reference.
 The owning law passes in checker465. The guarded Source/import composition passes, including runtime-checked ordinary
 precondition continuation and rejection of a producer without the trusted ownership guarantee. Producer source text
-includes call children, so acquire() is no longer displayed as (). Its diagnostic regression passes.
-Comparison712/57/99 in89s has zero new failing identities. Native refresh for this batch remains pending.
+includes call children, so acquire() is no longer displayed as (). The current diagnostic batch improves this further:
+named producers use the existing typed Application model, selected declaration/generics/actual inputs. This avoids losing
+static qualifiers or method receivers that binding legitimately excludes from syntax children. The producer diagnostic
+regression checks standalone and method calls. Canonical symbol lookup supplies receiver names rather than overbroad
+source anchors. Focused checks and comparison712/57/99 in89s pass with zero new failing identities. Native semantic
+evidence remains0ed3a30fe, as this batch changes diagnostic data only.
+Comparison712/57/99 in89s has zero new failing identities. Native verification confirms the stored-reference repair.
 All temporary hooks, traces and Source probes are removed. The permanent regressions retain required evidence.
  The two escape errors borrow execution before transferring it into
 creation. Native191122aaf identity baseline remains frozen in native-baseline-identities.txt.
