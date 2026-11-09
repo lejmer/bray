@@ -4,135 +4,90 @@
 
 Complete [BRA-567](https://linear.app/bray-lang/issue/BRA-567) on draft
 [PR #710](https://github.com/lejmer/bray/pull/710), branch feature/bra-567-async-root-orchestration.
-Use target/bra-567-audit under the original repository. Original develop is untouched.
-User authorizes checkpoint commits and pushes. Keep this single record concise and current.
+Worktree target/bra-567-audit. Original develop remains untouched. User authorizes checkpoint commits and pushes.
 
-1. Trace actual CFG producers and ownership, storage-flow, liveness and lowering consumers. Record production,
-   consumption and failure survivors for every operation.
-2. Prove async-ownership-composition.bray through native execution, plus its invalid variants.
-3. Check production before consumption, retirement of moved authority, identity independent of overwritten data,
+1. Derive transitions from executable CFG producers and ownership, storage-flow, liveness and lowering consumers.
+2. Prove async-ownership-composition.bray through native execution, with invalid variants.
+3. Verify production before consumption, retirement of moved authority, identity independent of overwritten contents,
    and stable loop joins at their owning boundaries.
-4. Preserve comparison identities, validity expectations and code versions. Explain and repair regressions before expansion.
-5. Name evidence and exclusions. Source or MIR passes never establish native completion.
+4. Freeze comparison identities and validity expectations. Explain and repair regressions before expansion.
+5. Name traced paths, evidence and exclusions. Source/MIR passes do not establish native completion.
 
-Use producer-owned values and current storage. Reconstruction is a last resort when robust retained state is impossible.
-Keep verified design improvements even when they do not solve the active failure.
-Keep scalar data, copied values, loan descriptors, complete owners, physical targets and lifetime roots distinct.
-Use one current-value tree, alias model, witness ledger and composite storage flow. Preserve imports and remove superseded
-mechanisms. No weaker authority, missing-value-as-absent fallback, compatibility shim or language change.
+Retain producer-owned semantic state. Reconstruction is a last resort. Distinguish scalar data, loan descriptors,
+complete owners, physical targets and lifetime roots. Keep one current-value tree, alias model, witness ledger and
+composite storage flow. Remove superseded mechanisms. No weaker authority or missing-as-absent fallback.
+Fix vague diagnostics encountered, retaining specific causes, actual arguments, declarations and known mutation sites.
+Keep verified design improvements even when they do not solve the immediate failure. Keep records concise and current.
 
 Root cleanup precedes terminal publication. Genuine Main authority, execution, attachments and providers survive outcome,
 incident and selected static disposal. Direct await creates no TCB. Closed admission retains cleanup access. Blocked
-shutdown returns unresolved ownership. Use shared teardown state. Sync products retain no async executor or migrated Rust.
+shutdown returns unresolved ownership. Share teardown state. Sync products retain no async executor or migrated Rust.
 Verify optional worker/deadline omission, native provenance and comparative costs.
-PreparedStart owns admission/registration through publication or rollback. EntryRestoration owns displaced entry context
-through abnormal exits. RetiredCell disposes control, pin and arena before vacancy. WaitResources retains stable storage
-while lease-bounded membership changes. Verify actual paths, not struct names.
+PreparedStart retains admission/registration through publication or rollback. EntryRestoration retains displaced context
+through abnormal exits. RetiredCell disposes control, pin and arena before vacancy. WaitResources retains stable leased
+storage through membership changes. Verify paths, not struct names.
 
-## Current checkpoint
+## Current evidence
 
-Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca. PR branch HEAD is the latest pushed checkpoint.
-The complete transition inventory and native composition remain unverified. Do not stop at a local fix or checkpoint.
+Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca. Latest pushed checkpoint is the copied-address boundary repair.
+Full transition inventory and native async composition remain unverified. Do not stop at a local fix or checkpoint.
 
-Accepted repairs retain producer-owned data through actual loan descriptors, component joins, borrowed receivers,
-entry snapshots and nullable conversions. Moves retire authority. Nested entry observations preserve their original
-contents. Repeated joins stabilize. Owning RawBuffer formation retains declared backing bounds without freshness or
-initialization claims. Explicit aggregate formation excludes runtime admission failure. Source/import regressions include
-local use and invalid escape/overwrite controls. The real channel endpoints and Windows environment bodies pass Source.
-Cleanup retains actual Dispose(T)/Cleanup(T) effects, captured inputs and result cleanup separately until completion.
-No type-only cleanup, source-root reconstruction, debug hooks or scratch probes remain.
+Accepted semantic repairs preserve entry observations, stored-reference referents, component joins and formed loans.
+Moves consume registered produced operands without retiring projected receivers. Pattern subjects survive their condition
+scope. Pattern views no longer initialize containing roots: value_transfer_destinations exposes only owned destinations,
+removing three lossy conversions in liveness and cleanup preparation. Source/import paired regressions preserve invalid
+escape and overwrite rejection. Scalar copies, RawBuffer bounds and aggregate admission retain their declared guarantees.
 
-Current diagnostic batch preserves required and actual conditions, call/cleanup/postcondition roles, declaration origin,
-source/import names, actual field arguments and scalar snapshots. The Boolean proof API is completely replaced.
-Current PostState values supply known mutation locations without an invalidation ledger. Tuple and array projections
-retain distinct spellings. Certificate failures distinguish postconditions, cycles, missing evidence, dependency errors,
-contract mismatch and depth limits. Unexportable conditions have a separate diagnostic. E7119 no longer invents an
-execution property named "ensures". English remains in bray-messages. Fifteen exact diagnostic-code expectations changed
-from execution-property failure to postcondition failure. Validity expectations and test identities remain fixed.
+Proof APIs return required/actual conditions. Diagnostics distinguish call, cleanup, postcondition and certificate causes,
+retain Source/import callable and argument identities, and show known current-value mutations. Borrow types carry kind
+and target through checker, renderer and JSON. English stays in bray-messages. E7119 is no longer used for postconditions.
+Fifteen expected diagnostic codes changed to E7135 without changing validity expectations or frozen test identities.
 
-Current checks: fixed comparison714 passed /57 failed /99 ignored in90s, zero new failing identities against accepted57.
-Focused diagnostic and nullable-pattern Source/import regressions pass. JSON45 pass. Checker465, diagnostics44 pass. Messages84 pass.
-The expanded certificate suite is127/7/2. Its seven remaining proof/validity failures are not waived or claimed passing.
-Source async fixture and three invalid controls remain in the comparison. Bound133/interface216 previously passed and
-are unchanged by diagnostic work. No native composition has executed.
+Current comparison715 passed /57 failed /99 ignored in88s, zero changed failing identities against accepted57.
+Checker465 passed. Diagnostics44/messages85/JSON46 passed after the diagnostic batch. Focused Source/import laws pass.
+The real CLI initialized-extraction and independent-result probe now passes using the freshly built 3bd2aaf72 driver.
+Its permanent boundary test owned_match_results_release_the_subject_loan uses clear() in the core-only fixture harness.
+The actual std.memory.move_initialized + replace_value case is verified by the real CLI/native audit, not that unit test.
 
-Latest native brayc/xtask and std bundle represent0ed3a30fe code. Standard-library planning/emission pass.
-Bootstrap188: E7119=28, E7135=58, E7123=95, E7036=4, E7113=2, E7087=1. Zero E7035.
-The new E7135 in task/retirement267 replaces the repaired local requirement at277: certification now reaches the already
-invalid take_retired_cell154..237 dependency. proof.rs skips certification after local body errors, explaining this unmasking.
-No previously valid native body regressed. Eleven requirement locations and four prior postcondition locations disappear.
-PatternBinding completion now retains its observed subject through condition scope exit. Source/import tests cover
-borrowed nullable fields and callable projections, nested returned-owner projections and invalid local-owner escape.
-The real minimal CLI reproduced E7035 before the repair. Checkpoint912701e45 deletes projected_borrow_value: a place does not own its receiver descriptor. Consumers
-retire only the operand's registered produced output. The strengthened short-circuit/repeated-use test passes Source/import,
-checker465 and comparison710/57/99 with zero new identities. Native verification confirms all moved-storage errors gone.
-Stored-reference projection preserves the selected reference's own identity through both physical and logical
-projection routes, sharing one projected_observation rule. Owned fields reached through a borrow remain Reference.
-The owning law passes in checker465. The guarded Source/import composition passes, including runtime-checked ordinary
-precondition continuation and rejection of a producer without the trusted ownership guarantee. Producer source text
-includes call children, so acquire() is no longer displayed as (). The current diagnostic batch improves this further:
-named producers use the existing typed Application model, selected declaration/generics/actual inputs. This avoids losing
-static qualifiers or method receivers that binding legitimately excludes from syntax children. The producer diagnostic
-regression checks standalone and method calls. Canonical symbol lookup supplies receiver names rather than overbroad
-source anchors. Focused checks and comparison712/57/99 in89s pass with zero new failing identities. Native semantic
-evidence remains0ed3a30fe, as this batch changes diagnostic data only.
-Comparison712/57/99 in89s has zero new failing identities. Native verification confirms the stored-reference repair.
-All temporary hooks, traces and Source probes are removed. The permanent regressions retain required evidence.
- The two escape errors borrow execution before transferring it into
-creation. Native191122aaf identity baseline remains frozen in native-baseline-identities.txt.
-
-Checkpoint54f5cc921 replaces the Borrow type placeholder with kind plus target. The existing
-implementation-family borrow kind is moved/renamed DiagnosticBorrowKind and reused, with one checker conversion.
-Source/foreign conversion, English and JSON preserve the payload. Checker465/diagnostics44/messages85/JSON46 pass.
-The new compiler conflict diagnostic checks StorageAccess.reached_type, and all six focused diagnostics now pass.
-The comparison713/57/99 in89s passes with zero new failing identities, using all-package tooling tests (a64b618a hash).
-No semantic lifetime change is included yet.
-A small real CLI program reproduces retirement E7036 using plain Control in a nullable Uninit slot. Its permanent
-Source/import paired regression is owned_match_results_release_the_subject_loan in returned_dependencies.rs.
-It requires owned extraction to release the match loan and preserves rejection when the result actually borrows the slot.
-The real CLI forms for initialized extraction and independent construction both fail with the same match loan on old
-native0ed3a30fe code. The permanent boundary test uses a real typed clear() mutation in its core-only harness. Owned
-output succeeds and a returned view remains rejected for Source/import. Checker465 and comparison714/57/99 in89s pass,
-with zero new failing identities. Native verification of this batch is next. Retain the active CLI probe until that check.
-The trace found no report or live cleanup owner retaining the loan. Liveness treated a pattern view as initialization of
-its containing root. value_transfer_destinations now returns only actual destination IDs. Liveness and cleanup preparation
-no longer reconstruct owning initialization from views. Three lossy conversions are removed. All temporary traces and
-field-visibility changes are restored. Keep the real initialized-move case covered by the native audit.
-
-
-Retain frozen baseline-failures.txt and native-baseline-identities.txt, current compact comparison.log/native.log, native
-artifacts and the deferred-report baseline executable for two pre-existing negative controls. Remove passed build/check
-logs, superseded diagnostic outputs and temporary traces immediately after recording needed results. Keep only one active
-probe.log. No style/format pass has run. No reviewer, subagent or goal is running.
+Accepted native.log is 3bd2aaf72: standard-library planning/emission pass, bootstrap186 errors
+(E7123=95, E7135=58, E7119=28, E7036=2, E7113=2, E7087=1), zero E7035.
+The E7135 in task/retirement267 is an explained unmasking after a local E7123 repair, not a new invalid body.
+The two retirement E7036 diagnostics disappear, with no added diagnostic identities. The CLI probe and stale logs are removed.
+No native async composition has executed. The source fixture and three invalid controls remain in the fixed comparison.
 
 ## Remaining work
 
-Trace selected inputs/defaults, admission/completion, construction/replacement, projections/patterns, branches/loops,
-suspension, outcomes/reports and cleanup through native correspondence. Verify runtime Source bodies/certificates,
-imports, native success/panic/cancellation, startup rollback, blocked shutdown, result/static disposal and nested foreign
-restoration. commit_start inspection found no recoverable failure between activation.begin and publication. Source/native
-evidence remains required. Verify from_core admission/refcount failure ownership before claiming that protocol complete.
-Two old negatives need forwarding/fabrication and real-mutation controls: trusted_implementation_does_not_export_undeclared_authority
-and shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. Do not weaken production to satisfy them.
+Finish native bootstrap proof failures by owning transition classes, then native composition and invalid controls.
+Trace selected/default/operator inputs, call attempt/completion, construction/replacement, projections/patterns, branches/
+loops, await/yield/scoped suspension, scope exit/cancellation, outcomes/recovery and cleanup across all consumers.
+Verify Source/import certificates and actual native success, panic/cancellation, startup rollback, blocked shutdown,
+result/static disposal and nested foreign restoration. commit_start inspection found no recoverable failure between
+activation.begin and publication. Runtime proof remains required. Audit from_core admission/refcount failure ownership.
+Two old negatives need genuine forwarding/fabrication and mutation controls:
+trusted_implementation_does_not_export_undeclared_authority and
+shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. Do not weaken production to satisfy them.
 
-At semantic completion, reread AGENTS and audit every changed file/behavior for maintainability, DRY, APIs, contracts,
-errors and structural cost. Run cargo xtask style and cargo xtask format only at the end, inspect edits and rerun affected
-checks. Then dispatch the authorized independent reviewer on draft PR #710. Reviewer posts its own artifacts and IDs.
-Resolve findings and reuse it for rereview. Only then make PR ready and move BRA-567 to In Review. Never mark Done.
-No reviewer, subagent or goal is running. Do not stop at a commit or local repair.
+The copied-address boundary repair distinguishes a loan used to read an address from loans carried by a borrowed component. Source/import regressions pass direct composition, a second exported call boundary, genuine borrowed-field escape rejection and non-authorizing raw addresses. The three frozen borrow-carrier regressions are repaired. Checker465 and comparison715/57/99 pass. The real retry-loop CLI and native bootstrap are next. Remaining native errors include deadline/worker execution transfers and result copying. Retirement whole-slot conflicts are verified repaired. Trace actual proof data before
+changing runtime contracts, initialized-memory policy or authority. Do not adopt unverified hypotheses from old notes.
 
-## Execution
+Callable type diagnostics still discard signatures and show "callable type". Preserve structured signatures through checker, templates, rendering and JSON after the active regression batch.\n\nAt semantic completion, reread AGENTS and audit every changed file/behavior for DRY, APIs, contracts, errors and structural
+cost. Only then run mandatory mutating cargo xtask style and cargo xtask format, inspect and check affected behavior.
+No style/format pass has run. No goal, agent or reviewer is running. Dispatch the authorized independent reviewer on
+committed draft PR710 only after semantic completion. Reviewer publishes its own GitHub review artifacts. Resolve and
+rereview with the same agent. Then mark PR ready and Linear In Review. Never merge or mark Done.
 
-Reuse original repository target. CARGO_TARGET_DIR=original target, CARGO_BUILD_BUILD_DIR=target/cargo.
-BRAY_LLVM_PREFIX and LLVM_SYS_221_PREFIX=target/toolchains/llvm/active. Tooling profile, default parallelism, one Cargo at
-a time, no cleaning. Native LLVM/linker/executables run outside the sandbox with Rust 1.98.1 and LLVM bin on PATH.
-Build xtask with default stable. Native command: retained target/tooling/xtask.exe runtime-artifact smoke-test
---output target/audit/native --profile release. TMP/TEMP point to worktree target/audit. Logs/artifacts remain there.
-No style/format pass has run. Git destination verified: public lejmer/bray, remote git@github.com:lejmer/bray.git,
-authenticated account lejmer. Reuse that trust evidence while destination/authentication are unchanged.
+## Execution and retained artifacts
 
-The trace proves no report or live cleanup owner retains the match loan. Liveness falsely retains it until function return.
-Current semantic WIP replaces value_transfer_bindings with value_transfer_destinations returning actual identity IDs.
-Pattern views no longer get reconstructed as initialization of their containing root in liveness and cleanup preparation.
-Three lossy conversions are removed. Both temporary tracing and field visibility changes are restored. The Source/import
-boundary test is rebuilding. No completion or native regression claim until focused and frozen comparison checks pass.
+One CPU-heavy operation at a time, default Cargo parallelism, no clean. Shared original target, build directory target/cargo.
+BRAY_LLVM_PREFIX and LLVM_SYS_221_PREFIX point to target/toolchains/llvm/active. Tooling builds use default stable.
+Native LLVM/linker/executables run outside sandbox with Rust1.98.1 and LLVM bin on PATH. TMP/TEMP use worktree target/audit.
+Native: retained target/tooling/xtask.exe runtime-artifact smoke-test --output target/audit/native --profile release.
+Driver rebuild completed for 3bd2aaf72. Test binaries use all-five-package tooling features, compilation a64b618a hash.
+
+Retain frozen baseline-failures.txt (67 IDs), native-baseline-identities.txt, accepted comparison.log/native.log, reusable
+native intermediates and deferred-report baseline executable for the two controls. Keep only active build/probe/native logs.
+Delete stale task-owned logs/probes/traces immediately after preserving necessary evidence. No debug hooks remain.
+Git trust verified: public lejmer/bray, git@github.com:lejmer/bray.git, authenticated lejmer. Reuse until destination/auth changes.
+
+
+

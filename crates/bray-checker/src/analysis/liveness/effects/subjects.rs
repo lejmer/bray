@@ -39,7 +39,7 @@ pub(super) fn collect_dependency_subjects<C: CheckerRequestContext + ?Sized>(
                 // carried loans in the ownership fixed point with the full requirement.
                 if crate::representation::reference_kind(request, *ty)
                     != Some(bray_symbols::DependencyReferenceKind::Address)
-                    && inputs.copied_value_source(request.semantic_values(), storage, selections, *source, path).is_none()
+                    && inputs.copied_value_source(request, storage, selections, *source, path, *ty).is_none()
                 {
                     collect_subject(
                         BoundDependencySubject::StorageAccess(*source),

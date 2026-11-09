@@ -10,14 +10,15 @@ use bray_symbols::{AnyLocalSymbolId, DependencyProjection, LocalBindingSymbolId,
 use super::ValueInputs;
 
 impl ValueInputs {
-    /// Resolves the evaluated data source of a copied component requirement.
-    pub(crate) fn copied_value_source(
+    /// Selects carried dependencies without retaining a loan used only to read an address.
+    pub(crate) fn copied_value_source<C: crate::CheckerRequestContext + ?Sized>(
         &self,
-        values: &bray_symbols::SemanticValueStore,
+        request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
         selections: &CheckedSemanticSelections,
         source: bray_bound_tree::StorageAccessId,
         path: &bray_bound_tree::StorageReferencePath,
+        ty: bray_symbols::TypeId,
     ) -> Option<BoundExpressionId> {
         let root = storage.root_identity(source)?;
         let producer = storage.identity(root)?.definition_occurrence()?;
@@ -25,8 +26,15 @@ impl ValueInputs {
             .chain(path.projections().iter()).copied().collect::<Vec<_>>();
         let projections = crate::storage::dependency_projections(&projections)?;
 
-        self.projected_input_value(values, selections, producer, &projections)
-            .map(|(source, _)| source)
+        let (source, remaining) =
+            self.projected_input_value(request.semantic_values(), selections, producer, &projections)?;
+
+        // Borrowed components retain their containing value's carried loans. An
+        // address read through a reference does not retain that reference's loan.
+        (remaining.is_empty()
+            || crate::representation::reference_kind(request, ty)
+                != Some(bray_symbols::DependencyReferenceKind::Address))
+            .then_some(source)
     }
 
     /// Selects the evaluated dependency source of a copied input component.
