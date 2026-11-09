@@ -1,32 +1,31 @@
 # Bray for Rust developers, part 1: Build and organize an application
 
-Bray is a programming language with ownership and borrowing, explicit resource management, and a compiler that checks
-how values are used. Its name comes from the sound a donkey makes. Like its namesake, Bray is stubborn: when the code
-stops making sense, it would rather bray than budge.
+Bray is a programming language with ownership, borrowing, explicit resource management, and a compiler that checks how values are used. If that sounds familiar, good. Rust has already prepared you for a programming language that occasionally knows better than you do.
 
-In this guide, we will build a small pantry inventory, split it into modules, and move the inventory into a library package.
-The program adds stock, looks up an item, and prints whether its quantity is low.
+Bray takes its name from the sound a donkey makes. Like its namesake, it is stubborn, opinionated, and thoroughly unimpressed by your intentions. If your code doesn't make sense, Bray would rather complain than politely pretend otherwise.
 
-We assume you know your way around Rust, including things like functions, structs, optional values, errors as values,
-and ownership and borrowing. You don't need to know any Bray yet. We'll start with what you already know and take a
-closer look wherever Bray does things differently.
+In this guide, we'll build a small pantry inventory, split it into modules, and eventually move the inventory into its own library package. Our application will add stock, look up an item, and report whether its quantity is low. Nothing revolutionary, but it does give us an excuse to explore the language without immediately implementing a distributed database.
 
-You need an installed Bray toolchain with `bray` on your path and support for your native target. The examples use a
-shell and a synchronous executable. Run commands from the project directory unless a step says otherwise.
+We assume you're familiar with Rust, including functions, structs, optional values, errors as values, ownership, and borrowing. You don't need to know any Bray yet. We'll start with familiar concepts and focus on the places where Bray has decided that Rust's approach wasn't quite opinionated enough.
+
+You'll need an installed Bray toolchain with `bray` on your path and support for your native target. The examples use a shell and a synchronous executable. Run commands from the project directory unless instructed otherwise.
 
 ## Create the project
 
-In Rust, you might start with `cargo new pantry`. In Bray, create the workspace and its root executable package with:
+In Rust, you'd probably start with `cargo new pantry`. Bray has its own CLI, because apparently the world needed another build tool.
+
+Create the workspace and its root executable package:
 
 ```sh
 bray init pantry --package pantry
 cd pantry
 ```
 
-You now have `bray-workspace.json`, `bray-package.json`, and `src/main.bray`. Cargo uses `Cargo.toml` for package and
-workspace configuration. Bray gives them separate manifests. The workspace manifest lists your packages and targets.
-The package manifest describes where its source lives and which products to build. A product can be an executable, a
-library, or a test program.
+You now have `bray-workspace.json`, `bray-package.json`, and `src/main.bray`.
+
+Cargo uses `Cargo.toml` for both package and workspace configuration. Bray separates these concerns into two manifests, giving you twice as many JSON files to admire.
+
+The workspace manifest lists your packages and targets. The package manifest describes where its source lives and which products to build. A product can be an executable, a library, or a test program.
 
 Run the generated application:
 
@@ -34,7 +33,9 @@ Run the generated application:
 bray run
 ```
 
-It exits without printing anything. The generated `main` is empty, so the donkey has nothing to say yet.
+Nothing happens.
+
+Well, technically, the application builds, runs, and exits successfully. It simply produces no output because the generated `main` is empty. The donkey has nothing to complain about yet. Let's fix that.
 
 ## Add an inventory item
 
@@ -51,8 +52,9 @@ fn add(item: &mut Item, amount: i32) {
 }
 ```
 
-Bray uses the same shared and mutable borrow spelling, but field mutability is also declared on the field. Replace
-`src/main.bray` with:
+Simple enough. Bray uses the same shared and mutable borrow spelling, but adds field-level mutability declarations.
+
+Now replace `src/main.bray` with:
 
 ```bray
 module app;
@@ -87,7 +89,7 @@ func main()
 }
 ```
 
-Run the application:
+Run it:
 
 ```sh
 bray run
@@ -99,33 +101,47 @@ The application prints:
 Stock is ready
 ```
 
-You may also see build progress. We started with one unit of oats and added two, so the quantity is three. Our pantry
-is off to a modest start.
+Success. We've added two units of oats to our original one, bringing the total to three. The pantry is operational (investors will be *thrilled*).
 
-As in Rust, `let mut oats` permits mutation through the binding, and `&mut oats` gives `add` exclusive mutable access.
-Bray also requires `mut quantity` on the field. The immutable `name` field cannot be replaced after initialization,
-even through a mutable `Item`.
+### Mutability
 
-Bray uses `func` where Rust uses `fn`. Unlike Rust's positional function arguments, Bray's arguments are named by
-default. The `pos` on `item` permits a positional argument, so the call is `add(&mut oats, amount = 2)`. A `pos`
-parameter can also be passed by name. A function's positional parameters must come before its named-only parameters.
+As in Rust, `let mut oats` permits mutation through the binding, and `&mut oats` gives `add` exclusive mutable access. But Bray also requires `mut quantity` on the field itself. The `name` field is immutable and cannot be replaced after initialization, even through a mutable `Item`.
 
-In Rust, we would write the type in a struct literal such as `Item { ... }`. Here, the annotation on `oats` already
-supplies the type, so Bray lets us omit it from the construction expression. Bray uses `=` between each field name and
-value, where Rust uses `:`.
+In other words, having permission to mutate a value doesn't automatically mean having permission to mutate everything inside it. A distinction that is well worth making.
 
-The examples follow Bray's standard source style: a multiline construction puts the opening brace on the next line and
-includes a trailing comma after the final field. Neither choice is required by the grammar.
+### Functions and arguments
+
+Bray uses `func` where Rust uses `fn` (not exactly revolutionary, but `fn` is hideous so it *is* an improvement, you'll come around). Bray's more opinionated about function arguments though. They are **named by default**, unlike most other programming languages, where positional is the default. Don't sweat, though, the `pos` modifier on `item` permits a positional argument, which is why we write:
+
+```bray
+add(&mut oats, amount = 2);
+```
+
+Positional parameters must appear before named-only parameters in a function declaration. This makes call sites more explicit about what arguments mean. No more staring at `configure(true, false, 3)` and wondering which of those booleans ruined your afternoon. Also, we like consistency, so a `pos` parameter can also be passed by name.
+
+### Constructing values
+
+In Rust, we'd construct a struct with something like `Item { ... }`. Bray allows us to omit the type name when the expected type is already known:
+
+```bray
+let mut oats: Item =
+{
+    name = "oats",
+    quantity = 1,
+};
+```
+
+The annotation on `oats` supplies the type. Bray also uses `=` between field names and values, rather than Rust's JSON-like `:` syntax.
+
+| **Note:** The examples follow Bray's standard source style: a multiline construction places its opening brace on the next line and includes a trailing comma after the final field. Neither is a grammar requirement. The donkey has opinions about formatting, but it doesn't *enforce* them.
 
 ## Handle absence and errors
 
-In Rust, a lookup might return `Option<&Item>`, and a fallible print operation might return a `Result`. Bray separates
-these two cases too, but their propagation operators differ.
+Rust developers are familiar with `Option<T>` and `Result<T, E>`. Sometimes a value doesn't exist. Sometimes an operation fails. Sometimes life wasn't complicated enough and both happen in the same function. Bray also distinguishes absence from errors, but uses different propagation operators.
 
-Our first version ignores the result of `print_line`, so we won't find out if printing fails. Let's return the error to
-the caller instead.
+In our first version, we ignored the result of `print_line`. If printing failed, the application wouldn't report the error. It is unlikely to fail, so we can safely ignore that value. On the off chance that you are alergic to warnings, however, we can handle it with `try`.
 
-Replace the `main` function in `src/main.bray` with:
+Replace `main` in `src/main.bray` with:
 
 ```bray
 func main() -> Result<unit, std.io.IoError>
@@ -173,30 +189,83 @@ func low(pos item: &Item) -> bool
 }
 ```
 
-Run `bray run` again. The application still prints `Stock is ready`.
+Run `bray run` again. The application still prints `Stock is ready`. No warning anymore, though. Cool.
 
-The shared borrow passed to `find` lets it inspect the item without taking ownership. Like Rust's `Option<&Item>`,
-Bray's `(&Item)?` can hold a borrow or represent absence. The parentheses matter: the borrow is the value that may be
-absent. Return `item` directly for a present value, or `none` for absence. There is no `Some(item)` wrapper to write.
-`if let ?item` binds the borrow when present, much like `if let Some(item)` in Rust. The borrow cannot outlive the item.
+### Nullable values
 
-`std.io.print_line` returns `Result<unit, std.io.IoError>`. For this call, Bray's `try` plays the part of Rust's
-postfix `?`: it continues on success and propagates the error from `main`. Bray's own postfix `?` propagates *absence*
-instead. We will return to both forms in part 2.
+The shared borrow passed to `find` allows it to inspect the item without taking ownership. Rust would typically express the return type as `Option<&Item>`. Bray uses:
 
-Bray's `unit` is the unit value, like Rust's `()`. Returning `Ok(unit)` here is the Bray equivalent of returning
-`Ok(())` in Rust. Unlike a Rust function with a tail expression, a Bray function returning a non-`unit` value uses an
-explicit `return` on each normal path.
+```bray
+(&Item)?
+```
 
-Change the quantity passed to `add` from `2` to `1` and run the program again. It prints `Low stock`. Restore `2`
-before continuing.
+This represents a value that may contain a borrow or may be absent. The parentheses matter: it's the borrow that may be absent (not some mysterious alternative interpretation of `&Item`). When the item exists, we return it directly:
+
+```bray
+return item;
+```
+
+Otherwise:
+
+```bray
+return none;
+```
+
+Notice how there's no `Some(item)`? Well, Bray has decided that if the type already tells you a value may be absent, wrapping every present value in another constructor is unnecessary ceremony.
+
+To inspect the result, we use:
+
+```bray
+if let ?item = find(&oats, name = "oats")
+```
+
+This behaves much like Rust's `if let Some(item)`, binding `item` only when the value is present. And because the result contains a borrow, that borrow cannot outlive the original item (no dangling references).
+
+### Propagating errors
+
+`std.io.print_line` returns `Result<unit, std.io.IoError>`.
+
+Bray uses the prefix operator `try` to propagate errors:
+
+```bray
+try std.io.print_line("Stock is ready");
+```
+
+For this call, `try` does what Rust's postfix `?` would do: continue on success or return the error from `main`.
+
+Bray has its own postfix `?`, however, that operator propagates **absence**, and not errors. In other words, Rust's `?` and Bray's `?` are not interchangeable. Same symbol, different responsibility. Naturally.
+
+We'll look more closely at both forms in part 2.
+
+### Returning values
+
+Bray's `unit` is the equivalent of Rust's `()`.
+
+Thus:
+
+```bray
+return Ok(unit);
+```
+
+is equivalent to Rust's `Ok(())`.
+
+Unlike Rust, where a function can return its final expression implicitly, Bray requires an explicit `return` along each normal path that returns a non-`unit` value. It's a few more keystrokes, but at least nobody has to debate whether removing a semicolon changed a function's return value.
+
+Before continuing, change the amount passed to `add` from `2` to `1`, then run the application again. It should print:
+
+```text
+Low stock
+```
+
+Our inventory system now detects a shortage of oats. Remember to restore the amount to `2` before moving on.
 
 ## Split the application into modules
 
-A Rust module can separate inventory code from `main`. In Rust, `use` can bring a name into scope. Bray's `using`
-declares a module dependency instead. It doesn't bring the module's declarations into unqualified scope.
+We've reached the point where our application has several functions and a struct. Naturally, it's time to organize the code. Rust uses modules to separate declarations, and `use` can bring names into scope. Bray has modules too, but its `using` declaration works differently: it declares a dependency on another module without importing that module's declarations into unqualified scope. That means you still have to write the qualified path.
 
-Create `src/inventory.bray` with the declarations from `src/main.bray`, under a new module declaration:
+The compiler would appreciate knowing exactly where your dependencies come from, thank you very much.
+
+Now, create `src/inventory.bray`:
 
 ```bray
 module inventory;
@@ -228,7 +297,7 @@ func low(pos item: &Item) -> bool
 }
 ```
 
-Replace `src/main.bray` with:
+And replace the contents of `src/main.bray` again, but this time with:
 
 ```bray
 module app;
@@ -262,25 +331,73 @@ func main() -> Result<unit, std.io.IoError>
 }
 ```
 
-Run `bray run`. Our oats are still ready, and the output is still `Stock is ready`.
+Run:
 
-`using inventory;` declares the dependency on the other logical module. We still write `inventory.Item` and
-`inventory.add`. Bray wants both the dependency and the qualified path.
+```sh
+bray run
+```
 
-Bray declarations are public by default where visibility applies. `Item`, `add`, `find`, and `low` need no `pub`
-spelling. For now, both modules belong to the same executable package, so we haven't marked any of them `internal`.
+The output is still:
+
+```text
+Stock is ready
+```
+
+The oats have survived their first architectural refactoring!
+
+### Module dependencies
+
+Notice that we declared:
+
+```bray
+using inventory;
+```
+
+But still call:
+
+```bray
+inventory.add(&mut oats, amount = 2);
+```
+
+Again, that's intentional. `using` declares the dependency. It doesn't dump the module's contents into the current scope and hope nobody introduces a conflicting name later. Indeed, both the dependency declaration and the qualified reference are required to satisfy the donkey.
+
+### Public by default
+
+Contrary to most other languages, Bray declarations are public by default wherever visibility applies. That means `Item`, `add`, `find`, and `low` don't need a `public` keyword (even though being explicit and adding `public` is technically allowed).
+
+For now, both modules are part of the same executable package, so no additional visibility would make sense anyway.
 
 ## Move the inventory into a library package
 
-In Rust, moving code into another crate changes both the Cargo dependency and the path used to reach the code. Bray
-likewise separates the package dependency in a manifest from the module dependency in source.
+However, our pantry application is growing up. It's time to give the inventory its own library package, so other applications can enjoy the thrill of counting oats too!
 
-Create the directories `stock/src` and `checks` under the workspace root. Move `src/inventory.bray` to
-`stock/src/inventory.bray`. Its `module inventory;` declaration stays the same: a source module path is relative to its
-package and does not include the package identity.
+In Rust, moving code into a separate crate involves updating Cargo dependencies and changing the paths used to reference that code. Bray has the same broad distinction: package dependencies belong in manifests, while module dependencies are declared in source code. The good news is that the separation is explicit. The bad news is that we're about to write JSON.
 
-We are turning the inventory into a library used by another package. Its `low` function is an implementation detail, so add
-`internal` to its declaration in `stock/src/inventory.bray`:
+### Create the library
+
+Create the directories `stock/src` and `checks` under the workspace root.
+
+Move:
+
+```text
+src/inventory.bray
+```
+
+to:
+
+```text
+stock/src/inventory.bray
+```
+
+Keep the module declaration unchanged:
+
+```bray
+module inventory;
+```
+
+A source module path is relative to its package and doesn't include the package identity. We're turning the inventory into a library consumed by another package. The `low` function is an implementation detail, so we'll mark it `internal`.
+
+In `stock/src/inventory.bray`, change its declaration to:
 
 ```bray
 internal func low(pos item: &Item) -> bool
@@ -289,8 +406,11 @@ internal func low(pos item: &Item) -> bool
 }
 ```
 
-In `bray-workspace.json`, replace the `packages` property with the following. Leave the generated target and other fields
-unchanged, so `native` still names your host target.
+We'll see what `internal` actually means shortly. Spoiler: it's not quite Rust's `pub(crate)`.
+
+### Update the workspace
+
+In `bray-workspace.json`, replace the `packages` property with:
 
 ```json
 "packages": [
@@ -306,6 +426,12 @@ unchanged, so `native` still names your host target.
   }
 ]
 ```
+
+Leave the generated target and other fields unchanged, so `native` still refers to your host target.
+
+The workspace now owns two package directories. The `vendored` role identifies `stock` as a workspace dependency.
+
+### Configure the library package
 
 Create `stock/bray-package.json`:
 
@@ -345,12 +471,11 @@ Create `stock/bray-package.json`:
 }
 ```
 
-The workspace owns both package directories. The `vendored` role identifies `stock` as a workspace dependency. Bray
-doesn't fetch it for us; we just created it. Its package identity is `stock`, and its library product is `inventory`.
-This library has no `main`. The `main` function remains in the separate `pantry` executable.
+The package identity is `stock`, and its library product is named `inventory`. Also, note that the library has no `main` function. That remains in the separate `pantry` executable, where it belongs. The manifest explicitly lists the library's outputs. It does not infer your intentions from the general shape of the directory tree.
 
-Replace the root `bray-package.json` with the following. Its `application` product is still an executable, and it gives
-that executable an explicit dependency on the `stock` library. It also adds a test product for the next step:
+### Update the executable package
+
+Replace the root `bray-package.json` with:
 
 ```json
 {
@@ -366,8 +491,8 @@ that executable an explicit dependency on the `stock` library. It also adds a te
       "path": "src"
     },
     {
-      "name": "checks",
-      "path": "checks"
+      "name": "tests",
+      "path": "tests"
     }
   ],
   "products": [
@@ -391,10 +516,10 @@ that executable an explicit dependency on the `stock` library. It also adds a te
       ]
     },
     {
-      "name": "checks",
+      "name": "tests",
       "kind": "test",
       "source_roots": [
-        "checks"
+        "tests"
       ],
       "targets": [
         "native"
@@ -413,8 +538,11 @@ that executable an explicit dependency on the `stock` library. It also adds a te
 }
 ```
 
-Replace `src/main.bray` with the following. The paths now start with the `stock` package identity, and the
-`using internal` declaration acknowledges the call to `low`:
+Our `application` product remains an executable, but now explicitly depends on the `stock` package's `inventory` library product. We've also introduced a `checks` test product. We'll use that shortly, once we're done configuring our increasingly sophisticated oat-management infrastructure.
+
+### Update the application
+
+Replace `src/main.bray` with:
 
 ```bray
 module app;
@@ -449,15 +577,39 @@ func main() -> Result<unit, std.io.IoError>
 }
 ```
 
-Run `bray run --product application`. It prints `Stock is ready` again. The manifest makes the library product available,
-and `using stock.inventory;` records the source module dependency.
+The module paths now begin with the package identity, `stock`.
 
-The call to `low` now crosses a package boundary, so we must acknowledge access to the internal function. Here,
-`using internal stock.inventory.low;` acknowledges the path for the module. That lets us call
-`stock.inventory.low(item)` without adding `internal` at each call.
+Run the executable product:
 
-We can instead acknowledge the call itself. If we remove `using internal stock.inventory.low;` but keep the ordinary
-`using stock.inventory;`, we can replace the inner `if` with:
+```sh
+bray run --product application
+```
+
+Once again:
+
+```text
+Stock is ready
+```
+
+(If only every software migration were this uneventful.)
+
+### Accessing internal declarations
+
+You may have noticed this new line:
+
+```bray
+using internal stock.inventory.low;
+```
+
+This is one of Bray's more unusual design choices. We marked `low` as `internal` because it's an implementation detail of the library. But our executable lives in another package and still needs to call it. Rather than making the function entirely inaccessible, Bray allows consumers to explicitly acknowledge that they're depending on an internal declaration. The declaration above acknowledges access to that path for the module, allowing calls such as:
+
+```bray
+stock.inventory.low(item)
+```
+
+without additional annotation.
+
+Alternatively, we can remove `using internal stock.inventory.low;` while keeping the ordinary `using stock.inventory;`, and acknowledge the call directly:
 
 ```bray
 if internal stock.inventory.low(item)
@@ -470,24 +622,35 @@ else
 }
 ```
 
-The local `internal` acknowledges this call only. Without either form of acknowledgment, the compiler rejects the
-access. We still need `using stock.inventory;` to declare the module dependency: the local prefix doesn't do that.
+Here, the local `internal` acknowledges only this particular call. Without either form of acknowledgment, the compiler rejects access.
 
-Rust's `pub(crate)` restricts access to the crate. Bray's `internal` works differently: a consuming package can still
-use the declaration by acknowledging the internal path. That acknowledgment makes the dependency visible, but it
-doesn't turn an internal detail into a stable public API. Acknowledging one path doesn't grant access to unrelated
-internal declarations.
+And yes, in the this case we still need:
+
+```bray
+using stock.inventory;
+```
+
+The local `internal` prefix doesn't declare the module dependency itself.
+
+### Why not just use something akin to `publ(crate)`?
+
+Rust's `pub(crate)` makes a declaration accessible within its crate but inaccessible to external crates. Bray's `internal` follows a different philosophy.
+
+An internal declaration can be accessed from another package, but only with an explicit acknowledgment of the internal path. This makes the dependency visible without pretending that the declaration is part of a stable public API. Acknowledging one path also doesn't grant access to unrelated internal declarations. Bray allows this because forcing encapsulation completely on programmers is dumb and annoying.
+
+In short, Bray lets you depend on implementation details, but insists that you admit what you're doing. The compiler isn't your manager. It won't forbid every questionable architectural decision. It will, however, make sure you can't pretend the decision happened by accident.
 
 ## Add a test
 
-Rust's `#[test]` marks a function for the test runner. Bray uses `@test` and a test product. The `checks` product in
-the package manifest selects the `checks` source root and depends on the same library product as the application.
+We have an inventory system that adds stock and determines whether it's low. So far, we've verified its behavior by repeatedly running the executable and inspecting the output like responsible programmers from 1978. Let's automate that.
 
-Create `checks/inventory.bray`:
+Rust uses `#[test]` to mark test functions. Bray uses `@test` and a dedicated test product. The `checks` product we added to the package manifest selects the `checks` source root and depends on the same inventory library as the application.
+
+Create `tests/inventory.bray`:
 
 ```bray
 @test
-module inventory_checks;
+module tests;
 
 using stock.inventory;
 
@@ -509,19 +672,39 @@ func adds_stock()
 Run the test product:
 
 ```sh
-bray test --product checks
+bray test --product tests
 ```
 
-The runner reports that `adds_stock` passed. The assertion checks the result through the same library dependency the
-application uses. The module-level `@test` makes this contribution available to test products.
+The test runner reports that `adds_stock` should pass. The assertion checks the result through the same library dependency used by the application, rather than reaching into the library's implementation. The module-level `@test` makes this module contribution available to test products.
 
-For an extra check, change the amount in the test to `1` while leaving the expected quantity at `3`. Run the test again:
-the assertion fails. Restore the amount to `2` and confirm that the test passes.
+### Make the test fail
+
+A passing test is reassuring, but it's also worth verifying that the test actually detects incorrect behavior.
+
+Change:
+
+```bray
+stock.inventory.add(&mut oats, amount = 2);
+```
+
+to:
+
+```bray
+stock.inventory.add(&mut oats, amount = 1);
+```
+
+Keep the expected quantity at `3`, then run:
+
+```sh
+bray test --product tests
+```
+
+The assertion fails, as it should. Now restore the amount to `2` and run the test again to confirm it passes again.
 
 ## Continue
 
-Part 2 will explore unions, patterns, and error handling in more detail. Until then, the language reference covers
-[modules and packages](../../language/modules-and-packages.md), [callables](../../language/callables.md),
-[ownership and borrowing](../../language/ownership-and-borrowing.md), and
-[nullable expressions](../../language/expressions/nullable-and-absence-expressions.md). The
-[Bray source style guide](../../contributing/bray-style-guide.md) describes the layout used by the examples.
+We've created a Bray workspace, built a small executable, used mutable and shared borrows, handled nullable values and errors, organized code into modules, extracted a library package, acknowledged an internal dependency, and written a test.
+
+Part 2 will explore unions, patterns, and error handling in more detail. If you want even drier reading material, the language reference covers [modules and packages](../../language/modules-and-packages.md), [callables](../../language/callables.md), [ownership and borrowing](../../language/ownership-and-borrowing.md), and [nullable expressions](../../language/expressions/nullable-and-absence-expressions.md) in much more detail.
+
+The [Bray source style guide](../../contributing/bray-style-guide.md) describes the layout used throughout these examples.
