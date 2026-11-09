@@ -27,8 +27,8 @@ control, pin and arena before vacancy. WaitResources retains leased storage thro
 ## Current evidence
 
 Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca.
-Accepted comparison724 passed /55 failed /99 ignored after explicit field-copy repair, with unchanged55 failing
-identities. Checker466 passed before the current call-projection extension. Earlier diagnostic batch: diagnostics44, messages87, JSON48 and readiness passed.
+Checkpoint90b727bd8 is pushed. Its accepted comparison has724 passed /55 failed /99 ignored with unchanged55 failing
+identities. All466 checker tests and133 bound-tree tests pass. Earlier diagnostic batch: diagnostics44, messages87, JSON48 and readiness passed.
 The expanded predicate group has25 passed /2 failed /2 ignored. Both failures reproduce in the retainedfc4 baseline:
 checked_unsigned_division_guards_preserve_exact_products and joined_index_bounds_require_each_predecessors_actual_value.
 
@@ -49,18 +49,26 @@ restores full standard-library planning and emission. Direct copied pointer/whol
 borrowed-field escape controls pass in Source/import. Matching-driver controls accept copying before moving the guard
 and reject moving before the read. Those two controls are now in the permanent fixture too.
 
-The remaining two escapes reduce to read_link(&mut State)->Link called with an opaque Guard.get view. The equivalent
-raw-pointer helper passes. The permanent regression fails before the current fix, and its inferred contract wrongly
-retains StorageAlive for the guard. Current candidate prepares copy-type facts from every bound call phase and reuses
-contents-copy handling in field, call and pattern transfers. Genuine borrow projections retain their loans. Keep carried
-value dependencies and explicit capability/provider/thread/lifecycle roots. Do not project fields onto a lifetime anchor.
-The shared phase iterator also omitted deferred_result. The extended publication test accepted a foreign completion
-subject before the fix. The iterator now includes it. All133 bound-tree tests and16 Source/import variants pass,
-including explicit move ordering and absence of the reading lifetime in copied-result contracts. Query failures propagate
-through the canonical dependency mapper. The frozen suite and matching driver are rebuilding. Recheck native regressions
-before accepting this batch. No debug hooks or scratch probes remain. No style/format has run.
+Checkpoint90b727bd8 verifies sixteen Source/import cases and includes all call phases, including deferred_result.
+A publication regression proved that foreign deferred-result subjects were previously accepted. Those133 bound-tree
+checks pass. Query errors now propagate through the canonical dependency mapper.
 
-Next unresolved native transition: poll/read_state loses an invoked acquisition across retire_reference.
+The two native escapes survived that checkpoint. A smaller program exposed the missing ownership shape: the local
+view anchor itself contains a borrowed pin. Direct field copying passes, while copying through read_link retains that
+unrelated pin. The permanent regression failed before the current correction. The correction removes the container-
+following mode of retained_storage_borrows, rather than reconstructing the copied value's loans from its anchor.
+Borrow-free contents retain no ordinary storage loans. Explicit scope/provider/thread/lifecycle subjects survive in
+liveness and report retention through one shared subject classification. All28 Source/import cases now pass, including
+source overwrite, nullable/tuple transport, explicit move ordering and genuine borrowed-result negatives.
+The fixed suite remains724/55/99 with unchanged55 identities. Checker466 and bound-tree133 pass. Native remains167
+with the same two added escapes. Keep the verified simplification, but do not accept the native candidate. Trace actual
+contracts and liveness in event_state, detach, commit_locked and commit before further semantic changes. No style/format has run.
+No debug hooks or scratch probes remain.
+
+Next diagnostic defect: condition.rs renders StorageIdentity::InvocationInput through definition_occurrence().expression(),
+which loses its input ordinal and can print the whole invocation for several distinct actual arguments. Resolve the
+selected input's actual expression at that failure-only boundary. Add a regression first. Do not infer a proof bug from
+this rendering bug. Trace poll/read_state failures at184 and226 through actual loop/branch joins and retire_reference.
 Other false Pure promises still use raw address observations. Do not weaken checks for false promises.
 
 ## Remaining work

@@ -4066,7 +4066,7 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
 
         struct State
         {
-            link: Link;
+            mut link: Link;
             borrowed: &u32;
         }
 
@@ -4110,9 +4110,27 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
             }
         }
 
+        struct Envelope
+        {
+            mut owner: Guard;
+            pin: &u32;
+        }
+
         func read_link(pos owner: &mut State) -> Link
         {
             return owner.link;
+        }
+
+        func take_link(pos owner: &mut State) -> Link
+        {
+            let value = owner.link;
+
+            owner.link =
+            {
+                pointer = std.memory.null<u32>()
+            };
+
+            return value;
         }
 
         func read_pointer(pos owner: &mut State) -> DataPointer<u32>
@@ -4123,6 +4141,7 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
     let declarations = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
         owner,
     ];
     let provider = standard_library_compilation(declarations);
@@ -4131,15 +4150,30 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
 
     let escaping = Some(bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency);
 
-    for (result, before, returned, failure) in [
-        ("DataPointer<u32>", "", "state.link.pointer", None),
-        ("std.memory.Link", "", "state.link", None),
-        ("&std.memory.Link", "", "&state.link", escaping),
-        ("&u32", "", "state.borrowed", escaping),
-        ("std.memory.Link", "let link = state.link;\n                let moved = guard;", "link", None),
-        ("std.memory.Link", "let moved = guard;", "state.link", Some(bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow)),
-        ("std.memory.Link", "", "std.memory.read_link(state)", None),
-        ("DataPointer<u32>", "", "std.memory.read_pointer(state)", None),
+    let envelope = r#"
+                let pin = number;
+                let mut envelope: std.memory.Envelope =
+                {
+                    owner = guard,
+                    pin = &pin
+                };
+    "#;
+
+    for (result, setup, view, before, returned, failure) in [
+        ("DataPointer<u32>", "", "guard", "", "state.link.pointer", None),
+        ("std.memory.Link", "", "guard", "", "state.link", None),
+        ("&std.memory.Link", "", "guard", "", "&state.link", escaping),
+        ("&u32", "", "guard", "", "state.borrowed", escaping),
+        ("std.memory.Link", "", "guard", "let link = state.link;\n                let moved = guard;", "link", None),
+        ("std.memory.Link", "", "guard", "let moved = guard;", "state.link", Some(bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow)),
+        ("std.memory.Link", "", "guard", "", "std.memory.read_link(state)", None),
+        ("DataPointer<u32>", "", "guard", "", "std.memory.read_pointer(state)", None),
+        ("std.memory.Link", envelope, "envelope.owner", "", "state.link", None),
+        ("std.memory.Link", envelope, "envelope.owner", "", "std.memory.read_link(state)", None),
+        ("&std.memory.Link", envelope, "envelope.owner", "", "&state.link", escaping),
+        ("std.memory.Link", envelope, "envelope.owner", "", "std.memory.take_link(state)", None),
+        ("std.memory.Link?", envelope, "envelope.owner", "let link: std.memory.Link? = std.memory.take_link(state);", "link", None),
+        ("(u64, bool, std.memory.Link?)", envelope, "envelope.owner", "let link: std.memory.Link? = std.memory.take_link(state);", "(0, false, link)", None),
     ] {
         let valid = failure.is_none();
         let source = format!(r#"
@@ -4147,10 +4181,11 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
 
             using std.memory;
 
-            trusted func caller(pos mut guard: std.memory.Guard) -> {result}
+            trusted func caller(pos mut guard: std.memory.Guard, pos number: u32) -> {result}
                 requires(trusted std.memory.active(&guard.acquisition))
             {{
-                let state = trusted guard.get();
+                {setup}
+                let state = trusted {view}.get();
                 {before}
 
                 return {returned};
