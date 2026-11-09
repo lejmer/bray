@@ -3962,3 +3962,226 @@ fn raw_buffer_reachability_preserves_reference_bearing_payload_dependencies() {
         }
     }
 }
+
+#[test]
+fn typed_links_preserve_pure_pointer_transport_without_address_observation() {
+    for (ty, empty, projected, is_empty, valid) in [
+        ("DataPointer<u8>", "std.memory.null<u8>()", "owner.pointer", "std.memory.is_null<u8>(self.value)", true),
+        ("usize", "0", "trusted core.target.expose_address<u8>(owner.pointer)", "self.value == 0", false),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+
+            using core.target;
+            using std.memory;
+
+            struct Owner
+            {{
+                pointer: DataPointer<u8>;
+            }}
+
+            @copy
+            struct Link
+            {{
+                value: {ty};
+
+                const func empty() -> bool
+                {{
+                    return {is_empty};
+                }}
+            }}
+
+            func empty_link() -> Link
+                executes(pure, total)
+            {{
+                return
+                {{
+                    value = {empty}
+                }};
+            }}
+
+            trusted func make_link(pos owner: &Owner) -> Link
+                executes(pure, total)
+                uses(intrinsic)
+            {{
+                return
+                {{
+                    value = {projected}
+                }};
+            }}
+
+            trusted func forward_link(pos owner: Owner) -> Link
+                executes(pure, total)
+            {{
+                let empty = empty_link();
+
+                if empty.empty()
+                {{
+                    return trusted make_link(&owner);
+                }}
+
+                return empty;
+            }}
+        "#);
+        let application = standard_library_compilation([
+            include_str!("../../../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+            &source,
+        ]);
+        let certificate = application.execution_properties(source_function_body_key(&application, "make_link"))
+            .expect("link production has an execution certificate result");
+
+        assert_eq!(!certificate.diagnostics().has_errors(), valid, "{ty}: {certificate:#?}");
+
+        if valid {
+            let forwarded = application.execution_properties(source_function_body_key(&application, "forward_link"))
+                .expect("forwarding has an execution certificate result");
+            let checked = application.lowered_unit(source_function_body_key(&application, "forward_link"))
+                .expect("pointer transport reaches its checked lowering boundary");
+
+            assert!(!forwarded.diagnostics().has_errors(), "{forwarded:#?}");
+            assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                certificate.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
+    let owner = r#"
+        module std.memory;
+
+        using core.memory;
+        using std.memory;
+
+        @copy
+        struct Link
+        {
+            pointer: DataPointer<u32>;
+        }
+
+        struct State
+        {
+            link: Link;
+            borrowed: &u32;
+        }
+
+        struct Marker
+        {
+        }
+
+        trusted predicate active(owner: &Marker);
+
+        struct Guard
+        {
+            acquisition: Marker;
+            pointer: DataPointer<State>;
+
+            trusted mut func get() -> &mut State
+                requires(trusted active(&self.acquisition))
+                ensures(trusted active(&self.acquisition))
+                executes(pure, total)
+                uses(raw_memory, unchecked_alias)
+            {
+                let pointer = self.pointer;
+                let permit = trusted lambda(pos owner: &Marker, pos pointer: DataPointer<State>)
+                    requires(trusted active(owner))
+                    ensures(
+                        trusted core.memory.valid_write<State>(pointer = pointer, count = 1),
+                        trusted core.memory.aligned_for<State>(pointer = pointer),
+                        trusted core.memory.initialized_as<State>(pointer = pointer),
+                        trusted core.memory.exclusive_alias_valid<State>(pointer = pointer),
+                        trusted core.memory.epoch_current<State>(pointer = pointer),
+                        trusted core.memory.synchronized_access<State>(pointer = pointer),
+                        trusted core.memory.movement_stable<State>(pointer = pointer),
+                        trusted core.memory.finalization_pending<State>(pointer = pointer)
+                    )
+                    executes(pure, total)
+                {
+                };
+
+                trusted permit(&self.acquisition, pointer);
+
+                return trusted std.memory.borrow_mut_from<State, Guard>(&mut self, pointer);
+            }
+        }
+
+        func read_link(pos owner: &mut State) -> Link
+        {
+            return owner.link;
+        }
+
+        func read_pointer(pos owner: &mut State) -> DataPointer<u32>
+        {
+            return owner.link.pointer;
+        }
+    "#;
+    let declarations = [
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        owner,
+    ];
+    let provider = standard_library_compilation(declarations);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    let escaping = Some(bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency);
+
+    for (result, before, returned, failure) in [
+        ("DataPointer<u32>", "", "state.link.pointer", None),
+        ("std.memory.Link", "", "state.link", None),
+        ("&std.memory.Link", "", "&state.link", escaping),
+        ("&u32", "", "state.borrowed", escaping),
+        ("std.memory.Link", "let link = state.link;\n                let moved = guard;", "link", None),
+        ("std.memory.Link", "let moved = guard;", "state.link", Some(bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow)),
+        ("std.memory.Link", "", "std.memory.read_link(state)", None),
+        ("DataPointer<u32>", "", "std.memory.read_pointer(state)", None),
+    ] {
+        let valid = failure.is_none();
+        let source = format!(r#"
+            trusted module app;
+
+            using std.memory;
+
+            trusted func caller(pos mut guard: std.memory.Guard) -> {result}
+                requires(trusted std.memory.active(&guard.acquisition))
+            {{
+                let state = trusted guard.get();
+                {before}
+
+                return {returned};
+            }}
+        "#);
+        let local = standard_library_compilation(declarations.into_iter().chain([source.as_str()]));
+        let imported = super::fixtures::execution_consumer(&provider, &source);
+
+        for (application, imported) in [(&local, false), (&imported, true)] {
+            let diagnostics = application.check_diagnostics();
+            let summary = crate::compilation::result_dependencies::source_function_dependencies(
+                application, "caller",
+            );
+
+            assert_eq!(!diagnostics.has_errors(), valid, "{result}, imported={imported}: {diagnostics:#?}, {summary:#?}");
+
+            if valid {
+                assert!(!summary.requirements().iter().any(|requirement| matches!(requirement,
+                    bray_symbols::DependencyRequirement::Direct { kind: bray_symbols::DependencyRequirementKind::StorageAlive, .. })), "a copied field does not retain its reading lifetime: {summary:#?}");
+                assert!(summary.requirements().iter().any(|requirement| matches!(requirement,
+                    bray_symbols::DependencyRequirement::Direct { subject, kind: bray_symbols::DependencyRequirementKind::ValueDependencies }
+                        if matches!(subject.subject_root(), bray_symbols::DependencySubjectRoot::Parameter(_))
+                            && !subject.projections().is_empty())), "carried pointer dependencies survive the copy: {summary:#?}");
+            }
+
+            if let Some(failure) = failure {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    failure,
+                );
+            }
+        }
+    }
+}

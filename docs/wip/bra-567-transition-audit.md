@@ -26,52 +26,42 @@ control, pin and arena before vacancy. WaitResources retains leased storage thro
 
 ## Current evidence
 
-Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca. Pushed HEAD2fc405bf7.
-Comparison722 passed /55 failed /99 ignored in98s, unchanged55 failing identities. Checker466 passed.
-Repaired const_borrowed_getters_preserve_the_existing_carrier_identity and union owner forwarding.
-Compiler/foreign42 passed /1 ignored, diagnostics44, messages86 and JSON47 passed after diagnostic changes.
-Source/import laws cover copied addresses versus carried loans, acquisition versus pointee mutation/replacement,
-and disjunctive variant reachability. Callable diagnostics retain actual signatures through rendering and JSON.
+Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca.
+Accepted comparison724 passed /55 failed /99 ignored after explicit field-copy repair, with unchanged55 failing
+identities. Checker466 passed before the current call-projection extension. Earlier diagnostic batch: diagnostics44, messages87, JSON48 and readiness passed.
+The expanded predicate group has25 passed /2 failed /2 ignored. Both failures reproduce in the retainedfc4 baseline:
+checked_unsigned_division_guards_preserve_exact_products and joined_index_bounds_require_each_predecessors_actual_value.
 
-Accepted native.log uses compiler Rust atc91787784 and runtime Source2fc405bf7. It has183 diagnostics: E7123=96, E7135=58, E7119=28, E7087=1. The five wait-resource regressions
-are repaired. publish_wait's local ownership requirement now proves. Two diagnostics differ from the old182 run:
-observer/polling226 read_state is newly reached after entry repair in the already-invalid poll body, and publish_wait's
-certificate now exposes an existing Pure failure at waiting/links39. Keep both active, with their root causes.
+Accepted native.log uses compiler Rustc91787784 and runtime Source2fc405bf7. It has183 diagnostics:
+E7123=96, E7135=58, E7119=28, E7087=1. Latest native candidate167 has E7123=96, E7135=45, E7119=23,
+E7113=2 and E7087=1. It removes18 old failures but adds two escapes in event/delivery92 and151, so remains unaccepted.
 No native async composition has executed. Full transition inventory remains incomplete.
-
-Structural registration ownership uses actual retained/acquisition component claims and guarded const getters.
-release_wait_target consumes actual target fields and returns actual waiter, deleting raw-read reconstruction.
-Keep this improvement while repairing its transitions. Opaque pointer-bearing ownership can depend on pointee contents.
-The paired structural acquisition law verifies that distinction without weakening compiler checks.
 
 ## Active investigation
 
-Entry observation seeding wrote union payload Inputs into the containing object without a variant, replacing the
-whole input with Unknown. CurrentValues.observe_input now seeds one complete symbolic root without component writes.
-entry_union_observations_preserve_sibling_owner_values failed before and passes after, including Source/import invalid
-replacement controls. Fixed comparison improves57 to55. Native failures remain.
+WaitLink retains its actual DataPointer<Slot>, deleting one exposure and five numerical reconstructions plus five
+unused intrinsic allowances. Lease/membership requirements remain. The typed-link law verifies execution_properties,
+including an impure numeric-address negative. lowered_unit alone does not certify promises.
 
-Wait ownership uses one exact getter per active variant. Returning any of several origin alternatives does not establish
-exact per-branch identity. Do not promote possible aliases or reconstruct callee bodies. The contract-reasoning specification
-permits bounded implication. The new three-variant composition uses actual variant fields, consumes the callback and target,
-and returns the independent sibling. Source/import positive and replacement controls pass. All466 checker tests pass and
-comparison722/55/99 has unchanged55 failures. A symbolic-borrow experiment broke the existing nested-join law and is fully
-removed. No hooks or scratch probes remain.
+Borrow-free field reads use the existing storage-shape walker. Checked field selections are required: syntax members
+also include methods. Classifying methods as fields regressed the Windows environment reborrow. The corrected domain
+restores full standard-library planning and emission. Direct copied pointer/whole Link, stored-reference escape and
+borrowed-field escape controls pass in Source/import. Matching-driver controls accept copying before moving the guard
+and reject moving before the read. Those two controls are now in the permanent fixture too.
 
-E7139 CheckingPredicateBlockNotAllowed retains BlockExpression/MatchExpression, a primary label and const-helper guidance.
-It checks source syntax independently of reachability once per public Pure candidate. Producer/text/JSON checks pass.
-Checker466, diagnostics44, messages87 and JSON48 pass. Readiness passes after quality assertions were added to the three
-existing certificate conversion tests. The expanded predicate group has25 passed /2 failed /2 ignored. Both failures also
-fail in the retainedfc4 baseline: checked_unsigned_division_guards_preserve_exact_products and
-joined_index_bounds_require_each_predecessors_actual_value. Keep them active alongside the unchanged55 comparison failures.
-No process is running. No hooks or scratch probes remain.
+The remaining two escapes reduce to read_link(&mut State)->Link called with an opaque Guard.get view. The equivalent
+raw-pointer helper passes. The permanent regression fails before the current fix, and its inferred contract wrongly
+retains StorageAlive for the guard. Current candidate prepares copy-type facts from every bound call phase and reuses
+contents-copy handling in field, call and pattern transfers. Genuine borrow projections retain their loans. Keep carried
+value dependencies and explicit capability/provider/thread/lifecycle roots. Do not project fields onto a lifetime anchor.
+The shared phase iterator also omitted deferred_result. The extended publication test accepted a foreign completion
+subject before the fix. The iterator now includes it. All133 bound-tree tests and16 Source/import variants pass,
+including explicit move ordering and absence of the reading lifetime in copied-result contracts. Query failures propagate
+through the canonical dependency mapper. The frozen suite and matching driver are rebuilding. Recheck native regressions
+before accepting this batch. No debug hooks or scratch probes remain. No style/format has run.
 
-Next semantic class: WaitLink stores an integer address, exposing and reconstructing numerical addresses in five helpers
-that promise Pure. That is impure under execution-guarantees.md73-77. Store the actual DataPointer<Slot> instead, with
-std.memory.is_null for empty. All address consumers are in task/waiting/links.bray and no Rust/manifest names WaitLink.
-Retain lease/membership requirements so copied links grant no access. Establish a focused regression before runtime edits.
-Then trace poll/read_state's lost invoked acquisition across retire_reference. Do not weaken the checker for false promises.
-Always set LLVM bin on PATH and capture exit status when using retained drivers.
+Next unresolved native transition: poll/read_state loses an invoked acquisition across retire_reference.
+Other false Pure promises still use raw address observations. Do not weaken checks for false promises.
 
 ## Remaining work
 
@@ -88,7 +78,6 @@ trusted_implementation_does_not_export_undeclared_authority and
 shared_marker_borrows_preserve_the_original_owner_without_mutable_authority.
 The terminating-branch positive passes. Its negative opaque call has no owner input. Add a mutable-authority control
 before changing expectations. Do not implement the disproven normal_effects hypothesis.
-Finish and verify the predicate-block diagnostic batch, including diagnostic readiness. Keep predicate restrictions unchanged.
 
 At semantic completion, reread AGENTS and mechanically audit changed files and behaviors, DRY, APIs, contracts and
 structural cost. Only then run mutating cargo xtask style and cargo xtask format, inspect edits and affected checks.

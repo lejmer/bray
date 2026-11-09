@@ -308,7 +308,7 @@ impl OperationEffects {
                         BoundDependencyRequirement, BoundDependencyRequirementKind,
                     };
 
-                    let (subject, copy_address) = match requirement {
+                    let (subject, copying_contents) = match requirement {
                         BoundDependencyRequirement::Value { source, path, ty } => {
                             if let Some(value) = self.value_inputs.copied_value_source(
                                 request, storage, selections, *source, path, *ty,
@@ -318,8 +318,7 @@ impl OperationEffects {
                                 ));
                                 continue;
                             }
-                            if crate::representation::reference_kind(request, *ty)
-                                != Some(bray_symbols::DependencyReferenceKind::Address) {
+                            if !self.value_inputs.value_carries_no_borrows(*ty) {
                                 continue;
                             }
 
@@ -338,7 +337,7 @@ impl OperationEffects {
 
                     nested.extend(retained_storage_borrows(
                         request.semantic_values(),
-                        copy_address,
+                        copying_contents,
                         storage,
                         &value_sources_by_root,
                         [subject],
@@ -409,7 +408,10 @@ impl OperationEffects {
 
                         let previous = expression_retention.len();
 
-                        expression_retention.extend(retained.iter().copied());
+                        expression_retention.extend(retained.iter().copied().filter(|subject| {
+                            !expression.is_some_and(|id| self.value_inputs.copies_without_borrows(id))
+                                || !requires_storage_loan(*subject)
+                        }));
                         changed |= expression_retention.len() != previous;
                     }
                 }
@@ -606,11 +608,11 @@ pub(super) fn retained_subtree_subjects(
     >,
 ) -> BTreeSet<BoundDependencySubject> {
     let mut retained = BTreeSet::new();
-    let mut pending: Vec<bray_bound_tree::BoundExecutionSite> = vec![root.into()];
+    let mut pending = vec![(root.into(), false)];
     let mut visited = BTreeSet::new();
 
-    while let Some(occurrence) = pending.pop() {
-        if !visited.insert(occurrence) {
+    while let Some((occurrence, copied)) = pending.pop() {
+        if !visited.insert((occurrence, copied)) {
             continue;
         }
 
@@ -625,8 +627,10 @@ pub(super) fn retained_subtree_subjects(
             continue;
         }
 
+        let copied = copied || expression.is_some_and(|id| inputs.copies_without_borrows(id));
+
         if let Some(subjects) = retained_by_expression.get(&occurrence) {
-            retained.extend(subjects.iter().copied());
+            retained.extend(subjects.iter().copied().filter(|subject| !copied || !requires_storage_loan(*subject)));
         }
 
         let Some(expression) = expression else {
@@ -636,13 +640,18 @@ pub(super) fn retained_subtree_subjects(
         pending.extend(
             inputs
                 .operands(expression)
-                .map(bray_bound_tree::BoundExecutionSite::from),
+                .map(|id| (bray_bound_tree::BoundExecutionSite::from(id), copied)),
         );
 
         pending.extend(inputs.projected_operands(expression).map(|(value, path)| {
-            bray_bound_tree::BoundExecutionSite::from(inputs.project(value, &path).0)
+            (bray_bound_tree::BoundExecutionSite::from(inputs.project(value, &path).0), copied)
         }));
     }
 
     retained
+}
+
+fn requires_storage_loan(subject: BoundDependencySubject) -> bool {
+    matches!(subject, BoundDependencySubject::BorrowCapability(_)
+        | BoundDependencySubject::Storage(_) | BoundDependencySubject::StorageAccess(_))
 }

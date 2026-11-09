@@ -10,7 +10,7 @@ use bray_symbols::{AnyLocalSymbolId, DependencyProjection, LocalBindingSymbolId,
 use super::ValueInputs;
 
 impl ValueInputs {
-    /// Selects carried dependencies without retaining a loan used only to read an address.
+    /// Selects carried dependencies without retaining a loan used only to read copied contents.
     pub(crate) fn copied_value_source<C: crate::CheckerRequestContext + ?Sized>(
         &self,
         request: crate::CheckerUnitView<'_, C>,
@@ -29,11 +29,9 @@ impl ValueInputs {
         let (source, remaining) =
             self.projected_input_value(request.semantic_values(), selections, producer, &projections)?;
 
-        // Borrowed components retain their containing value's carried loans. An
-        // address read through a reference does not retain that reference's loan.
-        (remaining.is_empty()
-            || crate::representation::reference_kind(request, ty)
-                != Some(bray_symbols::DependencyReferenceKind::Address))
+        // Borrowed components retain their containing value's carried loans.
+        // Borrow-free contents do not retain the loan used to read their container.
+        (remaining.is_empty() || !self.value_carries_no_borrows(ty))
             .then_some(source)
     }
 

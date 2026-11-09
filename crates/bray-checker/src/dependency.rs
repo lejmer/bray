@@ -4,6 +4,7 @@ mod check;
 mod cleanup;
 mod completion;
 mod defaults;
+mod copying;
 mod equations;
 mod implementation;
 mod operation;

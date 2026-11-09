@@ -166,7 +166,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                 if self.inputs.returned_errors.contains(&id) {
                     let (value, projection) = self.inputs.error_exits[&id];
 
-                    let requirements = self.projected_values(value, &[projection]);
+                    let requirements = self.copied_values(value, &[projection])?;
 
                     self.state.returned.extend(requirements);
                 }
@@ -247,9 +247,9 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     .get(&reference.binding())
                     .cloned()
                     .unwrap_or_default(),
-                BoundExpression::MemberAccess(member) => self.member_values(id, member.receiver()),
+                BoundExpression::MemberAccess(member) => self.member_values(id, member.receiver())?,
                 BoundExpression::TraitQualifiedMember(member) => {
-                    self.member_values(id, member.receiver())
+                    self.member_values(id, member.receiver())?
                 }
                 BoundExpression::Await(_)
                     if completed
@@ -362,7 +362,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         }
 
         for (value, path) in self.inputs.projected_operands(id) {
-            requirements.extend(self.projected_values(value, &path));
+            requirements.extend(self.copied_values(value, &path)?);
         }
 
         if call_result
@@ -389,23 +389,21 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         &self,
         id: BoundExpressionId,
         receiver: BoundExpressionId,
-    ) -> BTreeSet<DependencyRequirement> {
+    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         let Some(projection) = crate::dependency::assignment::member_projection(
             self.request.unit(),
             self.selections,
             id,
         ) else {
-            return self
+            return Ok(self
                 .state
                 .values
                 .get(&receiver.into())
                 .cloned()
-                .unwrap_or_default();
+                .unwrap_or_default());
         };
 
-        // Physical sources select components. Opaque referents retain their complete
-        // carried contract, rather than projecting fields onto a lifetime anchor.
-        self.projected_values(receiver, &[projection])
+        self.copied_values(receiver, &[projection])
     }
 }
 

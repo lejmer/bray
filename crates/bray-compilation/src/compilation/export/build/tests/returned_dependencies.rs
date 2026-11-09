@@ -4342,6 +4342,27 @@ fn copied_handle_fields_do_not_retain_returned_view_loans() {
             pointer: DataPointer<u32>;
         }
 
+        @copy
+        struct Link
+        {
+            pointer: DataPointer<u32>;
+        }
+
+        struct LinkOwner
+        {
+            link: Link;
+        }
+
+        func link_view(pos owner: &LinkOwner) -> &LinkOwner
+        {
+            return owner;
+        }
+
+        func copy_link_from_view(pos owner: &LinkOwner) -> Link
+        {
+            return link_view(owner).link;
+        }
+
         struct Execution
         {
             handle: Handle;
@@ -4411,6 +4432,7 @@ fn copied_handle_fields_do_not_retain_returned_view_loans() {
             true,
         ),
         ("Service", "return api.assemble(execution);", true),
+        ("Link", "return api.copy_link_from_view(&links);", true),
         ("View", "return api.borrow(api.reference(&execution));", false),
         (
             "Handle",
@@ -4437,7 +4459,7 @@ fn copied_handle_fields_do_not_retain_returned_view_loans() {
             using example.package.api;
             using core.memory;
 
-            func caller(pos execution: api.Execution) -> api.{result}
+            func caller(pos execution: api.Execution, pos links: api.LinkOwner) -> api.{result}
             {{
                 {body}
             }}

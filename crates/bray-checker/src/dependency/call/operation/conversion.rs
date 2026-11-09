@@ -57,7 +57,7 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                             return Ok(requirements.to_vec());
                         }
 
-                        crate::dependency::witness::map_requirements(
+                        crate::dependency::witness::map_requirements::<std::convert::Infallible>(
                             requirements,
                             &mut |subject, kind, _| {
                                 // Array elements form one dependency summary. Retain the

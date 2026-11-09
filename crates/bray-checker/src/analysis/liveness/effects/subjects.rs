@@ -37,8 +37,7 @@ pub(super) fn collect_dependency_subjects<C: CheckerRequestContext + ?Sized>(
                 // A resolved component or address copy carries the source value's
                 // dependencies. The reading loan is an invocation use. Resolve
                 // carried loans in the ownership fixed point with the full requirement.
-                if crate::representation::reference_kind(request, *ty)
-                    != Some(bray_symbols::DependencyReferenceKind::Address)
+                if !inputs.value_carries_no_borrows(*ty)
                     && inputs.copied_value_source(request, storage, selections, *source, path, *ty).is_none()
                 {
                     collect_subject(

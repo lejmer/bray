@@ -38,6 +38,18 @@ impl Shape {
     }
 }
 
+pub(crate) fn carries_no_borrows<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+    let shape = paths(request, ty, &mut BTreeSet::new(), &mut BTreeMap::new())?;
+
+    Ok(shape.complete_references && !shape.observations.iter().any(|(_, observation)| {
+        matches!(observation, Observation::Reference(ty)
+            if matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::Borrow { .. }))
+    }))
+}
+
 fn known_shape<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
