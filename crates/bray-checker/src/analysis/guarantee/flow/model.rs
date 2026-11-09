@@ -243,7 +243,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let Some(AnalysisRefinement::Condition { expression, value }) = edge.refinement() {
             let (condition, observed, known) = self.condition_evidence(state, expression);
 
-            if known.is_some_and(|known| known != value) {
+            if known.is_some_and(|known| known != value)
+                || known.is_none() && !condition.can_assume(value, &state.assumptions)
+            {
                 return false;
             }
 
@@ -301,10 +303,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some((condition, value)) = self.branch_condition(state, edge) {
-            if condition
-                .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                .is_some_and(|known| known != value)
-            {
+            if !condition.can_assume(value, &state.assumptions) {
                 return false;
             }
 
