@@ -284,8 +284,6 @@ impl OperationEffects {
 
             for owner in &owners {
                 let mut nested = retained_storage_borrows(
-                    request.semantic_values(),
-                    false,
                     storage,
                     &value_sources_by_root,
                     retained_by_expression
@@ -308,26 +306,23 @@ impl OperationEffects {
                         BoundDependencyRequirement, BoundDependencyRequirementKind,
                     };
 
-                    let (subject, copying_contents) = match requirement {
+                    let subject = match requirement {
                         BoundDependencyRequirement::Value { source, path, ty } => {
                             if let Some(value) = self.value_inputs.copied_value_source(
                                 request, storage, selections, *source, path, *ty,
                             ) {
+                                let borrow_free = self.value_inputs.value_carries_no_borrows(*ty);
                                 nested.extend(retained_subtree_subjects(
                                     &self.value_inputs, value, &retained_by_expression,
-                                ));
-                                continue;
-                            }
-                            if !self.value_inputs.value_carries_no_borrows(*ty) {
-                                continue;
+                                ).into_iter().filter(|subject| !borrow_free || !subject.is_storage_dependency()));
                             }
 
-                            (BoundDependencySubject::StorageAccess(*source), true)
+                            continue;
                         }
                         BoundDependencyRequirement::Direct {
                             subject,
                             kind: BoundDependencyRequirementKind::ValueDependencies,
-                        } => (*subject, false),
+                        } => *subject,
                         BoundDependencyRequirement::Guarded(guarded) => {
                             pending.extend(guarded.requirements());
                             continue;
@@ -336,8 +331,6 @@ impl OperationEffects {
                     };
 
                     nested.extend(retained_storage_borrows(
-                        request.semantic_values(),
-                        copying_contents,
                         storage,
                         &value_sources_by_root,
                         [subject],
@@ -410,7 +403,7 @@ impl OperationEffects {
 
                         expression_retention.extend(retained.iter().copied().filter(|subject| {
                             !expression.is_some_and(|id| self.value_inputs.copies_without_borrows(id))
-                                || !requires_storage_loan(*subject)
+                                || !subject.is_storage_dependency()
                         }));
                         changed |= expression_retention.len() != previous;
                     }
@@ -518,8 +511,6 @@ fn index_value_sources_by_root(
 }
 
 fn retained_storage_borrows(
-    values: &bray_symbols::SemanticValueStore,
-    read_container: bool,
     storage: &StoragePlan,
     value_sources_by_root: &BTreeMap<StorageIdentityId, Vec<bray_bound_tree::BoundExecutionSite>>,
     subjects: impl IntoIterator<Item = BoundDependencySubject>,
@@ -528,47 +519,24 @@ fn retained_storage_borrows(
 ) -> BTreeSet<BoundDependencySubject> {
     let mut borrows = BTreeSet::new();
 
-    let mut pending = subjects
-        .into_iter()
-        .map(|subject| (subject, read_container))
-        .collect::<Vec<_>>();
+    let mut pending = subjects.into_iter().collect::<Vec<_>>();
 
     let mut visited_roots = BTreeSet::new();
 
-    while let Some((subject, read_container)) = pending.pop() {
+    while let Some(subject) = pending.pop() {
         match subject {
-            BoundDependencySubject::BorrowCapability(capability) if read_container => {
-                // Reading a field through this loan does not retain permission to
-                // access its container. Follow the owner's carried value instead.
-                let capability = storage
-                    .borrow_capability(capability)
-                    .expect("retained borrow is planned");
-
-                if let Some(root) = storage.root_identity(capability.access()) {
-                    pending.push((BoundDependencySubject::Storage(root), true));
-                }
-            }
             BoundDependencySubject::BorrowCapability(_) => {
                 borrows.insert(subject);
             }
             BoundDependencySubject::Storage(root) => {
-                let read_container = read_container
-                    && storage.storage_type(root).is_some_and(|ty| {
-                        matches!(
-                            values.type_data(ty).as_ref(),
-                            bray_symbols::TypeData::Borrow { .. }
-                        )
-                    });
-
-                if !visited_roots.insert((root, read_container)) {
+                if !visited_roots.insert(root) {
                     continue;
                 }
 
                 for initializer in value_sources_by_root.get(&root).into_iter().flatten() {
                     pending.extend(
                         retained_subtree_subjects(inputs, *initializer, retained)
-                            .into_iter()
-                            .map(|subject| (subject, read_container)),
+                            .into_iter(),
                     );
                 }
 
@@ -577,14 +545,13 @@ fn retained_storage_borrows(
                 {
                     pending.extend(
                         retained_subtree_subjects(inputs, expression, retained)
-                            .into_iter()
-                            .map(|subject| (subject, read_container)),
+                            .into_iter(),
                     );
                 }
             }
             BoundDependencySubject::StorageAccess(access) => {
                 if let Some(root) = storage.root_identity(access) {
-                    pending.push((BoundDependencySubject::Storage(root), read_container));
+                    pending.push(BoundDependencySubject::Storage(root));
                 }
             }
             BoundDependencySubject::ScopedCapability(_)
@@ -630,7 +597,7 @@ pub(super) fn retained_subtree_subjects(
         let copied = copied || expression.is_some_and(|id| inputs.copies_without_borrows(id));
 
         if let Some(subjects) = retained_by_expression.get(&occurrence) {
-            retained.extend(subjects.iter().copied().filter(|subject| !copied || !requires_storage_loan(*subject)));
+            retained.extend(subjects.iter().copied().filter(|subject| !copied || !subject.is_storage_dependency()));
         }
 
         let Some(expression) = expression else {
@@ -651,7 +618,3 @@ pub(super) fn retained_subtree_subjects(
     retained
 }
 
-fn requires_storage_loan(subject: BoundDependencySubject) -> bool {
-    matches!(subject, BoundDependencySubject::BorrowCapability(_)
-        | BoundDependencySubject::Storage(_) | BoundDependencySubject::StorageAccess(_))
-}

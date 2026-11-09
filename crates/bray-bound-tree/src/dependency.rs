@@ -71,6 +71,11 @@ pub enum BoundDependencySubject {
 }
 
 impl BoundDependencySubject {
+    /// Whether this subject names ordinary storage or a borrow capability.
+    pub fn is_storage_dependency(self) -> bool {
+        matches!(self, Self::Storage(_) | Self::StorageAccess(_) | Self::BorrowCapability(_))
+    }
+
     pub(crate) fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::Storage(storage) => storage.unit() == unit,

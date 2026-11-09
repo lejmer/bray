@@ -565,11 +565,13 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                     }
                 }
                 bray_bound_tree::BoundDependencyRequirement::Value { source, path, ty } => {
+                    let borrow_free = self.values.value_carries_no_borrows(*ty);
                     if let Some(value) = self.values.copied_value_source(
                         self.request, self.storage,
                         self.execution.semantics.selections(), *source, path, *ty,
                     ) {
-                        subjects.extend(self.liveness.retained_by(value));
+                        subjects.extend(self.liveness.retained_by(value)
+                            .filter(|subject| !borrow_free || !subject.is_storage_dependency()));
                         continue;
                     }
 
@@ -580,7 +582,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                                 .get(&root)
                                 .into_iter()
                                 .flatten()
-                                .copied(),
+                                .copied().filter(|subject| !borrow_free || !subject.is_storage_dependency()),
                         );
                     }
                 }
