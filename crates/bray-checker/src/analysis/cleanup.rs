@@ -117,7 +117,7 @@ where
             _ => self.resolve_scopes(block, 0, exit, preserves_exit_value),
         };
 
-        self.storage.push_exit(block, kind);
+        self.storage.push_exit(block, kind, exit);
     }
 
     pub(super) fn push_generator_storage_failure(
@@ -242,7 +242,7 @@ where
             } else {
                 let failure = self.resolve_scopes(failure_entry, 0, exit, false);
 
-                self.storage.push_exit(failure, AnalysisExitKind::Panic);
+                self.storage.push_exit(failure, AnalysisExitKind::Panic, exit);
             }
 
             let target = *cancellation.get_or_insert_with(|| self.push_block());

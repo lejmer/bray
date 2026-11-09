@@ -26,10 +26,10 @@ control, pin and arena before vacancy. WaitResources retains leased storage thro
 
 ## Current evidence
 
-Latest pushed checkpoint:5f4c323df. The accepted comparison preserves the fixed comparison:725 passed /55 failed /99 ignored, unchanged55 identities.
+Latest pushed checkpoint:1b1bcf8e1. The accepted comparison preserves the fixed comparison:725 passed /55 failed /99 ignored, unchanged55 identities.
 All468 checker tests pass. Bound-tree133 passed before this candidate. Earlier diagnostics44, messages87, JSON48 and
 readiness passed. Expanded predicates:25 passed /2 failed /2 ignored, both failures reproduce in the retainedfc4 baseline.
-Accepted native.log uses the current bare-input mapper candidate compiler and runtime Source64a4e5490:153 diagnostics
+Accepted native.log uses compiler code equivalent to1b1bcf8e1 and runtime Source64a4e5490:153 diagnostics
 (E7123=85,E7135=44,E7119=23,E7087=1). It removes13 old identities from164, including polling184, and exposes two
 E7135 dependency failures: polling171 points to observe131..164, worker/entry170 points to worker/callback50..120.
 Both callees already failed in the164 baseline (E7123 polling155 and callback118). proof.rs61 skips certification when
@@ -74,10 +74,21 @@ separate bare-input path that bypasses nested component mapping. It drops the un
 A direct current_replacements regression fails before the candidate. The candidate removes that duplicate mapper and
 routes all live values through result_replacements. All468 checker tests pass. The complete imported runtime request
 now checks poll without diagnostics. The two-target permanent source regression passes. Temporary hooks, probes and
-the ignored filesystem audit are removed. Fixed comparison remains726/55/99 with unchanged55 failure identities. Native verification is accepted as described above. The retained
-test binary still contains the removed audit, so explicitly skip that task-only identity when comparing the fixed suite.
-Next diagnostic gap: ExecutionCandidate.failure keeps only a span, collapsing unproved loops, abnormal exits and
-operation failures into Unproven. Preserve typed causes when addressing the remaining execution failures.
+the ignored filesystem audit are removed. Fixed comparison remains726/55/99 with unchanged55 failure identities. Native verification is accepted as described above. The complete imported-graph audit is removed after preserving the boundary regression.
+ExecutionCandidate now shares the typed verification failure record with certification. CFG construction retains
+loop expression and exit-node identities. Text/JSON preserve termination, panic, cancellation, recovery, nonreturn and
+input-mutation causes. Source while/continue/loop/panic regressions pass. A panic control used an invalid integer
+message and now uses a string, including the existing conformance control. Checker468, bound-tree133, diagnostics44,
+messages88, JSON48, conformance7 and failure-diagnostics6 pass. Fixed comparison remains726/55/99 with unchanged55
+identities. Matching native run keeps exactly153 identities. Labels now identify failed loops or specific panic paths.
+Only host/attachment/cleanup192 remains locally generic. No style/format has run. No temporary hooks or audits remain.
+
+Current small pointer-contract.bray probe: requiring/forwarding ready(DataPointer) passes, but a conditional producer
+followed by inspect(pointer) fails E7123 when pointer is address_of_mut of a local value. The producer itself is the
+reported invalidation. Separate pointer copying, conditionality and pointee mutation before changing semantics. Add a
+real negative that overwrites the pointer value. The complete native graph remains the required composition check.
+Builds/tests involving native child processes run outside sandbox. A10s compiler sample averaged2.39cores, affinity
+allows all24cores, and outside-sandbox builds no longer emit hard-link fallback warnings. Do not assume single-core pinning.
 Other false Pure promises still use raw address observations. Do not weaken checks for false promises.
 
 ## Remaining work

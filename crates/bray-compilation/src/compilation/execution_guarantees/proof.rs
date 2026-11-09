@@ -1,11 +1,11 @@
 use super::dependency::ExecutionProofEntry;
 use super::imported::{ExecutionProofGraph, ExecutionProofOwner};
-use super::failure::{ExecutionVerificationFailure, execution_proof_failure, guarantee_diagnostic, proof_owner_span, source_span};
+use super::failure::{ execution_proof_failure, guarantee_diagnostic, proof_owner_span, source_span};
 use bray_diagnostics::DiagnosticExecutionProofFailure as FailureCause;
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{BoundCallableTarget, BoundUnitKey};
-use bray_checker::{ExecutionCertification, ExecutionObligation};
+use bray_checker::{ExecutionCertification, ExecutionObligation, ExecutionVerificationFailure};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::SourceSpan;
@@ -563,20 +563,22 @@ impl Compilation {
                     panic!("checked source execution candidates omit {goal:?} for {owner:?}")
                 });
 
+                let unproven = |source| ExecutionVerificationFailure { source, cause: FailureCause::Unproven };
                 let local_failure = if required == ExecutionObligation::Observation {
-                    candidate.observation_failure()
+                    candidate.observation_failure().map(unproven)
                 } else {
                     candidate
                         .failure()
-                        .or_else(|| predicate.then(|| candidate.constant_failure()).flatten())
+                        .or_else(|| predicate.then(|| candidate.constant_failure().map(unproven)).flatten())
                 };
 
                 if local_failure.is_some()
                     || (required == ExecutionObligation::FiniteIteration
                         && !candidate.finite_iteration())
                 {
+                    let local = local_failure.unwrap_or_else(|| unproven(source_span(anchor)));
                     failure.get_or_insert(ExecutionVerificationFailure {
-                        source: Some(local_failure.unwrap_or_else(|| source_span(anchor))), cause: FailureCause::Unproven,
+                        source: Some(local.source), cause: local.cause,
                     });
 
                     continue;

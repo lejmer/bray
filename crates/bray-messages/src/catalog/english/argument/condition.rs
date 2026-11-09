@@ -100,6 +100,12 @@ pub(super) fn format_proof_failure(cause: bray_diagnostics::DiagnosticExecutionP
 
     match cause {
         DiagnosticExecutionProofFailure::Unproven => "this operation or its cleanup does not establish the required contract".to_owned(),
+        DiagnosticExecutionProofFailure::UnboundedLoop => "cannot prove this loop terminates".to_owned(),
+        DiagnosticExecutionProofFailure::Panic => "this operation can panic".to_owned(),
+        DiagnosticExecutionProofFailure::Cancellation => "this operation can cancel the current run".to_owned(),
+        DiagnosticExecutionProofFailure::NonReturningPath => "this path does not return normally".to_owned(),
+        DiagnosticExecutionProofFailure::Recovery => "this path has incomplete checked control flow".to_owned(),
+        DiagnosticExecutionProofFailure::InputMutation => "this operation changes pre-existing state".to_owned(),
         DiagnosticExecutionProofFailure::DependencyErrors => "this required callable has checking errors".to_owned(),
         DiagnosticExecutionProofFailure::MissingEvidence => "this dependency has no checked evidence for the required contract".to_owned(),
         DiagnosticExecutionProofFailure::ContractMismatch => "this callable's declared contract does not provide the required guarantee".to_owned(),

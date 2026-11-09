@@ -4,6 +4,15 @@ use bray_source::SourceSpan;
 
 use bray_symbols::ExecutionProperty;
 
+/// Certification failure retaining the source identity and specific known cause.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ExecutionVerificationFailure<Source> {
+    /// Source of the failed operation or dependency.
+    pub source: Source,
+    /// Why the requested behavior could not be established.
+    pub cause: bray_diagnostics::DiagnosticExecutionProofFailure,
+}
+
 /// A declaration creates an obligation without certifying its implementation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct DeclaredExecutionProperty {
@@ -139,7 +148,7 @@ pub struct ExecutionCandidate {
     pub(crate) completion_dependencies: Vec<ExecutionCompletionDependency>,
     pub(crate) calls:
         std::collections::BTreeMap<bray_bound_tree::BoundExecutionSite, ExecutionCallEvidence>,
-    pub(crate) failure: Option<SourceSpan>,
+    pub(crate) failure: Option<ExecutionVerificationFailure<SourceSpan>>,
     pub(crate) constant_failure: Option<SourceSpan>,
     pub(crate) observation_failure: Option<SourceSpan>,
     pub(crate) finite_iteration: bool,
@@ -209,17 +218,22 @@ impl ExecutionCandidate {
     }
 
     /// Returns the first operation preventing a local proof, if any.
-    pub const fn failure(&self) -> Option<SourceSpan> {
+    pub const fn failure(&self) -> Option<ExecutionVerificationFailure<SourceSpan>> {
         match self.failure {
             Some(failure) => Some(failure),
-            None => self.input_mutation,
+            None => match self.input_mutation {
+                Some(source) => Some(ExecutionVerificationFailure {
+                    source, cause: bray_diagnostics::DiagnosticExecutionProofFailure::InputMutation,
+                }),
+                None => None,
+            },
         }
     }
 
     /// Returns an operation that escapes the supported deterministic observation frame.
     pub const fn observation_failure(&self) -> Option<SourceSpan> {
         match self.failure {
-            Some(failure) => Some(failure),
+            Some(failure) => Some(failure.source),
             None => self.observation_failure,
         }
     }

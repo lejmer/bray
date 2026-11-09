@@ -1,17 +1,10 @@
-use bray_checker::ExecutionObligation;
+use bray_checker::{ExecutionObligation, ExecutionVerificationFailure};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticExecutionProofFailure as FailureCause, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, SeverityKind};
 use bray_source::SourceSpan;
 use bray_symbols::{ExecutionProofFailure, check_execution_proof_dependencies};
 
 use super::imported::{ExecutionProofGraph, ExecutionProofOwner};
-
-/// Certification failure with source identity retained at its owning boundary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::compilation) struct ExecutionVerificationFailure<Source> {
-    pub(in crate::compilation) source: Source,
-    pub(in crate::compilation) cause: FailureCause,
-}
 
 pub(super) fn execution_proof_failure(
     graph: &ExecutionProofGraph, owner: ExecutionProofOwner, source: Option<SyntaxAnchor>,
@@ -148,6 +141,50 @@ mod diagnostic_tests {
             &bray_diagnostics::DiagnosticBag::single(diagnostic),
             bray_diagnostics::DiagnosticKind::CheckingContractConditionNotPortable,
         );
+    }
+
+    #[test]
+    fn execution_failures_identify_the_operation_and_preserve_its_cause() {
+        for (body, expected) in [
+            (r#"while forever
+                    {
+                    }"#, FailureCause::UnboundedLoop),
+            (r#"while forever
+                    {
+                        continue;
+                    }"#, FailureCause::UnboundedLoop),
+            (r#"loop
+                    {
+                    }"#, FailureCause::UnboundedLoop),
+            (r#"panic("failure");"#, FailureCause::Panic),
+        ] {
+            let source = format!(r#"
+                module app;
+
+                func probe(pos forever: bool)
+                    executes(total)
+                {{
+                    {body}
+                }}
+            "#);
+            let application = crate::test_support::compilation(&source);
+            let diagnostics = application.check_diagnostics();
+            let failure = diagnostics.iter().find(|diagnostic|
+                diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven)
+                .unwrap_or_else(|| panic!("{diagnostics:#?}"));
+            let cause = failure.args().iter().find_map(|argument| match argument.value() {
+                bray_diagnostics::DiagnosticArgValue::ExecutionProofFailure(cause) => Some(*cause),
+                _ => None,
+            }).expect("execution failure retains its typed cause");
+            assert_eq!(cause, expected, "{body}: the operation retains its specific cause");
+            let location = failure.labels().iter().find(|label|
+                label.kind() == bray_diagnostics::DiagnosticLabelKind::ExecutionProofFailure)
+                .expect("failure labels its owning operation").span();
+            let input = application.source(location.source_id()).expect("loop source");
+            let start = usize::try_from(location.start().bytes()).expect("source offset fits");
+            let end = usize::try_from(location.end().bytes()).expect("source offset fits");
+            assert_eq!(input.text()[start..end].trim(), body.trim_end_matches(';'));
+        }
     }
 
 }
