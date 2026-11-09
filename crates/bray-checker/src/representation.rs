@@ -38,14 +38,7 @@ pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
         TypeData::Borrow { .. }
     ) {
         Some(bray_symbols::DependencyReferenceKind::Borrow)
-    } else if matches!(
-        type_representation(request, ty),
-        Some(
-            RepresentationRole::RawPointer
-                | RepresentationRole::FunctionPointer
-                | RepresentationRole::DevicePointer
-        )
-    ) {
+    } else if type_representation(request, ty).is_some_and(is_address) {
         Some(bray_symbols::DependencyReferenceKind::Address)
     } else {
         None
@@ -219,6 +212,17 @@ where
 pub(crate) fn is_scalar(role: RepresentationRole) -> bool {
     role.numeric_kind().is_some()
         || matches!(role, RepresentationRole::ScalarBool | RepresentationRole::ScalarChar)
+}
+
+/// Whether the representation stores an address with independent reached storage.
+pub(crate) fn is_address(role: RepresentationRole) -> bool {
+    matches!(role, RepresentationRole::RawPointer | RepresentationRole::FunctionPointer
+        | RepresentationRole::DevicePointer)
+}
+
+/// Whether the stored datum is scalar data or copied address bits.
+pub(crate) fn is_scalar_value(role: RepresentationRole) -> bool {
+    is_scalar(role) || is_address(role)
 }
 
 pub(crate) fn type_representation_for_context<C>(

@@ -362,7 +362,7 @@ pub(super) fn borrowed_condition(
 ) -> ExecutionCondition {
     let scalar = semantics.types().expression(operand)
         .and_then(|entry| known.type_representation(values, entry.ty()))
-        .is_some_and(crate::representation::is_scalar);
+        .is_some_and(crate::representation::is_scalar_value);
 
     if !scalar && value.ownership_identity().is_some() {
         return value.borrowed();

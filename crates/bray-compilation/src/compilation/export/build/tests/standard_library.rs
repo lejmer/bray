@@ -4476,3 +4476,141 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
         }
     }
 }
+
+#[test]
+fn callable_address_evidence_follows_the_actual_function_pointer() {
+    let declarations = r#"
+        trusted module std.function_evidence;
+
+        using core.memory;
+        using std.memory.function;
+
+        callable Callback = @abi(c) trusted func() -> unit;
+
+        struct Owner
+        {
+            mut pointer: FunctionPointer<Callback>;
+            replacement: FunctionPointer<Callback>;
+        }
+
+        trusted func supply_field(pos owner: &Owner)
+            ensures(trusted core.memory.callable_address_valid<Callback>(pointer = owner.pointer))
+            executes(pure, total)
+        {
+        }
+
+        trusted func supply_value(pos pointer: FunctionPointer<Callback>)
+            ensures(trusted core.memory.callable_address_valid<Callback>(pointer = pointer))
+            executes(pure, total)
+        {
+        }
+
+        trusted predicate slot_ready(owner: &FunctionPointer<Callback>);
+
+        trusted func supply_slot(pos owner: &FunctionPointer<Callback>)
+            ensures(trusted slot_ready(owner = owner))
+            executes(pure, total)
+        {
+        }
+
+        func require_slot(pos owner: &FunctionPointer<Callback>)
+            requires(trusted slot_ready(owner = owner))
+        {
+        }
+
+        trusted func supply_result(pos pointer: DataPointer<u8>) -> FunctionPointer<Callback>
+            ensures(trusted core.memory.callable_address_valid<Callback>(pointer = result))
+            uses(layout_reinterpret)
+        {
+            return trusted std.memory.function.from_data<Callback>(pointer);
+        }
+    "#;
+    let sources = [
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        declarations,
+    ];
+    let provider = standard_library_compilation(sources);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+    let required = r#"
+                requires(
+                    trusted core.memory.callable_address_valid<std.function_evidence.Callback>(
+                        pointer = owner.pointer
+                    )
+                )
+    "#;
+    for (name, requirement, setup, observed, valid) in [
+        ("value", "", "trusted std.function_evidence.supply_value(owner.pointer);", "owner.pointer", true),
+        ("borrowed field", "", "trusted std.function_evidence.supply_field(&owner);", "owner.pointer", true),
+        ("result", "", "let pointer = trusted std.function_evidence.supply_result(core.memory.null<u8>());", "pointer", true),
+        ("different value", "", "trusted std.function_evidence.supply_field(&owner);", "owner.replacement", false),
+        ("replacement", "", r#"
+                trusted std.function_evidence.supply_field(&owner);
+                owner.pointer = owner.replacement;
+        "#, "owner.pointer", false),
+        ("retained copy", "", r#"
+                let original = owner.pointer;
+
+                trusted std.function_evidence.supply_field(&owner);
+                owner.pointer = owner.replacement;
+        "#, "original", true),
+        ("entry copy", required, r#"
+                let original = owner.pointer;
+
+                owner.pointer = owner.replacement;
+        "#, "original", true),
+        ("entry replacement", required, "owner.pointer = owner.replacement;", "owner.pointer", false),
+        ("copied slot authority", "", r#"
+                let original = owner.pointer;
+
+                trusted std.function_evidence.supply_field(&owner);
+                trusted std.function_evidence.supply_slot(&owner.pointer);
+                std.function_evidence.require_slot(&original);
+        "#, "original", false),
+        ("replaced slot authority", "", r#"
+                let original = owner.pointer;
+
+                trusted std.function_evidence.supply_field(&owner);
+                trusted std.function_evidence.supply_slot(&owner.pointer);
+                owner.pointer = owner.replacement;
+                std.function_evidence.require_slot(&owner.pointer);
+        "#, "original", false),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+
+            using core.memory;
+            using std.memory;
+            using std.function_evidence;
+
+            trusted func caller(pos mut owner: std.function_evidence.Owner) -> std.function_evidence.Callback
+                {requirement}
+                uses(layout_reinterpret)
+            {{
+                {setup}
+
+                return trusted std.memory.callable_from_pointer<std.function_evidence.Callback>({observed});
+            }}
+        "#);
+        for imported in [false, true] {
+            let application = if imported { super::fixtures::execution_consumer(&provider, &source) }
+                else { standard_library_compilation(sources.into_iter().chain([source.as_str()])) };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "{name}, imported={imported}: {diagnostics:#?}");
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+                if name.ends_with("slot authority") {
+                    assert!(diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).any(|argument| {
+                        matches!(argument.value(), bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation)
+                            if matches!(&obligation.actual, bray_diagnostics::DiagnosticCondition::Application { path, .. }
+                                if path.last().is_some_and(|name| name == "slot_ready")))
+                    }), "slot rejection retains its specific predicate: {diagnostics:#?}");
+                }
+            }
+        }
+    }
+}

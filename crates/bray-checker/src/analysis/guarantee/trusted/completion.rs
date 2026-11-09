@@ -48,7 +48,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     },
                     &ExecutionCondition::Unknown,
                     &mut { ExecutionCondition::WORK_LIMIT },
-                );
+                ).pointer_observations(&self.pointer_predicates);
 
                 if trusted {
                     condition.assume(true, &mut state.trusted_assumptions);
@@ -250,7 +250,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             match &transfer_equalities {
                 Some(equalities) => condition.with_equalities(equalities),
                 None => condition,
-            }
+            }.pointer_observations(&self.pointer_predicates)
         };
 
         let carry_result = |state: &mut ExecutionState,
