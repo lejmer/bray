@@ -25,7 +25,17 @@ fn execution_proof_failures_identify_the_promised_behavior_and_cause() {
         (
             DiagnosticKind::CheckingCircularExecutionGuarantee,
             None,
-            "this callable's total execution guarantee depends on a recursive call or cleanup cycle",
+            "this callable's execution guarantee depends on a recursive call or cleanup cycle",
+        ),
+        (
+            DiagnosticKind::CheckingPostconditionNotProven,
+            None,
+            "cannot verify this postcondition",
+        ),
+        (
+            DiagnosticKind::CheckingCircularPostcondition,
+            None,
+            "this postcondition depends on its own unverified completion",
         ),
     ] {
         let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
@@ -48,6 +58,15 @@ fn execution_proof_failures_identify_the_promised_behavior_and_cause() {
             "this operation or its cleanup cannot establish the required execution guarantee"
         );
     }
+}
+
+#[test]
+fn proof_budget_failures_report_the_limit_and_observed_depth() {
+    let diagnostic = Diagnostic::new(DiagnosticId::new(0), DiagnosticKind::CheckingExecutionProofDepthExceeded, SeverityKind::Error)
+        .with_arg(DiagnosticArg::execution_proof_failure(bray_diagnostics::DiagnosticExecutionProofFailure::DepthLimit { depth: 129, limit: 128 }));
+
+    assert_eq!(DiagnosticRenderer::english().render(&diagnostic).message(),
+        "cannot verify this contract: proof depth 129 exceeds the configured limit of 128");
 }
 
 #[test]

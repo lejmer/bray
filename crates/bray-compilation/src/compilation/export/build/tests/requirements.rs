@@ -42,6 +42,10 @@ fn imported_requirement_diagnostics_retain_actual_fields_and_arguments() {
         _ => None,
     }).expect("imported proof failure retains its condition");
 
+    assert!(failure.labels().iter().flat_map(|label| label.args()).any(|argument|
+        matches!(argument.value(), bray_diagnostics::DiagnosticArgValue::DeclarationName(name) if name == "inspect_owner")),
+        "the imported selected callable must retain its name: {failure:#?}");
+
     assert_eq!(obligation.kind, bray_diagnostics::DiagnosticContractObligationKind::CallRequirement);
     let bray_diagnostics::DiagnosticCondition::Application { path, arguments, .. } = &obligation.actual else {
         panic!("{obligation:#?}");
@@ -1525,7 +1529,7 @@ fn machine_overflow_does_not_certify_an_exact_postcondition() {
 
     bray_testing::assert_goal_state_diagnostic_kind(
         invalid.check_diagnostics(),
-        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+        bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven,
     );
 
     let valid = compilation(
@@ -1751,7 +1755,7 @@ fn joined_result_bounds_and_checked_arithmetic_compose_across_interfaces() {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1805,7 +1809,7 @@ fn exact_memory_writes_establish_nullable_contents_across_interfaces() {
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
                 provider.check_diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven,
             );
 
             continue;

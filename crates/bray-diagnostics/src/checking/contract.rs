@@ -95,8 +95,10 @@ pub enum DiagnosticCondition {
 pub enum DiagnosticConditionProjection {
     /// A declared field.
     Field(String),
-    /// A tuple or array element.
-    Element(u32),
+    /// A tuple field selected by ordinal.
+    TupleElement(u32),
+    /// An array element selected by ordinal.
+    ArrayElement(u32),
     /// A dynamic array element.
     Index(Box<DiagnosticCondition>),
     /// A half-open array slice.
@@ -108,4 +110,26 @@ pub enum DiagnosticConditionProjection {
     },
     /// The present nullable payload.
     NullableValue,
+}
+
+/// The specific boundary that prevented contract certification.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticExecutionProofFailure {
+    /// A checked operation does not establish the requested promise.
+    Unproven,
+    /// A required callable has source-checking errors.
+    DependencyErrors,
+    /// A dependency has no checked evidence for the requested contract.
+    MissingEvidence,
+    /// The provided callable contract does not imply a required promise.
+    ContractMismatch,
+    /// Completion would assume its own unverified promise.
+    Circular,
+    /// The traversal stopped at its configured proof depth.
+    DepthLimit {
+        /// Observed dependency depth.
+        depth: u64,
+        /// Maximum permitted dependency depth.
+        limit: u64,
+    },
 }

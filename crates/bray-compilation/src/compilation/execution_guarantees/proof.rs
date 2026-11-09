@@ -1,15 +1,13 @@
 use super::dependency::ExecutionProofEntry;
 use super::imported::{ExecutionProofGraph, ExecutionProofOwner};
-use bray_symbols::{ExecutionProofFailure, check_execution_proof_dependencies};
+use super::failure::{ExecutionVerificationFailure, execution_proof_failure, guarantee_diagnostic, proof_owner_span, source_span};
+use bray_diagnostics::DiagnosticExecutionProofFailure as FailureCause;
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{BoundCallableTarget, BoundUnitKey};
 use bray_checker::{ExecutionCertification, ExecutionObligation};
 use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticResult, SeverityKind,
-};
+use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::SourceSpan;
 
 use crate::compilation::Compilation;
@@ -90,8 +88,8 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                if let Some((cause, circular)) = failure {
-                    diagnostics.add(guarantee_diagnostic(obligation, source, cause, circular));
+                if let Some(failure) = failure {
+                    diagnostics.add(guarantee_diagnostic(obligation, source, failure));
                     continue;
                 }
 
@@ -145,8 +143,8 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                if let Some((cause, circular)) = failure {
-                    diagnostics.add(guarantee_diagnostic(obligation, source, cause, circular));
+                if let Some(failure) = failure {
+                    diagnostics.add(guarantee_diagnostic(obligation, source, failure));
                 } else {
                     certified.properties.insert(property);
                     certified.foreign_assertions.extend(assertions);
@@ -401,7 +399,7 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
         predicate: bool,
         cancellation: &CancellationToken,
-    ) -> Result<CertifiedProof<(SourceSpan, bool)>, FactQueryError> {
+    ) -> Result<CertifiedProof<ExecutionVerificationFailure<SourceSpan>>, FactQueryError> {
         let source = root.source().syntax();
 
         let (failure, assertions, dependencies) = self.certify_execution_proof(
@@ -414,7 +412,7 @@ impl Compilation {
         )?;
 
         Ok((
-            failure.map(|(span, circular)| (span.unwrap_or_else(|| source_span(source)), circular)),
+            failure.map(|failure| ExecutionVerificationFailure { source: failure.source.unwrap_or_else(|| source_span(source)), cause: failure.cause }),
             assertions,
             dependencies,
         ))
@@ -429,7 +427,7 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
         predicate: bool,
         cancellation: &CancellationToken,
-    ) -> Result<CertifiedProof<(Option<SourceSpan>, bool)>, FactQueryError> {
+    ) -> Result<CertifiedProof<ExecutionVerificationFailure<Option<SourceSpan>>>, FactQueryError> {
         let source = match root_owner {
             ExecutionProofOwner::Source(source, _) => Some(source),
             _ => None,
@@ -463,7 +461,10 @@ impl Compilation {
             }
 
             if depth > limit {
-                failure = Some((proof_owner_span(owner, source), false));
+                failure = Some(ExecutionVerificationFailure { source: proof_owner_span(owner, source), cause: FailureCause::DepthLimit {
+                    depth: u64::try_from(depth).expect("proof depth fits diagnostic count"),
+                    limit: u64::try_from(limit).expect("proof depth limit fits diagnostic count"),
+                } });
                 break;
             }
 
@@ -480,7 +481,7 @@ impl Compilation {
                     self.imported_execution_contract(callable, diagnostics, cancellation)?;
 
                 let Some(portable) = super::imported::portable_imported_obligation(required) else {
-                    failure.get_or_insert((source.map(source_span), false));
+                    failure.get_or_insert(ExecutionVerificationFailure { source: source.map(source_span), cause: FailureCause::MissingEvidence });
                     continue;
                 };
 
@@ -489,7 +490,7 @@ impl Compilation {
                     .iter()
                     .find(|proof| proof.obligation == portable)
                 else {
-                    failure.get_or_insert((source.map(source_span), false));
+                    failure.get_or_insert(ExecutionVerificationFailure { source: source.map(source_span), cause: FailureCause::MissingEvidence });
                     continue;
                 };
 
@@ -498,7 +499,7 @@ impl Compilation {
                     bray_symbols::CallableExecutionOrigin::Requirement
                         | bray_symbols::CallableExecutionOrigin::CompilerIntrinsic
                 ) {
-                    failure.get_or_insert((source.map(source_span), false));
+                    failure.get_or_insert(ExecutionVerificationFailure { source: source.map(source_span), cause: FailureCause::MissingEvidence });
                     continue;
                 }
 
@@ -554,7 +555,7 @@ impl Compilation {
                 diagnostics.add_range(candidates.result().diagnostics().iter().cloned());
 
                 if candidates.result().diagnostics().has_errors() {
-                    failure.get_or_insert((Some(source_span(anchor)), false));
+                    failure.get_or_insert(ExecutionVerificationFailure { source: Some(source_span(anchor)), cause: FailureCause::DependencyErrors });
                     continue;
                 }
 
@@ -574,10 +575,9 @@ impl Compilation {
                     || (required == ExecutionObligation::FiniteIteration
                         && !candidate.finite_iteration())
                 {
-                    failure.get_or_insert((
-                        Some(local_failure.unwrap_or_else(|| source_span(anchor))),
-                        false,
-                    ));
+                    failure.get_or_insert(ExecutionVerificationFailure {
+                        source: Some(local_failure.unwrap_or_else(|| source_span(anchor))), cause: FailureCause::Unproven,
+                    });
 
                     continue;
                 }
@@ -729,7 +729,7 @@ impl Compilation {
             if valid {
                 graph.insert((owner, required), dependencies);
             } else {
-                failure.get_or_insert((proof_owner_span(owner, source), false));
+                failure.get_or_insert(ExecutionVerificationFailure { source: proof_owner_span(owner, source), cause: FailureCause::Unproven });
             }
         }
 
@@ -770,83 +770,3 @@ fn candidate_dependencies(
     execution.chain(completion)
 }
 
-fn execution_proof_failure(
-    graph: &ExecutionProofGraph,
-    owner: ExecutionProofOwner,
-    source: Option<SyntaxAnchor>,
-    obligation: ExecutionObligation,
-    mut failure: Option<(Option<SourceSpan>, bool)>,
-) -> Option<(Option<SourceSpan>, bool)> {
-    let root_key = (owner, obligation);
-
-    if let Some(reason) = check_execution_proof_dependencies(graph).get(&root_key) {
-        failure = Some(match reason {
-            ExecutionProofFailure::CircularCompletion(owner) => {
-                (proof_owner_span(*owner, source), true)
-            }
-            ExecutionProofFailure::MissingCandidate(owner) => {
-                failure.unwrap_or((proof_owner_span(*owner, source), false))
-            }
-        });
-    }
-
-    if !graph.contains_key(&root_key) {
-        failure.get_or_insert((proof_owner_span(root_key.0, source), false));
-    }
-
-    failure
-}
-
-pub(super) fn guarantee_diagnostic(
-    obligation: ExecutionObligation,
-    source: SourceSpan,
-    cause: SourceSpan,
-    circular: bool,
-) -> Diagnostic {
-    let kind = if circular {
-        DiagnosticKind::CheckingCircularExecutionGuarantee
-    } else {
-        DiagnosticKind::CheckingExecutionGuaranteeNotProven
-    };
-
-    let diagnostic = Diagnostic::new(
-        DiagnosticId::new(source.start().bytes()),
-        kind,
-        SeverityKind::Error,
-    )
-    .with_primary_span(source)
-    .with_label(DiagnosticLabel::primary(
-        DiagnosticLabelKind::InvalidDeclaration,
-        source,
-    ))
-    .with_label(DiagnosticLabel::secondary(
-        DiagnosticLabelKind::ExecutionGuaranteeFailure,
-        cause,
-    ));
-
-    if circular {
-        diagnostic
-    } else {
-        diagnostic.with_arg(DiagnosticArg::referenced_name(
-            obligation
-                .property()
-                .map_or("ensures", |property| property.as_str()),
-        ))
-    }
-}
-
-fn source_span(anchor: SyntaxAnchor) -> SourceSpan {
-    SourceSpan::new(anchor.source_id(), anchor.full_range())
-}
-
-fn proof_owner_span(
-    owner: ExecutionProofOwner,
-    source: Option<SyntaxAnchor>,
-) -> Option<SourceSpan> {
-    match owner {
-        ExecutionProofOwner::Source(anchor, _) => Some(source_span(anchor)),
-        ExecutionProofOwner::Imported(_)
-        | ExecutionProofOwner::Premise(..)
-        | ExecutionProofOwner::Indirect(_) => source.map(source_span),
-    }
-}

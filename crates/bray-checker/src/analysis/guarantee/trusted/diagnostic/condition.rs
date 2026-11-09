@@ -152,7 +152,8 @@ fn projection_value<C: CheckerRequestContext + ?Sized>(
     Ok(match value {
         ConstantProjectionKind::ProductField(field) => Projection::Field(domain.request.context().member_name(field.into())?.expect("checked field has a name").as_str().to_owned()),
         ConstantProjectionKind::UnionPayloadField(field) => Projection::Field(domain.request.context().member_name(field.into())?.expect("checked union field has a name").as_str().to_owned()),
-        ConstantProjectionKind::TupleElement(index) | ConstantProjectionKind::ArrayElementOrdinal(index) => Projection::Element(index.raw()),
+        ConstantProjectionKind::TupleElement(index) => Projection::TupleElement(index.raw()),
+        ConstantProjectionKind::ArrayElementOrdinal(index) => Projection::ArrayElement(index.raw()),
         ConstantProjectionKind::ArrayElement(index) => Projection::Index(Box::new(term_value(domain, index, budget)?)),
         ConstantProjectionKind::ArraySlice { lower, upper } => Projection::Slice {
             lower: lower.map(|term| term_value(domain, term, budget).map(Box::new)).transpose()?,

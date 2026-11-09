@@ -31,75 +31,41 @@ while lease-bounded membership changes. Verify actual paths, not struct names.
 
 ## Current checkpoint
 
-Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca. Current cleanup checkpoint is the PR branch HEAD.
-Current cleanup work is WIP. Native execution and the complete transition inventory remain unverified.
+Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca. PR branch HEAD is the latest pushed checkpoint.
+The complete transition inventory and native composition remain unverified. Do not stop at a local fix or checkpoint.
 
-Accepted earlier fixes cover Boolean production/publication, complete ownership joins, captured scalar ranges and joins,
-actual borrowed descriptors, local publication, separate completed-await cleanup, report capture and bounded reference
-effects. Async fixture functions/lifecycles and three invalid variants pass source certificates/lowering.
+Accepted repairs retain producer-owned data through actual loan descriptors, component joins, borrowed receivers,
+entry snapshots and nullable conversions. Moves retire authority. Nested entry observations preserve their original
+contents. Repeated joins stabilize. Owning RawBuffer formation retains declared backing bounds without freshness or
+initialization claims. Explicit aggregate formation excludes runtime admission failure. Source/import regressions include
+local use and invalid escape/overwrite controls. The real channel endpoints and Windows environment bodies pass Source.
+Cleanup retains actual Dispose(T)/Cleanup(T) effects, captured inputs and result cleanup separately until completion.
+No type-only cleanup, source-root reconstruction, debug hooks or scratch probes remain.
 
-Cleanup uses Dispose(T) for an actual value layout and Cleanup(T) for conditional effects on a region, in the existing
-direct/indirect/unbounded effect locations. Known typed layouts expand selected
-lifecycle effects while composing the receiver scope. Region bounds carry no claim of T's layout. Type-only cleanup and
-receiver-based escape guessing are removed. Selected-call preparation retains capture/result cleanup templates and their
-reference/union paths. Physical effects are captured at future formation into existing Transfer metadata, separately for
-capture cleanup and discarded-result cleanup. Staged result references do not publish result authority or fall back to
-live output storage. task_cleanup_types is removed. Semantic cleanup presence and diagnostic types remain in their plan.
+Current diagnostic batch preserves required and actual conditions, call/cleanup/postcondition roles, declaration origin,
+source/import names, actual field arguments and scalar snapshots. The Boolean proof API is completely replaced.
+Current PostState values supply known mutation locations without an invalidation ledger. Tuple and array projections
+retain distinct spellings. Certificate failures distinguish postconditions, cycles, missing evidence, dependency errors,
+contract mismatch and depth limits. Unexportable conditions have a separate diagnostic. E7119 no longer invents an
+execution property named "ensures". English remains in bray-messages. Fifteen exact diagnostic-code expectations changed
+from execution-property failure to postcondition failure. Validity expectations and test identities remain fixed.
 
-Current data rules follow actual retained loan contents without promoting them to owners. Retirement checks unchanged
-versus overwritten data and 256 unrelated loans. Framing updates reached data before retaining a loan descriptor.
-Absent terminal snapshots remain readable but cannot rename live data. Joins pair actual component paths and shield
-unchanged nested data against ancestor replacement. Laws cover parameter/expression origins, missing proof, no owner
-promotion and repeated-join stabilization. Both actual channel endpoints pass certificates/lowering.
+Current checks: fixed comparison709 passed /57 failed /99 ignored in90s, zero new failing identities against accepted57.
+Nine focused diagnostic regressions pass. Checker464, diagnostics44 pass. Messages84 pass.
+The expanded certificate suite is127/7/2. Its seven remaining proof/validity failures are not waived or claimed passing.
+Source async fixture and three invalid controls remain in the comparison. Bound133/interface216 previously passed and
+are unchanged by diagnostic work. No native composition has executed.
 
-Produced owning buffers stage a declared backing-region bound in the existing pending transfer. It supplies no freshness
-or initialization, survives transport, and does not narrow ordinary raw addresses. The actual Windows environment body
-and imported environment cursor check pass. All diagnostic hooks and temporary Source controls are removed.
+Shared native brayc/xtask and std bundle still represent846a110b9, prior to diagnostics. That native run passes standard-
+library planning/emission, then bootstrap fails with212 diagnostics: E7119=92, E7123=106, E7035=7, E7036=4, E7113=2,
+E7087=1. Rebuild before inspecting current diagnostics. Remaining moved-storage errors alias retired nullable pattern
+payloads in execution/entry_scope and scheduler/lane. The two escape errors borrow execution before transferring it into
+creation. Native191122aaf identity baseline remains frozen in native-baseline-identities.txt.
 
-Current repairs pass bound133, checker463 and the fixed comparison:
-705 passed / 57 failed / 99 ignored, 96s, zero new failing identities against the preceding checkpoint and frozen7b5dc5634.
-Static CFG construction excludes runtime admission failure for explicit aggregate formation. Nested retained cleanup
-passes while discarded temporary cleanup remains rejected. The actual imported-library prepared-domain initializer passes.
-Implicit method inputs now retain an existing borrowed receiver's dependencies rather than its temporary descriptor slot.
-Source/imported guard factories and local use pass, returning a guard over local storage remains rejected. The actual
-imported std guard reproduction passes. Span lookup uses the existing node_span helper. Scratch probes and traces are removed.
-Never weaken expectations.
-Repair vague or misclassified diagnostics encountered during this audit, beyond E7123. Preserve failed conditions,
-instantiated arguments, requirement/cleanup/postcondition category and declaration context at the proof boundary.
-Carry known invalidation locations when available. Also fix execution_guarantees/proof.rs::guarantee_diagnostic, which
-mislabels postcondition certificate failures as an execution guarantee named "ensures". Render text in bray-messages, with structured typed causes.
-Native comparison is frozen at191122aaf (237 diagnostics) in native-baseline-identities.txt.
-The two remaining escape errors borrow an owner before transferring it during creation.
-Entry preparation shares StorageIdentity::is_initialized_at_entry. Entry origins retain DependencyReferenceKind through
-completion, removing root-type reconstruction. Body readers preserve original entry snapshots after descriptor changes.
-Clause inputs name their enclosing evaluation frame and compose nested borrowed paths. Structural paths retain their role.
-Local bindings copy under the source layout before conversion. All nine nullable borrowed-owner variants pass, including
-invalid ownership controls. Nullable borrowed witness guards also pass. Consuming cleanup/carriers and condition-variable
-authority retain their previous results, including rejection after descriptor overwrite. Temporary traces/probes are removed.
-Checkpoint846a110b9 preserves formed loans after descriptor retirement. A definitely produced borrow uses its retained
-physical targets and existing disjointness proof. Its descriptor remains usable without pretending the source descriptor
-is live. Source/import field projections pass, with local-owner escape rejected. The existing field-projection regression
-also passes. Final comparison705/57/99 in92s has zero new failing identities against the preceding checkpoint and frozen7b.
-Fresh brayc/xtask846a110b9 pass native standard-library planning/emission. Bootstrap212: E7119=92, E7123=106,
-E7035=7, E7036=4, E7113=2, E7087=1. Remaining E7035 alias retired nullable pattern payloads in execution/entry_scope
-and scheduler/lane. The shared native drivers and standard-library bundle still represent846a110b9.
-
-Diagnostics WIP replaces Boolean proof APIs with UnprovenExecutionCondition carrying original and actual conditions.
-ExecutionCallEvidence moved from model.rs to cohesive evidence.rs. No compatibility wrappers remain. Call, cleanup and
-postcondition collectors retain failure data. DiagnosticCondition and ContractObligation provide typed role/value data,
-rendered in bray-messages. The original new regression was run red before implementation. Current assertions inspect
-actual caller input, bound count42, exact cleanup producer and declaration. Checker464/diagnostics44/messages82 pass. Source/import diagnostics preserve actual subjects, fields, count42 and
-Source declarations. Scoped exit failures use cleanup category and retained input ordinals for unnamed imported inputs.
-The fixed comparison707/57/99 in89s has zero new failing identities. The diagnostic metadata uses canonical source/import
-queries for condition names and fields. No compatibility proof wrapper remains.
-Known invalidation locations, a separate postcondition-certificate diagnostic, accurate tuple/array projection display
-and native verification remain required. Audit the optional legacy callable label as well. E7119's literal "ensures" path is still unrepaired. The diagnostic foundation is accepted for checkpointing, with these exclusions explicit.
-No native composition has run. Source fixture/lifecycle and invalid controls remain in the fixed comparison. Interface216
-passed before these checker-only repairs and is unchanged.
-
-Retain frozen baseline-failures.txt, native-baseline-identities.txt, current comparison.log/native.log, native artifacts and the deferred-report
-baseline executable needed for two pre-existing negative controls. Use probe.log for the active diagnostic, then delete
-it once its result is recorded. Delete passed build/check logs and superseded native/probe logs immediately.
+Retain frozen baseline-failures.txt and native-baseline-identities.txt, current compact comparison.log/native.log, native
+artifacts and the deferred-report baseline executable for two pre-existing negative controls. Remove passed build/check
+logs, superseded diagnostic outputs and temporary traces immediately after recording needed results. Keep only one active
+probe.log. No style/format pass has run. No reviewer, subagent or goal is running.
 
 ## Remaining work
 

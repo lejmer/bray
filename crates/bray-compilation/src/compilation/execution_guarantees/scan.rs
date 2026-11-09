@@ -331,7 +331,7 @@ mod tests {
 
             assert_goal_state_diagnostic_kind(
                 compilation.check_diagnostics(),
-                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                DiagnosticKind::CheckingPostconditionNotProven,
             );
         }
     }

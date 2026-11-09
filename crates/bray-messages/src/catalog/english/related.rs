@@ -4,6 +4,9 @@ use crate::catalog::{MessageTemplate, MessageTemplatePart};
 
 const FIRST_DECLARATION: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("first declared here")];
+const VALUE_CHANGED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "this operation may change a value used by the condition",
+)];
 const FIRST_DIRECTIVE: &[MessageTemplatePart] = &[MessageTemplatePart::Text("first selected here")];
 const CONFLICTING_DECLARATION: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("conflicting declaration")];
@@ -42,6 +45,7 @@ const SELECTION_CANDIDATE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
 
 pub(crate) const fn template(kind: DiagnosticRelatedLocationKind) -> MessageTemplate {
     let parts = match kind {
+        DiagnosticRelatedLocationKind::ValueChanged => VALUE_CHANGED,
         DiagnosticRelatedLocationKind::FirstDeclaration => FIRST_DECLARATION,
         DiagnosticRelatedLocationKind::FirstDirective => FIRST_DIRECTIVE,
         DiagnosticRelatedLocationKind::ConflictingDeclaration => CONFLICTING_DECLARATION,

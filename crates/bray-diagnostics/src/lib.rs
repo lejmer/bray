@@ -55,7 +55,7 @@ pub use checking::{
     DiagnosticCallableContractSurface, DiagnosticCallableExecution, DiagnosticCallableOverloadArm,
     DiagnosticCallableOverloadContext, DiagnosticCallableOverloadProblem,
     DiagnosticCallableParameterMode, DiagnosticCallablePosition, DiagnosticCallableTrust,
-    DiagnosticCallbackStateProblem, DiagnosticConstantOperation, DiagnosticConstraintCategory, DiagnosticCondition, DiagnosticConditionProjection, DiagnosticContractObligation, DiagnosticContractObligationKind,
+    DiagnosticCallbackStateProblem, DiagnosticConstantOperation, DiagnosticConstraintCategory, DiagnosticCondition, DiagnosticConditionProjection, DiagnosticContractObligation, DiagnosticContractObligationKind, DiagnosticExecutionProofFailure,
     DiagnosticConstructionInputRejection, DiagnosticDirectiveArgumentProblem,
     DiagnosticExpressionCategory, DiagnosticGenericConstraintMismatch,
     DiagnosticGenericParameterCategory, DiagnosticImplementationBorrowKind,

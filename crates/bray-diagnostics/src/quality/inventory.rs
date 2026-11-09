@@ -160,6 +160,13 @@ impl DiagnosticKind {
         };
 
         match self {
+            Self::CheckingContractConditionNotPortable => Self::quality_source(&[], primary_components!(&[])),
+            Self::CheckingPostconditionNotProven | Self::CheckingCircularPostcondition => Self::quality_source(
+                &[DiagnosticArgName::ExecutionProofFailure], primary_components!(&[]),
+            ),
+            Self::CheckingExecutionProofDepthExceeded => Self::quality_source(
+                &[DiagnosticArgName::ExecutionProofFailure], primary_components!(&[DiagnosticArgName::ExecutionProofFailure]),
+            ),
             Self::SourceFileReadFailed => Self::quality_external(
                 &[SourceInput, IoErrorKind],
                 note_components!(&[SourceInput, IoErrorKind], SourceFileMustBeReadable),

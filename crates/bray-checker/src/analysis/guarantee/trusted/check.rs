@@ -236,14 +236,14 @@ impl TrustedChecks {
         for ((_, span), failed) in self.guarantees.into_iter().zip(self.guarantee_failures) {
             let Some(failed) = failed else { continue; };
 
-            diagnostics.add(
+            diagnostics.add(super::diagnostic::with_obligation(
+                domain, bray_diagnostics::DiagnosticContractObligationKind::Postcondition, &failed,
                 Diagnostic::new(
                     bray_diagnostics::DiagnosticId::new(span.start().bytes()),
                     DiagnosticKind::CheckingTrustedObligationNotProven,
                     SeverityKind::Error,
                 )
                 .with_primary_span(span)
-                .with_arg(super::diagnostic::obligation(domain, bray_diagnostics::DiagnosticContractObligationKind::Postcondition, &failed)?)
                 .with_label(DiagnosticLabel::primary(
                     DiagnosticLabelKind::TrustedObligationFailure,
                     span,
@@ -251,7 +251,7 @@ impl TrustedChecks {
                 .with_note(DiagnosticNote::new(
                     DiagnosticNoteKind::TrustedObligationEvidenceRequired,
                 )),
-            );
+            )?);
         }
 
         for (node, callable, failure) in self.cleanup_failures {
@@ -268,7 +268,7 @@ impl TrustedChecks {
                 domain.semantics,
                 expression.into(),
                 DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
-            ));
+            )?);
         }
 
         for (invocation, failure) in self.failed_execution {
@@ -343,7 +343,7 @@ pub(super) fn contract_diagnostic<C: CheckerRequestContext + ?Sized>(
     expressions: &CheckedExpressionSemantics,
     node: AnyBoundNodeId,
     kind: DiagnosticKind,
-) -> Diagnostic {
+) -> crate::CheckerQueryResult<Diagnostic, C::UpstreamError> {
     let origin = crate::diagnostic::bound_node_origin(request, node)
         .expect("trusted requirement failure retains its source origin");
 
@@ -392,10 +392,7 @@ pub(super) fn contract_diagnostic<C: CheckerRequestContext + ?Sized>(
         && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
             expressions.selections().expression(expression)
         && let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
-        && let Some(name) = request
-            .context()
-            .symbols()
-            .member_name(callable.definition().symbol())
+        && let Some(name) = request.member_name(callable.definition().symbol())?
     {
         diagnostic = diagnostic.with_label(
             DiagnosticLabel::secondary(DiagnosticLabelKind::TrustedCallable, span)
@@ -403,5 +400,5 @@ pub(super) fn contract_diagnostic<C: CheckerRequestContext + ?Sized>(
         );
     }
 
-    diagnostic
+    Ok(diagnostic)
 }
