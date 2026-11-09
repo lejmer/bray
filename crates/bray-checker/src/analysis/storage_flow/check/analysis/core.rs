@@ -1745,6 +1745,7 @@ where
 
         if requires_value
             && !pattern_establishes_projection
+            && self.retained_borrow_value(state, plan.access()).is_none()
             && !state.initialized.contains(&root)
             && !state.observed_pattern_bindings.contains(&root)
         {
@@ -2041,6 +2042,8 @@ where
         access: StorageAccessId,
     ) -> Vec<BoundExpressionId> {
         let logical = self.storage.logical_path(access);
+        let retained = self.retained_borrow_value(state, access)
+            .and_then(|borrow| state.memory.borrow_regions(borrow));
 
         let mut origins = state
             .moved
@@ -2049,7 +2052,18 @@ where
                 origins.iter().filter_map(|(origin, ty)| {
                     // Moving a borrow transfers its slot, not the storage it reaches.
                     let relationship = if self.type_is_borrow(*ty) {
-                        logical.map_or(StorageRelationship::Error, |path| path.relationship(moved))
+                        let descriptor = crate::analysis::storage_flow::memory::Target::storage(moved.clone());
+
+                        // A formed loan retains its reached storage after its source descriptor retires.
+                        // Use the captured physical bounds, never the retired descriptor's logical path.
+                        if retained.as_ref().is_some_and(|targets| !targets.is_empty()
+                            && targets.iter().all(|target| state.memory.target_relationship(target, &descriptor)
+                                == StorageRelationship::Disjoint))
+                        {
+                            StorageRelationship::Disjoint
+                        } else {
+                            logical.map_or(StorageRelationship::Error, |path| path.relationship(moved))
+                        }
                     } else {
                         self.storage.relationship_to_path(access, moved)
                     };

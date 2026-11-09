@@ -57,13 +57,18 @@ or initialization, survives transport, and does not narrow ordinary raw addresse
 and imported environment cursor check pass. All diagnostic hooks and temporary Source controls are removed.
 
 Current repairs pass bound133, checker463 and the fixed comparison:
-703 passed / 58 failed / 99 ignored, 93s, zero new failing identities against the preceding checkpoint and frozen7b5dc5634.
+705 passed / 57 failed / 99 ignored, 96s, zero new failing identities against the preceding checkpoint and frozen7b5dc5634.
 Static CFG construction excludes runtime admission failure for explicit aggregate formation. Nested retained cleanup
 passes while discarded temporary cleanup remains rejected. The actual imported-library prepared-domain initializer passes.
 Implicit method inputs now retain an existing borrowed receiver's dependencies rather than its temporary descriptor slot.
 Source/imported guard factories and local use pass, returning a guard over local storage remains rejected. The actual
 imported std guard reproduction passes. Span lookup uses the existing node_span helper. Scratch probes and traces are removed.
-Never weaken expectations. Fresh xtask191122aaf passes native standard-library planning/emission. Bootstrap diagnostics
+Never weaken expectations.
+Repair vague or misclassified diagnostics encountered during this audit, beyond E7123. Preserve failed conditions,
+instantiated arguments, requirement/cleanup/postcondition category and declaration context at the proof boundary.
+Carry known invalidation locations when available. Also fix execution_guarantees/proof.rs::guarantee_diagnostic, which
+mislabels postcondition certificate failures as an execution guarantee named "ensures". Render text in bray-messages, with structured typed causes.
+ Fresh xtask191122aaf passes native standard-library planning/emission. Bootstrap diagnostics
 fall350 to237: E7119=99, E7123=117, E7036=4, E7113=2, E7035=14, E7087=1. Constant formation is repaired and escaping
 lifetimes fall100 to2. The two remaining escapes involve borrowing an owner before transferring it during creation.
 Entry preparation shares StorageIdentity::is_initialized_at_entry. Entry origins retain DependencyReferenceKind through
@@ -72,7 +77,18 @@ Clause inputs name their enclosing evaluation frame and compose nested borrowed 
 Local bindings copy under the source layout before conversion. All nine nullable borrowed-owner variants pass, including
 invalid ownership controls. Nullable borrowed witness guards also pass. Consuming cleanup/carriers and condition-variable
 authority retain their previous results, including rejection after descriptor overwrite. Temporary traces/probes are removed.
-Next rebuild brayc/xtask together and run actual native bootstrap checking. They remain191122aaf until that build completes.
+Fresh brayc/xtask43354482c pass standard-library planning/emission. Bootstrap232: E7119=105, E7123=106,
+E7036=4, E7113=2, E7035=14, E7087=1. Compare exact diagnostic identities against191122aaf before expanding.
+Exact native comparison against191122aaf explains all six added E7119 identities. They propagate ensures failures from
+workers/deadlines, whose existing E7035 errors remain. Eleven E7123 identities disappear. No new bootstrap body fails.
+The baseline source overlay and driver are restored. Frozen native-baseline-identities.txt retains the comparison.
+Re-emit the standard library with the current driver before further imported probes.
+Borrowed call-field projection regression is frozen in returned_dependencies for Source/import, with a local-owner escape
+negative. Trace proves the formed borrow holds its original physical Entry/Address target after its temporary descriptor
+retires. Logical move/initialization checks still follow the retired descriptor. WIP repair uses the captured borrow value
+and existing physical relationship proof. No weaker authority or reconstruction fallback. Source/import positive and escape
+negative pass. The existing borrowed-call field projection regression also passes. Checker463 pass after requiring
+definite production of a retained borrow. Fresh driver/native checks pending.
 No native composition has run. Source fixture/lifecycle and invalid controls remain in the fixed comparison. Interface216
 passed before these checker-only repairs and is unchanged.
 
