@@ -10,6 +10,13 @@ use bray_diagnostics::{
     DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 
+/// Call requirements and initialized storage are independent proof results.
+pub(in crate::analysis) struct MemoryCallEvidence {
+    pub(in crate::analysis) requirements: Result<(), crate::UnprovenExecutionCondition>,
+    pub(in crate::analysis) initialized: bool,
+    pub(in crate::analysis) empty_copy: bool,
+}
+
 #[derive(Default)]
 pub(in crate::analysis) struct TrustedChecks {
     failed: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
@@ -116,7 +123,7 @@ impl TrustedChecks {
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         operation: crate::analysis::model::AnalysisOperationKind,
-        evidence: Option<&Result<bool, crate::UnprovenExecutionCondition>>,
+        evidence: Option<&Result<(), crate::UnprovenExecutionCondition>>,
         current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     ) {
         super::transfers::check_witness_transfers(
@@ -329,12 +336,32 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<Result<bool, crate::UnprovenExecutionCondition>> {
+    ) -> Option<MemoryCallEvidence> {
         let contract = self.request.trusted_contracts()?.calls.get(&invocation)?;
         let evidence = state.entries.get(&invocation)?;
+        let requirements = self.prove_trusted_requirements(evidence, &contract.requirements);
+        let empty_copy = self.empty_memory_copy(state, invocation);
+        let initialized = requirements.is_ok() || empty_copy || {
+            // Failure of another requirement must not erase established initialization.
+            // Resolve these identities only on the failing path.
+            let provider = self.request.context().available_compiler_known_symbols().provider();
+            let predicates = ["InitializedAs", "InitializedRangeAs"].map(|name| {
+                provider.declaration_symbol::<bray_symbols::PredicateSymbolId>(
+                    &bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
+                        .expect("closed initialization predicate key must be valid"),
+                ).map(bray_symbols::PredicateDefinitionSymbolId::from)
+            });
+            // Conditions share their immutable operand trees with the call contract.
+            let initialization = contract.requirements.iter().filter(|condition| {
+                matches!(condition, ExecutionCondition::Trusted(value)
+                    if matches!(value.as_ref(), ExecutionCondition::Predicate(predicate, _, _)
+                        if predicates.contains(&Some(*predicate))))
+            }).cloned().collect::<Vec<_>>();
 
-        Some(self.prove_trusted_requirements(evidence, &contract.requirements)
-            .map(|()| self.empty_memory_copy(state, invocation)))
+            !initialization.is_empty() && self.prove_trusted_requirements(evidence, &initialization).is_ok()
+        };
+
+        Some(MemoryCallEvidence { requirements, initialized, empty_copy })
     }
 }
 

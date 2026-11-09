@@ -1198,6 +1198,7 @@ mod tests {
 
     #[test]
     fn referent_writes_preserve_nullable_owner_guards_and_retire_access_claims() {
+        for stable_descriptor in [false, true] {
         let carrier = input(0);
         let payload = carrier.clone().component(ConstantProjectionKind::NullableValue);
         let marker = payload.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
@@ -1227,12 +1228,14 @@ mod tests {
             state.carry_guarantee(carrier.clone(), condition.clone());
         }
 
+        let addresses = if stable_descriptor { BTreeSet::from([pointer.owner_identity().clone()]) } else { BTreeSet::new() };
+        let stable_values = if stable_descriptor { [pointer.clone()].into_iter().collect() } else { Default::default() };
         state.invalidate_referents(
             &[pointer],
+            &addresses,
             &BTreeSet::new(),
             &BTreeSet::new(),
-            &BTreeSet::new(),
-                &Default::default(),
+            &stable_values,
             None,
         );
 
@@ -1245,6 +1248,7 @@ mod tests {
                 &Default::default(), None);
 
         assert!(!state.trusted_assumptions.contains(&(ownership, true)));
+        }
     }
 
     #[test]

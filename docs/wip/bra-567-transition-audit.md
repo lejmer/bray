@@ -30,64 +30,36 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:731 passed /55 failed /99 ignored, unchanged55 identities after pointer-range normalization. Checker470,
-bound-tree133, failure-diagnostics6 and conformance7 pass. Earlier diagnostics44, messages90 and JSON48 pass.
-Diagnostic readiness passes at snippet checkpoint8b08d8aab. No diagnostic kinds changed afterward.
-Expanded predicate group:25 passed /2 failed /2 ignored. Both reproduce in the retainedfc4 baseline.
+Fixed comparison:748 passed /54 failed /99 ignored, including raw-memory16. No added failures. The existing
+raw_slot_moves_preserve_only_live_disjoint_initialization now passes without expectation changes. Checker470 and
+bound-tree133 pass. Source/import16 range cases pass, including exact failed predicates and genuine initialization errors.
+Earlier failure-diagnostics6, conformance7, messages90 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
+Expanded predicate group:25 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
 
-Accepted native.log uses compilere0c71052c and unchanged runtime Source64a4e5490:130 diagnostics
-(E7123=65,E7135=41,E7119=23,E7087=1). Equality canonicalization removes all7 targeted provider identities.
-The new initialization99 E7135 reports DependencyErrors at arena39..77, whose arena72 E7123 persists.
-proof.rs61 skips caller certification on local errors, then proof.rs557 exposes this existing dependency failure.
-The matching native standard library rebuild succeeds. Diagnostic readiness passes. Native execution remains blocked.
+Accepted native.log uses compiler sourcesb25a6c43b and unchanged runtime Source64a4e5490:128 diagnostics
+(E7123=64,E7135=41,E7119=23). Pointer-range normalization removed exactly result318 E7087/E7123, with no additions.
+Matching native library built. The pending repair below has not yet had native verification. No native async composition
+has executed. Source/MIR success remains narrower evidence. Host/attachment/cleanup192 still has a generic local cause.
+Use the canonical complete233-file Windows request. Partial production_host_request has129 files and cannot certify it.
 
-Typed execution causes now distinguish loops, panic, cancellation, recovery, nonreturn and input mutation. CFG producers
-retain loop/exit identities and share one failure record with certification. Native labels identify the failed loops
-and specific panic paths. Only host/attachment/cleanup192 remains locally generic. No native async composition has executed.
-The complete transition inventory remains unfinished. No agent is active. No style/format has run.
+Embedded source snippets share an80-character/first-line formatter. Whole conditions/messages and structured JSON remain
+complete. Unsupported bodyless execution promises report MissingEvidence before export. Native C assertions remain supported.
 
-The partial production_host_request contains129 of233 runtime files. Source Linux/Windows and imported-library controls
-passed poll there, while the complete233-file Windows request with canonical Bootstrap roles and the matching native
-library reproduced polling184. Bare current inputs bypassed the canonical component mapper. That duplicate mapper is
-removed. An owning-boundary regression fails before the correction, and the complete imported graph subsequently passes
-poll. The temporary filesystem audit and trace hooks are removed. This partial fixture cannot certify the complete graph.
+## Current batch
 
-## Current investigation
+MemoryCallEvidence replaces the conflated Option<Result<bool>>. Whole-contract failure, independently proved initialization
+and empty-copy evidence remain distinct. Initialization is rechecked only after another requirement fails. The Source/import
+negative checks name initialized_range_as or non_overlapping. Only actual missing initialization reports E7087.
 
-Pointer postconditions now preserve evaluated address bits across mutation. Storage flow already distinguishes stable
-address descriptors from reachable-state evidence. The guarantee mask had replaced each copied pointer with a different
-slot-specific post-state. Completion then reconstructed the input from that slot. The mask now retains address values
-while the existing witness ledger revokes reachable-state claims. The redundant completion reconstruction is removed.
-Source/import regression:16 cases cover conditional/unconditional producers, parameters, a supported pure foreign
-control, staged input before a later field overwrite, pointer replacement and subsequent pointee mutation. All pass.
+A fully authorized source double move was accepted byb25a6c43b. The retirement property and source regression were red
+before repair. Actual traces showed claims named copied pointer bits while retirement indexed their scalar storage context.
+Shared pointer_identity now serves proof, disjoint-range preservation and retirement. Descriptor-slot borrows remain distinct.
+Stable address bits cannot preserve reached initialization claims. Double moves reject, reinitialization succeeds, spatial
+permissions survive, and empty-copy0/1 physical storage decisions pass. No temporary trace hooks remain.
 
-Bodyless execution promises without a supported foreign assertion now report MissingEvidence before export. Bare extern
-and native Bray-symbol cases previously passed source checking and panicked exporting. The C assertion control exports.
-One frozen borrowed-result fixture had unnecessary pure/total promises on its unresolved extern. Those promises are
-removed, its expected outcomes are unchanged, and it passes. No temporary trace hooks remain.
-
-Code snippets embedded in prose now share a locale-independent80-character/first-line formatter. Raw operands,
-code tokens and source names use it. Entire conditions/messages remain complete, and structured JSON retains source.
-Messages90, real diagnostic producers8, proof diagnostics6 and JSON48 pass. No style/format has run.
-
-Guarded equality claims now use the same polarity as their consumers. Canonical expression construction rewrites
-negated equality through the shared BoundOperator::equality_complement rule, also used by direct proof. Ordered
-comparisons are unchanged. A guarded trusted-proof regression and14 Source/import cases pass. Fabricated/replaced
-owners remain rejected. The actual carrier, availability and refined clause survived opaque invalidation correctly.
-No witness or owner reconstruction was added. Trace hooks are removed.
-
-The matching native-library nullable source control rejects only the fabricated owner. Its source/log and trace logs
-are removed. Continue through the130 remaining diagnostics. No unexplained native failures are accepted.
-
-Result318's tuple-pointer proof retained its evidence but Borrowed scalar extents differed at non-overlap. The existing
-closed memory-predicate table now records pointer operands alongside invalidation policy, including NonOverlapping0,2.
-Pointer descriptors retain storage identity and numeric extents observe current values. No parallel argument-role table
-or owner reconstruction is added. Source/import16 cases, checker470 and unchanged text-storage regression pass. The
-complete fixed comparison retains exactly55 failures. Scratch pointer probe and temporary traces are removed.
-A contextual invariant panic remains in dependency/result/copying.rs. Matching native verification is next.
-
-The uninitialized-storage diagnostic may cascade from a different failed trusted requirement because memory analysis
-collapses Err into absent evidence. Its diagnostic model remains to audit. Do not weaken copy initialization policy.
+The fixed comparison passes its identity gate. The fresh CLI reports only non-overlap E7123 for the initialized-copy
+negative, and E7087 plus initialized_as E7123 for the fully authorized double move. Both scratch sources/logs are removed.
+Run the matching native comparison next. No style/format has run. No agent is active.
 
 ## Remaining
 

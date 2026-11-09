@@ -446,6 +446,12 @@ impl ExecutionState {
             referents.insert(value.clone());
         }
 
+        let stable_contents = |value: &ExecutionCondition| {
+            // Stable address bits do not certify unchanged pointee contents.
+            stable_values.preserves(value) && (matches!(value, ExecutionCondition::Borrowed(_))
+                || !address_slots.contains(value.owner_identity()))
+        };
+
         let revokes = |condition: &ExecutionCondition| {
             let predicate = match condition {
                 ExecutionCondition::Trusted(predicate) => predicate.as_ref(),
@@ -453,7 +459,7 @@ impl ExecutionState {
             };
 
             !preserved.contains(condition)
-                && !condition.observes_only(|value| stable_values.preserves(value))
+                && !condition.observes_only(&stable_contents)
                 && !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
                 && condition
                     .observations_except(|observation| {
@@ -469,7 +475,7 @@ impl ExecutionState {
         // predicate contracts. A by-value guard, including a nullable tag, still
         // describes the same live owner. Physical replacement retires its observations separately.
         let revokes_observation = |condition: &ExecutionCondition| {
-            if preserved.contains(condition) || condition.observes_only(|value| stable_values.preserves(value)) {
+            if preserved.contains(condition) || condition.observes_only(&stable_contents) {
                 return false;
             }
 

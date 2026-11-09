@@ -581,6 +581,89 @@ fn raw_memory_aliases_share_consumption_and_retirement() {
 }
 
 #[test]
+fn empty_raw_copies_do_not_require_an_initialized_value() {
+    for count in [0, 1] {
+        let source = format!(r#"
+            trusted module app;
+
+            using core.memory;
+
+            trusted func main()
+                uses(raw_memory, unchecked_init)
+            {{
+                let pointer = core.memory.null<u8>();
+
+                trusted core.memory.copy<u8>(pointer, destination = pointer, count = {count});
+            }}
+        "#);
+        let compilation = compilation_with_target_operations(&source, true, true);
+        let flow = compilation.storage_flow(crate::test_support::source_function_body_key(&compilation, "main"))
+            .expect("raw copy publishes its storage decision independently of contract failures");
+        let copy = flow.value().memory_operations().last().expect("copy publishes its memory decision");
+        assert_eq!(copy.status(), if count == 0 { bray_bound_tree::MemoryOperationStatus::Valid }
+            else { bray_bound_tree::MemoryOperationStatus::UninitializedRawStorage }, "{:?}", flow.diagnostics());
+    }
+}
+
+#[test]
+fn moving_raw_payloads_retires_initialization_evidence_for_every_alias() {
+    for reinitialize in [false, true] {
+        let replacement = if reinitialize {
+            "trusted core.memory.write<Payload>(alias, { value = 2 });"
+        } else { "" };
+        let source = format!(r#"
+            trusted module app;
+
+            using core.memory;
+
+            struct Payload
+            {{
+                value: u8;
+            }}
+
+            trusted func authorize(pos pointer: DataPointer<Payload>)
+                ensures(
+                    trusted core.memory.valid_read<Payload>(pointer = pointer, count = 1),
+                    trusted core.memory.valid_write<Payload>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<Payload>(pointer = pointer),
+                )
+                executes(pure, total)
+            {{
+            }}
+
+            trusted func main()
+                uses(manual_alloc, raw_memory, unchecked_init, layout_reinterpret)
+            {{
+                let allocated = trusted core.memory.allocate(bytes = 1, align = 1);
+                let pointer = trusted core.memory.reinterpret<Payload, u8>(allocated);
+                let alias = pointer;
+
+                trusted authorize(pointer);
+                trusted core.memory.write<Payload>(pointer, {{ value = 1 }});
+
+                let first = trusted core.memory.read<Payload>(alias);
+
+                {replacement}
+
+                let second = trusted core.memory.read<Payload>(pointer);
+            }}
+        "#);
+        let compilation = compilation_with_target_operations(&source, true, true);
+        let flow = compilation.storage_flow(crate::test_support::source_function_body_key(&compilation, "main"))
+            .expect("raw payload transport publishes its physical and trusted state");
+        let operation = flow.value().memory_operations().last().expect("second read publishes its decision");
+        assert_eq!(operation.status(), if reinitialize { bray_bound_tree::MemoryOperationStatus::Valid }
+            else { bray_bound_tree::MemoryOperationStatus::UninitializedRawStorage }, "{:?}", flow.diagnostics());
+        if reinitialize {
+            assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(flow.diagnostics(), DiagnosticKind::CheckingUninitializedRawStorage);
+            bray_testing::assert_goal_state_diagnostic_kind(flow.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
 fn conditional_raw_initialization_retains_the_possible_cleanup_obligation() {
     let source = r#"
         trusted module app;
