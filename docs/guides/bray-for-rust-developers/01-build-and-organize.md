@@ -705,6 +705,6 @@ The assertion fails, as it should. Now restore the amount to `2` and run the tes
 
 We've created a Bray workspace, built a small executable, used mutable and shared borrows, handled nullable values and errors, organized code into modules, extracted a library package, acknowledged an internal dependency, and written a test.
 
-Part 2 will explore unions, patterns, and error handling in more detail. If you want even drier reading material, the language reference covers [modules and packages](../../language/modules-and-packages.md), [callables](../../language/callables.md), [ownership and borrowing](../../language/ownership-and-borrowing.md), and [nullable expressions](../../language/expressions/nullable-and-absence-expressions.md) in much more detail.
+[Part 2: Model data and control flow](02-data-and-control-flow.md) explores unions, patterns, and error handling in more detail. If you want even drier reading material, the language reference covers [modules and packages](../../language/modules-and-packages.md), [callables](../../language/callables.md), [ownership and borrowing](../../language/ownership-and-borrowing.md), and [nullable expressions](../../language/expressions/nullable-and-absence-expressions.md) in much more detail.
 
 The [Bray source style guide](../../contributing/bray-style-guide.md) describes the layout used throughout these examples.
