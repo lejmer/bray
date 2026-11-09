@@ -4635,3 +4635,147 @@ fn disjunctive_variant_requirements_exclude_incompatible_match_arms() {
         }
     }
 }
+
+#[test]
+fn entry_union_observations_preserve_sibling_owner_values() {
+    let source = r#"
+        trusted module api;
+
+        struct Acquisition
+        {
+        }
+
+        struct Owner
+        {
+            acquisition: Acquisition;
+            pointer: DataPointer<u32>;
+        }
+
+        union Target
+        {
+            First(pos owner: Owner);
+            Second(pos owner: Owner);
+        }
+
+        struct Resources
+        {
+            target: Target;
+            other: Owner;
+        }
+
+        trusted predicate acquired(owner: &Acquisition);
+
+        trusted predicate authorized(owner: &Acquisition);
+
+        predicate retained(owner: &Owner) = acquired(&owner.acquisition);
+
+        predicate permitted(owner: &Owner) = authorized(&owner.acquisition);
+
+        const func first(pos target: &Target) -> &Owner
+            requires(target matches Target.First(_))
+        {
+            return match target
+            {
+                case Target.First(owner) { yield &owner; }
+                case Target.Second(_) { panic("missing first owner"); }
+            };
+        }
+
+        const func second(pos target: &Target) -> &Owner
+            requires(target matches Target.Second(_))
+        {
+            return match target
+            {
+                case Target.Second(owner) { yield &owner; }
+                case Target.First(_) { panic("missing second owner"); }
+            };
+        }
+
+        predicate owned(owner: &Resources) = retained(&owner.other) && permitted(&owner.other) &&
+            ((owner.target matches Target.First(_) && retained(first(&owner.target)) && permitted(first(&owner.target))) ||
+             (owner.target matches Target.Second(_) && retained(second(&owner.target)) && permitted(second(&owner.target))));
+
+        func inspect(pos owner: &Owner)
+            requires(trusted retained(owner), trusted permitted(owner))
+        {
+        }
+
+        func borrowed(pos owner: &Resources)
+            requires(trusted owned(owner))
+        {
+            match owner.target
+            {
+                case Target.First(payload) { inspect(&payload); }
+                case Target.Second(payload) { inspect(&payload); }
+            }
+        }
+
+        func split(pos owner: Resources) -> Owner
+            requires(trusted owned(&owner))
+            ensures(trusted acquired(&result.acquisition))
+        {
+            let other = owner.other;
+
+            match owner.target
+            {
+                case Target.First(payload) { inspect(&payload); }
+                case Target.Second(payload) { inspect(&payload); }
+            }
+
+            inspect(&other);
+
+            return other;
+        }
+
+        func forward(pos owner: Owner) -> Owner
+            requires(trusted acquired(&owner.acquisition))
+            ensures(trusted acquired(&result.acquisition))
+        {
+            return owner;
+        }
+
+        func project(pos owner: Resources) -> Owner
+            requires(trusted owned(&owner))
+            ensures(trusted acquired(&result.acquisition))
+        {
+            return owner.other;
+        }
+    "#;
+    let provider = compilation(source);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for (operation, valid) in [("split(owner)", true), ("project(owner)", true), ("project(replacement)", false)] {
+        let caller = format!(r#"
+            module app;
+            using example.package.api;
+
+            func caller(pos owner: api.Resources, pos replacement: api.Resources) -> api.Owner
+                requires(trusted api.owned(&owner))
+                ensures(trusted api.acquired(&result.acquisition))
+            {{
+                return api.{operation};
+            }}
+        "#).replace("api.", "example.package.api.");
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(&provider, &caller)
+            } else {
+                compilation_from_sources([source, &caller.replace("example.package.", "")])
+            };
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(!diagnostics.has_errors(), valid, "{operation}, imported={imported}: {diagnostics:#?}");
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
