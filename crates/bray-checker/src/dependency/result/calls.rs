@@ -200,7 +200,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         let input = self.scoped_values(scoped)?;
 
         Ok(
-            crate::dependency::witness::map_requirements(requirements, &mut |subject, kind, _| {
+            crate::dependency::witness::map_requirements::<std::convert::Infallible>(requirements, &mut |subject, kind, _| {
                 if subject.subject_root()
                     != bray_symbols::DependencySubjectRoot::Parameter(
                         bray_symbols::SymbolOrdinal::new(0),
@@ -396,7 +396,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                             && kind == DependencyRequirementKind::ValueDependencies
                             && subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver =>
                     {
-                        Ok(self.projected_values(operand, subject.projections()).into_iter().collect())
+                        Ok(self.copied_values(operand, subject.projections())?.into_iter().collect())
                     }
                     crate::dependency::call::OperationInput::Borrow(operand, _)
                         if kind == DependencyRequirementKind::ValueDependencies
@@ -417,7 +417,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     crate::dependency::call::OperationInput::Nullable(None) => Ok(Vec::new()),
                 }
             })
-            .expect("operation inputs preserve checked dependency equation bindings")
+            ?
             .into_iter()
             .collect(),
         )
@@ -440,11 +440,11 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     && kind == DependencyRequirementKind::ValueDependencies
                     && let Some(receiver) = self.borrowed_input_receiver(argument)
                 {
-                    return Ok(self.projected_values(receiver, subject.projections()).into_iter().collect());
+                    return Ok(self.copied_values(receiver, subject.projections())?.into_iter().collect());
                 }
 
                 self.mapped_site_values(argument, subject.projections(), kind)
-            }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in mapped_result_values: {error:?}"))
+            })?
             .into_iter()
             .collect(),
         )
@@ -454,12 +454,15 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         argument: BoundExpressionId,
         path: &[bray_symbols::DependencyProjection],
         kind: DependencyRequirementKind,
-    ) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
+    ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        if kind == DependencyRequirementKind::ValueDependencies {
+            return Ok(self.copied_values(argument, path)?.into_iter().collect());
+        }
+
         // A supplied borrow retains its referent and original loan dependencies.
         // Requiring the slot containing that borrow would invent a caller loan,
         // especially when the containing value is consumed.
-        if kind == DependencyRequirementKind::ValueDependencies
-            || self.types.expression(argument).is_some_and(|ty| {
+        if self.types.expression(argument).is_some_and(|ty| {
                 matches!(
                     self.request.semantic_values().type_data(ty.ty()).as_ref(),
                     bray_symbols::TypeData::Borrow { .. }

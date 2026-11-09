@@ -85,7 +85,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         argument: BoundExecutionSite,
         path: &[bray_symbols::DependencyProjection],
         kind: DependencyRequirementKind,
-    ) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
+    ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         let ty = match argument {
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
                 return self.mapped_input_values(expression, path, kind);
@@ -107,7 +107,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 {
                     // The source expression already has its evaluated snapshot. A copied
                     // component carries that value's dependencies, not the input loan's lifetime.
-                    return Ok(self.projected_values(source, path).into_iter().collect());
+                    return Ok(self.copied_values(source, path)?.into_iter().collect());
                 }
 
                 input.ty(self.request.semantic_values())
@@ -124,7 +124,8 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 } else {
                     self.request
                         .semantic_values()
-                        .intern_type(bray_symbols::TypeData::Nullable(iteration.element_type()))?
+                        .intern_type(bray_symbols::TypeData::Nullable(iteration.element_type()))
+                        .expect("checked iteration retains its nullable element result type")
                 }
             }
             BoundExecutionSite::ScopedEnter(expression) => {

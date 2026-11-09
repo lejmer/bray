@@ -498,7 +498,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             self.formal_root(root),
         );
 
-        let portable = crate::dependency::map_requirements(requirements, &mut |subject, kind, _| {
+        let portable = crate::dependency::map_requirements::<std::convert::Infallible>(requirements, &mut |subject, kind, _| {
             if subject.subject_root() != bray_symbols::DependencySubjectRoot::Receiver {
                 return Ok(vec![bray_symbols::DependencyRequirement::direct(
                     subject.clone(),

@@ -228,7 +228,13 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
                 let projected_values = expression
                     .filter(|_| !binding_path.is_empty())
-                    .map(|expression| self.projected_values(expression, &binding_path));
+                    .map(|expression| {
+                        if observes {
+                            Ok(self.projected_values(expression, &binding_path))
+                        } else {
+                            self.copied_values(expression, &binding_path)
+                        }
+                    }).transpose()?;
 
                 let binding_values = projected_values.as_ref().unwrap_or(&values);
 

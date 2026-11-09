@@ -484,10 +484,12 @@ impl BoundCallDependencyContracts {
         self.deferred.as_ref()
     }
 
-    pub(super) fn phase_contracts(&self) -> impl Iterator<Item = &BoundDependencyContract> {
+    /// Returns every checked value, invocation, deferred and report contract.
+    pub fn phase_contracts(&self) -> impl Iterator<Item = &BoundDependencyContract> {
         [&self.invocation, &self.result]
             .into_iter()
             .chain(self.deferred.as_ref())
+            .chain(self.deferred_result.as_ref())
             .chain(self.reports.contracts())
             .chain(
                 self.deferred_reports

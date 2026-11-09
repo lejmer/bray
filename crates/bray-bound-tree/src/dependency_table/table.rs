@@ -634,12 +634,13 @@ mod tests {
         let invocation = contract(access, BoundDependencyRequirementKind::StorageAlive);
         let result = contract(access, BoundDependencyRequirementKind::ValueDependencies);
         let deferred = contract(access, BoundDependencyRequirementKind::StorageInitialized);
+        let deferred_result = contract(access, BoundDependencyRequirementKind::ExclusiveMutationAuthority);
 
         let phases = super::BoundCallDependencyContracts::new(
             invocation.clone(),
             result.clone(),
             Some(deferred.clone()),
-        );
+        ).with_deferred_result(deferred_result.clone());
 
         let relation = bray_symbols::DependencyBorrowRelation::new(
             Some(bray_symbols::DependencySubject::root(
@@ -663,6 +664,7 @@ mod tests {
         assert_eq!(call.invocation(), &invocation);
         assert_eq!(call.result(), &result);
         assert_eq!(call.deferred(), Some(&deferred));
+        assert_eq!(call.deferred_result(), Some(&deferred_result));
         assert_eq!(call.references(), &references);
         assert_eq!(call.retained_inputs(), retained.as_ref());
 
@@ -707,6 +709,7 @@ mod tests {
                 foreign.clone(),
                 Some(deferred.clone()),
             ),
+            phases.clone().with_deferred_result(foreign.clone()),
             super::BoundCallDependencyContracts::new(invocation, result, Some(foreign)),
         ] {
             assert_eq!(

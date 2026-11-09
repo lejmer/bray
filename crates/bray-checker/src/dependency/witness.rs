@@ -484,25 +484,25 @@ pub(crate) enum RequirementMappingRole {
     InputValue,
 }
 
-pub(crate) fn map_requirements(
+pub(crate) fn map_requirements<E>(
     requirements: &[DependencyRequirement],
     map: &mut impl FnMut(
         &DependencySubject,
         DependencyRequirementKind,
         RequirementMappingRole,
     )
-        -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError>,
-) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
+        -> Result<Vec<DependencyRequirement>, E>,
+) -> Result<Vec<DependencyRequirement>, E> {
     map_requirements_at_depth(requirements, 0, RequirementMappingRole::Requirement, map)
 }
 
-fn map_requirements_at_depth(
+fn map_requirements_at_depth<E>(
     requirements: &[DependencyRequirement],
     depth: u32,
     role: RequirementMappingRole,
     map: &mut impl FnMut(&DependencySubject, DependencyRequirementKind, RequirementMappingRole)
-        -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError>,
-) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
+        -> Result<Vec<DependencyRequirement>, E>,
+) -> Result<Vec<DependencyRequirement>, E> {
     super::equations::map_requirements(requirements, depth, &mut |requirement, depth| {
         if let DependencyRequirement::Guarded(guarded) = requirement {
             // Value dependencies do not prove that the caller's current storage
@@ -518,7 +518,7 @@ fn map_requirements_at_depth(
                     map_requirements_at_depth(input.values(), depth, RequirementMappingRole::InputValue, map)?,
                     map_requirements_at_depth(input.storage(), depth, RequirementMappingRole::Requirement, map)?,
                 ))
-            }).collect::<Result<Vec<_>, bray_symbols::SemanticValueStoreError>>();
+            }).collect::<Result<Vec<_>, E>>();
 
             return Some(mapped.map(|inputs| vec![DependencyRequirement::result_call(
                 *callable, *requirement, inputs, *output,
@@ -531,7 +531,8 @@ fn map_requirements_at_depth(
 
         Some(
             map(subject, *kind, role)
-                .and_then(|mapped| super::equations::shift_variables(&mapped, i64::from(depth))),
+                .map(|mapped| super::equations::shift_variables(&mapped, i64::from(depth))
+                    .expect("mapped dependency variables retain their checked enclosing equation depth")),
         )
     })
 }
@@ -568,7 +569,7 @@ mod tests {
             [DependencyRequirement::guarded(DependencyGuard::NullablePresent(receiver), [input])],
         );
         let mapped = map_requirements(&[equation], &mut |_, _, _| {
-            Ok(vec![DependencyRequirement::variable(0, SymbolOrdinal::new(0))])
+            Ok::<_, std::convert::Infallible>(vec![DependencyRequirement::variable(0, SymbolOrdinal::new(0))])
         }).expect("mapping preserves the caller's outer variable binding");
         let outer = DependencyRequirement::variable(1, SymbolOrdinal::new(0));
 
