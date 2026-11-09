@@ -22,7 +22,7 @@ pub(super) fn condition<C: CheckerRequestContext + ?Sized>(
         ExecutionCondition::Input(value) | ExecutionCondition::PostState(_, value)
             | ExecutionCondition::Joined(_, _, value) => place(domain, value, budget)?,
         ExecutionCondition::Result => Condition::Result,
-        ExecutionCondition::Expression(value) | ExecutionCondition::ScopedCapability(value) => expression(domain, *value),
+        ExecutionCondition::Expression(value) | ExecutionCondition::ScopedCapability(value) => expression(domain, *value, budget)?,
         ExecutionCondition::CapturedInput { owner, ordinal, .. } => Condition::CapturedInput {
             owner: Box::new(condition(domain, owner, budget)?), ordinal: ordinal.raw(),
         },
@@ -82,8 +82,23 @@ fn symbol_path<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain<'
     Ok(crate::diagnostic::diagnostic_symbol_path(key, name.as_str()))
 }
 
-fn expression<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain<'_, '_, C>, value: BoundExpressionId) -> Condition {
-    Condition::Source(crate::diagnostic::expression_text(domain.request, value))
+fn expression<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, value: BoundExpressionId, budget: &mut usize,
+) -> Outcome<C> {
+    if let Some(bray_bound_tree::BoundExpression::Name(name)) = domain.request.view().expression(value) {
+        return place(domain, &ExecutionPlace::from(name.target()), budget);
+    }
+
+    if let Some(selection @ bray_bound_tree::SemanticSelection::Call(call)) = domain.semantics.selections().expression(value)
+        && let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
+    {
+        let arguments = selection.inputs().filter_map(|input| input.expression())
+            .map(ExecutionCondition::Expression).collect::<Vec<_>>();
+
+        return application(domain, callable.definition().symbol(), callable.substitution(), &arguments, budget);
+    }
+
+    Ok(Condition::Source(crate::diagnostic::expression_text(domain.request, value)))
 }
 
 fn place<C: CheckerRequestContext + ?Sized>(
@@ -130,7 +145,7 @@ fn place<C: CheckerRequestContext + ?Sized>(
             if let Some(rebound) = ExecutionPlace::storage_identity(domain.storage, *storage).filter(|other| other.root != value.root) {
                 place(domain, &rebound, budget)?
             } else if let Some(producer) = identity.definition_occurrence().and_then(bray_bound_tree::BoundExecutionSite::expression) {
-                expression(domain, producer)
+                expression(domain, producer, budget)?
             } else {
                 Condition::Unknown
             }
