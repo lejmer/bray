@@ -35,11 +35,9 @@ failure-diagnostics6 pass. Earlier bound-tree133, diagnostics44, messages88, JSO
 Readiness has not been rerun after the latest cause additions.
 Expanded predicate group:25 passed /2 failed /2 ignored. Both reproduce in the retainedfc4 baseline.
 
-Accepted native.log uses compiler code equivalent to68f477051 and runtime Source64a4e5490:153 diagnostics
-(E7123=85,E7135=44,E7119=23,E7087=1). The reduction164 to153 removed13 identities and exposed two E7135 dependency
-failures: polling171 references observe131..164, worker/entry170 references worker/callback50..120. Both callees already
-failed in164 (polling155, callback118). proof.rs61 skips caller certification on source errors, proof.rs557 then reports
-DependencyErrors. These are explained exposed failures. All153 identities persist after the diagnostic correction.
+Accepted native.log uses compiler4b1b31d19 and unchanged runtime Source64a4e5490:136 diagnostics
+(E7123=72,E7135=40,E7119=23,E7087=1). Address preservation removed17 identities from153 and added none.
+The matching native standard library rebuild succeeds. Diagnostic readiness passes. Native execution remains blocked.
 
 Typed execution causes now distinguish loops, panic, cancellation, recovery, nonreturn and input mutation. CFG producers
 retain loop/exit identities and share one failure record with certification. Native labels identify the failed loops
@@ -66,8 +64,15 @@ and native Bray-symbol cases previously passed source checking and panicked expo
 One frozen borrowed-result fixture had unnecessary pure/total promises on its unresolved extern. Those promises are
 removed, its expected outcomes are unchanged, and it passes. No temporary trace hooks remain.
 
-Next rebuild the matching native compiler/library product and compare the153 diagnostic identities before accepting
-native improvement. Then continue the transition audit through remaining proof/execution failures.
+Code snippets embedded in prose now share a locale-independent80-character/first-line formatter. Raw operands,
+code tokens and source names use it. Entire conditions/messages remain complete, and structured JSON retains source.
+Messages90, real diagnostic producers8, proof diagnostics6 and JSON48 pass. No style/format has run.
+
+The next ownership failure is reproduced in nullable-owner.bray. A producer creates a plain owner, publishes its claim
+through a borrowed input, then returns Result<Owner?,u32>. Direct use after matching passes. An opaque call then loses
+the optional payload claim. Local publication and plain Owner return pass. Omitting the publication call also passes.
+Owner fields, configuration, callable fields and uninitialized storage are not necessary. All exploratory variants
+are deleted. Trace the published witness through nullable/result assembly, matched payload move and opaque invalidation.
 
 ## Remaining
 
@@ -90,7 +95,7 @@ BRAY_LLVM_PREFIX and LLVM_SYS_221_PREFIX use target/toolchains/llvm/active. Tool
 produced-executable workflows run outside sandbox. A10s rustc sample averaged2.39cores with all24cores available.
 Native uses Rust1.98.1, LLVM bin on PATH, TMP/TEMP worktree target/audit.
 Native: target/tooling/xtask.exe runtime-artifact smoke-test --output target/audit/native --profile release.
-Current test hashes: compilation2f208104c15db1e3, checker8ec8a76a178a79eb. Parse build.log for fresh executable identities.
+Always parse build.log for fresh executable identities. Cargo feature selection changes test hashes.
 
 Retain baseline-failures.txt67, native-baseline-identities.txt, accepted comparison.log/native.log, native intermediates
 and deferred-report-fc4b5160b-baseline.exe for the old controls. Keep only active build/probe logs. No temporary hooks remain.

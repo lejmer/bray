@@ -5,6 +5,11 @@ Bray diagnostics are a locale-neutral protocol between compiler producers and us
 text seen by users. Compiler crates must not assemble English messages or encode English phrases as generic string
 arguments.
 
+Render source code embedded in messages through the shared `bray-messages` code-snippet formatter. It limits each
+snippet to 80 characters and stops at a line break, marking omitted code with `…`. Apply this to individual source
+operands, tokens, names, and literals. Keep the surrounding condition and explanatory text complete. Structured
+diagnostic data and source spans retain their original contents.
+
 This protocol covers source diagnostics and legitimate external or operational failures. Impossible internal states
 and violated compiler phase contracts must assert or panic with developer debugging context, rather than becoming
 recoverable diagnostics. Assertion and panic messages are outside this user-facing text protocol. Follow

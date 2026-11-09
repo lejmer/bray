@@ -3,6 +3,38 @@ use bray_diagnostics::{DiagnosticArgValue, DiagnosticCondition, DiagnosticContra
 use crate::test_support::compilation;
 
 #[test]
+fn inline_callback_conditions_show_a_snippet_without_the_function_body() {
+    let application = compilation(r#"
+        trusted module app;
+
+        callable Callback = func() -> u32;
+
+        trusted predicate acceptable(value: &Callback);
+
+        func inspect(pos value: Callback)
+            requires(trusted acceptable(value = &value))
+        {
+        }
+
+        func caller()
+        {
+            inspect(lambda() -> u32
+            {
+                return 12345;
+            });
+        }
+    "#);
+    let diagnostics = application.check_diagnostics();
+    bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+        DiagnosticKind::CheckingTrustedObligationNotProven);
+    let failure = diagnostics.iter().find(|diagnostic| diagnostic.kind()
+        == DiagnosticKind::CheckingTrustedObligationNotProven).expect("callback requirement fails");
+    let rendered = bray_messages::DiagnosticRenderer::english().render(failure);
+    assert!(rendered.message().contains("lambda() -> u32…"), "{}", rendered.message());
+    assert!(!rendered.message().contains('\n') && !rendered.message().contains("12345"));
+}
+
+#[test]
 fn conflicting_borrows_retain_callable_signatures() {
     let application = compilation(r#"
         module app;

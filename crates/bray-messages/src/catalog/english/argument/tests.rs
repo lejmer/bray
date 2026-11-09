@@ -109,7 +109,7 @@ fn argument_formatter_formats_representative_english_values() {
 
     assert_eq!(
         formatter.format_named_arg(&args, DiagnosticArgName::TokenText),
-        r#"'main\n'"#
+        "'main…'"
     );
 
     assert_eq!(

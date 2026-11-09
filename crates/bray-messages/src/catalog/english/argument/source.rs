@@ -205,6 +205,12 @@ pub(super) fn format_english_quoted_text(text: &str) -> String {
     format!("'{}'", text.escape_default())
 }
 
+pub(super) fn format_english_quoted_code(text: &str) -> String {
+    let snippet = crate::code_snippet::format_code_snippet(text);
+    let escaped = snippet.escape_debug().to_string();
+    format!("'{}'", crate::code_snippet::format_code_snippet(&escaped))
+}
+
 pub(super) fn format_english_path(path: &Path) -> String {
     path.display().to_string()
 }
