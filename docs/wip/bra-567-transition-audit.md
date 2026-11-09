@@ -26,12 +26,12 @@ control, pin and arena before vacancy. WaitResources retains leased storage thro
 
 ## Current evidence
 
-Latest semantic checkpoint07c39b6bb is pushed. Current diagnostics candidate preserves the fixed comparison:725 passed /55 failed /99 ignored, unchanged55 identities.
-All466 checker tests pass. Bound-tree133 passed before this candidate. Earlier diagnostics44, messages87, JSON48 and
+Latest pushed checkpoint:b38304217. The accepted comparison preserves the fixed comparison:725 passed /55 failed /99 ignored, unchanged55 identities.
+All467 checker tests pass. Bound-tree133 passed before this candidate. Earlier diagnostics44, messages87, JSON48 and
 readiness passed. Expanded predicates:25 passed /2 failed /2 ignored, both failures reproduce in the retainedfc4 baseline.
-Accepted native.log uses compiler07c39b6bb and runtime Source64a4e5490:165 diagnostics
-(E7123=96,E7135=45,E7119=23,E7087=1). It removes the two event/delivery escapes from the167 candidate,
-with no added identities, and18 earlier failures from the183 checkpoint. No native async composition has executed.
+Accepted native.log uses the current join candidate compiler and runtime Source64a4e5490:164 diagnostics
+(E7123=95,E7135=45,E7119=23,E7087=1). The conditional protocol join at polling226 is fixed with no added
+identities. The imported/native loop header at184 still fails although the Source production poll has no diagnostics. No native async composition has executed.
 Full transition inventory remains incomplete. No style/format has run.
 
 ## Active investigation
@@ -52,13 +52,18 @@ All32 Source/import variants pass, including owned and existing-borrow helper ch
 transport, move ordering and genuine borrowed-result/stored-reference escape controls. The raw-borrow unit fixture
 now supplies its actual second pointer input, preserving all owner/capability assertions. Fixed suite has no regression.
 The matching native build removes both delivery escapes without new diagnostics. No new dependency representation is added.
-Temporary diagnostic hooks and qualifier prototypes are removed. Only the current loop-probe remains active.
+Earlier diagnostic hooks and qualifier prototypes are removed. No standalone probes or trace hooks remain.
 
-Failure-only condition rendering now resolves InvocationInput through its actual selected input ordinal. The real
-raw-pointer CLI reproducer changed from compatible(inspect(first, second), inspect(first, second)) to
-compatible(first, second). Both Bray/C ABI variants and all seven diagnostic tests pass. No proof policy changes.
-A minimal nested branch/loop with a raw-state projection and real mutable pointee write passes. Do not infer a
-universal join bug. Next trace the actual poll body at184/226 through call input, completion and join states.
+Failure-only condition rendering resolves staged inputs by selected ordinal. All seven diagnostic tests pass.
+Actual poll trace: both predecessors of the READY/FAILED protocol join hold the same invoked claim. Renaming the
+unchanged predecessor drops it because an implicit nested field is exposed only in the joined snapshot. The owning
+result_replacements regression fails first by renaming an unchanged child, then by reducing its implicit retained
+field to Unknown. Candidate correction pins identical component observations and traverses actual retained projections
+from both snapshots, replacing source-only field/nullable cases. It adds no reconstruction or dependency construct.
+The overwritten-field control passes, all467 checker tests pass, and actual poll storage flow has no diagnostics.
+A permanent production regression selects the exact observer module/function through symbol identity. Its final build
+passes. The fixed comparison has726 passed /55 failed /99 ignored with unchanged55 identities. Matching native diagnostics
+fall165 to164, removing only polling226. All temporary trace hooks/tests are removed.
 Other false Pure promises still use raw address observations. Do not weaken checks for false promises.
 
 ## Remaining work
@@ -95,4 +100,4 @@ Five-package tooling compilation test hash a64b618a384421e7, checker0bc5fe31253c
 
 Retain frozen baseline-failures.txt67 IDs and native-baseline-identities.txt, accepted comparison.log/native.log, native intermediates and deferred-report baseline executable for two old controls.
 Keep only active build/probe logs. Delete stale task-owned logs/probes/traces by exact path after preserving evidence.
-No debug hooks remain. Git trust: public lejmer/bray, git@github.com:lejmer/bray.git, authenticated lejmer.
+Git trust: public lejmer/bray, git@github.com:lejmer/bray.git, authenticated lejmer.
