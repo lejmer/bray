@@ -1,4 +1,4 @@
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget};
+use bray_bound_tree::{BoundExpressionId, BoundReferenceTarget};
 use bray_diagnostics::{DiagnosticCondition as Condition, DiagnosticConditionProjection as Projection, DiagnosticTypeArgument};
 use bray_symbols::{AnyLocalSymbolId, AnySymbolId, ConstantProjectionKind, ConstantValueKind, GenericArgument};
 
@@ -83,9 +83,7 @@ fn symbol_path<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain<'
 }
 
 fn expression<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain<'_, '_, C>, value: BoundExpressionId) -> Condition {
-    let origin = crate::diagnostic::bound_node_origin(domain.request, AnyBoundNodeId::Expression(value))
-        .expect("condition expression belongs to the checked unit");
-    Condition::Source(domain.request.source(origin.source_anchor()).text().trim().to_owned())
+    Condition::Source(crate::diagnostic::expression_text(domain.request, value))
 }
 
 fn place<C: CheckerRequestContext + ?Sized>(

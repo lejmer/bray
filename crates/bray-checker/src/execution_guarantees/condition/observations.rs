@@ -2,6 +2,25 @@ use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::ExecutionCondition;
 
 impl ExecutionCondition {
+    /// Reading a stored reference preserves its own referent instead of rebasing it on the container.
+    pub(super) fn projected_observation(
+        kind: ObservationKind,
+        selected: Self,
+        owner: impl FnOnce() -> Self,
+    ) -> Self {
+        if kind != ObservationKind::Owned
+            && selected.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Reference)
+        {
+            return selected;
+        }
+
+        match kind {
+            ObservationKind::Owned => selected,
+            ObservationKind::Scalar => Self::scalar_observation(owner(), selected),
+            ObservationKind::Reference => Self::reference_value(owner().borrowed(), selected),
+        }
+    }
+
     /// Expires one finite evaluation while retaining independent owned snapshots.
     pub(crate) fn without_evaluation(
         &self,

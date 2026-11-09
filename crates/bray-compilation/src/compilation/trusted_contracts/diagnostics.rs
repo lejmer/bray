@@ -3,6 +3,41 @@ use bray_diagnostics::{DiagnosticArgValue, DiagnosticCondition, DiagnosticContra
 use crate::test_support::compilation;
 
 #[test]
+fn failed_conditions_name_the_complete_producer_call() {
+    let application = compilation(r#"
+        trusted module app;
+
+        struct Owner
+        {
+        }
+
+        trusted predicate live(owner: &Owner);
+
+        extern func acquire() -> Owner;
+
+        func inspect(pos owner: Owner)
+            requires(trusted live(owner = &owner))
+        {
+        }
+
+        func caller()
+        {
+            inspect(acquire());
+        }
+    "#);
+    let diagnostics = application.check_diagnostics();
+    let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
+        DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+        _ => None,
+    }).unwrap_or_else(|| panic!("{diagnostics:#?}"));
+    let DiagnosticCondition::Application { arguments, .. } = &obligation.actual else {
+        panic!("{obligation:#?}");
+    };
+
+    assert_eq!(arguments[0], DiagnosticCondition::Source("acquire()".to_owned()));
+}
+
+#[test]
 fn trusted_obligation_diagnostics_retain_the_condition_and_its_role() {
     for (role, cleanup, body) in [
         (
