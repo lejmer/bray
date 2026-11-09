@@ -50,24 +50,28 @@ contract mismatch and depth limits. Unexportable conditions have a separate diag
 execution property named "ensures". English remains in bray-messages. Fifteen exact diagnostic-code expectations changed
 from execution-property failure to postcondition failure. Validity expectations and test identities remain fixed.
 
-Current checks: fixed comparison710 passed /57 failed /99 ignored in90s, zero new failing identities against accepted57.
-Focused diagnostic and nullable-pattern Source/import regressions pass. JSON45 pass. Checker464, diagnostics44 pass. Messages84 pass.
+Current checks: fixed comparison712 passed /57 failed /99 ignored in90s, zero new failing identities against accepted57.
+Focused diagnostic and nullable-pattern Source/import regressions pass. JSON45 pass. Checker465, diagnostics44 pass. Messages84 pass.
 The expanded certificate suite is127/7/2. Its seven remaining proof/validity failures are not waived or claimed passing.
 Source async fixture and three invalid controls remain in the comparison. Bound133/interface216 previously passed and
 are unchanged by diagnostic work. No native composition has executed.
 
-Latest native brayc/xtask and std bundle represent6d2c96315 code. Standard-library planning/emission pass.
-Bootstrap209: E7119=28, E7135=64, E7123=106, E7035=4, E7036=4, E7113=2, E7087=1. Zero new failing locations.
-The three repaired moved-storage locations and duplicate cleanup diagnostic are absent.
+Latest native brayc/xtask and std bundle represent912701e45 code. Standard-library planning/emission pass.
+Bootstrap202: E7119=28, E7135=61, E7123=106, E7036=4, E7113=2, E7087=1. Zero E7035 and zero new failing locations.
+The descriptor-retirement failure class and three dependent postconditions are repaired.
 PatternBinding completion now retains its observed subject through condition scope exit. Source/import tests cover
 borrowed nullable fields and callable projections, nested returned-owner projections and invalid local-owner escape.
-The real minimal CLI reproduced E7035 before the repair. Four scheduler reads still fail after the first read consumes
-the same descriptor. Current WIP deletes projected_borrow_value: a place does not own its receiver descriptor. Consumers
+The real minimal CLI reproduced E7035 before the repair. Checkpoint912701e45 deletes projected_borrow_value: a place does not own its receiver descriptor. Consumers
 retire only the operand's registered produced output. The strengthened short-circuit/repeated-use test passes Source/import,
-checker464 and comparison710/57/99 with zero new identities. Native refresh is pending.
-An independent small guarded-lease composition reproduces the remaining predicate loss as ().active. Shared/mutable
-receivers, presence/absence of execution properties and direct/factory construction all reproduce it. Keep only the active
-guard-composition.bray reproduction until it becomes a regression. No guard implementation change has been made. The two escape errors borrow execution before transferring it into
+checker465 and comparison710/57/99 with zero new identities. Native verification confirms all moved-storage errors gone.
+Stored-reference projection preserves the selected reference's own identity through both physical and logical
+projection routes, sharing one projected_observation rule. Owned fields reached through a borrow remain Reference.
+The owning law passes in checker465. The guarded Source/import composition passes, including runtime-checked ordinary
+precondition continuation and rejection of a producer without the trusted ownership guarantee. Producer source text
+includes call children, so acquire() is no longer displayed as (). Its diagnostic regression passes.
+Comparison712/57/99 in89s has zero new failing identities. Native refresh for this batch remains pending.
+All temporary hooks, traces and Source probes are removed. The permanent regressions retain required evidence.
+ The two escape errors borrow execution before transferring it into
 creation. Native191122aaf identity baseline remains frozen in native-baseline-identities.txt.
 
 Retain frozen baseline-failures.txt and native-baseline-identities.txt, current compact comparison.log/native.log, native

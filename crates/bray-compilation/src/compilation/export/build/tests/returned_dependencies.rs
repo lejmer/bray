@@ -3,6 +3,107 @@ use crate::test_support::source_function_body_key;
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
 
 #[test]
+fn guarded_borrowed_fields_compose_through_construction_and_calls() {
+    let api = r#"
+        trusted module api;
+
+        struct Marker
+        {
+        }
+
+        struct Lease
+        {
+            marker: Marker;
+            active: bool;
+
+            trusted destruct()
+                requires(trusted live(owner = &self.marker))
+            {
+            }
+        }
+
+        trusted predicate live(owner: &Marker);
+
+        trusted extern func acquire() -> Lease
+            ensures(trusted live(owner = &result.marker));
+
+        extern func unproven() -> Lease;
+
+        struct Anchor
+        {
+            lease: &Lease;
+        }
+
+        predicate access(owner: &Anchor) = owner.lease.active && live(owner = &owner.lease.marker);
+
+        trusted func anchor(pos lease: &Lease) -> Anchor
+            requires(lease.active, trusted live(owner = &lease.marker))
+            ensures(trusted live(owner = &lease.marker), trusted access(owner = &result))
+            executes(pure, total)
+        {
+            return
+            {
+                lease = lease
+            };
+        }
+
+        trusted func inspect(pos owner: &mut Anchor)
+            requires(trusted access(owner = &owner))
+            ensures(trusted access(owner = &owner))
+        {
+        }
+
+    "#;
+    let provider = compilation(api);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for imported in [false, true] {
+        let prefix = if imported { "example.package.api" } else { "api" };
+
+        for (producer, guarded, valid) in [("acquire", true, true), ("acquire", false, true), ("unproven", true, false)] {
+            let guard = if guarded {
+                r#"
+                    if !lease.active
+                    {
+                        return;
+                    }
+                "#
+            } else {
+                ""
+            };
+            let caller = format!(r#"
+                module app;
+
+                using {prefix};
+
+                func caller()
+                {{
+                    let lease = trusted {prefix}.{producer}();
+                    {guard}
+                    let mut audit_lease_anchor = trusted {prefix}.anchor(&lease);
+                    trusted {prefix}.inspect(&mut audit_lease_anchor);
+                }}
+            "#);
+            let consumer = if imported {
+                execution_consumer(&provider, &caller)
+            } else {
+                compilation_from_sources([api, caller.as_str()])
+            };
+            let checked = consumer.lowered_unit(source_function_body_key(&consumer, "caller"))
+                .expect("guarded borrowed constructor retains its checked Source body");
+
+            assert_eq!(!checked.diagnostics().has_errors(), valid,
+                "imported={imported}, producer={producer}, guarded={guarded}: {:?}", checked.diagnostics());
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}
+
+#[test]
 fn observed_nullable_patterns_keep_their_subject_until_scope_exit() {
     let api = r#"
         trusted module api;

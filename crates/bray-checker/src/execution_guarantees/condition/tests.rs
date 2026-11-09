@@ -5,6 +5,28 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[test]
+fn projecting_a_stored_reference_preserves_its_independent_referent() {
+    let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+    let field = bray_symbols::StructFieldSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let physical = bray_bound_tree::StorageProjection::ProductField(field);
+    let logical = ConstantProjectionKind::ProductField(field);
+
+    for selected in [input(1).borrowed(), ExecutionCondition::reference_value(input(2).borrowed(), input(1))] {
+        let contents = ExecutionCondition::constructed(input(0), Arc::from([(physical, selected.clone())]));
+        let container = ExecutionCondition::reference_value(input(0).borrowed(), contents);
+
+        assert_eq!(container.clone().project(physical), selected);
+        assert_eq!(container.component(logical), selected);
+        assert_eq!(selected.ownership_identity().map(|(kind, _)| kind), Some(crate::execution_guarantees::ExecutionObservationKind::Reference));
+    }
+
+    let owned = ExecutionCondition::constructed(input(0), Arc::from([(physical, input(1))]));
+    let view = ExecutionCondition::reference_value(input(0).borrowed(), owned);
+
+    assert_eq!(view.component(logical).ownership_identity().map(|(kind, _)| kind), Some(crate::execution_guarantees::ExecutionObservationKind::Reference));
+}
+
+#[test]
 fn copy_proof_correlations_preserve_borrowed_storage_identity() {
     let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
     let substitution = crate::test_support::callable_instance(definition.into()).substitution();

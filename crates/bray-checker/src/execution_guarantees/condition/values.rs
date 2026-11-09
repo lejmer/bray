@@ -464,12 +464,7 @@ impl ExecutionCondition {
         if let Self::Observation { owner, contents, kind } = self {
             let selected = contents.as_ref().clone().project(projection);
 
-            return match kind {
-                ObservationKind::Owned => selected,
-                ObservationKind::Scalar if selected.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Reference) => selected,
-                ObservationKind::Scalar => Self::scalar_observation(owner.as_ref().clone().project(projection), selected),
-                ObservationKind::Reference => Self::reference_value(owner.as_ref().clone().project(projection).borrowed(), selected),
-            };
+            return Self::projected_observation(kind, selected, || owner.as_ref().clone().project(projection));
         }
 
         if let Self::Borrowed(value) = self {
@@ -530,12 +525,7 @@ impl ExecutionCondition {
             Self::Observation { owner, contents, kind } => {
                 let selected = contents.as_ref().clone().component(projection);
 
-                match kind {
-                    ObservationKind::Owned => selected,
-                    ObservationKind::Scalar if selected.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Reference) => selected,
-                    ObservationKind::Scalar => Self::scalar_observation(owner.as_ref().clone().component(projection), selected),
-                    ObservationKind::Reference => Self::reference_value(owner.as_ref().clone().component(projection).borrowed(), selected),
-                }
+                Self::projected_observation(kind, selected, || owner.as_ref().clone().component(projection))
             }
             Self::Borrowed(value) => value.as_ref().clone().component(projection).borrowed(),
             Self::Tagged(_, value) => value.as_ref().clone().component(projection),

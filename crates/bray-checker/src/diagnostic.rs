@@ -162,6 +162,26 @@ where
     source_span(request, expression.origin())
 }
 
+/// Returns the source expression, including children whose origins precede a postfix operation.
+pub(crate) fn expression_text<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>, expression: BoundExpressionId,
+) -> String {
+    let mut span = expression_span(request, expression);
+    let mut pending = vec![expression];
+
+    while let Some(expression) = pending.pop() {
+        let child_span = expression_span(request, expression);
+        assert_eq!(span.source_id(), child_span.source_id(), "a source expression and its children belong to one snapshot");
+        span = SourceSpan::new(span.source_id(), span.range().cover(child_span.range()));
+        pending.extend(request.view().expression(expression)
+            .expect("diagnostic expression belongs to the checked unit").child_expressions());
+    }
+
+    request.source(request.unit().key().source()).text_for_range(span.range())
+        .expect("a diagnostic expression lies within its checked source unit")
+        .trim().to_owned()
+}
+
 pub(crate) fn bound_node_origin<C>(
     request: CheckerUnitView<'_, C>,
     node: AnyBoundNodeId,
