@@ -97,7 +97,7 @@ The command can also display build progress. The item starts with one unit, and 
 
 As in Rust, `let mut oats` permits mutation through the binding, and `&mut oats` gives `add` exclusive mutable access.
 Bray also requires `mut quantity` on the field. The immutable `name` field cannot be replaced after initialization,
-even through a mutable `Item`. The shared borrow passed to `find` lets it inspect the item without taking ownership.
+even through a mutable `Item`.
 
 Bray uses `func` for functions. Parameters are named at the call site by default. The `pos` on `item` permits a
 positional argument, so the call is `add(&mut oats, amount = 2)`. A `pos` parameter can also be passed by name. A
@@ -164,6 +164,7 @@ internal func low(pos item: &Item) -> bool
 
 Run `bray run` again. The application still prints `Stock is ready`.
 
+The shared borrow passed to `find` lets it inspect the item without taking ownership.
 `find` returns `(&Item)?`: a nullable borrow. The parentheses matter here. The borrow is the value that may be absent.
 Returning `item` supplies a present value; `none` supplies an absent value. The `if let ?item` condition binds the
 borrow only when the lookup succeeds. That borrow cannot outlive the item it refers to.
