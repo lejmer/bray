@@ -375,7 +375,7 @@ In Rust, moving code into a separate crate involves updating Cargo dependencies 
 
 ### Create the library
 
-Create the directories `stock/src` and `checks` under the workspace root.
+Create the directories `stock/src` and `tests` under the workspace root.
 
 Move:
 
@@ -538,7 +538,7 @@ Replace the root `bray-package.json` with:
 }
 ```
 
-Our `application` product remains an executable, but now explicitly depends on the `stock` package's `inventory` library product. We've also introduced a `checks` test product. We'll use that shortly, once we're done configuring our increasingly sophisticated oat-management infrastructure.
+Our `application` product remains an executable, but now explicitly depends on the `stock` package's `inventory` library product. We've also introduced a `tests` test product. We'll use that shortly, once we're done configuring our increasingly sophisticated oat-management infrastructure.
 
 ### Update the application
 
@@ -644,7 +644,7 @@ In short, Bray lets you depend on implementation details, but insists that you a
 
 We have an inventory system that adds stock and determines whether it's low. So far, we've verified its behavior by repeatedly running the executable and inspecting the output like responsible programmers from 1978. Let's automate that.
 
-Rust uses `#[test]` to mark test functions. Bray uses `@test` and a dedicated test product. The `checks` product we added to the package manifest selects the `checks` source root and depends on the same inventory library as the application.
+Rust uses `#[test]` to mark test functions. Bray uses `@test` and a dedicated test product. The `tests` product we added to the package manifest selects the `tests` source root and depends on the same inventory library as the application.
 
 Create `tests/inventory.bray`:
 
