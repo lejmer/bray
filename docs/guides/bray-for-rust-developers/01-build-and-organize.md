@@ -7,8 +7,9 @@ stops making sense, it would rather bray than budge.
 In this guide, we will build a small pantry inventory, split it into modules, and move the inventory into a library package.
 The program adds stock, looks up an item, and prints whether its quantity is low.
 
-We assume you know Rust functions, structs, `Option`, `Result`, ownership and borrowing, modules, and Cargo packages.
-You do not need prior Bray experience. We will start with familiar Rust ideas and introduce Bray where the rules change.
+We assume you know your way around Rust, including things like functions, structs, optional values, errors as values,
+and ownership and borrowing. You don't need to know any Bray yet. We'll start with what you already know and take a
+closer look wherever Bray does things differently.
 
 You need an installed Bray toolchain with `bray` on your path and support for your native target. The examples use a
 shell and a synchronous executable. Run commands from the project directory unless a step says otherwise.
@@ -22,9 +23,9 @@ bray init pantry --package pantry
 cd pantry
 ```
 
-The command creates `bray-workspace.json`, `bray-package.json`, and `src/main.bray`. The workspace manifest lists the
-packages and targets. The package manifest describes the package's source roots and products. A product is an output
-such as an executable, library, or test program.
+You now have `bray-workspace.json`, `bray-package.json`, and `src/main.bray`. The workspace manifest lists your
+packages and targets. The package manifest describes where its source lives and which products to build. A product can
+be an executable, a library, or a test program.
 
 Run the generated application:
 
@@ -97,7 +98,8 @@ The application prints:
 Stock is ready
 ```
 
-The command can also display build progress. The item starts with one unit, and `add` adds two, so its quantity is three.
+You may also see build progress. We started with one unit of oats and added two, so the quantity is three. Our pantry
+is off to a modest start.
 
 As in Rust, `let mut oats` permits mutation through the binding, and `&mut oats` gives `add` exclusive mutable access.
 Bray also requires `mut quantity` on the field. The immutable `name` field cannot be replaced after initialization,
@@ -115,8 +117,8 @@ ends with a comma. The opening brace goes on the next line. Bray may be stubborn
 In Rust, a lookup might return `Option<&Item>`, and a fallible print operation might return a `Result`. Bray separates
 these two cases too, but their propagation operators differ.
 
-Our first version explicitly discards the result of `print_line` with `_ =`. That acknowledges an unused value; it does
-not handle a printing error. Now we will return the error to the caller instead.
+Our first version discards the result of `print_line` with `_ =`. That tells Bray we meant to ignore the result, so we
+won't find out if printing fails. Let's return the error to the caller instead.
 
 Replace the `main` function in `src/main.bray` with:
 
@@ -251,18 +253,18 @@ func main() -> Result<unit, std.io.IoError>
 }
 ```
 
-Run `bray run`. The output remains `Stock is ready`.
+Run `bray run`. Our oats are still ready, and the output is still `Stock is ready`.
 
 `using inventory;` declares the dependency on the other logical module. We still write `inventory.Item` and
-`inventory.add`. Writing the qualified path alone does not replace `using`.
+`inventory.add`. Bray wants both the dependency and the qualified path.
 
 Bray declarations are public by default where visibility applies. `Item`, `add`, and `find` need no `pub` spelling.
 `low` is `internal`, but `app` and `inventory` belong to the same package. Code in that package can access `low`
 without an internal-use acknowledgment. The `using inventory;` dependency is still required.
 
-`internal` is not a private access barrier: a consuming package can use the declaration when it acknowledges the
-internal path. Treat that acknowledgment as a visible decision to depend on an internal detail, not as a promise that the detail
-is part of a stable public API. Acknowledging one path does not grant access to unrelated internal declarations.
+`internal` doesn't make a declaration private. A consuming package can use it by acknowledging the internal path.
+That acknowledgment makes the dependency visible, but it doesn't turn an internal detail into a stable public API.
+Acknowledging one path doesn't grant access to unrelated internal declarations.
 
 ## Move the inventory into a library package
 
@@ -329,8 +331,8 @@ Create `stock/bray-package.json`:
 }
 ```
 
-The workspace owns both package directories. `vendored` identifies `stock` as a workspace dependency; it does not
-fetch anything. Its package identity is `stock`, and its library product is `inventory`.
+The workspace owns both package directories. The `vendored` role identifies `stock` as a workspace dependency. Bray
+doesn't fetch it for us; we just created it. Its package identity is `stock`, and its library product is `inventory`.
 
 Replace the root `bray-package.json` with the following. It gives the application an explicit dependency on that library
 and adds a test product for the next step:
