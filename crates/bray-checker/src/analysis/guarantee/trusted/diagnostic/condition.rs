@@ -144,8 +144,8 @@ fn place<C: CheckerRequestContext + ?Sized>(
             let identity = domain.storage.identity(*storage).expect("condition storage is planned");
             if let Some(rebound) = ExecutionPlace::storage_identity(domain.storage, *storage).filter(|other| other.root != value.root) {
                 place(domain, &rebound, budget)?
-            } else if let Some(producer) = identity.definition_occurrence().and_then(bray_bound_tree::BoundExecutionSite::expression) {
-                expression(domain, producer, budget)?
+            } else if let Some(producer) = identity.definition_occurrence() {
+                occurrence(domain, producer, budget)?
             } else {
                 Condition::Unknown
             }
@@ -157,6 +157,34 @@ fn place<C: CheckerRequestContext + ?Sized>(
     }
 
     Ok(result)
+}
+
+fn occurrence<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, site: bray_bound_tree::BoundExecutionSite, budget: &mut usize,
+) -> Outcome<C> {
+    let source = match site {
+        bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } => {
+            let input = domain.semantics.selections().expression(expression)
+                .expect("diagnostic invocation retains its checked selection")
+                .input(ordinal).expect("diagnostic input retains its selected ordinal");
+
+            match input.expression() {
+                Some(source) => source,
+                None => {
+                    let bray_symbols::DependencySubjectRoot::Parameter(ordinal) = input.root() else {
+                        panic!("a declaration-owned default belongs to a formal parameter");
+                    };
+                    return Ok(Condition::Argument(ordinal.raw()));
+                }
+            }
+        }
+        _ => match site.expression() {
+            Some(source) => source,
+            None => return Ok(Condition::Unknown),
+        },
+    };
+
+    expression(domain, source, budget)
 }
 
 fn projection_value<C: CheckerRequestContext + ?Sized>(
