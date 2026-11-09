@@ -84,6 +84,7 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/checking/overload.rs",
     "output/diagnostic/json/checking/selection.rs",
     "output/diagnostic/json/checking/trait_mismatch.rs",
+    "output/diagnostic/json/contract.rs",
     "output/diagnostic/json/emission.rs",
     "output/diagnostic/json/emission/context.rs",
     "output/diagnostic/json/emission/failure.rs",

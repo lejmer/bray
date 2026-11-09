@@ -19,7 +19,7 @@ pub(in crate::analysis) struct TrustedChecks {
         bray_bound_tree::BoundExecutionSite,
         Option<ExecutionCondition>,
     )>,
-    cleanup_failures: BTreeSet<(AnyBoundNodeId, bray_symbols::CallableInstanceData, crate::UnprovenExecutionCondition)>,
+    cleanup_failures: BTreeMap<(AnyBoundNodeId, bray_symbols::CallableInstanceData), crate::UnprovenExecutionCondition>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<Option<crate::UnprovenExecutionCondition>>,
     pub(super) owned_returns: Vec<super::owned::OwnedReturn>,
@@ -107,7 +107,7 @@ impl TrustedChecks {
         proof: &Result<(), crate::UnprovenExecutionCondition>,
     ) {
         if !lifecycle.contract.requirements.is_empty() && let Err(failure) = proof {
-            self.cleanup_failures.insert((node, lifecycle.call.callable, failure.clone()));
+            self.cleanup_failures.entry((node, lifecycle.call.callable)).or_insert_with(|| failure.clone());
         }
     }
 
@@ -254,7 +254,7 @@ impl TrustedChecks {
             )?);
         }
 
-        for (node, callable, failure) in self.cleanup_failures {
+        for ((node, callable), failure) in self.cleanup_failures {
             diagnostics.add(super::diagnostic::failed_obligation(
                 domain, node, DiagnosticKind::CheckingTrustedObligationNotProven,
                 bray_diagnostics::DiagnosticContractObligationKind::CleanupRequirement,
