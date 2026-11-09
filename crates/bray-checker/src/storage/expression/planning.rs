@@ -525,7 +525,11 @@ where
                         purpose
                     };
 
-                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion, *operand, consumption);
+                    // Observed pattern bindings remain views into the subject through
+                    // their condition scope. Testing the pattern does not consume it.
+                    if kind != BoundStructuredExpressionKind::PatternBinding {
+                        self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion, *operand, consumption);
+                    }
                 }
 
                 // The immutable node is cloned so recursive planning can mutably advance

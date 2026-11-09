@@ -3,6 +3,100 @@ use crate::test_support::source_function_body_key;
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
 
 #[test]
+fn observed_nullable_patterns_keep_their_subject_until_scope_exit() {
+    let api = r#"
+        trusted module api;
+
+        callable Callback = func(pos value: usize) -> usize;
+
+        struct Payload
+        {
+            value: usize;
+            callback: Callback;
+        }
+
+        struct Container
+        {
+            payload: Payload?;
+        }
+
+        trusted func select(pos owner: &(Payload?)) -> &(Payload?)
+        {
+            return owner;
+        }
+
+        trusted func container(pos owner: &Container) -> &Container
+        {
+            return owner;
+        }
+    "#;
+    let provider = compilation(api);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for imported in [false, true] {
+        let prefix = if imported { "example.package.api" } else { "api" };
+        let caller = format!(r#"
+            module app;
+
+            using {prefix};
+
+            func project(pos owner: &({prefix}.Payload?)) -> usize
+            {{
+                if let ?binding = trusted {prefix}.select(owner)
+                {{
+                    return binding.callback(binding.value);
+                }}
+
+                return 0;
+            }}
+
+            func nested(pos owner: &{prefix}.Container) -> usize
+            {{
+                if let ?binding = (trusted {prefix}.container(owner)).payload
+                {{
+                    return binding.callback(binding.value);
+                }}
+
+                return 0;
+            }}
+
+            func escaping(pos callback: {prefix}.Callback) -> (&{prefix}.Payload)?
+            {{
+                let owner: {prefix}.Payload? =
+                {{
+                    value = 42,
+                    callback = callback
+                }};
+
+                if let ?binding = trusted {prefix}.select(&owner)
+                {{
+                    return &binding;
+                }}
+
+                return none;
+            }}
+        "#);
+        let consumer = if imported {
+            execution_consumer(&provider, &caller)
+        } else {
+            compilation_from_sources([api, caller.as_str()])
+        };
+
+        for name in ["project", "nested", "escaping"] {
+            let checked = consumer.lowered_unit(source_function_body_key(&consumer, name))
+                .expect("nullable pattern retains its checked Source body");
+
+            if name == "escaping" {
+                bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency);
+            } else {
+                assert!(!checked.diagnostics().has_errors(), "{name}, imported={imported}: {:?}", checked.diagnostics());
+            }
+        }
+    }
+}
+
+#[test]
 fn borrowed_call_projections_outlive_their_retired_descriptors() {
     let api = r#"
         trusted module api;

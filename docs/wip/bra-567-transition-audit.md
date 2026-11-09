@@ -50,16 +50,18 @@ contract mismatch and depth limits. Unexportable conditions have a separate diag
 execution property named "ensures". English remains in bray-messages. Fifteen exact diagnostic-code expectations changed
 from execution-property failure to postcondition failure. Validity expectations and test identities remain fixed.
 
-Current checks: fixed comparison709 passed /57 failed /99 ignored in90s, zero new failing identities against accepted57.
-Nine focused diagnostic regressions pass. Checker464, diagnostics44 pass. Messages84 pass.
+Current checks: fixed comparison710 passed /57 failed /99 ignored in90s, zero new failing identities against accepted57.
+Focused diagnostic and nullable-pattern Source/import regressions pass. JSON45 pass. Checker464, diagnostics44 pass. Messages84 pass.
 The expanded certificate suite is127/7/2. Its seven remaining proof/validity failures are not waived or claimed passing.
 Source async fixture and three invalid controls remain in the comparison. Bound133/interface216 previously passed and
 are unchanged by diagnostic work. No native composition has executed.
 
-Shared native brayc/xtask and std bundle still represent846a110b9, prior to diagnostics. That native run passes standard-
-library planning/emission, then bootstrap fails with212 diagnostics: E7119=92, E7123=106, E7035=7, E7036=4, E7113=2,
-E7087=1. Rebuild before inspecting current diagnostics. Remaining moved-storage errors alias retired nullable pattern
-payloads in execution/entry_scope and scheduler/lane. The two escape errors borrow execution before transferring it into
+Latest native brayc/xtask and std bundle include6f6237a5b plus JSON transport. Standard-library planning/emission pass.
+Bootstrap213: E7119=28, E7135=64, E7123=107, E7035=7, E7036=4, E7113=2, E7087=1. Its normalized failing code/location
+identities equal846a110b9. One duplicate cleanup diagnostic explains the additional count and is repaired in current WIP.
+PatternBinding completion now retains its observed subject through condition scope exit. Source/import tests cover
+borrowed nullable fields and callable projections, nested returned-owner projections and invalid local-owner escape.
+The real minimal CLI reproduced E7035 before the repair. Current native verification of the repair is pending. The two escape errors borrow execution before transferring it into
 creation. Native191122aaf identity baseline remains frozen in native-baseline-identities.txt.
 
 Retain frozen baseline-failures.txt and native-baseline-identities.txt, current compact comparison.log/native.log, native
