@@ -117,6 +117,18 @@ pub enum DiagnosticConditionProjection {
 pub enum DiagnosticExecutionProofFailure {
     /// A checked operation does not establish the requested promise.
     Unproven,
+    /// A reachable loop lacks an established termination proof.
+    UnboundedLoop,
+    /// A reachable operation can leave through panic.
+    Panic,
+    /// A reachable operation can cancel the current run.
+    Cancellation,
+    /// A reachable path does not return normally.
+    NonReturningPath,
+    /// Checked control flow contains recovery.
+    Recovery,
+    /// An operation changes pre-existing state.
+    InputMutation,
     /// A required callable has source-checking errors.
     DependencyErrors,
     /// A dependency has no checked evidence for the requested contract.

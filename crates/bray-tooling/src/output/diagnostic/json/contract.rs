@@ -29,6 +29,12 @@ impl ContractObligationJson {
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub(super) enum ExecutionProofFailureJson {
     Unproven,
+    UnboundedLoop,
+    Panic,
+    Cancellation,
+    NonReturningPath,
+    Recovery,
+    InputMutation,
     DependencyErrors,
     MissingEvidence,
     ContractMismatch,
@@ -40,6 +46,12 @@ impl ExecutionProofFailureJson {
     pub(super) const fn from_failure(value: DiagnosticExecutionProofFailure) -> Self {
         match value {
             DiagnosticExecutionProofFailure::Unproven => Self::Unproven,
+            DiagnosticExecutionProofFailure::UnboundedLoop => Self::UnboundedLoop,
+            DiagnosticExecutionProofFailure::Panic => Self::Panic,
+            DiagnosticExecutionProofFailure::Cancellation => Self::Cancellation,
+            DiagnosticExecutionProofFailure::NonReturningPath => Self::NonReturningPath,
+            DiagnosticExecutionProofFailure::Recovery => Self::Recovery,
+            DiagnosticExecutionProofFailure::InputMutation => Self::InputMutation,
             DiagnosticExecutionProofFailure::DependencyErrors => Self::DependencyErrors,
             DiagnosticExecutionProofFailure::MissingEvidence => Self::MissingEvidence,
             DiagnosticExecutionProofFailure::ContractMismatch => Self::ContractMismatch,
@@ -167,5 +179,10 @@ mod tests {
         assert_eq!(json["reason"], "depth_limit");
         assert_eq!(json["depth"], 129);
         assert_eq!(json["limit"], 128);
+
+        let json = serde_json::to_value(ExecutionProofFailureJson::from_failure(
+            DiagnosticExecutionProofFailure::UnboundedLoop,
+        )).expect("termination failure JSON serializes");
+        assert_eq!(json["reason"], "unbounded_loop");
     }
 }

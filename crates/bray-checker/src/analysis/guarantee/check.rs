@@ -1,3 +1,4 @@
+use bray_diagnostics::DiagnosticExecutionProofFailure as FailureCause;
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
@@ -458,7 +459,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
             }
 
             if !preserves {
-                record_failure(request, candidate, node);
+                record_failure(request, candidate, node, FailureCause::Unproven);
             }
 
             if let Some(current) = &mut state {
@@ -554,21 +555,27 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
             .iter()
             .filter(|exit| reachable.is_block_reachable(exit.block()))
         {
-            if matches!(
-                exit.kind(),
-                AnalysisExitKind::Cancellation
-                    | AnalysisExitKind::Divergence
-                    | AnalysisExitKind::Recovery
-            ) || exit.kind() == AnalysisExitKind::Panic && !internal
-            {
-                record_failure(request, candidate, request.unit().root().into());
-            }
+            let cause = match exit.kind() {
+                AnalysisExitKind::Cancellation => FailureCause::Cancellation,
+                AnalysisExitKind::Divergence => {
+                    let loop_exit = matches!(exit.node(), AnyBoundNodeId::Expression(expression)
+                        if matches!(request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Structured(value))
+                            if value.kind() == bray_bound_tree::BoundStructuredExpressionKind::Loop));
+                    if loop_exit { FailureCause::UnboundedLoop } else { FailureCause::NonReturningPath }
+                }
+                AnalysisExitKind::Recovery => FailureCause::Recovery,
+                AnalysisExitKind::Panic if !internal => FailureCause::Panic,
+                _ => continue,
+            };
+            record_failure(request, candidate, exit.node(), cause);
         }
 
-        if cycles.iter().any(|(edge, _)| {
+        if let Some((edge, _)) = cycles.iter().find(|(edge, _)| {
             !bounded_loops.contains_key(&edge.target()) && !finite_loops.contains(&edge.target())
         }) {
-            record_failure(request, candidate, request.unit().root().into());
+            let expression = graph.loop_expression(edge.target())
+                .expect("a cyclic edge targets its producer-owned loop header");
+            record_failure(request, candidate, expression.into(), FailureCause::UnboundedLoop);
         }
     }
 }
@@ -701,12 +708,13 @@ fn record_failure<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     candidate: &mut ExecutionCandidate,
     node: AnyBoundNodeId,
+    cause: FailureCause,
 ) {
     if candidate.failure.is_some() {
         return;
     }
 
-    candidate.failure = Some(node_span(request, node));
+    candidate.failure = Some(crate::ExecutionVerificationFailure { source: node_span(request, node), cause });
 }
 
 fn check_postconditions<C: CheckerRequestContext + ?Sized>(
@@ -717,7 +725,7 @@ fn check_postconditions<C: CheckerRequestContext + ?Sized>(
     if let Some(source) =
         super::postcondition::unproven_postconditions(flow, postconditions).first()
     {
-        candidate.failure.get_or_insert(*source);
+        candidate.failure.get_or_insert(crate::ExecutionVerificationFailure { source: *source, cause: FailureCause::Unproven });
     }
 }
 

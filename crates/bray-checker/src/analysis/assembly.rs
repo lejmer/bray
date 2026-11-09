@@ -16,6 +16,7 @@ pub(super) struct ControlFlowGraphAssembler {
     edges: Vec<AnalysisEdge>,
     operations: Vec<AnalysisOperation>,
     exits: Vec<AnalysisExit>,
+    loop_expressions: std::collections::BTreeMap<AnalysisBlockId, bray_bound_tree::BoundExpressionId>,
     report_boundary: Option<bray_bound_tree::BoundExpressionId>,
     report_parents: std::collections::BTreeMap<
         bray_bound_tree::BoundExpressionId,
@@ -31,6 +32,7 @@ impl ControlFlowGraphAssembler {
             edges: Vec::new(),
             operations: Vec::new(),
             exits: Vec::new(),
+            loop_expressions: std::collections::BTreeMap::new(),
             report_boundary: None,
             report_parents: std::collections::BTreeMap::new(),
         }
@@ -44,6 +46,12 @@ impl ControlFlowGraphAssembler {
         self.blocks.push((self.report_boundary, Vec::new()));
 
         id
+    }
+
+    pub(super) fn push_loop_header(&mut self, expression: bray_bound_tree::BoundExpressionId) -> AnalysisBlockId {
+        let header = self.push_block();
+        self.loop_expressions.insert(header, expression);
+        header
     }
 
     pub(super) fn replace_report_boundary(
@@ -250,12 +258,12 @@ impl ControlFlowGraphAssembler {
             .push(AnalysisEdge::new(id, source, target, kind, refinement));
     }
 
-    pub(super) fn push_exit(&mut self, block: AnalysisBlockId, kind: AnalysisExitKind) {
+    pub(super) fn push_exit(&mut self, block: AnalysisBlockId, kind: AnalysisExitKind, node: AnyBoundNodeId) {
         let exit = self.push_block();
         let edge = exit_edge_kind(kind);
 
         self.push_edge(block, exit, edge, None);
-        self.exits.push(AnalysisExit::new(exit, kind));
+        self.exits.push(AnalysisExit::new(exit, kind, node));
     }
 
     pub(super) fn finish(self, entry: AnalysisBlockId) -> ControlFlowGraph {
@@ -306,6 +314,7 @@ impl ControlFlowGraphAssembler {
             self.edges,
             self.operations,
             self.exits,
+            self.loop_expressions,
         )
         .with_report_parents(self.report_parents)
     }
@@ -397,7 +406,7 @@ mod tests {
                     Some((expression, result)),
                 );
 
-                assembler.push_exit(end, AnalysisExitKind::Return);
+                assembler.push_exit(end, AnalysisExitKind::Return, expression.into());
 
                 let graph = assembler.finish(entry);
 

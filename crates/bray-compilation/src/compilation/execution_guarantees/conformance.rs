@@ -89,7 +89,7 @@ impl Compilation {
 
                 if let Some(source) = source {
                     diagnostics.add(super::failure::guarantee_diagnostic(
-                        obligation, source, super::failure::ExecutionVerificationFailure {
+                        obligation, source, bray_checker::ExecutionVerificationFailure {
                             source, cause: bray_diagnostics::DiagnosticExecutionProofFailure::ContractMismatch,
                         },
                     ));
@@ -515,7 +515,7 @@ mod tests {
             ),
             (
                 "executes(pure, total)",
-                "panic(1);",
+                r#"panic("failure");"#,
                 "return &mut storage.value;",
                 false,
             ),

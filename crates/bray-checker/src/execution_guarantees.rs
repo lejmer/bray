@@ -26,7 +26,7 @@ pub use model::{
     DeclaredExecutionProperty, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionDeclaration, ExecutionDependency,
-    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation,
+    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionVerificationFailure,
 };
 pub(crate) use normalize::{
     condition_literals, construction_condition, expression_condition, expression_place,

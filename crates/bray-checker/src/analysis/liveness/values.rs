@@ -303,7 +303,7 @@ mod tests {
         graph.push_operation(selected, AnalysisOperationKind::Result { expression: *result, phase: AnalysisResultPhase::Production });
         graph.push_edge(selected, publication, AnalysisEdgeKind::Sequential, None);
         graph.push_operation(publication, AnalysisOperationKind::Result { expression: *result, phase: AnalysisResultPhase::Completion });
-        graph.push_exit(publication, AnalysisExitKind::NormalFallthrough);
+        graph.push_exit(publication, AnalysisExitKind::NormalFallthrough, (*result).into());
         let graph = graph.finish(entry);
         let retention = ValueRetention::prepare(&graph, &bound, &storage, &semantics, &|| false)
             .expect("finite fixture retention converges");

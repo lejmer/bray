@@ -485,7 +485,7 @@ where
             current
         };
 
-        let header = self.push_block();
+        let header = self.storage.push_loop_header(id);
         let item = self.push_block();
         let exhausted = self.push_block();
 
@@ -671,7 +671,7 @@ where
         target: SyntaxAnchor,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        let header = self.push_block();
+        let header = self.storage.push_loop_header(id);
         let body_entry = self.push_block();
         let exhausted = self.push_block();
         let join = self.push_block();
@@ -740,7 +740,7 @@ where
         target: SyntaxAnchor,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        let header = self.push_block();
+        let header = self.storage.push_loop_header(id);
         let body_entry = self.push_block();
         let join = self.push_block();
 

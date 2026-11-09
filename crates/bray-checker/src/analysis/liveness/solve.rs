@@ -591,7 +591,7 @@ mod tests {
                 previous = block;
             }
 
-            graph.push_exit(previous, AnalysisExitKind::NormalFallthrough);
+            graph.push_exit(previous, AnalysisExitKind::NormalFallthrough, unit.root().into());
 
             let graph = graph.finish(entry);
             let storage = storage.finish();
