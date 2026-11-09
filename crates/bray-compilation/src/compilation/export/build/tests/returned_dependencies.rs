@@ -3,6 +3,99 @@ use crate::test_support::source_function_body_key;
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
 
 #[test]
+fn borrowed_call_projections_outlive_their_retired_descriptors() {
+    let api = r#"
+        trusted module api;
+
+        using core.memory;
+
+        struct Marker
+        {
+        }
+
+        struct Payload
+        {
+            marker: Marker;
+        }
+
+        struct Owner
+        {
+            pointer: DataPointer<Payload>;
+        }
+
+        trusted predicate held(owner: &Owner);
+        trusted predicate live(marker: &Marker);
+
+        trusted func borrow_payload(pos owner: &Owner) -> &Payload
+            requires(trusted held(owner = owner))
+            ensures(trusted held(owner = owner), trusted live(marker = &result.marker))
+            executes(pure, total)
+            uses(raw_memory, unchecked_alias)
+        {
+            let permit = trusted lambda(pos owner: &Owner)
+                requires(trusted held(owner = owner))
+                ensures(
+                    trusted core.memory.valid_read<Payload>(pointer = owner.pointer, count = 1),
+                    trusted core.memory.initialized_as<Payload>(pointer = owner.pointer),
+                    trusted core.memory.aligned_for<Payload>(pointer = owner.pointer),
+                    trusted core.memory.shared_alias_valid<Payload>(pointer = owner.pointer),
+                    trusted core.memory.epoch_current<Payload>(pointer = owner.pointer),
+                    trusted core.memory.synchronized_access<Payload>(pointer = owner.pointer),
+                    trusted core.memory.movement_stable<Payload>(pointer = owner.pointer),
+                    trusted core.memory.finalization_pending<Payload>(pointer = owner.pointer)
+                )
+                executes(pure, total)
+            {
+            };
+
+            trusted permit(owner);
+            return trusted core.memory.borrow_from<Payload, Owner>(owner, owner.pointer);
+        }
+    "#;
+    let provider = compilation(api);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for imported in [false, true] {
+        let prefix = if imported { "example.package.api" } else { "api" };
+        let caller = format!(r#"
+            module app;
+
+            using {prefix};
+
+            func project(pos owner: &{prefix}.Owner)
+                requires(trusted {prefix}.held(owner = owner))
+            {{
+                let marker = &(trusted {prefix}.borrow_payload(owner)).marker;
+                _ = marker;
+            }}
+
+            func escaping(pos owner: {prefix}.Owner) -> &{prefix}.Marker
+                requires(trusted {prefix}.held(owner = &owner))
+            {{
+                return &(trusted {prefix}.borrow_payload(&owner)).marker;
+            }}
+        "#);
+        let consumer = if imported {
+            execution_consumer(&provider, &caller)
+        } else {
+            compilation_from_sources([api, caller.as_str()])
+        };
+
+        for name in ["project", "escaping"] {
+            let checked = consumer.lowered_unit(source_function_body_key(&consumer, name))
+                .expect("borrowed field projection retains its checked Source body");
+
+            if name == "escaping" {
+                bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency);
+            } else {
+                assert!(!checked.diagnostics().has_errors(), "imported={imported}: {:?}", checked.diagnostics());
+            }
+        }
+    }
+}
+
+#[test]
 fn borrowed_method_receivers_retain_the_returned_referent() {
     let api = r#"
         module api;
