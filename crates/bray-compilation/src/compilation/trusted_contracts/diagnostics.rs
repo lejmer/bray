@@ -138,6 +138,43 @@ fn failed_conditions_name_the_complete_producer_call() {
 }
 
 #[test]
+fn failed_conditions_distinguish_staged_owned_arguments() {
+    for abi in ["", "@abi(c)"] {
+    let source = r#"
+        trusted module app;
+
+        using core.memory;
+
+        trusted predicate compatible(left: &DataPointer<u8>, right: &DataPointer<u8>);
+
+        ABI
+        trusted func inspect(pos mut left: DataPointer<u8>, pos right: DataPointer<u8>)
+            requires(trusted compatible(left = &left, right = &right))
+        {
+        }
+
+        func caller(pos first: DataPointer<u8>, pos second: DataPointer<u8>)
+        {
+            trusted inspect(first, second);
+        }
+    "#.replace("ABI", abi);
+    let application = compilation(&source);
+    let diagnostics = application.check_diagnostics();
+    let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
+        DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+        _ => None,
+    }).unwrap_or_else(|| panic!("{diagnostics:#?}"));
+    let DiagnosticCondition::Application { arguments, .. } = &obligation.actual else {
+        panic!("{obligation:#?}");
+    };
+    assert_eq!(arguments, &[
+        DiagnosticCondition::Source("first".to_owned()),
+        DiagnosticCondition::Source("second".to_owned()),
+    ]);
+    }
+}
+
+#[test]
 fn trusted_obligation_diagnostics_retain_the_condition_and_its_role() {
     for (role, cleanup, body) in [
         (

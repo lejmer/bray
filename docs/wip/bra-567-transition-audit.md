@@ -26,10 +26,10 @@ control, pin and arena before vacancy. WaitResources retains leased storage thro
 
 ## Current evidence
 
-Candidate preserves the fixed comparison:724 passed /55 failed /99 ignored, unchanged55 identities.
+Latest semantic checkpoint07c39b6bb is pushed. Current diagnostics candidate preserves the fixed comparison:725 passed /55 failed /99 ignored, unchanged55 identities.
 All466 checker tests pass. Bound-tree133 passed before this candidate. Earlier diagnostics44, messages87, JSON48 and
 readiness passed. Expanded predicates:25 passed /2 failed /2 ignored, both failures reproduce in the retainedfc4 baseline.
-Accepted native.log uses the current candidate compiler and runtime Source64a4e5490:165 diagnostics
+Accepted native.log uses compiler07c39b6bb and runtime Source64a4e5490:165 diagnostics
 (E7123=96,E7135=45,E7119=23,E7087=1). It removes the two event/delivery escapes from the167 candidate,
 with no added identities, and18 earlier failures from the183 checkpoint. No native async composition has executed.
 Full transition inventory remains incomplete. No style/format has run.
@@ -52,12 +52,13 @@ All32 Source/import variants pass, including owned and existing-borrow helper ch
 transport, move ordering and genuine borrowed-result/stored-reference escape controls. The raw-borrow unit fixture
 now supplies its actual second pointer input, preserving all owner/capability assertions. Fixed suite has no regression.
 The matching native build removes both delivery escapes without new diagnostics. No new dependency representation is added.
-Temporary diagnostic hooks and qualifier prototypes are removed. No standalone probe remains.
+Temporary diagnostic hooks and qualifier prototypes are removed. Only the current loop-probe remains active.
 
-Next diagnostic defect: condition.rs renders StorageIdentity::InvocationInput through definition_occurrence().expression(),
-which loses its input ordinal and can print the whole invocation for several distinct actual arguments. Resolve the
-selected input's actual expression at that failure-only boundary. Add a regression first. Do not infer a proof bug from
-this rendering bug. Trace poll/read_state failures at184 and226 through actual loop/branch joins and retire_reference.
+Failure-only condition rendering now resolves InvocationInput through its actual selected input ordinal. The real
+raw-pointer CLI reproducer changed from compatible(inspect(first, second), inspect(first, second)) to
+compatible(first, second). Both Bray/C ABI variants and all seven diagnostic tests pass. No proof policy changes.
+A minimal nested branch/loop with a raw-state projection and real mutable pointee write passes. Do not infer a
+universal join bug. Next trace the actual poll body at184/226 through call input, completion and join states.
 Other false Pure promises still use raw address observations. Do not weaken checks for false promises.
 
 ## Remaining work
