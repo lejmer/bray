@@ -26,44 +26,33 @@ control, pin and arena before vacancy. WaitResources retains leased storage thro
 
 ## Current evidence
 
-Audit baseline b90076c1f21f3853ebfd90954b3babe26f122eca.
-Checkpoint90b727bd8 is pushed. Its accepted comparison has724 passed /55 failed /99 ignored with unchanged55 failing
-identities. All466 checker tests and133 bound-tree tests pass. Earlier diagnostic batch: diagnostics44, messages87, JSON48 and readiness passed.
-The expanded predicate group has25 passed /2 failed /2 ignored. Both failures reproduce in the retainedfc4 baseline:
-checked_unsigned_division_guards_preserve_exact_products and joined_index_bounds_require_each_predecessors_actual_value.
-
-Accepted native.log uses compiler Rustc91787784 and runtime Source2fc405bf7. It has183 diagnostics:
-E7123=96, E7135=58, E7119=28, E7087=1. Latest native candidate167 has E7123=96, E7135=45, E7119=23,
-E7113=2 and E7087=1. It removes18 old failures but adds two escapes in event/delivery92 and151, so remains unaccepted.
-No native async composition has executed. Full transition inventory remains incomplete.
+Candidate preserves the fixed comparison:724 passed /55 failed /99 ignored, unchanged55 identities.
+All466 checker tests pass. Bound-tree133 passed before this candidate. Earlier diagnostics44, messages87, JSON48 and
+readiness passed. Expanded predicates:25 passed /2 failed /2 ignored, both failures reproduce in the retainedfc4 baseline.
+Accepted native.log uses the current candidate compiler and runtime Source64a4e5490:165 diagnostics
+(E7123=96,E7135=45,E7119=23,E7087=1). It removes the two event/delivery escapes from the167 candidate,
+with no added identities, and18 earlier failures from the183 checkpoint. No native async composition has executed.
+Full transition inventory remains incomplete. No style/format has run.
 
 ## Active investigation
 
-WaitLink retains its actual DataPointer<Slot>, deleting one exposure and five numerical reconstructions plus five
-unused intrinsic allowances. Lease/membership requirements remain. The typed-link law verifies execution_properties,
-including an impure numeric-address negative. lowered_unit alone does not certify promises.
+WaitLink retains DataPointer<Slot>, removing numerical reconstruction while preserving lease/membership requirements.
+The pointer transport regression checks execution_properties, including an impure numeric-address control.
+Checked field selections, complete phase_contracts including deferred_result, and canonical query-error propagation
+are implemented. Methods must not be classified as field reads. Source/import tests retain that boundary.
+Borrow-free copied contents exclude reading-anchor loans while preserving explicit scope/provider/thread/lifecycle
+subjects through a shared classification. The container-following retained_storage_borrows mode is removed.
 
-Borrow-free field reads use the existing storage-shape walker. Checked field selections are required: syntax members
-also include methods. Classifying methods as fields regressed the Windows environment reborrow. The corrected domain
-restores full standard-library planning and emission. Direct copied pointer/whole Link, stored-reference escape and
-borrowed-field escape controls pass in Source/import. Matching-driver controls accept copying before moving the guard
-and reject moving before the read. Those two controls are now in the permanent fixture too.
-
-Checkpoint90b727bd8 verifies sixteen Source/import cases and includes all call phases, including deferred_result.
-A publication regression proved that foreign deferred-result subjects were previously accepted. Those133 bound-tree
-checks pass. Query errors now propagate through the canonical dependency mapper.
-
-The two native escapes survived that checkpoint. A smaller program exposed the missing ownership shape: the local
-view anchor itself contains a borrowed pin. Direct field copying passes, while copying through read_link retains that
-unrelated pin. The permanent regression failed before the current correction. The correction removes the container-
-following mode of retained_storage_borrows, rather than reconstructing the copied value's loans from its anchor.
-Borrow-free contents retain no ordinary storage loans. Explicit scope/provider/thread/lifecycle subjects survive in
-liveness and report retention through one shared subject classification. All28 Source/import cases now pass, including
-source overwrite, nullable/tuple transport, explicit move ordering and genuine borrowed-result negatives.
-The fixed suite remains724/55/99 with unchanged55 identities. Checker466 and bound-tree133 pass. Native remains167
-with the same two added escapes. Keep the verified simplification, but do not accept the native candidate. Trace actual
-contracts and liveness in event_state, detach, commit_locked and commit before further semantic changes. No style/format has run.
-No debug hooks or scratch probes remain.
+The latest native trace identifies a missing handoff through an existing borrowed input: event_state returns
+ValueDependencies(Param1 anchor), detach returns ValueDependencies(Param0.head), commit_locked returns
+ValueDependencies(Param1 anchor), commit returns StorageAlive(EvaluationStorage).
+Current candidate separates physical pointer data from BorrowCapabilityActive(owner) in raw-view production and
+preserves that existing requirement kind through staged input mapping. Borrow-free copies discard the reading loan.
+All32 Source/import variants pass, including owned and existing-borrow helper chains, overwrites, nullable/tuple
+transport, move ordering and genuine borrowed-result/stored-reference escape controls. The raw-borrow unit fixture
+now supplies its actual second pointer input, preserving all owner/capability assertions. Fixed suite has no regression.
+The matching native build removes both delivery escapes without new diagnostics. No new dependency representation is added.
+Temporary diagnostic hooks and qualifier prototypes are removed. No standalone probe remains.
 
 Next diagnostic defect: condition.rs renders StorageIdentity::InvocationInput through definition_occurrence().expression(),
 which loses its input ordinal and can print the whole invocation for several distinct actual arguments. Resolve the
@@ -87,7 +76,9 @@ shared_marker_borrows_preserve_the_original_owner_without_mutable_authority.
 The terminating-branch positive passes. Its negative opaque call has no owner input. Add a mutable-authority control
 before changing expectations. Do not implement the disproven normal_effects hypothesis.
 
-At semantic completion, reread AGENTS and mechanically audit changed files and behaviors, DRY, APIs, contracts and
+After all errors are resolved, perform the user-requested architectural pass: simplify production mechanisms and
+remove or shrink redundant tests with retained behavioral evidence. Keep the comparison suite fixed until correctness
+is established. Then, at semantic completion, reread AGENTS and mechanically audit changed files and behaviors, DRY, APIs, contracts and
 structural cost. Only then run mutating cargo xtask style and cargo xtask format, inspect edits and affected checks.
 No style/format has run. No goal or agent is active. Dispatch the authorized independent reviewer on committed PR710
 only at semantic completion. Reviewer publishes and returns GitHub artifacts. Resolve and rereview with the same agent,

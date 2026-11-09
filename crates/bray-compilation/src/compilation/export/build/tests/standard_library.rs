@@ -4133,6 +4133,22 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
             return value;
         }
 
+        trusted func read_link_from_guard(pos guard: &mut Guard) -> Link
+            requires(trusted active(&guard.acquisition))
+        {
+            let state = trusted guard.get();
+
+            return read_link(state);
+        }
+
+        trusted func read_borrow_from_guard(pos guard: &mut Guard) -> &Link
+            requires(trusted active(&guard.acquisition))
+        {
+            let state = trusted guard.get();
+
+            return &state.link;
+        }
+
         func read_pointer(pos owner: &mut State) -> DataPointer<u32>
         {
             return owner.link.pointer;
@@ -4174,8 +4190,15 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
         ("std.memory.Link", envelope, "envelope.owner", "", "std.memory.take_link(state)", None),
         ("std.memory.Link?", envelope, "envelope.owner", "let link: std.memory.Link? = std.memory.take_link(state);", "link", None),
         ("(u64, bool, std.memory.Link?)", envelope, "envelope.owner", "let link: std.memory.Link? = std.memory.take_link(state);", "(0, false, link)", None),
+        ("std.memory.Link", "", "", "", "trusted std.memory.read_link_from_guard(&mut guard)", None),
+        ("&std.memory.Link", "", "", "", "trusted std.memory.read_borrow_from_guard(&mut guard)", escaping),
     ] {
         let valid = failure.is_none();
+        let read_view = if view.is_empty() {
+            String::new()
+        } else {
+            format!("let state = trusted {view}.get();")
+        };
         let source = format!(r#"
             trusted module app;
 
@@ -4185,7 +4208,7 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
                 requires(trusted std.memory.active(&guard.acquisition))
             {{
                 {setup}
-                let state = trusted {view}.get();
+                {read_view}
                 {before}
 
                 return {returned};

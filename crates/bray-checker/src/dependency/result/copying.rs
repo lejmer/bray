@@ -37,7 +37,8 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         Ok(crate::dependency::witness::map_requirements(
             &requirements.into_iter().collect::<Vec<_>>(),
             &mut |subject, kind, _| {
-                let reading_lifetime = kind == DependencyRequirementKind::StorageAlive
+                let reading_lifetime = matches!(kind, DependencyRequirementKind::StorageAlive
+                    | DependencyRequirementKind::BorrowCapabilityActive(_))
                     && matches!(subject.subject_root(), DependencySubjectRoot::Receiver
                         | DependencySubjectRoot::Parameter(_) | DependencySubjectRoot::EvaluationStorage);
 

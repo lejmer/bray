@@ -99,6 +99,14 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     .input(ordinal)
                     .expect("staged input retains its checked type");
 
+                if matches!(kind, DependencyRequirementKind::BorrowCapabilityActive(_))
+                    && let Some((source, path)) = self.inputs.projected_input_value(
+                        self.request.semantic_values(), self.selections, argument, path,
+                    )
+                {
+                    return self.mapped_input_values(source, path, kind);
+                }
+
                 if kind == DependencyRequirementKind::ValueDependencies
                     && !path.is_empty()
                     && let Some((source, path)) = self.inputs.projected_input_value(

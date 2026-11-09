@@ -462,7 +462,8 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         // A supplied borrow retains its referent and original loan dependencies.
         // Requiring the slot containing that borrow would invent a caller loan,
         // especially when the containing value is consumed.
-        if self.types.expression(argument).is_some_and(|ty| {
+        if !matches!(kind, DependencyRequirementKind::BorrowCapabilityActive(_))
+            && self.types.expression(argument).is_some_and(|ty| {
                 matches!(
                     self.request.semantic_values().type_data(ty.ty()).as_ref(),
                     bray_symbols::TypeData::Borrow { .. }
@@ -475,6 +476,10 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         let sources = self.state.sources.get(&argument);
 
         if sources.is_none_or(BTreeSet::is_empty) {
+            if matches!(kind, DependencyRequirementKind::BorrowCapabilityActive(_)) {
+                return Ok(self.projected_values(argument, path).into_iter().collect());
+            }
+
             return Ok(vec![DependencyRequirement::direct(
                 bray_symbols::DependencySubject::root(
                     bray_symbols::DependencySubjectRoot::EvaluationStorage,

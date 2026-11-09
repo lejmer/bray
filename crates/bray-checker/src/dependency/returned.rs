@@ -77,13 +77,23 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         .map(|dispatch| request.context().dispatch_requirement(dispatch))
         .transpose()?;
 
+    let relation = call.implementation_hook().and_then(super::implementation::implementation_borrow);
     let template = if let Some((source, authority)) = call
         .implementation_hook()
         .and_then(super::implementation_dependency_source)
     {
+        let data = if matches!(call.implementation_hook(), Some(
+            bray_compiler_known::ImplementationHook::BorrowFrom | bray_compiler_known::ImplementationHook::BorrowMutFrom
+        )) {
+            relation.as_ref().and_then(bray_symbols::DependencyBorrowRelation::entry)
+                .expect("raw views retain the data dependencies of their physical pointer input").subject_root()
+        } else {
+            source
+        };
+
         store
             .intern_dependency_contract_template(DependencyContractTemplateData::new(
-                std::iter::once(value_requirement(source))
+                std::iter::once(value_requirement(data))
                     .chain(authority.map(|kind| DependencyRequirement::direct(
                         DependencySubject::root(source),
                         DependencyRequirementKind::BorrowCapabilityActive(kind),
@@ -148,10 +158,7 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         template = template.without_reports();
     }
 
-    if let Some(relation) = call
-        .implementation_hook()
-        .and_then(super::implementation::implementation_borrow)
-    {
+    if let Some(relation) = relation {
         template = template.with_borrows([relation]);
     }
 

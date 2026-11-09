@@ -588,7 +588,7 @@ mod tests {
         );
 
         let (identity, argument_access) = push_staged_input(
-            &mut storage, call_expression, argument, source_access, error_type(), unit.key().source(), None,
+            &mut storage, call_expression, 0, argument, source_access, error_type(), unit.key().source(), None,
         );
 
         let nullable_value_access = storage
@@ -632,7 +632,7 @@ mod tests {
 
         let call = selected_indirect_call(
             callable_type,
-            argument,
+            [argument],
             BoundCallResult::Immediate(error_type()),
             error_type(),
             None,
@@ -787,7 +787,7 @@ mod tests {
             });
 
             let (_, staged_access) = push_staged_input(
-                &mut storage, call_expression, argument, argument_access, target_type, unit.key().source(), capability,
+                &mut storage, call_expression, 0, argument, argument_access, target_type, unit.key().source(), capability,
             );
 
             let storage = storage.finish();
@@ -798,7 +798,7 @@ mod tests {
 
             let call = selected_indirect_call(
                 callable_type,
-                argument,
+                [argument],
                 BoundCallResult::LazyFuture(BoundFutureConstruction::new(
                     error_type(),
                     error_type(),
@@ -826,7 +826,15 @@ mod tests {
     fn assert_result_source_dependency(implementation: ImplementationHook) {
         let unit_id = BoundUnitId::new(31);
 
-        let (unit, argument, call_expression) = expression_pair(unit_id);
+        let (unit, expressions) = expression_unit(unit_id, |tree, origin| {
+            (0..3).map(|_| push_expression(tree,
+                BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))).collect()
+        });
+        let [argument, pointer, call_expression] = expressions.as_slice() else {
+            panic!("raw-view fixture has an owner, pointer and call");
+        };
+        let (argument, pointer, call_expression) = (*argument, *pointer, *call_expression);
+        let raw_view = matches!(implementation, ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom);
 
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
 
@@ -883,7 +891,7 @@ mod tests {
 
         let call = selected_indirect_call(
             callable_type,
-            argument,
+            std::iter::once(argument).chain(raw_view.then_some(pointer)),
             BoundCallResult::Immediate(error_type()),
             error_type(),
             None,
@@ -891,8 +899,15 @@ mod tests {
         .with_implementation_hook(Some(implementation));
 
         let (_, staged_access) = push_staged_input(
-            &mut storage, call_expression, argument, argument_access, error_type(), unit.key().source(), capability,
+            &mut storage, call_expression, 0, argument, argument_access, error_type(), unit.key().source(), capability,
         );
+
+        if raw_view {
+            let (_, pointer_access) = push_direct_storage(&mut storage,
+                StorageIdentity::Temporary(pointer), unit.key().source());
+            push_staged_input(&mut storage, call_expression, 1, pointer, pointer_access,
+                error_type(), unit.key().source(), None);
+        }
 
         let storage = storage.finish();
 
@@ -1081,7 +1096,7 @@ mod tests {
 
     fn selected_indirect_call(
         callable_type: TypeId,
-        argument: bray_bound_tree::BoundExpressionId,
+        arguments: impl IntoIterator<Item = bray_bound_tree::BoundExpressionId>,
         result: BoundCallResult,
         target_type: TypeId,
         reborrow: Option<BorrowKind>,
@@ -1092,17 +1107,17 @@ mod tests {
             CallableAbi::Bray,
             empty_callable_phase_behaviors(),
             None,
-            [SelectedArgument::Explicit {
-                expression: argument,
+            arguments.into_iter().enumerate().map(|(ordinal, expression)| SelectedArgument::Explicit {
+                expression,
                 parameter: None,
-                ordinal: 0,
+                ordinal: u32::try_from(ordinal).expect("fixture argument ordinal fits"),
                 reborrow,
                 conversion: bray_bound_tree::SelectedConversion::new(
                     error_type(),
                     target_type,
                     bray_bound_tree::ConversionTarget::Identity,
                 ),
-            }],
+            }),
             [],
         )
     }
@@ -1165,13 +1180,14 @@ mod tests {
     fn push_staged_input(
         storage: &mut StoragePlanBuilder,
         call: bray_bound_tree::BoundExpressionId,
+        ordinal: u32,
         expression: bray_bound_tree::BoundExpressionId,
         source_access: StorageAccessId,
         ty: TypeId,
         source: bray_bound_tree::BoundSourceAnchor,
         capability: Option<(bray_bound_tree::BorrowCapabilityId, BorrowKind)>,
     ) -> (StorageIdentityId, StorageAccessId) {
-        let ordinal = SymbolOrdinal::new(0);
+        let ordinal = SymbolOrdinal::new(ordinal);
         let input = bray_bound_tree::BoundExecutionSite::CallInput { expression: call, ordinal };
 
         let identity = storage.push_identity(StorageIdentity::InvocationInput { expression: call, ordinal })
