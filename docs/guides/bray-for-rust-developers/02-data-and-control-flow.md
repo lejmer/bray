@@ -56,18 +56,9 @@ func describe(pos status: &Stock) -> string
 {
     return match status
     {
-        case Stock.Empty
-        {
-            yield "Empty";
-        }
-        case Stock.Low(_)
-        {
-            yield "Low stock";
-        }
-        case Stock.Ready(_)
-        {
-            yield "Stock is ready";
-        }
+        case Stock.Empty { yield "Empty"; }
+        case Stock.Low(_) { yield "Low stock"; }
+        case Stock.Ready(_) { yield "Stock is ready"; }
     };
 }
 
@@ -96,12 +87,39 @@ Low stock
 `Empty` has no payload. `Low` and `Ready` each carry a quantity. As with function parameters in part 1, `pos` permits
 the quantity to be supplied positionally. That's why `Stock.Low(2)` works. Without `pos`, we'd use the payload name.
 
+### Blocks and `yield`
+
+In Rust, a block can produce its final expression as a value:
+
+```rust
+let threshold = {
+    let base = 2;
+    base + 1
+};
+```
+
+Bray's block expressions can produce values too, but a value-producing block uses `yield` instead of an implicit final
+expression. For example:
+
+```bray
+let threshold: i32 =
+{
+    let base: i32 = 2;
+
+    yield base + 1;
+};
+```
+
+The block supplies `3` to `threshold`. A block in a `unit` context can finish without a `yield` and produces `unit`.
+When a block must produce a non-`unit` value, every normal completion path must yield a value. Otherwise, Bray rejects
+it. `yield` supplies the nearest enclosing yield-capable region. It doesn't return from the function. Bray also uses
+`yield` in generators, which we'll leave for another time.
+
 ### Match every variant
 
-Rust's `match` can select a branch and return a value. Bray's `match` does that too, but the spelling has a few extra
-opinions. Each arm starts with `case`, and `yield` supplies the value of an arm. Here, `return` exits `describe`, while
-`yield` supplies the selected string to the `match` expression. They don't do each other's jobs just because they both
-involve a value leaving somewhere.
+Rust's `match` can select a branch and produce a value. Bray's `match` does that too, but each arm starts with `case`.
+An arm body is a block expression, so its `yield` supplies that arm's value. In `describe`, the selected arm supplies
+a string to the `match`, and `return` then exits the function with that string. `yield` does not exit `describe`.
 
 The match covers `Empty`, `Low`, and `Ready`. Remove a case and Bray rejects the match as non-exhaustive, just as Rust
 would reject a match that misses an enum variant. `_` in `Low(_)` and `Ready(_)` ignores the quantity. The subject is a
@@ -306,14 +324,8 @@ func take_item(pos delivery: Delivery) -> Item?
 {
     return match consume delivery
     {
-        case Arrived(item)
-        {
-            yield item;
-        }
-        case Missing
-        {
-            yield none;
-        }
+        case Arrived(item) { yield item; }
+        case Missing { yield none; }
     };
 }
 ```
