@@ -4243,3 +4243,116 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
         }
     }
 }
+
+#[test]
+fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
+    let declarations = r#"
+        trusted module std.memory;
+
+        using core.memory;
+
+        struct Carrier
+        {
+            mut pointer: DataPointer<u32>;
+        }
+
+        trusted predicate ready(pointer: DataPointer<u32>);
+
+        extern trusted func produce(pos pointer: DataPointer<u32>) -> u32
+            ensures(result != 0 || trusted ready(pointer = pointer));
+
+        extern trusted func make_ready(pos pointer: DataPointer<u32>)
+            ensures(trusted ready(pointer = pointer));
+
+        @link(name = "c", kind = system)
+        @symbol(name = "make_ready_pure")
+        @abi(c)
+        extern trusted func make_ready_pure(pos pointer: DataPointer<u32>)
+            ensures(trusted ready(pointer = pointer))
+            executes(pure, total)
+            uses(foreign_call);
+
+        extern trusted func after_input(pos pointer: DataPointer<u32>, pos ignored: u32)
+            ensures(trusted ready(pointer = pointer));
+
+        func overwrite(pos owner: &mut Carrier) -> u32
+        {
+            owner.pointer = core.memory.null<u32>();
+            return 0;
+        }
+
+        extern trusted func inspect(pos pointer: DataPointer<u32>)
+            requires(trusted ready(pointer = pointer));
+
+        extern trusted func mutate(pos pointer: DataPointer<u32>);
+    "#;
+    let options = CompilationOptions::default().with_native_link_inputs([
+        bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("c").expect("fixture native library name"),
+            bray_symbols::NativeLinkKind::System,
+        ),
+    ]);
+    let provider = super::fixtures::standard_library_compilation_with_options([
+        include_str!("../../../../../../../standard-library/std/src/std.bray"), declarations,
+    ], options.clone());
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+    let address = r#"
+                let mut value: u32 = 0;
+                let mut pointer = core.memory.address_of_mut<u32>(&mut value);
+    "#;
+    let conditional = r#"
+                let status = trusted std.memory.produce(pointer);
+
+                if status != 0
+                {
+                    return;
+                }
+    "#;
+    let staged = r#"
+                let mut carrier: std.memory.Carrier =
+                {
+                    pointer = pointer
+                };
+                trusted std.memory.after_input(carrier.pointer, std.memory.overwrite(&mut carrier));
+    "#;
+    for (name, parameters, setup, call, observed, valid, capabilities) in [
+        ("conditional address", "", address, conditional, "pointer", true, ""),
+        ("conditional parameter", "pos pointer: DataPointer<u32>", "", conditional, "pointer", true, ""),
+        ("unconditional address", "", address, "trusted std.memory.make_ready(pointer);", "pointer", true, ""),
+        ("pure control", "", address, "trusted std.memory.make_ready_pure(pointer);", "pointer", true, "uses(foreign_call)"),
+        ("overwritten pointer", "", address, "trusted std.memory.make_ready(pointer);\n                pointer = core.memory.null<u32>();", "pointer", false, ""),
+        ("changed pointee", "", address, "trusted std.memory.make_ready(pointer);\n                trusted std.memory.mutate(pointer);", "pointer", false, ""),
+        ("staged original", "", address, staged, "pointer", true, ""),
+        ("staged replacement", "", address, staged, "carrier.pointer", false, ""),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+
+            using core.memory;
+            using std.memory;
+
+            trusted func caller({parameters})
+                {capabilities}
+            {{
+                {setup}
+                {call}
+                trusted std.memory.inspect({observed});
+            }}
+        "#);
+        for imported in [false, true] {
+            let application = if imported {
+                super::fixtures::execution_consumer(&provider, &source)
+            } else {
+                super::fixtures::standard_library_compilation_with_options([
+                    include_str!("../../../../../../../standard-library/std/src/std.bray"), declarations, &source,
+                ], options.clone())
+            };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "{name}, imported={imported}: {diagnostics:#?}");
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}

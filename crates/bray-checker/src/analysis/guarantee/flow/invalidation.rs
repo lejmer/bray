@@ -550,7 +550,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let mask = masks.entry(root).or_default().at_mut(path);
 
-            if preserves_value { mask.value = true; } else { mask.descriptor = true; }
+            // A surviving address retains its copied bits. Reachable-state evidence
+            // is revoked separately, without replacing that immutable value.
+            let address = self.observed_types.get(place).copied().flatten()
+                .is_some_and(|ty| crate::representation::reference_kind(self.request, ty)
+                    == Some(bray_symbols::DependencyReferenceKind::Address));
+
+            if preserves_value || address { mask.value = true; } else { mask.descriptor = true; }
         }
 
         masks

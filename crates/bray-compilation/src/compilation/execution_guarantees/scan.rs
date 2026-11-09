@@ -154,7 +154,9 @@ impl Compilation {
                 continue;
             }
 
-            if foreign.value().is_some() && !foreign.diagnostics().has_errors() {
+            if foreign.value().as_ref().is_some_and(|contract| contract.abi() != bray_symbols::CallableAbi::Bray)
+                && !foreign.diagnostics().has_errors()
+            {
                 if let Some(owner) = self.execution_contract_owner(function.into())? {
                     diagnostics.add_range(self.check_execution_declaration_conditions(
                         &owner,
@@ -164,6 +166,21 @@ impl Compilation {
                 }
 
                 diagnostics.add_range(declared.into_parts().1);
+            } else if !foreign.diagnostics().has_errors()
+                && self.callable_body_key(bray_symbols::CallableDefinitionId::try_new(function.into())
+                    .expect("function has a callable definition"))?.is_none()
+            {
+                for domain in declared.value().domains() {
+                    for property in &domain.properties {
+                        diagnostics.add(super::failure::guarantee_diagnostic(
+                            bray_checker::ExecutionObligation::Property(property.property,
+                                (!domain.guards.is_empty()).then_some(property.source.into())),
+                            property.source,
+                            bray_checker::ExecutionVerificationFailure { source: property.source,
+                                cause: bray_diagnostics::DiagnosticExecutionProofFailure::MissingEvidence },
+                        ));
+                    }
+                }
             }
         }
 

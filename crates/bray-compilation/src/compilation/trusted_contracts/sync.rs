@@ -2940,8 +2940,7 @@ fn field_projection_preserves_the_evidence_of_a_borrowed_call_result() {
                 executes(pure, total)
             {{ return owner; }}
             extern trusted func introduced(pos owner: &Holder) -> &Holder
-                ensures(trusted live(&result.current.token))
-                executes(pure, total);
+                ensures(trusted live(&result.current.token));
             func nested_caller(pos owner: &Holder)
             {{
                 let selected = nested(owner);

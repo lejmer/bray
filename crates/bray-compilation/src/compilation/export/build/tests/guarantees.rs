@@ -19,6 +19,35 @@ use super::fixtures::{
 };
 
 #[test]
+fn bodyless_execution_promises_require_an_external_assertion() {
+    for boundary in ["", "@link(name = \"c\", kind = system)\n        @symbol(name = \"asserted\")"] {
+        let source = format!(r#"
+            trusted module api;
+
+            {boundary}
+            extern trusted func asserted()
+                executes(pure, total);
+        "#);
+        let provider = compilation_from_sources_for_product_with_platform_services_and_worker_budget(
+            [&source], ProductKind::Library, [], WorkerBudget::default(), None,
+            [bray_symbols::NativeLinkRequirement::new(
+                bray_base::NonEmptySharedStr::try_new("c").expect("fixture native library name"),
+                bray_symbols::NativeLinkKind::System,
+            )],
+        );
+        let diagnostics = provider.check_diagnostics();
+        bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+            bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven);
+        let failures = diagnostics.iter().filter(|diagnostic| diagnostic.kind()
+            == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven).collect::<Vec<_>>();
+        assert_eq!(failures.len(), 2, "{boundary}: {diagnostics:?}");
+        assert!(failures.iter().all(|diagnostic| diagnostic.args().iter().any(|argument| matches!(argument.value(),
+            bray_diagnostics::DiagnosticArgValue::ExecutionProofFailure(bray_diagnostics::DiagnosticExecutionProofFailure::MissingEvidence)))));
+        assert!(provider.package_interface_export_bundle().expect("provider requests export").is_err());
+    }
+}
+
+#[test]
 fn disjoint_raw_slot_moves_still_invalidate_opaque_reachable_observations() {
     let provider = compilation(
         r"
