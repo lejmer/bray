@@ -359,6 +359,7 @@ fn join_observations<'a>(
 
         incoming.join_values(&right, &right_identities);
 
+
         super::witnesses::retain_conditional_guarantees(target, incoming, &conditional);
 
         for (condition, holds) in joined_facts {
@@ -591,48 +592,7 @@ fn current_replacements(
 
         needs_condition_proof |= value != joined && stable_values.contains(value);
 
-        // Literal payloads are shared by unrelated places and contract constants.
-        // Joining their slots must not rename the constant itself.
-        if value == joined
-            || value == joined.owner_identity() && !matches!(joined, ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. })
-            || matches!(
-                value,
-                ExecutionCondition::Literal(_)
-                    | ExecutionCondition::Boolean(_)
-                    | ExecutionCondition::Unknown
-            )
-        {
-            continue;
-        }
-
-        if matches!(
-            value,
-            ExecutionCondition::Constructed(_, _) | ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. } | ExecutionCondition::Borrowed(_) | ExecutionCondition::Present(_)
-        ) {
-            result_replacements(
-                value,
-                joined,
-                stable_values,
-                stable_identities,
-                map,
-                identities,
-            );
-
-            continue;
-        }
-
-        // Contents and containing identity have different substitution domains.
-        // A branch-local alias can disappear while another place still holds
-        // the same value on both paths. Rename the changed place, not that value.
-        if !stable_values.contains(value) {
-            insert_replacement(map, value, joined);
-        }
-
-        if let (Some((role, owner)), Some((joined_role, joined_owner))) = (value.ownership_identity(), joined.ownership_identity())
-            && role == joined_role && owner != joined_owner && !stable_identities.contains(owner)
-        {
-            insert_replacement(identities, owner, joined_owner);
-        }
+        result_replacements(value, joined, stable_values, stable_identities, map, identities);
     }
 
     needs_condition_proof
@@ -930,4 +890,34 @@ mod tests {
             "joining changed containers must not erase unchanged nested data");
     }
 
+
+    #[test]
+    fn bare_current_inputs_preserve_only_the_unchanged_nested_observation() {
+        use bray_bound_tree::{BoundUnitId, StorageProjection};
+        use bray_symbols::SymbolOrdinal;
+        use crate::ExecutionPlace;
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let root = ExecutionCondition::Input(place.clone());
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let nested = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let child = root.clone().project(field);
+        let original = child.clone().project(nested);
+        let version = ExecutionCondition::Joined(BoundUnitId::new(0), 1, place.clone());
+        for unchanged in [true, false] {
+            let current = if unchanged { original.clone() } else { version.clone().project(field).project(nested) };
+            let joined = ExecutionCondition::owned_value(root.clone(), ExecutionCondition::constructed(version.clone(), [
+                (field, ExecutionCondition::owned_value(child.clone(), ExecutionCondition::constructed(
+                    version.clone().project(field), [(nested, current)].into(),
+                ))),
+            ].into()));
+            let mut state = ExecutionState::default();
+            state.current.insert(place.clone(), root.clone());
+            let mut values = BTreeMap::new();
+            let mut identities = BTreeMap::new();
+            current_replacements(&state, &[(place.clone(), joined)].into(),
+                &Default::default(), &Default::default(), &mut values, &mut identities);
+            assert_eq!(original.with_joined_values(&values, &identities) == original, unchanged,
+                "unchanged={unchanged}");
+        }
+    }
 }

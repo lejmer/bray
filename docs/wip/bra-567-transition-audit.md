@@ -26,12 +26,16 @@ control, pin and arena before vacancy. WaitResources retains leased storage thro
 
 ## Current evidence
 
-Latest pushed checkpoint:b38304217. The accepted comparison preserves the fixed comparison:725 passed /55 failed /99 ignored, unchanged55 identities.
-All467 checker tests pass. Bound-tree133 passed before this candidate. Earlier diagnostics44, messages87, JSON48 and
+Latest pushed checkpoint:5f4c323df. The accepted comparison preserves the fixed comparison:725 passed /55 failed /99 ignored, unchanged55 identities.
+All468 checker tests pass. Bound-tree133 passed before this candidate. Earlier diagnostics44, messages87, JSON48 and
 readiness passed. Expanded predicates:25 passed /2 failed /2 ignored, both failures reproduce in the retainedfc4 baseline.
-Accepted native.log uses the current join candidate compiler and runtime Source64a4e5490:164 diagnostics
-(E7123=95,E7135=45,E7119=23,E7087=1). The conditional protocol join at polling226 is fixed with no added
-identities. The imported/native loop header at184 still fails although the Source production poll has no diagnostics. No native async composition has executed.
+Accepted native.log uses the current bare-input mapper candidate compiler and runtime Source64a4e5490:153 diagnostics
+(E7123=85,E7135=44,E7119=23,E7087=1). It removes13 old identities from164, including polling184, and exposes two
+E7135 dependency failures: polling171 points to observe131..164, worker/entry170 points to worker/callback50..120.
+Both callees already failed in the164 baseline (E7123 polling155 and callback118). proof.rs61 skips certification when
+caller candidates have source errors, and proof.rs557 reports DependencyErrors for these callees. Repairing the callers
+removed that earlier gate. These are explained exposed failures, not implementation regressions.
+No native async composition has executed.
 Full transition inventory remains incomplete. No style/format has run.
 
 ## Active investigation
@@ -52,7 +56,7 @@ All32 Source/import variants pass, including owned and existing-borrow helper ch
 transport, move ordering and genuine borrowed-result/stored-reference escape controls. The raw-borrow unit fixture
 now supplies its actual second pointer input, preserving all owner/capability assertions. Fixed suite has no regression.
 The matching native build removes both delivery escapes without new diagnostics. No new dependency representation is added.
-Earlier diagnostic hooks and qualifier prototypes are removed. No standalone probes or trace hooks remain.
+Earlier diagnostic hooks and qualifier prototypes are removed. No standalone probes or trace hooks remain. The current temporary import audit is described below.
 
 Failure-only condition rendering resolves staged inputs by selected ordinal. All seven diagnostic tests pass.
 Actual poll trace: both predecessors of the READY/FAILED protocol join hold the same invoked claim. Renaming the
@@ -63,7 +67,17 @@ from both snapshots, replacing source-only field/nullable cases. It adds no reco
 The overwritten-field control passes, all467 checker tests pass, and actual poll storage flow has no diagnostics.
 A permanent production regression selects the exact observer module/function through symbol identity. Its final build
 passes. The fixed comparison has726 passed /55 failed /99 ignored with unchanged55 identities. Matching native diagnostics
-fall165 to164, removing only polling226. All temporary trace hooks/tests are removed.
+fall165 to164, removing only polling226. The partial production_host_request includes129 of233 runtime files. Linux/Windows and imported-library controls
+pass there, while the complete233-file Windows request with canonical Bootstrap roles and the matching native library
+reproduced polling184 in12s. Root cause: join7 begins with invoked on both paths, but current_replacements has a
+separate bare-input path that bypasses nested component mapping. It drops the unchanged path's fact before loop entry.
+A direct current_replacements regression fails before the candidate. The candidate removes that duplicate mapper and
+routes all live values through result_replacements. All468 checker tests pass. The complete imported runtime request
+now checks poll without diagnostics. The two-target permanent source regression passes. Temporary hooks, probes and
+the ignored filesystem audit are removed. Fixed comparison remains726/55/99 with unchanged55 failure identities. Native verification is accepted as described above. The retained
+test binary still contains the removed audit, so explicitly skip that task-only identity when comparing the fixed suite.
+Next diagnostic gap: ExecutionCandidate.failure keeps only a span, collapsing unproved loops, abnormal exits and
+operation failures into Unproven. Preserve typed causes when addressing the remaining execution failures.
 Other false Pure promises still use raw address observations. Do not weaken checks for false promises.
 
 ## Remaining work
