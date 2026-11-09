@@ -501,6 +501,8 @@ mod tests {
             ("if ready { yield true; } else { yield false; }", true),
             ("{ yield ready; }", false),
             ("{ let observed = ready; yield observed; }", false),
+            ("match ready { case true { yield true; } case false { yield false; } }", false),
+            ("if false { yield { yield ready; }; } else { yield true; }", false),
         ] {
             let source = format!(
                 r#"
@@ -522,6 +524,13 @@ mod tests {
                 "{source}: {:#?}",
                 checked.check_diagnostics()
             );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    checked.check_diagnostics(),
+                    DiagnosticKind::CheckingPredicateBlockNotAllowed,
+                );
+            }
         }
     }
 

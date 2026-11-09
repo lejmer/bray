@@ -160,6 +160,9 @@ impl DiagnosticKind {
         };
 
         match self {
+            Self::CheckingPredicateBlockNotAllowed => Self::quality_source(
+                &[ActualSyntaxKind], note_components!(&[ActualSyntaxKind], DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper),
+            ),
             Self::CheckingContractConditionNotPortable => Self::quality_source(&[], primary_components!(&[])),
             Self::CheckingPostconditionNotProven | Self::CheckingCircularPostcondition => Self::quality_source(
                 &[DiagnosticArgName::ExecutionProofFailure], primary_components!(&[]),

@@ -106,7 +106,10 @@ mod diagnostic_tests {
         let declaration = span(1);
         let diagnostic = guarantee_diagnostic(ExecutionObligation::Postcondition(declaration.into()), declaration, ExecutionVerificationFailure { source: span(3), cause: FailureCause::Circular });
 
-        assert_eq!(diagnostic.kind().as_str(), "checking_circular_postcondition");
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &bray_diagnostics::DiagnosticBag::single(diagnostic),
+            bray_diagnostics::DiagnosticKind::CheckingCircularPostcondition,
+        );
     }
     #[test]
     fn proof_depth_exhaustion_retains_the_operational_cause_and_counts() {
@@ -120,6 +123,11 @@ mod diagnostic_tests {
         assert_eq!(diagnostic.kind().as_str(), "checking_execution_proof_depth_exceeded");
         assert!(diagnostic.args().iter().any(|argument| matches!(argument.value(),
             bray_diagnostics::DiagnosticArgValue::ExecutionProofFailure(actual) if *actual == cause)));
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &bray_diagnostics::DiagnosticBag::single(diagnostic),
+            bray_diagnostics::DiagnosticKind::CheckingExecutionProofDepthExceeded,
+        );
     }
 
     #[test]
@@ -136,7 +144,10 @@ mod diagnostic_tests {
     #[test]
     fn unrepresentable_conditions_are_not_reported_as_failed_promises() {
         let diagnostic = super::unrepresentable_condition_diagnostic(span(1));
-        assert_eq!(diagnostic.kind().as_str(), "checking_contract_condition_not_portable");
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &bray_diagnostics::DiagnosticBag::single(diagnostic),
+            bray_diagnostics::DiagnosticKind::CheckingContractConditionNotPortable,
+        );
     }
 
 }

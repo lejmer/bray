@@ -503,6 +503,8 @@ define_diagnostic_kinds! {
     CheckingExecutionProofDepthExceeded,
     /// A checked condition has no package-interface representation.
     CheckingContractConditionNotPortable,
+    /// A predicate expression contains a forbidden block-shaped source expression.
+    CheckingPredicateBlockNotAllowed,
     /// Normal ownership end retains a possibly fallible finalization obligation.
     CheckingUnresolvedFinalization,
     /// Remaining implicit finalization requires asynchronous execution.
@@ -949,6 +951,7 @@ impl DiagnosticKind {
             Self::CheckingCircularPostcondition => 7136,
             Self::CheckingExecutionProofDepthExceeded => 7137,
             Self::CheckingContractConditionNotPortable => 7138,
+            Self::CheckingPredicateBlockNotAllowed => 7139,
             Self::CheckingUnresolvedFinalization => 7125,
             Self::CheckingAsyncFinalizationOutsideAsyncCallable => 7126,
             Self::CheckingCircularExecutionGuarantee => 7120,
@@ -1417,6 +1420,7 @@ impl DiagnosticKind {
             Self::CheckingCircularPostcondition => "checking_circular_postcondition",
             Self::CheckingExecutionProofDepthExceeded => "checking_execution_proof_depth_exceeded",
             Self::CheckingContractConditionNotPortable => "checking_contract_condition_not_portable",
+            Self::CheckingPredicateBlockNotAllowed => "checking_predicate_block_not_allowed",
             Self::CheckingUnresolvedFinalization => "checking_unresolved_finalization",
             Self::CheckingAsyncFinalizationOutsideAsyncCallable => {
                 "checking_async_finalization_outside_async_callable"
