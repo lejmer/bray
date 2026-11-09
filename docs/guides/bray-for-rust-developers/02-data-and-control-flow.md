@@ -20,9 +20,8 @@ bray init pantry_flow --package pantry_flow
 cd pantry_flow
 ```
 
-We'll keep the code in `src/main.bray`. Unless a step says otherwise, add new declarations above `main` and add new
-statements inside `main` before `return Ok(unit);`. Indent statements inside `main` by four spaces, as in the first
-example.
+We'll keep the code in `src/main.bray`. Add new declarations outside `main` and add new statements inside `main`
+before `return Ok(unit);`.
 
 ## Give stock a state
 
@@ -162,7 +161,7 @@ why we can inspect it again.
 In Rust, a function returning `Option<T>` can use `?` to return `None` early. Bray has the same sort of shortcut for a
 nullable value, although it writes the type as `T?` and absence as `none`.
 
-Add these functions above `main`:
+Add these functions to `src/main.bray`:
 
 ```bray
 func find_quantity(name: string) -> i32?
@@ -222,7 +221,7 @@ In Rust, `Result<T, E>` distinguishes a successful value from an error. Bray als
 `Error` variants. Unlike Rust's `Err`, the latter is not trying to save two characters.
 
 We'll reject negative quantities instead of pretending that minus one oats is a useful inventory state. Add these
-declarations above `main`:
+declarations to `src/main.bray`:
 
 ```bray
 union StockError
@@ -289,7 +288,7 @@ not Rust's general `From` conversion. Here, both functions use the same `StockEr
 In Rust, matching an owned enum can move a non-`Copy` payload out of it. In Bray, an ordinary `match` observes its
 subject. To move a non-copyable payload out, we use `match consume` and give up the original union value.
 
-Add these declarations above `main`:
+Add these declarations to `src/main.bray`:
 
 ```bray
 struct Item
@@ -375,7 +374,7 @@ The call completed normally by returning `Error(NegativeQuantity)`. That error i
 crossed the `catch` boundary, so `catch` had nothing to catch. This is nested `Result` handling, not an invitation to
 invent three more layers for sport.
 
-Now add a function above `main` that panics:
+Now add a function to `src/main.bray` that panics:
 
 ```bray
 func count_missing_oats()
