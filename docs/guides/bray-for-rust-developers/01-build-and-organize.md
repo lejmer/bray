@@ -227,6 +227,7 @@ module app;
 
 using std.io;
 using inventory;
+using internal inventory.low;
 
 func main() -> Result<unit, std.io.IoError>
 {
@@ -260,8 +261,8 @@ Run `bray run`. Our oats are still ready, and the output is still `Stock is read
 `inventory.add`. Bray wants both the dependency and the qualified path.
 
 Bray declarations are public by default where visibility applies. `Item`, `add`, and `find` need no `pub` spelling.
-`low` is `internal`, but `app` and `inventory` belong to the same package. Code in that package can access `low`
-without an internal-use acknowledgment. The `using inventory;` dependency is still required.
+`low` is `internal`, so we acknowledge the path with `using internal inventory.low;` before calling it. The ordinary
+`using inventory;` declaration covers our references to the module's public declarations.
 
 `internal` doesn't make a declaration private. A consuming package can use it by acknowledging the internal path.
 That acknowledgment makes the dependency visible, but it doesn't turn an internal detail into a stable public API.
