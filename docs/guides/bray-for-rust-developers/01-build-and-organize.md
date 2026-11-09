@@ -81,7 +81,7 @@ func main()
 
     if oats.quantity == 3
     {
-        _ = std.io.print_line("Stock is ready");
+        std.io.print_line("Stock is ready");
     }
 }
 ```
@@ -117,8 +117,8 @@ ends with a comma. The opening brace goes on the next line. Bray may be stubborn
 In Rust, a lookup might return `Option<&Item>`, and a fallible print operation might return a `Result`. Bray separates
 these two cases too, but their propagation operators differ.
 
-Our first version discards the result of `print_line` with `_ =`. That tells Bray we meant to ignore the result, so we
-won't find out if printing fails. Let's return the error to the caller instead.
+Our first version ignores the result of `print_line`, so we won't find out if printing fails. Let's return the error to
+the caller instead.
 
 Replace the `main` function in `src/main.bray` with:
 
