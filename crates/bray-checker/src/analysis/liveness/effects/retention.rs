@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{BoundDependencySubject, StorageBinding, StorageIdentityId, StoragePlan};
+use bray_bound_tree::{BoundDependencySubject, StorageIdentityId, StoragePlan};
 
 use super::core::OperationEffects;
 use crate::analysis::storage_index::index_storage_roots;
 use crate::dependency::ValueInputs;
-use crate::storage::value_transfer_bindings;
+use crate::storage::value_transfer_destinations;
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 impl OperationEffects {
@@ -236,7 +236,7 @@ impl OperationEffects {
             })
             .collect::<BTreeSet<_>>();
 
-        let mut initializations = value_transfer_bindings(request, storage);
+        let mut initializations = value_transfer_destinations(request, storage);
 
         for (identity, provenance) in storage.identity_entries() {
             let occurrence = match provenance {
@@ -263,7 +263,7 @@ impl OperationEffects {
             initializations
                 .entry(occurrence)
                 .or_default()
-                .push(StorageBinding::Identity(identity));
+                .push(identity);
         }
 
         let value_sources_by_root =
@@ -371,16 +371,7 @@ impl OperationEffects {
                 initializer_retention.extend(retained.iter().copied());
                 changed |= initializer_retention.len() != previous;
 
-                for binding in bindings {
-                    let root = match binding {
-                        StorageBinding::Identity(identity) => Some(*identity),
-                        StorageBinding::Access(access) => storage.root_identity(*access),
-                    };
-
-                    let Some(root) = root else {
-                        continue;
-                    };
-
+                for root in bindings.iter().copied() {
                     for consumer in consumers_by_root.get(&root).into_iter().flatten() {
                         self.boundary_uses.entry(*consumer).or_default().extend(retained.iter().copied());
                     }
@@ -482,21 +473,14 @@ fn reaches_borrowed_storage(
 
 fn index_value_sources_by_root(
     storage: &StoragePlan,
-    initializations: &BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageBinding>>,
+    initializations: &BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
     inputs: &ValueInputs,
 ) -> BTreeMap<StorageIdentityId, Vec<bray_bound_tree::BoundExecutionSite>> {
     let mut result = BTreeMap::<_, Vec<_>>::new();
 
     for (initializer, bindings) in initializations {
-        for binding in bindings {
-            let root = match binding {
-                StorageBinding::Identity(identity) => Some(*identity),
-                StorageBinding::Access(access) => storage.root_identity(*access),
-            };
-
-            if let Some(root) = root {
-                result.entry(root).or_default().push(*initializer);
-            }
+        for root in bindings {
+            result.entry(*root).or_default().push(*initializer);
         }
     }
 

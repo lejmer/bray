@@ -386,21 +386,12 @@ impl StorageFlowInput {
                 .insert(*owner);
         }
 
-        let bindings = crate::storage::value_transfer_bindings(request, storage);
+        let bindings = crate::storage::value_transfer_destinations(request, storage);
 
         let occurrences = bindings
             .iter()
             .flat_map(|(initializer, bindings)| {
-                bindings.iter().filter_map(|binding| {
-                    let identity = match binding {
-                        bray_bound_tree::StorageBinding::Identity(identity) => *identity,
-                        bray_bound_tree::StorageBinding::Access(access) => {
-                            storage.root_identity(*access)?
-                        }
-                    };
-
-                    Some((identity, (*initializer)))
-                })
+                bindings.iter().map(|identity| (*identity, *initializer))
             })
             .chain(
                 storage

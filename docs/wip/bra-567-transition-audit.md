@@ -50,7 +50,7 @@ contract mismatch and depth limits. Unexportable conditions have a separate diag
 execution property named "ensures". English remains in bray-messages. Fifteen exact diagnostic-code expectations changed
 from execution-property failure to postcondition failure. Validity expectations and test identities remain fixed.
 
-Current checks: fixed comparison712 passed /57 failed /99 ignored in90s, zero new failing identities against accepted57.
+Current checks: fixed comparison714 passed /57 failed /99 ignored in90s, zero new failing identities against accepted57.
 Focused diagnostic and nullable-pattern Source/import regressions pass. JSON45 pass. Checker465, diagnostics44 pass. Messages84 pass.
 The expanded certificate suite is127/7/2. Its seven remaining proof/validity failures are not waived or claimed passing.
 Source async fixture and three invalid controls remain in the comparison. Bound133/interface216 previously passed and
@@ -81,18 +81,24 @@ All temporary hooks, traces and Source probes are removed. The permanent regress
  The two escape errors borrow execution before transferring it into
 creation. Native191122aaf identity baseline remains frozen in native-baseline-identities.txt.
 
-Current uncommitted diagnostic batch replaces the Borrow type placeholder with kind plus target. The existing
+Checkpoint54f5cc921 replaces the Borrow type placeholder with kind plus target. The existing
 implementation-family borrow kind is moved/renamed DiagnosticBorrowKind and reused, with one checker conversion.
 Source/foreign conversion, English and JSON preserve the payload. Checker465/diagnostics44/messages85/JSON46 pass.
 The new compiler conflict diagnostic checks StorageAccess.reached_type, and all six focused diagnostics now pass.
 The comparison713/57/99 in89s passes with zero new failing identities, using all-package tooling tests (a64b618a hash).
 No semantic lifetime change is included yet.
 A small real CLI program reproduces retirement E7036 using plain Control in a nullable Uninit slot. Its permanent
-Source/import paired regression is initialized_owner_extraction_ends_the_match_loan_before_replacement in returned_dependencies.rs.
+Source/import paired regression is owned_match_results_release_the_subject_loan in returned_dependencies.rs.
 It requires owned extraction to release the match loan and preserves rejection when the result actually borrows the slot.
-This new test is uncompiled and must remain red until the owning transition is repaired. Current Source probe files are
-active only until that regression supplies the evidence. Next trace end_last_use_borrows/end_scope: distinguish actual
-report retention, live cleanup owners and liveness. No retention relaxation without that evidence.
+The real CLI forms for initialized extraction and independent construction both fail with the same match loan on old
+native0ed3a30fe code. The permanent boundary test uses a real typed clear() mutation in its core-only harness. Owned
+output succeeds and a returned view remains rejected for Source/import. Checker465 and comparison714/57/99 in89s pass,
+with zero new failing identities. Native verification of this batch is next. Retain the active CLI probe until that check.
+The trace found no report or live cleanup owner retaining the loan. Liveness treated a pattern view as initialization of
+its containing root. value_transfer_destinations now returns only actual destination IDs. Liveness and cleanup preparation
+no longer reconstruct owning initialization from views. Three lossy conversions are removed. All temporary traces and
+field-visibility changes are restored. Keep the real initialized-move case covered by the native audit.
+
 
 Retain frozen baseline-failures.txt and native-baseline-identities.txt, current compact comparison.log/native.log, native
 artifacts and the deferred-report baseline executable for two pre-existing negative controls. Remove passed build/check
@@ -124,3 +130,9 @@ Build xtask with default stable. Native command: retained target/tooling/xtask.e
 --output target/audit/native --profile release. TMP/TEMP point to worktree target/audit. Logs/artifacts remain there.
 No style/format pass has run. Git destination verified: public lejmer/bray, remote git@github.com:lejmer/bray.git,
 authenticated account lejmer. Reuse that trust evidence while destination/authentication are unchanged.
+
+The trace proves no report or live cleanup owner retains the match loan. Liveness falsely retains it until function return.
+Current semantic WIP replaces value_transfer_bindings with value_transfer_destinations returning actual identity IDs.
+Pattern views no longer get reconstructed as initialization of their containing root in liveness and cleanup preparation.
+Three lossy conversions are removed. Both temporary tracing and field visibility changes are restored. The Source/import
+boundary test is rebuilding. No completion or native regression claim until focused and frozen comparison checks pass.
