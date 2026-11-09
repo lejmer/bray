@@ -30,8 +30,8 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:728 passed /55 failed /99 ignored, unchanged55 identities after pointer preservation. Checker468 and
-failure-diagnostics6 pass. Earlier bound-tree133, diagnostics44, messages88, JSON48 and conformance7 pass.
+Fixed comparison:730 passed /55 failed /99 ignored, unchanged55 identities after equality canonicalization. Checker469,
+bound-tree133, failure-diagnostics6 and conformance7 pass. Earlier diagnostics44, messages90 and JSON48 pass.
 Readiness has not been rerun after the latest cause additions.
 Expanded predicate group:25 passed /2 failed /2 ignored. Both reproduce in the retainedfc4 baseline.
 
@@ -68,11 +68,14 @@ Code snippets embedded in prose now share a locale-independent80-character/first
 code tokens and source names use it. Entire conditions/messages remain complete, and structured JSON retains source.
 Messages90, real diagnostic producers8, proof diagnostics6 and JSON48 pass. No style/format has run.
 
-The next ownership failure is reproduced in nullable-owner.bray. A producer creates a plain owner, publishes its claim
-through a borrowed input, then returns Result<Owner?,u32>. Direct use after matching passes. An opaque call then loses
-the optional payload claim. Local publication and plain Owner return pass. Omitting the publication call also passes.
-Owner fields, configuration, callable fields and uninitialized storage are not necessary. All exploratory variants
-are deleted. Trace the published witness through nullable/result assembly, matched payload move and opaque invalidation.
+Guarded equality claims now use the same polarity as their consumers. Canonical expression construction rewrites
+negated equality through the shared BoundOperator::equality_complement rule, also used by direct proof. Ordered
+comparisons are unchanged. A guarded trusted-proof regression and14 Source/import cases pass. Fabricated/replaced
+owners remain rejected. The actual carrier, availability and refined clause survived opaque invalidation correctly.
+No witness or owner reconstruction was added. Trace hooks are removed.
+
+Next rebuild the matching native product and compare its136 identities. nullable-owner.bray is the current native-library
+source control. Remove it after the fresh native check establishes this transition, then audit the remaining classes.
 
 ## Remaining
 

@@ -373,6 +373,15 @@ pub enum BoundStructuredExpressionKind {
 }
 
 impl BoundOperator {
+    /// Returns the opposite equality test without assuming ordered operands.
+    pub const fn equality_complement(self) -> Option<Self> {
+        match self {
+            Self::Equal => Some(Self::NotEqual),
+            Self::NotEqual => Some(Self::Equal),
+            _ => None,
+        }
+    }
+
     /// Returns the Ordering variant to test and the result when that variant is active.
     ///
     /// Other variants produce the opposite result. Non-relational operators have no test.
