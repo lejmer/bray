@@ -701,7 +701,7 @@ bray test --product tests
 
 The assertion fails, as it should. Now restore the amount to `2` and run the test again to confirm it passes again.
 
-## Continue
+## Next up
 
 We've created a Bray workspace, built a small executable, used mutable and shared borrows, handled nullable values and errors, organized code into modules, extracted a library package, acknowledged an internal dependency, and written a test.
 
