@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bray_bound_tree::BoundSourceAnchor;
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticAlignmentKind, DiagnosticArg, DiagnosticBag, DiagnosticCallableAbi,
+    Diagnostic, DiagnosticAlignmentKind, DiagnosticArg, DiagnosticBag, 
     DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
     DiagnosticTargetRepresentation, SeverityKind,
 };
@@ -445,13 +445,13 @@ impl TargetViolation {
                 DiagnosticKind::CheckingTargetCallableAbiUnavailable,
                 SeverityKind::Error,
             )
-            .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi))),
+            .with_arg(DiagnosticArg::callable_abi(bray_symbols::diagnostic_callable_abi(abi))),
             Self::AbiRepresentation { abi, value } => Diagnostic::new(
                 id,
                 DiagnosticKind::CheckingTargetAbiRepresentationUnsupported,
                 SeverityKind::Error,
             )
-            .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi)))
+            .with_arg(DiagnosticArg::callable_abi(bray_symbols::diagnostic_callable_abi(abi)))
             .with_arg(DiagnosticArg::target_representation(diagnostic_abi_value(
                 value,
             ))),
@@ -508,14 +508,6 @@ fn scalar_kind(role: RepresentationRole) -> Option<TargetScalarKind> {
         Role::ScalarC256 => Scalar::C256,
         _ => return None,
     })
-}
-
-fn diagnostic_abi(abi: CallableAbi) -> DiagnosticCallableAbi {
-    match abi {
-        CallableAbi::C => DiagnosticCallableAbi::C,
-        CallableAbi::System => DiagnosticCallableAbi::System,
-        CallableAbi::Bray => unreachable!("Bray ABI requirements are unconditionally valid"),
-    }
 }
 
 fn diagnostic_abi_value(value: TargetAbiValue) -> DiagnosticTargetRepresentation {

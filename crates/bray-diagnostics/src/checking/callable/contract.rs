@@ -22,7 +22,7 @@ pub enum DiagnosticReceiverMode {
     ConsumingMutable,
 }
 
-/// Constant-evaluation eligibility of a callable trait member.
+/// Constant-evaluation eligibility of a callable.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticCallableConstness {
     /// Ordinary runtime-only evaluation.
@@ -31,7 +31,7 @@ pub enum DiagnosticCallableConstness {
     Constant,
 }
 
-/// Execution mode of a callable trait member.
+/// Execution mode of a callable.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticCallableExecution {
     /// Immediate synchronous execution.
@@ -40,7 +40,7 @@ pub enum DiagnosticCallableExecution {
     Asynchronous,
 }
 
-/// Trust boundary of a callable trait member.
+/// Trust boundary of a callable.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticCallableTrust {
     /// An ordinary safe callable.
@@ -393,4 +393,54 @@ pub enum DiagnosticTraitFulfillmentMismatch {
         /// Type declared by the fulfillment.
         provided: DiagnosticType,
     },
+}
+
+impl DiagnosticCallableConstness {
+    /// Returns the stable machine-readable category name.
+    pub const fn as_str(self) -> &'static str {
+    match self {
+        Self::Runtime => "runtime",
+        Self::Constant => "constant",
+    }
+    }
+}
+
+impl DiagnosticCallableExecution {
+    /// Returns the stable machine-readable category name.
+    pub const fn as_str(self) -> &'static str {
+    match self {
+        Self::Synchronous => "synchronous",
+        Self::Asynchronous => "asynchronous",
+    }
+    }
+}
+
+impl DiagnosticCallableTrust {
+    /// Returns the stable machine-readable category name.
+    pub const fn as_str(self) -> &'static str {
+    match self {
+        Self::Safe => "safe",
+        Self::Trusted => "trusted",
+    }
+    }
+}
+
+impl DiagnosticCallablePosition {
+    /// Returns the stable machine-readable category name.
+    pub const fn as_str(self) -> &'static str {
+    match self {
+        Self::NamedOnly => "named_only",
+        Self::PositionalOrNamed => "positional_or_named",
+    }
+    }
+}
+
+impl DiagnosticCallableParameterMode {
+    /// Returns the stable machine-readable category name.
+    pub const fn as_str(self) -> &'static str {
+    match self {
+        Self::Immutable => "immutable",
+        Self::Mutable => "mutable",
+    }
+    }
 }

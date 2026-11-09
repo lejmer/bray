@@ -31,7 +31,7 @@ mod type_representation;
 pub use argument::{
     DiagnosticAlignmentKind, DiagnosticBorrowKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
     DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
-    DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticCallableAbi,
+    DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticCallableAbi, DiagnosticCallableParameter,
     DiagnosticDebugInformationMode, DiagnosticDebugOutputMode, DiagnosticDependencyRequirementKind,
     DiagnosticDependencySubjectKind, DiagnosticDocumentParseKind,
     DiagnosticEmissionArtifactOperation, DiagnosticExternalToolFailureKind,

@@ -142,7 +142,20 @@ where
         },
         TypeData::TraitView(_) => DiagnosticType::TraitView,
         TypeData::OwnedIndirection { .. } => DiagnosticType::OwnedIndirection,
-        TypeData::Callable(_) => DiagnosticType::Callable,
+        TypeData::Callable(callable) => DiagnosticType::Callable {
+            parameters: callable.parameters().iter().map(|parameter| {
+                Ok(bray_symbols::diagnostic_callable_parameter(
+                    parameter.name(), parameter.position(), parameter.mode(),
+                    diagnostic_type_at_depth(context, parameter.ty(), depth + 1)?,
+                ))
+            }).collect::<Result<_, CheckerQueryError<C::UpstreamError>>>()?,
+            variadic: callable.is_variadic(),
+            result: Box::new(diagnostic_type_at_depth(context, callable.result(), depth + 1)?),
+            constness: bray_symbols::diagnostic_callable_constness(callable.constness()),
+            execution: bray_symbols::diagnostic_callable_execution(callable.execution()),
+            trust: bray_symbols::diagnostic_callable_trust(callable.trust()),
+            abi: bray_symbols::diagnostic_callable_abi(callable.abi()),
+        },
     };
 
     Ok(diagnostic)

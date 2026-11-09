@@ -3,6 +3,51 @@ use bray_diagnostics::{DiagnosticArgValue, DiagnosticCondition, DiagnosticContra
 use crate::test_support::compilation;
 
 #[test]
+fn conflicting_borrows_retain_callable_signatures() {
+    let application = compilation(r#"
+        module app;
+
+        callable Callback = trusted async func(pos value: &mut usize, enabled: bool) -> u32;
+
+        func inspect(pos callback: &mut Callback)
+        {
+        }
+
+        func caller(pos mut callback: Callback)
+        {
+            let child = &mut callback;
+            inspect(&mut callback);
+            _ = child;
+        }
+    "#);
+    let diagnostics = application.check_diagnostics();
+
+    let signature = diagnostics.iter()
+        .filter(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingConflictingBorrow)
+        .flat_map(|diagnostic| diagnostic.args())
+        .find_map(|argument| {
+            let DiagnosticArgValue::StorageAccess(access) = argument.value() else { return None; };
+            let bray_diagnostics::DiagnosticType::Borrow { target, .. } = access.reached_type() else { return None; };
+            matches!(target.as_ref(), bray_diagnostics::DiagnosticType::Callable { .. }).then_some(target.as_ref())
+        }).unwrap_or_else(|| panic!("the conflict must retain its callback signature: {diagnostics:#?}"));
+    let bray_diagnostics::DiagnosticType::Callable { parameters, result, execution, trust, abi, .. } = signature else { unreachable!() };
+
+    assert_eq!(*execution, bray_diagnostics::DiagnosticCallableExecution::Asynchronous);
+    assert_eq!(*trust, bray_diagnostics::DiagnosticCallableTrust::Trusted);
+    assert_eq!(*abi, bray_diagnostics::DiagnosticCallableAbi::Bray);
+    assert_eq!(result.as_ref(), &bray_diagnostics::DiagnosticType::U32);
+    assert_eq!(parameters.len(), 2);
+    assert_eq!(parameters[0].name, "value");
+    assert_eq!(parameters[0].position, bray_diagnostics::DiagnosticCallablePosition::PositionalOrNamed);
+    assert!(matches!(&parameters[0].ty, bray_diagnostics::DiagnosticType::Borrow {
+        kind: bray_diagnostics::DiagnosticBorrowKind::Mutable, target,
+    } if target.as_ref() == &bray_diagnostics::DiagnosticType::Usize));
+    assert_eq!(parameters[1].name, "enabled");
+    assert_eq!(parameters[1].position, bray_diagnostics::DiagnosticCallablePosition::NamedOnly);
+    assert_eq!(parameters[1].ty, bray_diagnostics::DiagnosticType::Boolean);
+}
+
+#[test]
 fn conflicting_borrows_retain_the_concrete_target_and_capability() {
     let application = compilation(r#"
         module app;
