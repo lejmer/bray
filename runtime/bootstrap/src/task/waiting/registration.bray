@@ -41,9 +41,73 @@ internal union WaitTarget
     );
 }
 
-trusted internal predicate registration_owned(owner: &WaitResources);
+// Ownership belongs to the acquired component values. It does not assert that
+// the mutable slots reached through their pointers keep their old contents.
+internal predicate registration_owned(owner: &WaitResources) = retained(owner = &owner.waiter) &&
+    owned_reference(owner = &owner.waiter) &&
+    (
+        (
+            owner.target matches WaitTarget.Task(_) &&
+            retained(owner = task_wait_target(&owner.target)) &&
+            owned_reference(owner = task_wait_target(&owner.target))
+        ) ||
+        (
+            (owner.target matches WaitTarget.Event(_, _, _) || owner.target matches WaitTarget.ExecutionEvent(_, _)) &&
+            bray.runtime.bootstrap.event.retained(owner = event_wait_target(&owner.target)) &&
+            bray.runtime.bootstrap.event.owned_reference(owner = event_wait_target(&owner.target)) &&
+            (
+                owner.target matches WaitTarget.ExecutionEvent(_, _) ||
+                (
+                    owner.target matches WaitTarget.Event(_, _, _) &&
+                    bray.runtime.bootstrap.event.callback_owned(owner = callback_wait_target(&owner.target))
+                )
+            )
+        )
+    );
 
-trusted internal predicate optional_registration(owner: &(WaitRegistration?));
+internal predicate optional_registration(owner: &(WaitRegistration?)) = owner matches none ||
+    (owner matches ?_ && registration_owned(owner = &registration_value(owner).resources));
+
+internal const func registration_value(pos owner: &(WaitRegistration?)) -> &WaitRegistration
+    requires(owner matches ?_)
+{
+    return match owner
+    {
+        case ?registration { yield &registration; }
+        case none { panic("missing wait registration"); }
+    };
+}
+
+internal const func task_wait_target(pos owner: &WaitTarget) -> &Reference
+    requires(owner matches WaitTarget.Task(_))
+{
+    return match owner
+    {
+        case WaitTarget.Task(reference) { yield &reference; }
+        case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _) { panic("missing task wait target"); }
+    };
+}
+
+internal const func event_wait_target(pos owner: &WaitTarget) -> &bray.runtime.bootstrap.event.Reference
+    requires(owner matches WaitTarget.Event(_, _, _) || owner matches WaitTarget.ExecutionEvent(_, _))
+{
+    return match owner
+    {
+        case WaitTarget.Event(reference, _, _) { yield &reference; }
+        case WaitTarget.ExecutionEvent(reference, _) { yield &reference; }
+        case WaitTarget.Task(_) { panic("missing event wait target"); }
+    };
+}
+
+internal const func callback_wait_target(pos owner: &WaitTarget) -> &bray.runtime.bootstrap.event.Callback
+    requires(owner matches WaitTarget.Event(_, _, _))
+{
+    return match owner
+    {
+        case WaitTarget.Event(_, _, callback) { yield &callback; }
+        case WaitTarget.Task(_) | WaitTarget.ExecutionEvent(_, _) { panic("missing wait callback"); }
+    };
+}
 
 trusted internal func registration_target(pos owner: &WaitRegistration) -> &Reference
     requires(trusted registration_owned(owner = &owner.resources))
@@ -52,7 +116,7 @@ trusted internal func registration_target(pos owner: &WaitRegistration) -> &Refe
 {
     return match owner.resources.target
     {
-        case WaitTarget.Task(reference) { yield &reference; }
+        case WaitTarget.Task(_) { yield task_wait_target(&owner.resources.target); }
         case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _) { yield trusted core.target.abort(); }
     };
 }
@@ -233,8 +297,10 @@ trusted internal func event_reference(pos owner: &WaitRegistration) -> &bray.run
 {
     return match owner.resources.target
     {
-        case WaitTarget.Event(reference, _, _) { yield &reference; }
-        case WaitTarget.ExecutionEvent(reference, _) { yield &reference; }
+        case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _)
+        {
+            yield event_wait_target(&owner.resources.target);
+        }
         case WaitTarget.Task(_) { yield trusted core.target.abort(); }
     };
 }
@@ -249,7 +315,7 @@ trusted internal func event_callback(pos owner: &WaitRegistration) -> &bray.runt
 {
     return match owner.resources.target
     {
-        case WaitTarget.Event(_, _, callback) { yield &callback; }
+        case WaitTarget.Event(_, _, _) { yield callback_wait_target(&owner.resources.target); }
         case WaitTarget.Task(_) | WaitTarget.ExecutionEvent(_, _) { yield trusted core.target.abort(); }
     };
 }

@@ -4469,3 +4469,169 @@ fn copied_handle_fields_do_not_retain_returned_view_loans() {
     }
 }
 
+
+#[test]
+fn resource_acquisitions_survive_pointee_writes_but_not_resource_replacement() {
+    let source = r#"
+        trusted module api;
+
+        using core.memory;
+
+        struct Acquisition
+        {
+        }
+
+        struct Resources
+        {
+            acquisition: Acquisition;
+            pointer: DataPointer<u32>;
+        }
+
+        struct Registration
+        {
+            mut resources: Resources;
+            mut next: usize;
+        }
+
+        trusted predicate acquired(owner: &Acquisition);
+
+        predicate owned(owner: &Resources) = acquired(&owner.acquisition);
+
+        trusted predicate contents_valid(owner: &Resources);
+
+        trusted func update(pos owner: &mut Registration)
+            requires(trusted owned(&owner.resources))
+            ensures(trusted owned(&owner.resources))
+            uses(raw_memory, unchecked_init)
+        {
+            let pointer = owner.resources.pointer;
+
+            let permit = trusted lambda(pos owner: &Resources, pos pointer: DataPointer<u32>)
+                requires(trusted owned(owner))
+                ensures(
+                    trusted core.memory.valid_write<u32>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<u32>(pointer = pointer)
+                )
+                executes(pure, total) {};
+
+            trusted permit(&owner.resources, pointer);
+            trusted core.memory.write<u32>(pointer, 7);
+            owner.next = 1;
+        }
+
+        func replace(pos owner: &mut Registration, pos replacement: Resources)
+        {
+            owner.resources = replacement;
+        }
+
+        func publish(pos owner: Registration)
+            requires(trusted owned(&owner.resources))
+        {
+        }
+
+        func publish_contents(pos owner: Registration)
+            requires(trusted contents_valid(&owner.resources))
+        {
+        }
+    "#;
+    let provider = compilation(source);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for (operation, check, valid) in [
+        ("update(&mut owner)", "publish", true),
+        ("update(&mut owner)", "publish_contents", false),
+        ("replace(&mut owner, replacement)", "publish", false),
+    ] {
+        let caller = format!(r#"
+            trusted module app;
+            using example.package.api;
+
+            trusted func caller(pos mut owner: api.Registration, pos replacement: api.Resources)
+                requires(trusted api.owned(&owner.resources), trusted api.contents_valid(&owner.resources))
+            {{
+                trusted api.{operation};
+                api.{check}(owner);
+            }}
+        "#).replace("api.", "example.package.api.");
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(&provider, &caller)
+            } else {
+                compilation_from_sources([source, &caller.replace("example.package.", "")])
+            };
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(!diagnostics.has_errors(), valid, "{operation}, {check}, imported={imported}: {diagnostics:#?}");
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn disjunctive_variant_requirements_exclude_incompatible_match_arms() {
+    let source = r#"
+        module api;
+
+        union Choice
+        {
+            First(pos value: u32);
+            Second(pos value: u32);
+            Third;
+        }
+
+        const func read(pos owner: &Choice) -> u32
+            requires(owner matches Choice.First(_) || owner matches Choice.Second(_))
+        {
+            return match owner
+            {
+                case Choice.First(value) { yield value; }
+                case Choice.Second(value) { yield value; }
+                case Choice.Third { panic("unreachable variant"); }
+            };
+        }
+    "#;
+    let provider = compilation(source);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for (variant, valid) in [("First(7)", true), ("Second(9)", true), ("Third", false)] {
+        let caller = format!(r#"
+            module app;
+            using example.package.api;
+
+            const func caller() -> u32
+            {{
+                let owner = api.Choice.{variant};
+                return api.read(&owner);
+            }}
+        "#).replace("api.", "example.package.api.");
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(&provider, &caller)
+            } else {
+                compilation_from_sources([source, &caller.replace("example.package.", "")])
+            };
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(!diagnostics.has_errors(), valid, "{variant}, imported={imported}: {diagnostics:#?}");
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+}

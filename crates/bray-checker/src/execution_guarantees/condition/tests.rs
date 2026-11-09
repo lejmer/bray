@@ -5,6 +5,36 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[test]
+fn retained_disjunctions_reject_only_incompatible_branches() {
+    use bray_bound_tree::BoundOperator;
+
+    let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+    let variant = |ordinal| bray_symbols::UnionVariantSymbolId::from_symbol_id(bray_symbols::SymbolId::new(ordinal));
+    let first = input(0).matches_variant(variant(910));
+    let second = input(0).matches_variant(variant(911));
+    let third = input(0).matches_variant(variant(912));
+    let alternative = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![first.clone(), second.clone()]);
+    let assumptions = BTreeSet::from([(alternative, true)]);
+
+    assert!(first.can_assume(true, &assumptions));
+    assert!(second.can_assume(true, &assumptions));
+    assert!(!third.can_assume(true, &assumptions));
+    assert!(third.can_assume(false, &assumptions));
+    assert!(input(1).matches_variant(variant(912)).can_assume(true, &assumptions));
+    assert!(ExecutionCondition::Unknown.can_assume(true, &assumptions));
+    assert!(ExecutionCondition::Unknown.can_assume(false, &assumptions));
+
+    let unavailable = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![
+        ExecutionCondition::operation(BoundOperator::LogicalNot, vec![first.clone()]),
+        ExecutionCondition::operation(BoundOperator::LogicalNot, vec![second.clone()]),
+    ]);
+    let assumptions = BTreeSet::from([(unavailable, false)]);
+
+    assert!(first.can_assume(true, &assumptions));
+    assert!(!third.can_assume(true, &assumptions));
+}
+
+#[test]
 fn projecting_a_stored_reference_preserves_its_independent_referent() {
     let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
     let field = bray_symbols::StructFieldSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));

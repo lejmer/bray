@@ -250,6 +250,7 @@ trusted internal func make_wait(
         trusted retained(owner = &event),
         trusted owned_reference(owner = &event),
         trusted bray.runtime.bootstrap.task.retained(owner = &waiter),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &waiter),
         trusted callback_owned(owner = &callback)
     )
     ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result.resources))

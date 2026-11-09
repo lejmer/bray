@@ -48,10 +48,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 expected,
             );
 
-            if condition
-                .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                .is_some_and(|known| known != value)
-            {
+            if !condition.can_assume(value, &state.assumptions) {
                 return false;
             }
 
