@@ -368,13 +368,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .and_then(|contracts| contracts.calls.get(&occurrence))
             && contract.preserves_inputs
             && state.entries.get(&occurrence).is_some_and(|entry| {
-                entry.proves(
+                entry.prove_requirements(
                     contract
                         .preconditions
                         .iter()
                         .map(|(condition, _)| condition),
-                ) && (entry.trusted_boundary
-                    || self.trusted_requirements_proven(entry, &contract.requirements))
+                ).is_ok() && (entry.trusted_boundary
+                    || self.prove_trusted_requirements(entry, &contract.requirements).is_ok())
             })
         {
             return;

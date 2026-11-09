@@ -217,12 +217,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .trusted_contracts()
                 .and_then(|contracts| contracts.calls.get(&invocation))
             && state.entries.get(&invocation).is_some_and(|entry| {
-                entry.proves(
+                entry.prove_requirements(
                     contract
                         .preconditions
                         .iter()
                         .map(|(condition, _)| condition),
-                )
+                ).is_ok()
             })
         {
             return false;

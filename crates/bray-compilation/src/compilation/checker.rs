@@ -564,6 +564,13 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_binder_error)
     }
 
+    fn callable_parameter(
+        &self,
+        parameter: bray_symbols::CallableParameterSymbolId,
+    ) -> CheckerQueryResult<Option<&bray_symbols::CallableParameterSymbol>> {
+        self.binding_context.callable_parameter(parameter).map_err(checker_binder_error)
+    }
+
     fn structure(&self, id: StructSymbolId) -> CheckerQueryResult<Option<&StructSymbol>> {
         self.binding_context
             .structure(id)

@@ -3,6 +3,7 @@ mod carriers;
 mod check;
 mod completion;
 mod dependencies;
+mod diagnostic;
 mod observations;
 mod owned;
 mod proof;

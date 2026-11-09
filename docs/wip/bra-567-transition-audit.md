@@ -68,31 +68,36 @@ Repair vague or misclassified diagnostics encountered during this audit, beyond 
 instantiated arguments, requirement/cleanup/postcondition category and declaration context at the proof boundary.
 Carry known invalidation locations when available. Also fix execution_guarantees/proof.rs::guarantee_diagnostic, which
 mislabels postcondition certificate failures as an execution guarantee named "ensures". Render text in bray-messages, with structured typed causes.
- Fresh xtask191122aaf passes native standard-library planning/emission. Bootstrap diagnostics
-fall350 to237: E7119=99, E7123=117, E7036=4, E7113=2, E7035=14, E7087=1. Constant formation is repaired and escaping
-lifetimes fall100 to2. The two remaining escapes involve borrowing an owner before transferring it during creation.
+Native comparison is frozen at191122aaf (237 diagnostics) in native-baseline-identities.txt.
+The two remaining escape errors borrow an owner before transferring it during creation.
 Entry preparation shares StorageIdentity::is_initialized_at_entry. Entry origins retain DependencyReferenceKind through
 completion, removing root-type reconstruction. Body readers preserve original entry snapshots after descriptor changes.
 Clause inputs name their enclosing evaluation frame and compose nested borrowed paths. Structural paths retain their role.
 Local bindings copy under the source layout before conversion. All nine nullable borrowed-owner variants pass, including
 invalid ownership controls. Nullable borrowed witness guards also pass. Consuming cleanup/carriers and condition-variable
 authority retain their previous results, including rejection after descriptor overwrite. Temporary traces/probes are removed.
-Fresh brayc/xtask43354482c pass standard-library planning/emission. Bootstrap232: E7119=105, E7123=106,
-E7036=4, E7113=2, E7035=14, E7087=1. Compare exact diagnostic identities against191122aaf before expanding.
-Exact native comparison against191122aaf explains all six added E7119 identities. They propagate ensures failures from
-workers/deadlines, whose existing E7035 errors remain. Eleven E7123 identities disappear. No new bootstrap body fails.
-The baseline source overlay and driver are restored. Frozen native-baseline-identities.txt retains the comparison.
-Re-emit the standard library with the current driver before further imported probes.
-Borrowed call-field projection regression is frozen in returned_dependencies for Source/import, with a local-owner escape
-negative. Trace proves the formed borrow holds its original physical Entry/Address target after its temporary descriptor
-retires. Logical move/initialization checks still follow the retired descriptor. WIP repair uses the captured borrow value
-and existing physical relationship proof. No weaker authority or reconstruction fallback. Source/import positive and escape
-negative pass. The existing borrowed-call field projection regression also passes. Checker463 pass after requiring
-definite production of a retained borrow. Fresh driver/native checks pending.
+Checkpoint846a110b9 preserves formed loans after descriptor retirement. A definitely produced borrow uses its retained
+physical targets and existing disjointness proof. Its descriptor remains usable without pretending the source descriptor
+is live. Source/import field projections pass, with local-owner escape rejected. The existing field-projection regression
+also passes. Final comparison705/57/99 in92s has zero new failing identities against the preceding checkpoint and frozen7b.
+Fresh brayc/xtask846a110b9 pass native standard-library planning/emission. Bootstrap212: E7119=92, E7123=106,
+E7035=7, E7036=4, E7113=2, E7087=1. Remaining E7035 alias retired nullable pattern payloads in execution/entry_scope
+and scheduler/lane. The shared native drivers and standard-library bundle still represent846a110b9.
+
+Diagnostics WIP replaces Boolean proof APIs with UnprovenExecutionCondition carrying original and actual conditions.
+ExecutionCallEvidence moved from model.rs to cohesive evidence.rs. No compatibility wrappers remain. Call, cleanup and
+postcondition collectors retain failure data. DiagnosticCondition and ContractObligation provide typed role/value data,
+rendered in bray-messages. The original new regression was run red before implementation. Current assertions inspect
+actual caller input, bound count42, exact cleanup producer and declaration. Checker464/diagnostics44/messages82 pass. Source/import diagnostics preserve actual subjects, fields, count42 and
+Source declarations. Scoped exit failures use cleanup category and retained input ordinals for unnamed imported inputs.
+The fixed comparison707/57/99 in89s has zero new failing identities. The diagnostic metadata uses canonical source/import
+queries for condition names and fields. No compatibility proof wrapper remains.
+Known invalidation locations, a separate postcondition-certificate diagnostic, accurate tuple/array projection display
+and native verification remain required. Audit the optional legacy callable label as well. E7119's literal "ensures" path is still unrepaired. The diagnostic foundation is accepted for checkpointing, with these exclusions explicit.
 No native composition has run. Source fixture/lifecycle and invalid controls remain in the fixed comparison. Interface216
 passed before these checker-only repairs and is unchanged.
 
-Retain only frozen baseline-failures.txt, current comparison.log, reusable native artifacts and the deferred-report
+Retain frozen baseline-failures.txt, native-baseline-identities.txt, current comparison.log/native.log, native artifacts and the deferred-report
 baseline executable needed for two pre-existing negative controls. Use probe.log for the active diagnostic, then delete
 it once its result is recorded. Delete passed build/check logs and superseded native/probe logs immediately.
 

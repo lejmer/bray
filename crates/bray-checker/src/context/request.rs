@@ -235,6 +235,14 @@ pub trait CheckerRequestContext: Sync {
         Ok(self.symbols().member_name(member))
     }
 
+    /// Returns a source or imported callable input, including unnamed positional inputs.
+    fn callable_parameter(
+        &self,
+        parameter: bray_symbols::CallableParameterSymbolId,
+    ) -> CheckerQueryResult<Option<&bray_symbols::CallableParameterSymbol>, Self::UpstreamError> {
+        Ok(self.symbols().callable_parameter(parameter))
+    }
+
     /// Returns a source or imported structure declaration.
     fn structure(
         &self,

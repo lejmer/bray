@@ -1897,6 +1897,24 @@ fn imported_scoped_calls_enforce_requirements_on_the_entered_capability() {
                 diagnostics,
                 bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
             );
+            let expected = if exit_contract.is_empty() {
+                bray_diagnostics::DiagnosticContractObligationKind::CallRequirement
+            } else {
+                bray_diagnostics::DiagnosticContractObligationKind::CleanupRequirement
+            };
+            let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
+                bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+                _ => None,
+            }).expect("scoped calls retain the failed condition");
+            assert_eq!(obligation.kind, expected);
+
+            if !exit_contract.is_empty() {
+                let bray_diagnostics::DiagnosticCondition::Application { arguments, .. } = &obligation.required else {
+                    panic!("{obligation:#?}");
+                };
+                assert_eq!(arguments, &[bray_diagnostics::DiagnosticCondition::Argument(0)]);
+            }
+
         }
     }
 }

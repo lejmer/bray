@@ -15,7 +15,7 @@ pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
         return Vec::new();
     }
 
-    let mut failed = vec![false; postconditions.len()];
+    let mut failed = vec![None; postconditions.len()];
 
     for exit in flow.domain.graph.completion_exits() {
         let output = flow.output(exit.block());
@@ -30,7 +30,7 @@ pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
     postconditions
         .iter()
         .zip(failed)
-        .filter_map(|((_, span), failed)| failed.then_some(*span))
+        .filter_map(|((_, span), failed)| failed.is_some().then_some(*span))
         .collect()
 }
 
@@ -38,19 +38,19 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
     domain: &ExecutionFlowDomain<'_, '_, C>,
     state: &ExecutionState,
     postconditions: &[(ExecutionCondition, bray_source::SourceSpan)],
-    failed: &mut [bool],
+    failed: &mut [Option<crate::UnprovenExecutionCondition>],
 ) {
     // Replay each exit once, sharing any implication closure across its clauses.
     let mut trusted = None;
     let mut unsigned = None;
     let mut integer_ranges = super::integer::IntegerRanges::new();
 
-    for ((condition, _), failed) in postconditions.iter().zip(failed) {
-        if *failed {
+    for ((required, _), failed) in postconditions.iter().zip(failed) {
+        if failed.is_some() {
             continue;
         }
 
-        let condition = condition.substitute(
+        let condition = required.substitute(
             &|input| {
                 input
                     .value_in(&state.current)
@@ -101,11 +101,11 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             (equalities, known)
         });
 
-        *failed = !super::integer::unsigned_arithmetic_is_bounded(
-            &condition.with_equalities(equalities),
-            known,
-            &|value| domain.unsigned_value(value),
-        );
+        if !super::integer::unsigned_arithmetic_is_bounded(
+            &condition.with_equalities(equalities), known, &|value| domain.unsigned_value(value),
+        ) {
+            *failed = Some(crate::UnprovenExecutionCondition::new(required.clone(), condition));
+        }
     }
 }
 

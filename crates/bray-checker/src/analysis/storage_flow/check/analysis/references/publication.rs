@@ -84,7 +84,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let owned_result = self.owned_result(owned_result)?;
 
         self.diagnostics
-            .add_range(std::mem::take(&mut self.trusted).finish(self.execution));
+            .add_range(std::mem::take(&mut self.trusted).finish(self.execution)?);
 
         if let Some(error) = self.query_failure.take() {
             return Err(error);

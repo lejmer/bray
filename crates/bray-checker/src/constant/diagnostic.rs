@@ -240,7 +240,7 @@ impl ConstantDiagnostic {
     }
 }
 
-pub(super) const fn diagnostic_operation(operation: BoundOperator) -> DiagnosticConstantOperation {
+pub(crate) const fn diagnostic_operation(operation: BoundOperator) -> DiagnosticConstantOperation {
     match operation {
         BoundOperator::LogicalOr => DiagnosticConstantOperation::LogicalOr,
         BoundOperator::LogicalAnd => DiagnosticConstantOperation::LogicalAnd,

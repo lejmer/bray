@@ -130,7 +130,7 @@ impl DiagnosticKind {
             ExpectedByteCount, ExpectedCount, ExpectedNameKind, ExpectedPackageIdentity,
             ExpectedProductIdentity, ExpectedRevision, ExpectedRuntimeAbi, ExpectedSyntaxKind,
             ExpectedTargetIdentity, ExpectedTargetPredicateValueKind, ExpectedTargetTriple,
-            ExpectedType, ExpressionCategory, ExternalToolExit, ExternalToolFailureKind,
+            ExpectedType, ExpressionCategory, ContractObligation, ExternalToolExit, ExternalToolFailureKind,
             ExternalToolOperation, FilePath, ImplementationOverloadProblem, InputIndex,
             InterfaceLimit, InterfaceRecordIndex, InterfaceSemanticProblem,
             InterfaceSymbolGraphProblem, InterfaceSymbolIdentity, InterfaceValidationFailure,
@@ -1006,9 +1006,10 @@ impl DiagnosticKind {
             Self::CheckingMissingTrustedMemoryGuarantees => {
                 Self::quality_source(&[MemoryOperation], primary_components!(&[MemoryOperation]))
             }
+            Self::CheckingExecutionRequirementNotProven | Self::CheckingTrustedObligationNotProven => Self::quality_source(
+                &[ContractObligation], primary_components!(&[ContractObligation]),
+            ),
             Self::CheckingConstantCallRequirementNotProven
-            | Self::CheckingExecutionRequirementNotProven
-            | Self::CheckingTrustedObligationNotProven
             | Self::CheckingTrustedWitnessTransferNotProven => Self::quality_source(
                 &[ExpressionCategory],
                 primary_components!(&[ExpressionCategory]),

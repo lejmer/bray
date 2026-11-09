@@ -16,7 +16,7 @@ pub(in crate::analysis) type Observer<'a> = dyn FnMut(
         &Lifecycle,
         bool,
         &ExecutionCallEvidence,
-        bool,
+        &Result<(), crate::UnprovenExecutionCondition>,
     ) + 'a;
 
 pub(in crate::analysis) struct LifecycleInvocation<'a> {
@@ -509,15 +509,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .assume(true, &mut evidence.assumptions);
                 }
 
-                let established = self
-                    .trusted_requirements_proven(&evidence, &lifecycle.contract.requirements)
-                    && evidence.proves(
-                        lifecycle
-                            .contract
-                            .preconditions
-                            .iter()
-                            .map(|(condition, _)| condition),
-                    );
+                let requirements = self.prove_trusted_requirements(&evidence, &lifecycle.contract.requirements)
+                    .and_then(|()| evidence.prove_requirements(lifecycle.contract.preconditions.iter()
+                        .map(|(condition, _)| condition)));
+                let established = requirements.is_ok();
 
                 if let Some(observe) = observe {
                     observe(
@@ -527,7 +522,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         lifecycle,
                         *whole,
                         &evidence,
-                        established,
+                        &requirements,
                     );
                 }
 

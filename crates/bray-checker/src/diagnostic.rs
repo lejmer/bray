@@ -259,7 +259,7 @@ where
     )))
 }
 
-fn diagnostic_symbol_path(key: &SymbolKey, name: &str) -> Vec<String> {
+pub(crate) fn diagnostic_symbol_path(key: &SymbolKey, name: &str) -> Vec<String> {
     let mut path = Vec::new();
 
     if let SymbolKeyData::External(key) = key.data() {

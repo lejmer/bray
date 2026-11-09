@@ -204,7 +204,7 @@ impl Compilation {
                     )?;
 
                     if !diagnostics.has_errors()
-                        && evidence.proves_trusted_with_inputs(&entry, &inputs)
+                        && evidence.prove_trusted_with_inputs(&entry, &inputs).is_ok()
                     {
                         return Ok(Some(ExecutionObligation::Property(
                             property,

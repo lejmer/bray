@@ -10,6 +10,11 @@ pub struct DiagnosticArg {
 }
 
 impl DiagnosticArg {
+    /// Creates a condition-proof failure argument.
+    pub fn contract_obligation(obligation: crate::DiagnosticContractObligation) -> Self {
+        Self::new(DiagnosticArgName::ContractObligation, DiagnosticArgValue::ContractObligation(obligation))
+    }
+
     /// Creates a typed diagnostic argument.
     pub const fn new(name: DiagnosticArgName, value: DiagnosticArgValue) -> Self {
         Self { name, value }

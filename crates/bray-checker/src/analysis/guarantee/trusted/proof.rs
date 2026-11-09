@@ -112,13 +112,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }))
     }
 
-    pub(in crate::analysis::guarantee) fn trusted_requirements_proven(
+    pub(in crate::analysis::guarantee) fn prove_trusted_requirements(
         &self,
         entry: &crate::ExecutionCallEvidence,
         requirements: &[ExecutionCondition],
-    ) -> bool {
+    ) -> Result<(), crate::UnprovenExecutionCondition> {
         if requirements.is_empty() {
-            return true;
+            return Ok(());
         }
 
         let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
@@ -146,7 +146,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut ranges = None;
 
-        let requirements = requirements
+        let instantiated = requirements
             .iter()
             .map(|requirement| {
                 requirement
@@ -242,12 +242,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 })
         };
 
-        requirements.iter().all(|condition| {
-            requirement_follows(condition, &known, &mut prove_leaf, &mut {
+        for (required, actual) in requirements.iter().zip(instantiated) {
+            if !requirement_follows(&actual, &known, &mut prove_leaf, &mut {
                 ExecutionCondition::WORK_LIMIT
-            })
-        })
+            }) {
+                return Err(crate::UnprovenExecutionCondition::new(required.clone(), actual));
+            }
+        }
+
+        Ok(())
     }
+
 }
 
 // Share one lazy range index across every Boolean clause in the caller's contract.

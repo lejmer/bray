@@ -2784,18 +2784,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             ),
         ]),
         DiagnosticKind::CheckingExecutionRequirementNotProven => MessageTemplate::new(&[
-            MessageTemplatePart::Text("this "),
-            MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
-            MessageTemplatePart::Text(
-                " requires an execution-context condition that does not follow from caller evidence",
-            ),
+            MessageTemplatePart::Text("cannot establish "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ContractObligation),
         ]),
         DiagnosticKind::CheckingTrustedObligationNotProven => MessageTemplate::new(&[
-            MessageTemplatePart::Text("this "),
-            MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
-            MessageTemplatePart::Text(
-                " requires a trusted condition that is not established by live evidence",
-            ),
+            MessageTemplatePart::Text("cannot establish "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ContractObligation),
         ]),
         DiagnosticKind::CheckingMemoryOperationAfterDeallocation => {
             MessageTemplate::new(CHECKING_MEMORY_OPERATION_AFTER_DEALLOCATION)

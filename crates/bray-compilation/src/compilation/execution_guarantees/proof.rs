@@ -296,7 +296,7 @@ impl Compilation {
 
                 Ok(evidence
                     .unwrap_or(&bray_checker::ExecutionCallEvidence::default())
-                    .proves_trusted_with_inputs(&conditions, &inputs)
+                    .prove_trusted_with_inputs(&conditions, &inputs).is_ok()
                     .then_some(required))
             }
             _ => Ok(None),

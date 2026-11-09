@@ -31,11 +31,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                            lifecycle: &Lifecycle,
                            _: bool,
                            _: &crate::ExecutionCallEvidence,
-                           established: bool| {
+                           proof: &Result<(), crate::UnprovenExecutionCondition>| {
             trusted.cleanup(
                 operation.node(),
-                established,
-                !lifecycle.contract.requirements.is_empty(),
+                lifecycle,
+                proof,
             );
         };
 

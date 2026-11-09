@@ -305,7 +305,7 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         }
         DiagnosticLabelKind::TrustedObligationFailure => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
-                "live trusted evidence is required here",
+                "the required condition is not established here",
             )])
         }
         DiagnosticLabelKind::TrustedCallable => MessageTemplate::new(&[

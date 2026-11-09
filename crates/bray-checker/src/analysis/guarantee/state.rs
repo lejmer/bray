@@ -979,7 +979,7 @@ mod tests {
 
         assert!(left.intersect(&right));
         assert_eq!(left.addresses[&argument][&address].len(), 2);
-        assert!(!left.proves_trusted(&[condition]));
+        assert!(!left.prove_trusted_requirements(&[condition]).is_ok());
         assert!(!left.intersect(&right));
     }
 
