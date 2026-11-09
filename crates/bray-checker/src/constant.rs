@@ -3,6 +3,7 @@ mod call;
 mod conversion;
 mod diagnostic;
 pub use diagnostic::constant_eligibility_diagnostic;
+pub(crate) use diagnostic::diagnostic_operation;
 mod equality;
 mod evaluation;
 pub(crate) mod floating;

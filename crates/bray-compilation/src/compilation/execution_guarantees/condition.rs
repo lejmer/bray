@@ -578,7 +578,7 @@ impl Compilation {
         let inputs = self.execution_unit_inputs(body, cancellation)?;
 
         let proves = |conditions: &[ExecutionCondition]| {
-            evidence.proves_trusted_with_inputs(conditions, &inputs)
+            evidence.prove_trusted_with_inputs(conditions, &inputs).is_ok()
         };
 
         let requirements = requirements

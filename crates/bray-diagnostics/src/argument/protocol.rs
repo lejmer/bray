@@ -22,6 +22,8 @@ use crate::{DiagnosticInterfaceLimit, DiagnosticInterfaceSection};
 /// Stable name for a diagnostic argument.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticArgName {
+    /// The failed condition and the boundary responsible for proving it.
+    ContractObligation,
     /// Actual externally supplied count or size.
     ActualCount,
     /// Exact number required by a source construct.
@@ -299,6 +301,7 @@ impl DiagnosticArgName {
     /// Returns the stable machine key for this argument name.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::ContractObligation => "contract_obligation",
             Self::ActualCount => "actual_count",
             Self::ExpectedCount => "expected_count",
             Self::ActualByteCount => "actual_byte_count",
@@ -444,6 +447,8 @@ impl DiagnosticArgName {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 
 pub enum DiagnosticArgValue {
+    /// A failed condition with its actual arguments and owning boundary.
+    ContractObligation(crate::DiagnosticContractObligation),
     /// Externally supplied or configured count.
     Count(u64),
     /// Raw source byte.

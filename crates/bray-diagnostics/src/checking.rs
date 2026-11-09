@@ -1,4 +1,5 @@
 mod callable;
+mod contract;
 mod expression;
 mod memory;
 mod pattern;
@@ -42,3 +43,5 @@ pub use storage::{
     DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
     DiagnosticStorageRoot,
 };
+
+pub use contract::{DiagnosticCondition, DiagnosticConditionProjection, DiagnosticContractObligation, DiagnosticContractObligationKind};

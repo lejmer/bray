@@ -174,16 +174,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                     crate::ExecutionProperty::Pure,
                                 )
                             })
-                        && evidence.proves(
+                        && evidence.prove_requirements(
                             contract
                                 .preconditions
                                 .iter()
                                 .map(|(condition, _)| condition),
-                        )
+                        ).is_ok()
                         && (evidence.trusted_boundary
                             || self
                                 .domain
-                                .trusted_requirements_proven(&evidence, &contract.requirements))
+                                .prove_trusted_requirements(&evidence, &contract.requirements).is_ok())
                     {
                         super::operation::collect_invocation_dependency(
                             self.domain.semantics.selections(),
@@ -768,7 +768,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&expression)
             .into_iter()
             .flatten()
-            .filter(|contract| entry.proves(&contract.entry))
+            .filter(|contract| entry.prove_requirements(&contract.entry).is_ok())
             .collect::<Vec<_>>();
 
         if contracts.is_empty() {

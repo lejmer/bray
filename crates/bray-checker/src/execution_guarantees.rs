@@ -2,6 +2,7 @@ mod clause;
 mod condition;
 mod declaration;
 mod implication;
+mod evidence;
 mod model;
 mod normalize;
 mod place;
@@ -20,8 +21,9 @@ pub use implication::{
     execution_condition_is_implied, map_execution_condition_references,
     remap_execution_condition_inputs, substitute_execution_condition,
 };
+pub use evidence::{ExecutionCallEvidence, UnprovenExecutionCondition};
 pub use model::{
-    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
+    DeclaredExecutionProperty, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionDeclaration, ExecutionDependency,
     ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation,

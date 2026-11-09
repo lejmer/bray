@@ -259,7 +259,7 @@ impl Compilation {
                     let evidence = evidence.unwrap_or(&empty);
                     let requirements = decode(behavior.predicate_requirements())?;
 
-                    if !evidence.proves_trusted(&requirements) {
+                    if !evidence.prove_trusted_requirements(&requirements).is_ok() {
                         return Ok(None);
                     }
 
@@ -271,7 +271,7 @@ impl Compilation {
                             .iter()
                             .filter(|domain| domain.properties.contains(&property))
                         {
-                            if evidence.proves_trusted(&decode(&domain.entry)?) {
+                            if evidence.prove_trusted_requirements(&decode(&domain.entry)?).is_ok() {
                                 applicable = true;
                                 break;
                             }

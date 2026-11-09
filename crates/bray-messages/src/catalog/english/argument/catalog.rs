@@ -1,5 +1,6 @@
 pub(crate) const USER_FACING_SOURCES: &[(&str, &str)] = &[
     ("argument.rs", include_str!("../argument.rs")),
+    ("argument/condition.rs", include_str!("condition.rs")),
     ("argument/callable.rs", include_str!("callable.rs")),
     (
         "argument/callable/contract.rs",

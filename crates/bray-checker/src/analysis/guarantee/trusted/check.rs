@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
@@ -12,16 +12,16 @@ use bray_diagnostics::{
 
 #[derive(Default)]
 pub(in crate::analysis) struct TrustedChecks {
-    failed: BTreeSet<BoundExpressionId>,
-    failed_execution: BTreeSet<BoundExpressionId>,
+    failed: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
+    failed_execution: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
     transfers: BTreeSet<BoundExpressionId>,
     pending_transfers: Vec<(
         bray_bound_tree::BoundExecutionSite,
         Option<ExecutionCondition>,
     )>,
-    cleanup_failures: BTreeSet<AnyBoundNodeId>,
+    cleanup_failures: BTreeSet<(AnyBoundNodeId, bray_symbols::CallableInstanceData, crate::UnprovenExecutionCondition)>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
-    guarantee_failures: Vec<bool>,
+    guarantee_failures: Vec<Option<crate::UnprovenExecutionCondition>>,
     pub(super) owned_returns: Vec<super::owned::OwnedReturn>,
     pub(super) owned_entry_conditions: BTreeSet<(ExecutionCondition, bool)>,
     pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
@@ -65,7 +65,7 @@ impl TrustedChecks {
 
         Self {
             owned_entry_conditions: boundary.as_ref().into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input())).cloned().collect(),
-            guarantee_failures: vec![false; guarantees.len()],
+            guarantee_failures: vec![None; guarantees.len()],
             carriers: vec![None; guarantees.len()],
             guarantees,
             ..Self::default()
@@ -103,11 +103,11 @@ impl TrustedChecks {
     pub(in crate::analysis) fn cleanup(
         &mut self,
         node: AnyBoundNodeId,
-        established: bool,
-        required: bool,
+        lifecycle: &super::super::Lifecycle,
+        proof: &Result<(), crate::UnprovenExecutionCondition>,
     ) {
-        if !established && required {
-            self.cleanup_failures.insert(node);
+        if !lifecycle.contract.requirements.is_empty() && let Err(failure) = proof {
+            self.cleanup_failures.insert((node, lifecycle.call.callable, failure.clone()));
         }
     }
 
@@ -116,7 +116,7 @@ impl TrustedChecks {
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         operation: crate::analysis::model::AnalysisOperationKind,
-        evidence: Option<bool>,
+        evidence: Option<&Result<bool, crate::UnprovenExecutionCondition>>,
         current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     ) {
         super::transfers::check_witness_transfers(
@@ -180,25 +180,16 @@ impl TrustedChecks {
 
         let invocation = operation.occurrence();
 
-        if let Some(contract) = domain
-            .request
-            .trusted_contracts()
+        if let Some(contract) = domain.request.trusted_contracts()
             .and_then(|contracts| contracts.calls.get(&invocation))
-            && !contract.execution_requirements.is_empty()
             && let Some(entry) = state.entries.get(&invocation)
-            && !entry.proves(&contract.execution_requirements)
+            && let Err(failure) = entry.prove_requirements(&contract.execution_requirements)
         {
-            self.failed_execution.insert(expression);
+            self.failed_execution.entry(invocation).or_insert(failure);
         }
 
-        if domain
-            .request
-            .trusted_contracts()
-            .is_some_and(|contracts| contracts.calls.contains_key(&invocation))
-            && state.entries.contains_key(&invocation)
-            && evidence.is_none()
-        {
-            self.failed.insert(expression);
+        if let Some(Err(failure)) = evidence {
+            self.failed.entry(invocation).or_insert_with(|| failure.clone());
         }
     }
 
@@ -239,13 +230,11 @@ impl TrustedChecks {
     pub(in crate::analysis) fn finish<C: CheckerRequestContext + ?Sized>(
         self,
         domain: &ExecutionFlowDomain<'_, '_, C>,
-    ) -> DiagnosticBag {
+    ) -> crate::CheckerQueryResult<DiagnosticBag, C::UpstreamError> {
         let mut diagnostics = DiagnosticBag::new();
 
         for ((_, span), failed) in self.guarantees.into_iter().zip(self.guarantee_failures) {
-            if !failed {
-                continue;
-            }
+            let Some(failed) = failed else { continue; };
 
             diagnostics.add(
                 Diagnostic::new(
@@ -254,12 +243,10 @@ impl TrustedChecks {
                     SeverityKind::Error,
                 )
                 .with_primary_span(span)
+                .with_arg(super::diagnostic::obligation(domain, bray_diagnostics::DiagnosticContractObligationKind::Postcondition, &failed)?)
                 .with_label(DiagnosticLabel::primary(
                     DiagnosticLabelKind::TrustedObligationFailure,
                     span,
-                ))
-                .with_arg(DiagnosticArg::expression_category(
-                    DiagnosticExpressionCategory::Call,
                 ))
                 .with_note(DiagnosticNote::new(
                     DiagnosticNoteKind::TrustedObligationEvidenceRequired,
@@ -267,13 +254,12 @@ impl TrustedChecks {
             );
         }
 
-        for node in self.cleanup_failures {
-            diagnostics.add(contract_diagnostic(
-                domain.request,
-                domain.semantics,
-                node,
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            ));
+        for (node, callable, failure) in self.cleanup_failures {
+            diagnostics.add(super::diagnostic::failed_obligation(
+                domain, node, DiagnosticKind::CheckingTrustedObligationNotProven,
+                bray_diagnostics::DiagnosticContractObligationKind::CleanupRequirement,
+                &failure, Some(callable),
+            )?);
         }
 
         for expression in self.transfers {
@@ -285,26 +271,31 @@ impl TrustedChecks {
             ));
         }
 
-        for expression in self.failed_execution {
-            diagnostics.add(contract_diagnostic(
-                domain.request,
-                domain.semantics,
-                expression.into(),
-                DiagnosticKind::CheckingExecutionRequirementNotProven,
-            ));
+        for (invocation, failure) in self.failed_execution {
+            diagnostics.add(super::diagnostic::failed_obligation(
+                domain, invocation.node(), DiagnosticKind::CheckingExecutionRequirementNotProven,
+                bray_diagnostics::DiagnosticContractObligationKind::ExecutionRequirement,
+                &failure, domain.semantics.selections().invoked_callable(invocation),
+            )?);
         }
 
-        for expression in self.failed {
-            diagnostics.add(contract_diagnostic(
-                domain.request,
-                domain.semantics,
-                expression.into(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            ));
+        for (invocation, failure) in self.failed {
+            let kind = if matches!(invocation, bray_bound_tree::BoundExecutionSite::ScopedExit(_)) {
+                bray_diagnostics::DiagnosticContractObligationKind::CleanupRequirement
+            } else {
+                bray_diagnostics::DiagnosticContractObligationKind::CallRequirement
+            };
+
+            diagnostics.add(super::diagnostic::failed_obligation(
+                domain, invocation.node(), DiagnosticKind::CheckingTrustedObligationNotProven,
+                kind,
+                &failure, domain.semantics.selections().invoked_callable(invocation),
+            )?);
         }
 
-        diagnostics
+        Ok(diagnostics)
     }
+
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
@@ -325,12 +316,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expect("invocation attempt retains its entry evidence");
 
         Some(
-            evidence.proves(
+            evidence.prove_requirements(
                 contract
                     .preconditions
                     .iter()
                     .map(|(condition, _)| condition),
-            ),
+            ).is_ok(),
         )
     }
 
@@ -338,17 +329,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<bool> {
+    ) -> Option<Result<bool, crate::UnprovenExecutionCondition>> {
         let contract = self.request.trusted_contracts()?.calls.get(&invocation)?;
         let evidence = state.entries.get(&invocation)?;
 
-        let proven = self.trusted_requirements_proven(evidence, &contract.requirements);
-
-        proven.then(|| self.empty_memory_copy(state, invocation))
+        Some(self.prove_trusted_requirements(evidence, &contract.requirements)
+            .map(|()| self.empty_memory_copy(state, invocation)))
     }
 }
 
-fn contract_diagnostic<C: CheckerRequestContext + ?Sized>(
+pub(super) fn contract_diagnostic<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expressions: &CheckedExpressionSemantics,
     node: AnyBoundNodeId,

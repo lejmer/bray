@@ -70,7 +70,7 @@ pub use context::{
 pub use dependency::generator_result_dependencies;
 pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{
-    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
+    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates, UnprovenExecutionCondition,
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
     ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionPlace,

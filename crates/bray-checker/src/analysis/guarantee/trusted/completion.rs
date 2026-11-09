@@ -430,7 +430,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // Normal completion establishes ordinary requirements, including runtime
                 // checks. Trusted requirements still need authority at the call boundary.
                 entry.trusted_boundary
-                    || self.trusted_requirements_proven(entry, &contract.requirements)
+                    || self.prove_trusted_requirements(entry, &contract.requirements).is_ok()
             })
             .cloned()?;
 

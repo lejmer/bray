@@ -221,6 +221,7 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::RuntimeArtifactProblem(problem) => {
             format_english_runtime_artifact_problem(problem)
         }
+        DiagnosticArgValue::ContractObligation(obligation) => super::condition::format_obligation(obligation),
         DiagnosticArgValue::Type(ty) => format_english_type(ty),
         DiagnosticArgValue::SelectionKind(kind) => format_english_selection_kind(*kind).to_owned(),
         DiagnosticArgValue::SelectionCandidates(candidates) => {

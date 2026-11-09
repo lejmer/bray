@@ -418,7 +418,7 @@ impl Compilation {
         let mut postconditions = Vec::new();
 
         for contract in contracts.into_parts().0 {
-            if !evidence.proves_trusted(&contract.entry) {
+            if !evidence.prove_trusted_requirements(&contract.entry).is_ok() {
                 continue;
             }
 
