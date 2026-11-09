@@ -53,6 +53,70 @@ module app;
 
 using std.io;
 
+func main()
+{
+    let mut oats: Item =
+    {
+        name = "oats",
+        quantity = 1,
+    };
+
+    add(&mut oats, amount = 2);
+
+    if oats.quantity == 3
+    {
+        _ = std.io.print_line("Stock is ready");
+    }
+}
+
+struct Item
+{
+    name: string;
+    mut quantity: i32;
+}
+
+func add(pos item: &mut Item, amount: i32)
+{
+    item.quantity += amount;
+}
+```
+
+Run the application:
+
+```sh
+bray run
+```
+
+The application prints:
+
+```text
+Stock is ready
+```
+
+The command can also display build progress. The item starts with one unit, and `add` adds two, so its quantity is three.
+
+As in Rust, `let mut oats` permits mutation through the binding, and `&mut oats` gives `add` exclusive mutable access.
+Bray also requires `mut quantity` on the field. The immutable `name` field cannot be replaced after initialization,
+even through a mutable `Item`. The shared borrow passed to `find` lets it inspect the item without taking ownership.
+
+Bray uses `func` for functions. Parameters are named at the call site by default. The `pos` on `item` permits a
+positional argument, so the call is `add(&mut oats, amount = 2)`. A `pos` parameter can also be passed by name. A
+function's positional parameters must come before its named-only parameters.
+
+The type of `oats` supplies the type for the construction expression. Its field initializers use `=`, and each field
+ends with a comma. The opening brace goes on the next line. Bray may be stubborn, but at least its braces are consistent.
+
+## Handle absence and errors
+
+In Rust, a lookup might return `Option<&Item>`, and a fallible print operation might return a `Result`. Bray separates
+these two cases too, but their propagation operators differ.
+
+Our first version explicitly discards the result of `print_line` with `_ =`. That acknowledges an unused value; it does
+not handle a printing error. Now we will return the error to the caller instead.
+
+Replace the `main` function in `src/main.bray` with:
+
+```bray
 func main() -> Result<unit, std.io.IoError>
 {
     let mut oats: Item =
@@ -77,18 +141,11 @@ func main() -> Result<unit, std.io.IoError>
 
     return Ok(unit);
 }
+```
 
-struct Item
-{
-    name: string;
-    mut quantity: i32;
-}
+Add these functions after `add`:
 
-func add(pos item: &mut Item, amount: i32)
-{
-    item.quantity += amount;
-}
-
+```bray
 func find(pos item: &Item, name: string) -> (&Item)?
 {
     if item.name == name
@@ -105,36 +162,7 @@ internal func low(pos item: &Item) -> bool
 }
 ```
 
-Run the application:
-
-```sh
-bray run
-```
-
-The application prints:
-
-```text
-Stock is ready
-```
-
-The command can also display build progress. The item starts with one unit, and `add` adds two, so the quantity is not
-below three.
-
-As in Rust, `let mut oats` permits mutation through the binding, and `&mut oats` gives `add` exclusive mutable access.
-Bray also requires `mut quantity` on the field. The immutable `name` field cannot be replaced after initialization,
-even through a mutable `Item`. The shared borrow passed to `find` lets it inspect the item without taking ownership.
-
-Bray uses `func` for functions. Parameters are named at the call site by default. The `pos` on `item` permits a
-positional argument, so the call is `add(&mut oats, amount = 2)`. A `pos` parameter can also be passed by name. A
-function's positional parameters must come before its named-only parameters.
-
-The type of `oats` supplies the type for the construction expression. Its field initializers use `=`, and each field
-ends with a comma. The opening brace goes on the next line. Bray may be stubborn, but at least its braces are consistent.
-
-## Handle absence and errors
-
-In Rust, a lookup might return `Option<&Item>`, and a fallible print operation might return a `Result`. Bray separates
-these two cases too, but their propagation operators differ.
+Run `bray run` again. The application still prints `Stock is ready`.
 
 `find` returns `(&Item)?`: a nullable borrow. The parentheses matter here. The borrow is the value that may be absent.
 Returning `item` supplies a present value; `none` supplies an absent value. The `if let ?item` condition binds the
@@ -240,7 +268,7 @@ Create the directories `stock/src` and `checks` under the workspace root. Move `
 `stock/src/inventory.bray`. Its `module inventory;` declaration stays the same: a source module path is relative to its
 package and does not include the package identity.
 
-In `bray-workspace.json`, replace the `packages` array with the following. Leave the generated target and other fields
+In `bray-workspace.json`, replace the `packages` property with the following. Leave the generated target and other fields
 unchanged, so `native` still names your host target.
 
 ```json
