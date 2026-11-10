@@ -2,7 +2,7 @@ use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
-    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
+    REFERENCE_ALLOCATION, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
     write_count, write_optional_u32, write_symbol_reference, write_symbol_references,
 };
 use crate::semantic::codec::record::encode_record_table;
@@ -66,19 +66,21 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                     attributes |= REFERENCE_INPUT_REGIONS;
                 }
 
-                if relation.entry().is_none() {
+                if relation.source_subject().is_none() {
                     attributes |= REFERENCE_INPUT_ABSENT;
                 }
 
+                if relation.allocation().is_some() { attributes |= REFERENCE_ALLOCATION; }
+
                 encoder.write_u32(attributes);
 
-                if let Some(entry) = relation.entry() {
+                if let Some(entry) = relation.source_subject() {
                     encode_dependency_subject(encoder, entry);
                 }
 
                 encode_dependency_subject(encoder, relation.exit());
 
-                if relation.entry().is_some() {
+                if relation.source_subject().is_some() {
                     encoder.write_u32(relation.dereferences());
                     encode_dependency_projections(encoder, relation.target_projections());
                 }

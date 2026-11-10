@@ -726,7 +726,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Some(DependencyStorageEffect::Unknown)
             }
             Origin::Storage(path) => self.formal_effect(path, kind),
-            Origin::Allocation(_) => None,
+            Origin::Allocation { .. } => None,
             Origin::Static { root, projections } => {
                 // An unresolved selector widens within the same static identity.
                 let projections = projections

@@ -3,6 +3,45 @@ use crate::test_support::source_function_body_key;
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
 
 #[test]
+fn allocation_producers_preserve_freshness_in_source_and_imported_calls() {
+    let api = include_str!("../../../execution_guarantees/fixtures/fresh-allocation-returns.bray")
+        .replace("trusted module app;", "trusted module api;");
+    let provider = compilation(&api);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for imported in [false, true] {
+        let prefix = if imported { "example.package.api" } else { "api" };
+        let caller = r#"
+            trusted module app;
+
+            using core.memory;
+            using API;
+
+            trusted func probe(pos owner: &API.Owner)
+                requires(trusted API.live(owner = &owner.marker))
+                uses(manual_alloc)
+            {
+                let pointer = trusted API.forward();
+
+                trusted core.memory.deallocate(pointer, bytes = 8, align = 8);
+                API.observe(owner);
+            }
+        "#.replace("API", prefix);
+        let consumer = if imported { execution_consumer(&provider, &caller) }
+            else { compilation_from_sources([&api, &caller]) };
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:#?}");
+
+        let lowered = consumer.lowered_unit(source_function_body_key(&consumer, "probe"))
+            .expect("fresh allocation consumer lowers");
+
+        assert!(!lowered.diagnostics().has_errors(), "imported={imported}: {:?}", lowered.diagnostics());
+    }
+}
+
+#[test]
 fn owned_match_results_release_the_subject_loan() {
     let api = r#"
         module api;

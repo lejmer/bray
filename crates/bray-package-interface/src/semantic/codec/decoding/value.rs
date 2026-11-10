@@ -1482,7 +1482,7 @@ mod tests {
     }
 
     #[test]
-    fn independent_reference_origins_round_trip_with_input_alternatives() {
+    fn reference_origins_round_trip_with_input_alternatives_and_allocations() {
         let surface = interface_surface(package_identity(), [], []);
 
         let result = crate::InterfaceDependencySubject::new(
@@ -1503,10 +1503,12 @@ mod tests {
                     ),
                     [],
                 )),
-                result,
+                result.clone(),
                 bray_symbols::DependencyReferenceKind::Address,
             )
             .with_exactness(false),
+            bray_symbols::DependencyBorrowRelation::new_allocation(
+                result.clone(), result, bray_symbols::DependencyReferenceKind::Address),
         ]);
 
         let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);

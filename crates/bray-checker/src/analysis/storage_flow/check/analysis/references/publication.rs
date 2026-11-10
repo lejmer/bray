@@ -92,6 +92,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut relations = Vec::new();
         let mut unbounded = std::collections::BTreeSet::new();
+        let mut allocations = std::collections::BTreeMap::new();
         let summary = std::mem::take(&mut self.results).summary();
 
         for (slot, target, exact, bounds) in self
@@ -107,7 +108,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            if let Some(relation) = self.result_reference(slot, target, ty, exact)? {
+            let allocation_relation = if let Origin::Allocation { allocation, projections } = target
+                && bounds != ReferenceBounds::InputRegions && bounds != ReferenceBounds::Unknown
+                && !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+                && self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Address)
+                && let Some(exit) = dependency_projections(&slot.projections)
+                && let Some(target_projections) = dependency_projections(projections)
+            {
+                let exit = bray_symbols::DependencySubject::new(
+                    self.formal_root(slot.root).expect("allocation output has a formal root"), exit);
+                let anchor = allocations.entry(allocation.clone()).or_insert_with(|| exit.clone());
+
+                Some(bray_symbols::DependencyBorrowRelation::new_allocation(
+                    anchor.clone(), exit, bray_symbols::DependencyReferenceKind::Address)
+                    .with_target_projections(target_projections))
+            } else { None };
+
+            let relation = if allocation_relation.is_some() { allocation_relation }
+                else { self.result_reference(slot, target, ty, exact)? };
+
+            if let Some(relation) = relation {
                 let bounded = match bounds {
                     ReferenceBounds::Known => true,
                     ReferenceBounds::InputRegions => true,
@@ -258,7 +278,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Some((path, false))
             }
             Origin::Storage(_)
-            | Origin::Allocation(_)
+            | Origin::Allocation { .. }
             | Origin::Returned { .. }
             | Origin::Static { .. } => None,
         };
@@ -275,7 +295,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return Ok(kind
                 .filter(|kind| {
                     *kind == bray_symbols::DependencyReferenceKind::Address
-                        || !matches!(origin, Origin::Allocation(_))
+                        || !matches!(origin, Origin::Allocation { .. })
                 })
                 .map(|kind| {
                     bray_symbols::DependencyBorrowRelation::new(

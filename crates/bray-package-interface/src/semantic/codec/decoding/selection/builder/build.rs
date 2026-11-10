@@ -979,7 +979,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
 
         for relation in &*contract.borrows {
-            if let Some(entry) = relation.entry() {
+            if let Some(entry) = relation.source_subject() {
                 self.include_dependency_subject(entry);
             }
 

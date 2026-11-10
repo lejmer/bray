@@ -13,6 +13,42 @@ use std::sync::Arc;
 const BUFFER_POINTER: StorageProjection =
     StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
+#[test]
+fn returned_allocations_publish_once_and_keep_alias_groups_across_replay() {
+    let ([allocation, first, second, other], origins) = places();
+    let call = origins[0].into();
+    let mut state = State::default();
+    let other_allocation = Place { root: allocation.root, projections: [BUFFER_POINTER].into() };
+
+    state.begin_transition(call);
+    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation.clone(), &[]);
+    state.stage_allocation_reference(call, Target::storage(second.clone()), allocation.clone(), &[]);
+    state.stage_allocation_reference(call, Target::storage(other.clone()), other_allocation, &[]);
+
+    assert!(state.referenced_regions(&Target::storage(first.clone())).is_none());
+    state.complete_transition(call);
+
+    let target = state.value_targets(&Target::storage(first.clone())).expect("first allocated address")[0].clone();
+    let alias = state.value_targets(&Target::storage(second.clone())).expect("aliased allocated address")[0].clone();
+    let distinct = state.value_targets(&Target::storage(other)).expect("separate allocated address")[0].clone();
+
+    assert_eq!(target, alias);
+    assert_eq!(state.target_relationship(&target, &distinct), bray_bound_tree::StorageRelationship::Disjoint);
+    assert!(!state.initialized(&target, error_type()), "freshness grants no initialized-memory authority");
+
+    let stale = Place { root: second.root, projections: [BUFFER_POINTER].into() };
+
+    state.stage_slot(call, &second, stale.clone());
+    state.complete_transition(call);
+    state.begin_transition(call);
+    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation, &[]);
+    state.complete_transition(call);
+
+    assert!(!state.value_targets(&Target::storage(first)).expect("new allocation")[0].previous);
+    assert!(state.referenced_regions(&Target::storage(stale)).expect("old raw address remains stored")
+        .iter().all(|target| target.previous), "replay cannot revive earlier allocations");
+}
+
 fn addressed_reference(
     ty: bray_symbols::TypeId,
     kind: bray_symbols::DependencyReferenceKind,

@@ -113,7 +113,7 @@ impl State {
             Origin::Returned { reference, .. } => {
                 (None, Some(self.returned_reference_bounds(reference)))
             }
-            Origin::Entry { .. } | Origin::Allocation(_) | Origin::Static { .. } => (None, None),
+            Origin::Entry { .. } | Origin::Allocation { .. } | Origin::Static { .. } => (None, None),
         };
 
         storage.into_iter().chain(
@@ -572,10 +572,10 @@ impl State {
             match &mut ancestor.origin {
                 Origin::Entry { projections, .. }
                 | Origin::Returned { projections, .. }
-                | Origin::Static { projections, .. } => {
+                | Origin::Static { projections, .. } | Origin::Allocation { projections, .. } => {
                     *projections = projections[..length - 1].into();
                 }
-                Origin::Storage(path) | Origin::Allocation(path) => {
+                Origin::Storage(path) => {
                     path.projections = path.projections[..length - 1].into();
                 }
             }

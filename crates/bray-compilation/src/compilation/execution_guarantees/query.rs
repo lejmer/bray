@@ -1624,6 +1624,38 @@ mod tests {
     }
 
     #[test]
+    fn returned_allocations_keep_their_producer_freshness() {
+        for asynchronous in [false, true] {
+            let mut source = include_str!("fixtures/fresh-allocation-returns.bray").to_owned();
+
+            if asynchronous {
+                source = source.replace("trusted func", "trusted async func")
+                    .replace("return trusted fresh();", "return await trusted fresh();")
+                    .replace("let pointer = trusted forward();", "let pointer = await trusted forward();");
+            }
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert!(!diagnostics.has_errors(), "async={asynchronous}: {diagnostics:#?}");
+
+            let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, "caller"))
+                .expect("returned fresh allocation lowers");
+
+            assert!(!lowered.diagnostics().has_errors(), "async={asynchronous}: {:?}", lowered.diagnostics());
+        }
+
+        let independent = include_str!("fixtures/fresh-allocation-returns.bray")
+            .replace("return trusted core.memory.allocate(bytes = 8, align = 8);", "let temporary = trusted core.memory.allocate(bytes = 8, align = 8);\n    trusted core.memory.deallocate(temporary, bytes = 8, align = 8);\n    return trusted existing();")
+            + "\nextern trusted func existing() -> DataPointer<u8>\n    ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 8, align = 8));\n";
+        let application = compilation(&independent);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+            == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "independent return is not fresh: {diagnostics:#?}");
+    }
+
+    #[test]
     fn produced_owner_receivers_use_the_same_value_as_explicit_borrows() {
         for call in ["owner.access();", "observe(&owner);", "let anchor_value = &owner;\n                            anchor_value.access();"] {
             let source = format!(r#"

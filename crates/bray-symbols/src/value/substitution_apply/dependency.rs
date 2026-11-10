@@ -197,17 +197,12 @@ impl SemanticValueStore {
             .borrows()
             .iter()
             .map(|relation| {
-                Ok(super::super::DependencyBorrowRelation::new(
+                Ok(relation.remap(
                     relation
-                        .entry()
+                        .source_subject()
                         .map(|entry| self.substitute_dependency_subject(entry, substitution))
                         .transpose()?,
                     self.substitute_dependency_subject(relation.exit(), substitution)?,
-                    relation.kind(),
-                )
-                .with_dereferences(relation.dereferences())
-                .with_provenance(relation.provenance())
-                .with_target_projections(
                     relation
                         .target_projections()
                         .iter()

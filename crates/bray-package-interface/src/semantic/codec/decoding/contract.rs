@@ -1,6 +1,6 @@
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
+    REFERENCE_ALLOCATION, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
     SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
     read_symbol_references, read_u32,
 };
@@ -112,8 +112,9 @@ pub(super) fn decode_dependency_contract(
         let exact = attributes & REFERENCE_EXACT != 0;
 
         let regions = attributes & REFERENCE_INPUT_REGIONS != 0;
+        let allocation = attributes & REFERENCE_ALLOCATION != 0;
 
-        if exact && (independent || regions) {
+        if exact && (independent || regions) || allocation && (independent || exact || regions) {
             return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Discriminant,
                 attributes,
@@ -130,7 +131,13 @@ pub(super) fn decode_dependency_contract(
 
         let exit = decode_dependency_subject(reader, limits, context)?;
 
-        let mut relation = bray_symbols::DependencyBorrowRelation::new(entry, exit, kind)
+        let mut relation = if allocation {
+            if kind != bray_symbols::DependencyReferenceKind::Address {
+                return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+            }
+
+            bray_symbols::DependencyBorrowRelation::new_allocation(entry.expect("allocation attributes require their subject"), exit, kind)
+        } else { bray_symbols::DependencyBorrowRelation::new(entry, exit, kind) }
             .with_provenance(if regions {
                 bray_symbols::DependencyReferenceProvenance::InputRegions
             } else if exact {
@@ -140,8 +147,14 @@ pub(super) fn decode_dependency_contract(
             });
 
         if !independent {
+            let dereferences = read_u32(reader)?;
+
+            if allocation && dereferences != 0 {
+                return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+            }
+
             relation = relation
-                .with_dereferences(read_u32(reader)?)
+                .with_dereferences(dereferences)
                 .with_target_projections(decode_dependency_projections(reader, limits, context)?);
         }
 
@@ -828,6 +841,11 @@ mod tests {
 
         assert!(contract.borrows[0].entry().is_none());
         assert!(contract.requirements.is_empty());
+
+        words[7] = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT
+            | crate::semantic::codec::common::REFERENCE_ALLOCATION;
+
+        assert!(decode_words(&words, limits).is_err(), "an allocation requires its producer identity");
     }
 
     #[test]

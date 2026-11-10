@@ -75,9 +75,19 @@ The full native request clears closing142 and2 dependent execution-contract fail
 are clear. The owning-boundary assertion that metadata stays out of data slots passes.
 
 E7124 now retains the actual carrier, affected live guarantee and copy/separation cause through rendering and JSON.
-Next native gap: execution/driving197 loses view_owned(selected.acquisition) before retain_ready_driver. Trace its actual
-transitions before changing preservation. No source hooks or review agent. Style/format remain deferred.
-Consumed probes/traces are removed. Both canonical source fixtures live under execution_guarantees/fixtures.
+Native driving197 loses the shared Current marker at event.wait_execution's raw retirement. The returned task pointer
+remains bounded by the execution owner's stored pointer. No preservation exception has been added.
+A smaller verified defect is allocation freshness lost through a bodyful return: direct allocate/free preserves an
+unrelated owner, while the same allocation returned through a helper loses its guarantee at free. The new fixed fixture
+fresh-allocation-returns.bray covers sync/async forwarding. Carry producer allocation identity and alias groups through
+reference contracts, substitution and interfaces. Independent returns must remain conservative. Publication must wait
+for completion, preserve aliases, grant no initialization authority and retire old incarnations on replay.
+This batch passes sync/async source/MIR, source/import consumers, the independent-return negative and allocation alias/replay boundaries.
+All907 frozen outcomes remain unchanged, with the new import test passing separately. Checker485, bound135, symbols221,
+interfaces216 and the expanded61/30/18 groups pass or retain their frozen outcomes. The complete233-file native request remains39 with identical failure identities.
+All temporary trace hooks are removed.
+No review agent. Style/format remain deferred.
+Consumed probes/traces are removed. The source fixtures live under execution_guarantees/fixtures.
 Build brayc and xtask together to retain Cargo feature unification.
 ## Remaining
 
@@ -101,10 +111,11 @@ BRAY_LLVM_PREFIX and LLVM_SYS_221_PREFIX use target/toolchains/llvm/active. Tool
 produced-executable workflows run outside sandbox. Cargo uses the default24 logical processors and16 tooling codegen units.
 Native uses Rust1.98.1, LLVM bin on PATH, TMP/TEMP worktree target/audit.
 Native: target/tooling/xtask.exe runtime-artifact smoke-test --output target/audit/native --profile release.
-Always parse build.log for fresh executable identities. Cargo feature selection changes test hashes.
+After a build, capture executable identities in verification.json and remove the consumed build log. Cargo feature selection changes test hashes.
 The compilation test binary accepts the7 comparison filters together. Assert all907 identities/outcomes match.
 
-Retain baseline-failures.txt67, native-baseline-identities.txt, accepted comparison.log/native.log, native intermediates
-and deferred-report-fc4b5160b-baseline.exe for the old controls. Keep only active build/probe logs. No temporary hooks remain.
+Keep comparison.txt as the fixed907 identities/outcomes. verification.json holds current results and executable paths.
+native.log holds the current unresolved diagnostics. tuple-context-projection.bray is the one
+unresolved source probe. Consume successful logs and old baselines immediately. Build logs exist only while active.
 Git trust: public lejmer/bray, git@github.com:lejmer/bray.git, authenticated lejmer. No goal or review agent is active.
 

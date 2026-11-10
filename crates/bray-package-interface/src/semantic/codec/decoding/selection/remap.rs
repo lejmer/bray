@@ -253,7 +253,7 @@ fn remap_dependency_contract(
         .iter()
         .map(|relation| {
             // The selected record owns remapped paths independently of the decoded table.
-            let mut entry = relation.entry().cloned();
+            let mut entry = relation.source_subject().cloned();
             let mut exit = relation.exit().clone();
 
             if let Some(entry) = &mut entry {
@@ -267,10 +267,7 @@ fn remap_dependency_contract(
             remap_dependency_projections(&mut projections, maps)?;
 
             Ok(
-                bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
-                    .with_dereferences(relation.dereferences())
-                    .with_provenance(relation.provenance())
-                    .with_target_projections(projections),
+                relation.remap(entry, exit, projections),
             )
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
