@@ -30,7 +30,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
-Fixed comparison:759 passed /49 failed /99 ignored, all907 identities retained. Checker480, bound-tree135,
+Fixed comparison:760 passed /48 failed /99 ignored, all907 identities retained. Checker481, bound-tree135,
 messages91, JSON48 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
 Accepted native.log:44 diagnostics(E7123=27,E7135=17), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
@@ -67,9 +67,17 @@ The new owning-boundary property was red. In-place contents framing now retains 
 independently of descriptor survival. It creates no owner context for other observation kinds. New contents, stable
 replay and all480 checker tests pass. All907 fixed outcomes, cleanup/storage61, predicate30 and source controls stay
 unchanged. Native clears abandonment81 and step34 without added locations or changed retained blocks.
-Trace hooks and consumed probes removed. Next strengthen async-ownership-composition with a whole-owner invariant
-across joins and mutation. Its existing marker-focused guarantee does not cover this owned-context boundary directly.
+The composition fixture now checks a whole-owner invariant across awaited mutation, loop joins and returned owners.
+This exposed stale async completion arguments. Deferred physical transfers now retain evaluated input reference
+descriptors. Before completion publishes outputs, their typed routes read current pointees. Publish the same exact
+observations in StorageCompletion for subsequent certificate consumers. No syntax or historical-value reconstruction.
+The8-case sync/async matrix, Source/MIR fixture and3 invalid variants pass. Physical frame movement, input-slot reuse
+and referent retirement pass. All907 identities retained. Normal deferred completion now passes its old positive while
+the caught-panic negative still rejects. Expanded61/30 groups unchanged. Native44 unchanged, including every full block.
+Trace hooks and consumed probes removed. Next investigate implicit shared receiver preparation: produced-lock reproduces
+deadline/storage374, while an explicit borrow or ordinary borrowed parameter passes. Cleanup does not cause this failure.
 No review agent. Style/format remain deferred.
+
 ## Remaining
 
 Repair native proof/execution failures by transition class, then execute the complete async fixture. Trace Bound and

@@ -717,15 +717,66 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         invalidation
     }
 
+    pub(super) fn completed_deferred_references(
+        &self,
+        state: &StorageFlowState,
+        operation: crate::analysis::model::AnalysisOperationKind,
+    ) -> BTreeMap<StoragePath, bray_bound_tree::StorageTarget> {
+        let mut observations = BTreeMap::new();
+
+        if !matches!(operation, crate::analysis::model::AnalysisOperationKind::Call {
+            phase: crate::analysis::model::AnalysisCallPhase::Completion, ..
+        } | crate::analysis::model::AnalysisOperationKind::Bound(_)) {
+            return observations;
+        }
+
+        let Some(expression) = operation.occurrence().expression() else { return observations; };
+        let execution = state.execution.as_ref().expect("completion retains execution facts");
+        let producers = self.execution.awaited_invocations(execution, expression)
+            .map(|(producer, _)| producer)
+            .chain(self.execution.awaited_task_invocations(execution, expression).into_iter().flatten())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        for producer in producers {
+            let contracts = &self.dependencies.calls()[&producer];
+
+            for subject in contracts.reference_subjects() {
+                if subject.subject_root() == bray_symbols::DependencySubjectRoot::Result {
+                    continue;
+                }
+
+                if contracts.reference_type(subject)
+                    .and_then(|ty| crate::representation::reference_kind(self.request, ty))
+                    != Some(bray_symbols::DependencyReferenceKind::Borrow) {
+                    continue;
+                }
+
+                let Some(root) = self.invocation_place(producer, subject.subject_root()) else { continue; };
+                let Some(observed) = self.invocation_logical_path(producer, subject) else { continue; };
+                let path = contracts.reference_path(subject).expect("prepared input retains its reference route");
+                let Some(path) = self.invocation_reference_path(producer, subject.subject_root(), path) else { continue; };
+                let Some(target) = state.memory.captured_input_target(
+                    operation.occurrence(), self.request.semantic_values(), &Target::storage(root), &path,
+                ) else { continue; };
+
+                if target.is_exact() {
+                    observations.insert(observed, target);
+                }
+            }
+        }
+
+        observations
+    }
+
     pub(super) fn completed_references(
         &mut self,
         state: &StorageFlowState,
         operation: crate::analysis::model::AnalysisOperationKind,
+        mut observations: BTreeMap<StoragePath, bray_bound_tree::StorageTarget>,
     ) -> bray_bound_tree::StorageCompletion {
         use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
 
         let occurrence = operation.occurrence();
-        let mut observations = BTreeMap::new();
         let contracts = self.dependencies.calls().get(&occurrence);
 
         if !matches!(
@@ -737,7 +788,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 phase: crate::analysis::model::AnalysisResultPhase::Completion,
                 ..
             }
-        ) && !(matches!(operation, AnalysisOperationKind::Bound(_)) && contracts.is_some())
+        ) && !(matches!(operation, AnalysisOperationKind::Bound(_)) && (contracts.is_some() || !observations.is_empty()))
         {
             return bray_bound_tree::StorageCompletion::default();
         }

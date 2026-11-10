@@ -18,6 +18,21 @@ impl State {
         self.pending.insert(call, Default::default());
     }
 
+    pub(in crate::analysis::storage_flow) fn capture_reference_inputs(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        roots: impl IntoIterator<Item = Target>,
+    ) {
+        let inputs = &mut self.pending.get_mut(&call)
+            .expect("prepared invocation retains its input transfer").inputs;
+
+        for root in roots {
+            inputs.extend(self.values.range(root.clone()..)
+                .take_while(|(slot, _)| root.contains(slot))
+                .map(|(slot, references)| (slot.clone(), references.clone())));
+        }
+    }
+
     pub(in crate::analysis::storage_flow) fn defer_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,

@@ -1058,6 +1058,7 @@ where
             self.end_last_use_borrows(state, occurrence);
         }
 
+        let deferred_references = self.completed_deferred_references(state, kind);
         let memory_status = self.apply_storage_operation(
             state,
             operation,
@@ -1065,7 +1066,7 @@ where
             invalidation.as_ref(),
         );
 
-        self.complete_operation(state, kind, memory_status);
+        self.complete_operation(state, kind, memory_status, deferred_references);
 
         if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
             self.retire_consumed_value_slots(state, kind);
@@ -1213,6 +1214,7 @@ where
         state: &mut StorageFlowState,
         kind: AnalysisOperationKind,
         memory_status: Option<MemoryOperationStatus>,
+        deferred_references: BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageTarget>,
     ) {
         if matches!(
             kind,
@@ -1231,7 +1233,7 @@ where
                 ..
             }
         ) {
-            self.completed_references(state, kind)
+            self.completed_references(state, kind, deferred_references)
         } else {
             bray_bound_tree::StorageCompletion::default()
         };

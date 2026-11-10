@@ -279,6 +279,25 @@ impl State {
         })
     }
 
+    pub(in crate::analysis::storage_flow) fn captured_input_target(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        values: &bray_symbols::SemanticValueStore,
+        root: &Target,
+        path: &bray_bound_tree::StorageReferencePath,
+    ) -> Option<Target> {
+        let captured = &self.pending.get(&invocation)?.inputs;
+        let lookup = |target: &Target| {
+            if root.contains(target) { captured.get(target) } else { self.values.get(target) }
+        };
+        let location = self.reference_location_in(values, root.clone(), path, None, lookup)?;
+
+        let references = lookup(&location)?;
+
+        references.is_exact().then(|| references.targets.first()
+            .expect("exact captured input has one referent").clone())
+    }
+
     pub(in crate::analysis::storage_flow) fn staged_reference_regions(
         &self,
         invocation: bray_bound_tree::BoundExecutionSite,

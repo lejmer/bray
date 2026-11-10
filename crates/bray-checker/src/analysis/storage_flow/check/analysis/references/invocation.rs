@@ -620,7 +620,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         .expect("a checked nullable adaptation retains its complete wrapping")
     }
 
-    fn invocation_reference_path<'p>(
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_reference_path<'p>(
         &self,
         occurrence: BoundExecutionSite,
         root: DependencySubjectRoot,
