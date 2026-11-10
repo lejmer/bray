@@ -30,9 +30,9 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
-Fixed comparison:757 passed /51 failed /99 ignored, all907 identities retained. Checker477, bound-tree134,
+Fixed comparison:759 passed /49 failed /99 ignored, all907 identities retained. Checker477, bound-tree134,
 messages91, JSON48 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
-Accepted native.log:66 diagnostics(E7123=30,E7135=20,E7119=16), unchanged runtime Source64a4e5490.
+Accepted native.log:50 diagnostics(E7123=30,E7135=20), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
 Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
@@ -52,35 +52,38 @@ not old contents, and replay retains its original key. Logical production slots 
 Framing uses the actual owner or scalar context. No new type or second value tree. Do not strip predicate snapshots
 back to bare owner identity: mutation/retirement controls require distinct contents observations.
 
-The new property was red before this repair and now passes with stale-content, distinct-owner, distinct-mutation and
-replay controls. All476 checker tests, all907 fixed identities/outcomes(756/52/99), storage33/4, expanded predicate26/2/2,
-failure diagnostics7 and JSON48 preserve their outcomes. Four storage failures and two predicate failures reproducefc4.
-Native70 clears all4 deadline domain/state calls, both native_deadlines calls, two start calls and four deadline
-postconditions. No added locations. Seven retained headers now show the produced origin instead of an alias slot.
-start234 progresses from selected.status==0 to the next expanded prepared_start requirement, activation.producer(token).
-Coverage is same carried owner through different aliases. Independent fresh-loan origins remain to trace.
+The property covers stale contents, distinct owners, distinct mutations and stable replay. Four storage failures and
+two predicate failures reproducefc4. Coverage is the same carried owner through aliases. Independent fresh-loan origins
+remain to trace. start234's remaining expanded prepared_start requirement is activation.producer(token).
 
 StoragePlan.value_retirements shares private-input observation retirement at completion, independently of admission's
 witness transfer. Exact stored-borrow observations use existing typed Storage routes, never a borrow capability twice,
 dead/inexact handles or mere possible-alias overlap. Possible-origin bounds revoke evidence separately.
 
-Recursive conditional cleanup now converges. expand_region resolves Dispose(type) through the existing expansion under a formal Result value, then maps
+Recursive conditional cleanup converges. expand_region resolves Dispose(type) under a formal Result value, then maps
 receiver-relative mutation kinds onto the original region without layout projections or access-type claims. Generic
 leaves remain conditional Cleanup(type), unrelated/global effects retain their identities. The formerly stalled test
-passes in0.07s. Configured recursion-limit, retained-capture and recursive-default controls pass. Checker476 and all907
-fixed outcomes remain unchanged. Full cleanup/storage57/4 includes the now-passing recursive test. All4 failures match
-the retained baseline. The real source passes the rebuilt driver. All70 native diagnostic blocks are unchanged.
+passes in0.07s. Configured recursion-limit, retained-capture and recursive-default controls pass. Full cleanup/storage57/4
+includes the recursive test. All4 failures match the retained baseline. The real source passes the rebuilt driver.
+
 Panic diagnostics retain failed call requirements and actual arguments through the existing proof model. Context lookup
 reads the actual captured input state before the failing entry edge, independently of later cleanup or merged evidence.
 The red regression now passes. Borrowed Boolean proof reads current contents consistently with reference observations.
 The new proof property was red and now passes with false/missing facts, different owner and trusted-authority controls.
-Six real sync/async source variants verify named/anonymous forwarding and reject mutation or switching owners. The inline
-test fixture was corrected to use matching mutable-borrow types. Recompile that fixture before the next implementation change.
-The fixed suite improves only anonymous_total_proof_uses_its_own_field_requirements, whose positive and negative cases
-now both match their existing expectations. No expected outcomes were changed. Native clears host/access56 and
-host/owner144,269,724. Seven retained guarantees advance from panic to finite-loop proof. No new native locations.
-Next trace loop progress: even a standalone usize counter from0 to32 fails totality. loop-progress.bray retains that
-reduction plus the real array-comparison loop. No trace hook or review agent. Style/format deferred.
+Six real sync/async source variants and the compiled inline fixture verify named/anonymous forwarding and reject
+mutation or switching owners. The fixed anonymous_total_proof_uses_its_own_field_requirements positive/negative cases
+now match their existing expectations. Native clears host/access56 and host/owner144,269,724.
+
+Loop tracing found a header Observation(contents=ScalarValue(x)) and back-edge Add(ScalarValue(x),1). Displacement
+now reads existing computed_value on both sides. It retains scalar identity and uses already-proven exact machine
+arithmetic. Twelve sync/async cases cover increment, compound guard, decrement, wrap, stalled edge and reset. Four existing
+termination controls preserve their pre-fix outcomes. The fixed suite repairs two more positive tests:
+slice_bounds_follow_descriptor_identity_through_element_writes_and_replacement and
+nested_slice_bounds_require_descriptor_storage_separation. Their replacement/aliasing negatives still reject. No expected
+outcomes changed. Native clears all16 remaining E7119 diagnostics. All50 retained diagnostic blocks are identical.
+Consumed traces/probes removed. Next trace activation/provider158 constructing(value,context). Constructed named/anonymous
+tuple producers pass the small tuple-context reduction. Compare the real raw-read producer before changing witness
+transfer. No trace hook or review agent. Style/format deferred.
 
 ## Remaining
 
