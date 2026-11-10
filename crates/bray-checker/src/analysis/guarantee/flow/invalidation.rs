@@ -602,6 +602,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.preserve_normal_snapshots(state, mutation, snapshots, &mut stable_values);
         }
 
+        for value in state.current.live_values().flat_map(|value| state.owned_values(&value)) {
+            stable_values.preserve_scalar_data(&value);
+        }
+
         if !transfers && let StorageInvalidation::Observed { referents, .. } = invalidation {
             let mut observed = Vec::new();
             let mut address_slots = BTreeSet::new();

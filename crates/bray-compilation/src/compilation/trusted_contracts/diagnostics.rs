@@ -3,6 +3,48 @@ use bray_diagnostics::{DiagnosticArgValue, DiagnosticCondition, DiagnosticContra
 use crate::test_support::compilation;
 
 #[test]
+fn failed_conjunction_names_the_missing_condition_and_keeps_the_full_requirement() {
+    let application = compilation(r#"
+        trusted module app;
+
+        struct Owner
+        {
+        }
+
+        trusted predicate first(owner: &Owner);
+        trusted predicate second(owner: &Owner);
+
+        trusted func supply(pos owner: &Owner)
+            ensures(trusted first(owner = owner))
+            executes(pure, total)
+        {
+        }
+
+        func inspect(pos owner: &Owner)
+            requires(trusted first(owner = owner) && trusted second(owner = owner))
+        {
+        }
+
+        func caller(pos owner: &Owner)
+        {
+            trusted supply(owner);
+            inspect(owner);
+        }
+    "#);
+    let diagnostics = application.check_diagnostics();
+    bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+        DiagnosticKind::CheckingTrustedObligationNotProven);
+    let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
+        DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+        _ => None,
+    }).unwrap_or_else(|| panic!("{diagnostics:#?}"));
+
+    assert!(matches!(&obligation.actual, DiagnosticCondition::Application { path, .. }
+        if path.last().is_some_and(|name| name == "second")), "{obligation:#?}");
+    assert!(matches!(&obligation.required, DiagnosticCondition::Operation { .. }), "{obligation:#?}");
+}
+
+#[test]
 fn inline_callback_conditions_show_a_snippet_without_the_function_body() {
     let application = compilation(r#"
         trusted module app;

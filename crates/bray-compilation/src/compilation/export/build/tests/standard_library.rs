@@ -4697,7 +4697,7 @@ fn numeric_field_requirements_match_shared_borrow_observations() {
 
         struct Holder
         {
-            value: u64;
+            mut value: u64;
             other: u64;
         }
 
@@ -4717,23 +4717,32 @@ fn numeric_field_requirements_match_shared_borrow_observations() {
     let sources = [include_str!("../../../../../../../standard-library/std/src/std.bray"), declarations];
     let provider = standard_library_compilation(sources);
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
-    for (field, valid) in [("value", true), ("other", false)] {
+    for (borrow, before, after, observed, valid) in [
+        ("&", "", "", "owner.value", true),
+        ("&", "", "", "owner.other", false),
+        ("&mut ", "let original = owner.value;", "owner.value = owner.other;", "original", true),
+        ("&mut ", "", "owner.value = owner.other;", "owner.value", false),
+    ] {
+        let supplied = if borrow == "&" { "owner" } else { "&owner" };
         let source = format!(r#"
             module app;
 
             using std.scalar_evidence;
 
-            func caller(pos owner: &std.scalar_evidence.Holder)
+            func caller(pos owner: {borrow}std.scalar_evidence.Holder)
             {{
-                trusted std.scalar_evidence.supply(owner);
-                std.scalar_evidence.require_value(owner.{field});
+                {before}
+
+                trusted std.scalar_evidence.supply({supplied});
+                {after}
+                std.scalar_evidence.require_value({observed});
             }}
         "#);
         for imported in [false, true] {
             let application = if imported { super::fixtures::execution_consumer(&provider, &source) }
                 else { standard_library_compilation(sources.into_iter().chain([source.as_str()])) };
             let diagnostics = application.check_diagnostics();
-            assert_eq!(!diagnostics.has_errors(), valid, "{field}, imported={imported}: {diagnostics:#?}");
+            assert_eq!(!diagnostics.has_errors(), valid, "{borrow}, {observed}, imported={imported}: {diagnostics:#?}");
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);

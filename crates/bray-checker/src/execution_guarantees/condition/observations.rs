@@ -379,12 +379,12 @@ impl ExecutionCondition {
                     captured: false,
                 } => pending.push(condition),
                 Self::CapturedInput { owner, .. } => pending.push(owner),
+                Self::Borrowed(_) | Self::Observation { kind: ObservationKind::Reference, .. } => return false,
                 Self::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Projection(_, value)
                 | Self::Trusted(value)
-                | Self::Borrowed(value)
                 | Self::Present(value) => pending.push(value),
                 Self::Predicate(_, _, values)
                 | Self::Call(_, _, _, values)
@@ -519,6 +519,7 @@ impl ExecutionCondition {
 #[derive(Default)]
 pub(crate) struct Set {
     discriminants: std::collections::BTreeSet<ExecutionCondition>,
+    copies: std::collections::BTreeSet<ExecutionCondition>,
     values: std::collections::BTreeSet<ExecutionCondition>,
     paths: std::collections::BTreeMap<
         ExecutionCondition,
@@ -642,9 +643,15 @@ impl Set {
         }
     }
 
-    /// A retained tag supports only presence and variant observations, not payload facts.
+    /// Retained scalar data preserves value facts independently of its former storage.
+    /// A retained tag supports only presence and variant observations.
     pub(crate) fn preserves(&self, value: &ExecutionCondition) -> bool {
-        if self.contains(value) {
+        if self.contains(value)
+            || matches!(value, ExecutionCondition::Borrowed(referent) if self.contains(referent))
+            || self.copies.contains(value)
+            || Self::retained_snapshot(&self.copies, value, false,
+                |selected| Self::same_snapshot_contents(selected, value))
+        {
             return true;
         }
 
@@ -657,11 +664,22 @@ impl Set {
     }
 
     pub(crate) fn insert(&mut self, value: ExecutionCondition) {
+        self.preserve_scalar_data(&value);
+
         if let Some((root, path)) = Self::indexed_path(&value) {
             self.paths.entry(root).or_default().insert(path);
         }
 
         self.values.insert(value);
+    }
+
+    /// A surviving scalar snapshot retains data without keeping its source slot alive.
+    pub(crate) fn preserve_scalar_data(&mut self, value: &ExecutionCondition) {
+        if let Some((_, contents)) = value.storage_contents() {
+            let copied = contents.clone().argument_value(false);
+
+            if !copied.is_unknown() { self.copies.insert(copied); }
+        }
     }
 
     pub(crate) fn contains(&self, value: &ExecutionCondition) -> bool {

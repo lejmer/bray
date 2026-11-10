@@ -390,6 +390,22 @@ impl ExecutionCondition {
         }
     }
 
+    /// A typed argument either retains its loan or reads the reached value.
+    pub(crate) fn argument_value(self, borrowed: bool) -> Self {
+        if borrowed { return self.borrowed(); }
+
+        let mut value = self;
+
+        loop {
+            match value {
+                Self::Borrowed(contents) | Self::Observation {
+                    contents, kind: ObservationKind::Reference | ObservationKind::Scalar, ..
+                } => value = contents.as_ref().clone(),
+                _ => return value,
+            }
+        }
+    }
+
     pub(crate) fn requiring_trusted_predicates(self) -> Self {
         match self {
             Self::Predicate(_, _, _) => Self::Trusted(Arc::new(self)),

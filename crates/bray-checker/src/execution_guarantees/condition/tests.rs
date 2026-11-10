@@ -92,6 +92,56 @@ fn copy_proof_correlations_preserve_borrowed_storage_identity() {
 }
 
 #[test]
+fn retained_scalar_data_does_not_preserve_its_original_storage_loan_or_owner() {
+    let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+    let data = input(0);
+    let copied = ExecutionCondition::scalar_observation(input(1), data.clone());
+    let stable = crate::execution_guarantees::ObservationSet::from_iter([
+        copied.clone(), copied.clone().borrowed(),
+    ]);
+    let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let substitution = crate::test_support::empty_substitution(predicate.into());
+    let condition = |value| ExecutionCondition::predicate(predicate.into(), substitution, vec![value]);
+
+    assert!(stable.preserves(&data));
+    assert!(!stable.contains(&data));
+    assert!(condition(data.clone()).observes_only(|value| stable.preserves(value)));
+    assert!(!condition(data.clone().borrowed()).observes_only(|value| stable.preserves(value)));
+    assert!(condition(copied.clone().borrowed()).observes_only(|value| stable.preserves(value)));
+    assert!(!crate::execution_guarantees::ObservationSet::retains_owner(
+        &BTreeSet::from([copied]), &data));
+}
+
+#[test]
+fn predicate_substitution_distinguishes_value_reads_from_explicit_loans() {
+    let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+    let field = bray_symbols::StructFieldSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+    let projection = ConstantProjectionKind::ProductField(field);
+    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(901));
+    let callable = crate::test_support::callable_instance(definition.into());
+    let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(902));
+    let field_value = input(0).component(projection);
+    let condition = ExecutionCondition::predicate(predicate.into(), callable.substitution(),
+        vec![field_value.clone(), field_value.borrowed()]);
+    let arguments = BTreeMap::from([(ExecutionPlace::argument(SymbolOrdinal::new(0)), input(1).borrowed())]);
+    let instantiated = condition.substitute(&|place| place.value_in(&arguments).unwrap(),
+        &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT });
+    let expected = input(1).component(projection);
+
+    assert_eq!(instantiated, ExecutionCondition::predicate(predicate.into(), callable.substitution(),
+        vec![expected.clone(), expected.borrowed()]));
+
+    let condition = ExecutionCondition::predicate(predicate.into(), callable.substitution(),
+        vec![input(0), input(0).borrowed()]);
+    let copied = ExecutionCondition::scalar_observation(input(2), input(1).borrowed());
+    let instantiated = condition.substitute(&|_| copied.clone(),
+        &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT });
+
+    assert_eq!(instantiated, ExecutionCondition::predicate(predicate.into(), callable.substitution(),
+        vec![input(1), copied.borrowed()]));
+}
+
+#[test]
 fn arithmetic_and_const_calls_read_the_same_current_scalar_value() {
     let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
     let callable = crate::test_support::callable_instance(definition.into());
