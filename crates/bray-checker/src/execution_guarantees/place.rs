@@ -250,7 +250,7 @@ impl ExecutionPlace {
                     bray_bound_tree::StorageIdentity::LocalOwned(_)
                         | bray_bound_tree::StorageIdentity::Temporary(_)
                         | bray_bound_tree::StorageIdentity::Evaluated(_)
-                        | bray_bound_tree::StorageIdentity::Result(bray_bound_tree::AnyBoundNodeId::Expression(_))
+                        | bray_bound_tree::StorageIdentity::Result(_)
                         | bray_bound_tree::StorageIdentity::InvocationInput { .. }
                         | bray_bound_tree::StorageIdentity::InvocationResult(_)
                         | bray_bound_tree::StorageIdentity::ScopedCapability { .. }

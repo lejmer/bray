@@ -103,12 +103,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // every expired value and each of its owned components.
         // Borrowed inputs describe caller-owned pointees. Ending their local
         // carriers does not retire those pointees.
-        let retained = std::iter::once(state.result.clone())
+        let retained = state.current.live_values()
             .chain(match self.request.unit().root() {
                 bray_bound_tree::BoundUnitRoot::Expression(root) => Some(self.value(state, root)),
                 _ => None,
             })
-            .chain(state.current.live_values())
             .chain(state.pending_results.values().cloned())
             .flat_map(|value| state.owned_values(&value))
             .chain(

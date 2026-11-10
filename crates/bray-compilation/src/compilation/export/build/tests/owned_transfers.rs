@@ -2121,3 +2121,130 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
     }
     }
 }
+
+#[test]
+fn produced_owned_results_survive_enclosing_scope_cleanup() {
+    for (region, transfer) in [("", "yield"), ("loop", "break"), ("return", "return")] {
+    for (guard, cleanup, created, valid) in [
+        ("", "", "trusted api.create()", true),
+        ("let guard = api.Guard\n{\n};", "", "trusted api.create()", true),
+        ("let guard = api.Guard\n{\n};", "release();", "trusted api.create()", true),
+        ("let guard = api.Guard\n{\n};", "release();", "api.Worker\n{\n    marker = api.Marker {}\n}", false),
+    ] {
+        let declarations = format!(r#"
+            trusted module api;
+
+            struct Marker
+            {{
+            }}
+
+            struct Worker
+            {{
+                marker: Marker;
+            }}
+
+            trusted predicate live(owner: &Marker);
+
+            trusted func create() -> Worker
+                ensures(trusted live(owner = &result.marker))
+            {{
+                return
+                {{
+                    marker = Marker {{}}
+                }};
+            }}
+
+            extern func release();
+
+            struct Guard
+            {{
+                destruct()
+                {{
+                    {cleanup}
+                }}
+            }}
+
+            union Choice
+            {{
+                Existing(pos owner: Worker);
+                Empty;
+            }}
+
+            func inspect(pos owner: &Worker)
+                requires(trusted live(owner = &owner.marker))
+            {{
+            }}
+        "#);
+        let provider = compilation(&declarations);
+        assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+        let source = format!(r#"
+            module app;
+
+            using api;
+
+            func caller(pos branch: bool)
+            {{
+                let selected: api.Choice = {region}
+                {{
+                    {guard}
+                    {transfer} if branch
+                    {{
+                        yield api.Choice.Existing({created});
+                    }}
+                    else
+                    {{
+                        yield api.Choice.Empty;
+                    }};
+                }};
+
+                match consume selected
+                {{
+                    case api.Choice.Existing(owner)
+                    {{
+                        api.inspect(&owner);
+                    }}
+                    case api.Choice.Empty
+                    {{
+                    }}
+                }}
+            }}
+        "#);
+        let source = if transfer == "return" {
+            format!(r#"
+                module app;
+
+                using api;
+
+                func caller(pos branch: bool) -> api.Worker
+                    ensures(trusted api.live(owner = &result.marker))
+                {{
+                    {guard}
+                    return {created};
+                }}
+            "#)
+        } else { source };
+        for imported in [false, true] {
+            let application = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                compilation_from_sources([declarations.as_str(), source.as_str()])
+            };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid,
+                "region={region}, guard={guard}, cleanup={cleanup}, imported={imported}: {source}\n{diagnostics:#?}");
+            if valid {
+                let lowered = application.lowered_unit(
+                    crate::test_support::source_function_body_key(&application, "caller"))
+                    .expect("produced result survives cleanup through lowering");
+
+                assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}
+}

@@ -449,8 +449,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.current.retire(&place);
                     }
 
-                    let retained = std::iter::once(state.result.clone())
-                        .chain(state.current.live_values())
+                    let retained = state.current.live_values()
                         .chain(state.pending_results.values().cloned())
                         .flat_map(|value| state.owned_values(&value))
                         .collect();

@@ -242,7 +242,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .boundary()
             .expect("ordinary propagation retains its result boundary")
         {
-            SelectedPropagationBoundary::Callable => state.result = value,
+            SelectedPropagationBoundary::Callable => self.publish_return(state, value),
             SelectedPropagationBoundary::YieldRegion(_) => {
                 let target = self
                     .yield_targets

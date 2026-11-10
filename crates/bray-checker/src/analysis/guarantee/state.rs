@@ -17,7 +17,6 @@ pub(crate) struct ExecutionState {
     pub(super) current: super::current::CurrentValues,
     pub(super) expressions: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pending_results: BTreeMap<BoundExpressionId, ExecutionCondition>,
-    pub(super) result: ExecutionCondition,
     pub(super) owned_results: BTreeMap<
         ExecutionCondition,
         bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition>,
@@ -38,7 +37,6 @@ impl Default for ExecutionState {
             current: super::current::CurrentValues::default(),
             expressions: BTreeMap::new(),
             pending_results: BTreeMap::new(),
-            result: ExecutionCondition::Unknown,
             owned_results: BTreeMap::new(),
             entries: BTreeMap::new(),
             deferred_invocations: BTreeMap::new(),
@@ -429,7 +427,6 @@ impl ExecutionState {
             .values_mut()
             .chain(self.expressions.values_mut())
             .chain(self.pending_results.values_mut())
-            .chain(std::iter::once(&mut self.result))
         {
             *value = value.without_evaluation(mutation, &mut { ExecutionCondition::WORK_LIMIT });
         }

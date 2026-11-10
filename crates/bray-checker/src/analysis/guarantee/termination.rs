@@ -129,7 +129,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
         .graph
         .completion_exits()
         .filter_map(|exit| flow.output(exit.block()))
-        .filter(|state| !absent(&state.result, state))
+        .filter(|state| !absent(&flow.domain.returned_value(state), state))
         .collect::<Vec<_>>();
 
     if exits.is_empty() {
