@@ -1,8 +1,8 @@
 # Bray for Rust developers, part 3: Work with values and storage
 
-Our pantry can report missing oats and recover from a panic. In this part, we'll prepare a delivery: set a packing target, inspect and update the stock, and hand the packed items to a dispatch function. Copying the paperwork is allowed. Copying the delivery itself would require considerably more oats.
+The donkey has spent two guides watching us count oats. Let's give it something to carry. We'll prepare a delivery, starting with a packing target and finishing with a function that takes ownership of the packed items. Along the way, we'll borrow the stock to inspect and update it, and copy a quantity record so we can compare the plan with what we started with.
 
-This guide assumes you know Rust's ownership and borrowing rules and the Bray functions, structs, and control flow from [part 1](01-build-and-organize.md) and [part 2](02-data-and-control-flow.md). We'll start a fresh executable, so you don't need either earlier project. Use an installed Bray toolchain with support for your native target.
+We're assuming you know your way around ownership and borrowing in Rust, and have worked through the Bray functions, structs, and control flow in [part 1](01-build-and-organize.md) and [part 2](02-data-and-control-flow.md). With a Bray toolchain installed for your native target, start a fresh executable:
 
 ```sh
 bray init pantry_delivery --package pantry_delivery
@@ -65,13 +65,11 @@ The application prints:
 Packing target: three
 ```
 
-`TARGET` is a value calculated at compile time. Its declaration has no runtime storage identity. `POLICY` is an address-bearing storage instance owned by the executable product. Borrowing `&POLICY` gives us access to that storage without taking ownership.
+`TARGET` names the value calculated at compile time and has no runtime storage identity. `POLICY` gives us an address-bearing storage instance owned by the executable product, which we can borrow with `&POLICY`. That distinction matters when choosing between them: use a constant when you need a value, and a static when you need persistent storage with an identity. Both initializers must be valid constant expressions. The static exists at runtime, but importing its module doesn't execute the initializer. If our policy eventually comes from a configuration file, we'll need an explicit runtime operation to read it.
 
-Both initializers must be valid constant expressions. A static's storage exists at runtime, but its initializer doesn't run when a module is imported. We can't put a file read there and call it configuration (tempting though that particular hiding place may be).
+Like a Rust `const fn`, `packing_target` can also be called with runtime arguments. `const func` makes a function eligible for constant evaluation without forcing every call to happen at compile time. Bray requires the function to be pure, deterministic, terminating, and total for valid inputs, which our comparison and return satisfy.
 
-Like Rust's `const fn`, a Bray `const func` can also be called with runtime arguments. The modifier makes the function eligible for constant evaluation. It doesn't force every call to happen at compile time. Bray requires const functions to be pure, deterministic, terminating, and total for valid inputs. `packing_target` only compares and returns values, so it fits.
-
-For this application, shared access to `POLICY` is enough. Bray-owned statics cannot be moved out of, directly mutably borrowed, or declared as ordinary mutable globals. Updating state inside a static requires a type and operation that provide the appropriate interior-mutation contract. We'll leave shared mutable state for the concurrency guide.
+We'll only read `POLICY`. Bray-owned statics cannot be moved out of or directly mutably borrowed, and there is no ordinary mutable-global declaration for them. Updating their contents requires a type and operation with the appropriate interior-mutation contract, which we'll cover with concurrency.
 
 ## Hand over an item
 
@@ -112,13 +110,11 @@ Run `bray run`. The output gains:
 oats
 ```
 
-The assignment moves `received` into `packed`. Using `received.name` after that assignment would be rejected because `received` no longer owns an initialized `Item`. The `packed` binding now owns the item and is responsible for its cleanup.
+The assignment transfers ownership from `received` to `packed`, including responsibility for cleanup. Trying to read `received.name` afterward would be rejected because that binding no longer owns an initialized `Item`. A call to `dispatch` will make the same kind of transfer through its plain `Item` parameter. We haven't called it yet because we still need to update the quantity before handing the item over.
 
-We haven't called `dispatch` yet. Its plain `Item` parameter will take ownership when we do. For now, we still have some packing to finish.
+There are two separate permissions in `let mut packed` and `mut quantity`. In Rust, a mutable binding generally permits mutation of its fields. Bray also requires the field declaration to allow it. We can therefore update the quantity but cannot assign to the name field, even through a mutable binding. Moving the whole item doesn't require either permission.
 
-Notice both `let mut packed` and `mut quantity`. In Rust, a mutable binding generally allows mutation of its fields. Bray also asks the field declaration to permit mutation. Here, we can change the quantity while the item's name remains immutable. Moving the whole item doesn't require a mutable binding.
-
-Bray's built-in `string` is copyable, so passing `packed.name` to `print_line` leaves the field usable. Don't read `string` as Rust's owned `String` and assume the same copy behavior. The containing `Item` still has no copy contract.
+Printing the name leaves it usable: Bray's built-in `string` is copyable, unlike Rust's owned `String`. That doesn't make the containing `Item` copyable.
 
 ## Copy the packing record
 
@@ -158,11 +154,9 @@ Run `bray run`. The new line is:
 Original count: two, planned count: three
 ```
 
-The assignment copies `before`, so both bindings remain usable. Updating `planned.quantity` doesn't change `before.quantity`.
+Both bindings remain usable because the assignment copies `before`. Changing `planned.quantity` updates the new record and leaves the old one at two. Our `Item` also contains copyable fields, but we left it without `@copy` because we want passing an item to transfer ownership of the delivery. A `Count` is only a record of the quantity. Keeping two records is useful (counting both as stock would be rather less useful), and opting into copying lets the type express that choice.
 
-`@copy` derives copying from the represented fields. Every field must support it, and the type cannot have incompatible ownership or lifecycle obligations. You don't implement `Copyable` yourself or supply a custom copy body. An operation that allocates resources or runs custom duplication logic needs an explicit function, such as `clone`.
-
-Our `Item` contains copyable fields too, but we've deliberately left it without `@copy`. Passing it around should transfer the delivery, whereas passing a `Count` can duplicate the record. That's an API decision, not something the compiler should infer from how cheap a struct looks.
+`@copy` derives the operation from the represented fields. Every field must support copying, and the type cannot have incompatible ownership or lifecycle obligations. You don't implement `Copyable` yourself or provide a custom copy body. Use an explicit function such as `clone` for duplication that allocates resources or runs custom logic.
 
 ## Borrow the item while packing
 
@@ -202,9 +196,9 @@ oats
 Packed three
 ```
 
-Neither function owns `packed`. The shared borrow lets `inspect` read it. The mutable borrow gives `pack` temporary exclusive access to update it. After the call, we can read the updated quantity through `packed` again.
+`packed` still owns the item throughout both calls. `inspect` receives shared access to read it, then `pack` receives temporary exclusive access to change its quantity. Once `pack` returns, we can read the updated quantity through `packed` again. The familiar Rust restrictions apply here: a live shared borrow prevents conflicting mutation, and a live mutable borrow prevents conflicting access. Bray checks which storage a path reaches, so another path to the same item remains subject to those restrictions.
 
-As in Rust, a live shared borrow prevents conflicting mutation, and a live mutable borrow prevents conflicting access. Bray checks the reached storage, so changing the spelling of a path doesn't manufacture another item. Borrowing also doesn't keep an owner alive beyond its valid lifetime.
+A borrow also cannot keep its owner alive. Let's see what that means when a function returns one.
 
 ## Return a borrow without lifetime parameters
 
@@ -254,9 +248,7 @@ Run `bray run`. The application adds:
 rice
 ```
 
-The returned borrow may depend on either input. Bray carries those dependencies through the result, including across function and package boundaries. The caller must keep the required storage and access valid while the result needs them.
-
-Leaving out lifetime parameters hasn't made dangling references acceptable. Returning a borrow of an ordinary local `Item` would still be rejected. We have removed the lifetime spelling from the function signature, not the obligation to have something left to borrow.
+Here, `selected` refers to the rice because its quantity is smaller. The function's result may depend on either input, though, and Bray carries those dependencies through the result even across function and package boundaries. The caller must preserve the required storage and access while the result needs them. This is why we can return a borrow supplied by the caller but couldn't return a borrow of an ordinary local `Item` that dies when the function returns. Lifetime parameters are absent from the signature, but the lifetime constraints still apply.
 
 ## Inspect, update, and consume a delivery list
 
@@ -276,9 +268,9 @@ using std.collection.MoveCursorIterator;
 using std.collection.ListElementIndex;
 ```
 
-The named implementation imports make list iteration and indexing available. Part 4 explains implementation selection. For now, use these imports as written.
+These named implementations provide the list's iteration and indexing operations. We'll explain how they are selected in part 4.
 
-Creating and growing a list can fail, so change the signature of `main` to `func main() -> Result<unit, std.memory.MemoryLayoutError>`. End its body with `return Ok(unit);`, and insert all remaining statements before that return. This is the error propagation pattern from part 2.
+Creating and growing a list can fail. To propagate those errors as we did in part 2, change the signature of `main` to `func main() -> Result<unit, std.memory.MemoryLayoutError>`. Add `return Ok(unit);` at the end of its body. Insert all remaining statements before that return.
 
 Add the list after the last use of `selected`:
 
@@ -326,9 +318,9 @@ Run `bray run`. The application adds:
 Both items packed
 ```
 
-The index constants have type `usize`, which is the selector type accepted by this list implementation. Mutable list iteration gives us mutable borrows of the elements. Passing `item` to `pack` reborrows it for the call. The list remains owned by `delivery` after the loop.
+Each iteration supplies a mutable borrow of an element, which we reborrow when passing it to `pack`. The list remains owned by `delivery` after the loop. To inspect the resulting quantities, we use index constants of type `usize`, the selector type accepted by this list implementation.
 
-Finally, add the dispatch loop:
+The donkey can finally leave with the delivery. Add the consuming loop to hand each item to `dispatch`:
 
 ```bray
 for item in move delivery
@@ -344,13 +336,13 @@ oats
 rice
 ```
 
-The consuming loop takes the list and supplies owned items to `dispatch`. Neither `delivery` nor the earlier `packed` and `reserve` bindings can be used afterward. The names are still in the file, but the inventory has left the building.
+This loop consumes `delivery` and gives each owned item to `dispatch`. We can no longer use the list, just as we can no longer use `packed` and `reserve` after moving them into it.
 
 ## Widen the count without changing its value
 
-In Rust, `as` can widen an integer, but it can also truncate one. For example, `300_u16 as u8` produces `44`. That would be an unfortunate way to reconcile a delivery.
+Before dispatch, we need a count for a report that uses `i64`. Rust's `as` can widen an integer for that purpose, but the same operator can also truncate one: `300_u16 as u8` produces `44`. Bray restricts plain `as` to total, value-preserving conversions.
 
-Bray's plain `as` conversion is total and value-preserving. Add this before the consuming dispatch loop, while `delivery` still owns the items:
+Add this before the consuming dispatch loop, while `delivery` still owns the items:
 
 ```bray
 let first_count: i32 = delivery[FIRST].quantity;
@@ -364,7 +356,7 @@ if report_count == 3
 
 Run `bray run`. `Report count: three` appears before the final `oats` and `rice` lines.
 
-Every `i32` value fits in `i64`, so the conversion preserves the count. Assigning `first_count` directly to an `i64` binding would not insert an implicit conversion. A literal can adapt to an expected type, but a value that already has a type needs the explicit conversion.
+Every `i32` value fits in `i64`, so this conversion preserves the count. We still have to write it explicitly. Assigning `first_count` directly to an `i64` binding doesn't insert a conversion, even though a literal could adapt to that expected type. Once the value has a type, widening it requires `as`.
 
 For a conversion that can fail, use `std.convert<Target>`, which returns a `Result`. For deliberate rounding, saturation, or wrapping, use the corresponding named operation in `std.numeric`. Plain `as` doesn't silently choose one of those policies. See the [conversion rules](../../language/expressions/conversion-expressions.md) for the available forms.
 
@@ -393,9 +385,9 @@ oats
 rice
 ```
 
-We now have a compile-time target, shared policy storage, independently copied records, and owned items that are borrowed during preparation and consumed at dispatch.
+For an optional exercise, move the conversion and reporting block after the consuming loop, then run `bray check`. The program must be rejected because it tries to read `delivery` after the loop has consumed it.
 
-For an optional exercise, put the conversion and reporting block after the consuming loop. Run `bray check`. The program must be rejected because the block tries to read `delivery` after it has been consumed. Move the block back before the loop and run `bray run` again to restore the output above. A dispatch system that lets us send the same delivery twice would be optimistic, even by software standards.
+Move the block back before the loop and run `bray run` to restore the output above.
 
 ## Next up
 
