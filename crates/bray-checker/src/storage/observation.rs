@@ -132,6 +132,7 @@ impl Footprint {
         &mut self,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
     ) -> BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<TypeId>> {
         self.atomic = Some(StorageInvalidation::Observed {
             scope: bray_bound_tree::StorageMutationScope::Unbounded,
@@ -148,7 +149,8 @@ impl Footprint {
         let entry_owners = request
             .trusted_contracts()
             .into_iter()
-            .flat_map(|contracts| contracts.required_witnesses.iter().map(|(_, owner)| owner))
+            .flat_map(|contracts| contracts.required_witnesses.iter().flat_map(|(_, owner)|
+                owner.carrier_inputs(dependencies.condition_references())))
             .collect::<BTreeSet<_>>();
 
         for (access_id, access) in storage.access_entries() {
@@ -333,10 +335,11 @@ impl Footprint {
 pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
 ) -> Result<Footprint, CheckerQueryError<C::UpstreamError>> {
     let mut footprint = Footprint::default();
 
-    let static_types = footprint.observe_accesses(request, storage);
+    let static_types = footprint.observe_accesses(request, storage, dependencies);
 
     let complete_reference_types = std::sync::Arc::get_mut(&mut footprint.complete_reference_types)
         .expect("a new footprint owns its type cache before publication");

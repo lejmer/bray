@@ -11,7 +11,7 @@ impl Compilation {
         requirements: &[ExecutionCondition],
         cancellation: &CancellationToken,
     ) -> Result<
-        DiagnosticResult<Vec<(ExecutionCondition, bray_checker::ExecutionPlace)>>,
+        DiagnosticResult<Vec<(ExecutionCondition, ExecutionCondition)>>,
         FactQueryError,
     > {
         let context = self.binding_context(cancellation)?;
@@ -124,12 +124,7 @@ impl Compilation {
                         ty?, cancellation, &mut diagnostics,
                     )?);
 
-                    witnesses.extend(
-                        carrier
-                            .inputs()
-                            .into_iter()
-                            .map(|place| (requirement.clone(), place.clone())),
-                    );
+                    witnesses.push((requirement.clone(), carrier));
                 }
             }
         }

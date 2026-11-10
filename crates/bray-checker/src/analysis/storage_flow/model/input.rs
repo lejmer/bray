@@ -106,7 +106,7 @@ impl StorageFlowInput {
 
         // Returned reference origins are needed even when a body has no memory effects.
         // Share the same type-shape preparation with mutation observations.
-        let footprint = crate::storage::observation::prepare(request, storage)?;
+        let footprint = crate::storage::observation::prepare(request, storage, dependencies)?;
 
         let mut demands = BTreeMap::<_, BTreeSet<_>>::new();
 
