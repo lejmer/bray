@@ -392,3 +392,54 @@ Status bray_platform_directory_close(uint64_t handle, uint32_t disposition, uint
 
     return success();
 }
+
+static uint32_t output_writes;
+static uint32_t output_flushes;
+static uint32_t output_length;
+static uint32_t output_fail_write;
+static uint32_t output_fail_flush;
+static uint8_t output_bytes[64];
+
+void output_reset(uint32_t fail_write, uint32_t fail_flush)
+{
+    output_writes = 0;
+    output_flushes = 0;
+    output_length = 0;
+    output_fail_write = fail_write;
+    output_fail_flush = fail_flush;
+}
+
+uint32_t output_write_count(void) { return output_writes; }
+uint32_t output_flush_count(void) { return output_flushes; }
+uint32_t output_byte_count(void) { return output_length; }
+uint8_t output_byte(uint32_t index) { return output_bytes[index]; }
+
+Status bray_platform_standard_output_write(const uint8_t* source, uint64_t length, uint64_t* transferred)
+{
+    output_writes++;
+    *transferred = 0;
+
+    if (output_writes == output_fail_write)
+        return (Status){7, 0, 123};
+
+    if (length > 0)
+    {
+        if (output_length == sizeof(output_bytes))
+            return invalid();
+
+        output_bytes[output_length++] = source[0];
+        *transferred = 1;
+    }
+
+    return success();
+}
+
+Status bray_platform_standard_output_flush(void)
+{
+    output_flushes++;
+
+    if (output_fail_flush)
+        return (Status){7, 0, 123};
+
+    return success();
+}

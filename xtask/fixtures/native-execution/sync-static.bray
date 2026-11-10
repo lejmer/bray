@@ -8,7 +8,7 @@ struct Resource
 
     destruct()
     {
-        _ = std.io.print_line("static cleanup");
+        std.io.print_line("static cleanup");
     }
 }
 

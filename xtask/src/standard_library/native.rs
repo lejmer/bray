@@ -319,8 +319,8 @@ fn test_in(
     }
 
     if selected(parts, TestPart::Api) {
-        crate::progress::run("Testing filesystem provider overrides", || {
-            super::filesystem_override::audit(root, directory, &toolchain, &runtime, target)
+        crate::progress::run("Testing platform provider overrides", || {
+            super::provider_override::audit(root, directory, &toolchain, &runtime, target)
         })?;
     }
 

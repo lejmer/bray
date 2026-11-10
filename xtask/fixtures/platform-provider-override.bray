@@ -1,8 +1,11 @@
-module filesystem_provider_override;
+@link(name = "bray_platform_fixture")
+trusted module platform_provider_override;
 
 using std.fs;
 using std.io;
+using std.io.StandardOutputWriter;
 using std.path;
+using std.string;
 using std.testing;
 
 func path(pos text: string) -> std.path.Path
@@ -15,7 +18,7 @@ func options() -> std.fs.OpenOptions
     return std.fs.OpenOptions(access = std.fs.FileAccess.ReadWrite, creation = std.fs.FileCreation.OpenExisting);
 }
 
-trusted func main() -> i32
+trusted async func main() -> i32
     requires(blocking_execution())
 {
     let retry_path: std.path.Path = path("retry");
@@ -240,5 +243,193 @@ trusted func main() -> i32
 
     assert(directory_cleanup.bytes > 0);
 
+    await trusted check_standard_output();
+
     return 0;
+}
+
+@abi(c)
+@symbol(name = "output_reset")
+extern trusted func output_reset(pos fail_write: u32, pos fail_flush: u32)
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "output_write_count")
+extern trusted func output_write_count() -> u32
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "output_flush_count")
+extern trusted func output_flush_count() -> u32
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "output_byte_count")
+extern trusted func output_byte_count() -> u32
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "output_byte")
+extern trusted func output_byte(pos index: u32) -> u8
+    requires(index < 64)
+    uses(foreign_call);
+
+func check_output_error(pos error: std.io.IoError, transferred: usize)
+{
+    assert(error.kind matches std.io.IoErrorKind.Exhausted);
+    assert(std.testing.assert_present<i64>(error.platform_code) == 123);
+    assert(error.transferred == transferred);
+}
+
+trusted func check_output_success()
+    uses(foreign_call)
+{
+    trusted output_reset(0, 0);
+
+    let printed: unit = std.io.print("ab");
+    let line: unit = std.io.print_line("é");
+
+    std.io.print("");
+    std.io.print_line("");
+
+    assert(trusted output_write_count() == 6);
+    assert(trusted output_flush_count() == 4);
+    assert(trusted output_byte_count() == 6);
+    assert(trusted output_byte(0) == 97);
+    assert(trusted output_byte(1) == 98);
+    assert(trusted output_byte(2) == 195);
+    assert(trusted output_byte(3) == 169);
+    assert(trusted output_byte(4) == 10);
+    assert(trusted output_byte(5) == 10);
+}
+
+trusted async func check_standard_output()
+    uses(foreign_call)
+{
+    trusted check_output_success();
+
+    let mut stage: u32 = 0;
+
+    while stage < 3
+    {
+        let fail_write: u32 = if stage == 0
+        {
+            yield 2;
+        }
+        else if stage == 1
+        {
+            yield 3;
+        }
+        else
+        {
+            yield 0;
+        };
+
+        let fail_flush: u32 = if stage == 2
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        };
+
+        let progress: usize = if stage == 0
+        {
+            yield 1;
+        }
+        else if stage == 1
+        {
+            yield 2;
+        }
+        else
+        {
+            yield 3;
+        };
+
+        trusted output_reset(fail_write, fail_flush);
+
+        let line_failure: Result<unit, PanicReport> = catch
+        {
+            std.io.print_line("ab");
+            yield unit;
+        };
+
+        _ = std.testing.assert_error<unit, PanicReport>(line_failure);
+
+        assert(trusted output_byte_count() as usize == progress);
+        assert(trusted output_flush_count() == fail_flush);
+
+        trusted check_output_success();
+        trusted output_reset(fail_write, fail_flush);
+
+        let async_line: Result<unit, std.io.IoError> = await std.io.print_line_async("ab");
+        let line_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(async_line);
+
+        check_output_error(line_error, transferred = progress);
+        trusted check_output_success();
+
+        if stage != 1
+        {
+            trusted output_reset(fail_write, fail_flush);
+
+            let print_failure: Result<unit, PanicReport> = catch
+            {
+                std.io.print("ab");
+                yield unit;
+            };
+
+            _ = std.testing.assert_error<unit, PanicReport>(print_failure);
+
+            trusted check_output_success();
+            trusted output_reset(fail_write, fail_flush);
+
+            let async_print: Result<unit, std.io.IoError> = await std.io.print_async("ab");
+            let print_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(async_print);
+
+            let print_progress: usize = if stage == 0
+            {
+                yield 1;
+            }
+            else
+            {
+                yield 2;
+            };
+
+            check_output_error(print_error, transferred = print_progress);
+            trusted check_output_success();
+        }
+
+        stage += 1;
+    }
+
+    let mut writer: std.io.StandardOutput = std.io.standard_output();
+
+    trusted output_reset(1, 0);
+
+    let write_error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
+        writer(std.io.Writer).write("ab".as_bytes())
+    );
+
+    check_output_error(write_error, transferred = 0);
+    trusted output_reset(2, 0);
+
+    let bulk_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(
+        writer(std.io.Writer).write_all("ab".as_bytes())
+    );
+
+    check_output_error(bulk_error, transferred = 1);
+    trusted output_reset(0, 1);
+
+    let flush_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(writer(std.io.Writer).flush());
+
+    check_output_error(flush_error, transferred = 0);
+    trusted check_output_success();
+    trusted output_reset(0, 0);
+    std.testing.assert_ok<unit, std.io.IoError>(await std.io.print_async("ab"));
+    std.testing.assert_ok<unit, std.io.IoError>(await std.io.print_line_async("ab"));
+
+    assert(trusted output_byte_count() == 5);
+    assert(trusted output_flush_count() == 2);
+    assert(trusted output_byte(4) == 10);
 }

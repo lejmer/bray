@@ -139,12 +139,12 @@ The annotation on `oats` supplies the type. Bray also uses `=` between field nam
 
 Rust developers are familiar with `Option<T>` and `Result<T, E>`. Sometimes a value doesn't exist. Sometimes an operation fails. Sometimes life wasn't complicated enough and both happen in the same function. Bray also distinguishes absence from errors, but uses different propagation operators.
 
-In our first version, we ignored the result of `print_line`. If printing failed, the application wouldn't report the error. It is unlikely to fail, so we can safely ignore that value. On the off chance that you are alergic to warnings, however, we can handle it with `try`.
+`std.io.print` and `std.io.print_line` return `unit` and panic if output fails, like Rust's `print!` and `println!`. Routine output needs no `try` or result discard. We can keep `main` returning `unit` while adding a nullable lookup.
 
 Replace `main` in `src/main.bray` with:
 
 ```bray
-func main() -> Result<unit, std.io.IoError>
+func main()
 {
     let mut oats: Item =
     {
@@ -158,15 +158,13 @@ func main() -> Result<unit, std.io.IoError>
     {
         if low(item)
         {
-            try std.io.print_line("Low stock");
+            std.io.print_line("Low stock");
         }
         else
         {
-            try std.io.print_line("Stock is ready");
+            std.io.print_line("Stock is ready");
         }
     }
-
-    return Ok(unit);
 }
 ```
 
@@ -189,7 +187,7 @@ func low(pos item: &Item) -> bool
 }
 ```
 
-Run `bray run` again. The application still prints `Stock is ready`. No warning anymore, though. Cool.
+Run `bray run` again. The application still prints `Stock is ready`.
 
 ### Nullable values
 
@@ -223,15 +221,27 @@ This behaves much like Rust's `if let Some(item)`, binding `item` only when the 
 
 ### Propagating errors
 
-`std.io.print_line` returns `Result<unit, std.io.IoError>`.
+When you need to handle an output failure, use a writer. The writer operations return `Result` and preserve `IoError`, including transfer progress.
 
-Bray uses the prefix operator `try` to propagate errors:
+For example, this standalone helper writes and flushes a message:
 
 ```bray
-try std.io.print_line("Stock is ready");
+using std.io.StandardOutputWriter;
+using std.string;
+
+func write_message(pos text: string) -> Result<unit, std.io.IoError>
+{
+    let mut output: std.io.StandardOutput = std.io.standard_output();
+
+    try output(std.io.Writer).write_all(text.as_bytes());
+
+    return output(std.io.Writer).flush();
+}
 ```
 
-For this call, `try` does what Rust's postfix `?` would do: continue on success or return the error from `main`.
+Bray uses the prefix operator `try` to propagate errors. In this helper, `try` continues after a successful write or returns the error to the caller. It does what Rust's postfix `?` does for a `Result`. The final `return` passes the flush result to the caller.
+
+Each `write` and `flush` call acquires its own stream lock. The writer's `write_all` method may call `write` more than once. `print` and `print_line` hold one lock across all writes and the final flush.
 
 Bray has its own postfix `?`, however, that operator propagates **absence**, and not errors. In other words, Rust's `?` and Bray's `?` are not interchangeable. Same symbol, different responsibility. Naturally.
 
@@ -241,13 +251,7 @@ We'll look more closely at both forms in part 2.
 
 Bray's `unit` is the equivalent of Rust's `()`.
 
-Thus:
-
-```bray
-return Ok(unit);
-```
-
-is equivalent to Rust's `Ok(())`.
+A function such as our `main` can omit its result type when it returns `unit`. A fallible function can return `Result<unit, E>`. Its successful `return Ok(unit);` is equivalent to Rust's `Ok(())`.
 
 Unlike Rust, where a function can return its final expression implicitly, Bray requires an explicit `return` along each normal path that returns a non-`unit` value. It's a few more keystrokes, but at least nobody has to debate whether removing a semicolon changed a function's return value.
 
@@ -305,7 +309,7 @@ module app;
 using std.io;
 using inventory;
 
-func main() -> Result<unit, std.io.IoError>
+func main()
 {
     let mut oats: inventory.Item =
     {
@@ -319,15 +323,13 @@ func main() -> Result<unit, std.io.IoError>
     {
         if inventory.low(item)
         {
-            try std.io.print_line("Low stock");
+            std.io.print_line("Low stock");
         }
         else
         {
-            try std.io.print_line("Stock is ready");
+            std.io.print_line("Stock is ready");
         }
     }
-
-    return Ok(unit);
 }
 ```
 
@@ -551,7 +553,7 @@ using std.io;
 using stock.inventory;
 using internal stock.inventory.low;
 
-func main() -> Result<unit, std.io.IoError>
+func main()
 {
     let mut oats: stock.inventory.Item =
     {
@@ -565,15 +567,13 @@ func main() -> Result<unit, std.io.IoError>
     {
         if stock.inventory.low(item)
         {
-            try std.io.print_line("Low stock");
+            std.io.print_line("Low stock");
         }
         else
         {
-            try std.io.print_line("Stock is ready");
+            std.io.print_line("Stock is ready");
         }
     }
-
-    return Ok(unit);
 }
 ```
 
@@ -614,11 +614,11 @@ Alternatively, we can remove `using internal stock.inventory.low;` while keeping
 ```bray
 if internal stock.inventory.low(item)
 {
-    try std.io.print_line("Low stock");
+    std.io.print_line("Low stock");
 }
 else
 {
-    try std.io.print_line("Stock is ready");
+    std.io.print_line("Stock is ready");
 }
 ```
 

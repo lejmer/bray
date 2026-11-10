@@ -18,8 +18,7 @@ internal func flush_after_write<Sink>(pos sink: &mut Sink, written: usize) -> Re
     return checked_flush_result(result = result, written = written);
 }
 
-/// Writes text to standard output, flushes the stream, and reports exact accepted progress on failure.
-func print(pos text: string) -> Result<unit, IoError>
+internal func try_print(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let lock: StandardOutputLock = try trusted acquire_standard_output();
@@ -32,8 +31,7 @@ func print(pos text: string) -> Result<unit, IoError>
     return flush_after_write(&mut output, written = length);
 }
 
-/// Writes text and a line ending to standard output, then flushes the stream.
-func print_line(pos text: string) -> Result<unit, IoError>
+internal func try_print_line(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let lock: StandardOutputLock = try trusted acquire_standard_output();
@@ -53,16 +51,38 @@ func print_line(pos text: string) -> Result<unit, IoError>
     }
 }
 
-/// Performs `print` through an asynchronous callable.
+/// Writes text to standard output and flushes the stream. Panics if output fails.
+func print(pos text: string)
+    requires(blocking_execution())
+{
+    match consume try_print(text)
+    {
+        case Ok(_) {}
+        case Error(_) { panic("standard output failed"); }
+    }
+}
+
+/// Writes text and a line ending to standard output, then flushes. Panics if output fails.
+func print_line(pos text: string)
+    requires(blocking_execution())
+{
+    match consume try_print_line(text)
+    {
+        case Ok(_) {}
+        case Error(_) { panic("standard output failed"); }
+    }
+}
+
+/// Writes text and flushes standard output, returning exact accepted progress on failure.
 async func print_async(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
-    return print(text);
+    return try_print(text);
 }
 
-/// Performs `print_line` through an asynchronous callable.
+/// Writes text and a line ending, then flushes standard output, returning exact progress on failure.
 async func print_line_async(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
-    return print_line(text);
+    return try_print_line(text);
 }
