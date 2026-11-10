@@ -449,8 +449,11 @@ fn strong_compare_exchange_preserves_its_observed_value_relationship() {
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
                 diagnostics,
-                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven,
             );
+            assert!(!diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven),
+                "the atomic operation remains total: {diagnostics:#?}");
         }
     }
 }
