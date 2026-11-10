@@ -139,7 +139,7 @@ The annotation on `oats` supplies the type. Bray also uses `=` between field nam
 
 Rust developers are familiar with `Option<T>` and `Result<T, E>`. Sometimes a value doesn't exist. Sometimes an operation fails. Sometimes life wasn't complicated enough and both happen in the same function. Bray also distinguishes absence from errors, but uses different propagation operators.
 
-`std.io.print` and `std.io.print_line` return `unit` and panic if output fails, like Rust's `print!` and `println!`. Routine output needs no `try` or result discard. We can keep `main` returning `unit` while adding a nullable lookup.
+`std.io.print` and `std.io.print_line` return `unit` and panic if output fails, like Rust's `print!` and `println!`.
 
 Replace `main` in `src/main.bray` with:
 
