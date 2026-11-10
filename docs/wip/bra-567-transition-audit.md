@@ -29,70 +29,43 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Accepted evidence
 
-Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:756 passed /52 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
-and copied-pointer failures with0 additions. Checker475 and bound-tree133 pass. Callable Source/import28, numeric
-Source/import8 and trusted diagnostics9 pass. Captured values survive replacement without preserving the old storage loan
-or owner. Failure diagnostics7, messages91 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
-Expanded predicate group:26 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
+Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Latest pushed:5dcd6f277.
+Fixed comparison:756 passed /52 failed /99 ignored, exact failure identities unchanged. Checker475, bound-tree133,
+messages91, JSON48 and failure diagnostics7 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
+Accepted native.log:82 diagnostics(E7123=38,E7135=24,E7119=20), unchanged runtime Source64a4e5490.
+Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
-Accepted native.log:85 diagnostics(E7123=39,E7135=26,E7119=20), unchanged runtime Source64a4e5490.
-The produced-tag repair clears formation291 and its dependent worker/entry postcondition, with0 additions.
-Matching native library built. No native async composition has executed.
-Use the canonical complete233-file Windows request. Partial production_host_request has129 files and cannot certify it.
+Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
+contents. Removed duplicate ExecutionState.result. Liveness defines direct initialized storage, never reached borrows.
+Producer tag facts preserve nested multiway joins and private catch wrappers. Scoped reference evidence expires without
+retiring an independently live pointee. Sole expired views lose evidence, actual retirement/replacement revokes it.
+Source/import/MIR matrices:40 produced-result cases,12 caught-nullable sync/async cases,12 scoped-view sync/async cases.
+All pass. Accepted native result/tag/catch/view changes remove8 diagnostics with0 additions.
 
-Embedded source snippets share an80-character/first-line formatter. Whole conditions/messages and structured JSON remain
-complete. Unsupported bodyless execution promises report MissingEvidence before export. Native C assertions remain supported.
+Diagnostic snippets use a shared80-character/first-line formatter. Conditions, messages and structured JSON stay complete.
+Unsupported bodyless execution promises report MissingEvidence. Native C assertions remain supported.
 
-## Current boundary and next step
+## Current boundary
 
-Yield consumed its source while its actual block/loop result remained only in pending_results until after scope cleanup.
-An unrelated opaque destructor therefore removed the owner's guarantees. branch-composition.bray isolates this loss.
-It does not yet reproduce the remaining formation291 failure. The fixed Source/import regression passes for block results and rejects fabricated owners.
-The first comparison preserves all52 failure identities and checker475 passes. That run adds1 valid regression.
+deadline.delivery48/167/190 and registration87: domain_owned(domain(owner)) fails after lock(value), before state(value).
+Exact trace shows available ledger/global domain_owned(Borrowed(Expression9)), but requirement includes the updated
+owner's structural field overlay (state.prepared.locked at PostState13). Evidence exists, argument snapshots differ.
+Global predicate normalization to owner identity was rejected:10 added comparison failures exposed unsound mutation
+preservation. Fully reverted, including its speculative tests. Do not strip predicate snapshots globally.
 
-Current repair reserves region storage before planning nested paths and initializes its actual destination at Yield/Break.
-Completion reads current post-cleanup contents. Liveness defines direct initialized storage, never a reached borrow.
-Callable Return had the same owner gap. Removed ExecutionState.result and its special merge/retirement handling. Returns
-and callable propagation now use the planned result slot in the authoritative current tree. The24-case Source/import
-matrix covers block Yield, loop Break and ordinary Return with no/empty/opaque cleanup plus fabricated-owner rejection.
-All valid cases lower to MIR. Comparison754/52/99 preserves every prior failure identity. Checker475 passes.
-
-Lowering already initializes private cleanup-transfer storage before cleanup and forwards/disposes it on outcomes.
-The native run at b6d16d501 preserves all90 diagnostics, including formation291. Its exact failure state has the live
-Existing owner and an available unconditional ledger clause with no dependencies. The established truth lacks that
-clause. A4-variant nested-choice reduction rejects both valid owner arms even without cleanup. The permanent matrix
-was extended and confirmed red at complex=true/no guard before the current semantic edit. Its earlier24 cases still pass.
-
-Constructors now establish active/inactive tag facts against their actual produced identity. Pairwise joins preserve
-those ordinary exclusions when several alternatives merge. One prepared union-type table supplies formal entry
-invariants and production facts. This introduces no new authority kind or value tree. Known-tag extraction also replaces
-the separate return-outcome traversal. The40-case two/four-alternative Source/import matrix passes, with MIR for valid
-cases and fabrication rejected. Comparison754/52/99 retains every failure identity. Checker475 passes.
-
-Native verification at ff997a8cb removes formation291 and its dependent worker/entry postcondition, with0 additions.
-The real4-way source reduction also passes the rebuilt driver. Expanded predicate26/2/2 retains the2 pre-existing failures.
-No hooks or stale branch/trace probes remain. No style/format or agent is active.
-
-Catch forms its private Ok/Error wrappers before their join. complete_caught_result now records production tag facts
-there, preserving nullable-container evidence through consumed Ok payloads and presence tests. The12-case matrix covers
-direct/caught/fabricated values, sync and async/await, Source/import, and MIR for valid cases. All pass. Comparison755/52/99
-preserves every prior failure identity. Checker475 passes. Native7ad701e8c removes4 call failures, including both targets.
-It exposes1 dependent E7135 at execution/ownership47, whose cause is the existing task/native140 arena_anchor requirement.
-execution/task_entry20 now names the same existing dependency. Retained diagnostic headers are otherwise unchanged.
-The exact catch source reduction passes the rebuilt driver. Consumed probes/logs were removed.
-
-Root expiry sent dependent reference views through pointee retirement. The arena proof was lost at request-block cleanup
-and reached the loop header absent. The independent input witness had no lease dependency, while a separate Borrowed(input)
-witness depended on the lease. Root evidence expiry now removes scoped reference witnesses without retiring referent data.
-Owned lifetime dependents still retire. Original changed-snapshot handling remains intact. Independent owner evidence
-survives, an expired sole view loses evidence, and actual owner retirement/marker replacement revoke it.
-
-The12-case Source/import/MIR matrix covers a single block and repeated loop, sync and actual async/await, plus genuine
-marker-replacement negatives. All475 checker tests pass. Comparison756/52/99 preserves every prior failure identity.
-No hooks or consumed trace/red logs remain. borrowed-wrapper-composition.bray remains the active real-source control.
-Next: uninstrumented native run, targeting task/native140 and its exposed dependent postconditions. No style/format or agent.
-Keep propagation-to-yield under audit. Do not retain prospective call results as live owners.
+Storage flow already defers retirement of admitted private InvocationInput slots until completion. Guarantee flow
+retired them at admission, so lock's completion refreshed from a terminal stale borrowed snapshot while the caller's
+binding held the current field overlay. Extracted StoragePlan.value_retirements as the shared existing policy and
+adopted it in both flows. Admission still transfers/suspends witness authority. surviving_call_values already excludes
+private inputs and failure cleanup retires them. The boundary regression distinguishes source slots from private inputs.
+Checker475 and bound-tree134 pass. Fixed comparison756/52/99 has exactly the same failures. Storage integration33/4
+matches all4 failure identities in retainedfc4 baseline. recursive_inactive_cleanup_report_dependencies_remain_finite
+stalls in the current tests, pre-change5d driver and02:09 intermediate test binary, but passesfc4 in0.05s. Stalled
+processes were stopped. This convergence regression predates the retirement edit and remains unresolved.
+Native output remains byte-for-byte identical at82 diagnostics. The shared retirement rule removes a real consumer
+inconsistency but does not resolve the Returned-origin reference refresh gap. Preserve the refactor. Next trace the
+actual invalidation and refreshed arguments for deadline.commit, and the recursive component summary iteration.
+All trace hooks and consumed logs removed. No style/format or agent is active.
 
 ## Remaining
 

@@ -415,7 +415,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
         phase: bray_bound_tree::StorageValueConsumptionPhase,
     ) {
-        for path in self.storage.value_consumptions(occurrence, phase) {
+        for path in self.storage.value_retirements(occurrence, phase) {
             let selected = crate::ExecutionPlace::select_storage_value(
                 self.storage, path, &state.current,
                 |place, projection| match projection {

@@ -210,6 +210,24 @@ impl StoragePlan {
         self.value_consumptions.get(&(occurrence, phase)).into_iter().flatten()
     }
 
+    /// Admitted private inputs retain current observations until the callee completes.
+    /// Admission transfers authority, while completion ends those input slots.
+    pub fn value_retirements(
+        &self,
+        occurrence: crate::BoundExecutionSite,
+        phase: crate::StorageValueConsumptionPhase,
+    ) -> impl Iterator<Item = &StoragePath> {
+        use crate::StorageValueConsumptionPhase::{Admission, Completion};
+
+        let private_input = move |path: &&StoragePath| matches!(self.identity(path.root),
+            Some(StorageIdentity::InvocationInput { expression, .. }) if occurrence == expression.into());
+
+        self.value_consumptions(occurrence, phase)
+            .filter(move |path| phase != Admission || !private_input(path))
+            .chain(self.value_consumptions(occurrence, Admission)
+                .filter(move |path| phase == Completion && private_input(path)))
+    }
+
     /// Enumerates evaluated-value destination commits for lifetime analysis.
     pub fn value_consumption_entries(&self) -> impl Iterator<Item = (crate::BoundExecutionSite, crate::StorageValueConsumptionPhase, &StoragePath)> {
         self.value_consumptions.iter().flat_map(|((site, phase), paths)| {
@@ -743,6 +761,35 @@ mod tests {
         StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId,
         StorageProjection, StorageRelationship,
     };
+
+    #[test]
+    fn admitted_inputs_keep_observations_until_completion_without_retaining_source_slots() {
+        use crate::StorageValueConsumptionPhase::{Admission, Completion};
+
+        let unit = crate::BoundUnitId::new(8);
+        let call = crate::BoundExpressionId::from_slot(unit, 0);
+        let source = crate::BoundExpressionId::from_slot(unit, 1);
+        let mut builder = crate::StoragePlanBuilder::new(unit, crate::BoundUnitKind::CallableBody);
+        let input = builder.push_identity(StorageIdentity::InvocationInput {
+            expression: call, ordinal: bray_symbols::SymbolOrdinal::new(0),
+        }).expect("fixture input has its own storage");
+        let source = builder.push_identity(StorageIdentity::InvocationResult(source.into()))
+            .expect("fixture source has its own storage");
+        let input = crate::StoragePath::root(input);
+        let source = crate::StoragePath::root(source);
+
+        for path in [&input, &source] {
+            builder.consume_value(call.into(), Admission, path.clone())
+                .expect("fixture consumes its produced operands");
+        }
+
+        let plan = builder.finish();
+
+        assert_eq!(plan.value_consumptions(call.into(), Admission).count(), 2);
+        assert_eq!(plan.value_retirements(call.into(), Admission).collect::<Vec<_>>(), [&source]);
+        assert_eq!(plan.value_retirements(call.into(), Completion).collect::<Vec<_>>(), [&input]);
+        assert_eq!(plan.value_retirements(crate::BoundExpressionId::from_slot(unit, 2).into(), Completion).count(), 0);
+    }
 
     #[test]
     fn access_plan_queries_preserve_occurrence_identity_and_evaluation_order() {
