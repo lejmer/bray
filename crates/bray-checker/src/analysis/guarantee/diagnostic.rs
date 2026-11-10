@@ -8,6 +8,29 @@ use crate::{CheckerQueryResult, CheckerRequestContext, ExecutionCondition, Execu
 
 type Outcome<C> = CheckerQueryResult<Condition, <C as CheckerRequestContext>::UpstreamError>;
 
+pub(super) fn panic_requirement<C: CheckerRequestContext + ?Sized>(
+    flow: &super::flow::ExecutionFlow<'_, '_, C>, node: bray_bound_tree::AnyBoundNodeId,
+) -> CheckerQueryResult<Option<bray_diagnostics::DiagnosticContractObligation>, C::UpstreamError> {
+    for edge in flow.domain.graph.edges() {
+        let Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement() else {
+            continue;
+        };
+        if invocation.node() != node || flow.edge_output(edge.id()).is_none() {
+            continue;
+        }
+        let Some(contract) = flow.domain.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation)) else {
+            continue;
+        };
+        let state = flow.output(edge.source()).expect("reachable entry failure has a source state");
+        let entry = state.entries.get(&invocation).expect("entry failure retains its captured input values before retirement");
+
+        if let Err(failed) = entry.prove_requirements(contract.preconditions.iter().map(|(condition, _)| condition)) {
+            return obligation(&flow.domain, bray_diagnostics::DiagnosticContractObligationKind::CallRequirement, &failed).map(Some);
+        }
+    }
+
+    Ok(None)
+}
 
 pub(super) fn obligation<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>, kind: bray_diagnostics::DiagnosticContractObligationKind,

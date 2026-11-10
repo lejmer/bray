@@ -1272,6 +1272,52 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_boolean_requirements_survive_forwarding_but_not_mutation_or_owner_changes() {
+        for asynchronous in ["", "async "] {
+            for (body, valid) in [
+                ("checked(lease); authorize(lease);", true),
+                ("lease.active = false; checked(lease);", false),
+                ("authorize(other);", false),
+            ] {
+                let source = format!(r#"
+                    module app;
+
+                    struct Lease
+                    {{
+                        mut active: bool;
+                    }}
+
+                    func checked(pos lease: &mut Lease)
+                        requires(lease.active)
+                        executes(pure, total)
+                    {{
+                    }}
+
+                    {asynchronous}func forward(pos lease: &mut Lease, pos other: &mut Lease)
+                        requires(lease.active)
+                        executes(total)
+                    {{
+                        let authorize = lambda(pos lease: &mut Lease)
+                            requires(lease.active)
+                            executes(pure, total)
+                        {{
+                        }};
+
+                        {body}
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn methods_constructors_and_lambda_bodies_establish_their_own_evidence() {
         let compilation = compilation(
             r#"
