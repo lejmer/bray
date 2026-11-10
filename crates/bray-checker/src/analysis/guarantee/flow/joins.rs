@@ -5,6 +5,49 @@ use super::merge::result_replacements;
 use crate::ExecutionCondition;
 use crate::execution_guarantees::common_components;
 
+pub(super) fn common_current_owner(
+    left: &ExecutionCondition,
+    right: &ExecutionCondition,
+) -> Option<(crate::execution_guarantees::ExecutionObservationKind, ExecutionCondition)> {
+    let role = |value: &ExecutionCondition| value.observation_kind()
+        .or_else(|| value.ownership_identity().map(|(role, _)| role));
+    let kind = role(left)?;
+
+    if role(right) != Some(kind) || left.owner_identity() != right.owner_identity() {
+        return None;
+    }
+
+    Some((kind, left.owner_identity().clone().into_referent().owner_identity().clone()))
+}
+
+pub(super) fn current_content_identities(
+    left: &ExecutionState,
+    right: &ExecutionState,
+    places: &BTreeSet<&crate::ExecutionPlace>,
+    block: Option<crate::analysis::id::AnalysisBlockId>,
+) -> BTreeMap<ExecutionCondition, ExecutionCondition> {
+    let Some(block) = block else { return BTreeMap::new(); };
+    let mut owners = BTreeMap::new();
+
+    for place in places {
+        if super::merge::resolved_availability(left, place) != super::super::current::ValueAvailability::Present
+            || super::merge::resolved_availability(right, place) != super::super::current::ValueAvailability::Present { continue; }
+
+        let (Some(left), Some(right)) = (place.value_in(&left.current), place.value_in(&right.current)) else { continue; };
+        let Some((kind, owner)) = common_current_owner(&left, &right) else { continue; };
+        let entry = owners.entry(owner).or_insert((kind, *place));
+
+        // A loan observes the containing owner's joined contents, independently
+        // of the storage slot that happens to hold the reference value.
+        if entry.0 == crate::execution_guarantees::ExecutionObservationKind::Reference
+            && kind != crate::execution_guarantees::ExecutionObservationKind::Reference {
+            *entry = (kind, *place);
+        }
+    }
+
+    owners.into_iter().map(|(owner, (_, place))| (owner, super::merge::joined_observation(block, place))).collect()
+}
+
 pub(in crate::analysis::guarantee) fn returned_condition(
     condition: &ExecutionCondition,
     result: &ExecutionCondition,
@@ -435,6 +478,7 @@ mod tests {
                 let condition = guarantee(value.clone());
 
                 state.current.insert(place.clone(), value.clone());
+                state.current.insert(ExecutionPlace::argument(SymbolOrdinal::new(99)), value.clone().borrowed());
                 condition.clone().assume(true, &mut state.trusted_assumptions);
 
                 let carrier = if component_carrier {
@@ -453,6 +497,10 @@ mod tests {
             );
 
             let merged = merged.expect("both current observations remain reachable");
+            assert_eq!(merged.current.get(&ExecutionPlace::argument(SymbolOrdinal::new(99)))
+                .expect("retained readonly alias").clone().into_referent(),
+                merged.current.get(&place).expect("joined owner").clone().into_referent(),
+                "an alias and its owner must observe the same joined contents");
             let condition = guarantee(merged.current.get(&place).expect("joined observation").clone());
 
             assert_eq!(condition.prove_trusted(&merged.trusted_assumptions, &merged.assumptions), Some(true),
