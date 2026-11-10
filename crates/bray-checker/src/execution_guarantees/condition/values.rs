@@ -121,6 +121,24 @@ impl ExecutionCondition {
         }
     }
 
+    /// The active tag established by this produced value, through inline data wrappers.
+    pub(crate) fn known_variant(&self) -> Option<bray_symbols::UnionVariantSymbolId> {
+        let mut value = self;
+
+        loop {
+            match value {
+                Self::Tagged(variant, _) => return Some(*variant),
+                Self::Constructed(base, _) => value = base,
+                Self::Observation { contents, .. } | Self::Borrowed(contents) => value = contents,
+                Self::Literal(literal) => return match literal.kind() {
+                    bray_symbols::ConstantValueKind::Union { variant, .. } => Some(*variant),
+                    _ => None,
+                },
+                _ => return None,
+            }
+        }
+    }
+
     pub(crate) fn matches_variant(self, variant: bray_symbols::UnionVariantSymbolId) -> Self {
         match self {
             Self::Unknown => Self::Unknown,

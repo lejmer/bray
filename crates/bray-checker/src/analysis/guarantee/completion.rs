@@ -1,4 +1,3 @@
-use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, StorageAccessId};
@@ -198,21 +197,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             }
 
             if normal_exit_blocks.contains(&block.id()) {
-                let returned = self.domain.returned_value(&state);
-                let mut result = &returned;
-
-                loop {
-                    match result {
-                        ExecutionCondition::Constructed(base, _) => result = base,
-                        ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => result = contents,
-                        _ => break,
-                    }
-                }
-
-                results.insert(match result {
-                    ExecutionCondition::Tagged(variant, _) => Some(*variant),
-                    _ => None,
-                });
+                results.insert(self.domain.returned_value(&state).known_variant());
             }
 
             dependencies.extend(state.completion_dependencies);

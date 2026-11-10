@@ -629,6 +629,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.assign(place, value.clone(), None);
         }
 
+        self.assume_produced_variant(state, expression, &value);
         state.expressions.insert(expression, value);
     }
 

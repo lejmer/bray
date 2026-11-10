@@ -41,6 +41,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.assign(place, value, None);
     }
 
+    pub(in crate::analysis::guarantee) fn assume_produced_variant(
+        &self,
+        state: &mut ExecutionState,
+        expression: BoundExpressionId,
+        value: &ExecutionCondition,
+    ) {
+        let Some(active) = value.known_variant() else { return; };
+        let ty = self.semantics.types().expression(expression)
+            .expect("a produced union retains its checked type").ty();
+        let Some(variants) = self.union_variants.get(&ty) else { return; };
+        let owner = std::sync::Arc::new(value.owner_identity().clone());
+
+        // Record every inactive case while the constructor owns this knowledge.
+        // Pairwise joins can then preserve exclusions across arbitrarily nested choices.
+        for variant in variants.iter().copied() {
+            state.assumptions.insert((ExecutionCondition::VariantTest(variant, owner.clone()), variant == active));
+        }
+    }
+
     /// Form one expression result at its defining execution transition. Every
     /// operand is an actual evaluated result, never another syntax evaluation.
     pub(super) fn produce_value(

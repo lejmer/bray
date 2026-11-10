@@ -2124,13 +2124,17 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
 
 #[test]
 fn produced_owned_results_survive_enclosing_scope_cleanup() {
+    for complex in [false, true] {
     for (region, transfer) in [("", "yield"), ("loop", "break"), ("return", "return")] {
+    if complex && transfer == "return" { continue; }
+
     for (guard, cleanup, created, valid) in [
         ("", "", "trusted api.create()", true),
         ("let guard = api.Guard\n{\n};", "", "trusted api.create()", true),
         ("let guard = api.Guard\n{\n};", "release();", "trusted api.create()", true),
         ("let guard = api.Guard\n{\n};", "release();", "api.Worker\n{\n    marker = api.Marker {}\n}", false),
     ] {
+        let extra_variants = if complex { "Created(pos owner: Worker);\nBacking;" } else { "" };
         let declarations = format!(r#"
             trusted module api;
 
@@ -2168,6 +2172,7 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
             {{
                 Existing(pos owner: Worker);
                 Empty;
+                {extra_variants}
             }}
 
             func inspect(pos owner: &Worker)
@@ -2183,7 +2188,7 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
 
             using api;
 
-            func caller(pos branch: bool)
+            func caller(pos branch: bool, pos other: bool, pos third: bool)
             {{
                 let selected: api.Choice = {region}
                 {{
@@ -2210,13 +2215,41 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
                 }}
             }}
         "#);
+        let source = if complex {
+            source.replace("yield api.Choice.Empty;", &format!(r#"
+                yield if other
+                {{
+                    yield api.Choice.Created({created});
+                }}
+                else
+                {{
+                    yield if third
+                    {{
+                        yield api.Choice.Empty;
+                    }}
+                    else
+                    {{
+                        yield api.Choice.Backing;
+                    }};
+                }};
+            "#))
+                .replace("case api.Choice.Empty", r#"
+                    case api.Choice.Created(owner)
+                    {
+                        api.inspect(&owner);
+                    }
+                    case api.Choice.Backing
+                    {
+                    }
+                    case api.Choice.Empty"#)
+        } else { source };
         let source = if transfer == "return" {
             format!(r#"
                 module app;
 
                 using api;
 
-                func caller(pos branch: bool) -> api.Worker
+                func caller(pos branch: bool, pos other: bool, pos third: bool) -> api.Worker
                     ensures(trusted api.live(owner = &result.marker))
                 {{
                     {guard}
@@ -2233,18 +2266,20 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
             };
             let diagnostics = application.check_diagnostics();
             assert_eq!(!diagnostics.has_errors(), valid,
-                "region={region}, guard={guard}, cleanup={cleanup}, imported={imported}: {source}\n{diagnostics:#?}");
+                "complex={complex}, region={region}, guard={guard}, cleanup={cleanup}, imported={imported}: {source}\n{diagnostics:#?}");
             if valid {
                 let lowered = application.lowered_unit(
                     crate::test_support::source_function_body_key(&application, "caller"))
                     .expect("produced result survives cleanup through lowering");
 
                 assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+                assert!(lowered.value().is_some(), "valid composition produces MIR: {lowered:#?}");
             } else {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
             }
         }
     }
+}
 }
 }

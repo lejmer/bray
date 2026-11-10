@@ -23,6 +23,7 @@ pub struct PreparedBodyAnalysis {
     pub(crate) observed_types: BTreeMap<crate::ExecutionPlace, Option<TypeId>>,
     pub(crate) borrowed_inputs: BTreeSet<crate::ExecutionPlace>,
     pub(crate) input_invariants: Vec<crate::ExecutionCondition>,
+    pub(crate) union_variants: BTreeMap<TypeId, Arc<[bray_symbols::UnionVariantSymbolId]>>,
     pub(crate) scope_places: BTreeMap<
         bray_bound_tree::StorageScope,
         Vec<(crate::ExecutionPlace, bray_bound_tree::StorageIdentityId)>,
@@ -207,6 +208,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         observed_types: BTreeMap::new(),
         borrowed_inputs: BTreeSet::new(),
         input_invariants: Vec::new(),
+        union_variants: BTreeMap::new(),
         scope_places: BTreeMap::new(),
         yield_targets: BTreeMap::new(),
         literals: crate::execution_guarantees::condition_literals(
@@ -223,7 +225,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
 
     prepared.prepare_observations(request, expressions);
 
-    match prepared.prepare_input_invariants(request, storage) {
+    match prepared.prepare_input_invariants(request, storage, expressions) {
         Ok(()) => {}
         Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(crate::CheckerQueryError::Upstream(error)) => {
@@ -316,6 +318,7 @@ impl PreparedBodyAnalysis {
         &mut self,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
+        expressions: &CheckedExpressionSemantics,
     ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
         // Contracts can observe parameters that the body never reads. Keep
         // their checked entry types without walking arbitrary aggregate fields.
@@ -342,6 +345,8 @@ impl PreparedBodyAnalysis {
             }
         }
 
+        self.prepare_union_variants(request, expressions)?;
+
         let mut types = BTreeMap::new();
         let mut scalar_fields = Vec::new();
 
@@ -354,18 +359,13 @@ impl PreparedBodyAnalysis {
                 continue;
             };
 
-            if let bray_symbols::TypeData::Named {
-                definition: bray_symbols::NamedTypeSymbolId::Union(union), ..
-            } = request.semantic_values().type_data(*ty).as_ref()
-            {
-                let union = request.union(*union)?
-                    .expect("a checked union input retains its declaration");
+            if let Some(variants) = self.union_variants.get(ty) {
 
                 // A typed union always has one declared variant, independently
                 // of which patterns this body happens to test.
                 self.input_invariants.push(crate::ExecutionCondition::operation(
                     bray_bound_tree::BoundOperator::LogicalOr,
-                    union.variants().iter().map(|variant| subject.clone().matches_variant(*variant)).collect(),
+                    variants.iter().map(|variant| subject.clone().matches_variant(*variant)).collect(),
                 ));
             }
 
@@ -420,6 +420,31 @@ impl PreparedBodyAnalysis {
 
         for (place, ty) in scalar_fields {
             self.observed_types.entry(place).or_insert(Some(ty));
+        }
+
+        Ok(())
+    }
+
+    fn prepare_union_variants<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+        expressions: &CheckedExpressionSemantics,
+    ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
+        let types = self.observed_types.values().flatten().copied()
+            .chain(request.unit().tree().expressions().filter_map(|(id, _)|
+                expressions.types().expression(id).map(|entry| entry.ty())))
+            .map(|ty| request.semantic_values().unborrowed_type(ty))
+            .collect::<BTreeSet<_>>();
+
+        for ty in types {
+            if let bray_symbols::TypeData::Named {
+                definition: bray_symbols::NamedTypeSymbolId::Union(union), ..
+            } = request.semantic_values().type_data(ty).as_ref() {
+                let union = request.union(*union)?
+                    .expect("a checked union value retains its declaration");
+
+                self.union_variants.insert(ty, Arc::from(union.variants()));
+            }
         }
 
         Ok(())
