@@ -1086,23 +1086,7 @@ where
     fn retire_consumed_value_slots(&self, state: &mut StorageFlowState, kind: AnalysisOperationKind) {
         let Some(phase) = kind.value_consumption_phase() else { return; };
 
-        let completing_call = matches!(kind, AnalysisOperationKind::Call {
-            phase: AnalysisCallPhase::Completion, ..
-        });
-
-        let private_input = |path: &bray_bound_tree::StoragePath| {
-            matches!(self.storage.identity(path.root),
-                Some(StorageIdentity::InvocationInput { expression, .. })
-                    if kind.occurrence() == expression.into())
-        };
-
-        let completed_inputs = completing_call.then(|| self.storage.value_consumptions(
-            kind.occurrence(), bray_bound_tree::StorageValueConsumptionPhase::Admission));
-
-        for path in self.storage.value_consumptions(kind.occurrence(), phase)
-            .filter(|path| phase != bray_bound_tree::StorageValueConsumptionPhase::Admission || !private_input(path))
-            .chain(completed_inputs.into_iter().flatten().filter(|path| private_input(path)))
-        {
+        for path in self.storage.value_retirements(kind.occurrence(), phase) {
             let ty = self.storage.storage_type(path.root)
                 .expect("consumed evaluated slot has its checked type");
 
