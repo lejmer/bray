@@ -65,11 +65,18 @@ witness transfer. Exact stored-borrow observations use existing typed Storage ro
 dead/inexact handles or mere possible-alias overlap. Possible-origin bounds revoke evidence separately.
 
 Next repair the proven recursive convergence regression. recursive_inactive_cleanup_report_dependencies_remain_finite
-stalls in current/pre-change5d/02:09 intermediate binaries, but passesfc4 in0.05s. Bounded trace exceeded400 component
+stalled before this repair, including pre-change5d/02:09 intermediate binaries, but passedfc4 in0.05s. Trace exceeded400 component
 iterations: each adds UnboundedMutation(Cleanup(Wrapper<...<T>>)). dependency/cleanup/effects.rs expands Dispose types
 but preserves Cleanup types unchanged. Normalize through the existing cleanup expansion while preserving region
-semantics. A cleanup region is not the disposed value's layout. No fix yet. The real probe is recursive-input-observations.bray.
-No trace hooks, processes, agents, style or format passes are active.
+semantics. A cleanup region is not the disposed value's layout. Confirmed stalled at f4f82a276 before editing.
+expand_region now resolves Dispose(type) through the existing expansion under a formal Result value, then maps
+receiver-relative mutation kinds onto the original region without layout projections or access-type claims. Generic
+leaves remain conditional Cleanup(type), unrelated/global effects retain their identities. The formerly stalled test
+passes in0.07s. Configured recursion-limit, retained-capture and recursive-default controls pass. Checker476 and all907
+fixed outcomes remain unchanged. Full cleanup/storage57/4 includes the now-passing recursive test. All4 failures match
+the retained baseline. The real source passes the rebuilt driver. All70 native diagnostic blocks are unchanged.
+Consumed probes/traces removed. Next inspect E7119's operation-can-panic cause, starting with host/access77 authorize.
+No trace hook or review agent. Style/format remain deferred.
 
 ## Remaining
 

@@ -57,8 +57,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     }
 
     if matches!(kind, Kind::Cleanup(_)) {
-        resolved.push(effect.clone());
-        return Ok(());
+        return expand_region(request, shapes, effect, ty, active, resolved);
     }
 
     if !active.insert(ty) {
@@ -105,6 +104,41 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     }
 
     active.remove(&ty);
+    Ok(())
+}
+
+fn expand_region<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
+    region: &Effect,
+    ty: TypeId,
+    active: &mut BTreeSet<TypeId>,
+    resolved: &mut Vec<Effect>,
+) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+    // Expand the actual value layout once. Its receiver-relative projections
+    // cannot be applied to a region that merely bounds possible cleanup effects.
+    let value = Effect::Direct {
+        subject: DependencySubject::root(DependencySubjectRoot::Result),
+        kind: Kind::Dispose(ty), access_type: Some(ty),
+    };
+    let mut effects = Vec::new();
+
+    expand(request, shapes, &value, active, &mut effects)?;
+
+    for effect in effects {
+        let kind = match &effect {
+            Effect::Direct { subject, kind, .. } if subject.subject_root() == DependencySubjectRoot::Result => Some(*kind),
+            Effect::Indirect { reference, kind, .. } if reference.subject_root() == DependencySubjectRoot::Result => Some(*kind),
+            _ => None,
+        };
+
+        resolved.push(match kind {
+            Some(Kind::Dispose(ty)) => replace_kind(region, Kind::Cleanup(ty), None),
+            Some(kind) => replace_kind(region, kind, None),
+            None => effect,
+        });
+    }
+
     Ok(())
 }
 
