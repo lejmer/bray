@@ -30,9 +30,9 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Current evidence and cause inventory
 
 Current checkpoints are pushed to the PR branch. verification.json holds executable identities and results.
-The907 frozen identities now give765/43/99. The new allocation import case passes separately. Checker486,
+The907 frozen identities now give766/42/99. The new allocation import case passes separately. Checker487,
 bound135, symbols221 and interfaces216 pass. Cleanup61, predicates30 and focused18 retain their recorded outcomes.
-Native Source64a4e5490, complete233-file Windows request:37 diagnostics,22 E7123 and15 E7135.
+Native at382b44235: Source64a4e5490, complete233-file Windows request:37 diagnostics,22 E7123 and15 E7135.
 The join repair removes entry_scope400 and report/output44, with no new native failures.
 Ten E7135 diagnostics explicitly depend on other checking failures. Do not treat these as independent defects.
 The async-ownership-composition fixture and3 invalid variants pass source/MIR. Native execution remains unverified.
@@ -49,35 +49,36 @@ Current unresolved families, with proof distinguished from hypotheses:
   and current. The first rejected effect is raw retirement through a returned task pointer bounded by the execution
   owner's stored address. Whether the effect is too broad or the contract lacks a necessary bound remains unresolved.
   Do not add preservation exceptions. Related cleanup/view failures are candidates for this family, not proved duplicates.
-- Guarded owner transport. Source and imported witness matrices both first fail on the nullable case with actual Unknown.
-  Native entry_scope400 also loses an optional returned owner before consumption. Trace production, join, pattern
-  extraction and call-input capture to find the first missing fact before changing implementation.
+- Guarded owner transport. Source/import matrices now fail14 positive cases each. Remaining cases include branch-order
+  sensitivity, optional-container claims and inferred tuple creation. Basic nullable transport now passes. Next establish
+  branch permutation checks at the witness join boundary rather than patching source cases.
 - Expired address dependencies. Source/import address tests accept access after the backing scope ends. Trace pointer
   stores and input postconditions through physical and witness dependency retirement. This is a safety defect candidate.
-- Post-state meaning. Ordinary completion/mutation postconditions and prepared_start175's assigned nullable registration
-  are unproved. Inspect their publication/invalidation boundaries. A common cause has not been demonstrated.
+- Post-state meaning. prepared_start175's assigned nullable registration remains unproved. Ordinary completion/mutation
+  checks now pass after structural join normalization. A common cause with the native failure is not established.
 - Extraction and lifecycle composition. Native retirement205 loses the extracted SpinLock cleanup predicate. Existing
   nullable raw-extraction, represented-child cleanup and owned-transfer checks provide related boundaries to compare.
-- Verification visibility. The46 failed Rust tests include14 first-case false accepts,14 false rejects and18 other
-  assertions or blockers. These are observations, not46 root causes. Some tests contain large fail-fast matrices.
+- Verification visibility. Remaining Rust test failures include false accepts, false rejects and metadata/provider
+  blockers. Some tests contain large fail-fast matrices, so a failed identity is not a count of defects.
   Three first failures explicitly report MissingEvidence for bodyless execution promises. Do not generalize that
   explanation to the remaining failures or change expected verdicts without actual controls.
 
-The complete source/import witness matrices run with unchanged case names/verdicts. The same37 positive cases
-fail in each mode, down from46. All invalid controls, including returned-address expiry, pass. This narrows the separate stale-address
-family to mutation/input-postcondition paths. Deferred provider diagnostics identify held evidence lost through an if
-selecting try-await cancel/join results. Their consumer matrices remain unverified. Next trace the nullable join and
-pattern extraction against the matching source/import cases before changing production semantics.
+The complete source/import witness matrices run with unchanged case names/verdicts. All invalid controls, including
+returned-address expiry, pass. This narrows the separate stale-address family to mutation/input-postcondition paths.
+Deferred provider diagnostics identify held evidence lost through an if selecting try-await cancel/join results.
+Their consumer matrices remain unverified.
 Fixed a proved recursion defect in common_components: inferred carrier roles triggered unwrapping without an actual
 wrapper, repeating identical operands until budget exhaustion. Nullable and reference structural joins now progress.
 One boundary regression checks payload contents, owner/reference separation, predecessor order and convergence.
 Three frozen failures now pass: completion_observation_publishes_its_checked_result_meaning,
 ordinary_predicate_meaning_tracks_completion_and_mutation and joined_mutated_values_do_not_inherit_their_entry_contents.
-Their invalid mutation controls still reject. No new frozen failures. All11 join tests and full checker/bound suites pass.
+Their invalid mutation controls still reject. No new frozen failures. Full checker/bound suites pass.
 Adjacent cleanup57/4, predicates26/2/2 and focused18 remain unchanged. Temporary trace hooks are removed.
-The minimal nullable source now reports the actual selected payload instead of Unknown, but still lacks its witness.
-Next verify witness renaming through the corrected nullable join with a
-boundary regression. No review agent. Style/format remain deferred.
+Fixed result_replacements assigning the presence payload's same owner to both root and payload, a false conflict.
+It now transfers that owner only through the payload projection. The boundary regression failed before repair and
+passes for single/nested nullable owners and unrelated-owner controls. raw_extraction_transfers_a_complete_nullable_witness
+also now passes, including fabrication and double-extraction negatives. Native comparison is pending for this repair.
+No review agent. Style/format remain deferred.
 
 ## Remaining
 

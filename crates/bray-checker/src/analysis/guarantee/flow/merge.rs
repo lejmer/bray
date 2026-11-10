@@ -694,6 +694,18 @@ pub(super) fn result_replacements(
         return;
     }
 
+    if let ExecutionCondition::Present(payload) = value {
+        if !stable_values.contains(value) {
+            insert_replacement(values, value, joined);
+        }
+
+        // Presence wraps the payload's existing owner. Move that owner to the
+        // selected payload, never to both the nullable root and its child.
+        result_replacements(payload, &joined.clone().project(bray_bound_tree::StorageProjection::NullableValue),
+            stable_values, stable_identities, values, identities);
+        return;
+    }
+
     if let Some((ObservationKind::Reference, owner)) = value.ownership_identity() {
         if let Some((ObservationKind::Reference, joined_owner)) = joined.ownership_identity() {
             if !stable_values.contains(value) {

@@ -655,6 +655,49 @@ mod nested_guard_tests {
     use std::sync::Arc;
 
     #[test]
+    fn nullable_payload_witnesses_follow_the_selected_owner_only() {
+        let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
+        let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let substitution = crate::test_support::empty_substitution(predicate.into());
+        let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.project(marker).borrowed()]),
+        ));
+        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+        let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
+        ]);
+
+        for (depth, valid) in [(1, true), (2, true), (1, false), (2, false)] {
+            let mut left = ExecutionState::default();
+            let witness_owner = input(if valid { 0 } else { 1 });
+            let guarantee = held(witness_owner.clone());
+
+            left.carry_guarantee(witness_owner, guarantee.clone());
+            guarantee.assume(true, &mut left.trusted_assumptions);
+
+            let present = (0..depth).fold(input(0), |value, _| value.present());
+            let joined = merge_returned(&mut left, &ExecutionState::default(), &present, &absent,
+                &ExecutionCondition::Result, expressions[0]);
+            let mut selected = joined;
+
+            for _ in 0..depth {
+                ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
+                    vec![selected.clone(), absent.clone()]).assume(true, &mut left.assumptions);
+                selected = selected.project(StorageProjection::NullableValue);
+            }
+
+            let required = held(selected);
+
+            assert_eq!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions) == Some(true), valid,
+                "depth={depth} valid={valid} required={required:?} facts={:?} witnesses={:?}",
+                left.trusted_assumptions, left.witnesses);
+        }
+    }
+
+    #[test]
     fn mixed_copy_and_owned_predecessors_keep_only_guarded_join_authority() {
         let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
         let guard = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
