@@ -542,7 +542,7 @@ impl Compilation {
                 let predicate = !required.is_internal()
                     && (predicate || self.unit_requires_constant_evaluation(&key, cancellation)?);
 
-                let candidates = self.execution_candidates_with_cancellation(key, cancellation)?;
+                let candidates = self.execution_candidates_with_cancellation(key.clone(), cancellation)?;
 
                 let goal = match required {
                     ExecutionObligation::Observation => {
@@ -721,6 +721,11 @@ impl Compilation {
                             pending.push((target, body, selected, exported, false, depth + 1));
                         }
                     } else {
+                        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                        let source = super::failure::execution_site_span(bound.result().value(), &key, site);
+                        failure.get_or_insert(ExecutionVerificationFailure {
+                            condition: None, source: Some(source), cause: FailureCause::MissingEvidence,
+                        });
                         valid = false;
                     }
                 }

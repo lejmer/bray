@@ -75,6 +75,17 @@ pub(super) fn source_span(anchor: SyntaxAnchor) -> SourceSpan {
     SourceSpan::new(anchor.source_id(), anchor.full_range())
 }
 
+pub(super) fn execution_site_span(
+    bound: &bray_bound_tree::BoundUnit, key: &bray_bound_tree::BoundUnitKey,
+    site: bray_bound_tree::BoundExecutionSite,
+) -> SourceSpan {
+    let anchor = site.expression()
+        .and_then(|expression| bound.view().expression(expression))
+        .map_or(key.source().syntax(), |expression| expression.origin().source_anchor().syntax());
+
+    source_span(anchor)
+}
+
 pub(super) fn proof_owner_span(owner: ExecutionProofOwner, source: Option<SyntaxAnchor>) -> Option<SourceSpan> {
     match owner {
         ExecutionProofOwner::Source(anchor, _) => Some(source_span(anchor)),

@@ -31,16 +31,16 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 The current semantic checkpoint retains live predecessor snapshots, projected aliases, nullable wrapper/payload
 separation and composed overlays. Earlier producer-owned result and allocation/reference transfers remain fixed.
-No reconstruction or parallel persistent state was added. Diagnostic selection changes remain uncommitted while the
-last native evidence probe runs. No review agent or goal is active.
+No reconstruction or parallel persistent state was added. The admitted-entry and diagnostic checkpoint is verified. The return-carrier simplification remains uncompiled. No review agent or goal is active.
 
 Frozen907 identities:766 passed,42 failed,99 ignored, four explained repairs and no new failures. One extra allocation
-import case passes. Checker491 pass, including the direct collector and live-Unknown controls. Bound135, symbols221 and interfaces216 pass.
+import case passes. Checker492 pass, including the direct collector and live-Unknown controls. Bound135, symbols221 and interfaces216 pass.
 Cleanup57/4, predicates26/2/2 and focused18 are unchanged. Source/MIR composition and3 invalid variants pass.
 Native composition has not run. verification.json holds executable identities and current evidence.
 
-Accepted native baseline at382b44235:37 diagnostics,22 E7123 and15 E7135, Source64a4e5490, complete233-file request.
-Current candidate38 retains those37 identities and adds E7135 at worker/entry170. Expansion remains blocked.
+Accepted native baseline remains37 diagnostics,22 E7123 and15 E7135, Source64a4e5490, complete233-file request.
+The admitted-entry repair removes the added worker/entry170 failure. All37 original identities remain unchanged.
+The unexplained-regression gate is clear.
 Both added call failures at activation/run/entry95 and worker/entry179 are repaired. Their actual conflicting snapshots
 came from retired call-input slots marked Absent/Absent. The collector now excludes absent storage with Option snapshots,
 while live Unknown still blocks proof. The direct collector test reproduces before repair and passes after it.
@@ -53,13 +53,14 @@ All7 nested boundary tests and32 condition tests pass. A Present wrapper now rec
 from its payload owner. Previously both snapshots conflicted at the payload identity. The48-case matrix covers all
 orders, both nesting directions, same/distinct regions and fabrication controls. Only an explicitly Present payload
 collapses its identical overlay. Never erase component structure merely because a projected identity matches. No temporary snapshot hooks
-remain. The added worker postcondition depends on Pure for scheduler_reference(pool) at entry179. Trusted entry checking proves
-retained(pool.marker), while the simpler certification evidence proof rejects it. These paths normalize reference origins differently.
-This remains a hypothesis until their captured facts are compared. Rejected selection now reports MissingEvidence at
-the invocation, and the existing guarded-call test checks cause and span. Actual rendered failures group into whole nullable claims, Result<Nullable> selection, and the awaited selected owner.
-The existing guarded-call test now passes with the bound invocation suffix span. It was the only added assertion failure
-in the latest907 comparison, whose semantic outcomes retained the four repairs. Compiler, driver and selected tests now
-build together with cargo build --all-targets, avoiding a second driver build and feature selection change. Dynamic source inputs remain necessary because constants can hide copied-data behavior.
+remain. The added worker postcondition depends on Pure for scheduler_reference(pool) at entry179. The captured entry has
+trusted_boundary=true but no retained(pool.marker) fact. Completion publishes admitted ordinary conditions and omits
+accepted trusted conditions. The verified repair records those conditions only in the completed immutable entry and
+publishes that snapshot. Pre-admission and false ordinary controls pass, as do492 checker tests and the fixed907 comparison. No live authority is
+created. Rejected selection now reports MissingEvidence at the invocation, with a passing guard cause/span regression.
+All temporary hooks are removed. Inferred return witnesses still reconstruct a second value/identity map.
+The pending simplification reuses returned_condition, already used by ownership metadata, deleting that parallel map. Cargo builds compiler, driver and tests together. Always capture executable identities
+from Cargo JSON because feature unification changed their hashes. verification.json owns the current paths.
 
 Source/import witness matrices have the same2 positive failures each, down from46, with every negative control passing:
 optional_claim and new_owned_tuple_inferred. All Result<Nullable> permutations and provider variants now pass.
