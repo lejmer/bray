@@ -146,6 +146,55 @@ mod tests {
     }
 
     #[test]
+    fn nullable_joins_preserve_payloads_and_normalization_makes_progress() {
+        use crate::execution_guarantees::ExecutionObservationKind;
+
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let payload = StorageProjection::NullableValue;
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            crate::test_support::error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+        let identity = input(9);
+        let conditions = Default::default();
+        let join = |left: &ExecutionCondition, right: &ExecutionCondition| {
+            let mut budget = 64;
+            let value = common_components(left, right, Some(identity.clone()), (&conditions, &conditions),
+                &mut Vec::new(), &mut budget);
+            assert!(budget > 0, "normalization must remove a wrapper or descend into a component");
+            value
+        };
+
+        for borrowed in [false, true] {
+            let owner = ExecutionCondition::constructed(input(0), [(field, ExecutionCondition::Boolean(true))].into());
+            let value = if borrowed { owner.borrowed() } else { owner };
+            let present = value.present();
+
+            for wrapped in [false, true] {
+                let present = if wrapped { ExecutionCondition::owned_value(input(1), present.clone()) } else { present.clone() };
+                let joined = join(&present, &absent);
+                let selected = joined.clone().project(payload);
+
+                assert_eq!(selected.clone().project(field).into_referent(), ExecutionCondition::Boolean(true));
+                assert_eq!(selected.ownership_identity().map(|(kind, _)| kind), Some(if borrowed {
+                    ExecutionObservationKind::Reference
+                } else { ExecutionObservationKind::Owned }));
+                assert_eq!(join(&absent, &present), joined);
+                assert_eq!(join(&joined, &absent), joined, "nullable back edges must stabilize");
+            }
+        }
+
+        let reference = |ordinal| ExecutionCondition::constructed(input(ordinal),
+            [(field, ExecutionCondition::Boolean(true))].into()).borrowed().present();
+        let joined = join(&reference(0), &reference(1));
+
+        assert_eq!(joined.clone().project(payload).project(field).into_referent(), ExecutionCondition::Boolean(true));
+        assert_eq!(joined.project(payload).ownership_identity().map(|(kind, _)| kind),
+            Some(ExecutionObservationKind::Reference), "joining nullable references cannot grant ownership");
+        assert_eq!(join(&ExecutionCondition::Unknown, &absent), ExecutionCondition::Unknown);
+    }
+
+    #[test]
     fn scalar_joins_produce_usable_stable_data_without_owner_authority() {
         let literal = |value| ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             crate::test_support::error_type(),
@@ -777,5 +826,4 @@ mod nested_guard_tests {
                 "implicit retained field unchanged={unchanged}");
         }
     }
-
 }

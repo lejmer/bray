@@ -57,11 +57,17 @@ pub(crate) fn common_components(
     let right_role = right.observation_kind().or_else(|| right_owner.map(|(role, _)| role));
     let same_owner = matches!((left_owner, right_owner), (Some((role, owner)), Some((other_role, other))) if role == other_role && owner == other);
 
-    if left_role != right_role {
+    // Carrier roles can differ inside structural values such as present/none.
+    // Normalize only actual wrappers, so recursion strictly removes structure.
+    if left_role != right_role
+        && matches!((left, right),
+            (ExecutionCondition::Observation { .. } | ExecutionCondition::Borrowed(_), _)
+                | (_, ExecutionCondition::Observation { .. } | ExecutionCondition::Borrowed(_)))
+    {
         return mixed_role_components(left, right, result, conditions, facts, budget);
     }
 
-    if left_role == Some(ObservationKind::Reference) {
+    if left_role == Some(ObservationKind::Reference) && (left.is_reference() || right.is_reference()) {
         let contents = common_components(
             &left.clone().into_referent(), &right.clone().into_referent(),
             if same_owner { result.clone() } else { None }, conditions, facts, budget,
@@ -368,4 +374,3 @@ pub(crate) fn owned_snapshot(
         _ => identity,
     }
 }
-
