@@ -1361,6 +1361,70 @@ mod tests {
     }
 
     #[test]
+    fn produced_copyable_components_transfer_witnesses_without_permitting_stored_copies() {
+        use bray_diagnostics::DiagnosticKind;
+
+        for (asynchronous, call) in [("", "produce(context)"), ("async ", "await produce(context)")] {
+            for (body, failure) in [
+                (format!("let (value, outgoing) = {call};\n                        initialize(&value, context, outgoing);"), None),
+                (format!("let pair = {call};\n                        initialize(&pair.0, context, pair.1);"), None),
+                (format!("let pair = {call};\n                        let (value, outgoing) = pair;\n                        initialize(&value, context, outgoing);"),
+                    Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven)),
+                (format!("let (value, outgoing) = {call};\n                        initialize(&value, context + 1, outgoing);"),
+                    Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
+            ] {
+                let source = format!(r#"
+                    trusted module app;
+
+                    @copy
+                    struct Owner
+                    {{
+                        value: u32;
+                    }}
+
+                    struct Outgoing
+                    {{
+                        value: u32;
+                    }}
+
+                    trusted predicate constructing(owner: &Owner, context: usize);
+
+                    trusted {asynchronous}func produce(pos context: usize) -> (Owner, Outgoing)
+                        ensures(trusted constructing(owner = &result.0, context = context))
+                    {{
+                        return (
+                            Owner
+                            {{
+                                value = 1
+                            }},
+                            Outgoing
+                            {{
+                                value = 2
+                            }}
+                        );
+                    }}
+
+                    func initialize(pos owner: &Owner, pos context: usize, pos outgoing: Outgoing)
+                        requires(trusted constructing(owner = owner, context = context))
+                    {{
+                    }}
+
+                    {asynchronous}func forward(pos context: usize)
+                    {{
+                        {body}
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(diagnostics.has_errors(), failure.is_some(), "{source}: {diagnostics:#?}");
+                if let Some(kind) = failure {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind() == kind), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn methods_constructors_and_lambda_bodies_establish_their_own_evidence() {
         let compilation = compilation(
             r#"

@@ -241,26 +241,13 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     }) {
         let path = current_access(plan);
 
-        let value = if storage.access_plan_role(plan) == bray_bound_tree::StorageAccessPlanRole::SourceMaterialization {
+        let materializes = storage.access_plan_role(plan) == bray_bound_tree::StorageAccessPlanRole::SourceMaterialization;
+        let value = if materializes {
             path.as_ref().map(|path| domain.current_access_value(state, path))
                 .unwrap_or(crate::ExecutionCondition::Unknown)
         } else {
             domain.storage_value(state, plan.expression(), plan.access())
         };
-
-        let fresh = plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer
-            && storage
-                .root_identity(plan.access())
-                .and_then(|identity| storage.identity(identity))
-                .is_some_and(|identity| {
-                    matches!(
-                        identity,
-                        bray_bound_tree::StorageIdentity::Temporary(_)
-                            | bray_bound_tree::StorageIdentity::InvocationInput { .. }
-                            | bray_bound_tree::StorageIdentity::Result(_)
-                            | bray_bound_tree::StorageIdentity::Allocation(_)
-                    )
-                });
 
         let is_witness = state.owns_witness(&value);
         let partial_witness = path.as_ref().is_some_and(|path| separates_carrier(domain, state, path));
@@ -283,7 +270,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
 
         let copies = storage.effective_purpose(plan) == bray_bound_tree::StorageAccessPurpose::Copy;
 
-        if (is_witness && copies && !fresh) || (partial_witness && !copies) {
+        if (is_witness && copies && materializes) || (partial_witness && !copies) {
             transfers.insert(plan.expression());
         }
     }

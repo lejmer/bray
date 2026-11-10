@@ -310,7 +310,7 @@ impl StorageAccessPurpose {
 pub enum StorageAccessPlanRole {
     /// Reading existing storage to form a materialized value.
     SourceMaterialization,
-    /// Transferring an already produced whole evaluated value to its consumer.
+    /// Transferring an already produced evaluated value or component to its consumer.
     EvaluatedValueTransfer,
     /// Defining the whole expression output, which is initialized only at completion.
     OutputDefinition,

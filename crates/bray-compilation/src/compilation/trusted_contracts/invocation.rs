@@ -359,7 +359,7 @@ impl Compilation {
         }
 
         let (witness_subjects, address_subjects) =
-            self.trusted_predicate_subjects(&guarantees, result, cancellation, diagnostics)?;
+            self.trusted_predicate_subjects(&guarantees, cancellation, diagnostics)?;
 
         Ok(TrustedCallContract {
             arguments: Default::default(),
