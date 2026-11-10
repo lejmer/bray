@@ -71,6 +71,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,
     pub(super) assumptions: &'a [ExecutionCondition],
     pub(super) input_invariants: &'a [ExecutionCondition],
+    pub(super) union_variants: &'a BTreeMap<bray_symbols::TypeId, std::sync::Arc<[bray_symbols::UnionVariantSymbolId]>>,
     pub(in crate::analysis::guarantee) literals:
         &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pattern_conditions: &'a BTreeMap<

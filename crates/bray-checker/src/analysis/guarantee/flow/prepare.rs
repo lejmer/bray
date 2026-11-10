@@ -171,6 +171,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         semantics,
         assumptions,
         input_invariants: &prepared.input_invariants,
+        union_variants: &prepared.union_variants,
         literals: &prepared.literals,
         storage,
         contracts,

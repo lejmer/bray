@@ -47,8 +47,8 @@ complete. Unsupported bodyless execution promises report MissingEvidence before 
 ## Current boundary and next step
 
 Yield consumed its source while its actual block/loop result remained only in pending_results until after scope cleanup.
-An unrelated opaque destructor therefore removed the owner's guarantees. The small branch-composition.bray reproduces
-worker/formation291. The fixed Source/import regression passes for block results and rejects fabricated owners.
+An unrelated opaque destructor therefore removed the owner's guarantees. branch-composition.bray isolates this loss.
+It does not yet reproduce the remaining formation291 failure. The fixed Source/import regression passes for block results and rejects fabricated owners.
 The first comparison preserves all52 failure identities and checker475 passes. That run adds1 valid regression.
 
 Current repair reserves region storage before planning nested paths and initializes its actual destination at Yield/Break.
@@ -59,10 +59,20 @@ matrix covers block Yield, loop Break and ordinary Return with no/empty/opaque c
 All valid cases lower to MIR. Comparison754/52/99 preserves every prior failure identity. Checker475 passes.
 
 Lowering already initializes private cleanup-transfer storage before cleanup and forwards/disposes it on outcomes.
-The native run after the Yield repair preserves all90 diagnostics, including formation291. The Return repair's native
-run is next. These focused fixes do not certify the full runtime path. No style/format, hook, process or agent is active.
-Keep propagation-to-yield under audit. Do not retain cached/prospective call results as live owners. reserve_start175 may
-depend on invalid upstream contracts. An unconstrained extern may expose its argument's complete allocation.
+The native run at b6d16d501 preserves all90 diagnostics, including formation291. Its exact failure state has the live
+Existing owner and an available unconditional ledger clause with no dependencies. The established truth lacks that
+clause. A4-variant nested-choice reduction rejects both valid owner arms even without cleanup. The permanent matrix
+was extended and confirmed red at complex=true/no guard before the current semantic edit. Its earlier24 cases still pass.
+
+Constructors now establish active/inactive tag facts against their actual produced identity. Pairwise joins preserve
+those ordinary exclusions when several alternatives merge. One prepared union-type table supplies formal entry
+invariants and production facts. This introduces no new authority kind or value tree. Known-tag extraction also replaces
+the separate return-outcome traversal. The40-case two/four-alternative Source/import matrix passes, with MIR for valid
+cases and fabrication rejected. Comparison754/52/99 retains every failure identity. Checker475 passes.
+
+The uninstrumented native rebuild/run is next. No style/format, hook or agent is active. Raw trace/probe logs were removed.
+branch-composition.bray retains the real4-way reduction until the native path is checked. Keep propagation-to-yield under
+audit. Do not retain cached/prospective call results as live owners. reserve_start175 may depend on upstream contracts.
 
 ## Remaining
 
