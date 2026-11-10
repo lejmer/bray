@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::model::ExecutionFlowDomain;
 
 use bray_bound_tree::{
@@ -679,24 +681,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let transfer = self
             .started_future(state, expression)
             .filter(|_| value != ExecutionCondition::Unknown)
-            .map(|source| {
-                (
-                    source.owner_identity().clone(),
-                    value.owner_identity().clone(),
-                )
-            });
+            .map(|source| (source, value.clone()));
 
         state.expressions.insert(expression, value);
 
-        if let Some(transfer) = transfer {
+        if let Some((source, target)) = transfer {
             // Starting moves the frame before effects run. Its private captures
             // belong to the Task during invalidation, not to the consumed Future.
-            let identities = [transfer].into();
+            let mut values = BTreeMap::new();
+            let mut identities = BTreeMap::new();
+            super::merge::result_replacements(&source, &target,
+                &Default::default(), &Default::default(), &mut values, &mut identities);
 
-            state.join_values(&Default::default(), &identities);
+            state.join_values(&values, &identities);
 
             if let Some(entry) = state.entries.get_mut(&expression.into())
-                && let Some(renamed) = entry.joined_values(&Default::default(), &identities)
+                && let Some(renamed) = entry.joined_values(&values, &identities)
             {
                 *entry = renamed;
             }

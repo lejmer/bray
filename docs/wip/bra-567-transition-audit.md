@@ -29,62 +29,35 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Current evidence and blockers
 
-The current semantic checkpoint retains live predecessor snapshots, projected aliases, nullable wrapper/payload
-separation and composed overlays. Earlier producer-owned result and allocation/reference transfers remain fixed.
-No reconstruction or parallel persistent state was added. The admitted-entry and diagnostic checkpoint is verified. Canonical return publication and deferred scalar controls pass the fixed comparison and492 checker tests.
-The paired nullable repairs and canonical publication retain exactly37 native diagnostic identities. No review agent or goal is active.
+Pushed checkpoint4a0d59a90. Both source/import witness matrices pass all positives and negatives.
+Canonical return publication removes the duplicate reconstruction map. Nullable wrapper/payload snapshots,
+whole-carrier protocols, projected aliases and admitted-entry publication retain owning-boundary checks.
 
-Frozen907 identities:769 passed,39 failed,99 ignored. Six repaired identities and one corrected scalar-copy test,
-with no new failures. The scalar test retains opaque negatives and now rejects a new call with the changed value. One extra allocation
-import case passes. Checker492 pass, including the direct collector and live-Unknown controls. Bound135, symbols221 and interfaces216 pass.
-Cleanup57/4, predicates26/2/2 and focused18 are unchanged. Source/MIR composition and3 invalid variants pass.
-Native composition has not run. verification.json holds executable identities and current evidence.
+Frozen907 identities:769 passed,39 failed,99 ignored. Six production repairs and one corrected scalar-copy
+control explain all differences. Preserve comparison.txt. Extra allocation import case passes. Checker492,
+bound135, symbols221 and interfaces216 pass. Cleanup57/4, predicates26/2/2 and focused18 are unchanged.
+Source/MIR composition plus3 invalid variants pass. Native composition has not run.
+Accepted native baseline:37 diagnostics,22 E7123 and15 E7135, complete233-file request, Source64a4e5490.
 
-Accepted native baseline remains37 diagnostics,22 E7123 and15 E7135, Source64a4e5490, complete233-file request.
-The admitted-entry repair removes the added worker/entry170 failure. All37 original identities remain unchanged.
-The unexplained-regression gate is clear.
-Both added call failures at activation/run/entry95 and worker/entry179 are repaired. Their actual conflicting snapshots
-came from retired call-input slots marked Absent/Absent. The collector now excludes absent storage with Option snapshots,
-while live Unknown still blocks proof. The direct collector test reproduces before repair and passes after it.
+Pending FutureStart repair uses complete result transfer instead of identity-only rebasing. The captured
+input previously named the old Future after captures moved under Task. All16 direct/Task controls pass,
+fabrication rejects, checker492 and fixed comparison are unchanged. Native verification retains exactly37 original identities.
+The provider now passes. Newly reachable source consumers have8 positive failures and one invalid loop
+accepted. These cases were previously blocked and unverified. Imported consumers panic on CallableSignature
+interface0/owner4. Export does contain that signature for change_state. Trace selected graph diagnostics
+and resolved owner before changing export or import. Temporary failure traces remain pending consumption.
 
-Pending batch also preserves same-region predecessor snapshots, derives projected-alias contents from the containing
-owner's phi, composes nested Constructed overlays at construction, and retains Unknown backing for anonymous overlays.
-Six nullable-union predecessor orders pass, including same/distinct regions and fabrication controls. The alias matrix
-covers Owned/Inline/Loan/Reference and retired snapshots. Reference descriptors gain no pointee ownership.
-All7 nested boundary tests and32 condition tests pass. A Present wrapper now records its value snapshot separately
-from its payload owner. Previously both snapshots conflicted at the payload identity. The48-case matrix covers all
-orders, both nesting directions, same/distinct regions and fabrication controls. Only an explicitly Present payload
-collapses its identical overlay. Never erase component structure merely because a projected identity matches. No temporary snapshot hooks
-remain. The added worker postcondition depends on Pure for scheduler_reference(pool) at entry179. The captured entry has
-trusted_boundary=true but no retained(pool.marker) fact. Completion publishes admitted ordinary conditions and omits
-accepted trusted conditions. The verified repair records those conditions only in the completed immutable entry and
-publishes that snapshot. Pre-admission and false ordinary controls pass, as do492 checker tests and the fixed907 comparison. No live authority is
-created. Rejected selection now reports MissingEvidence at the invocation, with a passing guard cause/span regression.
-All temporary hooks are removed. Inferred return witnesses still reconstruct a second value/identity map.
-The pending simplification reuses returned_condition, already used by ownership metadata, deleting that parallel map.
-In the same build, the deferred-entry test now treats mutation of a copied scalar source as valid. A new call with that
-changed value remains an E7123 negative. Opaque invalidation negatives remain fixed. This is a verified test correction, not a production repair. Preserve the original907 comparison file.
-The two nullable failures remain. The opaque nullable join row reproduces a missing complete-value snapshot. The verified collector records that value
-as well as its identity, avoiding reconstruction from projections. Metadata for create_owned_tuple_inferred also proves
-that publication adds a spurious presence guard to a whole nullable protocol. The verified publication uses path activity
-only, retaining payload guards on explicit NullableValue steps. Both repairs and the metadata assertion pass source/import matrices,492 checker tests and the fixed comparison. All temporary metadata prints are removed. Cargo builds compiler, driver and tests together. Always capture executable identities
-from Cargo JSON because feature unification changed their hashes. verification.json owns the current paths.
+Error projection now propagates TypeData::Error at its owning boundary. The permanent unresolved-async-input
+regression passes with originating E6001 instead of the copying invariant panic. No downstream catch/default.
 
-Both source/import witness matrices now pass completely, including all negative controls and every nested permutation.
-The opaque nullable join and whole-carrier publication fixes pass492 checker tests and the fixed comparison.
-Native retains exactly37 identities. deferred-boundaries.bray batches direct await, Task.join, Task.cancel and selected
-observation for tuple/Box, array, whole-marker and fresh-marker owners. All four direct awaits pass, all12 started-task
-observations lose held evidence, and a fabricated result rejects. This proves a Task handoff gap before branch joining.
-The reproduction uses the same source-defined Box as the fixture, not std Box. copy-projection-error.bray is a separate
-minimal invalid std Box program that panics in dependency/result/copying.rs:28 on owner Error. Fix its owning phase gate,
-never add a downstream fallback. Both small sources must be consumed after permanent coverage.
-Deferred provider held evidence still fails after if selecting try-await cancel/join. Consumers remain unverified.
+The grouped147-case deferred source is a cheap experiment. Identical source is stable, but grouped module
+context differs from the original harness. Do not replace the fixed tests. Trace existing normal-completion
+edges for only_diverging, captured entries/guards for repeated-site failures and Task/container publication.
+Do not add preservation exceptions or weaken initialized-memory policy. Batch independent fixes/checks.
 
-Other unresolved families: driving197 loses Current's view at wait_execution Attempt through returned-pointer raw
-retirement. Whether its effect or bound is wrong remains unproved. Address expiry fails specifically through mutation
-and input postconditions, while returned-address negatives pass. prepared_start175's registration postcondition and
-retirement205's extracted SpinLock cleanup remain unproved. Do not add preservation exceptions or weaken initialization.
-Three Rust first failures cite MissingEvidence for bodyless execution promises. That does not explain the other failures.
+Other unresolved families: returned-pointer retirement at driving197, address expiry through mutation/input
+postconditions, PreparedStart registration and SpinLock cleanup. The retained tuple-context-projection source
+is an unresolved partial-carrier control. Bodyless execution promises do not explain the other failures.
 
 ## Remaining
 
@@ -115,4 +88,3 @@ Keep comparison.txt as the fixed907 identities/outcomes. verification.json holds
 native.log holds the current unresolved diagnostics. tuple-context-projection.bray is the one
 unresolved source probe. Consume successful logs and old baselines immediately. Build logs exist only while active.
 Git trust: public lejmer/bray, git@github.com:lejmer/bray.git, authenticated lejmer. No goal or review agent is active.
-
