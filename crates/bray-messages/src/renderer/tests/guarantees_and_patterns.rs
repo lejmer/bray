@@ -8,6 +8,32 @@ use crate::RenderedDiagnosticNoteKind;
 use crate::renderer::DiagnosticRenderer;
 
 #[test]
+fn witness_transfer_failures_name_the_operation_and_owning_guarantee() {
+    use bray_diagnostics::{DiagnosticCondition, DiagnosticWitnessTransfer, DiagnosticWitnessTransferKind};
+
+    for (kind, expected) in [
+        (DiagnosticWitnessTransferKind::Copy,
+            "cannot copy `owner`: it carries trusted guarantee `app.live(owner.token)`"),
+        (DiagnosticWitnessTransferKind::Separation,
+            "cannot separate this value from `owner`: the complete owner carries trusted guarantee `app.live(owner.token)`"),
+    ] {
+        let failure = DiagnosticWitnessTransfer {
+            kind,
+            carrier: DiagnosticCondition::Source("owner".to_owned()),
+            guarantee: DiagnosticCondition::Application {
+                path: vec!["app".to_owned(), "live".to_owned()], types: vec![],
+                arguments: vec![DiagnosticCondition::Source("owner.token".to_owned())],
+            },
+        };
+        let diagnostic = Diagnostic::new(DiagnosticId::new(0),
+            DiagnosticKind::CheckingTrustedWitnessTransferNotProven, SeverityKind::Error)
+            .with_arg(DiagnosticArg::witness_transfer(failure));
+
+        assert_eq!(DiagnosticRenderer::english().render(&diagnostic).message(), expected);
+    }
+}
+
+#[test]
 fn execution_proof_failures_identify_the_promised_behavior_and_cause() {
     let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
 

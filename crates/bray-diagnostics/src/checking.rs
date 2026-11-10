@@ -44,4 +44,4 @@ pub use storage::{
     DiagnosticStorageRoot,
 };
 
-pub use contract::{DiagnosticCondition, DiagnosticConditionProjection, DiagnosticContractObligation, DiagnosticContractObligationKind, DiagnosticExecutionProofFailure};
+pub use contract::{DiagnosticCondition, DiagnosticConditionProjection, DiagnosticContractObligation, DiagnosticContractObligationKind, DiagnosticExecutionProofFailure, DiagnosticWitnessTransfer, DiagnosticWitnessTransferKind};

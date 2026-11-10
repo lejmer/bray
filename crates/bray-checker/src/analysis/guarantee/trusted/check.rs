@@ -21,10 +21,11 @@ pub(in crate::analysis) struct MemoryCallEvidence {
 pub(in crate::analysis) struct TrustedChecks {
     failed: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
     failed_execution: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
-    transfers: BTreeSet<BoundExpressionId>,
+    transfers: BTreeMap<BoundExpressionId, super::transfers::WitnessTransferFailure>,
     pending_transfers: Vec<(
         bray_bound_tree::BoundExecutionSite,
         Option<ExecutionCondition>,
+        super::transfers::WitnessTransferFailure,
     )>,
     cleanup_failures: BTreeMap<(AnyBoundNodeId, bray_symbols::CallableInstanceData), crate::UnprovenExecutionCondition>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
@@ -138,7 +139,7 @@ impl TrustedChecks {
         );
 
         // Completion facts can prove that a potential extraction never occurred.
-        for (invocation, condition) in self.pending_transfers.drain(..) {
+        for (invocation, condition, failure) in self.pending_transfers.drain(..) {
             let active = condition.is_none_or(|condition| {
                 condition
                     .substitute(
@@ -151,11 +152,11 @@ impl TrustedChecks {
             });
 
             if active {
-                self.transfers.insert(
+                self.transfers.entry(
                     invocation
                         .expression()
                         .expect("pending ownership transfer has its source expression"),
-                );
+                ).or_insert(failure);
             }
         }
 
@@ -181,7 +182,8 @@ impl TrustedChecks {
                     .is_some_and(|count| count <= 1);
 
             if !singleton {
-                self.transfers.insert(expression);
+                self.transfers.entry(expression).or_insert_with(||
+                    super::transfers::copied_witness(state, domain.value(state, *value)));
             }
         }
 
@@ -269,13 +271,15 @@ impl TrustedChecks {
             )?);
         }
 
-        for expression in self.transfers {
+        for (expression, failure) in self.transfers {
             diagnostics.add(contract_diagnostic(
                 domain.request,
                 domain.semantics,
                 expression.into(),
                 DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
-            )?);
+            )?.with_arg(DiagnosticArg::witness_transfer(super::super::diagnostic::witness_transfer(
+                domain, failure.kind, &failure.carrier, &failure.guarantee,
+            )?)));
         }
 
         for (invocation, failure) in self.failed_execution {

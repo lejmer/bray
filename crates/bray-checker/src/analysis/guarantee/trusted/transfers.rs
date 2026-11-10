@@ -4,6 +4,25 @@ use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundExpressionId, StoragePlan};
 use std::collections::BTreeSet;
 
+pub(super) struct WitnessTransferFailure {
+    pub(super) kind: bray_diagnostics::DiagnosticWitnessTransferKind,
+    pub(super) carrier: crate::ExecutionCondition,
+    pub(super) guarantee: crate::ExecutionCondition,
+}
+
+pub(super) fn copied_witness(state: &ExecutionState, value: crate::ExecutionCondition) -> WitnessTransferFailure {
+    let (carrier, witness) = state.owned_witnesses([value]).find(|(carrier, _)|
+        state.directly_carries_witness(carrier))
+        .expect("a rejected copy retains its live owning carrier");
+    let guarantee = witness.owning_condition(&state.trusted_assumptions, &state.assumptions)
+        .expect("a rejected copy retains its live owning condition").clone();
+
+    WitnessTransferFailure {
+        kind: bray_diagnostics::DiagnosticWitnessTransferKind::Copy,
+        carrier: carrier.clone(), guarantee,
+    }
+}
+
 /// Capture potential partial extractions before consumption retires their carrier evidence.
 pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
@@ -12,6 +31,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
     transfers: &mut Vec<(
         bray_bound_tree::BoundExecutionSite,
         Option<crate::ExecutionCondition>,
+        WitnessTransferFailure,
     )>,
 ) {
     use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
@@ -115,7 +135,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
 
                 if witness.is_some_and(|witness| {
                         state.directly_carries_witness(&container)
-                            || witness.is_owning(&entry.trusted_assumptions, &entry.assumptions)
+                            || witness.owning_condition(&entry.trusted_assumptions, &entry.assumptions).is_some()
                     })
                     && input.projections[index..].iter().any(|projection| {
                         *projection != bray_symbols::ConstantProjectionKind::NullableValue
@@ -152,7 +172,16 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                                 )
                             });
 
-                    transfers.push((occurrence, condition));
+                    let witness = witness.expect("a rejected extraction retains its carrier contract");
+                    let guarantee = witness.owning_condition(&entry.trusted_assumptions, &entry.assumptions)
+                        .or_else(|| witness.owning_condition(&state.trusted_assumptions, &state.assumptions))
+                        .expect("a rejected extraction retains its live owning condition").clone();
+
+                    transfers.push((occurrence, condition, WitnessTransferFailure {
+                        kind: bray_diagnostics::DiagnosticWitnessTransferKind::Separation,
+                        carrier: container,
+                        guarantee,
+                    }));
 
                     break;
                 }
@@ -229,7 +258,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     state: &ExecutionState,
     plans: impl Iterator<Item = bray_bound_tree::StorageAccessPlan>,
     current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
-    transfers: &mut BTreeSet<BoundExpressionId>,
+    transfers: &mut std::collections::BTreeMap<BoundExpressionId, WitnessTransferFailure>,
 ) {
     for plan in plans.filter(|plan| {
         matches!(
@@ -250,9 +279,9 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
         };
 
         let is_witness = state.owns_witness(&value);
-        let partial_witness = path.as_ref().is_some_and(|path| separates_carrier(domain, state, path));
+        let partial_witness = path.as_ref().and_then(|path| separated_carrier(domain, state, path));
 
-        if !is_witness && !partial_witness {
+        if !is_witness && partial_witness.is_none() {
             continue;
         }
 
@@ -270,17 +299,28 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
 
         let copies = storage.effective_purpose(plan) == bray_bound_tree::StorageAccessPurpose::Copy;
 
-        if (is_witness && copies && materializes) || (partial_witness && !copies) {
-            transfers.insert(plan.expression());
-        }
+        let failure = if is_witness && copies && materializes {
+            copied_witness(state, value)
+        } else if !copies && let Some(carrier) = partial_witness {
+            let guarantee = state.witnesses.get(carrier.owner_identity())
+                .and_then(|witness| witness.owning_condition(&state.trusted_assumptions, &state.assumptions))
+                .expect("a rejected transfer retains its live owning condition").clone();
+
+            WitnessTransferFailure { kind: bray_diagnostics::DiagnosticWitnessTransferKind::Separation,
+                carrier, guarantee }
+        } else {
+            continue;
+        };
+
+        transfers.entry(plan.expression()).or_insert(failure);
     }
 }
 
-fn separates_carrier<C: CheckerRequestContext + ?Sized>(
+fn separated_carrier<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
     state: &ExecutionState,
     path: &bray_bound_tree::StoragePath,
-) -> bool {
+) -> Option<crate::ExecutionCondition> {
     for index in 0..path.projections.len() {
         let container = bray_bound_tree::StoragePath {
             root: path.root,
@@ -291,15 +331,17 @@ fn separates_carrier<C: CheckerRequestContext + ?Sized>(
 
         // Presence extraction retains the complete carrier. Other selectors
         // cross its checked current storage boundary, including through loans.
-        if state.directly_carries_witness(&reached_container(&value))
+        let carrier = reached_container(&value);
+
+        if state.directly_carries_witness(&carrier)
             && path.projections[index..].iter().any(|projection|
                 *projection != bray_bound_tree::StorageProjection::NullableValue)
         {
-            return true;
+            return Some(carrier);
         }
     }
 
-    false
+    None
 }
 
 // A field projection crosses borrow layers into reached storage. The loan's

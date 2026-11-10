@@ -358,7 +358,7 @@ impl ExecutionState {
         self.witnesses
             .get(identity)
             .is_some_and(|witness| {
-                witness.available && witness.is_owning(&self.trusted_assumptions, &self.assumptions)
+                witness.available && witness.owning_condition(&self.trusted_assumptions, &self.assumptions).is_some()
             })
     }
 

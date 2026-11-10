@@ -30,8 +30,8 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
-Fixed comparison:762 passed /46 failed /99 ignored, all907 identities retained. Checker481, bound-tree135,
-messages91, JSON48 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
+Fixed comparison:762 passed /46 failed /99 ignored, all907 identities retained. Checker482, bound-tree135,
+messages92, JSON49 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
 Current native.log:44 diagnostics(E7123=26,E7124=1,E7135=17), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
@@ -47,56 +47,27 @@ Unsupported bodyless execution promises report MissingEvidence. Native C asserti
 
 ## Current boundary
 
-PostState names current contents by carried value identity, never alias slots or old contents. Preserve actual owner,
-loan and scalar contexts. StoragePlan.value_retirements shares private-input retirement at completion, independently
-of admission's witness transfer. Exact stored-borrow observations follow typed Storage routes once, never possible alias
-bounds. Those bounds independently revoke evidence.
+StoragePlan owns SourceMaterialization versus EvaluatedValueTransfer, including projected produced components.
+Retirement occurs after destination publication. PostState names new contents by carried value identity. Framing
+retains an existing Owned context without preserving overwritten contents or inventing ownership. Loop replay stabilizes.
 
-StoragePlan owns SourceMaterialization versus EvaluatedValueTransfer, including projected produced components. Witness
-checking uses that classification, with no separate freshness list. Stored and explicit copies retain their restrictions.
-Deferred contracts preserve their declared result-component paths. The pending-execution guard controls publication.
-Loop displacement reads computed contents and only already-proven exact arithmetic. Every back edge must advance.
-Mixed Boolean proof reuses implication in an acyclic direct mode. Trusted requirement OR checks the whole clause before
-specialized branch proofs. Unrelated clauses cannot starve known operands or promote an individual trusted alternative.
-Recursive Cleanup(type) expands under a formal Result, retaining region effects without inventing layout projections.
+The async fixture checks marker and whole-owner guarantees across moves, calls, mutation, awaited returns, loops,
+scoped exits and cleanup. Source/MIR and its3 invalid variants pass. Full native execution remains blocked.
+Const reference results retain computation data inside the produced loan. Call carries its checked borrowed result type
+through substitution and portable Typed terms. Reference-value classification is independent of ownership authority.
+Identity substitution preserves borrowed computations. Untyped owned-return computations and scalar contexts stay distinct.
+Checker482, all907 fixed outcomes,15 progress tests, JSON48, bound135 and expanded61/30 groups retain accepted outcomes.
 
-In-place contents framing retains an already explicit Owned context independently of descriptor survival. It creates
-no owner context for other observation kinds. Contents must change and replay must stabilize at the owning boundary.
-The composition fixture now checks a whole-owner invariant across awaited mutation, loop joins and returned owners.
-This exposed stale async completion arguments. Deferred physical transfers now retain evaluated input reference
-descriptors. Before completion publishes outputs, their typed routes read current pointees. Publish the same exact
-observations in StorageCompletion for subsequent certificate consumers. No syntax or historical-value reconstruction.
-The8-case sync/async matrix, Source/MIR fixture and3 invalid variants pass. Physical frame movement, input-slot reuse
-and referent retirement pass. All907 identities retained. Normal deferred completion now passes its old positive while
-the caught-panic negative still rejects. Expanded61/30 groups unchanged. Native44 unchanged, including every full block.
-Receiver input completion now applies the existing coerce operation to the declared passed type. Capture retained the
-correct produced value, but completion skipped the implicit borrow before publishing its receiver slot. Physical routes
-were correct. The3 source controls pass. Source/import real spin-lock positives now pass while fabrication, reconstruction
-and replacement negatives still reject. Native clears deadline/storage374 without other changes. The async fixture also
-mutates the owner returned by await, then checks its whole-owner guarantee. All907 identities and14 progress tests pass.
-Execution/binding168 and closing144 reduce to union-callback.bray. Both consuming and borrowed matches fail, including
-direct observe(reference(...)). A single-path accessor passes. Spelling out the predicate alias does not repair it.
-The new6-case guarded_reference_accessors regression is red at its first valid direct call. Proof tracing found a
-specification-local storage identity wrapped around the const Call in known evidence, versus a fresh body Expression.
-The producer exports two alternative reference origins, no guarded owning result. Do not invent source/variant recovery.
-An ordinary Boolean accessor control also fails total proof without trusted predicates. Retaining const Call data inside
-the produced reference repairs its6-case sync/async matrix, including another owner and direct mutable-input invalidation.
-Call now carries its checked borrowed result type through substitution and portable Typed terms. Predicate comparison
-reuses its existing referent normalization without assigning ownership to a computation. Ordinary owned-return calls and
-scalar contexts remain distinct. The boundary and portable checks pass, checker482 and all907 fixed outcomes unchanged.
-Explicit symbolic reborrows retain their checked value. Predicate substitution classifies reference values separately
-from ownership authority, using one is_reference rule for substitution, reborrowing and returned borrows. Identity
-substitution preserves a borrowed computation. Direct accessor use passes. The guarded-accessor test remains red at
-borrowed branch extraction, so later negative/async arms remain unverified. Checker482, all907 fixed outcomes,15 progress
-tests, JSON48, bound135 and expanded61/30 groups pass or retain their accepted outcomes. Hooks removed.
-Native adds E7124 at closing142, with all43 prior full diagnostic blocks unchanged. This body already fails at callback144
-and its postcondition120. The now-tracked contract is lost when extracting ownership before selecting its union case.
-Next use the existing prepared dependency queries to relate a const reference computation to its selected branch. Flow
-preparation forbids hidden queries. Do not promote alternative reference-origin bounds to an exact alias. Native rerun
-next must repair this transfer too. E7124 currently loses its actual guarantee and conflates copy with carrier separation.
-Retain only union-callback and accessor-boolean probes until consumed.
-No review agent. Style/format remain deferred.
-
+Current gap: execution/binding168 and closing144 use a const accessor selecting a union reference. Direct selector use
+passes. guarded_reference_accessors remains red at borrowed branch extraction, so later negative/async arms are unverified.
+The producer retains alternative reference-origin bounds. They are not exact aliases. Use existing dependency queries
+and prepared tables to relate the computation to its selected branch. Flow preparation forbids hidden queries.
+Native adds E7124 at closing142 while all43 prior full diagnostic blocks remain unchanged. This body already fails at
+callback144 and postcondition120. Moving ownership out before selecting its case loses the tracked carrier contract.
+E7124 now retains the actual carrier, affected live guarantee and copy/separation cause through rendering and JSON.
+Its fixed-suite outcomes are unchanged. The union-callback probe identifies owner.ownership as the separated carrier
+and live(reference(owner.ownership).marker) as its guarantee. Full native evidence remains the previous semantic checkpoint.
+No hooks or review agent. Style/format remain deferred. Only union-callback is an active source probe.
 ## Remaining
 
 Repair native proof/execution failures by transition class, then execute the complete async fixture. Trace Bound and
@@ -105,8 +76,7 @@ iterate/next/scoped enter/exit, await/yield, cancellation, outcomes/recovery and
 Verify Source/import certificates and native success/panic/cancel/startup rollback/blocked shutdown, result/static disposal
 and nested foreign restoration. Audit from_core admission/refcount ownership. Do not weaken initialized-memory policy to
 hide task/result318 copy<Uninit<u8>> failures.
-E7124 still conflates unsupported copying and partial separation without naming the affected guarantee. Preserve the
-specific transfer cause and condition at its proof boundary. The retained tuple-context-projection source is its control.
+The retained tuple-context-projection source is the partial-carrier control.
 
 Two frozen negatives need genuine fabrication/mutation controls: trusted_implementation_does_not_export_undeclared_authority
 and shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. The terminating-branch positive passes,

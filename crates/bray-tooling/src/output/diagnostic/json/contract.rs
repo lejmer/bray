@@ -4,6 +4,26 @@ use serde::Serialize;
 use super::value::DiagnosticTypeArgumentJson;
 
 #[derive(Serialize)]
+pub(super) struct WitnessTransferJson {
+    operation: &'static str,
+    carrier: ConditionJson,
+    guarantee: ConditionJson,
+}
+
+impl WitnessTransferJson {
+    pub(super) fn from_failure(value: &bray_diagnostics::DiagnosticWitnessTransfer) -> Self {
+        Self {
+            operation: match value.kind {
+                bray_diagnostics::DiagnosticWitnessTransferKind::Copy => "copy",
+                bray_diagnostics::DiagnosticWitnessTransferKind::Separation => "separation",
+            },
+            carrier: ConditionJson::from_condition(&value.carrier),
+            guarantee: ConditionJson::from_condition(&value.guarantee),
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub(super) struct ContractObligationJson {
     boundary: &'static str,
     required: ConditionJson,
@@ -146,8 +166,32 @@ impl ProjectionJson {
 
 #[cfg(test)]
 mod tests {
-    use super::{ContractObligationJson, ExecutionProofFailureJson};
+    use super::{ContractObligationJson, ExecutionProofFailureJson, WitnessTransferJson};
     use bray_diagnostics::{DiagnosticCondition as Condition, DiagnosticConditionProjection as Projection, DiagnosticContractObligation, DiagnosticContractObligationKind, DiagnosticExecutionProofFailure};
+
+    #[test]
+    fn json_preserves_the_transfer_operation_carrier_and_complete_guarantee() {
+        use bray_diagnostics::{DiagnosticWitnessTransfer, DiagnosticWitnessTransferKind};
+
+        for (kind, operation) in [(DiagnosticWitnessTransferKind::Copy, "copy"),
+            (DiagnosticWitnessTransferKind::Separation, "separation")] {
+            let source = format!("inline {{\n{}\n}}", "statement;".repeat(20));
+            let failure = DiagnosticWitnessTransfer {
+                kind, carrier: Condition::Source(source.clone()),
+                guarantee: Condition::Application {
+                    path: vec!["app".to_owned(), "live".to_owned()], types: vec![],
+                    arguments: vec![Condition::Source(source.clone())],
+                },
+            };
+            let json = serde_json::to_value(WitnessTransferJson::from_failure(&failure))
+                .expect("witness transfer JSON serializes");
+
+            assert_eq!(json["operation"], operation);
+            assert_eq!(json["carrier"]["value"], source);
+            assert_eq!(json["guarantee"]["value"]["path"][1], "live");
+            assert_eq!(json["guarantee"]["value"]["arguments"][0]["value"], source);
+        }
+    }
 
     #[test]
     fn json_preserves_contract_boundaries_and_nested_actual_arguments() {

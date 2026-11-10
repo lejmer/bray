@@ -223,6 +223,7 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         }
         DiagnosticArgValue::ExecutionProofFailure(cause) => super::condition::format_proof_failure(*cause),
         DiagnosticArgValue::ContractObligation(obligation) => super::condition::format_obligation(obligation),
+        DiagnosticArgValue::WitnessTransfer(failure) => super::condition::format_witness_transfer(failure),
         DiagnosticArgValue::Type(ty) => format_english_type(ty),
         DiagnosticArgValue::SelectionKind(kind) => format_english_selection_kind(*kind).to_owned(),
         DiagnosticArgValue::SelectionCandidates(candidates) => {

@@ -1019,8 +1019,10 @@ impl DiagnosticKind {
             Self::CheckingExecutionRequirementNotProven | Self::CheckingTrustedObligationNotProven => Self::quality_source(
                 &[ContractObligation], primary_components!(&[ContractObligation]),
             ),
-            Self::CheckingConstantCallRequirementNotProven
-            | Self::CheckingTrustedWitnessTransferNotProven => Self::quality_source(
+            Self::CheckingTrustedWitnessTransferNotProven => Self::quality_source(
+                &[DiagnosticArgName::WitnessTransfer], primary_components!(&[DiagnosticArgName::WitnessTransfer]),
+            ),
+            Self::CheckingConstantCallRequirementNotProven => Self::quality_source(
                 &[ExpressionCategory],
                 primary_components!(&[ExpressionCategory]),
             ),

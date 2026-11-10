@@ -20,6 +20,11 @@ impl DiagnosticArg {
         Self::new(DiagnosticArgName::ContractObligation, DiagnosticArgValue::ContractObligation(obligation))
     }
 
+    /// Creates a failed witness transfer argument.
+    pub fn witness_transfer(failure: crate::DiagnosticWitnessTransfer) -> Self {
+        Self::new(DiagnosticArgName::WitnessTransfer, DiagnosticArgValue::WitnessTransfer(failure))
+    }
+
     /// Creates a typed diagnostic argument.
     pub const fn new(name: DiagnosticArgName, value: DiagnosticArgValue) -> Self {
         Self { name, value }
