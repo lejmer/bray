@@ -93,7 +93,9 @@ impl ValuePreservation {
             contents = contents.with_storage_component(&[*projection], next);
         }
 
-        if self.descriptor && place.is_some() {
+        // An in-place contents update retains its existing owned context.
+        if place.is_some() && (self.descriptor
+            || source.observation_kind() == Some(crate::execution_guarantees::ExecutionObservationKind::Owned)) {
             return source.with_current_contents(contents);
         }
 
@@ -108,6 +110,25 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::{BoundExecutionSite, BoundUnitId, StorageMutation, StorageProjection};
     use bray_symbols::SymbolOrdinal;
+
+    #[test]
+    fn mutation_retains_an_existing_owned_context_without_retaining_joined_contents() {
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(place.clone());
+        let previous = ExecutionCondition::Joined(BoundUnitId::new(0), 1, place.clone());
+        let source = ExecutionCondition::owned_value(owner.clone(), previous.clone());
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            vec![push_expression(tree, integer_literal_expression(origin, None))]
+        });
+        let mutation = StorageMutation::Operation(sites[0].into());
+        let mask = ValuePreservation::default();
+        let updated = mask.apply(&source, Some(&place), mutation);
+
+        assert_eq!(updated.ownership_identity(), source.ownership_identity());
+        assert_eq!(updated.computed_value(), &ExecutionCondition::post_state(mutation, owner));
+        assert_ne!(updated.computed_value(), &previous);
+        assert_eq!(mask.apply(&updated, Some(&place), mutation), updated);
+    }
 
     #[test]
     fn same_owner_mutation_observations_agree_across_alias_places_without_retaining_old_contents() {
