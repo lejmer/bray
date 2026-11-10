@@ -60,6 +60,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             [(projection, value)].into(),
         );
 
+        self.assume_produced_variant(state, expression, &result);
         state.pending_results.insert(expression, result);
     }
 

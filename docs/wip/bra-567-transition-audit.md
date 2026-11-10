@@ -30,14 +30,14 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:754 passed /52 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
+Fixed comparison:755 passed /52 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
 and copied-pointer failures with0 additions. Checker475 and bound-tree133 pass. Callable Source/import28, numeric
 Source/import8 and trusted diagnostics9 pass. Captured values survive replacement without preserving the old storage loan
 or owner. Failure diagnostics7, messages91 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
 Expanded predicate group:26 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
 
-Accepted native.log:90 diagnostics(E7123=44,E7135=26,E7119=20), unchanged runtime Source64a4e5490.
-The scalar-read bounds repair clears domain.selected()'s postcondition and2 dependent totality failures, with0 additions.
+Accepted native.log:88 diagnostics(E7123=43,E7135=25,E7119=20), unchanged runtime Source64a4e5490.
+The produced-tag repair clears formation291 and its dependent worker/entry postcondition, with0 additions.
 Matching native library built. No native async composition has executed.
 Use the canonical complete233-file Windows request. Partial production_host_request has129 files and cannot certify it.
 
@@ -70,9 +70,16 @@ invariants and production facts. This introduces no new authority kind or value 
 the separate return-outcome traversal. The40-case two/four-alternative Source/import matrix passes, with MIR for valid
 cases and fabrication rejected. Comparison754/52/99 retains every failure identity. Checker475 passes.
 
-The uninstrumented native rebuild/run is next. No style/format, hook or agent is active. Raw trace/probe logs were removed.
-branch-composition.bray retains the real4-way reduction until the native path is checked. Keep propagation-to-yield under
-audit. Do not retain cached/prospective call results as live owners. reserve_start175 may depend on upstream contracts.
+Native verification at ff997a8cb removes formation291 and its dependent worker/entry postcondition, with0 additions.
+The real4-way source reduction also passes the rebuilt driver. Expanded predicate26/2/2 retains the2 pre-existing failures.
+No hooks or stale branch/trace probes remain. No style/format or agent is active.
+
+Catch forms its private Ok/Error wrappers before their join. complete_caught_result now records production tag facts
+there, preserving nullable-container evidence through consumed Ok payloads and presence tests. The12-case matrix covers
+direct/caught/fabricated values, sync and async/await, Source/import, and MIR for valid cases. All pass. Comparison755/52/99
+preserves every prior failure identity. Checker475 passes. Native verification is next, targeting task/native89 and
+execution/ownership67. catch-composition.bray remains the active real-source control until that run finishes.
+Keep propagation-to-yield under audit. Do not retain prospective call results as live owners.
 
 ## Remaining
 
