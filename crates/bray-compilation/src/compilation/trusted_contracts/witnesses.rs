@@ -140,7 +140,6 @@ impl Compilation {
     pub(super) fn trusted_predicate_subjects(
         &self,
         conditions: &[ExecutionCondition],
-        result: Option<bray_symbols::TypeId>,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<
@@ -225,7 +224,6 @@ impl Compilation {
                             }
 
                             let subject = if argument.observes_completion_result() {
-                                if result.is_some() {
                                     let subject = argument.witness_carrier(self.trusted_subject_needs_owner(
                                         ty, cancellation, diagnostics,
                                     )?);
@@ -242,9 +240,6 @@ impl Compilation {
                                     }
 
                                     subject
-                                } else {
-                                    ExecutionCondition::Result
-                                }
                             } else {
                                 argument.witness_carrier(self.trusted_subject_needs_owner(
                                     ty, cancellation, diagnostics,

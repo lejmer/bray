@@ -30,9 +30,9 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
-Fixed comparison:759 passed /49 failed /99 ignored, all907 identities retained. Checker477, bound-tree134,
+Fixed comparison:759 passed /49 failed /99 ignored, all907 identities retained. Checker477, bound-tree135,
 messages91, JSON48 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
-Accepted native.log:50 diagnostics(E7123=30,E7135=20), unchanged runtime Source64a4e5490.
+Accepted native.log:49 diagnostics(E7123=29,E7135=20), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
 Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
@@ -81,9 +81,18 @@ termination controls preserve their pre-fix outcomes. The fixed suite repairs tw
 slice_bounds_follow_descriptor_identity_through_element_writes_and_replacement and
 nested_slice_bounds_require_descriptor_storage_separation. Their replacement/aliasing negatives still reject. No expected
 outcomes changed. Native clears all16 remaining E7119 diagnostics. All50 retained diagnostic blocks are identical.
-Consumed traces/probes removed. Next trace activation/provider158 constructing(value,context). Constructed named/anonymous
-tuple producers pass the small tuple-context reduction. Compare the real raw-read producer before changing witness
-transfer. No trace hook or review agent. Style/format deferred.
+Produced-component transfer repairs activation/provider158 constructing(value,context). @copy Inactive is decisive. The minimal
+tuple-context source fails for a fresh copyable component, borrowing it in place passes, and stored-tuple destructuring
+correctly reports E7124. Trace: fresh root equals the producer value slot, but projected ValueTransfer was classified
+SourceMaterialization. Witness checking separately recognized it as fresh, hiding the lost guarantee until E7123.
+Projected produced-slot transfers now share EvaluatedValueTransfer, and the witness check reuses SourceMaterialization
+instead of rebuilding freshness from storage kinds. The async control exposed another loss: the contract adapter
+replaced Result.0 with Result whenever execution was deferred. Subject inference now preserves the declaration path,
+independently of the existing pending-execution guard. Bound-tree135, checker477 and all8 sync/async source cases pass.
+All907 fixed outcomes, cleanup/storage61 and predicate30 identities/outcomes are unchanged. A direct member projection
+is planned as copying a place and now reports E7124. Native clears provider158 with no added locations or changed retained
+blocks. Consumed traces/probes removed. Next trace activation/execution/invoke321's call requirement through its selected
+operation branch. Trace hooks removed. Style deferred.
 
 ## Remaining
 
@@ -93,6 +102,8 @@ iterate/next/scoped enter/exit, await/yield, cancellation, outcomes/recovery and
 Verify Source/import certificates and native success/panic/cancel/startup rollback/blocked shutdown, result/static disposal
 and nested foreign restoration. Audit from_core admission/refcount ownership. Do not weaken initialized-memory policy to
 hide task/result318 copy<Uninit<u8>> failures.
+E7124 still conflates unsupported copying and partial separation without naming the affected guarantee. Preserve the
+specific transfer cause and condition at its proof boundary. The retained tuple-context-projection source is its control.
 
 Two frozen negatives need genuine fabrication/mutation controls: trusted_implementation_does_not_export_undeclared_authority
 and shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. The terminating-branch positive passes,
