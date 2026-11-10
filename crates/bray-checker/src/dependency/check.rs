@@ -285,7 +285,9 @@ where
     )
     .with_lifecycle_dependencies(lifecycle_dependencies);
 
-    let prepared = prepare_static_carriers(request, contracts).and_then(|contracts| {
+    let prepared = super::conditions::references(request).and_then(|references| {
+        prepare_static_carriers(request, contracts.with_condition_references(references))
+    }).and_then(|contracts| {
         let variants = super::projection::prepare_variants(
             request,
             &contracts,

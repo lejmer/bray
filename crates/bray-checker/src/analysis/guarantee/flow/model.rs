@@ -497,7 +497,9 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
 
             for (condition, subject) in &contracts.required_witnesses {
-                state.carry_guarantee(ExecutionCondition::Input(subject.clone()), condition.pointer_observations(&self.pointer_predicates));
+                for subject in subject.carrier_inputs(self.dependencies.condition_references()) {
+                    state.carry_guarantee(ExecutionCondition::Input(subject.clone()), condition.pointer_observations(&self.pointer_predicates));
+                }
             }
 
             for (condition, owner) in self.allocation_subjects(&contracts.requirements) {

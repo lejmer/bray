@@ -3,6 +3,7 @@ mod call;
 mod check;
 mod cleanup;
 mod completion;
+mod conditions;
 mod defaults;
 mod copying;
 mod equations;

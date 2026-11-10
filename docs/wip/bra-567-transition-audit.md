@@ -32,7 +32,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
 Fixed comparison:762 passed /46 failed /99 ignored, all907 identities retained. Checker482, bound-tree135,
 messages92, JSON49 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
-Current native.log:44 diagnostics(E7123=26,E7124=1,E7135=17), unchanged runtime Source64a4e5490.
+Current native.log:42 diagnostics(E7123=24,E7124=1,E7135=17), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
 Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
@@ -56,17 +56,18 @@ scoped exits and cleanup. Source/MIR and its3 invalid variants pass. Full native
 Const reference results retain computation data inside the produced loan. Call carries its checked borrowed result type
 through substitution and portable Typed terms. Reference-value classification is independent of ownership authority.
 Identity substitution preserves borrowed computations. Untyped owned-return computations and scalar contexts stay distinct.
-Checker482, all907 fixed outcomes,15 progress tests, JSON48, bound135 and expanded61/30 groups retain accepted outcomes.
+Checker482, all907 fixed outcomes,16 progress tests, bound135 and expanded61/30 groups retain accepted outcomes.
 
-Current gap: execution/binding168 and closing144 use a const accessor selecting a union reference. Direct selector use
-passes. guarded_reference_accessors remains red at borrowed branch extraction, so later negative/async arms are unverified.
-The producer retains alternative reference-origin bounds. They are not exact aliases. Use existing dependency queries
-and prepared tables to relate the computation to its selected branch. Flow preparation forbids hidden queries.
-Native adds E7124 at closing142 while all43 prior full diagnostic blocks remain unchanged. This body already fails at
-callback144 and postcondition120. Moving ownership out before selecting its case loses the tracked carrier contract.
+Symbolic reference origins are prepared from the existing dependency query, keyed by callable, dispatch and witnesses.
+Flow performs no hidden queries. Proof resolves forwarded alternatives only when branch facts leave one origin.
+Independent and broad-region origins cannot establish equality. All16 sync/async accessor cases pass, including wrong
+owners and an extra origin that the union case cannot exclude. Required witness subjects retain their actual expressions
+until prepared origins are available. Computation-only Boolean selector inputs no longer become authority carriers.
+The full native request removes binding168 and closing144 with no added failure identities. Remaining42 failures are
+unchanged by identity. Closing142 still separates the guarded service-owned Open/Cleanup carrier. Extend union-callback
+with that actual guard before changing transfer legality. Its callback failures clear, but postcondition and separation remain.
 E7124 now retains the actual carrier, affected live guarantee and copy/separation cause through rendering and JSON.
-Its fixed-suite outcomes are unchanged. The union-callback probe identifies owner.ownership as the separated carrier
-and live(reference(owner.ownership).marker) as its guarantee. Full native evidence remains the previous semantic checkpoint.
+Its fixed-suite outcomes are unchanged. The native failure identifies owner.ownership and its guarded service-owned clause.
 No hooks or review agent. Style/format remain deferred. Only union-callback is an active source probe.
 ## Remaining
 

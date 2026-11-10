@@ -1477,15 +1477,22 @@ mod tests {
 
     #[test]
     fn guarded_reference_accessors_preserve_their_predicate_meaning() {
-        for asynchronous in ["", "async "] {
+        let mut failures = Vec::new();
+
+        for (asynchronous, outside_origin) in [("", false), ("async ", false), ("", true), ("async ", true)] {
             for (body, valid) in [
-                ("observe(selected(container));", true),
+                ("observe(selected(container, other, bypass));", true),
                 (r#"match container
                         {
                             case Container.Left(value) { observe(&value); }
                             case Container.Right(value) { observe(&value); }
-                        }"#, true),
+                        }"#, !outside_origin),
                 ("observe(other);", false),
+                (r#"match container
+                        {
+                            case Container.Left(_) { observe(other); }
+                            case Container.Right(_) { observe(other); }
+                        }"#, false),
             ] {
                 let source = format!(r#"
                     trusted module app;
@@ -1507,9 +1514,10 @@ mod tests {
 
                     trusted predicate live(marker: &Marker);
 
-                    const func selected(pos container: &Container) -> &Owner
+                    const func selected(pos container: &Container, pos other: &Owner, pos bypass: bool) -> &Owner
                         executes(pure, total)
                     {{
+                        {outside}
                         return match container
                         {{
                             case Container.Left(value) {{ yield &value; }}
@@ -1522,22 +1530,26 @@ mod tests {
                     {{
                     }}
 
-                    {asynchronous}func caller(pos container: &Container, pos other: &Owner)
-                        requires(trusted live(marker = &selected(container).marker))
+                    {asynchronous}func caller(pos container: &Container, pos other: &Owner, pos bypass: bool)
+                        requires(trusted live(marker = &selected(container, other, bypass).marker))
                     {{
                         {body}
                     }}
-                "#);
+                "#, outside = if outside_origin { "if bypass\n                        {\n                            return other;\n                        }" } else { "" });
                 let application = compilation(&source);
                 let diagnostics = application.check_diagnostics();
 
-                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !diagnostics.has_errors() != valid {
+                    failures.push(format!("{source}: {diagnostics:#?}"));
+                }
                 if !valid {
                     assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
                         == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
                 }
             }
         }
+
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     #[test]

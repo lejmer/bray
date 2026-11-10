@@ -115,7 +115,7 @@ impl ExecutionCondition {
     // Bound recursive normalization and implication work, including adversarial source depth.
     pub(crate) const WORK_LIMIT: usize = bray_symbols::EXECUTION_CONDITION_WORK_LIMIT;
 
-    pub(super) fn is_unknown(&self) -> bool {
+    pub(crate) fn is_unknown(&self) -> bool {
         let mut condition = self;
 
         loop {

@@ -128,8 +128,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .proof_facts(conditions)
                 .map(|(condition, value)| {
                     (
-                        condition
-                            .with_equalities(&equalities)
+                        self.reference_conditions(&condition.with_equalities(&equalities), &entry.assumptions)
                             .pointer_observations(&self.pointer_predicates),
                         value,
                     )
@@ -149,7 +148,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let instantiated = requirements
             .iter()
             .map(|requirement| {
-                requirement
+                let condition = requirement
                     .substitute(
                         &|place| {
                             place
@@ -159,7 +158,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &ExecutionCondition::Unknown,
                         &mut { ExecutionCondition::WORK_LIMIT },
                     )
-                    .with_equalities(&equalities)
+                    .with_equalities(&equalities);
+
+                self.reference_conditions(&condition, &entry.assumptions)
                     .pointer_observations(&self.pointer_predicates)
             })
             .collect::<Vec<_>>();

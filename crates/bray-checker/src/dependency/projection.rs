@@ -464,6 +464,17 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
     }
 
+    for (_, relations) in contracts.condition_references().values() {
+        for relation in relations.iter() {
+            if let Some(entry) = relation.entry() {
+                retain(entry.projections());
+            }
+
+            retain(relation.exit().projections());
+            retain(relation.target_projections());
+        }
+    }
+
     for contract in contracts.lifecycle_dependencies().values() {
         for subject in contract.reference_subjects() {
             retain(subject.projections());

@@ -1,6 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+/// Checked result origins of symbolic calls, keyed by the complete selected instance.
+/// The Boolean records receiver-first input ordering.
+pub type ConditionCallReferences = BTreeMap<
+    (bray_symbols::CallableInstanceData, Option<bray_symbols::ImplementationInstanceData>,
+        Arc<[bray_symbols::ImplementationInstanceData]>),
+    (bool, Arc<[bray_symbols::DependencyBorrowRelation]>),
+>;
+
 use bray_symbols::AnyLocalSymbolId;
 
 use super::BoundCallDependencyContracts;
@@ -56,6 +64,7 @@ pub enum DependencyContractsBuildError {
 /// Durable dependency contracts for values, accesses, and borrows in one checked unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedDependencyContracts {
+    condition_references: Arc<ConditionCallReferences>,
     static_carriers: BTreeMap<
         bray_symbols::StaticReferenceSelection,
         Arc<[bray_symbols::DependencyWitnessCarrier]>,
@@ -79,6 +88,17 @@ pub struct CheckedDependencyContracts {
 }
 
 impl CheckedDependencyContracts {
+    /// Retains producer-established origins for reference computations in conditions.
+    pub fn with_condition_references(mut self, references: ConditionCallReferences) -> Self {
+        self.condition_references = Arc::new(references);
+
+        self
+    }
+
+    /// Returns prepared symbolic-call origins without querying during flow analysis.
+    pub fn condition_references(&self) -> &ConditionCallReferences {
+        &self.condition_references
+    }
     /// Retains the initializer authority instantiated for referenced static storage.
     pub fn with_static_carriers(
         mut self,
@@ -204,6 +224,7 @@ impl CheckedDependencyContracts {
             borrows: borrows.into(),
             lifecycle_consumers: Arc::default(),
             lifecycle_dependencies: Arc::default(),
+            condition_references: Arc::default(),
             is_recovered,
         };
 
