@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::execution_guarantees::ExecutionValues;
@@ -27,6 +27,7 @@ pub(super) struct CurrentRoot {
     value: ExecutionCondition,
     availability: ValueAvailability,
     components: BTreeMap<ExecutionPlace, ValueAvailability>,
+    observed_components: BTreeSet<ExecutionPlace>,
 }
 
 /// Current storage owns one value tree per root. All component writes update
@@ -52,17 +53,15 @@ impl CurrentValues {
     /// Seed the complete entry snapshot once. Observing a component does not write it.
     pub(super) fn observe_input(&mut self, place: &ExecutionPlace) {
         let root = root_place(place);
-        let components = self.observed_components(&root)
-            .map(|place| (place.clone(), ValueAvailability::Present)).collect();
-
         let current = self.roots.entry(root.clone()).or_insert_with(|| CurrentRoot {
             value: ExecutionCondition::Input(root),
             availability: ValueAvailability::Present,
-            components,
+            components: BTreeMap::new(),
+            observed_components: BTreeSet::new(),
         });
 
         if !place.projections.is_empty() {
-            current.components.entry(place.clone()).or_insert(ValueAvailability::Present);
+            current.observed_components.insert(place.clone());
         }
     }
 
@@ -104,6 +103,7 @@ impl CurrentValues {
             value: ExecutionCondition::Unknown,
             availability: ValueAvailability::Unknown,
             components: BTreeMap::new(),
+            observed_components: BTreeSet::new(),
         });
 
         if place.projections.is_empty() {
@@ -118,18 +118,11 @@ impl CurrentValues {
     /// Checked replacement also replaces initialization of its whole subtree.
     pub(super) fn replace(&mut self, place: ExecutionPlace, value: CurrentValue,
         storage: Option<&[bray_bound_tree::StorageProjection]>) {
-        let availability = value.availability.clone();
-        let components = self.observed_components(&place).cloned().collect::<Vec<_>>();
-
         if let Some(root) = self.roots.get_mut(&root_place(&place)) {
             root.components.retain(|component, _| !place.contains(component));
         }
 
-        self.write(place.clone(), value, storage);
-
-        let root = self.roots.get_mut(&root_place(&place)).expect("a published value retains its current root");
-
-        root.components.extend(components.into_iter().map(|component| (component, availability.clone())));
+        self.write(place, value, storage);
     }
 
     /// Direct lookup is for complete retained roots. Component reads use the
@@ -201,6 +194,9 @@ impl CurrentValues {
 
             let mut candidates = root.components.keys().cloned().collect::<std::collections::BTreeSet<_>>();
 
+            candidates.extend(root.observed_components.iter().cloned());
+            candidates.extend(self.observed_components(place).cloned());
+
             collect_owned_places(&root.value, place, &mut candidates, &mut { ExecutionCondition::WORK_LIMIT });
 
             let mut live = Vec::<ExecutionPlace>::new();
@@ -208,6 +204,10 @@ impl CurrentValues {
             for candidate in candidates {
                 if absent.iter().any(|absent| absent.contains(&candidate) || candidate.contains(absent))
                     || live.iter().any(|parent| parent.contains(&candidate)) {
+                    continue;
+                }
+
+                if !matches!(self.availability(&candidate), ValueAvailability::Present | ValueAvailability::Guarded(_)) {
                     continue;
                 }
 
@@ -362,6 +362,9 @@ mod tests {
         assert!(values.live_values().next().is_none());
 
         values.insert(root.clone(), ExecutionCondition::Input(source.clone()));
+
+        assert_eq!(values.keys().cloned().collect::<Vec<_>>(), vec![root.clone()]);
+
         values.retire(&first);
 
         assert_eq!(values.live_entries().collect::<Vec<_>>(), vec![(second,
