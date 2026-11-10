@@ -4,6 +4,16 @@ use bray_bound_tree::BoundOperator;
 use std::sync::Arc;
 
 impl ExecutionCondition {
+    /// Name new contents by the existing value, independently of an alias slot.
+    /// Replaying a mutation retains the defining identity instead of nesting epochs.
+    pub(crate) fn post_state(mutation: bray_bound_tree::StorageMutation, identity: Self) -> Self {
+        match identity.owner_identity() {
+            Self::Unknown => Self::Unknown,
+            Self::PostState(_, identity) => Self::PostState(mutation, Arc::clone(identity)),
+            identity => Self::PostState(mutation, Arc::new(identity.clone())),
+        }
+    }
+
     /// Observes a checked constant value without introducing storage identity or authority.
     pub fn from_constant(
         values: &bray_symbols::SemanticValueStore,

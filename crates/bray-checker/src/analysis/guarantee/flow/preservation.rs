@@ -77,9 +77,13 @@ impl ValuePreservation {
             );
         }
 
-        let mut contents = place.map_or(ExecutionCondition::Unknown, |place| {
-            ExecutionCondition::PostState(mutation, place.clone())
-        });
+        let reached = source.clone().into_referent();
+        let identity = if reached.ownership_identity().is_some() || reached.storage_contents().is_some() {
+            reached.owner_identity().clone()
+        } else {
+            place.cloned().map_or(ExecutionCondition::Unknown, ExecutionCondition::Input)
+        };
+        let mut contents = ExecutionCondition::post_state(mutation, identity);
 
         for (projection, preservation) in &self.children {
             let child = source.clone().project(*projection);
@@ -106,6 +110,34 @@ mod tests {
     use bray_symbols::SymbolOrdinal;
 
     #[test]
+    fn same_owner_mutation_observations_agree_across_alias_places_without_retaining_old_contents() {
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let owner = input(0);
+        let source = owner.clone().borrowed();
+        let aliases = [1, 2].map(|ordinal| ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
+        });
+        let mutation = StorageMutation::Operation(sites[0].into());
+        let mask = ValuePreservation { descriptor: true, ..Default::default() };
+        let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
+        let substitution = crate::test_support::empty_substitution(predicate.into());
+        let condition = |value| ExecutionCondition::predicate(predicate.into(), substitution, vec![value]);
+        let left = mask.apply(&source, Some(&aliases[0]), mutation);
+        let right = mask.apply(&source, Some(&aliases[1]), mutation);
+
+        assert_eq!(left.ownership_identity(), source.ownership_identity());
+        assert_eq!(right.ownership_identity(), source.ownership_identity());
+        assert_ne!(condition(left.clone()), condition(source.clone()), "owner retention cannot retain old contents");
+        assert_ne!(condition(left.clone()), condition(mask.apply(&input(3).borrowed(), Some(&aliases[0]), mutation)),
+            "distinct owners do not share a mutation observation");
+        assert_ne!(condition(left.clone()), condition(mask.apply(&source, Some(&aliases[0]), StorageMutation::Operation(sites[1].into()))),
+            "distinct mutations produce distinct contents");
+        assert_eq!(mask.apply(&left, Some(&aliases[0]), mutation), left, "replay must stabilize");
+        assert_eq!(condition(left), condition(right), "one mutated owner has one contents observation through both aliases");
+    }
+
+    #[test]
     fn preserving_a_copied_descriptor_keeps_its_value_origin_without_old_contents() {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let origin = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
@@ -121,7 +153,7 @@ mod tests {
 
         assert_eq!(updated.storage_contents().map(|(owner, _)| owner), Some(&context));
         assert_eq!(updated.copied_value().owner_identity(), &origin);
-        assert_eq!(updated.computed_value(), &ExecutionCondition::PostState(mutation, place));
+        assert_eq!(updated.computed_value(), &ExecutionCondition::post_state(mutation, origin));
         assert!(super::super::super::state::ExecutionState::default().owned_values(&updated)
             .all(|value| value.ownership_identity().is_none()));
     }

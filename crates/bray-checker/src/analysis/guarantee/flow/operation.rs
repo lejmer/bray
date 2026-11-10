@@ -559,8 +559,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let result = self.storage.occurrence_plans(invocation)
                 .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Copy)
                 .fold(result, |result, plan| {
-                    self.copied_access_value(ExecutionCondition::PostState(
-                        bray_bound_tree::StorageMutation::Operation(invocation), place.clone(),
+                    self.copied_access_value(ExecutionCondition::post_state(
+                        bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::Input(place.clone()),
                     ), result, plan)
                 });
 
@@ -722,9 +722,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .unwrap_or_else(|| self.value(state, *source))
                     } else {
                         match machine_value.clone().unwrap_or(ExecutionCondition::Unknown) {
-                            ExecutionCondition::Unknown => ExecutionCondition::PostState(
+                            ExecutionCondition::Unknown => ExecutionCondition::post_state(
                                 bray_bound_tree::StorageMutation::Operation(expression.into()),
-                                assignment_place.unwrap_or(&place).clone(),
+                                ExecutionCondition::Input(assignment_place.unwrap_or(&place).clone()),
                             ),
                             value => value,
                         }

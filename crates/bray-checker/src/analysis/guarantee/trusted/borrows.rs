@@ -753,7 +753,7 @@ fn returned_contents(
     let mut contents = if preservation.preserves_value() {
         without_reached_contents(source, budget)
     } else {
-        ExecutionCondition::PostState(bray_bound_tree::StorageMutation::Operation(invocation), input.clone())
+        ExecutionCondition::post_state(bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::Input(input.clone()))
     };
 
     for (projection, child) in preservation.children() {
