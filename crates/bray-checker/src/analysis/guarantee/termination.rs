@@ -296,9 +296,9 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
                     .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
                     == Some(true);
 
-                let after = ExecutionCondition::PostState(
+                let after = ExecutionCondition::post_state(
                     bray_bound_tree::StorageMutation::Operation(*occurrence),
-                    place.clone(),
+                    ExecutionCondition::Input(place.clone()),
                 );
 
                 present && place.value_in(&state.current).as_ref() == Some(&after)

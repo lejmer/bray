@@ -29,10 +29,10 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Accepted evidence
 
-Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Latest pushed:cab277c75.
-Fixed comparison:756 passed /52 failed /99 ignored, exact failure identities unchanged. Checker475, bound-tree133,
+Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
+Fixed comparison:756 passed /52 failed /99 ignored, exact failure identities unchanged. Checker476, bound-tree134,
 messages91, JSON48 and failure diagnostics7 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
-Accepted native.log:82 diagnostics(E7123=38,E7135=24,E7119=20), unchanged runtime Source64a4e5490.
+Accepted native.log:70 diagnostics(E7123=30,E7135=20,E7119=20), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
 Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
@@ -47,45 +47,29 @@ Unsupported bodyless execution promises report MissingEvidence. Native C asserti
 
 ## Current boundary
 
-deadline.delivery48/167/190 and registration87: domain_owned(domain(owner)) fails after lock(value), before state(value).
-Exact trace shows available ledger/global domain_owned(Borrowed(Expression9)), but requirement includes the updated
-owner's structural field overlay (state.prepared.locked at PostState13). Evidence exists, argument snapshots differ.
-Global predicate normalization to owner identity was rejected:10 added comparison failures exposed unsound mutation
-preservation. Fully reverted, including its speculative tests. Do not strip predicate snapshots globally.
+Mutation contents now use the carried value identity, independent of the alias slot. PostState retains that identity,
+not old contents, and replay retains its original key. Logical production slots explicitly supply Input(place).
+Framing uses the actual owner or scalar context. No new type or second value tree. Do not strip predicate snapshots
+back to bare owner identity: mutation/retirement controls require distinct contents observations.
 
-Storage flow already defers retirement of admitted private InvocationInput slots until completion. Guarantee flow
-retired them at admission, so lock's completion refreshed from a terminal stale borrowed snapshot while the caller's
-binding held the current field overlay. Extracted StoragePlan.value_retirements as the shared existing policy and
-adopted it in both flows. Admission still transfers/suspends witness authority. surviving_call_values already excludes
-private inputs and failure cleanup retires them. The boundary regression distinguishes source slots from private inputs.
-Checker475 and bound-tree134 pass. Fixed comparison756/52/99 has exactly the same failures. Storage integration33/4
-matches all4 failure identities in retainedfc4 baseline. recursive_inactive_cleanup_report_dependencies_remain_finite
-stalls in the current tests, pre-change5d driver and02:09 intermediate test binary, but passesfc4 in0.05s. Stalled
-processes were stopped. This convergence regression predates the retirement edit and remains unresolved.
-All82 native diagnostic blocks remain exactly identical, excluding build timings. The shared retirement rule removes a real consumer
-inconsistency but does not resolve the Returned-origin reference refresh gap. Preserve the refactor. Next trace the
-actual invalidation and refreshed arguments for deadline.commit, and the recursive component summary iteration.
-Trace: lock invalidation.accesses names local value10, while referents explicitly names both value10 and admitted input11
-at state.prepared.locked. Guarantee invalidated_places ignored referents, leaving input11 stale. Blindly treating every
-referent as a value update introduced39 regressions by overwriting raw-address bits. Rejected without changing expectations.
-An attempted category lookup through value_references was rejected: that map intentionally covers inline slots, not
-every reached reference cell. Fully reverted. Do not add fallback classification or expand inline ownership through loans.
-Current producer repair uses existing typed storage accesses. For a Borrow-valued direct Storage access,
-target_observations follows its retained exact stored target and publishes reached contents as a logical observation.
-Dead/inexact views cannot become unknown fresh aliases. Borrow-capability routes already reach their target and must
-not be dereferenced again. Raw addresses keep their descriptor interpretation. Existing controls exposed and pin these
-distinctions. Unclassified referent bounds remain for conservative revocation. No new representation.
-Checker475 and comparison756/52/99 passed, but native88 added6 marker-owner failures and cleared0. Not accepted.
-Additions:deadline/storage455, event/registration46, execution/worker_callbacks150/157, worker/callback311, worker/entry179.
-Producer was treating possible alias overlap as a particular changed borrowed snapshot. Current restriction requires
-exact target containment for the new borrowed-value observation. Existing possible-origin bounds still revoke evidence.
-Restricted producer passes checker475 and all907 fixed identities/outcomes(756/52/99). All82 native diagnostic blocks
-are exactly unchanged. Producer-only repair does not resolve alias snapshot agreement. Frozen expectations unchanged.
-Next pin same-object/same-mutation snapshot agreement at ValuePreservation, including stale-data and distinct-slot controls.
-Recursive trace: discard component exceeds400 iterations, adding UnboundedMutation(Cleanup(Wrapper<...<T>>)) each round.
-dependency/cleanup/effects.rs expands Dispose types but preserves Cleanup types unchanged, admitting unbounded growth.
-Fix must preserve region semantics without treating a captured referent as the disposed value's layout. Existing
-full_cleanup_parts and effect normalization own this boundary. No fix yet. All hooks/traces removed. No style/format or agent active.
+The new property was red before this repair and now passes with stale-content, distinct-owner, distinct-mutation and
+replay controls. All476 checker tests, all907 fixed identities/outcomes(756/52/99), storage33/4, expanded predicate26/2/2,
+failure diagnostics7 and JSON48 preserve their outcomes. Four storage failures and two predicate failures reproducefc4.
+Native70 clears all4 deadline domain/state calls, both native_deadlines calls, two start calls and four deadline
+postconditions. No added locations. Seven retained headers now show the produced origin instead of an alias slot.
+start234 progresses from selected.status==0 to the next expanded prepared_start requirement, activation.producer(token).
+Coverage is same carried owner through different aliases. Independent fresh-loan origins remain to trace.
+
+StoragePlan.value_retirements shares private-input observation retirement at completion, independently of admission's
+witness transfer. Exact stored-borrow observations use existing typed Storage routes, never a borrow capability twice,
+dead/inexact handles or mere possible-alias overlap. Possible-origin bounds revoke evidence separately.
+
+Next repair the proven recursive convergence regression. recursive_inactive_cleanup_report_dependencies_remain_finite
+stalls in current/pre-change5d/02:09 intermediate binaries, but passesfc4 in0.05s. Bounded trace exceeded400 component
+iterations: each adds UnboundedMutation(Cleanup(Wrapper<...<T>>)). dependency/cleanup/effects.rs expands Dispose types
+but preserves Cleanup types unchanged. Normalize through the existing cleanup expansion while preserving region
+semantics. A cleanup region is not the disposed value's layout. No fix yet. The real probe is recursive-input-observations.bray.
+No trace hooks, processes, agents, style or format passes are active.
 
 ## Remaining
 

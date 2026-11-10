@@ -21,9 +21,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // This transition defines one actual output in the planned protocol slot.
         let result = match invocation {
             BoundExecutionSite::ScopedEnter(expression) => ExecutionCondition::ScopedCapability(expression),
-            BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) => ExecutionCondition::PostState(
+            BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) => ExecutionCondition::post_state(
                 bray_bound_tree::StorageMutation::Operation(invocation),
-                self.input_place(invocation).expect("completed protocol invocation retains its result slot"),
+                ExecutionCondition::Input(self.input_place(invocation).expect("completed protocol invocation retains its result slot")),
             ),
             BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
             _ => unreachable!("implicit completion has a protocol invocation"),
@@ -485,9 +485,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expect("input slot has an execution place");
 
         let value = if value == ExecutionCondition::Unknown {
-            ExecutionCondition::PostState(
+            ExecutionCondition::post_state(
                 bray_bound_tree::StorageMutation::Operation(invocation),
-                place.clone(),
+                ExecutionCondition::Input(place.clone()),
             )
         } else {
             value

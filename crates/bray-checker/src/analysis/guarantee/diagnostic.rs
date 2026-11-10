@@ -31,7 +31,7 @@ fn condition<C: CheckerRequestContext + ?Sized>(
     Ok(match value {
         ExecutionCondition::Boolean(value) => Condition::Boolean(*value),
         ExecutionCondition::Literal(value) => literal(domain, value.kind(), budget)?,
-        ExecutionCondition::Input(value) | ExecutionCondition::PostState(_, value)
+        ExecutionCondition::Input(value)
             | ExecutionCondition::Joined(_, _, value) => place(domain, value, budget)?,
         ExecutionCondition::Result => Condition::Result,
         ExecutionCondition::Expression(value) | ExecutionCondition::ScopedCapability(value) => expression(domain, *value, budget)?,
@@ -39,7 +39,7 @@ fn condition<C: CheckerRequestContext + ?Sized>(
             owner: Box::new(condition(domain, owner, budget)?), ordinal: ordinal.raw(),
         },
         ExecutionCondition::Present(value) => Condition::Present(Box::new(condition(domain, value, budget)?)),
-        ExecutionCondition::Constructed(base, _) | ExecutionCondition::ScalarValue(base)
+        ExecutionCondition::Constructed(base, _) | ExecutionCondition::ScalarValue(base) | ExecutionCondition::PostState(_, base)
             | ExecutionCondition::Trusted(base) | ExecutionCondition::Borrowed(base)
             | ExecutionCondition::Entry { condition: base, .. }
             | ExecutionCondition::InitializedSnapshot(_, base, _) => condition(domain, base, budget)?,

@@ -55,10 +55,11 @@ pub enum ExecutionCondition {
         contents: Arc<ExecutionCondition>,
         kind: ExecutionObservationKind,
     },
-    /// Fresh contents observed after a checked mutation. This establishes no guarantee.
+    /// Fresh contents of one value identity after a checked mutation.
+    /// The identity carries no previous contents or new guarantee.
     PostState(
         bray_bound_tree::StorageMutation,
-        crate::execution_guarantees::ExecutionPlace,
+        Arc<ExecutionCondition>,
     ),
     /// The current value of storage where control-flow predecessors meet.
     Joined(

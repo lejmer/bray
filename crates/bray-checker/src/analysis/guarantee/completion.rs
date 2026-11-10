@@ -305,8 +305,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let ordinal = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
             let value = self.current_input(state, *source);
 
-            let value = self.copied_access_value(ExecutionCondition::PostState(
-                bray_bound_tree::StorageMutation::Operation(invocation), ordinal.clone(),
+            let value = self.copied_access_value(ExecutionCondition::post_state(
+                bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::Input(ordinal.clone()),
             ), value, plan);
 
             if consumes {

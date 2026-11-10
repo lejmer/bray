@@ -95,9 +95,12 @@ impl ExecutionState {
             condition
                 .observations_except(&retained_data)
                 .any(|observed| invalidated_observations.overlaps(observed)
-                    || selection && matches!(observed,
-                        ExecutionCondition::Joined(_, _, place) | ExecutionCondition::PostState(_, place)
-                            if place.overlaps_any(places)))
+                    || selection && match observed {
+                        ExecutionCondition::Joined(_, _, place) => place.overlaps_any(places),
+                        ExecutionCondition::PostState(_, identity) => matches!(identity.as_ref(),
+                            ExecutionCondition::Input(place) if place.overlaps_any(places)),
+                        _ => false,
+                    })
         };
 
         let borrowed_slot_changed = |condition: &ExecutionCondition| {
@@ -107,8 +110,9 @@ impl ExecutionState {
                 if retained_data(value) { return false; }
 
                 match value.owner_identity() {
-                    ExecutionCondition::Input(place) | ExecutionCondition::PostState(_, place)
-                        | ExecutionCondition::Joined(_, _, place) => place.overlaps_any(places),
+                    ExecutionCondition::Input(place) | ExecutionCondition::Joined(_, _, place) => place.overlaps_any(places),
+                    ExecutionCondition::PostState(_, identity) => matches!(identity.as_ref(),
+                        ExecutionCondition::Input(place) if place.overlaps_any(places)),
                     _ => false,
                 }
             })

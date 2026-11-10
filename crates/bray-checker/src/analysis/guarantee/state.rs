@@ -1458,8 +1458,8 @@ mod tests {
         };
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let old = ExecutionCondition::PostState(mutation(0), place.clone());
-        let sibling = ExecutionCondition::PostState(mutation(1), place.clone());
+        let old = ExecutionCondition::post_state(mutation(0), ExecutionCondition::Input(place.clone()));
+        let sibling = ExecutionCondition::post_state(mutation(1), ExecutionCondition::Input(place.clone()));
         let mut state = ExecutionState::default();
 
         state.carry_guarantee(old.clone(), old.clone());
