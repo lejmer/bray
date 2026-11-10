@@ -31,49 +31,39 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
 Fixed comparison:752 passed /53 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
-and copied-pointer failures with0 additions. Checker474 and bound-tree133 pass. Callable Source/import28, numeric
+and copied-pointer failures with0 additions. Checker475 and bound-tree133 pass. Callable Source/import28, numeric
 Source/import8 and trusted diagnostics9 pass. Captured values survive replacement without preserving the old storage loan
 or owner. Earlier conformance7, messages90 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
 Expanded predicate group:25 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
 
-Accepted native.log uses500428f5f and unchanged runtime Source64a4e5490:
-111 diagnostics(E7123=55,E7135=33,E7119=23). The scalar projection/address-read batch removed7 diagnostics with0 additions,
-including all3 remaining callable-address failures. Pointer-range normalization previously removed result318 E7087/E7123.
-Matching native library built. No native async composition
-has executed. Source/MIR success remains narrower evidence. Host/attachment/cleanup192 still has a generic local cause.
+Accepted native.log:93 diagnostics(E7123=44,E7135=27,E7119=22), unchanged runtime Source64a4e5490.
+The conditional-result batch removes19 prior diagnostics and exposes domain322 total after its body error clears.
+Certification now reaches the existing selected() postcondition failure at56. This is an explained dependent failure,
+not new failing behavior. Matching native library built. No native async composition has executed.
 Use the canonical complete233-file Windows request. Partial production_host_request has129 files and cannot certify it.
 
 Embedded source snippets share an80-character/first-line formatter. Whole conditions/messages and structured JSON remain
 complete. Unsupported bodyless execution promises report MissingEvidence before export. Native C assertions remain supported.
 
-## Current batch
+## Current boundary and next step
 
-Latest pushed checkpoint:500428f5f. Native111 is still the accepted native baseline.
-MemoryCallEvidence separates full-contract failure, initialized storage and empty copies. Pointer identity normalization
-serves proof and retirement. Address bits never preserve reached initialization. Callable clauses normalize at publication.
+Closed-union completeness comes from declared variants at formal parameter and symbolic postcondition-result entry.
+The existing Boolean closure now retains proven ordinary guard values for witness refinement. It previously proved
+Error false from Ok, then discarded that fact, leaving the consumed result in a moved payload's guarantee.
+No Result special case, new proof representation or reconstructed authority. Checker475 verifies exclusions survive
+without establishing guarded authority. Union controls cover two/three variants and distinct inputs. The existing
+nullable-result test covers both equivalent guards through Source/import, opaque calls, fabrication and overwrite(28 cases).
+All fixed53 failure identities remain unchanged. Predicate26/2/2 retains its2 reproduced baseline failures.
 
-Active argument-mode repair uses checked signature types at predicate/constant-call construction and the original explicit
-loan marker during predicate substitution. Existing portable Borrow carries that intent. argument_value reads scalar
-snapshots and loans for by-value arguments while retaining owned descriptors. Explicit loans keep storage identity.
+scoped-evidence.bray passes construction, Result return, complete Ok consumption, scoped entry, mutation and cleanup.
+Fabricated scoped owners and overwritten leases reject E7123. The opaque-call variant passes. This is Source evidence,
+not async native execution. No temporary trace hooks remain. No style/format has run. No agent is active.
 
-The numeric retained-copy regression was red. Actual composite transfer traces showed its scalar payload survived, but
-invalidate_referents dropped the guarantee because preservation indexed only the copy's storage context. Scalar data now
-has a separate index in the existing observation set, populated from the authoritative live value tree. Physical contains
-and ownership queries remain separate. Loan preservation requires an actual unchanged storage observation, not copied data.
-Composite storage-flow core.rs calls transfer_operation directly at671/1007/1024. The outer flow.operation wrapper does
-not trace that route. Known scalar projections remain scalar and copied loan reads use the actual production boundary.
+Next: preserve the failed condition currently discarded by ordinary postcondition certification(E7135), then trace the
+strong compare-exchange observed-value relationship blocking domain.selected(). Keep all fixed regression expectations.
+The scalar data index remains populated only from authoritative live values. Copies retain neither source loans nor
+owners. Composite storage-flow core.rs calls transfer_operation directly at671/1007/1024, bypassing flow.operation.
 
-Proof failures now retain both the complete declaration condition and the first unproven conjunction leaf. Alternatives
-remain intact. Checker properties and Source diagnostic tests verify that distinction.
-
-Candidate native-current.log:96 diagnostics,18 removals and3 additions versus accepted111. Comparison identities include
-obligation role, code and location and must be unique. Earlier code/location-only comparison hid a call/cleanup collision.
-New failures: domain synchronization_storage total322, start scoped-entry activation.producer(token)228, reserve_start
-selected.status==0 at230. The old prepared_start232 regression remains absent. Candidate is not accepted yet.
-
-Active scoped-evidence.bray reproduces the conditional-result path. Error || active(present(result)) loses scope guarantees
-and cannot verify present's Ok precondition. Adding an explicit Ok guard passes. Trace the actual proof/value boundary before
-changing implementation. No temporary trace hooks remain. No style/format has run. No agent is active.
 ## Remaining
 
 Repair native proof/execution failures by transition class, then execute the complete async fixture. Trace Bound and
