@@ -873,12 +873,25 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        for (access, _) in self.storage.access_entries() {
+        for (access, access_data) in self.storage.access_entries() {
             let Some(logical) = self.storage.logical_path(access) else {
                 continue;
             };
 
             let observed = self.input.reference_target(self.request.semantic_values(), memory, self.storage, access);
+
+            // Stored borrows observe their reached contents. Borrow-capability routes
+            // already name their target. Raw-address accesses observe descriptor slots.
+            let borrowed_value = crate::representation::reference_kind(self.request, access_data.reached_type())
+                == Some(bray_symbols::DependencyReferenceKind::Borrow)
+                && matches!(access_data.root(), bray_bound_tree::StorageAccessRoot::Storage(_));
+
+            let observed = if borrowed_value {
+                let Some(targets) = observed.and_then(|slot| memory.value_targets(&slot)) else { continue; };
+                let [target] = targets.as_slice() else { continue; };
+
+                Some(target.clone())
+            } else { observed };
 
             self.stable_descriptors(
                 memory,
@@ -895,6 +908,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let mut changed = Vec::new();
 
             for mutation in mutations.clone() {
+                // Possible origin bounds revoke evidence independently. They do
+                // not establish a particular new snapshot through another loan.
+                if borrowed_value && !observed.as_ref().is_some_and(|observed| observed.contains(mutation)) {
+                    continue;
+                }
+
                 if observed.as_ref().is_some_and(|observed| {
                     memory.target_relationship(observed, mutation) == StorageRelationship::Disjoint
                 }) {

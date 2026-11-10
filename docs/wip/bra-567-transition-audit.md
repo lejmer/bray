@@ -29,7 +29,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Accepted evidence
 
-Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Latest pushed:5dcd6f277.
+Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Latest pushed:cab277c75.
 Fixed comparison:756 passed /52 failed /99 ignored, exact failure identities unchanged. Checker475, bound-tree133,
 messages91, JSON48 and failure diagnostics7 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
 Accepted native.log:82 diagnostics(E7123=38,E7135=24,E7119=20), unchanged runtime Source64a4e5490.
@@ -62,10 +62,30 @@ Checker475 and bound-tree134 pass. Fixed comparison756/52/99 has exactly the sam
 matches all4 failure identities in retainedfc4 baseline. recursive_inactive_cleanup_report_dependencies_remain_finite
 stalls in the current tests, pre-change5d driver and02:09 intermediate test binary, but passesfc4 in0.05s. Stalled
 processes were stopped. This convergence regression predates the retirement edit and remains unresolved.
-Native output remains byte-for-byte identical at82 diagnostics. The shared retirement rule removes a real consumer
+All82 native diagnostic blocks remain exactly identical, excluding build timings. The shared retirement rule removes a real consumer
 inconsistency but does not resolve the Returned-origin reference refresh gap. Preserve the refactor. Next trace the
 actual invalidation and refreshed arguments for deadline.commit, and the recursive component summary iteration.
-All trace hooks and consumed logs removed. No style/format or agent is active.
+Trace: lock invalidation.accesses names local value10, while referents explicitly names both value10 and admitted input11
+at state.prepared.locked. Guarantee invalidated_places ignored referents, leaving input11 stale. Blindly treating every
+referent as a value update introduced39 regressions by overwriting raw-address bits. Rejected without changing expectations.
+An attempted category lookup through value_references was rejected: that map intentionally covers inline slots, not
+every reached reference cell. Fully reverted. Do not add fallback classification or expand inline ownership through loans.
+Current producer repair uses existing typed storage accesses. For a Borrow-valued direct Storage access,
+target_observations follows its retained exact stored target and publishes reached contents as a logical observation.
+Dead/inexact views cannot become unknown fresh aliases. Borrow-capability routes already reach their target and must
+not be dereferenced again. Raw addresses keep their descriptor interpretation. Existing controls exposed and pin these
+distinctions. Unclassified referent bounds remain for conservative revocation. No new representation.
+Checker475 and comparison756/52/99 passed, but native88 added6 marker-owner failures and cleared0. Not accepted.
+Additions:deadline/storage455, event/registration46, execution/worker_callbacks150/157, worker/callback311, worker/entry179.
+Producer was treating possible alias overlap as a particular changed borrowed snapshot. Current restriction requires
+exact target containment for the new borrowed-value observation. Existing possible-origin bounds still revoke evidence.
+Restricted producer passes checker475 and all907 fixed identities/outcomes(756/52/99). All82 native diagnostic blocks
+are exactly unchanged. Producer-only repair does not resolve alias snapshot agreement. Frozen expectations unchanged.
+Next pin same-object/same-mutation snapshot agreement at ValuePreservation, including stale-data and distinct-slot controls.
+Recursive trace: discard component exceeds400 iterations, adding UnboundedMutation(Cleanup(Wrapper<...<T>>)) each round.
+dependency/cleanup/effects.rs expands Dispose types but preserves Cleanup types unchanged, admitting unbounded growth.
+Fix must preserve region semantics without treating a captured referent as the disposed value's layout. Existing
+full_cleanup_parts and effect normalization own this boundary. No fix yet. All hooks/traces removed. No style/format or agent active.
 
 ## Remaining
 
@@ -89,6 +109,7 @@ produced-executable workflows run outside sandbox. A10s rustc sample averaged2.3
 Native uses Rust1.98.1, LLVM bin on PATH, TMP/TEMP worktree target/audit.
 Native: target/tooling/xtask.exe runtime-artifact smoke-test --output target/audit/native --profile release.
 Always parse build.log for fresh executable identities. Cargo feature selection changes test hashes.
+The compilation test binary accepts the7 comparison filters together. Assert all907 identities/outcomes match.
 
 Retain baseline-failures.txt67, native-baseline-identities.txt, accepted comparison.log/native.log, native intermediates
 and deferred-report-fc4b5160b-baseline.exe for the old controls. Keep only active build/probe logs. No temporary hooks remain.
