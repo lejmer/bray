@@ -128,7 +128,8 @@ impl ExecutionCondition {
 
         loop {
             match value {
-                Self::Constructed(base, _) | Self::Observation { owner: base, .. } if **base != Self::Unknown => value = base,
+                Self::Constructed(base, _) => value = base,
+                Self::Observation { owner: base, .. } if **base != Self::Unknown => value = base,
                 Self::Tagged(_, base) | Self::Present(base) => value = base,
                 _ => {
                     if let Some(payload) = value.nullable_payload_snapshot() {

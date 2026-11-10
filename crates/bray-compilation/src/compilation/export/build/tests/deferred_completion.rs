@@ -1164,7 +1164,8 @@ const CASES: &[(&str, &str, bool)] = &[
 fn check_deferred_completion(imported: bool) {
     let provider = compilation(API);
 
-    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}",
+        bray_messages::DiagnosticRenderer::default().render_bag(provider.check_diagnostics()));
 
     let mut failures = Vec::new();
 
