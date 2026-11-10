@@ -1506,6 +1506,7 @@ const CASES: &[(&str, &str, bool)] = &[
 #[test]
 fn witness_ownership_survives_source_control_flow() {
     let api = api_source();
+    let mut failures = Vec::new();
 
     for (name, body, valid) in cases() {
         let body = body.replace("api.", "");
@@ -1521,13 +1522,16 @@ fn witness_ownership_survives_source_control_flow() {
             "
         ));
 
-        assert_witness_result(&name, &source, valid);
+        collect_witness_failure(&name, &source, valid, &mut failures);
     }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
 fn witness_ownership_survives_imported_control_flow() {
     let provider = compilation(&api_source());
+    let mut failures = Vec::new();
 
     assert!(
         !provider.check_diagnostics().has_errors(),
@@ -1555,8 +1559,10 @@ fn witness_ownership_survives_imported_control_flow() {
             ),
         );
 
-        assert_witness_result(&name, &consumer, valid);
+        collect_witness_failure(&name, &consumer, valid, &mut failures);
     }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 fn cases() -> impl Iterator<Item = (String, String, bool)> {
@@ -1642,10 +1648,17 @@ fn cases() -> impl Iterator<Item = (String, String, bool)> {
         .chain(guarded)
 }
 
-fn assert_witness_result(name: &str, compilation: &crate::Compilation, valid: bool) {
+fn collect_witness_failure(name: &str, compilation: &crate::Compilation, valid: bool, failures: &mut Vec<String>) {
     let diagnostics = compilation.check_diagnostics();
 
-    assert_eq!(!diagnostics.has_errors(), valid, "{name}: {diagnostics:?}");
+    if diagnostics.has_errors() == valid || !valid && !diagnostics.iter().any(|diagnostic|
+        diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+    {
+        let kinds = diagnostics.iter().map(bray_diagnostics::Diagnostic::kind).collect::<Vec<_>>();
+
+        failures.push(format!("{name}: expected valid={valid}, actual valid={}, diagnostics={kinds:?}", !diagnostics.has_errors()));
+        return;
+    }
 
     if !valid {
         bray_testing::assert_goal_state_diagnostic_kind(
