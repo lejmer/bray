@@ -128,7 +128,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .proof_facts(conditions)
                 .map(|(condition, value)| {
                     (
-                        self.reference_conditions(&condition.with_equalities(&equalities), &entry.assumptions)
+                        condition.with_equalities(&equalities).with_reference_origins(
+                            self.request.semantic_values(), self.dependencies, &entry.assumptions)
                             .pointer_observations(&self.pointer_predicates),
                         value,
                     )
@@ -160,7 +161,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     )
                     .with_equalities(&equalities);
 
-                self.reference_conditions(&condition, &entry.assumptions)
+                condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
                     .pointer_observations(&self.pointer_predicates)
             })
             .collect::<Vec<_>>();

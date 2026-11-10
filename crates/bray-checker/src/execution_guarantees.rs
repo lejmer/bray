@@ -7,6 +7,7 @@ mod model;
 mod normalize;
 mod place;
 mod portable;
+mod references;
 mod snapshot;
 mod trusted_implication;
 mod witness;

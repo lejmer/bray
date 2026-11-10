@@ -271,44 +271,6 @@ impl ExecutionCondition {
 
     /// Returns the exact input places observed by this checked condition.
     pub fn inputs(&self) -> Vec<&crate::execution_guarantees::ExecutionPlace> {
-        self.inputs_from(|condition| match condition {
-            Self::Call(_, _, _, operands, _) => operands.iter().collect(),
-            _ => unreachable!("call input selection receives a call"),
-        })
-    }
-
-    /// Carrier lineage follows checked reference origins rather than every computation input.
-    pub(crate) fn carrier_inputs(&self, references: &bray_bound_tree::ConditionCallReferences)
-        -> Vec<&crate::execution_guarantees::ExecutionPlace>
-    {
-        self.inputs_from(|condition| {
-            let Self::Call(callable, dispatch, witnesses, operands, reference_type) = condition else {
-                unreachable!("carrier input selection receives a call");
-            };
-            if reference_type.is_none() { return operands.iter().collect(); }
-
-            let (receiver, relations) = references.get(&(*callable, *dispatch, std::sync::Arc::clone(witnesses)))
-                .expect("symbolic reference carriers retain their prepared result origins");
-
-            relations.iter().filter_map(|relation| {
-                if relation.exit().subject_root() != bray_symbols::DependencySubjectRoot::Result {
-                    return None;
-                }
-
-                let ordinal = match relation.entry()?.subject_root() {
-                    bray_symbols::DependencySubjectRoot::Receiver => 0,
-                    bray_symbols::DependencySubjectRoot::Parameter(ordinal) => ordinal.to_index()? + usize::from(*receiver),
-                    _ => return None,
-                };
-
-                Some(operands.get(ordinal).expect("checked reference origin names a formal input"))
-            }).collect()
-        })
-    }
-
-    fn inputs_from<'a>(&'a self, call_inputs: impl Fn(&'a Self) -> Vec<&'a Self>)
-        -> Vec<&'a crate::execution_guarantees::ExecutionPlace>
-    {
         let mut pending = vec![self];
         let mut inputs = Vec::new();
 
@@ -316,8 +278,8 @@ impl ExecutionCondition {
             match condition {
                 Self::Input(place) => inputs.push(place),
                 Self::Operation(_, operands)
-                | Self::Predicate(_, _, operands) => pending.extend(operands.iter()),
-                Self::Call(..) => pending.extend(call_inputs(condition)),
+                | Self::Predicate(_, _, operands)
+                | Self::Call(_, _, _, operands, _) => pending.extend(operands.iter()),
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Projection(_, value)
@@ -378,8 +340,8 @@ impl ExecutionCondition {
             .chain(fields.iter().map(|(_, value)| value))
     }
 
-    /// Conjuncts retain their authority on the same complete carrier.
-    pub(crate) fn conjuncts(&self) -> impl Iterator<Item = &Self> {
+    /// Returns independent clauses while preserving the guards within each clause.
+    pub fn conjuncts(&self) -> impl Iterator<Item = &Self> {
         let mut pending = vec![self];
 
         std::iter::from_fn(move || {

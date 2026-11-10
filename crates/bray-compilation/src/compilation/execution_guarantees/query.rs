@@ -1553,6 +1553,77 @@ mod tests {
     }
 
     #[test]
+    fn guarded_union_carriers_move_with_their_complete_payloads() {
+        for asynchronous in [false, true] {
+            let mut source = include_str!("fixtures/guarded-union-carrier.bray").to_owned();
+
+            if asynchronous {
+                source = source.replace("callable Close = trusted func", "callable Close = trusted async func")
+                    .replace("func close_binding", "async func close_binding")
+                    .replace("yield close(value);", "yield await close(value);");
+            }
+
+            let missing_entry = source.replacen("    requires(trusted valid(owner = &owner))\n", "", 1);
+            let fabricated = source.replace("ownership = Ownership.Cleanup(execution_pin),",
+                "ownership = Ownership.Cleanup(\n            {\n                marker = {},\n            }\n        ),");
+
+            for (variant, valid) in [(&source, true), (&missing_entry, false), (&fabricated, false)] {
+                let application = compilation(variant);
+                let diagnostics = application.check_diagnostics();
+
+                assert_eq!(!diagnostics.has_errors(), valid, "async={asynchronous}, {variant}: {diagnostics:#?}");
+
+                if valid {
+                    for name in ["reference", "open_owner", "close_binding", "release_binding"] {
+                        let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, name))
+                            .expect("guarded carrier fixture body lowers");
+
+                        assert!(!lowered.diagnostics().has_errors(), "async={asynchronous}, {name}: {:?}", lowered.diagnostics());
+                    }
+                } else {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn initialized_sibling_authority_survives_partial_input_consumption() {
+        for asynchronous in [false, true] {
+            let mut source = include_str!("fixtures/retired-components.bray").to_owned();
+
+            if asynchronous {
+                source = source.replace("trusted func release_pin", "trusted async func release_pin")
+                    .replace("func dispose", "async func dispose")
+                    .replace("func produced", "async func produced")
+                    .replace("let status = release_pin", "let status = await release_pin");
+            }
+
+            let missing_arena = source.replace(" && live(marker = &owner.arena.marker)", "");
+
+            for (variant, valid) in [(&source, true), (&missing_arena, false)] {
+                let application = compilation(variant);
+                let diagnostics = application.check_diagnostics();
+
+                assert_eq!(!diagnostics.has_errors(), valid, "async={asynchronous}, {variant}: {diagnostics:#?}");
+
+                if valid {
+                    for name in ["dispose", "produced"] {
+                        let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, name))
+                            .expect("partial aggregate consumption lowers");
+
+                        assert!(!lowered.diagnostics().has_errors(), "async={asynchronous}, {name}: {:?}", lowered.diagnostics());
+                    }
+                } else {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn produced_owner_receivers_use_the_same_value_as_explicit_borrows() {
         for call in ["owner.access();", "observe(&owner);", "let anchor_value = &owner;\n                            anchor_value.access();"] {
             let source = format!(r#"

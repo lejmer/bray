@@ -11,7 +11,7 @@ impl Compilation {
         requirements: &[ExecutionCondition],
         cancellation: &CancellationToken,
     ) -> Result<
-        DiagnosticResult<Vec<(ExecutionCondition, ExecutionCondition)>>,
+        DiagnosticResult<Vec<(ExecutionCondition, ExecutionCondition, bool)>>,
         FactQueryError,
     > {
         let context = self.binding_context(cancellation)?;
@@ -20,6 +20,7 @@ impl Compilation {
 
         let mut pending = requirements
             .iter()
+            .flat_map(ExecutionCondition::conjuncts)
             .map(|condition| (condition, condition))
             .collect::<Vec<_>>();
 
@@ -120,11 +121,11 @@ impl Compilation {
                 };
 
                 if owns_authority {
-                    let carrier = argument.witness_carrier(self.trusted_subject_needs_owner(
+                    let containing_value = self.trusted_subject_needs_owner(
                         ty?, cancellation, &mut diagnostics,
-                    )?);
+                    )?;
 
-                    witnesses.push((requirement.clone(), carrier));
+                    witnesses.push((requirement.clone(), argument.clone(), containing_value));
                 }
             }
         }
@@ -149,6 +150,7 @@ impl Compilation {
 
         let mut pending = conditions
             .iter()
+            .flat_map(ExecutionCondition::conjuncts)
             .map(|condition| (condition, condition))
             .collect::<Vec<_>>();
 

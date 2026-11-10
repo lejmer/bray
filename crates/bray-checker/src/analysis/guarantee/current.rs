@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::execution_guarantees::ExecutionValues;
 use crate::{ExecutionCondition, ExecutionPlace};
@@ -33,18 +34,36 @@ pub(super) struct CurrentRoot {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CurrentValues {
     roots: BTreeMap<ExecutionPlace, CurrentRoot>,
+    observed_types: Arc<BTreeMap<ExecutionPlace, Option<bray_symbols::TypeId>>>,
 }
 
 impl CurrentValues {
+    pub(super) fn with_observed_types(observed_types: Arc<BTreeMap<ExecutionPlace, Option<bray_symbols::TypeId>>>) -> Self {
+        Self { roots: BTreeMap::new(), observed_types }
+    }
+
+    fn observed_components<'a>(&'a self, place: &'a ExecutionPlace) -> impl Iterator<Item = &'a ExecutionPlace> {
+        self.observed_types.range(place.clone()..)
+            .take_while(move |(component, _)| place.contains(component))
+            .map(|(component, _)| component)
+            .filter(move |component| *component != place)
+    }
+
     /// Seed the complete entry snapshot once. Observing a component does not write it.
     pub(super) fn observe_input(&mut self, place: &ExecutionPlace) {
         let root = root_place(place);
+        let components = self.observed_components(&root)
+            .map(|place| (place.clone(), ValueAvailability::Present)).collect();
 
-        self.roots.entry(root.clone()).or_insert_with(|| CurrentRoot {
+        let current = self.roots.entry(root.clone()).or_insert_with(|| CurrentRoot {
             value: ExecutionCondition::Input(root),
             availability: ValueAvailability::Present,
-            components: BTreeMap::new(),
+            components,
         });
+
+        if !place.projections.is_empty() {
+            current.components.entry(place.clone()).or_insert(ValueAvailability::Present);
+        }
     }
 
     pub(super) fn slot(&self, place: &ExecutionPlace) -> Option<CurrentValue> {
@@ -99,11 +118,18 @@ impl CurrentValues {
     /// Checked replacement also replaces initialization of its whole subtree.
     pub(super) fn replace(&mut self, place: ExecutionPlace, value: CurrentValue,
         storage: Option<&[bray_bound_tree::StorageProjection]>) {
+        let availability = value.availability.clone();
+        let components = self.observed_components(&place).cloned().collect::<Vec<_>>();
+
         if let Some(root) = self.roots.get_mut(&root_place(&place)) {
             root.components.retain(|component, _| !place.contains(component));
         }
 
-        self.write(place, value, storage);
+        self.write(place.clone(), value, storage);
+
+        let root = self.roots.get_mut(&root_place(&place)).expect("a published value retains its current root");
+
+        root.components.extend(components.into_iter().map(|component| (component, availability.clone())));
     }
 
     /// Direct lookup is for complete retained roots. Component reads use the
@@ -300,6 +326,51 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_symbols::SymbolOrdinal;
     use std::sync::Arc;
+
+    #[test]
+    fn observed_input_components_remain_live_after_a_sibling_moves() {
+        let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let first = root.clone().component(bray_symbols::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+        let second = root.clone().component(bray_symbols::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
+        let mut values = super::CurrentValues::default();
+
+        values.observe_input(&first);
+        values.observe_input(&second);
+        values.retire(&first);
+        values.observe_input(&first);
+
+        assert_eq!(values.availability(&first), ValueAvailability::Absent);
+        assert_eq!(values.availability(&second), ValueAvailability::Present);
+        assert_eq!(values.live_entries().collect::<Vec<_>>(),
+            vec![(second.clone(), ExecutionCondition::Input(second))]);
+
+        values.retire(&root);
+
+        assert!(values.live_values().next().is_none());
+    }
+
+    #[test]
+    fn producing_and_replacing_an_opaque_owner_initializes_its_observed_components() {
+        let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let first = root.clone().component(bray_symbols::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+        let second = root.clone().component(bray_symbols::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
+        let source = ExecutionPlace::argument(SymbolOrdinal::new(1));
+        let mut values = super::CurrentValues::with_observed_types(Arc::new(std::collections::BTreeMap::from([
+            (first.clone(), None), (second.clone(), None),
+        ])));
+
+        assert!(values.live_values().next().is_none());
+
+        values.insert(root.clone(), ExecutionCondition::Input(source.clone()));
+        values.retire(&first);
+
+        assert_eq!(values.live_entries().collect::<Vec<_>>(), vec![(second,
+            ExecutionCondition::Input(source.component(bray_symbols::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)))))]);
+
+        values.insert(root.clone(), ExecutionCondition::Input(root));
+
+        assert_eq!(values.availability(&first), ValueAvailability::Present);
+    }
 
     fn retained_owner() -> (ExecutionState, ExecutionPlace, ExecutionCondition) {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));

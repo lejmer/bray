@@ -56,7 +56,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
         &'a bray_bound_tree::CheckedDependencyContracts,
     pub(in crate::analysis::guarantee) has_bounds_checks: bool,
     pub(in crate::analysis::guarantee) sequence_length: Option<bray_symbols::AnySymbolId>,
-    pub(super) observed_types: &'a BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>,
+    pub(super) observed_types: &'a std::sync::Arc<BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
     pub(in crate::analysis::guarantee) scope_places: &'a BTreeMap<
         bray_bound_tree::StorageScope,
@@ -327,7 +327,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.complete_caught_result(state, expression, !succeeded);
         }
 
-        state.refine_witnesses();
+        self.refine_witnesses(state);
         self.retain_successor_values(state, edge);
 
         true
@@ -346,6 +346,8 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
     fn boundary(&self) -> Self::State {
         let mut state = ExecutionState::default();
+        state.current = super::super::current::CurrentValues::with_observed_types(
+            std::sync::Arc::clone(self.observed_types));
 
         for place in self.observed_types.keys() {
             if place.is_callable_input()
@@ -496,9 +498,10 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 condition.assume(true, &mut state.trusted_assumptions);
             }
 
-            for (condition, subject) in &contracts.required_witnesses {
-                for subject in subject.carrier_inputs(self.dependencies.condition_references()) {
-                    state.carry_guarantee(ExecutionCondition::Input(subject.clone()), condition.pointer_observations(&self.pointer_predicates));
+            for (condition, subject, containing_value) in &contracts.required_witnesses {
+                for subject in subject.carrier_inputs(self.request.semantic_values(), self.dependencies, *containing_value) {
+                    state.current.observe_input(&subject);
+                    state.carry_guarantee(ExecutionCondition::Input(subject), condition.pointer_observations(&self.pointer_predicates));
                 }
             }
 

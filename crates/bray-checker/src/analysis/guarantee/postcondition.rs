@@ -57,7 +57,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             },
             &domain.returned_value(state),
             &mut { ExecutionCondition::WORK_LIMIT },
-        );
+        ).with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions);
 
         if reflexive_comparison(domain, state, &condition) {
             continue;
@@ -76,7 +76,9 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
 
         let trusted = trusted.get_or_insert_with(|| {
             crate::execution_guarantees::trusted_condition_closure(
-                state.trusted_assumptions.clone(),
+                state.trusted_assumptions.iter().map(|(condition, holds)| (
+                    condition.with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions), *holds,
+                )).collect(),
                 &state.assumptions,
             )
         });

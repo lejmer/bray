@@ -22,7 +22,7 @@ pub struct TrustedContractInputs {
     /// Trusted conditions the caller must supply at entry.
     pub requirements: Vec<ExecutionCondition>,
     /// Borrowed or owning subjects whose established entry authority cannot be copied.
-    pub required_witnesses: Vec<(ExecutionCondition, ExecutionCondition)>,
+    pub required_witnesses: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
     /// Ordinary entry conditions that guard the trusted guarantees.
     pub preconditions: Vec<ExecutionCondition>,
     /// Guarantees a safe body must establish on every normal completion.
