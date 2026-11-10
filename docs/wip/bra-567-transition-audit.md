@@ -30,9 +30,9 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
-Fixed comparison:762 passed /46 failed /99 ignored, all907 identities retained. Checker482, bound-tree135,
+Fixed comparison:762 passed /46 failed /99 ignored, all907 identities retained. Checker484, bound-tree135,
 messages92, JSON49 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
-Current native.log:42 diagnostics(E7123=24,E7124=1,E7135=17), unchanged runtime Source64a4e5490.
+Current native.log:39 diagnostics(E7123=24,E7135=15), unchanged runtime Source64a4e5490. No added failure identities.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
 Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
@@ -56,33 +56,28 @@ scoped exits and cleanup. Source/MIR and its3 invalid variants pass. Full native
 Const reference results retain computation data inside the produced loan. Call carries its checked borrowed result type
 through substitution and portable Typed terms. Reference-value classification is independent of ownership authority.
 Identity substitution preserves borrowed computations. Untyped owned-return computations and scalar contexts stay distinct.
-Checker482, all907 fixed outcomes,16 progress tests, bound135 and expanded61/30 groups retain accepted outcomes.
 
 Symbolic reference origins are prepared from the existing dependency query, keyed by callable, dispatch and witnesses.
 Flow performs no hidden queries. Proof resolves forwarded alternatives only when branch facts leave one origin.
 Independent and broad-region origins cannot establish equality. All16 sync/async accessor cases pass, including wrong
 owners and an extra origin that the union case cannot exclude. Required witness subjects retain their actual expressions
 until prepared origins are available. Computation-only Boolean selector inputs no longer become authority carriers.
-The full native request removes binding168 and closing144 with no added failure identities. Remaining42 failures are
-unchanged by identity. Closing142's faithful source regression is now execution_guarantees/fixtures/guarded-union-carrier.bray.
-The active batch preserves origin payload paths and marker containment, and separates independent entry/completion clauses.
+Origin payload paths and marker containment survive normalization. Independent entry/completion clauses stay separate.
 Branch refinement publishes established payload clauses on the same ledger before joins. The fixture passes sync/async
 closing and release, including the returned postcondition. Missing-entry and fabricated-result variants reject in both modes.
-All907 fixed outcomes, checker482, bound135 and expanded61/30 groups remain unchanged. All17 focused tests pass.
-Candidate native40 removes closing142 and2 dependent E7135 failures but adds task/retirement141 arena-release E7123.
-Do not accept that candidate yet. retired-components.bray reproduces it. Removing pin release passes, removing only
-control disposal still fails. Staging arena before pin release passes. Removing the raw-pointer field still fails.
-Trace proves the first loss is pin-call Attempt. Its physical plan preserves arena.marker, but CurrentValues.observe_input
-records only the root. After a partial move, live_entries cannot enumerate the initialized sibling, so cleanup drops its ledger.
-CurrentValues shares PreparedBodyAnalysis.observed_types by Arc. Entry and actual replacement publish that prepared
-component availability. Values stay absent until production, moved parts stay absent, and replacement initializes new parts.
-Parameter and freshly produced owners pass both source/MIR modes and their missing-authority negatives. Both owning-boundary
-properties pass. All907 outcomes and expanded61/30 groups remain unchanged, checker484, bound135 and18 focused tests pass.
-Fresh native verification is pending. No preservation exception or runtime workaround.
+
+CurrentValues shares PreparedBodyAnalysis.observed_types by Arc and tracks observed entry components as metadata.
+It projects live subtrees from that inventory after partial moves. Inventory never enters the changed data slots used by joins.
+Values stay absent before production, moved parts stay absent, and replacement initializes the new owner's components.
+Parameter and produced owners pass sync/async source/MIR controls and missing-authority negatives. All18 focused checks,
+all907 outcomes and expanded61/30 groups pass or retain their frozen outcomes. No preservation exception or runtime workaround.
+The full native request clears closing142 and2 dependent execution-contract failures. Retirement141 and event/wait registration
+are clear. The owning-boundary assertion that metadata stays out of data slots passes.
+
 E7124 now retains the actual carrier, affected live guarantee and copy/separation cause through rendering and JSON.
-Its fixed-suite outcomes are unchanged. The native failure identifies owner.ownership and its guarded service-owned clause.
-No source hooks or review agent. Style/format remain deferred. Consumed union-callback/union-transfer-trace/build-probe files are removed.
-Consumed retired-components probes and traces are removed. Both canonical source fixtures live under execution_guarantees/fixtures.
+Next native gap: execution/driving197 loses view_owned(selected.acquisition) before retain_ready_driver. Trace its actual
+transitions before changing preservation. No source hooks or review agent. Style/format remain deferred.
+Consumed probes/traces are removed. Both canonical source fixtures live under execution_guarantees/fixtures.
 Build brayc and xtask together to retain Cargo feature unification.
 ## Remaining
 
