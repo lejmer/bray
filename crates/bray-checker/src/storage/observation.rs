@@ -149,8 +149,8 @@ impl Footprint {
         let entry_owners = request
             .trusted_contracts()
             .into_iter()
-            .flat_map(|contracts| contracts.required_witnesses.iter().flat_map(|(_, owner)|
-                owner.carrier_inputs(dependencies.condition_references())))
+            .flat_map(|contracts| contracts.required_witnesses.iter().flat_map(|(_, owner, containing_value)|
+                owner.carrier_inputs(request.semantic_values(), dependencies, *containing_value)))
             .collect::<BTreeSet<_>>();
 
         for (access_id, access) in storage.access_entries() {
@@ -165,7 +165,7 @@ impl Footprint {
                         == Some(bray_symbols::DependencyReferenceKind::Address)
                 })
                 && crate::ExecutionPlace::storage_identity(storage, root)
-                    .is_some_and(|owner| entry_owners.contains(&&owner))
+                    .is_some_and(|owner| entry_owners.contains(&owner))
             {
                 // This owned slot is a protocol witness for the current entry.
                 // Keeping its address value grants no unowned pointee permission.

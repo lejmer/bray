@@ -20,7 +20,7 @@ pub struct PreparedBodyAnalysis {
     pub(crate) values: super::liveness::ValueRetention,
     pub(crate) cleanup: super::guarantee::CleanupPlan,
     pub(crate) has_bounds_checks: bool,
-    pub(crate) observed_types: BTreeMap<crate::ExecutionPlace, Option<TypeId>>,
+    pub(crate) observed_types: Arc<BTreeMap<crate::ExecutionPlace, Option<TypeId>>>,
     pub(crate) borrowed_inputs: BTreeSet<crate::ExecutionPlace>,
     pub(crate) input_invariants: Vec<crate::ExecutionCondition>,
     pub(crate) union_variants: BTreeMap<TypeId, Arc<[bray_symbols::UnionVariantSymbolId]>>,
@@ -205,7 +205,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         cleanup,
         kind: request.unit().key().kind(),
         has_bounds_checks: false,
-        observed_types: BTreeMap::new(),
+        observed_types: Arc::default(),
         borrowed_inputs: BTreeSet::new(),
         input_invariants: Vec::new(),
         union_variants: BTreeMap::new(),
@@ -297,7 +297,7 @@ impl PreparedBodyAnalysis {
                     ty = Some(*target);
                 }
 
-                self.observed_types
+                Arc::make_mut(&mut self.observed_types)
                     .entry(place)
                     .and_modify(|known| {
                         if *known != ty {
@@ -341,7 +341,7 @@ impl PreparedBodyAnalysis {
                 || matches!(request.semantic_values().type_data(ty).as_ref(),
                     bray_symbols::TypeData::Named { definition: bray_symbols::NamedTypeSymbolId::Union(_), .. })
             {
-                self.observed_types.entry(place).or_insert(Some(ty));
+                Arc::make_mut(&mut self.observed_types).entry(place).or_insert(Some(ty));
             }
         }
 
@@ -350,7 +350,7 @@ impl PreparedBodyAnalysis {
         let mut types = BTreeMap::new();
         let mut scalar_fields = Vec::new();
 
-        for (place, ty) in &self.observed_types {
+        for (place, ty) in self.observed_types.iter() {
             let Some(subject) = input_invariant_subject(place) else {
                 continue;
             };
@@ -419,7 +419,7 @@ impl PreparedBodyAnalysis {
         }
 
         for (place, ty) in scalar_fields {
-            self.observed_types.entry(place).or_insert(Some(ty));
+            Arc::make_mut(&mut self.observed_types).entry(place).or_insert(Some(ty));
         }
 
         Ok(())

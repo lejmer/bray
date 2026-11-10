@@ -1,0 +1,122 @@
+trusted module app;
+
+struct Marker
+{
+}
+
+struct Reference
+{
+    marker: Marker;
+}
+
+struct Owner
+{
+    acquisition: Marker;
+    execution: Reference;
+}
+
+trusted predicate live(marker: &Marker);
+
+trusted predicate service_owned(marker: &Marker);
+
+predicate service_owner(owner: &Owner) = service_owned(marker = &owner.acquisition);
+
+callable Close = trusted func(pos owner: Owner) -> Reference
+    requires(trusted live(marker = &owner.execution.marker), trusted service_owner(owner = &owner))
+    ensures(trusted live(marker = &result.marker));
+
+callable Release = trusted func(pos owner: Reference)
+    requires(trusted live(marker = &owner.marker));
+
+union Ownership
+{
+    Open(pos owner: Owner, pos close: Close);
+    Cleanup(pos execution: Reference);
+}
+
+struct Binding
+{
+    ownership: Ownership;
+    release: Release;
+}
+
+const func reference(pos ownership: &Ownership) -> &Reference
+    executes(pure, total)
+{
+    return match ownership
+    {
+        case Ownership.Open(owner, _)
+        {
+            yield &owner.execution;
+        }
+        case Ownership.Cleanup(execution_pin)
+        {
+            yield &execution_pin;
+        }
+    };
+}
+
+const func open_owner(pos ownership: &Ownership) -> &Owner
+    requires(ownership matches Ownership.Open(_, _))
+    executes(pure, total)
+{
+    return match ownership
+    {
+        case Ownership.Open(value, _)
+        {
+            yield &value;
+        }
+        case Ownership.Cleanup(_)
+        {
+            panic("cleanup binding has no admission owner");
+        }
+    };
+}
+
+predicate valid(owner: &Binding) = live(marker = &reference(&owner.ownership).marker) && (
+    (owner.ownership matches Ownership.Open(_, _) && service_owner(owner = open_owner(&owner.ownership))) ||
+    owner.ownership matches Ownership.Cleanup(_)
+);
+
+func close_binding(pos owner: Binding) -> Binding
+    requires(trusted valid(owner = &owner))
+    ensures(trusted valid(owner = &result))
+{
+    let release = owner.release;
+
+    let execution_pin = match consume owner.ownership
+    {
+        case Ownership.Open(value, close)
+        {
+            yield close(value);
+        }
+        case Ownership.Cleanup(value)
+        {
+            yield value;
+        }
+    };
+
+    return
+    {
+        ownership = Ownership.Cleanup(execution_pin),
+        release = release
+    };
+}
+
+func release_binding(pos owner: Binding)
+    requires(trusted valid(owner = &owner))
+{
+    let release = owner.release;
+
+    match consume owner.ownership
+    {
+        case Ownership.Open(_, _)
+        {
+            panic("binding must be closed");
+        }
+        case Ownership.Cleanup(execution_pin)
+        {
+            release(execution_pin);
+        }
+    }
+}

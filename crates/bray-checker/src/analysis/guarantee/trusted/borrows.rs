@@ -478,7 +478,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     condition.assume(true, &mut state.assumptions);
                 }
 
-                state.refine_witnesses();
+                self.refine_witnesses(state);
 
                 let fields = self.returned_owned_values(invocation, arguments, [transfer]);
 
