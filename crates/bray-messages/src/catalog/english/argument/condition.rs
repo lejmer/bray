@@ -1,6 +1,18 @@
 use bray_diagnostics::{DiagnosticCondition, DiagnosticConditionProjection, DiagnosticConstantOperation, DiagnosticContractObligation, DiagnosticContractObligationKind, DiagnosticTypeArgument};
 use crate::code_snippet::format_code_snippet;
 
+pub(super) fn format_witness_transfer(failure: &bray_diagnostics::DiagnosticWitnessTransfer) -> String {
+    let carrier = format_condition(&failure.carrier);
+    let guarantee = format_condition(&failure.guarantee);
+
+    match failure.kind {
+        bray_diagnostics::DiagnosticWitnessTransferKind::Copy =>
+            format!("cannot copy `{carrier}`: it carries trusted guarantee `{guarantee}`"),
+        bray_diagnostics::DiagnosticWitnessTransferKind::Separation =>
+            format!("cannot separate this value from `{carrier}`: the complete owner carries trusted guarantee `{guarantee}`"),
+    }
+}
+
 pub(super) fn format_obligation(obligation: &DiagnosticContractObligation) -> String {
     let role = match obligation.kind {
         DiagnosticContractObligationKind::CallRequirement => "call requirement",

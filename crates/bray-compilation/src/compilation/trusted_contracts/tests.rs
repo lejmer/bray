@@ -1091,6 +1091,19 @@ fn raw_addresses_cannot_bypass_custom_witness_copy_contracts() {
         compilation.check_diagnostics(),
         DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
     );
+
+    let diagnostics = compilation.check_diagnostics();
+    let failure = diagnostics.iter().flat_map(|diagnostic| diagnostic.args())
+        .find_map(|argument| match argument.value() {
+            bray_diagnostics::DiagnosticArgValue::WitnessTransfer(failure) => Some(failure),
+            _ => None,
+        }).expect("rejected copy retains its transfer cause");
+
+    assert_eq!(failure.kind, bray_diagnostics::DiagnosticWitnessTransferKind::Copy);
+    assert!(matches!(&failure.guarantee,
+        bray_diagnostics::DiagnosticCondition::Application { path, arguments, .. }
+            if path.last().is_some_and(|name| name == "live") && arguments.len() == 1),
+        "{:?}", failure.guarantee);
 }
 
 #[test]

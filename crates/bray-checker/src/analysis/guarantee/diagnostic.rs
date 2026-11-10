@@ -8,6 +8,17 @@ use crate::{CheckerQueryResult, CheckerRequestContext, ExecutionCondition, Execu
 
 type Outcome<C> = CheckerQueryResult<Condition, <C as CheckerRequestContext>::UpstreamError>;
 
+pub(super) fn witness_transfer<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, kind: bray_diagnostics::DiagnosticWitnessTransferKind,
+    carrier: &ExecutionCondition, guarantee: &ExecutionCondition,
+) -> CheckerQueryResult<bray_diagnostics::DiagnosticWitnessTransfer, C::UpstreamError> {
+    Ok(bray_diagnostics::DiagnosticWitnessTransfer {
+        kind,
+        carrier: condition(domain, carrier, &mut 128)?,
+        guarantee: condition(domain, guarantee, &mut 128)?,
+    })
+}
+
 pub(super) fn panic_requirement<C: CheckerRequestContext + ?Sized>(
     flow: &super::flow::ExecutionFlow<'_, '_, C>, node: bray_bound_tree::AnyBoundNodeId,
 ) -> CheckerQueryResult<Option<bray_diagnostics::DiagnosticContractObligation>, C::UpstreamError> {

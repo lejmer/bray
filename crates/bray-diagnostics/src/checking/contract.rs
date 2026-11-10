@@ -1,5 +1,25 @@
 use crate::{DiagnosticConstantOperation, DiagnosticTypeArgument};
 
+/// The value operation that cannot preserve a trusted carrier's guarantee.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticWitnessTransferKind {
+    /// A stored value would duplicate its authority.
+    Copy,
+    /// A component would leave its complete authority carrier.
+    Separation,
+}
+
+/// A rejected witness transfer, retaining the actual carrier and affected guarantee.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticWitnessTransfer {
+    /// The operation that loses authority.
+    pub kind: DiagnosticWitnessTransferKind,
+    /// The complete value that currently carries the guarantee.
+    pub carrier: DiagnosticCondition,
+    /// The live trusted guarantee that the operation cannot preserve.
+    pub guarantee: DiagnosticCondition,
+}
+
 /// The boundary that owns a condition which could not be proved.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticContractObligationKind {

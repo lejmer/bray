@@ -2771,11 +2771,7 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplate::new(CHECKING_MISSING_TRUSTED_MEMORY_GUARANTEES)
         }
         DiagnosticKind::CheckingTrustedWitnessTransferNotProven => MessageTemplate::new(&[
-            MessageTemplatePart::Text("this "),
-            MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
-            MessageTemplatePart::Text(
-                " would copy or separate a value without preserving its trusted guarantees",
-            ),
+            MessageTemplatePart::Arg(DiagnosticArgName::WitnessTransfer),
         ]),
         DiagnosticKind::CheckingConstantCallRequirementNotProven => MessageTemplate::new(&[
             MessageTemplatePart::Text("this "),
@@ -3219,7 +3215,7 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::TrustedWitnessTransferRequired => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
-                "move the complete value while preserving its dependencies, or provide an explicit copy contract that preserves its guarantees",
+                "borrow the value, or move its complete owner together with its dependencies",
             )])
         }
         DiagnosticNoteKind::StoredTypeRequiresIndirection => {

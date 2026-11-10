@@ -30,6 +30,7 @@ use crate::output::path_to_output_string;
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     ContractObligation(super::contract::ContractObligationJson),
+    WitnessTransfer(super::contract::WitnessTransferJson),
     ExecutionProofFailure(super::contract::ExecutionProofFailureJson),
     Count(u64),
     Byte(u8),
@@ -147,6 +148,7 @@ impl DiagnosticArgValueJson {
     ) -> Self {
         match value {
             DiagnosticArgValue::ContractObligation(value) => Self::ContractObligation(super::contract::ContractObligationJson::from_obligation(value)),
+            DiagnosticArgValue::WitnessTransfer(value) => Self::WitnessTransfer(super::contract::WitnessTransferJson::from_failure(value)),
             DiagnosticArgValue::ExecutionProofFailure(value) => Self::ExecutionProofFailure(super::contract::ExecutionProofFailureJson::from_failure(*value)),
             DiagnosticArgValue::Count(count) => Self::Count(*count),
             DiagnosticArgValue::Byte(byte) => Self::Byte(*byte),

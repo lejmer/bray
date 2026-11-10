@@ -26,6 +26,8 @@ pub enum DiagnosticArgName {
     ExecutionProofFailure,
     /// The failed condition and the boundary responsible for proving it.
     ContractObligation,
+    /// The rejected operation, complete carrier and affected trusted guarantee.
+    WitnessTransfer,
     /// Actual externally supplied count or size.
     ActualCount,
     /// Exact number required by a source construct.
@@ -305,6 +307,7 @@ impl DiagnosticArgName {
         match self {
             Self::ExecutionProofFailure => "execution_proof_failure",
             Self::ContractObligation => "contract_obligation",
+            Self::WitnessTransfer => "witness_transfer",
             Self::ActualCount => "actual_count",
             Self::ExpectedCount => "expected_count",
             Self::ActualByteCount => "actual_byte_count",
@@ -454,6 +457,8 @@ pub enum DiagnosticArgValue {
     ExecutionProofFailure(crate::DiagnosticExecutionProofFailure),
     /// A failed condition with its actual arguments and owning boundary.
     ContractObligation(crate::DiagnosticContractObligation),
+    /// A rejected witness copy or separation, retaining the actual guarantee.
+    WitnessTransfer(crate::DiagnosticWitnessTransfer),
     /// Externally supplied or configured count.
     Count(u64),
     /// Raw source byte.
