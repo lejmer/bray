@@ -76,24 +76,17 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
 ) -> Result<DiagnosticResult<Option<TypeId>>, CheckerQueryError<C::UpstreamError>> {
     let owner = request.semantic_values().unborrowed_type(owner);
 
-    if projection == DependencyProjection::UninitPayload {
-        return Ok(DiagnosticResult::new(
-            request
-                .available_compiler_known_symbols()
-                .unary_representation_argument(
-                    request.semantic_values(),
-                    bray_compiler_known::RepresentationRole::Uninit,
-                    owner,
-                ),
-            DiagnosticBag::new(),
-        ));
-    }
-
     let data = request.semantic_values().type_data(owner);
 
     let mut diagnostics = DiagnosticBag::new();
 
     let ty = match (data.as_ref(), projection) {
+        (TypeData::Error, _) => Some(owner),
+        (_, DependencyProjection::UninitPayload) => request
+            .available_compiler_known_symbols()
+            .unary_representation_argument(
+                request.semantic_values(), bray_compiler_known::RepresentationRole::Uninit, owner,
+            ),
         (TypeData::OwnedIndirection { target, .. }, DependencyProjection::OwnedTarget) => {
             Some(*target)
         }

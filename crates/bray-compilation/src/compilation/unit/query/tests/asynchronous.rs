@@ -6,6 +6,28 @@ use bray_diagnostics::DiagnosticKind;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn unresolved_async_inputs_retain_name_resolution_diagnostics() {
+    let checked = compilation(r#"
+        module app;
+
+        async func pass<T>(pos value: T) -> T
+        {
+            return value;
+        }
+
+        async func caller(pos input: MissingType<(u32, u32)>) -> u32
+        {
+            let value = await pass<MissingType<(u32, u32)>>(input);
+            return value.value.0;
+        }
+    "#);
+
+    assert!(checked.check_diagnostics().iter().any(|diagnostic|
+        diagnostic.kind() == DiagnosticKind::BindingUnresolvedName),
+        "{:?}", checked.check_diagnostics());
+}
+
+#[test]
 fn async_analysis_reports_awaits_in_synchronous_callables() {
     let compilation = compilation(concat!(
         "module app;\n",
