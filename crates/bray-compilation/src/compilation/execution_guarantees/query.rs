@@ -1425,6 +1425,89 @@ mod tests {
     }
 
     #[test]
+    fn produced_owner_receivers_use_the_same_value_as_explicit_borrows() {
+        for call in ["owner.access();", "observe(&owner);", "let anchor_value = &owner;\n                            anchor_value.access();"] {
+            let source = format!(r#"
+                trusted module app;
+
+                struct Marker
+                {{
+                }}
+
+                trusted predicate live(marker: &Marker);
+
+                struct Prepared
+                {{
+                    instance: Marker;
+                }}
+
+                struct Lock
+                {{
+                    prepared: Prepared;
+
+                    func access()
+                        requires(trusted live(marker = &self.prepared.instance))
+                    {{
+                    }}
+
+                    trusted destruct()
+                        requires(trusted live(marker = &self.prepared.instance))
+                    {{
+                    }}
+                }}
+
+                struct Outgoing
+                {{
+                }}
+
+                func observe(pos owner: &Lock)
+                    requires(trusted live(marker = &owner.prepared.instance))
+                {{
+                }}
+
+                func forward()
+                {{
+                    let take = trusted lambda() -> (Outgoing, Lock, Outgoing)
+                        ensures(trusted live(marker = &result.1.prepared.instance))
+                    {{
+                        return (
+                            Outgoing
+                            {{
+                            }},
+                            Lock
+                            {{
+                                prepared = Prepared
+                                {{
+                                    instance = Marker
+                                    {{
+                                    }}
+                                }}
+                            }},
+                            Outgoing
+                            {{
+                            }}
+                        );
+                    }};
+
+                    let (first, owner, last) = take();
+
+                    {{
+                        {call}
+                    }}
+
+                    _ = owner;
+                    _ = first;
+                    _ = last;
+                }}
+            "#);
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+        }
+    }
+
+    #[test]
     fn whole_owner_guarantees_follow_mutating_calls_and_loop_carried_results() {
         for (asynchronous, wait) in [("", ""), ("async ", "await ")] {
             for (body, valid) in [

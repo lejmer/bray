@@ -30,9 +30,9 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
-Fixed comparison:760 passed /48 failed /99 ignored, all907 identities retained. Checker481, bound-tree135,
+Fixed comparison:762 passed /46 failed /99 ignored, all907 identities retained. Checker481, bound-tree135,
 messages91, JSON48 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
-Accepted native.log:44 diagnostics(E7123=27,E7135=17), unchanged runtime Source64a4e5490.
+Accepted native.log:43 diagnostics(E7123=26,E7135=17), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
 Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
@@ -74,8 +74,13 @@ observations in StorageCompletion for subsequent certificate consumers. No synta
 The8-case sync/async matrix, Source/MIR fixture and3 invalid variants pass. Physical frame movement, input-slot reuse
 and referent retirement pass. All907 identities retained. Normal deferred completion now passes its old positive while
 the caught-panic negative still rejects. Expanded61/30 groups unchanged. Native44 unchanged, including every full block.
-Trace hooks and consumed probes removed. Next investigate implicit shared receiver preparation: produced-lock reproduces
-deadline/storage374, while an explicit borrow or ordinary borrowed parameter passes. Cleanup does not cause this failure.
+Receiver input completion now applies the existing coerce operation to the declared passed type. Capture retained the
+correct produced value, but completion skipped the implicit borrow before publishing its receiver slot. Physical routes
+were correct. The3 source controls pass. Source/import real spin-lock positives now pass while fabrication, reconstruction
+and replacement negatives still reject. Native clears deadline/storage374 without other changes. The async fixture also
+mutates the owner returned by await, then checks its whole-owner guarantee. All907 identities and14 progress tests pass.
+Trace hooks and consumed probes removed. Next trace execution/binding168 and closing144 through consuming union payloads
+into stored callbacks. Existing kernel_binding uses a const accessor selecting the variant's complete Reference.
 No review agent. Style/format remain deferred.
 
 ## Remaining
