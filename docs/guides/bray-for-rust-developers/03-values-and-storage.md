@@ -391,6 +391,6 @@ Move the block back before the loop and run `bray run` to restore the output abo
 
 ## Next up
 
-Part 4 will use traits, implementations, and generics to build reusable APIs. We'll compare those with Rust's trait model, including Bray's named implementations and explicit overload sets.
+[Part 4: Write generic APIs with traits](04-traits-generics-and-overloads.md) uses traits, implementations, and generics to build reusable APIs. We'll compare those with Rust's trait model, including Bray's named implementations and explicit overload sets.
 
 The language reference covers [constants](../../language/declarations/constant-declarations.md), [static storage](../../language/declarations/static-storage-declarations.md), [const functions](../../language/callables/const-functions.md), [copy contracts](../../language/types/copy-contracts.md), [borrowing](../../language/ownership-and-borrowing/borrow-rules.md), [inferred dependencies](../../language/ownership-and-borrowing/dependency-contracts.md), and [iteration modes](../../language/expressions/iteration-source-resolution.md).
