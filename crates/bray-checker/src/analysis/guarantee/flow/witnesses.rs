@@ -328,6 +328,11 @@ fn collect_observations(
         if !matches!(owner, ExecutionCondition::Unknown | ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
             insert_snapshot(inputs, &owner, source);
         }
+        // Proof needs the complete predecessor value as well as its identity.
+        // Rebuilding an opaque value from projected fields changes its snapshot.
+        if role != ObservationKind::Reference {
+            insert_snapshot(inputs, joined, source);
+        }
     }
 
     if role == ObservationKind::Reference {

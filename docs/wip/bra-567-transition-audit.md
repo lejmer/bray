@@ -31,9 +31,11 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 The current semantic checkpoint retains live predecessor snapshots, projected aliases, nullable wrapper/payload
 separation and composed overlays. Earlier producer-owned result and allocation/reference transfers remain fixed.
-No reconstruction or parallel persistent state was added. The admitted-entry and diagnostic checkpoint is verified. The return-carrier simplification remains uncompiled. No review agent or goal is active.
+No reconstruction or parallel persistent state was added. The admitted-entry and diagnostic checkpoint is verified. Canonical return publication and deferred scalar controls pass the fixed comparison and492 checker tests.
+The paired nullable repairs and canonical publication retain exactly37 native diagnostic identities. No review agent or goal is active.
 
-Frozen907 identities:766 passed,42 failed,99 ignored, four explained repairs and no new failures. One extra allocation
+Frozen907 identities:769 passed,39 failed,99 ignored. Six repaired identities and one corrected scalar-copy test,
+with no new failures. The scalar test retains opaque negatives and now rejects a new call with the changed value. One extra allocation
 import case passes. Checker492 pass, including the direct collector and live-Unknown controls. Bound135, symbols221 and interfaces216 pass.
 Cleanup57/4, predicates26/2/2 and focused18 are unchanged. Source/MIR composition and3 invalid variants pass.
 Native composition has not run. verification.json holds executable identities and current evidence.
@@ -59,11 +61,23 @@ accepted trusted conditions. The verified repair records those conditions only i
 publishes that snapshot. Pre-admission and false ordinary controls pass, as do492 checker tests and the fixed907 comparison. No live authority is
 created. Rejected selection now reports MissingEvidence at the invocation, with a passing guard cause/span regression.
 All temporary hooks are removed. Inferred return witnesses still reconstruct a second value/identity map.
-The pending simplification reuses returned_condition, already used by ownership metadata, deleting that parallel map. Cargo builds compiler, driver and tests together. Always capture executable identities
+The pending simplification reuses returned_condition, already used by ownership metadata, deleting that parallel map.
+In the same build, the deferred-entry test now treats mutation of a copied scalar source as valid. A new call with that
+changed value remains an E7123 negative. Opaque invalidation negatives remain fixed. This is a verified test correction, not a production repair. Preserve the original907 comparison file.
+The two nullable failures remain. The opaque nullable join row reproduces a missing complete-value snapshot. The verified collector records that value
+as well as its identity, avoiding reconstruction from projections. Metadata for create_owned_tuple_inferred also proves
+that publication adds a spurious presence guard to a whole nullable protocol. The verified publication uses path activity
+only, retaining payload guards on explicit NullableValue steps. Both repairs and the metadata assertion pass source/import matrices,492 checker tests and the fixed comparison. All temporary metadata prints are removed. Cargo builds compiler, driver and tests together. Always capture executable identities
 from Cargo JSON because feature unification changed their hashes. verification.json owns the current paths.
 
-Source/import witness matrices have the same2 positive failures each, down from46, with every negative control passing:
-optional_claim and new_owned_tuple_inferred. All Result<Nullable> permutations and provider variants now pass.
+Both source/import witness matrices now pass completely, including all negative controls and every nested permutation.
+The opaque nullable join and whole-carrier publication fixes pass492 checker tests and the fixed comparison.
+Native retains exactly37 identities. deferred-boundaries.bray batches direct await, Task.join, Task.cancel and selected
+observation for tuple/Box, array, whole-marker and fresh-marker owners. All four direct awaits pass, all12 started-task
+observations lose held evidence, and a fabricated result rejects. This proves a Task handoff gap before branch joining.
+The reproduction uses the same source-defined Box as the fixture, not std Box. copy-projection-error.bray is a separate
+minimal invalid std Box program that panics in dependency/result/copying.rs:28 on owner Error. Fix its owning phase gate,
+never add a downstream fallback. Both small sources must be consumed after permanent coverage.
 Deferred provider held evidence still fails after if selecting try-await cancel/join. Consumers remain unverified.
 
 Other unresolved families: driving197 loses Current's view at wait_execution Attempt through returned-pointer raw

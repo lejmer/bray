@@ -1539,6 +1539,15 @@ fn witness_ownership_survives_imported_control_flow() {
         provider.check_diagnostics()
     );
 
+    let contract = crate::compilation::result_dependencies::source_function_dependencies(
+        &provider, "create_owned_tuple_inferred");
+    let values = provider.semantic_value_store().unwrap();
+    assert!(contract.carriers().iter().any(|carrier|
+        matches!(carrier.path(), [bray_symbols::DependencyProjection::TupleElement(index)] if index.raw() == 1)
+            && matches!(bray_checker::execution_condition_from_type_term(values, carrier.guarantee(), 1).unwrap(),
+                bray_checker::ExecutionCondition::Trusted(_))),
+        "a whole nullable guarantee is independent of payload presence: {contract:#?}");
+
     for (name, body, valid) in cases() {
         let body = body.replace("api.", "example.package.api.");
 
