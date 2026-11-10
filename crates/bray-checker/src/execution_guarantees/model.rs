@@ -5,12 +5,21 @@ use bray_source::SourceSpan;
 use bray_symbols::ExecutionProperty;
 
 /// Certification failure retaining the source identity and specific known cause.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExecutionVerificationFailure<Source> {
     /// Source of the failed operation or dependency.
     pub source: Source,
     /// Why the requested behavior could not be established.
     pub cause: bray_diagnostics::DiagnosticExecutionProofFailure,
+    /// The unproven contract with its actual values, resolved only on failure.
+    pub condition: Option<std::sync::Arc<bray_diagnostics::DiagnosticContractObligation>>,
+}
+
+impl<Source> ExecutionVerificationFailure<Source> {
+    /// Changes the source representation without discarding the proof's diagnostic context.
+    pub fn map_source<T>(self, map: impl FnOnce(Source) -> T) -> ExecutionVerificationFailure<T> {
+        ExecutionVerificationFailure { source: map(self.source), cause: self.cause, condition: self.condition }
+    }
 }
 
 /// A declaration creates an obligation without certifying its implementation.
@@ -218,11 +227,12 @@ impl ExecutionCandidate {
     }
 
     /// Returns the first operation preventing a local proof, if any.
-    pub const fn failure(&self) -> Option<ExecutionVerificationFailure<SourceSpan>> {
-        match self.failure {
-            Some(failure) => Some(failure),
+    pub fn failure(&self) -> Option<ExecutionVerificationFailure<SourceSpan>> {
+        // Failure context is immutable and shared with the candidate's certificate consumers.
+        match &self.failure {
+            Some(failure) => Some(failure.clone()),
             None => match self.input_mutation {
-                Some(source) => Some(ExecutionVerificationFailure {
+                Some(source) => Some(ExecutionVerificationFailure { condition: None,
                     source, cause: bray_diagnostics::DiagnosticExecutionProofFailure::InputMutation,
                 }),
                 None => None,
@@ -232,7 +242,7 @@ impl ExecutionCandidate {
 
     /// Returns an operation that escapes the supported deterministic observation frame.
     pub const fn observation_failure(&self) -> Option<SourceSpan> {
-        match self.failure {
+        match &self.failure {
             Some(failure) => Some(failure.source),
             None => self.observation_failure,
         }

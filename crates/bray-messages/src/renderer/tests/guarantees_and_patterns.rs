@@ -232,3 +232,28 @@ fn forbidden_predicate_blocks_name_the_syntax_and_const_helper_remedy() {
         assert_eq!(rendered.notes()[0].message(), "move this control flow into a const function and call it from the predicate");
     }
 }
+
+#[test]
+fn unproven_contract_labels_name_the_actual_condition() {
+    use bray_diagnostics::{DiagnosticCondition, DiagnosticConstantOperation,
+        DiagnosticContractObligation, DiagnosticContractObligationKind};
+
+    let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+    let obligation = DiagnosticContractObligation {
+        kind: DiagnosticContractObligationKind::Postcondition,
+        required: DiagnosticCondition::Result,
+        actual: DiagnosticCondition::Operation {
+            operation: DiagnosticConstantOperation::Greater,
+            operands: vec![DiagnosticCondition::Source("value".to_owned()),
+                DiagnosticCondition::Literal("1".to_owned())],
+        },
+    };
+    let diagnostic = Diagnostic::new(DiagnosticId::new(0),
+        DiagnosticKind::CheckingPostconditionNotProven, SeverityKind::Error)
+        .with_label(DiagnosticLabel::secondary(DiagnosticLabelKind::UnprovenContractCondition, span)
+            .with_arg(DiagnosticArg::contract_obligation(obligation))
+            .with_arg(DiagnosticArg::execution_proof_failure(bray_diagnostics::DiagnosticExecutionProofFailure::Unproven)));
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+    assert_eq!(rendered.labels()[0].message(), "this operation or its cleanup does not establish the required contract: postcondition `(value > 1)`");
+}

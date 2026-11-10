@@ -1,5 +1,5 @@
 use bray_bound_tree::AnyBoundNodeId;
-use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticContractObligation, DiagnosticContractObligationKind, DiagnosticKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind};
+use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticContractObligationKind, DiagnosticKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind};
 
 use crate::analysis::guarantee::flow::ExecutionFlowDomain;
 use crate::{CheckerQueryResult, CheckerRequestContext, UnprovenExecutionCondition};
@@ -8,11 +8,7 @@ pub(in crate::analysis::guarantee::trusted) fn with_obligation<C: CheckerRequest
     domain: &ExecutionFlowDomain<'_, '_, C>, kind: DiagnosticContractObligationKind, failed: &UnprovenExecutionCondition,
     diagnostic: Diagnostic,
 ) -> CheckerQueryResult<Diagnostic, C::UpstreamError> {
-    let mut diagnostic = diagnostic.with_arg(DiagnosticArg::contract_obligation(DiagnosticContractObligation {
-        kind,
-        required: super::condition::condition(domain, failed.required(), &mut 128)?,
-        actual: super::condition::condition(domain, failed.actual(), &mut 128)?,
-    }));
+    let mut diagnostic = diagnostic.with_arg(DiagnosticArg::contract_obligation(super::super::super::diagnostic::obligation(domain, kind, failed)?));
 
     for mutation in failed.actual().observed_mutations() {
         let origin = crate::diagnostic::bound_node_origin(domain.request, mutation.occurrence().node())

@@ -412,7 +412,7 @@ impl Compilation {
         )?;
 
         Ok((
-            failure.map(|failure| ExecutionVerificationFailure { source: failure.source.unwrap_or_else(|| source_span(source)), cause: failure.cause }),
+            failure.map(|failure| failure.map_source(|failed| failed.unwrap_or_else(|| source_span(source)))),
             assertions,
             dependencies,
         ))
@@ -461,7 +461,7 @@ impl Compilation {
             }
 
             if depth > limit {
-                failure = Some(ExecutionVerificationFailure { source: proof_owner_span(owner, source), cause: FailureCause::DepthLimit {
+                failure = Some(ExecutionVerificationFailure { condition: None, source: proof_owner_span(owner, source), cause: FailureCause::DepthLimit {
                     depth: u64::try_from(depth).expect("proof depth fits diagnostic count"),
                     limit: u64::try_from(limit).expect("proof depth limit fits diagnostic count"),
                 } });
@@ -481,7 +481,7 @@ impl Compilation {
                     self.imported_execution_contract(callable, diagnostics, cancellation)?;
 
                 let Some(portable) = super::imported::portable_imported_obligation(required) else {
-                    failure.get_or_insert(ExecutionVerificationFailure { source: source.map(source_span), cause: FailureCause::MissingEvidence });
+                    failure.get_or_insert(ExecutionVerificationFailure { condition: None, source: source.map(source_span), cause: FailureCause::MissingEvidence });
                     continue;
                 };
 
@@ -490,7 +490,7 @@ impl Compilation {
                     .iter()
                     .find(|proof| proof.obligation == portable)
                 else {
-                    failure.get_or_insert(ExecutionVerificationFailure { source: source.map(source_span), cause: FailureCause::MissingEvidence });
+                    failure.get_or_insert(ExecutionVerificationFailure { condition: None, source: source.map(source_span), cause: FailureCause::MissingEvidence });
                     continue;
                 };
 
@@ -499,7 +499,7 @@ impl Compilation {
                     bray_symbols::CallableExecutionOrigin::Requirement
                         | bray_symbols::CallableExecutionOrigin::CompilerIntrinsic
                 ) {
-                    failure.get_or_insert(ExecutionVerificationFailure { source: source.map(source_span), cause: FailureCause::MissingEvidence });
+                    failure.get_or_insert(ExecutionVerificationFailure { condition: None, source: source.map(source_span), cause: FailureCause::MissingEvidence });
                     continue;
                 }
 
@@ -555,7 +555,7 @@ impl Compilation {
                 diagnostics.add_range(candidates.result().diagnostics().iter().cloned());
 
                 if candidates.result().diagnostics().has_errors() {
-                    failure.get_or_insert(ExecutionVerificationFailure { source: Some(source_span(anchor)), cause: FailureCause::DependencyErrors });
+                    failure.get_or_insert(ExecutionVerificationFailure { condition: None, source: Some(source_span(anchor)), cause: FailureCause::DependencyErrors });
                     continue;
                 }
 
@@ -563,7 +563,7 @@ impl Compilation {
                     panic!("checked source execution candidates omit {goal:?} for {owner:?}")
                 });
 
-                let unproven = |source| ExecutionVerificationFailure { source, cause: FailureCause::Unproven };
+                let unproven = |source| ExecutionVerificationFailure { condition: None, source, cause: FailureCause::Unproven };
                 let local_failure = if required == ExecutionObligation::Observation {
                     candidate.observation_failure().map(unproven)
                 } else {
@@ -577,9 +577,7 @@ impl Compilation {
                         && !candidate.finite_iteration())
                 {
                     let local = local_failure.unwrap_or_else(|| unproven(source_span(anchor)));
-                    failure.get_or_insert(ExecutionVerificationFailure {
-                        source: Some(local.source), cause: local.cause,
-                    });
+                    failure.get_or_insert(local.map_source(Some));
 
                     continue;
                 }
@@ -731,7 +729,7 @@ impl Compilation {
             if valid {
                 graph.insert((owner, required), dependencies);
             } else {
-                failure.get_or_insert(ExecutionVerificationFailure { source: proof_owner_span(owner, source), cause: FailureCause::Unproven });
+                failure.get_or_insert(ExecutionVerificationFailure { condition: None, source: proof_owner_span(owner, source), cause: FailureCause::Unproven });
             }
         }
 
