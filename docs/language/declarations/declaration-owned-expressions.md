@@ -177,19 +177,17 @@ Compiled interface metadata therefore records:
 - whether the default exists,
 - its checked semantic requirements,
 - its generic and contextual input surface,
-- a stable reference to its compiler-generated runtime default provider.
+- the information needed to evaluate the default with its declaration-site meaning.
 
-The provider is not a source-visible declaration and does not participate in ordinary lookup. It evaluates the already
-checked default expression when a call or construction omits the corresponding value.
+A runtime default provider denotes the definition-site behavior of the default. It is not a source-visible
+declaration and does not participate in ordinary lookup. Evaluating a default uses permitted receiver,
+earlier-parameter, generic, trait-selected, and other contextual dependencies. It cannot capture arbitrary call-site
+locals.
 
-The provider receives permitted receiver, earlier-parameter, generic, trait-selected, and other contextual dependencies
-through its compiler-defined input surface. It cannot capture arbitrary call-site locals.
+Compiler-known runtime construction defaults follow the same semantic contract.
 
-Compiler-known runtime construction defaults use the same semantic provider contract through their compiler-known
-construction surfaces.
-
-Provider invocation follows the evaluation order defined by the call or construction expression. Provider lowering and
-emission are lazy and occur only when the provider is reachable.
+A default is evaluated in the order defined by the call or construction expression, and only when the corresponding
+argument or field value is omitted.
 
 The consuming compiler does not reinterpret the default expression or produce new definition diagnostics for it.
 

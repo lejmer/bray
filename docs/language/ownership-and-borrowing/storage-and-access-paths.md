@@ -57,8 +57,8 @@ operation whose contract establishes synchronization, atomicity, single assignme
 A product-static path is rooted in its owning product instance. A thread-local static path is rooted in both its owning
 product and the current exact native-thread attachment. These roots participate in every projection from the path.
 
-The compiler uses disjointness when checking whether borrowing, mutation, movement, initialization, destruction, or
-finalization of one access path affects another. The same storage relationship governs condition refinement.
+Whether borrowing, mutation, movement, initialization, destruction, or finalization of one access path affects another
+depends on their disjointness. The same storage relationship governs condition refinement.
 
 ## Navigation
 

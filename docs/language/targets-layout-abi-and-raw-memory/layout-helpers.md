@@ -78,7 +78,7 @@ alignment.
 
 The ABI and layout helper results are target-dependent constants when their inputs are constant.
 
-The compiler records the target properties used by these helpers in compiled interface metadata.
+Compiled interfaces preserve the target properties used by these helpers.
 
 These helpers do not read memory, write memory, allocate, deallocate, initialize storage, destroy values, create raw
 pointer validity conditions, or create allocation ownership conditions.

@@ -73,8 +73,8 @@ supplies a valid complete carrier and matching dependencies. An absent nullable 
 
 ## Guarantees at a merge
 
-A [flow-state merge](../expressions/expression-results.md#flow-state-merge) retains a condition only when the checker can
-establish it for every reaching alternative. A fact established on only one branch is unavailable after the merge.
+A [flow-state merge](../expressions/expression-results.md#flow-state-merge) retains a condition only when it can be
+established for every reaching alternative. A fact established on only one branch is unavailable after the merge.
 A common consequence can survive even when the incoming facts have different expressions, if the supported reasoning
 establishes that consequence on each alternative.
 
@@ -86,7 +86,7 @@ preserving all possible dependencies and obligations.
 ## Required evidence and proof limits
 
 A matching available condition with valid dependencies satisfies its contract requirement. Otherwise, a requirement
-that needs implication is satisfied only when the checker's supported reasoning proves that implication.
+that needs implication is satisfied only when the supported reasoning proves that implication.
 A false result and an inability to prove a result both fail to discharge the requirement. Failure to prove a condition
 does not establish its negation.
 

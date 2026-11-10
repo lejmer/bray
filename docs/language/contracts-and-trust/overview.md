@@ -8,7 +8,7 @@ have the following roles:
 | Trusted implementation capability | Authority used inside a trusted declaration body. |
 | Ordinary contract requirement | A checkable condition expressed in predicate-expression context. |
 | Static constraint | A compile-time condition expressed in static predicate context. |
-| Trusted caller obligation | A condition the ordinary checker cannot prove, which must be supplied, preserved, or acknowledged. |
+| Trusted caller obligation | A condition ordinary reasoning cannot prove, which must be supplied, preserved, or acknowledged. |
 | Predicate | A named contract-level relation used in requirements, guarantees, constraints, and trusted obligations. |
 
 Trusted implementation power and trusted caller obligations are independent. A declaration can use trusted

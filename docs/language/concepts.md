@@ -7,14 +7,12 @@ validity and execution rules.
 
 ## Program Structure
 
-A **source unit** is one UTF-8 text input accepted by the lexer.
+A **source unit** is one UTF-8 text input.
 
 A **token** is a lexical item produced from source text.
 
-**Trivia** is whitespace or comments attached to tokens. Trivia separates tokens and preserves source text but is not
-itself a semantic language construct.
-
-A **syntax tree** is the parsed representation of a source unit.
+**Trivia** is whitespace or comments between tokens or at the boundaries of a source unit. Trivia separates tokens but
+is not itself a semantic language construct.
 
 A **module** is a named source-level unit of declaration ownership and path resolution.
 
@@ -153,7 +151,7 @@ A **postcondition** must hold after an operation completes normally.
 A **dependency contract** records requirements that must remain true for a value, borrow, callable value, trait view,
 task, or other entity to stay valid.
 
-A **trusted obligation** is an obligation the ordinary checker cannot prove and that must be satisfied through Bray's
+A **trusted obligation** is an obligation ordinary reasoning cannot prove and that must be satisfied through Bray's
 trust rules.
 
 A **capability** is named authority to perform an operation that ordinary safe Bray does not allow without that

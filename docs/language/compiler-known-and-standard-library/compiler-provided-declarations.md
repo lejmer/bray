@@ -67,18 +67,16 @@ A behavior is not implementation-defined merely because the declaration is compi
 Compiler-provided behavior is portable unless the owning language rule explicitly marks a specific part of that behavior
 as target-defined or implementation-defined and defines the allowed range.
 
-A compiler can use target intrinsics, runtime calls, inline code generation, platform APIs, allocator hooks, metadata,
-static analysis, or another lowering strategy when the specified observable Bray semantics are preserved.
-
-Lowering strategy is not observable Bray semantics.
+An implementation can choose any strategy that preserves the specified observable Bray semantics. The chosen strategy
+is not itself observable Bray semantics.
 
 Permitted choices follow the
 [specification conventions](../conventions.md#target-and-implementation-choices).
 
-Implementation-specific lowering must not introduce extra user-visible preconditions, postconditions, panics, trusted
+An implementation must not introduce extra user-visible preconditions, postconditions, panics, trusted
 guarantees, invalidations, overloads, conversions, imports, visibility changes, or evaluation-order changes.
 
-Implementation-specific lowering must not remove any specified precondition, postcondition, panic, trusted guarantee,
+An implementation must not remove any specified precondition, postcondition, panic, trusted guarantee,
 invalidation, ownership effect, borrowing effect, initialization effect, finalization effect, destruction effect,
 allocation effect, aliasing effect, memory effect, or evaluation-order rule.
 

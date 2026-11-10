@@ -32,9 +32,7 @@ Effects and capability contracts are part of:
 - dynamic dispatch,
 - public API compatibility.
 
-The compiler computes a body effect summary for each callable body.
-
-The body effect summary is derived from:
+A callable body's effects and capabilities include those arising from:
 
 - selected callable contracts of calls and method calls,
 - selected lifecycle declaration contracts,
@@ -47,7 +45,7 @@ The body effect summary is derived from:
 - panic-catching boundaries,
 - trusted capability use.
 
-The computed body effect summary must be valid for the callable's declaration surface and surrounding context.
+The body's effects and capabilities must be valid for the callable's declaration surface and surrounding context.
 
 Constant-evaluation eligibility is declared with the `const` function modifier.
 
@@ -147,10 +145,9 @@ propagates through ordinary synchronous calls and direct awaits while executing 
 boundary. `catch` does not intercept it.
 
 No source-level `cancel` effect modifier or callable-type clause exists. Like panic propagation, current-run
-cancellation does not change overload selection or callable assignment compatibility. The compiler nevertheless records
-`may_cancel_current_run` in the checked body effect summary and compiled declaration metadata so diagnostics,
-effect-free-context checks, lowering, and inspection can preserve the abnormal edge. Absence of that summary term is not
-a promise that arbitrary foreign or catastrophic host termination cannot occur.
+cancellation does not change overload selection or callable assignment compatibility. Current-run cancellation remains
+an effect of the body and must be accounted for in effect-free contexts, diagnostics, and compiled declarations.
+The absence of this effect does not guarantee that arbitrary foreign or catastrophic host termination cannot occur.
 
 An `async` callable type carries suspendable execution and cooperative request-observation participation. This means its
 computation can be cancelled by its owning task or root according to the async observation rules. It is separate from

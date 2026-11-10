@@ -14,9 +14,9 @@ finalization requirement.
 
 A thread-affine capability records the exact origin thread or a typed compatible-lane class in the dependency contract.
 A task retaining it can run only on that thread or on a lane proven to belong to that class. The requirement is not a
-boolean “local” flag. The frame descriptor records the requirement for every control state. An implementation can
-migrate only between states whose live dependency sets permit the destination, and must conservatively pin the whole
-task when it does not implement state-sensitive affinity. No different task type is required. A migratable task has no
+boolean “local” flag. The requirement applies in every state where the dependency is live. A task can migrate only
+when its live dependency set permits the destination. If state-sensitive affinity is not established, the whole task
+remains pinned. No different task type is required. A migratable task has no
 live affinity requirement and can run on any selected worker satisfying its execution requirements.
 
 A borrow or capability derived from thread-local static storage or other thread-affine state records the exact

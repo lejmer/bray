@@ -12,9 +12,9 @@ semantics belong to the scalar and literal rules.
 ## Source text
 
 Bray source text is UTF-8. An optional UTF-8 byte order mark is accepted only at the beginning of a source unit and is
-ignored. Source text is not Unicode-normalized by the compiler.
+ignored. Source text is not Unicode-normalized.
 
-Line endings accepted by the lexer are LF and CRLF. The compiler treats both as line breaks for source locations. A lone
+Accepted line endings are LF and CRLF. Both count as line breaks for source locations. A lone
 CR is not a line ending. It is valid only as ordinary text inside block comments.
 
 ```ebnf
@@ -36,13 +36,13 @@ end-of-file =
 
 ## Tokenization
 
-The lexer uses longest-token matching.
+Tokenization uses longest-token matching.
 
 Tuple element indices use a context-specific scan after member-access `.` as described below.
 
 Consecutive ampersands and closing angles form longest `&&` and `>>` tokens followed by a single character token when
-needed. The parser reads one `&` for each borrow layer in type positions and one `>` for each generic close. In
-expressions, `&&` and `>>` remain the logical conjunction and right-shift tokens.
+needed. In type positions, one `&` denotes each borrow layer and one `>` denotes each generic close. In expressions,
+`&&` and `>>` remain the logical conjunction and right-shift tokens.
 
 When two token kinds have the same spelling length, the more specific token kind wins:
 
@@ -50,9 +50,7 @@ When two token kinds have the same spelling length, the more specific token kind
 - documentation comments win over ordinary comments,
 - imaginary literals win over the numeric literal they contain.
 
-Whitespace and comments separate tokens and are otherwise trivia. The syntax layer preserves them as leading and
-trailing trivia on syntax tokens so source text can be recreated from syntax trees. Trivia is not represented as
-ordinary syntax nodes.
+Whitespace and comments separate tokens and are otherwise trivia.
 
 Adjacent tokens are valid only when the resulting character sequence cannot be read as a longer token or invalid token.
 
@@ -414,9 +412,9 @@ tuple-element-index =
 
 Tuple element indices do not use separators. Leading zeroes are invalid except for the single index `0`.
 
-A decimal spelling is treated as a tuple element index only in the member-selector position after `.`. The parser
-performs that scan before ordinary numeric-literal scanning, so `entry.1.0` parses as `entry` followed by tuple element
-`1` and then tuple element `0`. In ordinary expression positions, the same character shape is an integer literal.
+A decimal spelling is treated as a tuple element index only in the member-selector position after `.`. This scan takes
+precedence over ordinary numeric-literal scanning, so `entry.1.0` denotes `entry` followed by tuple element `1` and then
+tuple element `0`. In ordinary expression positions, the same character shape is an integer literal.
 
 ---
 
@@ -466,13 +464,13 @@ operator-or-punctuation-token =
 The `@` token introduces directives in directive contexts and is the matrix/dot-product binary token in expression
 contexts.
 
-The parser decides the role from grammar context.
+The grammar context determines the role.
 
 ---
 
 ## Invalid Tokens
 
-The lexer rejects invalid source text before parsing.
+Invalid lexical forms make the source text invalid.
 
 Invalid lexical forms include:
 

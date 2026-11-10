@@ -41,8 +41,8 @@ input and output protocols create value-transfer and terminal-observation edges.
 memory-mapped storage create cross-process visibility only through the explicit synchronization contract of the
 standard-library type that owns them.
 
-The executable root run begins after product-static materialization. Its generated root frame observes every root-scope
-owned child and completes root lexical lifecycle cleanup before publishing the final terminal record. The root run ends
+The executable root run begins after product-static materialization. It observes every root-scope owned child and
+completes root lexical lifecycle cleanup before publishing the final terminal record. The root run ends
 at that publication. Host-side outcome mapping, entry closure, run quiescence, thread-local static cleanup,
 product-static cleanup, cleanup-sink draining, runtime-infrastructure shutdown, and process-scoped host resource
 destruction follow the root completion edge and therefore cannot race source execution.

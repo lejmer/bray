@@ -702,7 +702,7 @@ impl Future<T>
 The compiler-known environment owns this inherent implementation. Source and standard-library packages cannot replace or
 extend it.
 
-An `Future<T>` carries every dependency, execution requirement, and lifecycle obligation held by its hidden frame.
+A `Future<T>` carries every dependency, execution requirement, and lifecycle obligation held by its computation state.
 Ending ownership without executing the body resolves initialized frame state and requires an async cleanup context when
 that state has asynchronous finalization obligations.
 

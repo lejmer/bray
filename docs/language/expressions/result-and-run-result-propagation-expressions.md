@@ -66,8 +66,8 @@ that cannot participate in run execution, including constant and predicate evalu
 
 ## Error propagation conversion
 
-A `Result.Error` payload can propagate to a boundary when the checker can construct a built-in conversion from the
-source error type to the boundary's error type. This includes identity, lossless scalar conversion, callable contract
+A `Result.Error` payload can propagate to a boundary when a built-in conversion exists from the source error type to
+the boundary's error type. This includes identity, lossless scalar conversion, callable contract
 conversion, and recursive built-in tuple, array, nullable, and tuple-to-complex conversion under
 [conversion expressions](conversion-expressions.md#built-in-conversion).
 The search proceeds through enclosing result boundaries from nearest to farthest and selects the first that meets

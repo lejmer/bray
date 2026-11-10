@@ -29,7 +29,7 @@ mediation. Task-owned storage begins at `start()`. Recursive suspended depth can
 boxing or pinning.
 
 The executable host owns the root process, main thread, and root run. A synchronous main is the root run directly. An
-async main is driven as a host-owned root task on the distinguished main-thread lane. The generated root frame resolves
+async main is driven as a host-owned root task on the distinguished main-thread lane. Root cleanup resolves
 source-owned tasks, threads, processes, budgets, and cleanup incidents before terminal publication.
 
 Host shutdown then maps the terminal record, drains reports and closes entry. Cleanup eligibility follows in-flight

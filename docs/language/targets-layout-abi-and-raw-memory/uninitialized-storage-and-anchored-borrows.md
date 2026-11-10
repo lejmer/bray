@@ -18,8 +18,8 @@ from uninitialized bytes. Access to its contents still requires the ordinary pro
 `assume_initialized` consumes `Uninit<T>` and produces its `T`. `move_initialized` moves the `T` out through a mutable
 storage borrow. Both declarations are trusted boundaries. The caller must prove that the storage contains one live `T`
 and that no earlier move, destruction, finalization, or invalidating epoch change has consumed that value. The checked
-contract supplies that proof at foreign boundaries. When initialization was established by a checked write, the checker
-also tracks and consumes that state so a later operation cannot reuse it.
+contract supplies that proof at foreign boundaries. When initialization was established by a checked write, the
+operation also consumes that initialization state so a later operation cannot reuse it.
 
 An initialized value owned inside protected storage must be committed to an ordinary owner, moved out, or explicitly
 destroyed before that storage is discarded. `Uninit<T>` itself has no `T` lifecycle because its uninitialized state owns

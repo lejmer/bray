@@ -399,8 +399,8 @@ point.y
 
 when `x` and `y` are distinct fields of the same product value.
 
-The compiler uses disjointness to check whether borrowing, mutation, movement, initialization, or destruction of one
-field affects another. Conditions about a field are likewise subject to changes through overlapping access paths, as
+Whether borrowing, mutation, movement, initialization, or destruction of one field affects another depends on their
+disjointness. Conditions about a field are likewise subject to changes through overlapping access paths, as
 defined by [contract reasoning](../contracts-and-trust/contract-reasoning.md).
 
 ## Product initialization state

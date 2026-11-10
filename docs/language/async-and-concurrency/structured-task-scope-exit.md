@@ -7,8 +7,8 @@ boundary is resolved before any storage or dependency required by those tasks ca
 completion, `yield`, `return`, `break`, `continue`, propagation, panic, cancellation, and every other path leaving the
 block.
 
-Task obligations can occur in local bindings, initialized represented parts of aggregates, or initialized hidden frame
-state owned by an inactive `Future<T>`, such as a not-yet-awaited join or cancel computation. Flow-sensitive
+Task obligations can occur in local bindings, initialized represented parts of aggregates, or initialized state owned
+by an inactive `Future<T>`, such as a not-yet-awaited join or cancel computation. Flow-sensitive
 partial-move and initialization conditions determine which obligations remain owned at each exit.
 
 Task cleanup occurs in two phases.
@@ -18,11 +18,10 @@ Task cleanup occurs in two phases.
 Before waiting for or normally finalizing any owned unresolved task, cleanup requests cancellation for every such task.
 Requests are issued in deterministic reverse ownership-resolution order, but no task is awaited during this phase.
 
-Phase-one traversal is recursive over initialized ownership state. Every concrete or erased async-frame descriptor
-provides a cancellation-broadcast visitor that finds task obligations in inactive frames, the active direct-await child,
-nested aggregates, and dynamically indirect recursive-frame storage. The visitor can inspect initialization and
-active-variant state and request task cancellation, but cannot resume, await, finalize, destroy, or otherwise resolve
-any visited value. Each unique owned obligation is visited once according to its ownership path.
+Phase one covers every unique task obligation in initialized ownership state, including obligations held by inactive
+computations, the active direct-await child, nested aggregates, and recursive computations. Each obligation receives
+one cancellation request according to its ownership path. This phase does not resume, await, finalize, destroy, or
+otherwise resolve those owned values.
 
 This broadcast prevents one child from blocking cleanup before its siblings have received cancellation. Requesting
 cancellation for an already terminal task has no effect.
@@ -32,10 +31,9 @@ cancellation for an already terminal task has no effect.
 After cancellation has been requested for all owned tasks, ordinary reverse lifecycle ordering resumes. Each task's
 automatic async finalizer waits for terminal completion and applies the unobserved-result rules.
 
-Concrete and erased frame descriptors expose a separate lifecycle-resolution operation for this phase. It can drive
-finalizers, wait for tasks, move or discard completion values, and destroy initialized state according to the checked
-cleanup plan, but it cannot introduce a phase-one task that was absent from the completed broadcast traversal.
-Descriptor version mismatch is a product or compiled-interface error, never a reason to combine the phases.
+Lifecycle resolution can drive finalizers, wait for tasks, move or discard completion values, and destroy initialized
+state. It cannot reveal an obligation already owned at block exit that was omitted from the completed cancellation
+broadcast. Incompatible product or compiled-interface contracts are errors, not a reason to combine the phases.
 
 Task cleanup completes before destruction or finalization of any value that an owned task depends on. Dependencies
 therefore impose ordering edges in addition to ordinary reverse declaration and represented-part order.

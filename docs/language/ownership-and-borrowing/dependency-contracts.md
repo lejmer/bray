@@ -34,17 +34,18 @@ A dependency contract is not part of surface syntax.
 
 It is part of the declared semantic contract of the value or declaration that carries it.
 
-For exported declarations, compiled interfaces, documentation, incremental compilation, and separate compilation, the
-compiler records the inferred dependency contract as interface metadata.
+For exported declarations, compiled interfaces preserve the inferred dependency contract for documentation,
+incremental compilation, and separate compilation.
 
 Two compilers must reject and accept the same programs according to these dependency-contract rules, even though the
 source code does not write those contracts explicitly.
 
 A generic body is checked with open dependency subjects for its type and value parameters. When an ordinary operation
-transfers a generic value to a possibly independent run or shared owner, the checker retains an open run-transfer
-requirement instead of either assuming the value is transferable or rejecting the generic declaration. The exported
-portable dependency template records that requirement. Each concrete call or movement instantiates it with the actual
-value contract and is accepted only when the destination preserves every resulting dependency.
+transfers a generic value to a possibly independent run or shared owner, the operation carries an open run-transfer
+requirement. The generic declaration neither assumes the value is transferable nor is rejected solely for that
+transfer. The exported portable dependency template records that requirement. Each concrete call or movement
+instantiates it with the actual value contract and is accepted only when the destination preserves every resulting
+dependency.
 
 This rule applies to user code and standard-library code equally. A trusted private runtime operation that creates a
 thread or publishes synchronized storage obtains the same boundary from the selected product ABI's compiler-readable
@@ -74,10 +75,11 @@ Lambda expressions do not capture enclosing local state.
 A trait view carries the dependency contract of the access or storage form that contains the view, plus the requirements
 of the implementation witness needed for the selected trait application.
 
-An `Future<T>` carries the dependency contract of its hidden frame state. A `Task<T>` preserves that contract across the
-independent run boundary and adds the task-resolution obligation represented by the handle. Their value contracts also
-preserve the deferred execution contract and guaranteed normal-completion postcondition template. [Flow-state merging](../expressions/expression-results.md#flow-state-merge)
-retains only guarantees common to every reachable producer.
+A `Future<T>` carries the dependency contract of its retained computation state. A `Task<T>` preserves that contract
+across the independent run boundary and adds the task-resolution obligation represented by the handle. Their value
+contracts also preserve the deferred execution contract and guaranteed normal-completion postcondition template.
+[Flow-state merging](../expressions/expression-results.md#flow-state-merge) retains only guarantees common to every
+reachable producer.
 
 An owned cleanup report carries the dependencies of its retained error values, including incidents left behind by a
 normally completed call. These dependencies are not restricted to the types in the callable's explicit result. A borrow

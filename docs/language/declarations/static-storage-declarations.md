@@ -339,7 +339,7 @@ Edges arise from:
 - callable or callback dependencies retained in the static,
 - provider-product ownership retained by the static.
 
-The compiler records open edges in generic and imported templates. Product formation instantiates closed edges. A safe
+Generic and imported templates retain open dependency edges. Product formation instantiates closed edges. A safe
 operation that installs a runtime-selected provider dependency must retain that provider and preserve an acyclic cleanup
 relation before the dependency becomes reachable.
 
@@ -422,7 +422,7 @@ for the test product and is not assigned to an arbitrary test entry.
 A Bray-owned thread attaches to each entered Bray product before executing product code. Normal or abnormal thread exit
 closes its entries, resolves its runs, and cleans its thread-local statics before the native thread lifetime ends.
 
-An exported ABI trampoline attaches an otherwise foreign native thread before establishing the Bray run. Nested entries
+An exported ABI entry attaches an otherwise foreign native thread before establishing the Bray run. Nested entries
 reuse the same attachment and increment its entry ownership. The matching outer detach can complete only after nested
 and asynchronous work, callbacks, pinned tasks, and exact-thread-rooted dependencies have resolved.
 

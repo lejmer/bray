@@ -75,8 +75,8 @@ The caller must provide, preserve, or acknowledge those conditions.
 ## Establishing trusted guarantees
 
 An explicitly trusted postcondition on a trusted declaration can establish a trusted premise that ordinary contract
-reasoning cannot derive. The declaration's author is responsible for that premise. The compiler records its trusted
-origin separately from a checked deduction. A trusted declaration remains subject to ordinary type, ownership,
+reasoning cannot derive. The declaration's author is responsible for that premise. Its trusted origin remains distinct
+from a checked deduction. A trusted declaration remains subject to ordinary type, ownership,
 borrowing, initialization, lifecycle, effect and execution-property checks.
 
 A trusted implementation capability permits its named operations. It does not by itself establish a predicate.
