@@ -26,6 +26,16 @@ impl ExecutionCondition {
         ordinary: &BTreeSet<(Self, bool)>,
         budget: &mut usize,
     ) -> Option<bool> {
+        self.prove_mixed_with_implications(trusted, ordinary, budget, true)
+    }
+
+    fn prove_mixed_with_implications(
+        &self,
+        trusted: &BTreeSet<(Self, bool)>,
+        ordinary: &BTreeSet<(Self, bool)>,
+        budget: &mut usize,
+        use_implications: bool,
+    ) -> Option<bool> {
         *budget = budget.checked_sub(1)?;
 
         if self.is_unknown() {
@@ -48,28 +58,28 @@ impl ExecutionCondition {
         }
 
         if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
-            return value.prove_mixed(trusted, ordinary, budget);
+            return value.prove_mixed_with_implications(trusted, ordinary, budget, use_implications);
         }
 
         if let Self::Entry { condition, .. } = self {
-            return condition.prove_mixed(trusted, ordinary, budget);
+            return condition.prove_mixed_with_implications(trusted, ordinary, budget, use_implications);
         }
 
-        match self {
+        let proven = match self {
             Self::Trusted(_) => None,
             Self::Operation(BoundOperator::LogicalNot, operands)
                 if let [operand] = operands.as_ref() =>
             {
                 operand
-                    .prove_mixed(trusted, ordinary, budget)
+                    .prove_mixed_with_implications(trusted, ordinary, budget, use_implications)
                     .map(|value| !value)
             }
             Self::Operation(BoundOperator::LogicalAnd, operands)
                 if let [left, right] = operands.as_ref() =>
             {
                 match (
-                    left.prove_mixed(trusted, ordinary, budget),
-                    right.prove_mixed(trusted, ordinary, budget),
+                    left.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
+                    right.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
                 ) {
                     (Some(false), _) | (_, Some(false)) => Some(false),
                     (Some(true), Some(true)) => Some(true),
@@ -80,8 +90,8 @@ impl ExecutionCondition {
                 if let [left, right] = operands.as_ref() =>
             {
                 match (
-                    left.prove_mixed(trusted, ordinary, budget),
-                    right.prove_mixed(trusted, ordinary, budget),
+                    left.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
+                    right.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
                 ) {
                     (Some(true), _) | (_, Some(true)) => Some(true),
                     (Some(false), Some(false)) => Some(false),
@@ -91,7 +101,25 @@ impl ExecutionCondition {
             _ => self
                 .prove(trusted, budget)
                 .or_else(|| self.prove(ordinary, budget)),
+        };
+
+        if proven.is_some() {
+            return proven;
         }
+
+        if use_implications && matches!(self, Self::Operation(BoundOperator::LogicalOr, _)) {
+            for (premise, holds) in trusted.iter().chain(ordinary.iter().filter(|(condition, _)| !condition.contains_trusted())) {
+                if *holds && matches!(premise, Self::Operation(BoundOperator::LogicalOr, _))
+                    // Each implication has its own bounded proof. Unrelated clauses cannot
+                    // exhaust the budget for an already established Boolean operand.
+                    && premise.implies(self)
+                {
+                    return Some(true);
+                }
+            }
+        }
+
+        None
     }
 
     pub(crate) fn prove(
@@ -216,7 +244,11 @@ impl ExecutionCondition {
 
         self.clone().assume(true, &mut evidence);
 
-        if consequence.prove_trusted(&evidence, &BTreeSet::new()) == Some(true) {
+        let ordinary = BTreeSet::new();
+        let known = super::super::trusted_condition_closure(evidence.clone(), &ordinary);
+
+        // Implication uses Boolean consequences directly, so premise checking cannot call itself.
+        if consequence.prove_mixed_with_implications(&known, &ordinary, &mut { Self::WORK_LIMIT }, false) == Some(true) {
             return true;
         }
 

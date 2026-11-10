@@ -1425,6 +1425,49 @@ mod tests {
     }
 
     #[test]
+    fn guarded_trusted_requirements_accept_weaker_clauses_but_not_changed_storage_or_authority() {
+        let weaker = "operation < 4 || (operation == 4 && trusted destination(cursor.pointer, argument)) || (operation == 5 && trusted retiring(cursor.pointer))";
+        for asynchronous in ["", "async "] {
+            for (requirement, body, valid) in [
+                (weaker, "invoke(cursor, operation, argument);", true),
+                ("operation < 4 || (operation == 5 && trusted retiring(cursor.pointer))",
+                    "invoke(cursor, operation, argument);", false),
+                (weaker, "cursor.pointer = 1;\n                        invoke(cursor, operation, argument);", false),
+            ] {
+                let source = format!(r#"
+                    trusted module app;
+
+                    struct Cursor
+                    {{
+                        mut pointer: usize;
+                    }}
+
+                    trusted predicate destination(pointer: usize, address: usize);
+                    trusted predicate retiring(pointer: usize);
+
+                    func invoke(pos cursor: &mut Cursor, pos operation: u32, pos argument: usize)
+                        requires({requirement})
+                    {{
+                    }}
+
+                    {asynchronous}func forward(pos cursor: &mut Cursor, pos operation: u32, pos argument: usize)
+                        requires(operation < 4 || (operation == 4 && trusted destination(cursor.pointer, argument)))
+                    {{
+                        {body}
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn methods_constructors_and_lambda_bodies_establish_their_own_evidence() {
         let compilation = compilation(
             r#"

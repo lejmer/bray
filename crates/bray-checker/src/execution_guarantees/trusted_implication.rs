@@ -234,6 +234,34 @@ mod tests {
     }
 
     #[test]
+    fn guarded_trusted_disjunctions_prove_weaker_requirements_without_selecting_an_alternative() {
+        let ordinary = input(0);
+        let promised = ExecutionCondition::Trusted(Arc::new(input(2)));
+        let extra = ExecutionCondition::Trusted(Arc::new(input(1)));
+        let established = ExecutionCondition::operation(BoundOperator::LogicalOr,
+            vec![ordinary, promised.clone()]);
+        let required = ExecutionCondition::operation(BoundOperator::LogicalOr,
+            vec![established.clone(), extra.clone()]);
+        let known = BTreeSet::from([(established.clone(), true)]);
+
+        assert!(established.implies(&required));
+        assert_eq!(required.prove_mixed(&known, &BTreeSet::new(), &mut { ExecutionCondition::WORK_LIMIT }), Some(true));
+        assert_eq!(promised.prove_mixed(&known, &BTreeSet::new(), &mut { ExecutionCondition::WORK_LIMIT }), None);
+        assert_eq!(extra.prove_mixed(&known, &BTreeSet::new(), &mut { ExecutionCondition::WORK_LIMIT }), None);
+        assert_eq!(required.prove_mixed(&BTreeSet::new(), &known, &mut { ExecutionCondition::WORK_LIMIT }), None);
+
+        let mut unrelated = known;
+        for index in 0..256 {
+            let clause = ExecutionCondition::operation(BoundOperator::LogicalOr,
+                vec![input(10 + index), ExecutionCondition::Trusted(Arc::new(input(1000 + index)))]);
+            unrelated.insert((clause, true));
+        }
+        let ordinary = BTreeSet::from([(input(3000), true)]);
+        let decisive = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(3000), extra]);
+        assert_eq!(decisive.prove_mixed(&unrelated, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }), Some(true));
+    }
+
+    #[test]
     fn derived_variant_exclusions_survive_without_establishing_guarded_authority() {
         let variant = |ordinal| bray_symbols::UnionVariantSymbolId::from_symbol_id(SymbolId::new(ordinal));
         let success = input(0).matches_variant(variant(900));

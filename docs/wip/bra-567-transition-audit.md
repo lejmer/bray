@@ -30,9 +30,9 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
-Fixed comparison:759 passed /49 failed /99 ignored, all907 identities retained. Checker477, bound-tree135,
+Fixed comparison:759 passed /49 failed /99 ignored, all907 identities retained. Checker479, bound-tree135,
 messages91, JSON48 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
-Accepted native.log:49 diagnostics(E7123=29,E7135=20), unchanged runtime Source64a4e5490.
+Accepted native.log:46 diagnostics(E7123=28,E7135=18), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
 Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
@@ -91,8 +91,20 @@ replaced Result.0 with Result whenever execution was deferred. Subject inference
 independently of the existing pending-execution guard. Bound-tree135, checker477 and all8 sync/async source cases pass.
 All907 fixed outcomes, cleanup/storage61 and predicate30 identities/outcomes are unchanged. A direct member projection
 is planned as copying a place and now reports E7124. Native clears provider158 with no added locations or changed retained
-blocks. Consumed traces/probes removed. Next trace activation/execution/invoke321's call requirement through its selected
-operation branch. Trace hooks removed. Style deferred.
+blocks. Consumed traces/probes removed.
+
+Guarded requirement proof repairs invoke321. Minimal scalar and borrowed-field programs reproduced failure to derive
+A||B||C from A||B after canonical regrouping. Existing implies already proves this, but mixed obligation proof never
+consulted it. Mixed proof now uses that implication fallback. Its private direct mode keeps implication acyclic.
+A budget control caught clause scanning starving a known operand. Direct truth now runs first and each implication
+keeps its own bounded proof. The source stayed red because trusted prove_requirement split OR before calling the
+general prover. Its owning-boundary test was red. OR now tries whole-clause proof before branch-specific range checks.
+All479 checker tests pass, including256 unrelated clauses, no selected trusted alternative and no promotion from ordinary
+occurrences. Six sync/async source controls and both real reductions pass. All907 fixed outcomes, cleanup/storage61 and
+predicate30 identities/outcomes stay unchanged. Native clears invoke321, run/advance24 and inactive105. No added locations.
+The step34 postcondition advances to its broadcast dependency. Next trace run/abandonment81's second read(cursor).
+A minimal conditional mutation/early-return join passes. Add the actual snapshot/default-input path before changing joins.
+No trace hook or review agent. Style deferred.
 
 ## Remaining
 
