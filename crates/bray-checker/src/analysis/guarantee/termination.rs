@@ -87,6 +87,9 @@ fn displacement(
 
     *remaining -= 1;
 
+    let value = value.computed_value();
+    let base = base.computed_value();
+
     if value == base {
         return Some(num_bigint::BigInt::from(0));
     }

@@ -1318,6 +1318,49 @@ mod tests {
     }
 
     #[test]
+    fn loop_progress_reads_current_scalar_contents_and_requires_every_back_edge_to_advance() {
+        for asynchronous in ["", "async "] {
+            for (initial, guard, step, valid) in [
+                (0, "index < 32", "index += 1;", true),
+                (0, "index < 32 && flag", "index += 1;", true),
+                (32, "index > 0", "index -= 1;", true),
+                (0, "index <= 255", "index += 1;", false),
+                (0, "index < 32", r#"if flag
+                        {
+                            continue;
+                        }
+
+                        index += 1;"#, false),
+                (0, "index < 32", "index = 0;", false),
+            ] {
+                let source = format!(r#"
+                    module app;
+
+                    {asynchronous}func progress(pos flag: bool) -> u8
+                        executes(pure, total)
+                    {{
+                        let mut index: u8 = {initial};
+
+                        while {guard}
+                        {{
+                            {step}
+                        }}
+
+                        return index;
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn methods_constructors_and_lambda_bodies_establish_their_own_evidence() {
         let compilation = compilation(
             r#"
