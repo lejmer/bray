@@ -2283,3 +2283,113 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
 }
 }
 }
+
+#[test]
+fn caught_nullable_results_preserve_container_evidence() {
+    for asynchronous in [false, true] {
+    let declarations = r#"
+        trusted module api;
+
+        struct Marker
+        {
+        }
+
+        struct Worker
+        {
+            marker: Marker;
+        }
+
+        trusted predicate optional(owner: &(Worker?));
+        extern func may_fail();
+
+        trusted func create() -> Worker?
+            ensures(trusted optional(owner = &result))
+        {
+            may_fail();
+
+            let owner: Worker =
+            {
+                marker = Marker {}
+            };
+
+            return owner;
+        }
+
+        func take(pos owner: Worker?)
+            requires(owner matches ?_, trusted optional(owner = &owner))
+        {
+        }
+    "#;
+    let declarations = if asynchronous {
+        declarations.replace("trusted func create()", "trusted async func create()")
+    } else { declarations.to_owned() };
+    let provider = compilation(&declarations);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for (name, setup, valid) in [
+        ("direct", "let value = trusted api.create();", true),
+        ("caught", r#"
+            let caught = catch trusted api.create();
+            let value = match consume caught
+            {
+                case Ok(owner)
+                {
+                    yield owner;
+                }
+                case Error(_)
+                {
+                    return;
+                }
+            };
+        "#, true),
+        ("fabricated", r#"
+            let owner: api.Worker =
+            {
+                marker = api.Marker {}
+            };
+            let value: api.Worker? = owner;
+        "#, false),
+    ] {
+        let source = format!(r#"
+            module app;
+
+            using api;
+
+            func caller()
+            {{
+                {setup}
+                if value matches none
+                {{
+                    return;
+                }}
+
+                api.take(value);
+            }}
+        "#);
+        let source = if asynchronous {
+            source.replace("func caller()", "async func caller()")
+                .replace("trusted api.create()", "await trusted api.create()")
+        } else { source };
+        for imported in [false, true] {
+            let application = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                compilation_from_sources([declarations.as_str(), source.as_str()])
+            };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "{name}, asynchronous={asynchronous}, imported={imported}: {source}\n{diagnostics:#?}");
+            if valid {
+                let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, "caller"))
+                    .expect("caught result has a checked lowering");
+
+                assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+                assert!(lowered.value().is_some(), "{lowered:#?}");
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}
+}
