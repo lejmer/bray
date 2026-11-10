@@ -468,6 +468,6 @@ in the `invalid` binding. Running the application again, the `Quantity cannot be
 
 We've covered tagged unions, exhaustive pattern matching, conditional bindings, nullable propagation, recoverable errors, ownership transfer through `match consume`, and panic recovery (no more panic attacks).
 
-Part 3 will take a closer look at values, storage, ownership, and copying. If you're coming from Rust, some of it will feel familiar, while other parts will give the donkey another opportunity to disagree with you.
+[Part 3: Work with values and storage](03-values-and-storage.md) takes a closer look at values, storage, ownership, and copying. If you're coming from Rust, some of it will feel familiar, while other parts will give the donkey another opportunity to disagree with you.
 
 The language reference has the full rules for [unions](../../language/types/union-types.md), [patterns](../../language/patterns.md), [nullable propagation](../../language/expressions/nullable-and-absence-expressions.md), [result propagation](../../language/expressions/result-and-run-result-propagation-expressions.md), and [catch expressions](../../language/expressions/catch-expressions.md).
