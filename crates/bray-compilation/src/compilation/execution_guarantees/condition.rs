@@ -1690,6 +1690,8 @@ mod tests {
                 "{source}: {:?}",
                 compilation.check_diagnostics()
             );
+
+
         }
     }
 
@@ -1882,6 +1884,20 @@ mod tests {
                 "{source}: {:?}",
                 compilation.check_diagnostics()
             );
+            if !valid {
+                let failure = compilation.check_diagnostics().iter().find(|diagnostic|
+                    diagnostic.kind() == DiagnosticKind::CheckingExecutionGuaranteeNotProven)
+                    .expect("the caller's guarantee cannot select the guarded callee");
+                let label = failure.labels().iter().find(|label|
+                    label.kind() == bray_diagnostics::DiagnosticLabelKind::ExecutionProofFailure)
+                    .expect("the failed dependency retains its invocation");
+                assert!(label.args().iter().any(|argument| matches!(argument.value(),
+                    bray_diagnostics::DiagnosticArgValue::ExecutionProofFailure(
+                        bray_diagnostics::DiagnosticExecutionProofFailure::MissingEvidence))));
+                let span = label.span();
+                assert_eq!(&source[usize::try_from(span.start().bytes()).unwrap()
+                    ..usize::try_from(span.end().bytes()).unwrap()], format!("({argument})"));
+            }
         }
     }
 

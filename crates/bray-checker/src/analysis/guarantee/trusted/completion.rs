@@ -196,6 +196,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expect("completed invocation retains its captured entry");
 
         completed.assumptions = entry.assumptions;
+        completed.trusted_assumptions = entry.trusted_assumptions;
         state.resume_owned_witnesses(invocation);
         self.guard_returned_inputs(state, invocation, &entry.arguments, &result);
 
@@ -446,7 +447,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        let preconditions = assume_normal_entry(&mut entry, &contract.preconditions)?;
+        let preconditions = assume_normal_entry(&mut entry, &contract.preconditions, &contract.requirements)?;
 
         for (condition, domain) in preconditions {
             // A completed runtime check establishes its captured value, not a new
@@ -466,11 +467,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 fn assume_normal_entry(
     entry: &mut crate::ExecutionCallEvidence,
     preconditions: &[(ExecutionCondition, bray_symbols::PredicateDomain)],
+    requirements: &[ExecutionCondition],
 ) -> Option<Vec<(ExecutionCondition, bray_symbols::PredicateDomain)>> {
     let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
 
     let preconditions = preconditions
         .iter()
+        .map(|(condition, domain)| (condition, *domain))
+        .chain(requirements.iter().map(|condition| (condition, bray_symbols::PredicateDomain::Trusted)))
         .map(|(condition, domain)| {
             let condition = condition
                 .substitute(
@@ -484,7 +488,7 @@ fn assume_normal_entry(
                 )
                 .with_equalities(&equalities);
 
-            (condition, *domain)
+            (condition, domain)
         })
         .collect::<Vec<_>>();
 
@@ -497,12 +501,42 @@ fn assume_normal_entry(
     }
 
     for (condition, domain) in &preconditions {
-        // Normal return proves runtime value checks in their immutable entry snapshot.
-        // Authority and execution requirements retain their separate checked premises.
+        // The caller has already established or acknowledged trusted requirements.
+        // Preserve that admission in the immutable entry, independently of live storage.
         if *domain == bray_symbols::PredicateDomain::Value {
             condition.clone().assume(true, &mut entry.assumptions);
+        } else if *domain == bray_symbols::PredicateDomain::Trusted {
+            condition.clone().assume(true, &mut entry.trusted_assumptions);
         }
     }
 
     Some(preconditions)
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::assume_normal_entry;
+    use crate::{ExecutionCallEvidence, ExecutionCondition, ExecutionPlace};
+    use std::sync::Arc;
+
+    #[test]
+    fn completed_admission_keeps_checked_requirements_out_of_pre_entry_evidence() {
+        let input = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1)));
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let substitution = crate::test_support::empty_substitution(predicate.into());
+        let requirement = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
+            predicate.into(), substitution, vec![ExecutionCondition::Input(input.clone()).borrowed()],
+        )));
+        let mut before = ExecutionCallEvidence::default();
+        before.arguments.insert(input, owner);
+        let mut completed = before.clone();
+        assert!(before.prove_trusted_requirements(std::slice::from_ref(&requirement)).is_err());
+        assume_normal_entry(&mut completed, &[], std::slice::from_ref(&requirement)).unwrap();
+        assert!(completed.prove_trusted_requirements(std::slice::from_ref(&requirement)).is_ok());
+        assert!(before.prove_trusted_requirements(std::slice::from_ref(&requirement)).is_err());
+
+        assert!(assume_normal_entry(&mut completed,
+            &[(ExecutionCondition::Boolean(false), bray_symbols::PredicateDomain::Value)], &[]).is_none());
+    }
 }

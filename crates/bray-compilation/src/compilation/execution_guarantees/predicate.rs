@@ -77,13 +77,8 @@ impl Compilation {
                 if !permitted {
                     let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-                    let span = site
-                        .expression()
-                        .and_then(|expression| bound.result().value().view().expression(expression))
-                        .map(|expression| expression.origin().source_anchor().syntax())
-                        .unwrap_or(key.source().syntax());
-
-                    failure.get_or_insert(SourceSpan::new(span.source_id(), span.full_range()));
+                    failure.get_or_insert(super::failure::execution_site_span(
+                        bound.result().value(), key, site));
                 }
             }
         }
