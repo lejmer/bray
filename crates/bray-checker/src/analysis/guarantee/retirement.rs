@@ -501,7 +501,7 @@ impl ExecutionState {
                     observation,
                     ExecutionCondition::Borrowed(_)
                         | ExecutionCondition::Predicate(_, _, _)
-                        | ExecutionCondition::Call(_, _, _, _)
+                        | ExecutionCondition::Call(_, _, _, _, _)
                 ) && revokes(observation)
             })
         };

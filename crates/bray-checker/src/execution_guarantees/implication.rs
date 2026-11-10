@@ -313,6 +313,7 @@ pub fn map_execution_condition_references<E>(
         Option<bray_symbols::ImplementationInstanceData>,
         Vec<bray_symbols::ImplementationInstanceData>,
         Vec<ExecutionCondition>,
+        Option<bray_symbols::TypeId>,
     ) -> Result<ExecutionCondition, E>,
 ) -> Result<ExecutionCondition, E> {
     Ok(match condition {
@@ -367,7 +368,7 @@ pub fn map_execution_condition_references<E>(
                 })
                 .collect::<Result<_, _>>()?,
         ),
-        ExecutionCondition::Call(callable, implementation, witnesses, operands) => {
+        ExecutionCondition::Call(callable, implementation, witnesses, operands, reference_type) => {
             let callable = bray_symbols::CallableInstanceData::new(
                 callable.definition(),
                 map(callable.substitution())?,
@@ -399,7 +400,7 @@ pub fn map_execution_condition_references<E>(
                 })
                 .collect::<Result<Vec<_>, E>>()?;
 
-            call(callable, implementation, witnesses, operands)?
+            call(callable, implementation, witnesses, operands, *reference_type)?
         }
         ExecutionCondition::CapturedInput {
             owner,
@@ -486,12 +487,13 @@ pub fn substitute_execution_condition(
 
             Ok(values.constant_value_data(value))
         },
-        &mut |callable, implementation, witnesses, operands| {
+        &mut |callable, implementation, witnesses, operands, reference_type| {
             Ok(ExecutionCondition::call(
                 callable,
                 implementation,
                 witnesses,
                 operands,
+                reference_type.map(|ty| values.substitute_type(ty, substitution)).transpose()?,
             ))
         },
     )

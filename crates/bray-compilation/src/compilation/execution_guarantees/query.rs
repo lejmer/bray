@@ -1425,6 +1425,122 @@ mod tests {
     }
 
     #[test]
+    fn const_reference_results_keep_computed_data_without_equating_other_or_mutated_inputs() {
+        for asynchronous in ["", "async "] {
+            for (body, valid) in [
+                ("assert(selected(container, &fallback).active);", true),
+                ("assert(selected(container, other).active);", false),
+                ("fallback.active = false;\n                        assert(selected(container, &fallback).active);", false),
+            ] {
+                let source = format!(r#"
+                    module app;
+
+                    struct Owner
+                    {{
+                        mut active: bool;
+                    }}
+
+                    union Container
+                    {{
+                        Left(pos owner: Owner);
+                        Right(pos owner: Owner);
+                    }}
+
+                    const func selected(pos container: &Container, pos fallback: &Owner) -> &Owner
+                        executes(pure, total)
+                    {{
+                        return match container
+                        {{
+                            case Container.Left(value) {{ yield &value; }}
+                            case Container.Right(_) {{ yield fallback; }}
+                        }};
+                    }}
+
+                    {asynchronous}func caller(pos container: &Container, pos fallback: &mut Owner, pos other: &Owner)
+                        requires(selected(container, &fallback).active)
+                        executes(total)
+                    {{
+                        {body}
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn guarded_reference_accessors_preserve_their_predicate_meaning() {
+        for asynchronous in ["", "async "] {
+            for (body, valid) in [
+                ("observe(selected(container));", true),
+                (r#"match container
+                        {
+                            case Container.Left(value) { observe(&value); }
+                            case Container.Right(value) { observe(&value); }
+                        }"#, true),
+                ("observe(other);", false),
+            ] {
+                let source = format!(r#"
+                    trusted module app;
+
+                    struct Marker
+                    {{
+                    }}
+
+                    struct Owner
+                    {{
+                        marker: Marker;
+                    }}
+
+                    union Container
+                    {{
+                        Left(pos owner: Owner);
+                        Right(pos owner: Owner);
+                    }}
+
+                    trusted predicate live(marker: &Marker);
+
+                    const func selected(pos container: &Container) -> &Owner
+                        executes(pure, total)
+                    {{
+                        return match container
+                        {{
+                            case Container.Left(value) {{ yield &value; }}
+                            case Container.Right(value) {{ yield &value; }}
+                        }};
+                    }}
+
+                    func observe(pos owner: &Owner)
+                        requires(trusted live(marker = &owner.marker))
+                    {{
+                    }}
+
+                    {asynchronous}func caller(pos container: &Container, pos other: &Owner)
+                        requires(trusted live(marker = &selected(container).marker))
+                    {{
+                        {body}
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn produced_owner_receivers_use_the_same_value_as_explicit_borrows() {
         for call in ["owner.access();", "observe(&owner);", "let anchor_value = &owner;\n                            anchor_value.access();"] {
             let source = format!(r#"

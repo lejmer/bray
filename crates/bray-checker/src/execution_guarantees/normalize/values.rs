@@ -364,7 +364,7 @@ pub(super) fn borrowed_condition(
         .and_then(|entry| known.type_representation(values, entry.ty()))
         .is_some_and(crate::representation::is_scalar_value);
 
-    if !scalar && value.ownership_identity().is_some() {
+    if !scalar && (value.ownership_identity().is_some() || value.is_reference()) {
         return value.borrowed();
     }
 

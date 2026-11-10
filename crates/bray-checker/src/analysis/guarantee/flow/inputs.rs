@@ -249,6 +249,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             && !crate::representation::type_representation(self.request, ty)
                 .is_some_and(crate::representation::is_scalar_value)
         {
+            if matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                return Some(ExecutionCondition::reference_value(
+                    ExecutionCondition::Expression(expression).borrowed(), result,
+                ));
+            }
+
             // Const computation describes data, not the identity of an owner
             // produced by this invocation. Returned transfers refine this slot.
             return Some(ExecutionCondition::Expression(expression));

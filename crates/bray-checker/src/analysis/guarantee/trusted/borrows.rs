@@ -104,7 +104,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &mut { ExecutionCondition::WORK_LIMIT },
             );
 
-            let value = if borrowed_result || is_reference(&value) {
+            let value = if borrowed_result || value.is_reference() {
                 ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::Unknown)
             } else {
                 ExecutionCondition::owned_value(value.owner_identity().clone(), contents)
@@ -728,11 +728,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 }
 
-fn is_reference(value: &ExecutionCondition) -> bool {
-    matches!(value, ExecutionCondition::Borrowed(_))
-        || value.observation_kind() == Some(crate::execution_guarantees::ExecutionObservationKind::Reference)
-}
-
 fn returned_contents(
     source: &ExecutionCondition,
     preservation: &bray_symbols::DependencyValuePreservation<StorageProjection>,
@@ -746,7 +741,7 @@ fn returned_contents(
 
     *budget = remaining;
 
-    if is_reference(source) && preservation.preserves_value() {
+    if source.is_reference() && preservation.preserves_value() {
         return ExecutionCondition::reference_value(source.owner_identity().clone(), ExecutionCondition::Unknown);
     }
 
@@ -778,7 +773,7 @@ fn without_reached_contents(value: &ExecutionCondition, budget: &mut usize) -> E
 
     *budget = remaining;
 
-    if is_reference(value) {
+    if value.is_reference() {
         return ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::Unknown);
     }
 

@@ -73,6 +73,7 @@ impl ExecutionCondition {
         implementation: Option<bray_symbols::ImplementationInstanceData>,
         witnesses: impl IntoIterator<Item = bray_symbols::ImplementationInstanceData>,
         mut arguments: Vec<Self>,
+        reference_type: Option<bray_symbols::TypeId>,
     ) -> Self {
         for argument in &mut arguments {
             // Const calls compute from current values, independently of the
@@ -89,6 +90,7 @@ impl ExecutionCondition {
             implementation,
             bray_base::shared_slice(witnesses),
             arguments.into(),
+            reference_type,
         )
     }
 
@@ -254,8 +256,12 @@ impl ExecutionCondition {
             return payload.clone().borrowed();
         }
 
-        if self == Self::Unknown || matches!(self, Self::Borrowed(_)) || self.current_referent().is_some() {
+        if self == Self::Unknown || self.is_reference() {
             return self;
+        }
+
+        if self.is_reference_computation() {
+            return Self::Borrowed(Arc::new(self));
         }
 
         if let Self::Projection(projection, parent) = &self {
@@ -377,6 +383,10 @@ impl ExecutionCondition {
         }
     }
 
+    pub(crate) fn is_reference(&self) -> bool {
+        matches!(self, Self::Borrowed(_)) || self.current_referent().is_some()
+    }
+
     /// Built-in computations read values rather than their storage or loan identities.
     pub(crate) fn computed_value(&self) -> &Self {
         let mut value = self;
@@ -459,10 +469,11 @@ impl ExecutionCondition {
             *argument = argument.copied_value().clone();
 
             if let Self::Observation { contents, kind: ObservationKind::Reference, .. } = argument
-                && contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
+                && (contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
+                    || contents.is_reference_computation())
             {
-                // Aliases observe the actual reached owner, independently of the
-                // loan handle that supplies access. Scalar data has no such owner.
+                // Retain the actual referent or checked reference computation,
+                // independently of the loan handle. Scalar contexts remain distinct.
                 *argument = contents.as_ref().clone().borrowed();
             }
         }
@@ -474,6 +485,16 @@ impl ExecutionCondition {
         }
 
         Self::Predicate(predicate, substitution, arguments.into())
+    }
+
+    fn is_reference_computation(&self) -> bool {
+        let mut value = self;
+
+        while let Self::Projection(_, parent) = value {
+            value = parent;
+        }
+
+        matches!(value, Self::Call(_, _, _, _, Some(_)))
     }
 
     pub(crate) fn field(field: bray_symbols::AnySymbolId, value: Self) -> Self {

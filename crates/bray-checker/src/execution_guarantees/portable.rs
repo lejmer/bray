@@ -190,7 +190,7 @@ fn encode(
                 _ => return Ok(None),
             }
         }
-        ExecutionCondition::Call(callable, implementation, witnesses, arguments) => {
+        ExecutionCondition::Call(callable, implementation, witnesses, arguments, reference_type) => {
             let Some(arguments) = arguments
                 .iter()
                 .map(|argument| encode(values, argument, inputs, boolean_type, budget))
@@ -199,7 +199,7 @@ fn encode(
                 return Ok(None);
             };
 
-            ConstantTermData::call(
+            let call = ConstantTermData::call(
                 values.intern_callable_instance(*callable)?,
                 implementation
                     .map(|witness| values.intern_implementation_instance(witness))
@@ -209,7 +209,14 @@ fn encode(
                     .map(|witness| values.intern_implementation_instance(*witness))
                     .collect::<Result<Vec<_>, _>>()?,
                 arguments,
-            )
+            );
+
+            if let Some(ty) = reference_type {
+                let term = values.intern_constant_term(call)?;
+                return values.intern_constant_term(ConstantTermData::Typed { term, ty: *ty }).map(Some);
+            }
+
+            call
         }
         ExecutionCondition::Predicate(predicate, substitution, arguments) => {
             let terms = arguments
@@ -304,7 +311,16 @@ pub(crate) fn decode(
     *budget = remaining;
 
     Ok(match values.constant_term_data(term).as_ref() {
-        ConstantTermData::Typed { term, .. } => decode(values, *term, inputs, budget)?,
+        ConstantTermData::Typed { term, ty } => {
+            let mut condition = decode(values, *term, inputs, budget)?;
+
+            if matches!(values.type_data(*ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
+                && let ExecutionCondition::Call(_, _, _, _, reference_type) = &mut condition {
+                *reference_type = Some(*ty);
+            }
+
+            condition
+        }
         ConstantTermData::Parameter(parameter) => {
             ExecutionCondition::Input(BoundReferenceTarget::Surface((*parameter).into()).into())
         }
@@ -385,6 +401,7 @@ pub(crate) fn decode(
                 .iter()
                 .map(|argument| decode(values, *argument, inputs, budget))
                 .collect::<Result<_, _>>()?,
+            None,
         ),
         ConstantTermData::PredicateCall {
             predicate,
@@ -449,10 +466,11 @@ mod tests {
             Some(witnesses[0]),
             [witnesses[1]],
             vec![argument.clone()],
+            None,
         );
 
         let other =
-            ExecutionCondition::call(callable, Some(witnesses[0]), [witnesses[0]], vec![argument]);
+            ExecutionCondition::call(callable, Some(witnesses[0]), [witnesses[0]], vec![argument], None);
 
         assert_ne!(condition, other);
 
@@ -478,8 +496,21 @@ mod tests {
             Some(witnesses[0]),
             [witnesses[1]],
             vec![ExecutionCondition::Boolean(true)],
+            None,
         );
 
         assert_eq!(substituted, expected);
+
+        let reference_type = values.intern_type(bray_symbols::TypeData::Borrow {
+            kind: bray_symbols::BorrowKind::Shared, target: boolean_type,
+        }).expect("checked borrowed result type");
+        let borrowed = ExecutionCondition::call(callable, Some(witnesses[0]), [witnesses[1]],
+            vec![ExecutionCondition::Input(parameter.into())], Some(reference_type)).borrowed();
+        let term = execution_condition_term(values, &borrowed, &[parameter], boolean_type)
+            .expect("typed reference computation encodes").expect("typed reference computation is portable");
+
+        assert_eq!(execution_condition_from_term(values, term, &[parameter])
+            .expect("typed reference computation decodes"), borrowed);
+        assert_eq!(borrowed.ownership_identity(), None);
     }
 }

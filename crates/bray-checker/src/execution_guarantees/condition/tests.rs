@@ -5,6 +5,44 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[test]
+fn predicate_reference_arguments_keep_referents_owners_and_changed_contents_distinct() {
+    let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+    let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(950));
+    let substitution = crate::test_support::empty_substitution(predicate.into());
+    let condition = |value| ExecutionCondition::predicate(predicate.into(), substitution, vec![value]);
+    let contents = ExecutionCondition::owned_value(input(0), input(1));
+    let loan = |ordinal, value| ExecutionCondition::reference_value(input(ordinal).borrowed(), value);
+
+    assert_eq!(condition(loan(2, contents.clone())), condition(contents.clone().borrowed()));
+    assert_eq!(condition(loan(2, contents.clone())), condition(loan(3, contents.clone())));
+    assert_ne!(condition(loan(2, contents.clone())), condition(loan(2, ExecutionCondition::owned_value(input(4), input(1)))));
+    assert_ne!(condition(loan(2, contents)), condition(loan(2, ExecutionCondition::owned_value(input(0), input(5)))));
+
+    let copied = |ordinal| ExecutionCondition::scalar_observation(input(ordinal), ExecutionCondition::Boolean(true));
+    assert_ne!(condition(loan(2, copied(6))), condition(loan(2, copied(7))));
+
+    let callable = crate::test_support::callable_instance(
+        bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(960)).into());
+    let reference_type = crate::test_support::semantic_values().intern_type(bray_symbols::TypeData::Borrow {
+        kind: bray_symbols::BorrowKind::Shared, target: crate::test_support::error_type(),
+    }).expect("checked reference type");
+    let computed = |reference_type| ExecutionCondition::call(callable, None, [], vec![input(0)], reference_type);
+
+    assert_eq!(condition(loan(2, computed(Some(reference_type)))), condition(loan(3, computed(Some(reference_type)))));
+    assert_ne!(condition(loan(2, computed(None))), condition(loan(3, computed(None))));
+    assert_eq!(computed(Some(reference_type)).ownership_identity(), None);
+    assert_eq!(computed(Some(reference_type)).borrowed().ownership_identity(), None);
+    let symbolic = condition(loan(2, computed(Some(reference_type))));
+    assert_eq!(symbolic.substitute(&|place| ExecutionCondition::Input(place.clone()),
+        &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT }), symbolic);
+    assert!(condition(loan(2, ExecutionCondition::Unknown)).is_unknown());
+    assert!(condition(loan(3, ExecutionCondition::Unknown)).is_unknown());
+
+    let ExecutionCondition::Predicate(_, _, arguments) = condition(loan(2, input(0))) else { unreachable!(); };
+    assert_eq!(arguments[0].ownership_identity().map(|(kind, _)| kind), Some(super::ExecutionObservationKind::Reference));
+}
+
+#[test]
 fn retained_disjunctions_reject_only_incompatible_branches() {
     use bray_bound_tree::BoundOperator;
 
@@ -157,8 +195,8 @@ fn arithmetic_and_const_calls_read_the_same_current_scalar_value() {
                 ExecutionCondition::operation(operator, vec![value.clone(), value.clone()]));
         }
 
-        assert_eq!(ExecutionCondition::call(callable, None, [], vec![observed]),
-            ExecutionCondition::call(callable, None, [], vec![value.clone()]));
+        assert_eq!(ExecutionCondition::call(callable, None, [], vec![observed], None),
+            ExecutionCondition::call(callable, None, [], vec![value.clone()], None));
     }
 }
 
@@ -258,7 +296,7 @@ fn const_calls_observe_current_values_without_loan_identity() {
     let callable = crate::test_support::callable_instance(definition.into());
     let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
     let input = ExecutionCondition::Input(place.clone());
-    let call = |value| ExecutionCondition::call(callable, None, [], vec![value]);
+    let call = |value| ExecutionCondition::call(callable, None, [], vec![value], None);
     let loan = input.clone().borrowed();
     let contents = ExecutionCondition::Joined(bray_bound_tree::BoundUnitId::new(0), 1, place);
     let current = loan.with_referent(contents.clone());
@@ -283,7 +321,7 @@ fn borrowed_scalar_contents_retain_storage_authority_and_const_value_semantics()
     let condition =
         |value| ExecutionCondition::predicate(symbol.into(), callable.substitution(), vec![value]);
 
-    let call = |value| ExecutionCondition::call(callable, None, [], vec![value]);
+    let call = |value| ExecutionCondition::call(callable, None, [], vec![value], None);
 
     let stored = |ordinal, value| {
         ExecutionCondition::scalar_observation(

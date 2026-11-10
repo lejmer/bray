@@ -201,6 +201,11 @@ pub(crate) fn selected_call_condition(
                 .iter()
                 .map(|witness| *values.implementation_instance_data(*witness)),
             arguments,
+            match call.resolution().result() {
+                bray_bound_tree::BoundCallResult::Immediate(ty)
+                    if matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) => Some(ty),
+                _ => None,
+            },
         );
 
         return if condition == ExecutionCondition::Unknown {

@@ -18,7 +18,7 @@ impl ExecutionCondition {
                     pending.push(base);
                     pending.extend(fields.iter().map(|(_, value)| value));
                 }
-                Self::Operation(_, operands) | Self::Predicate(_, _, operands) | Self::Call(_, _, _, operands) => pending.extend(operands.iter()),
+                Self::Operation(_, operands) | Self::Predicate(_, _, operands) | Self::Call(_, _, _, operands, _) => pending.extend(operands.iter()),
                 Self::Tagged(_, value) | Self::VariantTest(_, value) | Self::Projection(_, value)
                     | Self::Trusted(value) | Self::Borrowed(value) | Self::Present(value)
                     | Self::Entry { condition: value, .. } | Self::CapturedInput { owner: value, .. } => pending.push(value),

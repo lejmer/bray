@@ -32,7 +32,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
 Fixed comparison:762 passed /46 failed /99 ignored, all907 identities retained. Checker481, bound-tree135,
 messages91, JSON48 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
-Accepted native.log:43 diagnostics(E7123=26,E7135=17), unchanged runtime Source64a4e5490.
+Current native.log:44 diagnostics(E7123=26,E7124=1,E7135=17), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
 Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
@@ -60,13 +60,8 @@ Mixed Boolean proof reuses implication in an acyclic direct mode. Trusted requir
 specialized branch proofs. Unrelated clauses cannot starve known operands or promote an individual trusted alternative.
 Recursive Cleanup(type) expands under a formal Result, retaining region effects without inventing layout projections.
 
-Owner-context framing repairs run/abandonment81 after descend77. Composite-flow tracing found the first divergence at
-descend's Attempt: framing converted Owned(Input(cursor), Joined(...)) to bare PostState, dropping its owned context.
-The completion guarantee kept that context. Generic join/default/pointer controls passed and did not reproduce this.
-The new owning-boundary property was red. In-place contents framing now retains an already explicit Owned context,
-independently of descriptor survival. It creates no owner context for other observation kinds. New contents, stable
-replay and all480 checker tests pass. All907 fixed outcomes, cleanup/storage61, predicate30 and source controls stay
-unchanged. Native clears abandonment81 and step34 without added locations or changed retained blocks.
+In-place contents framing retains an already explicit Owned context independently of descriptor survival. It creates
+no owner context for other observation kinds. Contents must change and replay must stabilize at the owning boundary.
 The composition fixture now checks a whole-owner invariant across awaited mutation, loop joins and returned owners.
 This exposed stale async completion arguments. Deferred physical transfers now retain evaluated input reference
 descriptors. Before completion publishes outputs, their typed routes read current pointees. Publish the same exact
@@ -79,8 +74,27 @@ correct produced value, but completion skipped the implicit borrow before publis
 were correct. The3 source controls pass. Source/import real spin-lock positives now pass while fabrication, reconstruction
 and replacement negatives still reject. Native clears deadline/storage374 without other changes. The async fixture also
 mutates the owner returned by await, then checks its whole-owner guarantee. All907 identities and14 progress tests pass.
-Trace hooks and consumed probes removed. Next trace execution/binding168 and closing144 through consuming union payloads
-into stored callbacks. Existing kernel_binding uses a const accessor selecting the variant's complete Reference.
+Execution/binding168 and closing144 reduce to union-callback.bray. Both consuming and borrowed matches fail, including
+direct observe(reference(...)). A single-path accessor passes. Spelling out the predicate alias does not repair it.
+The new6-case guarded_reference_accessors regression is red at its first valid direct call. Proof tracing found a
+specification-local storage identity wrapped around the const Call in known evidence, versus a fresh body Expression.
+The producer exports two alternative reference origins, no guarded owning result. Do not invent source/variant recovery.
+An ordinary Boolean accessor control also fails total proof without trusted predicates. Retaining const Call data inside
+the produced reference repairs its6-case sync/async matrix, including another owner and direct mutable-input invalidation.
+Call now carries its checked borrowed result type through substitution and portable Typed terms. Predicate comparison
+reuses its existing referent normalization without assigning ownership to a computation. Ordinary owned-return calls and
+scalar contexts remain distinct. The boundary and portable checks pass, checker482 and all907 fixed outcomes unchanged.
+Explicit symbolic reborrows retain their checked value. Predicate substitution classifies reference values separately
+from ownership authority, using one is_reference rule for substitution, reborrowing and returned borrows. Identity
+substitution preserves a borrowed computation. Direct accessor use passes. The guarded-accessor test remains red at
+borrowed branch extraction, so later negative/async arms remain unverified. Checker482, all907 fixed outcomes,15 progress
+tests, JSON48, bound135 and expanded61/30 groups pass or retain their accepted outcomes. Hooks removed.
+Native adds E7124 at closing142, with all43 prior full diagnostic blocks unchanged. This body already fails at callback144
+and its postcondition120. The now-tracked contract is lost when extracting ownership before selecting its union case.
+Next use the existing prepared dependency queries to relate a const reference computation to its selected branch. Flow
+preparation forbids hidden queries. Do not promote alternative reference-origin bounds to an exact alias. Native rerun
+next must repair this transfer too. E7124 currently loses its actual guarantee and conflates copy with carrier separation.
+Retain only union-callback and accessor-boolean probes until consumed.
 No review agent. Style/format remain deferred.
 
 ## Remaining

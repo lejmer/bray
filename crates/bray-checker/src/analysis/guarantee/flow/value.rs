@@ -251,7 +251,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                     _ => None,
                 }),
-            ExecutionCondition::Call(instance, _, _, _)
+            ExecutionCondition::Call(instance, _, _, _, _)
                 if Some(instance.definition().symbol()) == self.sequence_length =>
             {
                 Some(crate::representation::representation_type(

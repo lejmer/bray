@@ -90,6 +90,8 @@ pub enum ExecutionCondition {
         Option<bray_symbols::ImplementationInstanceData>,
         Arc<[bray_symbols::ImplementationInstanceData]>,
         Arc<[ExecutionCondition]>,
+        // A checked borrowed result type identifies a reference computation without granting ownership.
+        Option<bray_symbols::TypeId>,
     ),
     /// One component of an observed immutable value.
     Projection(
@@ -137,7 +139,7 @@ impl ExecutionCondition {
             Self::Trusted(_) => true,
             Self::Operation(_, operands)
             | Self::Predicate(_, _, operands)
-            | Self::Call(_, _, _, operands) => operands.iter().any(Self::contains_trusted),
+            | Self::Call(_, _, _, operands, _) => operands.iter().any(Self::contains_trusted),
             Self::Tagged(_, value)
             | Self::VariantTest(_, value)
             | Self::Present(value)
