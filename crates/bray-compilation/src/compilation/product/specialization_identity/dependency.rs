@@ -207,8 +207,9 @@ impl StructuralValueEncoder<'_, '_> {
         relation: &bray_symbols::DependencyBorrowRelation,
     ) -> Result<(), FactQueryError> {
         self.boolean(relation.entry().is_some());
+        self.boolean(relation.allocation().is_some());
 
-        if let Some(entry) = relation.entry() {
+        if let Some(entry) = relation.source_subject() {
             self.dependency_subject(entry)?;
         }
 

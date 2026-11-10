@@ -195,7 +195,7 @@ impl State {
                 Origin::Storage(path) => invalidation.invalidates_path(path, storage),
                 Origin::Entry { .. }
                 | Origin::Returned { .. }
-                | Origin::Allocation(_)
+                | Origin::Allocation { .. }
                 | Origin::Static { .. } => {
                     matches!(
                         invalidation,

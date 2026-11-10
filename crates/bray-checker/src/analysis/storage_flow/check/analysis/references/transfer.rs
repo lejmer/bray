@@ -684,6 +684,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .invocation_logical_path(occurrence, relation.exit())
                 .expect("prepared reference output retains its adapted logical storage");
 
+            if let Some(allocation) = relation.allocation() {
+                let allocation = self.invocation_logical_path(occurrence, allocation)
+                    .expect("prepared allocation origin retains its output anchor");
+                let projections = storage_projections(self.request.semantic_values(), self.dependencies,
+                    relation.target_projections()).expect("prepared allocation projections remain available");
+
+                state.memory.stage_allocation_reference(occurrence, destination, allocation, &projections);
+                continue;
+            }
+
             let Some(entry) = relation.entry() else {
                 let owned_buffer = (relation.exit().subject_root() == DependencySubjectRoot::Result
                     && relation.kind() == bray_symbols::DependencyReferenceKind::Address

@@ -178,7 +178,7 @@ mod tests {
                         nested,
                     )])
                     .with_effects([
-                        DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(contextual), access_type: None, ambient: false },
+                        DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Dispose(contextual), access_type: None, ambient: false },
                         DependencyStorageEffect::Direct {
                             subject: DependencySubject::root(DependencySubjectRoot::Receiver),
                             kind: DependencyMutationKind::Replace(contextual),
@@ -207,7 +207,7 @@ mod tests {
 
         assert!(
             data.effects()
-                .contains(&DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(replacement), access_type: None, ambient: false })
+                .contains(&DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Dispose(replacement), access_type: None, ambient: false })
         );
 
         assert!(data.effects().iter().any(|effect| matches!(effect,

@@ -436,7 +436,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         for reference in call.references() {
             let relation = reference.relation();
 
-            if let Some(entry) = relation.entry() {
+            if let Some(entry) = relation.source_subject() {
                 retain(entry.projections());
             }
 
@@ -466,7 +466,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
 
     for (_, relations) in contracts.condition_references().values() {
         for relation in relations.iter() {
-            if let Some(entry) = relation.entry() {
+            if let Some(entry) = relation.source_subject() {
                 retain(entry.projections());
             }
 

@@ -38,17 +38,12 @@ impl<'a> SemanticExporter<'a> {
             })?
             .into_iter()
             .map(|relation| {
-                Ok(bray_symbols::DependencyBorrowRelation::new(
+                Ok(relation.remap(
                     relation
-                        .entry()
+                        .source_subject()
                         .map(|entry| self.dependency_subject(entry))
                         .transpose()?,
                     self.dependency_subject(relation.exit())?,
-                    relation.kind(),
-                )
-                .with_dereferences(relation.dereferences())
-                .with_provenance(relation.provenance())
-                .with_target_projections(
                     relation
                         .target_projections()
                         .iter()

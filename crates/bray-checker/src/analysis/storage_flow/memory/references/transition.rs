@@ -424,7 +424,7 @@ impl State {
     ) -> Target {
         // A new execution cannot equate old aliases with this incarnation.
         let current = Target {
-            origin: Origin::Allocation(slot.clone()),
+            origin: Origin::Allocation { allocation: slot.clone(), projections: [].into() },
             previous: false,
         };
 
@@ -441,6 +441,22 @@ impl State {
             .insert(Target::storage(slot), References::one(current.clone()));
 
         current
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_allocation_reference(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+        allocation: Place,
+        projections: &[bray_bound_tree::StorageProjection],
+    ) {
+        let target = Target { previous: false,
+            origin: Origin::Allocation { allocation, projections: [].into() } };
+        let pending = self.pending.entry(call).or_default();
+
+        pending.payloads.entry(target.clone()).or_default().allocations.extend(call.expression());
+        pending.values.entry(destination).or_default()
+            .merge(&References::one(target.project(projections)));
     }
 
     pub(in crate::analysis::storage_flow) fn uninit(&mut self, target: Target, element: TypeId) {

@@ -410,7 +410,7 @@ impl State {
             // raw pointers can still name the destination's previous contents.
             self.retire(target);
 
-            if matches!(target.origin, Origin::Returned { .. }) {
+            if matches!(target.origin, Origin::Returned { .. } | Origin::Allocation { .. }) {
                 continue;
             }
 
