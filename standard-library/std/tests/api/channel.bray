@@ -172,56 +172,59 @@ async func cancelling_a_registered_receiver_preserves_a_committed_rendezvous_val
         std.channel.ChannelError
     >(std.channel.bounded<i32>(capacity = 0));
 
-    let waiting: Task<std.channel.ReceiveResult<i32>> = receiver.receive().start();
-    let mut pending: i32 = 31;
-    let mut committed: bool = false;
-
-    while !committed
+    // End the task's result and cleanup scope before consuming the endpoints.
     {
-        match sender.try_send(pending)
+        let waiting: Task<std.channel.ReceiveResult<i32>> = receiver.receive().start();
+        let mut pending: i32 = 31;
+        let mut committed: bool = false;
+
+        while !committed
         {
-            case Ok(_) { committed = true; }
-            case Error(error)
+            match sender.try_send(pending)
             {
-                match consume error
+                case Ok(_) { committed = true; }
+                case Error(error)
                 {
-                    case Full(value) { pending = value; }
-                    case Closed(_) { assert(false); }
+                    match consume error
+                    {
+                        case Full(value) { pending = value; }
+                        case Closed(_) { assert(false); }
+                    }
                 }
             }
+
+            if !committed
+            {
+                await std.task.yield_now();
+            }
         }
 
-        if !committed
+        match await waiting.cancel()
         {
-            await std.task.yield_now();
+            case Completed(result)
+            {
+                if let Received(value) = result
+                {
+                    assert(value == 31);
+                }
+                else
+                {
+                    assert(false);
+                }
+            }
+            case Cancelled
+            {
+                if let Received(value) = await receiver.receive()
+                {
+                    assert(value == 31);
+                }
+                else
+                {
+                    assert(false);
+                }
+            }
+            case Panicked(_) { assert(false); }
         }
-    }
-
-    match await waiting.cancel()
-    {
-        case Completed(result)
-        {
-            if let Received(value) = result
-            {
-                assert(value == 31);
-            }
-            else
-            {
-                assert(false);
-            }
-        }
-        case Cancelled
-        {
-            if let Received(value) = await receiver.receive()
-            {
-                assert(value == 31);
-            }
-            else
-            {
-                assert(false);
-            }
-        }
-        case Panicked(_) { assert(false); }
     }
 
     sender.close();

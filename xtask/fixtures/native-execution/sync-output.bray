@@ -2,7 +2,7 @@ module sync_output;
 
 using std.io;
 
-func main() -> Result<unit, std.io.IoError>
+func main()
 {
-    return std.io.print_line("sync output");
+    std.io.print_line("sync output");
 }

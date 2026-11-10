@@ -238,6 +238,87 @@ fn repeated_arrays_check_and_infer_constant_counts_in_their_lexical_context() {
 }
 
 #[test]
+fn repeated_array_construction_inputs_receive_element_context_before_count_facts() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Buffer
+        {
+            values: [u8; 3];
+        }
+
+        struct Envelope
+        {
+            buffer: Buffer;
+        }
+
+        func nested() -> Envelope
+        {
+            return { buffer = { values = [0; 3] } };
+        }
+
+        union Message
+        {
+            Data(pos values: [u8; 3]);
+        }
+
+        func make() -> Buffer
+        {
+            return { values = [0; 3] };
+        }
+
+        func accept(pos values: [u8; 3]) {}
+
+        func main()
+        {
+            let implicit: Buffer = { values = [0; 3] };
+            let explicit = Buffer { values = [0; 3] };
+            let variant: Message = Data([0; 3]);
+            accept([0; 3]);
+        }
+    "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "main"))
+        .expect("contextually typed repeated-array inputs lower");
+
+    assert!(
+        lowered.diagnostics().is_empty(),
+        "{:#?}",
+        lowered.diagnostics()
+    );
+}
+
+#[test]
+fn repeated_array_construction_inputs_still_check_the_count() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        struct Buffer
+        {
+            values: [u8; 3];
+        }
+
+        func main()
+        {
+            let invalid: Buffer = { values = [0; 2] };
+        }
+    "#,
+    );
+
+    assert!(compilation.check_diagnostics().has_errors());
+}
+
+#[test]
 fn repeated_arrays_reject_counts_that_disagree_with_the_destination() {
     for count in ["3", "COUNT", "count()"] {
         let source = format!(r#"

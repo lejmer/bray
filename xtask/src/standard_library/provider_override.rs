@@ -1,5 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use bray_base::NonEmptySharedStr;
+use bray_linker::{LinkSearchPath, LinkSearchPathKind};
 
 use bray_compilation::{CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget};
 use bray_native_artifact::{
@@ -11,15 +15,19 @@ use bray_runtime_interface::{
 };
 use bray_source::{SourceIdentity, SourceInput};
 use bray_standard_library::StandardLibraryRoot;
-use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
-use bray_target::NativeTarget;
+use bray_symbols::{
+    NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductIdentity, ProductKind,
+};
+use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 use bray_tooling::load_llvm_compilation;
 use sha2::{Digest, Sha256};
 
 use super::command::BuildError;
 
-const CHECK: &str = "filesystem provider overrides";
+const CHECK: &str = "platform provider overrides";
 const OVERRIDES: &[PlatformServiceRole] = &[
+    PlatformServiceRole::StandardOutputWrite,
+    PlatformServiceRole::StandardOutputFlush,
     PlatformServiceRole::FileOpen,
     PlatformServiceRole::FileClose,
     PlatformServiceRole::FileRead,
@@ -40,7 +48,7 @@ pub(super) fn audit(
     runtime: &Path,
     target: NativeTarget,
 ) -> Result<(), BuildError> {
-    let output = output.join("filesystem-provider-override");
+    let output = output.join("platform-provider-override");
 
     fs::create_dir(&output).map_err(|error| BuildError::write(&output, error))?;
 
@@ -54,29 +62,54 @@ pub(super) fn audit(
 
     crate::native_product::compile_c_fixture(
         &compiler,
-        &root.join("xtask/fixtures/filesystem-provider-override.c"),
+        &root.join("xtask/fixtures/platform-provider-override.c"),
         &object,
         &[],
     )
     .map_err(|error| BuildError::conformance(CHECK, error))?;
 
+    let library_name = "bray_platform_fixture";
+
+    let archive_name =
+        TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+            .file_name(library_name)
+            .ok_or(BuildError::InvalidIdentity)?;
+
+    let archive_path = output.join(archive_name);
+
+    let archiver = bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::Archiver)
+        .map_err(|error| {
+            BuildError::conformance(CHECK, format!("archiver unavailable: {error}"))
+        })?;
+
+    let mut command = Command::new(archiver);
+
+    command.arg("rcs").arg(&archive_path).arg(&object);
+
+    crate::command::require_success(command, "archiving platform provider fixture")
+        .map_err(|error| BuildError::conformance(CHECK, error))?;
+
     let runtime = runtime_with_provider(runtime, &output, &object, target)?;
-    let source_path = root.join("xtask/fixtures/filesystem-provider-override.bray");
+    let source_path = root.join("xtask/fixtures/platform-provider-override.bray");
 
     let source =
         fs::read_to_string(&source_path).map_err(|error| BuildError::read(&source_path, error))?;
 
-    let package = PackageIdentity::try_new("bray.filesystem_provider_fixture")
+    let package = PackageIdentity::try_new("bray.platform_provider_fixture")
         .ok_or(BuildError::InvalidIdentity)?;
 
-    let product = ProductIdentity::try_new(package.clone(), "filesystem-provider")
+    let product = ProductIdentity::try_new(package.clone(), "platform-provider")
         .ok_or(BuildError::InvalidIdentity)?;
 
     let options = CompilationOptions::new(
         WorkerBudget::default(),
         ProductKind::Executable,
         SelectedTarget::for_native(target),
-    );
+    )
+    .with_native_link_inputs([NativeLinkRequirement::new(
+        NonEmptySharedStr::try_new(library_name).ok_or(BuildError::InvalidIdentity)?,
+        NativeLinkKind::Static,
+    )]);
 
     let root = StandardLibraryRoot::try_new(toolchain.join("lib/bray/standard-library"))
         .ok_or_else(|| BuildError::conformance(CHECK, "invalid standard-library root"))?;
@@ -85,7 +118,7 @@ pub(super) fn audit(
         package,
         vec![SourceInput::virtual_text(
             SourceIdentity::new(1),
-            "filesystem-provider-override.bray",
+            "platform-provider-override.bray",
             1,
             source,
         )],
@@ -107,7 +140,11 @@ pub(super) fn audit(
         target,
         &runtime,
         &native_output,
-        [],
+        [
+            LinkSearchPath::try_new(LinkSearchPathKind::Library, &output).map_err(|error| {
+                BuildError::conformance(CHECK, format!("provider search path: {error:?}"))
+            })?,
+        ],
         None,
     )
     .map_err(|error| BuildError::conformance(CHECK, error))?;

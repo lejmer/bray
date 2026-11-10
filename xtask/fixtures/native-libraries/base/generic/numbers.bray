@@ -14,11 +14,11 @@ impl Stored
     {
         if self.value == 65
         {
-            _ = std.io.print("A");
+            std.io.print("A");
         }
         else
         {
-            _ = std.io.print("B");
+            std.io.print("B");
         }
     }
 }

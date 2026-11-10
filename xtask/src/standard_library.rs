@@ -1,11 +1,11 @@
 mod artifact;
 mod command;
 mod conformance;
-mod filesystem_override;
 mod interoperability;
 mod native;
 mod optimization;
 mod os_bindings;
+mod provider_override;
 mod provider_retention;
 mod target;
 mod test_catalog;
