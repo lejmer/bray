@@ -2393,3 +2393,155 @@ fn caught_nullable_results_preserve_container_evidence() {
     }
 }
 }
+
+#[test]
+fn ending_a_mutable_view_preserves_an_independent_borrowed_owner() {
+    let declarations = r#"trusted module api;
+
+struct Marker
+{
+}
+
+struct Owner
+{
+    mut marker: Marker;
+}
+
+trusted predicate acquired(owner: &Marker);
+predicate retained(owner: &Owner) = acquired(owner = &owner.marker);
+
+trusted predicate held(owner: &Marker);
+
+struct Lease
+{
+    marker: Marker;
+
+    destruct()
+    {
+    }
+}
+
+trusted func acquire() -> Lease
+    ensures(trusted held(owner = &result.marker))
+{
+    return
+    {
+        marker = Marker {}
+    };
+}
+
+
+struct Entries
+{
+    mut counter: u32;
+}
+
+struct Anchor
+{
+    mut entries: Entries;
+    owner: &Owner;
+    lease: &Lease;
+}
+
+predicate access(owner: &Anchor) = retained(owner = owner.owner) && held(owner = &owner.lease.marker);
+
+trusted func arena_anchor(pos owner: &Owner, pos lease: &Lease) -> Anchor
+    requires(trusted retained(owner = owner), trusted held(owner = &lease.marker))
+    ensures(trusted retained(owner = owner), trusted access(owner = &result))
+{
+    return
+    {
+        owner = owner,
+        lease = lease,
+        entries =
+        {
+            counter = 0
+        }
+    };
+}
+
+trusted func entries(pos anchor: &mut Anchor) -> &mut Entries
+    requires(trusted access(owner = &anchor))
+    ensures(trusted access(owner = &anchor))
+{
+    return &mut anchor.entries;
+}
+
+trusted func update(pos entries: &mut Entries, pos owner: &Owner)
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    entries.counter += 1;
+}
+
+func inspect(pos owner: &Owner)
+    requires(trusted retained(owner = owner))
+{
+}
+
+
+async func pause()
+{
+}
+"#;
+    let provider = compilation(declarations);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for (repeats, mutation, asynchronous) in [
+        (false, false, false), (true, false, false),
+        (false, false, true), (true, false, true),
+        (false, true, false), (false, true, true),
+    ] {
+        let repeat = if repeats { "while" } else { "if" };
+        let mode = if mutation { "&mut " } else { "&" };
+        let asynchronous = if asynchronous { "async " } else { "" };
+        let suspension = if asynchronous.is_empty() { "" } else { "await api.pause();" };
+        let mutate = if mutation { "owner.marker = api.Marker {};" } else { "" };
+        let source = format!(r#"
+            module app;
+
+            using api;
+
+            {asynchronous}func caller(pos owner: {mode}api.Owner, pos again: bool)
+                requires(trusted api.retained(owner = &owner))
+            {{
+                {repeat} again
+                {{
+                    let request: u32 =
+                    {{
+                        let lease = trusted api.acquire();
+                        let mut anchor = trusted api.arena_anchor(&owner, &lease);
+                        let current = trusted api.entries(&mut anchor);
+                        trusted api.update(current, &owner);
+                        {suspension}
+                        yield 0;
+                    }};
+
+                    {mutate}
+                    api.inspect(&owner);
+                }}
+            }}
+        "#);
+        for imported in [false, true] {
+            let application = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                compilation_from_sources([declarations, source.as_str()])
+            };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), !mutation,
+                "repeats={repeats}, mutation={mutation}, async={asynchronous}, imported={imported}: {source}\n{diagnostics:#?}");
+            if mutation {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            } else {
+                let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, "caller"))
+                    .expect("borrowed owner scope composition lowers");
+
+                assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+                assert!(lowered.value().is_some(), "{lowered:#?}");
+            }
+        }
+    }
+}
