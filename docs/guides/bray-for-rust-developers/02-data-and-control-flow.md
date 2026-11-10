@@ -21,7 +21,7 @@ cd pantry_flow
 ```
 
 We'll keep the code in `src/main.bray`. Add new declarations outside `main` and add new statements inside `main`
-before `return Ok(unit);`.
+before its closing brace.
 
 ## Give stock a state
 
@@ -62,13 +62,11 @@ func describe(pos status: &Stock) -> string
     };
 }
 
-func main() -> Result<unit, std.io.IoError>
+func main()
 {
     let status: Stock = Stock.Low(2);
 
-    try std.io.print_line(describe(&status));
-
-    return Ok(unit);
+    std.io.print_line(describe(&status));
 }
 ```
 
@@ -135,7 +133,7 @@ Add this to `main`, after the call to `describe`:
 ```bray
 if status matches Low(_)
 {
-    try std.io.print_line("Time to reorder");
+    std.io.print_line("Time to reorder");
 }
 ```
 
@@ -160,7 +158,7 @@ Add this after the `matches` condition:
 ```bray
 if let Low(remaining) = status && remaining == 2
 {
-    try std.io.print_line("Two left");
+    std.io.print_line("Two left");
 }
 ```
 
@@ -210,12 +208,12 @@ Add these statements to `main`:
 ```bray
 if let ?needed = reorder_quantity(name = "oats") && needed == 1
 {
-    try std.io.print_line("Order one");
+    std.io.print_line("Order one");
 }
 
 if reorder_quantity(name = "rice").is_absent()
 {
-    try std.io.print_line("Rice not found");
+    std.io.print_line("Rice not found");
 }
 ```
 
@@ -282,7 +280,7 @@ let invalid: Result<Stock, StockError> = load_status(quantity = -1);
 
 if invalid matches Error(_)
 {
-    try std.io.print_line("Quantity cannot be negative");
+    std.io.print_line("Quantity cannot be negative");
 }
 ```
 
@@ -341,7 +339,7 @@ let delivery: Delivery = Delivery.Arrived(item);
 
 if let ?delivered = take_item(delivery)
 {
-    try std.io.print_line(delivered.name);
+    std.io.print_line(delivered.name);
 }
 ```
 
@@ -372,7 +370,7 @@ let caught_error: Result<Result<Stock, StockError>, PanicReport> = catch load_st
 
 if caught_error matches Ok(Error(_))
 {
-    try std.io.print_line("The error remains a value");
+    std.io.print_line("The error remains a value");
 }
 ```
 
@@ -402,7 +400,7 @@ let caught: Result<unit, PanicReport> = catch count_missing_oats();
 
 if caught matches Error(_)
 {
-    try std.io.print_line("Recovered from a panic");
+    std.io.print_line("Recovered from a panic");
 }
 ```
 
