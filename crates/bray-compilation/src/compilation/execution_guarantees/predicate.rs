@@ -615,6 +615,48 @@ mod tests {
     }
 
     #[test]
+    fn closed_union_guards_use_all_variants_of_the_same_input()
+    {
+        for (third, guard, valid) in [
+            ("", "value matches .Second", true),
+            ("Third;", "value matches .Second", false),
+            ("Third;", "value matches .Second || value matches .Third", true),
+            ("", "other matches .Second", false),
+        ]
+        {
+            let source = format!(r#"
+                module app;
+
+                union Choice
+                {{
+                    First;
+                    Second;
+                    {third}
+                }}
+
+                const func first(pos value: &Choice) -> bool
+                    requires(value matches .First)
+                    executes(pure, total)
+                {{
+                    return true;
+                }}
+
+                predicate selected(value: &Choice, other: &Choice) = {guard} || first(value);
+            "#);
+            let checked = compilation(&source);
+
+            assert_eq!(!checked.check_diagnostics().has_errors(), valid,
+                "{source}: {:#?}", checked.check_diagnostics());
+
+            if !valid
+            {
+                bray_testing::assert_goal_state_diagnostic_kind(checked.check_diagnostics(),
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven);
+            }
+        }
+    }
+
+    #[test]
     fn const_templates_exclude_paths_rejected_by_the_owning_entry_domain() {
         let checked = compilation(
             r#"

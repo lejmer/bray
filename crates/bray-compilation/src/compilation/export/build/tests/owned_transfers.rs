@@ -2014,6 +2014,7 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
 
                 api.take(owner);
     "#;
+    for guard in ["!(result matches Ok(_))", "result matches Error(_)"] {
     for (published, setup, body, valid) in [
         (false, created, "_ = api.opaque();\n                api.take(owner);", true),
         (true, created, "api.take(owner);", true),
@@ -2065,7 +2066,7 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
             }}
 
             trusted func make(pos flag: bool) -> Result<(Owner?), u32>
-                ensures(!(result matches Ok(_)) || trusted optional_owned(owner = created(&result)))
+                ensures({guard} || trusted optional_owned(owner = created(&result)))
             {{
                 if flag
                 {{
@@ -2110,12 +2111,13 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
                 compilation_from_sources([declarations.as_str(), &source])
             };
             let diagnostics = application.check_diagnostics();
-            assert_eq!(!diagnostics.has_errors(), valid, "published={published}, imported={imported}: {source}\n{diagnostics:#?}\n{:#?}",
+            assert_eq!(!diagnostics.has_errors(), valid, "guard={guard}, published={published}, imported={imported}: {source}\n{diagnostics:#?}\n{:#?}",
                 crate::compilation::result_dependencies::source_function_dependencies(&provider, "make"));
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
             }
         }
+    }
     }
 }

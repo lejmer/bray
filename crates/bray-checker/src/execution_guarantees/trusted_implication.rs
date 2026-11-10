@@ -107,6 +107,14 @@ pub(crate) fn trusted_condition_closure(
 
     propagate(&conditions, &indices, &mut terms, &mut queue, &mut known);
 
+    // Refinement consumes these proven guard values too. Keeping only positive
+    // consequences loses exclusions derived from another active union variant.
+    for (condition, term) in conditions.into_iter().zip(terms) {
+        if !condition.contains_trusted() && let Some(value) = term.value {
+            known.insert((condition, value));
+        }
+    }
+
     known
 }
 
@@ -223,6 +231,24 @@ mod tests {
             )
             .into(),
         )
+    }
+
+    #[test]
+    fn derived_variant_exclusions_survive_without_establishing_guarded_authority() {
+        let variant = |ordinal| bray_symbols::UnionVariantSymbolId::from_symbol_id(SymbolId::new(ordinal));
+        let success = input(0).matches_variant(variant(900));
+        let failure = input(0).matches_variant(variant(901));
+        let claim = ExecutionCondition::Trusted(Arc::new(input(1)));
+        let nullable = ExecutionCondition::operation(BoundOperator::LogicalOr,
+            vec![input(2), claim.clone()]);
+        let guarantee = ExecutionCondition::operation(BoundOperator::LogicalOr,
+            vec![failure.clone(), nullable]);
+        let known = trusted_condition_closure(BTreeSet::from([(guarantee, true)]),
+            &BTreeSet::from([(success, true)]));
+
+        assert!(known.contains(&(failure, false)));
+        assert!(!known.contains(&(claim.clone(), true)));
+        assert_eq!(claim.prove(&known, &mut { ExecutionCondition::WORK_LIMIT }), None);
     }
 
     #[test]

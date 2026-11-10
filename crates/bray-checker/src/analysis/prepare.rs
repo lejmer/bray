@@ -317,11 +317,11 @@ impl PreparedBodyAnalysis {
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
     ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
-        // Contracts can observe scalar parameters that the body never reads. Keep
+        // Contracts can observe parameters that the body never reads. Keep
         // their checked entry types without walking arbitrary aggregate fields.
         for (identity, _) in storage.identity_entries() {
             let Some(place) = crate::ExecutionPlace::storage_identity(storage, identity)
-                .filter(crate::ExecutionPlace::is_callable_input)
+                .filter(|place| input_invariant_subject(place).is_some())
             else {
                 continue;
             };
@@ -335,6 +335,8 @@ impl PreparedBodyAnalysis {
             if crate::representation::type_representation(request, ty)
                 .and_then(bray_compiler_known::RepresentationRole::integer_representation)
                 .is_some()
+                || matches!(request.semantic_values().type_data(ty).as_ref(),
+                    bray_symbols::TypeData::Named { definition: bray_symbols::NamedTypeSymbolId::Union(_), .. })
             {
                 self.observed_types.entry(place).or_insert(Some(ty));
             }
@@ -344,13 +346,32 @@ impl PreparedBodyAnalysis {
         let mut scalar_fields = Vec::new();
 
         for (place, ty) in &self.observed_types {
-            if !place.is_callable_input() {
+            let Some(subject) = input_invariant_subject(place) else {
                 continue;
-            }
+            };
 
             let Some(ty) = ty else {
                 continue;
             };
+
+            if let bray_symbols::TypeData::Named {
+                definition: bray_symbols::NamedTypeSymbolId::Union(union), ..
+            } = request.semantic_values().type_data(*ty).as_ref()
+            {
+                let union = request.union(*union)?
+                    .expect("a checked union input retains its declaration");
+
+                // A typed union always has one declared variant, independently
+                // of which patterns this body happens to test.
+                self.input_invariants.push(crate::ExecutionCondition::operation(
+                    bray_bound_tree::BoundOperator::LogicalOr,
+                    union.variants().iter().map(|variant| subject.clone().matches_variant(*variant)).collect(),
+                ));
+            }
+
+            if !place.is_callable_input() {
+                continue;
+            }
 
             let fields = if let Some(fields) = types.get(ty) {
                 *fields
@@ -478,4 +499,20 @@ impl PreparedBodyAnalysis {
             places.dedup();
         }
     }
+}
+
+fn input_invariant_subject(place: &crate::ExecutionPlace) -> Option<crate::ExecutionCondition> {
+    if place.is_callable_input() {
+        // Each invariant shares its immutable formal input and projection path.
+        return Some(crate::ExecutionCondition::Input(place.clone()));
+    }
+
+    if matches!(place.reference(), Some(bray_bound_tree::BoundReferenceTarget::Local(
+        bray_symbols::AnyLocalSymbolId::PostconditionResult(_))))
+    {
+        return Some(place.projections.iter().copied().fold(crate::ExecutionCondition::Result,
+            crate::ExecutionCondition::component));
+    }
+
+    None
 }
