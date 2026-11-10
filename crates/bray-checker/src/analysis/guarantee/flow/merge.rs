@@ -178,6 +178,8 @@ fn join_observations<'a>(
         .chain(incoming.current.keys())
         .collect::<std::collections::BTreeSet<_>>();
 
+    let contents = super::joins::current_content_identities(target, incoming, &observed, join.block());
+
     for place in observed {
         let value = place
             .value_in(&target.current)
@@ -192,7 +194,7 @@ fn join_observations<'a>(
 
         let slot = join_current_value(
             (target, &value, &left_available), (incoming, &other, &right_available),
-            place, join, &mut joined_facts,
+            place, join, &contents, &mut joined_facts,
         );
 
         let joined = slot.value;
@@ -392,9 +394,17 @@ fn join_current_value(
     right: (&ExecutionState, &ExecutionCondition, &ValueAvailability),
     place: &crate::ExecutionPlace,
     join: ExecutionJoin,
+    contents: &BTreeMap<ExecutionCondition, ExecutionCondition>,
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> CurrentValue {
-    let result = || join.block().map(|block| joined_observation(block, place));
+    let result = || join.block().map(|block| {
+        if let Some((_, owner)) = super::joins::common_current_owner(left.1, right.1) {
+            let shared = owner.with_snapshots(contents);
+            if shared != owner { return shared; }
+        }
+
+        joined_observation(block, place)
+    });
 
     let value = if *left.2 == ValueAvailability::Absent {
         right.1.clone()
@@ -458,7 +468,7 @@ pub(super) fn stable_observations(
     (values, identities)
 }
 
-fn resolved_availability(state: &ExecutionState, place: &crate::ExecutionPlace) -> ValueAvailability {
+pub(super) fn resolved_availability(state: &ExecutionState, place: &crate::ExecutionPlace) -> ValueAvailability {
     match state.current.availability(place) {
         ValueAvailability::Guarded(guard) => match guard.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) {
             Some(true) => ValueAvailability::Present,
@@ -483,7 +493,7 @@ fn assume_availability(state: &mut ExecutionState, guard: &ExecutionCondition, a
     condition.0.assume(condition.1, &mut state.assumptions);
 }
 
-fn joined_observation(block: AnalysisBlockId, place: &crate::ExecutionPlace) -> ExecutionCondition {
+pub(super) fn joined_observation(block: AnalysisBlockId, place: &crate::ExecutionPlace) -> ExecutionCondition {
     ExecutionCondition::Joined(
         block.unit(),
         u32::try_from(block.to_index().expect("flow block has an index"))
@@ -675,8 +685,8 @@ pub(super) fn result_replacements(
     // A retained component is a complete unchanged observation. Shield it from
     // broader substitutions of the container's changed contents.
     if value == joined {
+        values.insert(value.clone(), value.clone());
         if let Some((_, owner)) = value.ownership_identity() {
-            values.insert(value.clone(), value.clone());
             identities.insert(owner.clone(), owner.clone());
         }
         return;
@@ -854,6 +864,24 @@ fn insert_replacement(
 #[cfg(test)]
 mod tests {
     use super::{BTreeMap, ExecutionCondition, ExecutionState, current_replacements};
+
+    #[test]
+    fn unchanged_scalar_observations_do_not_follow_an_overwritten_copy() {
+        let input = |id| ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(id)));
+        let field = |id| bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(id));
+        let scalar = ExecutionCondition::scalar_observation(input(1), input(2));
+        let source = ExecutionCondition::constructed(input(0), [(field(0), scalar.clone()), (field(1), input(2))].into());
+        let joined = ExecutionCondition::constructed(input(0), [(field(0), scalar.clone()), (field(1), input(3))].into());
+        let mut values = BTreeMap::new();
+        let mut identities = BTreeMap::new();
+
+        super::result_replacements(&source, &joined, &Default::default(), &Default::default(), &mut values, &mut identities);
+
+        assert_eq!(scalar.with_joined_values(&values, &identities), scalar,
+            "an unchanged scalar context retains its original immutable copied value");
+        assert_eq!(input(2).with_joined_values(&values, &identities), input(3),
+            "the overwritten observation still moves to its new contents");
+    }
 
     #[test]
     fn retired_snapshots_cannot_rename_live_loan_data() {
