@@ -2716,21 +2716,42 @@ fn deferred_producers_require_live_entry_evidence_when_their_body_begins() {
         ("if flag { unchanged(); }", true),
         ("opaque();", false),
         ("if flag { opaque(); }", false),
-        ("epoch = 2;", false),
+        ("epoch = 2;", true),
+        ("epoch = 2; _ = await owner(epoch);", false),
     ] {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Owner {{ epoch: u64; }}
+
+            struct Owner
+            {{
+                epoch: u64;
+            }}
+
             trusted predicate admitted(epoch: u64);
             trusted predicate live(value: &Owner);
+
             trusted async func owner(pos epoch: u64) -> Owner
-                requires(trusted admitted(epoch)) ensures(trusted live(&result))
-                {{ return {{ epoch = epoch }}; }}
-            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            func unchanged() {{}}
+                requires(trusted admitted(epoch))
+                ensures(trusted live(&result))
+            {{
+                return {{ epoch = epoch }};
+            }}
+
+            func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {{
+            }}
+
+            func unchanged()
+            {{
+            }}
+
             extern func opaque();
-            async func caller(pos mut epoch: u64, flag: bool) requires(trusted admitted(epoch)) {{
+
+            async func caller(pos mut epoch: u64, flag: bool)
+                requires(trusted admitted(epoch))
+            {{
                 let future = owner(epoch);
                 {intervening}
                 let value = await future;
@@ -2745,6 +2766,12 @@ fn deferred_producers_require_live_entry_evidence_when_their_body_begins() {
             "{intervening}: {:?}",
             compilation.check_diagnostics()
         );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
     }
 }
 

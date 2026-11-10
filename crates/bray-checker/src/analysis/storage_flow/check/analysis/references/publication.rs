@@ -42,7 +42,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let guard = if let Some(guard) = guards.get(carrier.path()) {
                 *guard
             } else {
-                let guard = self.result_path_condition(carrier.path(), true)?;
+                // Payload steps own their activity guards. A complete nullable
+                // carrier can establish a protocol even when its value is absent.
+                let guard = self.result_path_condition(carrier.path(), false)?;
 
                 guards.insert(carrier.path().to_vec(), guard);
 

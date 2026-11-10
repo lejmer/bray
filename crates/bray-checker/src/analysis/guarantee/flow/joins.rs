@@ -836,9 +836,11 @@ mod nested_guard_tests {
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
         ]);
 
-        for valid in [true, false] {
-            let present = input(0).present();
-            let claim = held(if valid { present.clone() } else { input(1).present() });
+        for (valid, known_present) in [true, false].into_iter().flat_map(|valid|
+            [true, false].map(move |known| (valid, known))) {
+            let nullable = |owner: ExecutionCondition| if known_present { owner.present() } else { owner };
+            let present = nullable(input(0));
+            let claim = held(if valid { present.clone() } else { nullable(input(1)) });
             let mut left = ExecutionState::default();
             left.carry_guarantee(present.clone(), claim.clone());
             claim.assume(true, &mut left.trusted_assumptions);
@@ -850,7 +852,7 @@ mod nested_guard_tests {
             ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
                 vec![joined, absent.clone()]).assume(true, &mut left.assumptions);
             assert_eq!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions) == Some(true), valid,
-                "valid={valid} required={required:?} facts={:?} witnesses={:?}", left.trusted_assumptions, left.witnesses);
+                "valid={valid} known_present={known_present} required={required:?} facts={:?} witnesses={:?}", left.trusted_assumptions, left.witnesses);
         }
     }
 

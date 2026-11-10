@@ -233,7 +233,6 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
     exits: &[super::owned::OwnedReturn],
     previous: &mut Option<BTreeSet<DependencyWitnessCarrier<StorageProjection>>>,
 ) {
-    let mut identities = None;
     let mut result = BTreeSet::new();
 
     for (owner, witness) in &state.witnesses {
@@ -255,23 +254,8 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
             })
             .map(|(condition, _)| condition)
         {
-            let identities = identities.get_or_insert_with(|| {
-                owners
-                    .iter()
-                    .map(|(owner, path)| {
-                        (
-                            owner.clone(),
-                            path.iter()
-                                .fold(ExecutionCondition::Result, |value, projection| {
-                                    value.project(*projection)
-                                }),
-                        )
-                    })
-                    .collect()
-            });
-
             // Rename actual returned storage identities, never ordinary field equalities.
-            let condition = condition.with_joined_values(identities, identities);
+            let condition = super::super::flow::returned_condition(condition, returned);
 
             if let Some(term) = portable(request, &condition) {
                 result.insert(DependencyWitnessCarrier::new(term, path.iter().copied()));
