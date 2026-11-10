@@ -47,7 +47,7 @@ impl ExecutionCondition {
             }
         }
 
-        if let Self::Observation { owner: _, contents: value, .. } = self {
+        if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
             return value.prove_mixed(trusted, ordinary, budget);
         }
 
@@ -118,7 +118,7 @@ impl ExecutionCondition {
             return Some(false);
         }
 
-        if let Self::Observation { owner: _, contents: value, .. } = self {
+        if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
             return value.prove(assumptions, budget);
         }
 

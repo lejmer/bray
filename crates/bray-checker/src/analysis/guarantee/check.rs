@@ -576,28 +576,11 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
                 _ => continue,
             };
             if candidate.failure.is_none() && cause == FailureCause::Panic {
-                for edge in graph.edges() {
-                    let Some(AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement() else {
-                        continue;
-                    };
-                    if invocation.node() != exit.node() || reachable.edge_output(edge.id()).is_none() {
-                        continue;
-                    }
-                    let Some(contract) = request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation)) else {
-                        continue;
-                    };
-                    let Some(entry) = candidate.calls.get(&invocation) else {
-                        continue;
-                    };
-                    if let Err(failed) = entry.prove_requirements(contract.preconditions.iter().map(|(condition, _)| condition)) {
-                        let condition = super::diagnostic::obligation(&reachable.domain,
-                            bray_diagnostics::DiagnosticContractObligationKind::CallRequirement, &failed)?;
-                        candidate.failure = Some(crate::ExecutionVerificationFailure {
-                            source: node_span(request, invocation.node()), cause,
-                            condition: Some(std::sync::Arc::new(condition)),
-                        });
-                        break;
-                    }
+                if let Some(condition) = super::diagnostic::panic_requirement(reachable, exit.node())? {
+                    candidate.failure = Some(crate::ExecutionVerificationFailure {
+                        source: node_span(request, exit.node()), cause,
+                        condition: Some(std::sync::Arc::new(condition)),
+                    });
                 }
             }
             record_failure(request, candidate, exit.node(), cause);

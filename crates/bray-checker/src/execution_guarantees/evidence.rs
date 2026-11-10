@@ -433,6 +433,30 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
 
     #[test]
+    fn borrowed_boolean_requirements_read_current_contents_without_creating_authority() {
+        let argument = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+        let owner = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1));
+        let field = bray_symbols::ConstantProjectionKind::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+        let required = ExecutionCondition::Input(argument.clone().component(field));
+        let contents = ExecutionCondition::Input(owner.clone().component(field));
+        let mut entry = ExecutionCallEvidence::default();
+        entry.arguments.insert(argument.clone(), ExecutionCondition::Input(owner).borrowed());
+        entry.assumptions.insert((contents.clone(), true));
+
+        assert!(entry.prove_requirements([&required]).is_ok());
+        assert!(entry.prove_requirements([&ExecutionCondition::Trusted(std::sync::Arc::new(required.clone()))]).is_err());
+
+        entry.assumptions.clear();
+        assert!(entry.prove_requirements([&required]).is_err());
+        entry.assumptions.insert((contents, false));
+        assert!(entry.prove_requirements([&required]).is_err());
+
+        entry.arguments.insert(argument, ExecutionCondition::Input(
+            ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2))).borrowed());
+        assert!(entry.prove_requirements([&required]).is_err());
+    }
+
+    #[test]
     fn failed_entry_proofs_retain_the_requirement_and_actual_value() {
         let input = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
         let required = ExecutionCondition::Input(input.clone());

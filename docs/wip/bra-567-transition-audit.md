@@ -30,9 +30,9 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
-Fixed comparison:756 passed /52 failed /99 ignored, exact failure identities unchanged. Checker476, bound-tree134,
+Fixed comparison:757 passed /51 failed /99 ignored, all907 identities retained. Checker477, bound-tree134,
 messages91, JSON48 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
-Accepted native.log:70 diagnostics(E7123=30,E7135=20,E7119=20), unchanged runtime Source64a4e5490.
+Accepted native.log:66 diagnostics(E7123=30,E7135=20,E7119=16), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
 Yield/Break and callable Return now publish the actual planned result slot before cleanup. Completion reads current
@@ -70,12 +70,17 @@ leaves remain conditional Cleanup(type), unrelated/global effects retain their i
 passes in0.07s. Configured recursion-limit, retained-capture and recursive-default controls pass. Checker476 and all907
 fixed outcomes remain unchanged. Full cleanup/storage57/4 includes the now-passing recursive test. All4 failures match
 the retained baseline. The real source passes the rebuilt driver. All70 native diagnostic blocks are unchanged.
-Panic diagnostics retain failed call requirements and actual arguments through the existing proof model. New regression
-was red and now passes. All907 fixed outcomes remain unchanged. Native diagnostics have not been rerun for this text change.
-The host/access77 failure reduces to forwarding &Lease into a named or anonymous callee requiring lease.active. It also
-fails without an intervening call. Passing lease.active as a copied bool works. The new label names lease.active.
-Next trace the ordinary Boolean observation through borrowed argument substitution and proof. Keep the small source
-reduction until permanent regression/control coverage replaces it. No trace hook or review agent. Style/format deferred.
+Panic diagnostics retain failed call requirements and actual arguments through the existing proof model. Context lookup
+reads the actual captured input state before the failing entry edge, independently of later cleanup or merged evidence.
+The red regression now passes. Borrowed Boolean proof reads current contents consistently with reference observations.
+The new proof property was red and now passes with false/missing facts, different owner and trusted-authority controls.
+Six real sync/async source variants verify named/anonymous forwarding and reject mutation or switching owners. The inline
+test fixture was corrected to use matching mutable-borrow types. Recompile that fixture before the next implementation change.
+The fixed suite improves only anonymous_total_proof_uses_its_own_field_requirements, whose positive and negative cases
+now both match their existing expectations. No expected outcomes were changed. Native clears host/access56 and
+host/owner144,269,724. Seven retained guarantees advance from panic to finite-loop proof. No new native locations.
+Next trace loop progress: even a standalone usize counter from0 to32 fails totality. loop-progress.bray retains that
+reduction plus the real array-comparison loop. No trace hook or review agent. Style/format deferred.
 
 ## Remaining
 
