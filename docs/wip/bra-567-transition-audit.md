@@ -30,13 +30,13 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:755 passed /52 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
+Fixed comparison:756 passed /52 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
 and copied-pointer failures with0 additions. Checker475 and bound-tree133 pass. Callable Source/import28, numeric
 Source/import8 and trusted diagnostics9 pass. Captured values survive replacement without preserving the old storage loan
 or owner. Failure diagnostics7, messages91 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
 Expanded predicate group:26 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
 
-Accepted native.log:88 diagnostics(E7123=43,E7135=25,E7119=20), unchanged runtime Source64a4e5490.
+Accepted native.log:85 diagnostics(E7123=39,E7135=26,E7119=20), unchanged runtime Source64a4e5490.
 The produced-tag repair clears formation291 and its dependent worker/entry postcondition, with0 additions.
 Matching native library built. No native async composition has executed.
 Use the canonical complete233-file Windows request. Partial production_host_request has129 files and cannot certify it.
@@ -77,8 +77,21 @@ No hooks or stale branch/trace probes remain. No style/format or agent is active
 Catch forms its private Ok/Error wrappers before their join. complete_caught_result now records production tag facts
 there, preserving nullable-container evidence through consumed Ok payloads and presence tests. The12-case matrix covers
 direct/caught/fabricated values, sync and async/await, Source/import, and MIR for valid cases. All pass. Comparison755/52/99
-preserves every prior failure identity. Checker475 passes. Native verification is next, targeting task/native89 and
-execution/ownership67. catch-composition.bray remains the active real-source control until that run finishes.
+preserves every prior failure identity. Checker475 passes. Native7ad701e8c removes4 call failures, including both targets.
+It exposes1 dependent E7135 at execution/ownership47, whose cause is the existing task/native140 arena_anchor requirement.
+execution/task_entry20 now names the same existing dependency. Retained diagnostic headers are otherwise unchanged.
+The exact catch source reduction passes the rebuilt driver. Consumed probes/logs were removed.
+
+Root expiry sent dependent reference views through pointee retirement. The arena proof was lost at request-block cleanup
+and reached the loop header absent. The independent input witness had no lease dependency, while a separate Borrowed(input)
+witness depended on the lease. Root evidence expiry now removes scoped reference witnesses without retiring referent data.
+Owned lifetime dependents still retire. Original changed-snapshot handling remains intact. Independent owner evidence
+survives, an expired sole view loses evidence, and actual owner retirement/marker replacement revoke it.
+
+The12-case Source/import/MIR matrix covers a single block and repeated loop, sync and actual async/await, plus genuine
+marker-replacement negatives. All475 checker tests pass. Comparison756/52/99 preserves every prior failure identity.
+No hooks or consumed trace/red logs remain. borrowed-wrapper-composition.bray remains the active real-source control.
+Next: uninstrumented native run, targeting task/native140 and its exposed dependent postconditions. No style/format or agent.
 Keep propagation-to-yield under audit. Do not retain prospective call results as live owners.
 
 ## Remaining

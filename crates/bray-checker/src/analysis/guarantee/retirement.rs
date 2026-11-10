@@ -576,13 +576,25 @@ impl ExecutionState {
         }
     }
 
-    fn retire_address_roots(
+    fn retire_witness_roots(
         &mut self,
         roots: &BTreeSet<crate::execution_guarantees::ExecutionInput>,
     ) {
         let mut retired = BTreeSet::new();
 
-        self.witnesses.retain(|_, witness| {
+        self.witnesses.retain(|carrier, witness| {
+            // A scoped view expires without changing the independently held
+            // referent. Root-bound address clauses expire at this same boundary.
+            if matches!(carrier.ownership_identity(), Some((crate::execution_guarantees::ExecutionObservationKind::Reference, _)))
+                && witness.dependencies.iter().any(|owner| roots.contains(&owner.root))
+            {
+                for condition in witness.conditions.keys() {
+                    condition.clone().assume(true, &mut retired);
+                }
+
+                return false;
+            }
+
             witness.retain_conditions(|condition, guarantee| {
                 if guarantee
                     .addresses
@@ -632,7 +644,7 @@ impl ExecutionState {
             value.observations().any(|observed| matches!(observed, ExecutionCondition::Input(place) if roots.contains(&place.root)))
         }, |_| false));
 
-        self.retire_address_roots(roots);
+        self.retire_witness_roots(roots);
 
         let dependent = self
             .witnesses
@@ -722,21 +734,49 @@ mod tests {
     #[test]
     fn copying_or_retiring_a_loan_does_not_own_or_retire_its_source() {
         let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let mut state = ExecutionState::default();
 
-        state.carry_guarantee(owner.clone(), owner.clone());
-        state.trusted_assumptions.insert((owner.clone(), true));
+        for (condition, retained) in [
+            (owner.clone(), BTreeSet::new()),
+            (ExecutionCondition::Trusted(std::sync::Arc::new(owner.clone().borrowed())), BTreeSet::from([owner.clone()])),
+        ] {
+            let mut state = ExecutionState::default();
 
-        let copied = ExecutionCondition::scalar_observation(owner.clone(), owner.clone());
-        let loan = owner.clone().borrowed();
+            state.carry_guarantee(owner.clone(), condition.clone());
+            state.trusted_assumptions.insert((condition.clone(), true));
 
-        assert!(state.owns_witness(&owner));
-        assert!(!state.owns_witness(&copied));
-        assert!(!state.owns_witness(&loan));
+            let copied = ExecutionCondition::scalar_observation(owner.clone(), owner.clone());
+            let loan = owner.clone().borrowed();
 
-        state.retire_trusted_values([copied, loan], &BTreeSet::new());
+            state.carry_guarantee(loan.clone(), condition.clone());
+            assert!(state.owns_witness(&owner));
+            assert!(!state.owns_witness(&copied));
+            assert!(!state.owns_witness(&loan));
 
-        assert!(state.owns_witness(&owner));
+            state.retire_trusted_values([copied, loan.clone()], &retained);
+
+            assert!(state.owns_witness(&owner), "ending a view cannot retire its independently live source");
+            assert!(state.trusted_assumptions.contains(&(condition.clone(), true)));
+
+            let scope = ExecutionPlace::argument(SymbolOrdinal::new(1));
+            state.current.insert(scope.clone(), ExecutionCondition::Input(scope.clone()));
+            state.carry_guarantee(loan.clone(), condition.clone());
+            std::sync::Arc::make_mut(state.witnesses.get_mut(&loan).expect("the scoped view has its own evidence"))
+                .dependencies.insert(scope.clone());
+            let mut only_view = ExecutionState::default();
+            only_view.current = state.current.clone();
+            only_view.witnesses.insert(loan.clone(), state.witnesses[&loan].clone());
+            only_view.trusted_assumptions.insert((condition.clone(), true));
+            only_view.invalidate_trusted_roots(&BTreeSet::from([scope.root.clone()]));
+            assert!(!only_view.trusted_assumptions.contains(&(condition.clone(), true)), "an expired sole view cannot retain evidence");
+
+            state.invalidate_trusted_roots(&BTreeSet::from([scope.root]));
+
+            assert!(!state.witnesses.contains_key(&loan));
+            assert!(state.owns_witness(&owner), "view expiry preserves independent authority");
+            assert!(state.trusted_assumptions.contains(&(condition.clone(), true)));
+            state.invalidate_trusted(&owner);
+            assert!(!state.trusted_assumptions.contains(&(condition, true)), "retiring the actual owner revokes its evidence");
+        }
     }
 
     #[test]
