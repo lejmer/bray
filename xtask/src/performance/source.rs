@@ -2,17 +2,15 @@ pub(super) const STREAM_OUTPUT: &str = r#"module stream_output;
 
 using std.io;
 
-func main() -> Result<unit, std.io.IoError>
+func main()
 {
     let mut index: usize = 0;
 
     while index < 1024
     {
-        try std.io.print("x");
+        std.io.print("x");
         index += 1;
     }
-
-    return Ok(unit);
 }
 "#;
 

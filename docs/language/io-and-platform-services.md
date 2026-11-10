@@ -46,8 +46,11 @@ means that the stream has reached its end. A write can accept fewer bytes than s
 wrappers continue until the requested sequence is committed or a typed failure is returned.
 
 The public I/O surface has three levels. `print` and `print_line` are the ordinary text-output operations. They accept a
-copyable `string` value, so literals and existing string bindings need no explicit borrow. Their `IoError` result can be
-ignored for routine output or handled when the program cares about output failure. `write_all`, `write_all_async`,
+copyable `string` value, so literals and existing string bindings need no explicit borrow. Both return `unit` on success
+and panic if acquiring standard output, writing text or the line ending, or flushing fails. Both flush before returning.
+`print_line` appends one `\n` byte. `print_async` and `print_line_async` are fallible and return
+`Result<unit, IoError>` with exact accepted progress, including text accepted before a line-ending or flush failure.
+Callers that need to handle synchronous output failures use a standard-output writer. `write_all`, `write_all_async`,
 `read_exact`, and `read_exact_async` expose complete byte-transfer failures and exact progress. The `Reader`, `Writer`,
 `AsyncReader`, and `AsyncWriter` operations expose individual partial transfers for buffering, streaming, and resource
 adapters.
@@ -57,7 +60,7 @@ using std.io;
 
 std.io.print_line("ready");
 
-try std.io.print_line(message);
+std.io.print_line(message);
 ```
 
 `Writer.write_all` and `AsyncWriter.write_all_async` are default trait methods that commit a complete borrowed byte
