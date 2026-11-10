@@ -92,7 +92,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let Some((minimum, maximum)) = ty.and_then(|ty| self.integer_type_range(ty)) {
             let value = self.value(state, expression);
 
-            if component && !matches!(value, ExecutionCondition::Projection(..)) {
+            if component && !matches!(value.computed_value(), ExecutionCondition::Projection(..)) {
                 return;
             }
 

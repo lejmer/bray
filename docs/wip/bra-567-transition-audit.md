@@ -30,16 +30,15 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:752 passed /53 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
+Fixed comparison:753 passed /52 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
 and copied-pointer failures with0 additions. Checker475 and bound-tree133 pass. Callable Source/import28, numeric
 Source/import8 and trusted diagnostics9 pass. Captured values survive replacement without preserving the old storage loan
 or owner. Earlier conformance7, messages90 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
 Expanded predicate group:25 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
 
-Accepted native.log:93 diagnostics(E7123=44,E7135=27,E7119=22), unchanged runtime Source64a4e5490.
-The conditional-result batch removes19 prior diagnostics and exposes domain322 total after its body error clears.
-Certification now reaches the existing selected() postcondition failure at56. This is an explained dependent failure,
-not new failing behavior. Matching native library built. No native async composition has executed.
+Accepted native.log:90 diagnostics(E7123=44,E7135=26,E7119=20), unchanged runtime Source64a4e5490.
+The scalar-read bounds repair clears domain.selected()'s postcondition and2 dependent totality failures, with0 additions.
+Matching native library built. No native async composition has executed.
 Use the canonical complete233-file Windows request. Partial production_host_request has129 files and cannot certify it.
 
 Embedded source snippets share an80-character/first-line formatter. Whole conditions/messages and structured JSON remain
@@ -47,26 +46,24 @@ complete. Unsupported bodyless execution promises report MissingEvidence before 
 
 ## Current boundary and next step
 
-Closed-union completeness comes from declared variants at formal parameter and symbolic postcondition-result entry.
-The existing Boolean closure now retains proven ordinary guard values for witness refinement. It previously proved
-Error false from Ok, then discarded that fact, leaving the consumed result in a moved payload's guarantee.
-No Result special case, new proof representation or reconstructed authority. Checker475 verifies exclusions survive
-without establishing guarded authority. Union controls cover two/three variants and distinct inputs. The existing
-nullable-result test covers both equivalent guards through Source/import, opaque calls, fabrication and overwrite(28 cases).
-All fixed53 failure identities remain unchanged. Predicate26/2/2 retains its2 reproduced baseline failures.
+Current batch: scalar-read bounds, ready to checkpoint. No style/format or agent active. No temporary trace hooks remain.
+Union completeness comes from declared variants at formal parameter and symbolic result entry. Boolean closure retains
+proven ordinary guards for witness refinement. Union(2/3 variants, distinct inputs) and no-authority-promotion controls pass.
+The nullable-result Source/import test covers equivalent guards, opaque calls, fabrication and overwrite(28 cases).
+scoped-evidence.bray passes construction, Result consumption, scoped entry, mutation and cleanup. Fabricated owners and
+replaced leases reject E7123. Opaque-call control passes. These are Source checks, not async native execution.
 
-scoped-evidence.bray passes construction, Result return, complete Ok consumption, scoped entry, mutation and cleanup.
-Fabricated scoped owners and overwritten leases reject E7123. The opaque-call variant passes. This is Source evidence,
-not async native execution. No temporary trace hooks remain. No style/format has run. No agent is active.
+E7135 preserves required/actual conditions through certificate source conversions using the shared condition formatter.
+Both cause and condition render. Failure7, diagnostics9, checker475, messages91 and JSON48 pass.
 
-E7135 carries required/actual conditions through certificate source conversions, using the shared guarantee condition
-renderer. It renders both the proof cause and actual condition. Red-then-green Source/forwarding test, failure7,
-diagnostics9, checker475, messages91 and JSON48 pass. Fixed comparison is restored to752/53/99 with identical53 failures.
-Last native check93 used64bf101c4. The diagnostic batch changes no proof rules and has not rerun native execution.
-Next: trace compare-exchange's produced scalar, Boolean relation and retained range facts. Its richer diagnostic identifies
-the unproven compare_exchange(...).0 > 0. No speculative scalar/atomic repair has been made.
-The scalar data index remains populated only from authoritative live values. Copies retain neither source loans nor
-owners. Composite storage-flow core.rs calls transfer_operation directly at671/1007/1024, bypassing flow.operation.
+Scalar-read bounds: preserve_integer_value checks computed_value when recognizing a projected scalar read.
+The actual failed exit retained previous != 0 but no unsigned bounds because Scalar wrapped the Projection. All strong/weak,
+signed and mutation Source/import cases pass. Invalid outcomes are unchanged. Their assertion requires E7135(false
+postcondition) and forbids E7119. Fixed suite753/52/99 removes only that failure, with0 additions. Native90 removes3 with0
+additions. Next: group remaining runtime failures using their actual conditions and continue the transition inventory.
+
+Scalar copies retain data without retaining the old storage loan or owner. The data index comes only from live values.
+Composite storage-flow core.rs calls transfer_operation directly at671/1007/1024, bypassing flow.operation.
 
 ## Remaining
 
