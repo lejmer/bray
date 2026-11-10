@@ -70,14 +70,10 @@ pub(super) fn selected_condition(
                     predicates,
                 );
 
-                let condition = if matches!(
+                let condition = condition.argument_value(matches!(
                     values.type_data(argument.ty()).as_ref(),
                     bray_symbols::TypeData::Borrow { .. }
-                ) {
-                    condition.borrowed()
-                } else {
-                    condition
-                };
+                ));
 
                 (argument.parameter(), condition)
             })
@@ -133,16 +129,14 @@ pub(crate) fn selected_call_condition(
             .expect("pointer projection has its single input");
     }
 
-    let borrowed_arguments = |budget: &mut usize| {
+    let argument_values = |budget: &mut usize| {
         let mut arguments = arguments(budget);
 
-        if let Some(receiver) = call.receiver()
-            && matches!(
+        if let Some(receiver) = call.receiver() {
+            arguments[0] = arguments[0].clone().argument_value(matches!(
                 values.type_data(receiver.target_type()).as_ref(),
                 bray_symbols::TypeData::Borrow { .. }
-            )
-        {
-            arguments[0] = arguments[0].clone().borrowed();
+            ));
         }
 
         for input in call.arguments() {
@@ -155,15 +149,13 @@ pub(crate) fn selected_call_condition(
                 bray_bound_tree::SelectedArgument::Default { ordinal, ty, .. } => (*ordinal, *ty),
             };
 
-            if matches!(
+            let index = usize::try_from(ordinal).expect("input ordinal fits host")
+                + usize::from(call.receiver().is_some());
+
+            arguments[index] = arguments[index].clone().argument_value(matches!(
                 values.type_data(ty).as_ref(),
                 bray_symbols::TypeData::Borrow { .. }
-            ) {
-                let index = usize::try_from(ordinal).expect("input ordinal fits host")
-                    + usize::from(call.receiver().is_some());
-
-                arguments[index] = arguments[index].clone().borrowed();
-            }
+            ));
         }
 
         arguments
@@ -174,7 +166,7 @@ pub(crate) fn selected_call_condition(
             values,
             predicates,
             predicate,
-            borrowed_arguments(budget),
+            argument_values(budget),
             budget,
         );
     }
@@ -189,7 +181,7 @@ pub(crate) fn selected_call_condition(
     {
         // Predicate terms and runtime observations use the same selected borrow
         // inputs. A reference value must not become a different const-call key.
-        let mut arguments = borrowed_arguments(budget);
+        let mut arguments = argument_values(budget);
 
         if matches!(
             call.implementation_hook(),

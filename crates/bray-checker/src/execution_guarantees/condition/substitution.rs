@@ -83,7 +83,9 @@ impl ExecutionCondition {
                 *substitution,
                 operands
                     .iter()
-                    .map(|operand| operand.substitute_values(replace, budget))
+                    .map(|operand| operand.substitute_values(replace, budget).argument_value(
+                        operand.ownership_identity().is_some_and(|(kind, _)|
+                            kind == ExecutionObservationKind::Reference)))
                     .collect(),
             ),
             Self::Trusted(value) => {

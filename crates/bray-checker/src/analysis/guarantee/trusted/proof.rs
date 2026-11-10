@@ -243,10 +243,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         for (required, actual) in requirements.iter().zip(instantiated) {
-            if !requirement_follows(&actual, &known, &mut prove_leaf, &mut {
+            if let Err(failed) = prove_requirement(&actual, &known, &mut prove_leaf, &mut {
                 ExecutionCondition::WORK_LIMIT
             }) {
-                return Err(crate::UnprovenExecutionCondition::new(required.clone(), actual));
+                return Err(crate::UnprovenExecutionCondition::new(required.clone(), failed.clone()));
             }
         }
 
@@ -256,35 +256,68 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 }
 
 // Share one lazy range index across every Boolean clause in the caller's contract.
-fn requirement_follows(
-    condition: &ExecutionCondition,
+fn prove_requirement<'a>(
+    condition: &'a ExecutionCondition,
     known: &BTreeSet<(ExecutionCondition, bool)>,
     prove_leaf: &mut impl FnMut(&ExecutionCondition) -> bool,
     budget: &mut usize,
-) -> bool {
+) -> Result<(), &'a ExecutionCondition> {
     let Some(remaining) = budget.checked_sub(1) else {
-        return false;
+        return Err(condition);
     };
 
     *budget = remaining;
 
     // Preserve conditional evidence as a whole without proving each subtree again.
     if known.contains(&(condition.clone(), true)) {
-        return true;
+        return Ok(());
     }
 
     match condition {
         ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalAnd, operands) => {
-            operands
-                .iter()
-                .all(|condition| requirement_follows(condition, known, prove_leaf, budget))
+            for operand in operands.iter() {
+                prove_requirement(operand, known, prove_leaf, budget)?;
+            }
+
+            Ok(())
         }
         ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, operands) => {
-            operands
-                .iter()
-                .any(|condition| requirement_follows(condition, known, prove_leaf, budget))
+            if operands.iter().any(|operand| prove_requirement(operand, known, prove_leaf, budget).is_ok()) {
+                Ok(())
+            } else { Err(condition) }
         }
-        condition => prove_leaf(condition),
+        condition => prove_leaf(condition).then_some(()).ok_or(condition),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prove_requirement;
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_bound_tree::BoundOperator;
+    use bray_symbols::SymbolOrdinal;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn failed_conjunction_reports_the_unproven_leaf() {
+        let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let known = BTreeSet::from([(first.clone(), true)]);
+        let condition = ExecutionCondition::operation(BoundOperator::LogicalAnd,
+            vec![first, second.clone()]);
+
+        assert_eq!(prove_requirement(&condition, &known, &mut |_| false,
+            &mut { ExecutionCondition::WORK_LIMIT }), Err(&second));
+    }
+
+    #[test]
+    fn failed_disjunction_retains_all_alternatives() {
+        let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let condition = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![first, second]);
+
+        assert_eq!(prove_requirement(&condition, &BTreeSet::new(), &mut |_| false,
+            &mut { ExecutionCondition::WORK_LIMIT }), Err(&condition));
     }
 }
 

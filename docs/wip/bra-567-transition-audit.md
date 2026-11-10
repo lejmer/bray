@@ -30,15 +30,13 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:749 passed /55 failed /99 ignored, including raw-memory16. Original54 failures are unchanged. The sole
-addition is the new numeric_field_requirements_match_shared_borrow_observations goal test, confirmed as an existing gap
-under prior/current projection behavior. Checker470 and bound-tree133 pass. The existing
-raw_slot_moves_preserve_only_live_disjoint_initialization now passes without expectation changes. Checker470 and
-bound-tree133 pass. Source/import16 range cases pass, including exact failed predicates and genuine initialization errors.
-Earlier failure-diagnostics6, conformance7, messages90 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
+Fixed comparison:752 passed /53 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
+and copied-pointer failures with0 additions. Checker474 and bound-tree133 pass. Callable Source/import28, numeric
+Source/import8 and trusted diagnostics9 pass. Captured values survive replacement without preserving the old storage loan
+or owner. Earlier conformance7, messages90 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
 Expanded predicate group:25 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
 
-Accepted native.log uses1b6bc0307 plus the address-only copy correction and unchanged runtime Source64a4e5490:
+Accepted native.log uses500428f5f and unchanged runtime Source64a4e5490:
 111 diagnostics(E7123=55,E7135=33,E7119=23). The scalar projection/address-read batch removed7 diagnostics with0 additions,
 including all3 remaining callable-address failures. Pointer-range normalization previously removed result318 E7087/E7123.
 Matching native library built. No native async composition
@@ -50,31 +48,32 @@ complete. Unsupported bodyless execution promises report MissingEvidence before 
 
 ## Current batch
 
-MemoryCallEvidence separates whole-contract failure, independent initialization and empty-copy evidence. Only actual
-missing initialization reports E7087. Shared pointer_identity serves proof, disjoint-range preservation and retirement.
-Descriptor-slot borrows stay distinct. Stable address bits cannot preserve reached initialization claims.
+Latest pushed checkpoint:500428f5f. Native111 is still the accepted native baseline.
+MemoryCallEvidence separates full-contract failure, initialized storage and empty copies. Pointer identity normalization
+serves proof and retirement. Address bits never preserve reached initialization. Callable clauses normalize at publication.
 
-Callable clauses normalize at publication after substitution. Shared is_scalar_value includes address bits, while physical
-storage still distinguishes Address from Value. Copies preserve data facts, and overwrites retire borrowed-slot authority.
+Active argument-mode repair uses checked signature types at predicate/constant-call construction and the original explicit
+loan marker during predicate substitution. Existing portable Borrow carries that intent. argument_value reads scalar
+snapshots and loans for by-value arguments while retaining owned descriptors. Explicit loans keep storage identity.
 
-Active repair: a constructed result's scalar field was reclassified as a loan when projected through a borrow. Opaque
-scalar reads through loans also remained references and became unknown after branch joins. Actual traces showed observer
-authorizers had their contracts but lost result meaning before publication. Both real source reductions fail before repair.
-Known scalar projections now remain scalar. Checked copy materialization produces independent scalar data and uses the
-shared opaque_scalar producer when reached contents are unknown. No pointer policy or existing expectation changed.
-The extended projection property was red before repair. Checker470 and all28 callable Source/import cases now pass,
-including constructed/opaque result controls and wrong-pointer, replacement and borrowed-slot negatives. The fixed
-comparison at1b6bc0307 retains exactly54 failure identities. No temporary hooks remain.
-Checkpoint1b6bc0307 is pushed. Its broad numeric-copy branch introduced prepared_start232 entry_authorized. Restricting
-that branch to address representations repairs the regression. The canonical native comparison is111 with0 additions.
-The separate numeric probe supply(&holder) ensuring ready(holder.value), then require_value(holder.value), fails identically
-under prior/current projection behavior. Actual required Input(field) differs from known Borrowed(Input(field)). This is an
-existing predicate-argument mode gap, not a faithful reduction of the repaired native regression. A new Source/import goal
-test exposes it. Source positive fails first, so its later cases remain unverified. The rerun preserves every original failure.
-Next trace typed predicate argument construction, portable clauses and substitution/publication. Preserve explicit borrowed
-arguments rather than adding predicate-name policies or reconstructing values from facts. Active numeric probe/logs only.
-No style/format has run. No agent is active.
+The numeric retained-copy regression was red. Actual composite transfer traces showed its scalar payload survived, but
+invalidate_referents dropped the guarantee because preservation indexed only the copy's storage context. Scalar data now
+has a separate index in the existing observation set, populated from the authoritative live value tree. Physical contains
+and ownership queries remain separate. Loan preservation requires an actual unchanged storage observation, not copied data.
+Composite storage-flow core.rs calls transfer_operation directly at671/1007/1024. The outer flow.operation wrapper does
+not trace that route. Known scalar projections remain scalar and copied loan reads use the actual production boundary.
 
+Proof failures now retain both the complete declaration condition and the first unproven conjunction leaf. Alternatives
+remain intact. Checker properties and Source diagnostic tests verify that distinction.
+
+Candidate native-current.log:96 diagnostics,18 removals and3 additions versus accepted111. Comparison identities include
+obligation role, code and location and must be unique. Earlier code/location-only comparison hid a call/cleanup collision.
+New failures: domain synchronization_storage total322, start scoped-entry activation.producer(token)228, reserve_start
+selected.status==0 at230. The old prepared_start232 regression remains absent. Candidate is not accepted yet.
+
+Active scoped-evidence.bray reproduces the conditional-result path. Error || active(present(result)) loses scope guarantees
+and cannot verify present's Ok precondition. Adding an explicit Ok guard passes. Trace the actual proof/value boundary before
+changing implementation. No temporary trace hooks remain. No style/format has run. No agent is active.
 ## Remaining
 
 Repair native proof/execution failures by transition class, then execute the complete async fixture. Trace Bound and
