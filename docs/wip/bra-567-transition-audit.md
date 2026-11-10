@@ -30,9 +30,10 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Current evidence and cause inventory
 
 Current checkpoints are pushed to the PR branch. verification.json holds executable identities and results.
-All907 frozen test outcomes remain762/46/99. The new allocation import case passes separately. Checker485,
+The907 frozen identities now give765/43/99. The new allocation import case passes separately. Checker486,
 bound135, symbols221 and interfaces216 pass. Cleanup61, predicates30 and focused18 retain their recorded outcomes.
-Native Source64a4e5490, complete233-file Windows request:39 unchanged diagnostics,24 E7123 and15 E7135.
+Native Source64a4e5490, complete233-file Windows request:37 diagnostics,22 E7123 and15 E7135.
+The join repair removes entry_scope400 and report/output44, with no new native failures.
 Ten E7135 diagnostics explicitly depend on other checking failures. Do not treat these as independent defects.
 The async-ownership-composition fixture and3 invalid variants pass source/MIR. Native execution remains unverified.
 
@@ -62,12 +63,21 @@ Current unresolved families, with proof distinguished from hypotheses:
   Three first failures explicitly report MissingEvidence for bodyless execution promises. Do not generalize that
   explanation to the remaining failures or change expected verdicts without actual controls.
 
-The complete source/import witness matrices now run with unchanged case names/verdicts. The same46 positive cases
-fail in each mode. All invalid controls, including returned-address expiry, pass. This narrows the separate stale-address
+The complete source/import witness matrices run with unchanged case names/verdicts. The same37 positive cases
+fail in each mode, down from46. All invalid controls, including returned-address expiry, pass. This narrows the separate stale-address
 family to mutation/input-postcondition paths. Deferred provider diagnostics identify held evidence lost through an if
 selecting try-await cancel/join results. Their consumer matrices remain unverified. Next trace the nullable join and
 pattern extraction against the matching source/import cases before changing production semantics.
-No temporary trace hooks or review agent. Style/format remain deferred.
+Fixed a proved recursion defect in common_components: inferred carrier roles triggered unwrapping without an actual
+wrapper, repeating identical operands until budget exhaustion. Nullable and reference structural joins now progress.
+One boundary regression checks payload contents, owner/reference separation, predecessor order and convergence.
+Three frozen failures now pass: completion_observation_publishes_its_checked_result_meaning,
+ordinary_predicate_meaning_tracks_completion_and_mutation and joined_mutated_values_do_not_inherit_their_entry_contents.
+Their invalid mutation controls still reject. No new frozen failures. All11 join tests and full checker/bound suites pass.
+Adjacent cleanup57/4, predicates26/2/2 and focused18 remain unchanged. Temporary trace hooks are removed.
+The minimal nullable source now reports the actual selected payload instead of Unknown, but still lacks its witness.
+Next verify witness renaming through the corrected nullable join with a
+boundary regression. No review agent. Style/format remain deferred.
 
 ## Remaining
 
