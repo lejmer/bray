@@ -218,7 +218,11 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         &mut candidate,
     );
 
-    check_postconditions(&reachable, postconditions, &mut candidate);
+    match check_postconditions(&reachable, postconditions, &mut candidate) {
+        Ok(()) => {}
+        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(crate::CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+    }
 
     if internal && property == Some(ExecutionProperty::Total) {
         super::termination::finite_step(&reachable, &mut candidate, &bounded_loops);
@@ -714,19 +718,25 @@ fn record_failure<C: CheckerRequestContext + ?Sized>(
         return;
     }
 
-    candidate.failure = Some(crate::ExecutionVerificationFailure { source: node_span(request, node), cause });
+    candidate.failure = Some(crate::ExecutionVerificationFailure { condition: None, source: node_span(request, node), cause });
 }
 
 fn check_postconditions<C: CheckerRequestContext + ?Sized>(
     flow: &super::flow::ExecutionFlow<'_, '_, C>,
     postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
     candidate: &mut ExecutionCandidate,
-) {
-    if let Some(source) =
-        super::postcondition::unproven_postconditions(flow, postconditions).first()
+) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+    if candidate.failure.is_none()
+        && let Some((source, failed)) = super::postcondition::unproven_postcondition(flow, postconditions)
     {
-        candidate.failure.get_or_insert(crate::ExecutionVerificationFailure { source: *source, cause: FailureCause::Unproven });
+        let condition = super::diagnostic::obligation(&flow.domain,
+            bray_diagnostics::DiagnosticContractObligationKind::Postcondition, &failed)?;
+        candidate.failure = Some(crate::ExecutionVerificationFailure {
+            source, cause: FailureCause::Unproven, condition: Some(std::sync::Arc::new(condition)),
+        });
     }
+
+    Ok(())
 }
 
 fn assert_execution_inputs<C: CheckerRequestContext + ?Sized>(

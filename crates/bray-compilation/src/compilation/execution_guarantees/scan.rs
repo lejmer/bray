@@ -176,7 +176,7 @@ impl Compilation {
                             bray_checker::ExecutionObligation::Property(property.property,
                                 (!domain.guards.is_empty()).then_some(property.source.into())),
                             property.source,
-                            bray_checker::ExecutionVerificationFailure { source: property.source,
+                            bray_checker::ExecutionVerificationFailure { condition: None, source: property.source,
                                 cause: bray_diagnostics::DiagnosticExecutionProofFailure::MissingEvidence },
                         ));
                     }

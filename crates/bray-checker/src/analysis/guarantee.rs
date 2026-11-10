@@ -1,4 +1,5 @@
 mod deferred;
+mod diagnostic;
 mod unwind;
 pub use unwind::{UnwindCall, UnwindCandidate, check_unwind_candidate};
 mod bounds;

@@ -7,12 +7,12 @@ use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
-pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
+pub(super) fn unproven_postcondition<C: CheckerRequestContext + ?Sized>(
     flow: &ExecutionFlow<'_, '_, C>,
     postconditions: &[(ExecutionCondition, bray_source::SourceSpan)],
-) -> Vec<bray_source::SourceSpan> {
+) -> Option<(bray_source::SourceSpan, crate::UnprovenExecutionCondition)> {
     if postconditions.is_empty() {
-        return Vec::new();
+        return None;
     }
 
     let mut failed = vec![None; postconditions.len()];
@@ -30,8 +30,7 @@ pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
     postconditions
         .iter()
         .zip(failed)
-        .filter_map(|((_, span), failed)| failed.is_some().then_some(*span))
-        .collect()
+        .find_map(|((_, span), failed)| failed.map(|failed| (*span, failed)))
 }
 
 pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestContext + ?Sized>(

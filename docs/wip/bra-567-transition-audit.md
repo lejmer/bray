@@ -59,8 +59,12 @@ scoped-evidence.bray passes construction, Result return, complete Ok consumption
 Fabricated scoped owners and overwritten leases reject E7123. The opaque-call variant passes. This is Source evidence,
 not async native execution. No temporary trace hooks remain. No style/format has run. No agent is active.
 
-Next: preserve the failed condition currently discarded by ordinary postcondition certification(E7135), then trace the
-strong compare-exchange observed-value relationship blocking domain.selected(). Keep all fixed regression expectations.
+E7135 carries required/actual conditions through certificate source conversions, using the shared guarantee condition
+renderer. It renders both the proof cause and actual condition. Red-then-green Source/forwarding test, failure7,
+diagnostics9, checker475, messages91 and JSON48 pass. Fixed comparison is restored to752/53/99 with identical53 failures.
+Last native check93 used64bf101c4. The diagnostic batch changes no proof rules and has not rerun native execution.
+Next: trace compare-exchange's produced scalar, Boolean relation and retained range facts. Its richer diagnostic identifies
+the unproven compare_exchange(...).0 > 0. No speculative scalar/atomic repair has been made.
 The scalar data index remains populated only from authoritative live values. Copies retain neither source loans nor
 owners. Composite storage-flow core.rs calls transfer_operation directly at671/1007/1024, bypassing flow.operation.
 

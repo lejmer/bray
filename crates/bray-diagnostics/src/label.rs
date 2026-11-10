@@ -69,6 +69,8 @@ pub enum DiagnosticLabelKind {
     ContractNotVerified,
     /// The exact operation, dependency or resource limit blocking certification.
     ExecutionProofFailure,
+    /// The specific contract condition that the proof could not establish.
+    UnprovenContractCondition,
     /// Label for a character that the lexer cannot accept.
     InvalidCharacter,
     /// Label for a byte order mark after the start of the source.
@@ -228,6 +230,7 @@ impl DiagnosticLabelKind {
             Self::ContractConditionNotPortable => "contract_condition_not_portable",
             Self::ContractNotVerified => "contract_not_verified",
             Self::ExecutionProofFailure => "execution_proof_failure",
+            Self::UnprovenContractCondition => "unproven_contract_condition",
             Self::InvalidCharacter => "invalid_character",
             Self::MisplacedBom => "misplaced_bom",
             Self::LoneCarriageReturn => "lone_carriage_return",

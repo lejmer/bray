@@ -219,6 +219,10 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::ContractConditionNotPortable => MessageTemplate::new(&[MessageTemplatePart::Text("this condition has no portable contract representation")]),
         DiagnosticLabelKind::ContractNotVerified => MessageTemplate::new(&[MessageTemplatePart::Text("this contract is not verified")]),
         DiagnosticLabelKind::ExecutionProofFailure => MessageTemplate::new(&[MessageTemplatePart::Arg(DiagnosticArgName::ExecutionProofFailure)]),
+        DiagnosticLabelKind::UnprovenContractCondition => MessageTemplate::new(&[
+            MessageTemplatePart::Arg(DiagnosticArgName::ExecutionProofFailure),
+            MessageTemplatePart::Text(": "), MessageTemplatePart::Arg(DiagnosticArgName::ContractObligation),
+        ]),
 
         DiagnosticLabelKind::InvalidCharacter => MessageTemplate::new(INVALID_CHARACTER),
         DiagnosticLabelKind::MisplacedBom => MessageTemplate::new(MISPLACED_BOM),

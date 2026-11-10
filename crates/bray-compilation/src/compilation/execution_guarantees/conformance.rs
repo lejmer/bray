@@ -89,7 +89,7 @@ impl Compilation {
 
                 if let Some(source) = source {
                     diagnostics.add(super::failure::guarantee_diagnostic(
-                        obligation, source, bray_checker::ExecutionVerificationFailure {
+                        obligation, source, bray_checker::ExecutionVerificationFailure { condition: None,
                             source, cause: bray_diagnostics::DiagnosticExecutionProofFailure::ContractMismatch,
                         },
                     ));

@@ -8,7 +8,19 @@ use crate::{CheckerQueryResult, CheckerRequestContext, ExecutionCondition, Execu
 
 type Outcome<C> = CheckerQueryResult<Condition, <C as CheckerRequestContext>::UpstreamError>;
 
-pub(super) fn condition<C: CheckerRequestContext + ?Sized>(
+
+pub(super) fn obligation<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, kind: bray_diagnostics::DiagnosticContractObligationKind,
+    failed: &crate::UnprovenExecutionCondition,
+) -> CheckerQueryResult<bray_diagnostics::DiagnosticContractObligation, C::UpstreamError> {
+    Ok(bray_diagnostics::DiagnosticContractObligation {
+        kind,
+        required: condition(domain, failed.required(), &mut 128)?,
+        actual: condition(domain, failed.actual(), &mut 128)?,
+    })
+}
+
+fn condition<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
     value: &ExecutionCondition,
     budget: &mut usize,

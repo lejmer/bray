@@ -14,17 +14,17 @@ pub(super) fn execution_proof_failure(
 
     if let Some(reason) = check_execution_proof_dependencies(graph).get(&root_key) {
         failure = Some(match reason {
-            ExecutionProofFailure::CircularCompletion(owner) => ExecutionVerificationFailure {
+            ExecutionProofFailure::CircularCompletion(owner) => ExecutionVerificationFailure { condition: None,
                 source: proof_owner_span(*owner, source), cause: FailureCause::Circular,
             },
-            ExecutionProofFailure::MissingCandidate(owner) => failure.unwrap_or(ExecutionVerificationFailure {
+            ExecutionProofFailure::MissingCandidate(owner) => failure.unwrap_or(ExecutionVerificationFailure { condition: None,
                 source: proof_owner_span(*owner, source), cause: FailureCause::MissingEvidence,
             }),
         });
     }
 
     if !graph.contains_key(&root_key) {
-        failure.get_or_insert(ExecutionVerificationFailure { source: proof_owner_span(root_key.0, source), cause: FailureCause::MissingEvidence });
+        failure.get_or_insert(ExecutionVerificationFailure { condition: None, source: proof_owner_span(root_key.0, source), cause: FailureCause::MissingEvidence });
     }
 
     failure
@@ -45,8 +45,17 @@ pub(super) fn guarantee_diagnostic(
     let mut diagnostic = Diagnostic::new(DiagnosticId::new(source.start().bytes()), kind, SeverityKind::Error)
         .with_primary_span(source)
         .with_arg(cause.clone())
-        .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::ContractNotVerified, source))
-        .with_label(DiagnosticLabel::secondary(DiagnosticLabelKind::ExecutionProofFailure, failure.source).with_arg(cause));
+        .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::ContractNotVerified, source));
+
+    if let Some(condition) = failure.condition {
+        let condition = DiagnosticArg::contract_obligation((*condition).clone());
+        diagnostic = diagnostic.with_arg(condition.clone()).with_label(
+            DiagnosticLabel::secondary(DiagnosticLabelKind::UnprovenContractCondition, failure.source)
+                .with_arg(condition).with_arg(cause));
+    } else {
+        diagnostic = diagnostic.with_label(DiagnosticLabel::secondary(
+            DiagnosticLabelKind::ExecutionProofFailure, failure.source).with_arg(cause));
+    }
 
     if kind == DiagnosticKind::CheckingExecutionGuaranteeNotProven {
         diagnostic = diagnostic.with_arg(DiagnosticArg::referenced_name(obligation.property()
@@ -87,7 +96,7 @@ mod diagnostic_tests {
     fn postcondition_certification_is_not_an_execution_property_failure() {
         let declaration = span(1);
         let dependency = span(3);
-        let diagnostic = guarantee_diagnostic(ExecutionObligation::Postcondition(declaration.into()), declaration, ExecutionVerificationFailure { source: dependency, cause: FailureCause::Unproven });
+        let diagnostic = guarantee_diagnostic(ExecutionObligation::Postcondition(declaration.into()), declaration, ExecutionVerificationFailure { condition: None, source: dependency, cause: FailureCause::Unproven });
 
         assert_eq!(diagnostic.kind().as_str(), "checking_postcondition_not_proven");
         assert_eq!(diagnostic.primary_span(), Some(declaration));
@@ -95,9 +104,42 @@ mod diagnostic_tests {
     }
 
     #[test]
+    fn failed_postconditions_retain_the_required_and_actual_condition() {
+        let checked = crate::test_support::compilation(r#"
+            module app;
+
+            func select(pos value: u32) -> u32
+                ensures(result > 1)
+            {
+                return value;
+            }
+
+            func forward(pos value: u32) -> u32
+                ensures(result > 1)
+            {
+                return select(value);
+            }
+        "#);
+        let diagnostics = checked.check_diagnostics();
+        let failures = diagnostics.iter().filter(|diagnostic|
+            diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven)
+            .collect::<Vec<_>>();
+
+        assert!(!failures.is_empty(), "{diagnostics:#?}");
+        for failure in failures {
+            assert!(failure.args().iter().any(|argument| matches!(argument.value(),
+                bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation)
+                    if obligation.kind == bray_diagnostics::DiagnosticContractObligationKind::Postcondition
+                        && matches!(obligation.required, bray_diagnostics::DiagnosticCondition::Operation { .. })
+                        && matches!(obligation.actual, bray_diagnostics::DiagnosticCondition::Operation { .. })
+                        && obligation.required != obligation.actual)), "{failure:#?}");
+        }
+    }
+
+    #[test]
     fn circular_postcondition_certification_retains_its_contract_category() {
         let declaration = span(1);
-        let diagnostic = guarantee_diagnostic(ExecutionObligation::Postcondition(declaration.into()), declaration, ExecutionVerificationFailure { source: span(3), cause: FailureCause::Circular });
+        let diagnostic = guarantee_diagnostic(ExecutionObligation::Postcondition(declaration.into()), declaration, ExecutionVerificationFailure { condition: None, source: span(3), cause: FailureCause::Circular });
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &bray_diagnostics::DiagnosticBag::single(diagnostic),
@@ -110,7 +152,7 @@ mod diagnostic_tests {
         let cause = FailureCause::DepthLimit { depth: 129, limit: 128 };
         let diagnostic = guarantee_diagnostic(
             ExecutionObligation::Property(bray_checker::ExecutionProperty::Total, None), declaration,
-            ExecutionVerificationFailure { source: span(3), cause },
+            ExecutionVerificationFailure { condition: None, source: span(3), cause },
         );
 
         assert_eq!(diagnostic.kind().as_str(), "checking_execution_proof_depth_exceeded");
@@ -127,7 +169,7 @@ mod diagnostic_tests {
     fn invalid_dependencies_keep_their_specific_cause() {
         let diagnostic = guarantee_diagnostic(
             ExecutionObligation::Property(bray_checker::ExecutionProperty::Total, None), span(1),
-            ExecutionVerificationFailure { source: span(3), cause: FailureCause::DependencyErrors },
+            ExecutionVerificationFailure { condition: None, source: span(3), cause: FailureCause::DependencyErrors },
         );
 
         assert!(diagnostic.args().iter().any(|argument| matches!(argument.value(),
