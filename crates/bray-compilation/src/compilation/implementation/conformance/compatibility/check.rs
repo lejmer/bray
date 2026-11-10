@@ -989,12 +989,15 @@ fn trusted_predicates_are_compatible(
         },
         &|place| Ok(bray_checker::ExecutionCondition::Input(place.clone())),
         &|value| Ok(std::sync::Arc::clone(value)),
-        &mut |callable, implementation, witnesses, operands| {
+        &mut |callable, implementation, witnesses, operands, reference_type| {
             Ok(bray_checker::ExecutionCondition::Call(
                 callable,
                 implementation,
                 witnesses.into(),
                 operands.into(),
+                reference_type.map(|ty| values.substitute_contextual_self(
+                    ty, bray_symbols::SelfTypeContext::Trait(application.definition()), subject,
+                )).transpose()?,
             ))
         },
     )?;

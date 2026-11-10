@@ -70,7 +70,7 @@ fn condition<C: CheckerRequestContext + ?Sized>(
         ExecutionCondition::Predicate(predicate, substitution, arguments) => {
             application(domain, predicate.into_any(), *substitution, arguments, budget)?
         }
-        ExecutionCondition::Call(callable, _, _, arguments) => {
+        ExecutionCondition::Call(callable, _, _, arguments, _) => {
             application(domain, callable.definition().symbol(), callable.substitution(), arguments, budget)?
         }
         ExecutionCondition::Operation(operation, operands) => Condition::Operation {

@@ -69,7 +69,7 @@ impl ExecutionCondition {
         }
 
         match self {
-            Self::Call(callable, implementation, witnesses, operands) => Self::call(
+            Self::Call(callable, implementation, witnesses, operands, reference_type) => Self::call(
                 *callable,
                 *implementation,
                 witnesses.iter().copied(),
@@ -77,15 +77,14 @@ impl ExecutionCondition {
                     .iter()
                     .map(|operand| operand.substitute_values(replace, budget))
                     .collect(),
+                *reference_type,
             ),
             Self::Predicate(predicate, substitution, operands) => Self::predicate(
                 *predicate,
                 *substitution,
                 operands
                     .iter()
-                    .map(|operand| operand.substitute_values(replace, budget).argument_value(
-                        operand.ownership_identity().is_some_and(|(kind, _)|
-                            kind == ExecutionObservationKind::Reference)))
+                    .map(|operand| operand.substitute_values(replace, budget).argument_value(operand.is_reference()))
                     .collect(),
             ),
             Self::Trusted(value) => {
@@ -470,7 +469,7 @@ fn rewrite_equalities(
                     .collect(),
             )
         }
-        ExecutionCondition::Call(callable, implementation, witnesses, operands) => {
+        ExecutionCondition::Call(callable, implementation, witnesses, operands, reference_type) => {
             ExecutionCondition::call(
                 callable,
                 implementation,
@@ -479,6 +478,7 @@ fn rewrite_equalities(
                     .iter()
                     .map(|operand| rewrite_equalities(operand, replacements, identities, budget))
                     .collect(),
+                reference_type,
             )
         }
         value => value,

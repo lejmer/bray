@@ -478,7 +478,7 @@ impl ExecutionState {
             retained.contains(fact) || fact.0.observes_only(|_| false)
                 || (fact.0.observes_only(|value| stable_values.preserves(value))
                     && fact.0.observations().all(|value| {
-                        !matches!(value, ExecutionCondition::Predicate(_, _, _) | ExecutionCondition::Call(_, _, _, _))
+                        !matches!(value, ExecutionCondition::Predicate(_, _, _) | ExecutionCondition::Call(_, _, _, _, _))
                             || value.observes_only(|_| false)
                     }))
         };
