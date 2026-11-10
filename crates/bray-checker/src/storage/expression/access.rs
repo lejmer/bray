@@ -553,6 +553,10 @@ where
         &mut self,
         expression: BoundExpressionId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        if let Some(storage) = self.builder().value_slot(expression) {
+            return self.direct_access(expression, storage);
+        }
+
         let ty = self.expression_type(expression).ty();
 
         let storage = self

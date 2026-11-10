@@ -216,7 +216,7 @@ impl TrustedChecks {
             bray_bound_tree::BoundUnitRoot::Expression(expression) => {
                 domain.value(state, expression)
             }
-            _ => state.result.clone(),
+            _ => domain.returned_value(state),
         };
 
         self.collect_carriers(domain.request, state, &result);

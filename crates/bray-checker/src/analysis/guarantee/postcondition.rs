@@ -55,7 +55,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
                     .value_in(&state.current)
                     .unwrap_or(ExecutionCondition::Unknown)
             },
-            &state.result,
+            &domain.returned_value(state),
             &mut { ExecutionCondition::WORK_LIMIT },
         );
 

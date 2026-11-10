@@ -636,6 +636,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let value = state
             .pending_results
             .remove(&expression)
+            .or_else(|| self.storage.value_slot(expression)
+                .and_then(|identity| crate::ExecutionPlace::storage_identity(self.storage, identity))
+                .and_then(|place| place.value_in(&state.current)))
             .unwrap_or_else(|| self.value(state, expression));
 
         self.publish_expression(state, expression, value);
@@ -752,7 +755,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Some(BoundExpression::ControlTransfer(transfer))
                 if transfer.kind() == BoundControlTransferKind::Return =>
             {
-                state.result = transfer
+                let value = transfer
                     .operand()
                     .map(|operand| {
                         state
@@ -774,6 +777,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             )
                     })
                     .unwrap_or(ExecutionCondition::Unknown);
+
+                self.publish_return(state, value);
             }
             Some(BoundExpression::ControlTransfer(transfer))
                 if matches!(
@@ -801,7 +806,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         })
                         .unwrap_or(ExecutionCondition::Unknown);
 
-                    state.pending_results.insert(*target, value);
+                    // Yield has produced the private destination before its source
+                    // is consumed and before enclosing scope cleanup can run.
+                    self.publish_expression(state, *target, value);
                 }
             }
             _ => {}

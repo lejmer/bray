@@ -263,7 +263,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 !self.is_invocation_input_place(invocation, place)
             })
             .map(|(_, value)| value)
-            .chain(std::iter::once(state.result.clone()))
             .flat_map(|value| state.owned_values(&value))
             .collect()
     }

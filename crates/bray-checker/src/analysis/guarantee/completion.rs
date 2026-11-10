@@ -197,10 +197,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 }
             }
 
-            dependencies.extend(state.completion_dependencies);
-
             if normal_exit_blocks.contains(&block.id()) {
-                let mut result = &state.result;
+                let returned = self.domain.returned_value(&state);
+                let mut result = &returned;
 
                 loop {
                     match result {
@@ -215,6 +214,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                     _ => None,
                 });
             }
+
+            dependencies.extend(state.completion_dependencies);
         }
 
         candidate.completion_dependencies = dependencies.into_iter().collect();

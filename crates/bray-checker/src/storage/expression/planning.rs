@@ -35,6 +35,13 @@ where
             .unwrap_or_else(|| missing_node(id))
             .clone();
 
+        // Reserve result storage before visiting transfers from its nested paths.
+        if expression.has_result_region() {
+            let access = self.temporary_access(id)?;
+
+            self.plan_value_slot(id, access, None)?;
+        }
+
         let access = match &expression {
             _ if self
                 .selections
@@ -186,24 +193,7 @@ where
                 self.temporary_access(id)?
             }
             BoundExpression::Match(expression) => self.plan_match(id, expression)?,
-            BoundExpression::ControlTransfer(transfer) => {
-                if let Some(operand) = transfer.operand() {
-                    self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
-
-                    self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
-                        operand, StorageAccessPurpose::ValueTransfer);
-                }
-
-                if transfer.kind() == BoundControlTransferKind::Return {
-                    let access = self.result_access(id, transfer.operand())?;
-
-                    self.record_purpose(id, Some(StorageAccessPurpose::Initialize), access)?;
-
-                    access
-                } else {
-                    self.temporary_access(id)?
-                }
-            }
+            BoundExpression::ControlTransfer(transfer) => self.plan_control_transfer(id, transfer)?,
             _ => {
                 for child in expression.child_expressions() {
                     self.plan_expression(child, Some(StorageAccessPurpose::Read))?;
@@ -390,6 +380,39 @@ where
             } => self.access_with_reached_type(destination, access, *target),
             _ => Ok(access),
         }
+    }
+
+    fn plan_control_transfer(
+        &mut self,
+        id: BoundExpressionId,
+        transfer: &bray_bound_tree::BoundControlTransferExpression,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        if let Some(operand) = transfer.operand() {
+            self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
+
+            self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
+                operand, StorageAccessPurpose::ValueTransfer);
+        }
+
+        if transfer.kind() == BoundControlTransferKind::Return {
+            let access = self.result_access(id, transfer.operand())?;
+
+            self.record_purpose(id, Some(StorageAccessPurpose::Initialize), access)?;
+
+            return Ok(access);
+        }
+
+        if matches!(transfer.kind(), BoundControlTransferKind::Yield | BoundControlTransferKind::Break)
+            && let Some(target) = transfer.target().and_then(|anchor| self.transfer_targets.get(&anchor)).copied()
+            && let Some(destination) = self.builder().value_slot(target)
+        {
+            let access = self.push_expression_access(id,
+                bray_bound_tree::StorageAccessRoot::Storage(destination), [], self.expression_type(target))?;
+
+            self.record_purpose(id, Some(StorageAccessPurpose::Initialize), access)?;
+        }
+
+        self.temporary_access(id)
     }
 
     fn plan_structured(

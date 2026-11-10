@@ -146,11 +146,6 @@ pub(in crate::analysis) fn merge(
     changed |= merge_values(&mut target.expressions, &incoming.expressions);
     changed |= merge_values(&mut target.pending_results, &incoming.pending_results);
 
-    if target.result != incoming.result && target.result != ExecutionCondition::Unknown {
-        target.result = ExecutionCondition::Unknown;
-        changed = true;
-    }
-
     changed
 }
 

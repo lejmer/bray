@@ -30,11 +30,11 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Accepted evidence
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca.
-Fixed comparison:753 passed /52 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
+Fixed comparison:754 passed /52 failed /99 ignored, including raw-memory16. Argument-mode repair removes the numeric
 and copied-pointer failures with0 additions. Checker475 and bound-tree133 pass. Callable Source/import28, numeric
 Source/import8 and trusted diagnostics9 pass. Captured values survive replacement without preserving the old storage loan
-or owner. Earlier conformance7, messages90 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
-Expanded predicate group:25 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
+or owner. Failure diagnostics7, messages91 and JSON48 pass. Diagnostic readiness passed at8b08d8aab.
+Expanded predicate group:26 passed /2 failed /2 ignored. Both failures reproduce in retainedfc4 baseline.
 
 Accepted native.log:90 diagnostics(E7123=44,E7135=26,E7119=20), unchanged runtime Source64a4e5490.
 The scalar-read bounds repair clears domain.selected()'s postcondition and2 dependent totality failures, with0 additions.
@@ -46,24 +46,23 @@ complete. Unsupported bodyless execution promises report MissingEvidence before 
 
 ## Current boundary and next step
 
-Current batch: scalar-read bounds, ready to checkpoint. No style/format or agent active. No temporary trace hooks remain.
-Union completeness comes from declared variants at formal parameter and symbolic result entry. Boolean closure retains
-proven ordinary guards for witness refinement. Union(2/3 variants, distinct inputs) and no-authority-promotion controls pass.
-The nullable-result Source/import test covers equivalent guards, opaque calls, fabrication and overwrite(28 cases).
-scoped-evidence.bray passes construction, Result consumption, scoped entry, mutation and cleanup. Fabricated owners and
-replaced leases reject E7123. Opaque-call control passes. These are Source checks, not async native execution.
+Yield consumed its source while its actual block/loop result remained only in pending_results until after scope cleanup.
+An unrelated opaque destructor therefore removed the owner's guarantees. The small branch-composition.bray reproduces
+worker/formation291. The fixed Source/import regression passes for block results and rejects fabricated owners.
+The first comparison preserves all52 failure identities and checker475 passes. That run adds1 valid regression.
 
-E7135 preserves required/actual conditions through certificate source conversions using the shared condition formatter.
-Both cause and condition render. Failure7, diagnostics9, checker475, messages91 and JSON48 pass.
+Current repair reserves region storage before planning nested paths and initializes its actual destination at Yield/Break.
+Completion reads current post-cleanup contents. Liveness defines direct initialized storage, never a reached borrow.
+Callable Return had the same owner gap. Removed ExecutionState.result and its special merge/retirement handling. Returns
+and callable propagation now use the planned result slot in the authoritative current tree. The24-case Source/import
+matrix covers block Yield, loop Break and ordinary Return with no/empty/opaque cleanup plus fabricated-owner rejection.
+All valid cases lower to MIR. Comparison754/52/99 preserves every prior failure identity. Checker475 passes.
 
-Scalar-read bounds: preserve_integer_value checks computed_value when recognizing a projected scalar read.
-The actual failed exit retained previous != 0 but no unsigned bounds because Scalar wrapped the Projection. All strong/weak,
-signed and mutation Source/import cases pass. Invalid outcomes are unchanged. Their assertion requires E7135(false
-postcondition) and forbids E7119. Fixed suite753/52/99 removes only that failure, with0 additions. Native90 removes3 with0
-additions. Next: group remaining runtime failures using their actual conditions and continue the transition inventory.
-
-Scalar copies retain data without retaining the old storage loan or owner. The data index comes only from live values.
-Composite storage-flow core.rs calls transfer_operation directly at671/1007/1024, bypassing flow.operation.
+Lowering already initializes private cleanup-transfer storage before cleanup and forwards/disposes it on outcomes.
+The native run after the Yield repair preserves all90 diagnostics, including formation291. The Return repair's native
+run is next. These focused fixes do not certify the full runtime path. No style/format, hook, process or agent is active.
+Keep propagation-to-yield under audit. Do not retain cached/prospective call results as live owners. reserve_start175 may
+depend on invalid upstream contracts. An unconstrained extern may expose its argument's complete allocation.
 
 ## Remaining
 

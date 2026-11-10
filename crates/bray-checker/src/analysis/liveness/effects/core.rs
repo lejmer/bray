@@ -269,7 +269,15 @@ impl OperationEffects {
             }
 
             for subject in access_root_subjects(storage, access.root()) {
-                effect.uses.insert(subject);
+                if plan.purpose() == bray_bound_tree::StorageAccessPurpose::Initialize
+                    && access.projections().is_empty()
+                    && matches!(access.root(), bray_bound_tree::StorageAccessRoot::Storage(identity)
+                        if subject == BoundDependencySubject::Storage(identity))
+                {
+                    effect.definitions.insert(subject);
+                } else {
+                    effect.uses.insert(subject);
+                }
                 effects.universe.insert(subject);
             }
         }

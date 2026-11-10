@@ -19,6 +19,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or(ExecutionCondition::Unknown)
     }
 
+    pub(in crate::analysis::guarantee) fn returned_value(&self, state: &ExecutionState) -> ExecutionCondition {
+        self.storage.binding(bray_bound_tree::StorageBindingTarget::Result)
+            .and_then(|binding| match binding {
+                bray_bound_tree::StorageBinding::Identity(identity) =>
+                    crate::ExecutionPlace::storage_identity(self.storage, identity),
+                _ => None,
+            })
+            .and_then(|place| place.value_in(&state.current))
+            .unwrap_or(ExecutionCondition::Unknown)
+    }
+
+    pub(in crate::analysis::guarantee) fn publish_return(&self, state: &mut ExecutionState, value: ExecutionCondition) {
+        let Some(bray_bound_tree::StorageBinding::Identity(identity)) =
+            self.storage.binding(bray_bound_tree::StorageBindingTarget::Result) else {
+                panic!("a returned value retains its checked callable result storage");
+            };
+        let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
+            .expect("callable result storage has a current value place");
+
+        state.assign(place, value, None);
+    }
+
     /// Form one expression result at its defining execution transition. Every
     /// operand is an actual evaluated result, never another syntax evaluation.
     pub(super) fn produce_value(
