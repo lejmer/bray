@@ -186,6 +186,35 @@ mod diagnostic_tests {
     }
 
     #[test]
+    fn failing_call_preconditions_retain_the_condition_in_total_execution_diagnostics() {
+        let checked = crate::test_support::compilation(r#"
+            module app;
+
+            func checked(pos value: u32)
+                requires(value > 3)
+                executes(total)
+            {
+            }
+
+            func forward(pos value: u32)
+                executes(total)
+            {
+                checked(value);
+            }
+        "#);
+        let diagnostics = checked.check_diagnostics();
+        let failure = diagnostics.iter().find(|diagnostic|
+            diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven)
+            .unwrap_or_else(|| panic!("{diagnostics:#?}"));
+
+        assert!(failure.args().iter().any(|argument| matches!(argument.value(),
+            bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation)
+                if obligation.kind == bray_diagnostics::DiagnosticContractObligationKind::CallRequirement
+                    && matches!(obligation.required, bray_diagnostics::DiagnosticCondition::Operation { .. })
+                    && matches!(obligation.actual, bray_diagnostics::DiagnosticCondition::Operation { .. }))), "{failure:#?}");
+    }
+
+    #[test]
     fn execution_failures_identify_the_operation_and_preserve_its_cause() {
         for (body, expected) in [
             (r#"while forever

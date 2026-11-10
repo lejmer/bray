@@ -31,7 +31,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 Audit baseline:b90076c1f21f3853ebfd90954b3babe26f122eca. Current accepted work is checkpointed on the PR branch.
 Fixed comparison:756 passed /52 failed /99 ignored, exact failure identities unchanged. Checker476, bound-tree134,
-messages91, JSON48 and failure diagnostics7 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
+messages91, JSON48 and failure diagnostics8 pass. Expanded predicate26/2/2, both failures reproduce in retainedfc4 baseline.
 Accepted native.log:70 diagnostics(E7123=30,E7135=20,E7119=20), unchanged runtime Source64a4e5490.
 Use the complete233-file Windows request. Partial129-file requests cannot certify it. Native async fixture has not run.
 
@@ -64,19 +64,18 @@ StoragePlan.value_retirements shares private-input observation retirement at com
 witness transfer. Exact stored-borrow observations use existing typed Storage routes, never a borrow capability twice,
 dead/inexact handles or mere possible-alias overlap. Possible-origin bounds revoke evidence separately.
 
-Next repair the proven recursive convergence regression. recursive_inactive_cleanup_report_dependencies_remain_finite
-stalled before this repair, including pre-change5d/02:09 intermediate binaries, but passedfc4 in0.05s. Trace exceeded400 component
-iterations: each adds UnboundedMutation(Cleanup(Wrapper<...<T>>)). dependency/cleanup/effects.rs expands Dispose types
-but preserves Cleanup types unchanged. Normalize through the existing cleanup expansion while preserving region
-semantics. A cleanup region is not the disposed value's layout. Confirmed stalled at f4f82a276 before editing.
-expand_region now resolves Dispose(type) through the existing expansion under a formal Result value, then maps
+Recursive conditional cleanup now converges. expand_region resolves Dispose(type) through the existing expansion under a formal Result value, then maps
 receiver-relative mutation kinds onto the original region without layout projections or access-type claims. Generic
 leaves remain conditional Cleanup(type), unrelated/global effects retain their identities. The formerly stalled test
 passes in0.07s. Configured recursion-limit, retained-capture and recursive-default controls pass. Checker476 and all907
 fixed outcomes remain unchanged. Full cleanup/storage57/4 includes the now-passing recursive test. All4 failures match
 the retained baseline. The real source passes the rebuilt driver. All70 native diagnostic blocks are unchanged.
-Consumed probes/traces removed. Next inspect E7119's operation-can-panic cause, starting with host/access77 authorize.
-No trace hook or review agent. Style/format remain deferred.
+Panic diagnostics retain failed call requirements and actual arguments through the existing proof model. New regression
+was red and now passes. All907 fixed outcomes remain unchanged. Native diagnostics have not been rerun for this text change.
+The host/access77 failure reduces to forwarding &Lease into a named or anonymous callee requiring lease.active. It also
+fails without an intervening call. Passing lease.active as a copied bool works. The new label names lease.active.
+Next trace the ordinary Boolean observation through borrowed argument substitution and proof. Keep the small source
+reduction until permanent regression/control coverage replaces it. No trace hook or review agent. Style/format deferred.
 
 ## Remaining
 

@@ -206,7 +206,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     let finite_loops =
         super::termination::finite_protocol_loops(&reachable, &cycles, &mut candidate);
 
-    check_completion(
+    match check_completion(
         request,
         graph,
         &reachable,
@@ -216,7 +216,11 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         &cycles,
         &finite_loops,
         &mut candidate,
-    );
+    ) {
+        Ok(()) => {}
+        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(crate::CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+    }
 
     match check_postconditions(&reachable, postconditions, &mut candidate) {
         Ok(()) => {}
@@ -552,7 +556,7 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
     cycles: &[(&super::super::model::AnalysisEdge, ExecutionState)],
     finite_loops: &BTreeSet<super::super::id::AnalysisBlockId>,
     candidate: &mut ExecutionCandidate,
-) {
+) -> crate::CheckerQueryResult<(), C::UpstreamError> {
     if property == Some(ExecutionProperty::Total) {
         for exit in graph
             .exits()
@@ -571,6 +575,31 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
                 AnalysisExitKind::Panic if !internal => FailureCause::Panic,
                 _ => continue,
             };
+            if candidate.failure.is_none() && cause == FailureCause::Panic {
+                for edge in graph.edges() {
+                    let Some(AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement() else {
+                        continue;
+                    };
+                    if invocation.node() != exit.node() || reachable.edge_output(edge.id()).is_none() {
+                        continue;
+                    }
+                    let Some(contract) = request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation)) else {
+                        continue;
+                    };
+                    let Some(entry) = candidate.calls.get(&invocation) else {
+                        continue;
+                    };
+                    if let Err(failed) = entry.prove_requirements(contract.preconditions.iter().map(|(condition, _)| condition)) {
+                        let condition = super::diagnostic::obligation(&reachable.domain,
+                            bray_diagnostics::DiagnosticContractObligationKind::CallRequirement, &failed)?;
+                        candidate.failure = Some(crate::ExecutionVerificationFailure {
+                            source: node_span(request, invocation.node()), cause,
+                            condition: Some(std::sync::Arc::new(condition)),
+                        });
+                        break;
+                    }
+                }
+            }
             record_failure(request, candidate, exit.node(), cause);
         }
 
@@ -582,6 +611,8 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
             record_failure(request, candidate, expression.into(), FailureCause::UnboundedLoop);
         }
     }
+
+    Ok(())
 }
 
 fn check_expression_eligibility<C: CheckerRequestContext + ?Sized>(
