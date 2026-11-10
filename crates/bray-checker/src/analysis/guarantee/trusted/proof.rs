@@ -164,7 +164,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<Vec<_>>();
 
-        let mut prove_leaf = |condition: &ExecutionCondition| {
+        let mut prove_condition = |condition: &ExecutionCondition| {
             if condition.prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT })
                 == Some(true)
             {
@@ -243,7 +243,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         for (required, actual) in requirements.iter().zip(instantiated) {
-            if let Err(failed) = prove_requirement(&actual, &known, &mut prove_leaf, &mut {
+            if let Err(failed) = prove_requirement(&actual, &known, &mut prove_condition, &mut {
                 ExecutionCondition::WORK_LIMIT
             }) {
                 return Err(crate::UnprovenExecutionCondition::new(required.clone(), failed.clone()));
@@ -259,7 +259,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 fn prove_requirement<'a>(
     condition: &'a ExecutionCondition,
     known: &BTreeSet<(ExecutionCondition, bool)>,
-    prove_leaf: &mut impl FnMut(&ExecutionCondition) -> bool,
+    prove_condition: &mut impl FnMut(&ExecutionCondition) -> bool,
     budget: &mut usize,
 ) -> Result<(), &'a ExecutionCondition> {
     let Some(remaining) = budget.checked_sub(1) else {
@@ -276,17 +276,18 @@ fn prove_requirement<'a>(
     match condition {
         ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalAnd, operands) => {
             for operand in operands.iter() {
-                prove_requirement(operand, known, prove_leaf, budget)?;
+                prove_requirement(operand, known, prove_condition, budget)?;
             }
 
             Ok(())
         }
         ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, operands) => {
-            if operands.iter().any(|operand| prove_requirement(operand, known, prove_leaf, budget).is_ok()) {
+            if prove_condition(condition)
+                || operands.iter().any(|operand| prove_requirement(operand, known, prove_condition, budget).is_ok()) {
                 Ok(())
             } else { Err(condition) }
         }
-        condition => prove_leaf(condition).then_some(()).ok_or(condition),
+        condition => prove_condition(condition).then_some(()).ok_or(condition),
     }
 }
 
@@ -297,6 +298,21 @@ mod tests {
     use bray_bound_tree::BoundOperator;
     use bray_symbols::SymbolOrdinal;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn disjunction_requirements_use_whole_clause_proof_before_selecting_alternatives() {
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let promised = ExecutionCondition::Trusted(std::sync::Arc::new(input(2)));
+        let extra = ExecutionCondition::Trusted(std::sync::Arc::new(input(1)));
+        let established = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(0), promised]);
+        let required = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![established.clone(), extra]);
+        let known = BTreeSet::from([(established, true)]);
+        let mut prove = |condition: &ExecutionCondition| condition.prove_mixed(&known, &BTreeSet::new(),
+            &mut { ExecutionCondition::WORK_LIMIT }) == Some(true);
+
+        assert_eq!(prove_requirement(&required, &known, &mut prove,
+            &mut { ExecutionCondition::WORK_LIMIT }), Ok(()));
+    }
 
     #[test]
     fn failed_conjunction_reports_the_unproven_leaf() {
