@@ -475,9 +475,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .value_in(&entry.arguments)
                 .expect("source input entry retains its captured value");
 
-            input.conversion().map_or(value.clone(), |conversion| {
-                super::super::completion::converted_argument(self.request.semantic_values(), value, conversion)
-            })
+            match input {
+                bray_bound_tree::SelectedInput::Receiver(receiver) => value.coerce(
+                    self.request.semantic_values(), receiver.source_type(), input.ty(self.request.semantic_values()),
+                ),
+                _ => input.conversion().map_or(value.clone(), |conversion| {
+                    super::super::completion::converted_argument(self.request.semantic_values(), value, conversion)
+                }),
+            }
         };
 
         let place = self

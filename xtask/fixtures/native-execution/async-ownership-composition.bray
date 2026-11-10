@@ -222,9 +222,10 @@ async func inactive(pos owner: ChildCleanup)
 async func produce() -> Future<unit>
     requires(main_thread_execution())
 {
-    let owner = await transport(acquire(false), true);
-    observe_whole(&owner);
-    return inactive(owner);
+    let mut returned_owner = await transport(acquire(false), true);
+    await returned_owner.advance();
+    observe_whole(&returned_owner);
+    return inactive(returned_owner);
 }
 
 async func dispose_returned()
