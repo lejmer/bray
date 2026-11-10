@@ -4143,6 +4143,37 @@ fn input_exclusivity_follows_mutable_ownership_and_preserves_shared_aliases() {
 }
 
 #[test]
+fn deferred_input_references_survive_frame_moves_without_following_replaced_input_slots() {
+    let ([input, frame, payload, moved], expressions) = places();
+    let producer = expressions[0].into();
+    let movement = expressions[1].into();
+    let completion = expressions[2].into();
+    let mut state = State::default();
+    let root = Target::storage(input.clone());
+    let target = Target::storage(payload.clone());
+    let path = bray_bound_tree::StorageReferencePath::new([].into(), [].into());
+
+    state.point_at(target.clone(), input.clone(), error_type(), bray_symbols::DependencyReferenceKind::Borrow);
+    state.begin_transition(producer);
+    state.capture_reference_inputs(producer, [root.clone()]);
+    state.capture_deferred_transition(producer, frame.clone());
+    state.clear(&input);
+    state.point_at(Target::storage(moved.clone()), input, error_type(), bray_symbols::DependencyReferenceKind::Borrow);
+    state.begin_transition(movement);
+    state.stage_slot(movement, &frame, moved.clone());
+    state.clear(&frame);
+    state.complete_transition(movement);
+
+    assert!(state.prepare_deferred_completion(completion,
+        &super::Source::Value(Target::storage(moved)), frame.clone(), [(producer, frame)]));
+    assert_eq!(state.captured_input_target(completion, crate::test_support::semantic_values(), &root, &path), Some(target));
+
+    state.begin(payload.root);
+    let retired = state.captured_input_target(completion, crate::test_support::semantic_values(), &root, &path);
+    assert!(retired.is_none_or(|target| target.previous), "retired referents cannot become current input observations");
+}
+
+#[test]
 fn staged_future_moves_retain_completion_effects_and_references() {
     let ([frame, moved, payload, output], expressions) = places();
 

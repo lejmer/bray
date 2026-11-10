@@ -289,6 +289,10 @@ impl Transfer {
             })
             .collect();
 
+        for references in self.inputs.values_mut() {
+            references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate).collect();
+        }
+
         self.payloads = std::mem::take(&mut self.payloads)
             .into_iter()
             .map(|(slot, contents)| (relocate(slot), contents))
@@ -321,6 +325,7 @@ impl Transfer {
     pub(in crate::analysis::storage_flow::memory) fn references(&self, current: &Target) -> bool {
         self.values
             .values()
+            .chain(self.inputs.values())
             .chain(self.returned_inputs.values())
             .any(|references| {
                 references
@@ -351,6 +356,7 @@ impl Transfer {
         for references in self
             .values
             .values_mut()
+            .chain(self.inputs.values_mut())
             .chain(self.returned_inputs.values_mut())
         {
             references.retire(current);

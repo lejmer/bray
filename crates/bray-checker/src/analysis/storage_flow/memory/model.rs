@@ -274,6 +274,8 @@ impl CapturedEffects {
 /// A value captured before consumption, with inline protected payload state at its destination.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Transfer {
+    /// Evaluated reference descriptors retained by this deferred frame, separate from published outputs.
+    pub(super) inputs: BTreeMap<Target, References>,
     pub(super) values: BTreeMap<Target, References>,
     pub(super) payloads: BTreeMap<Target, Contents>,
     pub(super) failure_effects: Option<std::sync::Arc<CapturedEffects>>,
@@ -286,7 +288,8 @@ pub(super) struct Transfer {
 
 impl Transfer {
     pub(super) fn merge(&mut self, incoming: &Self) -> bool {
-        let changed = merge_references(&mut self.values, &incoming.values, |_| false, |_| false);
+        let changed = merge_references(&mut self.inputs, &incoming.inputs, |_| false, |_| false);
+        let changed = merge_references(&mut self.values, &incoming.values, |_| false, |_| false) || changed;
 
         let mut changed = merge_contents(&mut self.payloads, &incoming.payloads) || changed;
 

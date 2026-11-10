@@ -1425,6 +1425,64 @@ mod tests {
     }
 
     #[test]
+    fn whole_owner_guarantees_follow_mutating_calls_and_loop_carried_results() {
+        for (asynchronous, wait) in [("", ""), ("async ", "await ")] {
+            for (body, valid) in [
+                (format!("{wait}owner.advance();\n                        observe(&owner);"), true),
+                (format!("{wait}owner.advance();\n                        {wait}owner.advance();\n                        observe(&owner);"), true),
+                (format!(r#"let mut index: u32 = 0;
+
+                        while index != 2
+                        {{
+                            {wait}owner.advance();
+                            observe(&owner);
+                            index += 1;
+                        }}"#), true),
+                ("owner.visits += 1;\n                        observe(&owner);".to_owned(), false),
+            ] {
+                let source = format!(r#"
+                    trusted module app;
+
+                    trusted predicate coherent(owner: &Owner);
+
+                    struct Owner
+                    {{
+                        mut visits: u32;
+
+                        trusted mut {asynchronous}func advance()
+                            requires(trusted coherent(owner = &self))
+                            ensures(trusted coherent(owner = &self))
+                        {{
+                            self.visits += 1;
+                        }}
+                    }}
+
+                    func observe(pos owner: &Owner)
+                        requires(trusted coherent(owner = owner))
+                    {{
+                    }}
+
+                    {asynchronous}func transport(pos mut owner: Owner) -> Owner
+                        requires(trusted coherent(owner = &owner))
+                        ensures(trusted coherent(owner = &result))
+                    {{
+                        {body}
+
+                        return owner;
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn guarded_trusted_requirements_accept_weaker_clauses_but_not_changed_storage_or_authority() {
         let weaker = "operation < 4 || (operation == 4 && trusted destination(cursor.pointer, argument)) || (operation == 5 && trusted retiring(cursor.pointer))";
         for asynchronous in ["", "async "] {

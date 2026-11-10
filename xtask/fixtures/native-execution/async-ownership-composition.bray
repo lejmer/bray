@@ -29,15 +29,17 @@ struct Marker
 
 trusted predicate retained(marker: &Marker);
 
+trusted predicate coherent(owner: &ChildCleanup);
+
 struct ChildCleanup
 {
     marker: Marker;
     cancelled: bool;
     mut visits: u32;
 
-    mut async func advance()
-        requires(main_thread_execution(), trusted retained(marker = &self.marker))
-        ensures(trusted retained(marker = &self.marker))
+    trusted mut async func advance()
+        requires(main_thread_execution(), trusted retained(marker = &self.marker), trusted coherent(owner = &self))
+        ensures(trusted retained(marker = &self.marker), trusted coherent(owner = &self))
     {
         await direct();
         self.visits += 1;
@@ -81,7 +83,7 @@ struct ChildCleanup
 }
 
 trusted func acquire(pos cancelled: bool) -> ChildCleanup
-    ensures(trusted retained(marker = &result.marker))
+    ensures(trusted retained(marker = &result.marker), trusted coherent(owner = &result))
 {
     return
     {
@@ -95,6 +97,11 @@ trusted func acquire(pos cancelled: bool) -> ChildCleanup
 
 func observe(pos owner: &ChildCleanup)
     requires(trusted retained(marker = &owner.marker))
+{
+}
+
+func observe_whole(pos owner: &ChildCleanup)
+    requires(trusted coherent(owner = owner))
 {
 }
 
@@ -182,8 +189,8 @@ async func direct()
 }
 
 async func transport(pos mut owner: ChildCleanup, pos early: bool) -> ChildCleanup
-    requires(main_thread_execution(), trusted retained(marker = &owner.marker))
-    ensures(trusted retained(marker = &result.marker))
+    requires(main_thread_execution(), trusted retained(marker = &owner.marker), trusted coherent(owner = &owner))
+    ensures(trusted retained(marker = &result.marker), trusted coherent(owner = &result))
 {
     let mut progress: u32 = 0;
 
@@ -191,6 +198,7 @@ async func transport(pos mut owner: ChildCleanup, pos early: bool) -> ChildClean
     {
         await owner.advance();
         observe(&owner);
+        observe_whole(&owner);
         progress += 1;
         assert(owner.visits == progress);
     }
@@ -215,6 +223,7 @@ async func produce() -> Future<unit>
     requires(main_thread_execution())
 {
     let owner = await transport(acquire(false), true);
+    observe_whole(&owner);
     return inactive(owner);
 }
 
