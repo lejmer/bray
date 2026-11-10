@@ -27,58 +27,49 @@ Verify worker/deadline omission, native provenance and costs. PreparedStart reta
 publication/rollback. EntryRestoration retains displaced context through abnormal exits. RetiredCell disposes control,
 pin and arena before vacancy. WaitResources retains leased storage through membership changes.
 
-## Current evidence and cause inventory
+## Current evidence and blockers
 
-Current checkpoints are pushed to the PR branch. verification.json holds executable identities and results.
-The907 frozen identities now give766/42/99. The new allocation import case passes separately. Checker487,
-bound135, symbols221 and interfaces216 pass. Cleanup61, predicates30 and focused18 retain their recorded outcomes.
-Native at382b44235: Source64a4e5490, complete233-file Windows request:37 diagnostics,22 E7123 and15 E7135.
-The join repair removes entry_scope400 and report/output44, with no new native failures.
-Ten E7135 diagnostics explicitly depend on other checking failures. Do not treat these as independent defects.
-The async-ownership-composition fixture and3 invalid variants pass source/MIR. Native execution remains unverified.
+The current semantic checkpoint retains live predecessor snapshots, projected aliases, nullable wrapper/payload
+separation and composed overlays. Earlier producer-owned result and allocation/reference transfers remain fixed.
+No reconstruction or parallel persistent state was added. Diagnostic selection changes remain uncommitted while the
+last native evidence probe runs. No review agent or goal is active.
 
-Implemented invariants remain fixed: publish actual planned result slots before cleanup, read current contents at
-completion, keep initialization inventory out of joined data slots, distinguish owner identity from contents and loans,
-and retain checked reference origins through projection and guards. Allocation returns now retain producer identity
-and alias groups through substitution and interfaces. Freshness grants no initialization authority. Independent returns
-remain conservative. Shared snippets shorten code operands only. Conditions, messages and JSON remain complete.
+Frozen907 identities:766 passed,42 failed,99 ignored, four explained repairs and no new failures. One extra allocation
+import case passes. Checker491 pass, including the direct collector and live-Unknown controls. Bound135, symbols221 and interfaces216 pass.
+Cleanup57/4, predicates26/2/2 and focused18 are unchanged. Source/MIR composition and3 invalid variants pass.
+Native composition has not run. verification.json holds executable identities and current evidence.
 
-Current unresolved families, with proof distinguished from hypotheses:
+Accepted native baseline at382b44235:37 diagnostics,22 E7123 and15 E7135, Source64a4e5490, complete233-file request.
+Current candidate38 retains those37 identities and adds E7135 at worker/entry170. Expansion remains blocked.
+Both added call failures at activation/run/entry95 and worker/entry179 are repaired. Their actual conflicting snapshots
+came from retired call-input slots marked Absent/Absent. The collector now excludes absent storage with Option snapshots,
+while live Unknown still blocks proof. The direct collector test reproduces before repair and passes after it.
 
-- Raw retirement and framing. driving197 loses Current's view witness at wait_execution Attempt. Its referent is known
-  and current. The first rejected effect is raw retirement through a returned task pointer bounded by the execution
-  owner's stored address. Whether the effect is too broad or the contract lacks a necessary bound remains unresolved.
-  Do not add preservation exceptions. Related cleanup/view failures are candidates for this family, not proved duplicates.
-- Guarded owner transport. Source/import matrices now fail14 positive cases each. Remaining cases include branch-order
-  sensitivity, optional-container claims and inferred tuple creation. Basic nullable transport now passes. Next establish
-  branch permutation checks at the witness join boundary rather than patching source cases.
-- Expired address dependencies. Source/import address tests accept access after the backing scope ends. Trace pointer
-  stores and input postconditions through physical and witness dependency retirement. This is a safety defect candidate.
-- Post-state meaning. prepared_start175's assigned nullable registration remains unproved. Ordinary completion/mutation
-  checks now pass after structural join normalization. A common cause with the native failure is not established.
-- Extraction and lifecycle composition. Native retirement205 loses the extracted SpinLock cleanup predicate. Existing
-  nullable raw-extraction, represented-child cleanup and owned-transfer checks provide related boundaries to compare.
-- Verification visibility. Remaining Rust test failures include false accepts, false rejects and metadata/provider
-  blockers. Some tests contain large fail-fast matrices, so a failed identity is not a count of defects.
-  Three first failures explicitly report MissingEvidence for bodyless execution promises. Do not generalize that
-  explanation to the remaining failures or change expected verdicts without actual controls.
+Pending batch also preserves same-region predecessor snapshots, derives projected-alias contents from the containing
+owner's phi, composes nested Constructed overlays at construction, and retains Unknown backing for anonymous overlays.
+Six nullable-union predecessor orders pass, including same/distinct regions and fabrication controls. The alias matrix
+covers Owned/Inline/Loan/Reference and retired snapshots. Reference descriptors gain no pointee ownership.
+All7 nested boundary tests and32 condition tests pass. A Present wrapper now records its value snapshot separately
+from its payload owner. Previously both snapshots conflicted at the payload identity. The48-case matrix covers all
+orders, both nesting directions, same/distinct regions and fabrication controls. Only an explicitly Present payload
+collapses its identical overlay. Never erase component structure merely because a projected identity matches. No temporary snapshot hooks
+remain. The added worker postcondition depends on Pure for scheduler_reference(pool) at entry179. Trusted entry checking proves
+retained(pool.marker), while the simpler certification evidence proof rejects it. These paths normalize reference origins differently.
+This remains a hypothesis until their captured facts are compared. Rejected selection now reports MissingEvidence at
+the invocation, and the existing guarded-call test checks cause and span. Actual rendered failures group into whole nullable claims, Result<Nullable> selection, and the awaited selected owner.
+The existing guarded-call test now passes with the bound invocation suffix span. It was the only added assertion failure
+in the latest907 comparison, whose semantic outcomes retained the four repairs. Compiler, driver and selected tests now
+build together with cargo build --all-targets, avoiding a second driver build and feature selection change. Dynamic source inputs remain necessary because constants can hide copied-data behavior.
 
-The complete source/import witness matrices run with unchanged case names/verdicts. All invalid controls, including
-returned-address expiry, pass. This narrows the separate stale-address family to mutation/input-postcondition paths.
-Deferred provider diagnostics identify held evidence lost through an if selecting try-await cancel/join results.
-Their consumer matrices remain unverified.
-Fixed a proved recursion defect in common_components: inferred carrier roles triggered unwrapping without an actual
-wrapper, repeating identical operands until budget exhaustion. Nullable and reference structural joins now progress.
-One boundary regression checks payload contents, owner/reference separation, predecessor order and convergence.
-Three frozen failures now pass: completion_observation_publishes_its_checked_result_meaning,
-ordinary_predicate_meaning_tracks_completion_and_mutation and joined_mutated_values_do_not_inherit_their_entry_contents.
-Their invalid mutation controls still reject. No new frozen failures. Full checker/bound suites pass.
-Adjacent cleanup57/4, predicates26/2/2 and focused18 remain unchanged. Temporary trace hooks are removed.
-Fixed result_replacements assigning the presence payload's same owner to both root and payload, a false conflict.
-It now transfers that owner only through the payload projection. The boundary regression failed before repair and
-passes for single/nested nullable owners and unrelated-owner controls. raw_extraction_transfers_a_complete_nullable_witness
-also now passes, including fabrication and double-extraction negatives. Native comparison is pending for this repair.
-No review agent. Style/format remain deferred.
+Source/import witness matrices have the same2 positive failures each, down from46, with every negative control passing:
+optional_claim and new_owned_tuple_inferred. All Result<Nullable> permutations and provider variants now pass.
+Deferred provider held evidence still fails after if selecting try-await cancel/join. Consumers remain unverified.
+
+Other unresolved families: driving197 loses Current's view at wait_execution Attempt through returned-pointer raw
+retirement. Whether its effect or bound is wrong remains unproved. Address expiry fails specifically through mutation
+and input postconditions, while returned-address negatives pass. prepared_start175's registration postcondition and
+retirement205's extracted SpinLock cleanup remain unproved. Do not add preservation exceptions or weaken initialization.
+Three Rust first failures cite MissingEvidence for bodyless execution promises. That does not explain the other failures.
 
 ## Remaining
 

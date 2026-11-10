@@ -1654,9 +1654,9 @@ fn collect_witness_failure(name: &str, compilation: &crate::Compilation, valid: 
     if diagnostics.has_errors() == valid || !valid && !diagnostics.iter().any(|diagnostic|
         diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
     {
-        let kinds = diagnostics.iter().map(bray_diagnostics::Diagnostic::kind).collect::<Vec<_>>();
+        let rendered = bray_messages::DiagnosticRenderer::default().render_bag(diagnostics);
 
-        failures.push(format!("{name}: expected valid={valid}, actual valid={}, diagnostics={kinds:?}", !diagnostics.has_errors()));
+        failures.push(format!("{name}: expected valid={valid}, actual valid={}, diagnostics={rendered:?}", !diagnostics.has_errors()));
         return;
     }
 

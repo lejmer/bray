@@ -319,15 +319,33 @@ impl ExecutionCondition {
     /// Structural overlays retain the existing value's identity and ownership role.
     pub(crate) fn constructed(
         base: Self,
-        fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
+        mut fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
     ) -> Self {
+        if let Self::Present(payload) = &base
+            && matches!(fields.as_ref(), [(bray_bound_tree::StorageProjection::NullableValue, value)] if value == payload.as_ref())
+        {
+            return base;
+        }
+
+        if !fields.windows(2).all(|pair| pair[0].0 < pair[1].0) {
+            Arc::make_mut(&mut fields).sort_by_key(|(projection, _)| *projection);
+        }
+
         match base {
+            Self::Constructed(base, previous) => {
+                // Compose existing immutable snapshots once. Later fields replace
+                // earlier contents while preserving untouched components.
+                let fields = previous.iter().chain(fields.iter()).cloned()
+                    .collect::<std::collections::BTreeMap<_, _>>();
+
+                Self::constructed(base.as_ref().clone(), fields.into_iter().collect())
+            }
             Self::Observation { owner, contents, kind } => Self::observation(
                 owner.as_ref().clone(), Self::constructed(contents.as_ref().clone(), fields), kind,
             ),
             Self::Borrowed(contents) => Self::reference_value(
                 Self::Borrowed(Arc::clone(&contents)),
-                Self::Constructed(contents, fields),
+                Self::constructed(contents.as_ref().clone(), fields),
             ),
             base => Self::Constructed(Arc::new(base), fields),
         }
@@ -757,19 +775,7 @@ impl ExecutionCondition {
             return self.clone();
         }
 
-        let (base, mut fields) = match self {
-            Self::Constructed(base, fields) => (Arc::clone(base), fields.to_vec()),
-            value => (Arc::new(value.clone()), Vec::new()),
-        };
-
-        if let Some((_, current)) = fields.iter_mut().find(|(field, _)| field == projection) {
-            *current = child;
-        } else {
-            fields.push((*projection, child));
-            fields.sort_by_key(|(projection, _)| *projection);
-        }
-
-        Self::constructed(base.as_ref().clone(), fields.into())
+        Self::constructed(self.clone(), Arc::from([(*projection, child)]))
     }
 
     fn boolean_operation(operator: BoundOperator, operands: Vec<Self>) -> Self {

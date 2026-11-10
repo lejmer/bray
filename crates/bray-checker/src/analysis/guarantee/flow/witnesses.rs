@@ -32,11 +32,12 @@ pub(super) fn conditional_guarantees(
 
     for (place, joined) in current {
         let source = [left.0, right.0].map(|state| {
-            place.value_in(&state.current).unwrap_or(ExecutionCondition::Unknown)
+            (super::merge::resolved_availability(state, place) != super::super::current::ValueAvailability::Absent)
+                .then(|| place.value_in(&state.current).unwrap_or(ExecutionCondition::Unknown))
         });
 
         collect_observations(
-            [&source[0], &source[1]], joined, &mut inputs, &mut guards,
+            [source[0].as_ref(), source[1].as_ref()], joined, &mut inputs, &mut guards,
             [&absent[0], &absent[1]], &ExecutionCondition::Boolean(true),
             &mut { ExecutionCondition::WORK_LIMIT },
         );
@@ -44,7 +45,7 @@ pub(super) fn conditional_guarantees(
 
     for (expression, joined) in results {
         let source = [left.0, right.0].map(|state| {
-            state.pending_results.get(expression).unwrap_or(&ExecutionCondition::Unknown)
+            state.pending_results.get(expression)
         });
 
         collect_observations(
@@ -249,7 +250,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     let absent = [left.0, right.0].map(absent_observations);
 
     collect_observations(
-        [left.1, right.1], joined, &mut inputs, &mut guards,
+        [Some(left.1), Some(right.1)], joined, &mut inputs, &mut guards,
         [&absent[0], &absent[1]], &ExecutionCondition::Boolean(true),
         &mut { ExecutionCondition::WORK_LIMIT },
     );
@@ -289,7 +290,7 @@ fn absent_observations(state: &ExecutionState) -> BTreeMap<ExecutionCondition, s
 }
 
 fn collect_observations(
-    sources: [&ExecutionCondition; 2],
+    sources: [Option<&ExecutionCondition>; 2],
     joined: &ExecutionCondition,
     inputs: &mut [BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
     guards: &mut BTreeSet<(ExecutionCondition, ExecutionCondition)>,
@@ -297,37 +298,50 @@ fn collect_observations(
     active: &ExecutionCondition,
     budget: &mut usize,
 ) {
+    if sources.iter().all(Option::is_none) { return; }
+
     let Some(remaining) = budget.checked_sub(1) else { return; };
 
     *budget = remaining;
 
     if joined == &ExecutionCondition::Unknown { return; }
 
+    if let ExecutionCondition::Present(payload) = joined {
+        for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
+            if let Some(source) = source { insert_snapshot(inputs, joined, source); }
+        }
+        let sources = sources.map(|source| source.map(|source|
+            source.clone().project(bray_bound_tree::StorageProjection::NullableValue)));
+        collect_observations([sources[0].as_ref(), sources[1].as_ref()], payload,
+            inputs, guards, absent, active, budget);
+        return;
+    }
+
     let Some((role, owner)) = joined.ownership_identity() else { return; };
 
     let owner = owner.clone();
 
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
-        if source.ownership_identity() != Some((role, &owner))
-            && !matches!(owner, ExecutionCondition::Unknown | ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
-            inputs.entry(owner.clone()).and_modify(|previous| {
-                if previous != source { *previous = ExecutionCondition::Unknown; }
-            }).or_insert_with(|| source.clone());
+        let Some(source) = source else { continue; };
+        // A retained phi owner can still have different predecessor contents.
+        // Proof inserts that existing snapshot once, without rewriting identity.
+        if !matches!(owner, ExecutionCondition::Unknown | ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
+            insert_snapshot(inputs, &owner, source);
         }
     }
 
     if role == ObservationKind::Reference {
-        let sources = sources.map(|source| source.clone().into_referent());
+        let sources = sources.map(|source| source.map(|source| source.clone().into_referent()));
 
-        collect_reference_data([&sources[0], &sources[1]], &joined.clone().into_referent(), inputs, budget);
+        collect_reference_data([sources[0].as_ref(), sources[1].as_ref()], &joined.clone().into_referent(), inputs, budget);
         return;
     }
 
     if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } = joined {
-        let sources = sources.map(|source| match source {
+        let sources = sources.map(|source| source.map(|source| match source {
             ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => contents.as_ref(),
             value => value,
-        });
+        }));
 
         collect_observations(sources, contents, inputs, guards, absent, active, budget);
         return;
@@ -336,6 +350,7 @@ fn collect_observations(
     // Payload authority is conditional on every enclosing active case. A test
     // of an inner tag alone has no meaning on an inactive outer payload.
     let presence = sources.into_iter().zip(absent).find_map(|(source, absent)| {
+        let source = source?;
         match source {
             ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) => Some(value),
             _ => absent.get(source).or_else(|| absent.get(source.owner_identity())),
@@ -352,7 +367,7 @@ fn collect_observations(
 
     let mut fields = BTreeSet::new();
 
-    for source in sources {
+    for source in sources.into_iter().flatten() {
         match source {
             ExecutionCondition::Tagged(variant, _) => insert_guard(
                 guards, &owner, ExecutionCondition::operation(
@@ -388,30 +403,32 @@ fn collect_observations(
             insert_guard(guards, &owner, active.clone());
         }
 
-        let values = sources.map(|source| source.clone().project(field));
+        let values = sources.map(|source| source.map(|source| source.clone().project(field)));
 
         collect_observations(
-            [&values[0], &values[1]], &joined.clone().project(field), inputs, guards, absent,
+            [values[0].as_ref(), values[1].as_ref()], &joined.clone().project(field), inputs, guards, absent,
             &active, budget,
         );
     }
 }
 
 fn collect_reference_data(
-    sources: [&ExecutionCondition; 2],
+    sources: [Option<&ExecutionCondition>; 2],
     joined: &ExecutionCondition,
     inputs: &mut [BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
     budget: &mut usize,
 ) {
+    if sources.iter().all(Option::is_none) { return; }
+
     let Some(remaining) = budget.checked_sub(1) else { return; };
 
     *budget = remaining;
 
     if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = joined {
-        let sources = sources.map(|source| match source {
+        let sources = sources.map(|source| source.map(|source| match source {
             ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => contents.as_ref(),
             value => value,
-        });
+        }));
 
         collect_reference_data(sources, contents, inputs, budget);
         return;
@@ -424,20 +441,27 @@ fn collect_reference_data(
     // These substitutions instantiate an actual predecessor's reached data
     // during proof. They do not create an ownership mapping or another origin.
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
-        if source != joined {
-            inputs.entry(joined.clone()).and_modify(|previous| {
-                if previous != source { *previous = ExecutionCondition::Unknown; }
-            }).or_insert_with(|| source.clone());
-        }
+        let Some(source) = source else { continue; };
+        insert_snapshot(inputs, joined, source);
     }
 
     if let ExecutionCondition::Constructed(_, fields) = joined {
         for (field, value) in fields.iter() {
-            let sources = sources.map(|source| source.clone().project(*field));
+            let sources = sources.map(|source| source.map(|source| source.clone().project(*field)));
 
-            collect_reference_data([&sources[0], &sources[1]], value, inputs, budget);
+            collect_reference_data([sources[0].as_ref(), sources[1].as_ref()], value, inputs, budget);
         }
     }
+}
+
+fn insert_snapshot(
+    inputs: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
+    joined: &ExecutionCondition, source: &ExecutionCondition,
+) {
+    if source == joined { return; }
+    inputs.entry(joined.clone()).and_modify(|previous| {
+        if previous != source { *previous = ExecutionCondition::Unknown; }
+    }).or_insert_with(|| source.clone());
 }
 
 fn insert_guard(

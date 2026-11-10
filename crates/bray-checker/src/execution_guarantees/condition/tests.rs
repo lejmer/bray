@@ -5,6 +5,27 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[test]
+fn snapshot_substitution_keeps_one_current_component_overlay() {
+    let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
+    let field = |id| bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(id));
+    let source = ExecutionCondition::constructed(input(0), [(field(0), ExecutionCondition::Boolean(true)), (field(1), input(1))].into());
+    let joined = ExecutionCondition::constructed(input(0), [(field(0), ExecutionCondition::Boolean(true)), (field(1), input(2))].into());
+    let snapshots = BTreeMap::from([(input(0), source.clone()), (input(2), input(1))]);
+
+    assert_eq!(joined.with_snapshots(&snapshots), source,
+        "a predecessor snapshot replaces the current overlay without retaining nested copies");
+    assert_eq!(joined.borrowed().with_snapshots(&snapshots), source.clone().borrowed());
+
+    let changed = ExecutionCondition::constructed(source.clone(), [(field(1), ExecutionCondition::Boolean(false))].into());
+    let expected = ExecutionCondition::constructed(input(0), [(field(0), ExecutionCondition::Boolean(true)),
+        (field(1), ExecutionCondition::Boolean(false))].into());
+
+    assert_eq!(changed, expected, "the outer overlay replaces overwritten contents and keeps untouched siblings");
+    assert_eq!(ExecutionCondition::constructed(source.borrowed(), [(field(1), ExecutionCondition::Boolean(false))].into()),
+        expected.borrowed(), "overlay composition preserves reference capability without acquiring ownership");
+}
+
+#[test]
 fn predicate_reference_arguments_keep_referents_owners_and_changed_contents_distinct() {
     let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
     let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(950));
@@ -704,6 +725,8 @@ fn anonymous_aggregate_contents_do_not_establish_an_observation_identity() {
     );
 
     assert_eq!(anonymous.owner_identity(), changed.owner_identity());
+    assert_eq!(anonymous.owner_identity(), &ExecutionCondition::Unknown,
+        "anonymous contents cannot become a substitute for missing backing identity");
     assert!(anonymous.owner_identity().observation_path().is_none());
     assert!(changed.owner_identity().observation_path().is_none());
 }
