@@ -50,8 +50,8 @@ An unresolved `Task<T>` has a compiler-known asynchronous finalization obligatio
 
 Implicit task resolution on an otherwise-normal scope exit is well formed only when every possible `Completed(T)`
 payload can be fully resolved in that async context without a fallible finalizer. An asynchronous but infallible
-finalizer is driven before destruction. If `T` has fallible finalization, the checker rejects normal implicit
-resolution. Source must explicitly observe `await task.join()` or `await task.cancel()` and preserve, transfer, or
+finalizer is driven before destruction. If `T` has fallible finalization, normal implicit resolution is rejected. Source
+must explicitly observe `await task.join()` or `await task.cancel()` and preserve, transfer, or
 explicitly handle the `Completed(value)` lifecycle obligation. This is a static rule because cleanup cannot assume that
 cancellation will beat an already completed task.
 

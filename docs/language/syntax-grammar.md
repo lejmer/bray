@@ -233,8 +233,7 @@ path =
 
 `expression` accepts every expression form.
 
-Restricted expression roots name contexts that intentionally accept less than a full expression. They let the parser
-produce a more precise tree before semantic checking.
+Restricted expression roots name contexts that accept fewer forms than a full expression.
 
 The expression grammar is non-left-recursive. Left-associative binary levels use repetition. Right-associative and
 prefix forms use right recursion. Postfix forms use repetition.
@@ -490,8 +489,8 @@ continue-expression =
     "continue" ;
 ```
 
-The parser accepts omitted operands for `yield`, `return`, and `break`. Semantic checking treats an omitted operand as
-`unit` in valid target contexts.
+The grammar permits omitted operands for `yield`, `return`, and `break`. An omitted operand means `unit` in valid target
+contexts.
 
 ### Argument lists
 
@@ -2089,7 +2088,7 @@ implementation-type-member-binding =
 
 Implementation bodies are braced member lists.
 
-The parser uses the same member grammar for inherent and trait implementation bodies.
+Inherent and trait implementation bodies use the same member grammar.
 
 ### Implementation Members
 
@@ -2352,7 +2351,7 @@ contracts, and callable type forms use those same roots.
 The callable modifier repetition accepts any source order. Duplicate modifiers and incompatible combinations are
 semantic errors.
 
-When a callable modifier sequence is followed by `lambda`, the parser treats it as a `lambda-expression`. This makes
+When a callable modifier sequence is followed by `lambda`, the form is a `lambda-expression`. This makes
 `trusted lambda ...` a trusted lambda expression, not a trust-boundary expression whose operand is a lambda.
 
 ---

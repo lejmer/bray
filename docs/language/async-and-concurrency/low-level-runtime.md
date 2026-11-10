@@ -17,23 +17,18 @@ Declarations and fields are public by default. Explicit internal-use acknowledge
 does not establish ownership, synchronization, witness validity or runtime-role authority. Runtime operations must
 preserve their contracts even when safe source acknowledges internal access.
 
-Bootstrap establishes attachment and cleanup services from explicit startup storage and low-level target operations.
-It cannot initialize a service through public operations that already require that service, or admit cleanup through
-the service being formed. Its own cleanup needs are empty or already backed. Generated entry cannot recursively wrap
-the operation that establishes its prerequisites.
+Attachment and cleanup services must be established without using operations that already require the service being
+formed. Any cleanup needed while establishing a service must already be backed. Entry cannot require itself in order
+to establish its own prerequisites.
 
-The bootstrap thread-storage contract has four target operations. They create a destructor-bearing key, load the
-current thread's opaque pointer, store or clear that pointer, and destroy the key after every attached thread has
-quiesced. The target clears a nonzero slot before it invokes the destructor on the exiting native thread. Explicitly
-clearing a slot does not invoke the destructor, and destroying a key does not clean up another thread.
+The runtime assigns a process-unique attachment identity to each attached native thread and reuses that attachment for
+nested entry. It resolves the attachment's thread-static cleanup on the exact thread at outermost detach or native thread
+exit. Detaching one thread does not clean up another thread's statics. Each attachment's cleanup occurs at most once.
 
-The trusted runtime owns the value stored in that slot. It assigns a process-unique attachment identity, reuses the
-attachment for nested entry, and owns thread-static cleanup on outermost detach or native thread exit. Cleanup uses the
-[static lifecycle dependency graph](../declarations/static-storage-declarations.md#lifecycle-dependency-graph) and its
-deterministic structural tie order on that exact thread. Registration order is not semantic. The compiler supplies known
-within-domain order and keys, while runtime ownership handles dynamic product and attachment relationships.
-Cleanup continues after a cleanup panic, reports that incident, and never lets panic or cancellation cross the target
-destructor callback. Ordinary `@thread_local` statics still use the runtime attachment and cleanup roles.
+Cleanup follows the [static lifecycle dependency graph](../declarations/static-storage-declarations.md#lifecycle-dependency-graph)
+and its deterministic structural tie order. Registration order is not semantic. Cleanup continues after a cleanup panic
+and reports that incident. Panic and cancellation do not cross a foreign thread-exit boundary. Ordinary `@thread_local`
+statics follow the same attachment and cleanup rules.
 
 ## Panic ownership at native boundaries
 
@@ -51,7 +46,7 @@ A conforming runtime must preserve:
 - dependency and affinity contracts,
 - exactly-once frame completion and destruction,
 - cancellation request and cleanup shielding rules,
-- phase-separated task broadcast through concrete and erased frame state,
+- phase-separated task broadcast across all owned computation state,
 - run-boundary panic capture,
 - ownership and mandatory reporting of suppressed cleanup incidents,
 - join and cancellation completion visibility edges,

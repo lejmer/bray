@@ -105,9 +105,9 @@ The product host owns the executable root run. It observes that run as if it pro
 completion, failed completion, panic completion, cancellation completion, and numeric exit results to the host process
 or embedding environment.
 
-For an async entrypoint, the compiler emits a host stub that invokes the entrypoint to create `Future<T>` and transfers
-its hidden frame into the host-owned runtime root task on the distinguished main-thread lane. The generated root frame
-performs root lexical task broadcast and ordinary lifecycle cleanup before publishing its final terminal record. The
+For an async entrypoint, the product host invokes the entrypoint to create `Future<T>` and transfers the computation
+into the host-owned root task on the distinguished main-thread lane. Root lexical task broadcast and ordinary lifecycle
+cleanup complete before the final terminal record is published. The
 host then maps that record, drains cleanup reports, and shuts down runtime infrastructure. It does not discover source
 owners or repeat their lifecycle resolution. No source-level runtime value, runtime import, or inner async block is
 synthesized.

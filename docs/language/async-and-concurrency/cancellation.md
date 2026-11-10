@@ -67,12 +67,12 @@ Cancellation and panic cleanup provide the universal abandonment path:
 4. If cleanup panics, the run boundary reports `RunResult.Panicked`. An already active panic is retained as the primary
    report and later cleanup panics are attached as suppressed reports.
 
-A cleanup incident is an owned, type-erased runtime record containing the finalizer error value, its concrete type
-descriptor, the finalizer and source location that produced it, and its deterministic encounter ordinal. Cleanup owns
+A cleanup incident is an owned, type-erased runtime record containing the finalizer error value, its concrete type, the
+finalizer and source location that produced it, and its deterministic encounter ordinal. Cleanup owns
 incidents in reverse lifecycle encounter order until the surrounding run boundary is resolved. Creating the incident is
 the language-defined explicit abandonment representation for that error payload. Quiescence resolves its child runs
 and inactive captured state before the incident is retained. Its graceful finalization obligation has been abandoned,
-so the descriptor performs synchronous destruction when incident ownership ends.
+so the error value undergoes synchronous destruction when incident ownership ends.
 
 If cancellation remains the terminal outcome, `RunResult.Cancelled` intentionally remains payload-free: source callers
 do not gain an unbounded union of arbitrary finalizer error types. Instead, observing or automatically resolving that

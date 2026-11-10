@@ -10,9 +10,8 @@ Expression-level trust boundary syntax is defined in
 trusted expression
 ```
 
-A trust boundary visibly accepts its operand's trusted caller obligations. The compiler records the exact trusted
-predicate requirements accepted. Its scope is exactly the operand expression, including the whole block when the
-operand is a block.
+A trust boundary visibly accepts the exact trusted predicate requirements of its operand. Its scope is exactly the
+operand expression, including the whole block when the operand is a block.
 
 A caller must acknowledge a trusted obligation unless language-defined contract reasoning already establishes it at
 that program point. A safe wrapper around trusted implementation code requires no acknowledgement. A declaration

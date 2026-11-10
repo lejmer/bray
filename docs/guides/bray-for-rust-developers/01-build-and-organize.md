@@ -377,7 +377,7 @@ In Rust, moving code into a separate crate involves updating Cargo dependencies 
 
 ### Create the library
 
-Create the directories `stock/src` and `checks` under the workspace root.
+Create the directories `stock/src` and `tests` under the workspace root.
 
 Move:
 
@@ -540,7 +540,7 @@ Replace the root `bray-package.json` with:
 }
 ```
 
-Our `application` product remains an executable, but now explicitly depends on the `stock` package's `inventory` library product. We've also introduced a `checks` test product. We'll use that shortly, once we're done configuring our increasingly sophisticated oat-management infrastructure.
+Our `application` product remains an executable, but now explicitly depends on the `stock` package's `inventory` library product. We've also introduced a `tests` test product. We'll use that shortly, once we're done configuring our increasingly sophisticated oat-management infrastructure.
 
 ### Update the application
 
@@ -624,7 +624,7 @@ else
 
 Here, the local `internal` acknowledges only this particular call. Without either form of acknowledgment, the compiler rejects access.
 
-And yes, in the this case we still need:
+And yes, in this case we still need:
 
 ```bray
 using stock.inventory;
@@ -632,7 +632,7 @@ using stock.inventory;
 
 The local `internal` prefix doesn't declare the module dependency itself.
 
-### Why not just use something akin to `publ(crate)`?
+### Why not just use something akin to `pub(crate)`?
 
 Rust's `pub(crate)` makes a declaration accessible within its crate but inaccessible to external crates. Bray's `internal` follows a different philosophy.
 
@@ -644,7 +644,7 @@ In short, Bray lets you depend on implementation details, but insists that you a
 
 We have an inventory system that adds stock and determines whether it's low. So far, we've verified its behavior by repeatedly running the executable and inspecting the output like responsible programmers from 1978. Let's automate that.
 
-Rust uses `#[test]` to mark test functions. Bray uses `@test` and a dedicated test product. The `checks` product we added to the package manifest selects the `checks` source root and depends on the same inventory library as the application.
+Rust uses `#[test]` to mark test functions. Bray uses `@test` and a dedicated test product. The `tests` product we added to the package manifest selects the `tests` source root and depends on the same inventory library as the application.
 
 Create `tests/inventory.bray`:
 
@@ -705,6 +705,6 @@ The assertion fails, as it should. Now restore the amount to `2` and run the tes
 
 We've created a Bray workspace, built a small executable, used mutable and shared borrows, handled nullable values and errors, organized code into modules, extracted a library package, acknowledged an internal dependency, and written a test.
 
-Part 2 will explore unions, patterns, and error handling in more detail. If you want even drier reading material, the language reference covers [modules and packages](../../language/modules-and-packages.md), [callables](../../language/callables.md), [ownership and borrowing](../../language/ownership-and-borrowing.md), and [nullable expressions](../../language/expressions/nullable-and-absence-expressions.md) in much more detail.
+[Part 2: Model data and control flow](02-data-and-control-flow.md) explores unions, patterns, and error handling in more detail. If you want even drier reading material, the language reference covers [modules and packages](../../language/modules-and-packages.md), [callables](../../language/callables.md), [ownership and borrowing](../../language/ownership-and-borrowing.md), and [nullable expressions](../../language/expressions/nullable-and-absence-expressions.md) in much more detail.
 
 The [Bray source style guide](../../contributing/bray-style-guide.md) describes the layout used throughout these examples.

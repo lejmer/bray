@@ -32,8 +32,8 @@ host process
 
 A synchronous entrypoint executes directly as the root run on the main thread.
 
-An async entrypoint invocation creates `Future<T>`. The compiler-generated host stub transfers that frame into a
-host-owned root task and drives it to terminal completion. The root task is a task run boundary but has no
+An async entrypoint invocation creates `Future<T>`. The product host transfers that computation into a host-owned root
+task and drives it to terminal completion. The root task is a task run boundary but has no
 source-visible `Task<T>` because the product host, rather than Bray source, owns its resolution obligation.
 
 Runtime worker, reactor, blocking-lane, and compute-lane threads are product infrastructure. They are not source-visible
@@ -142,8 +142,8 @@ forwarded panic as `Result<T, PanicReport>` but does not catch cancellation.
 
 ## Structured product shutdown
 
-The root body first produces an outcome candidate. Before that outcome becomes terminal, the compiler-generated root
-frame executes the root lexical cleanup plan:
+The root body first produces an outcome candidate. Before that outcome becomes terminal, root lexical cleanup proceeds
+as follows:
 
 1. Broadcast cancellation to every root-scope owned unresolved task.
 2. Perform ordinary reverse lifecycle resolution, including task observation and the checked finalizers of ordinary

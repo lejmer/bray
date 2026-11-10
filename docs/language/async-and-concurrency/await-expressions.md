@@ -19,9 +19,9 @@ Direct await does not produce `RunResult<T>` because it does not cross an indepe
 `await` is permitted only in an async callable body or an async-capable lifecycle body. Ordinary block expressions
 inside that body inherit the same async execution context. No async block form exists.
 
-Before the child first executes, the checker verifies that the current execution context satisfies the child
-computation's deferred body effects, capabilities, lifecycle contract, execution requirements, and thread-affinity
-constraints. Awaiting a computation requiring `blocking_execution()`, `compute_execution()`, or
+An `await` expression is valid only when its execution context satisfies the child computation's deferred body
+effects, capabilities, lifecycle contract, execution requirements, and thread-affinity constraints before the child
+first executes. Awaiting a computation requiring `blocking_execution()`, `compute_execution()`, or
 `main_thread_execution()` from an [incompatible lane](execution-requirements.md#lane-compatibility) is rejected.
 
 Normal completion establishes the postcondition template carried by the consumed computation and applies its `result`

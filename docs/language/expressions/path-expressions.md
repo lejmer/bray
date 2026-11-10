@@ -15,8 +15,7 @@ pair.0
 Bray uses `.` for package paths, module paths, type paths, associated declarations, variant access, field access, tuple
 element projection, method access, static function access, and nested access.
 
-The binder determines the meaning of each path expression from the resolved left-hand entity and the selected right-hand
-component.
+The meaning of each path expression follows from the resolved left-hand entity and the selected right-hand component.
 
 The left-hand side of `.` can resolve to:
 

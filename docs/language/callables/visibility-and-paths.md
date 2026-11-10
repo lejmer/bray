@@ -59,7 +59,7 @@ pkg.api.function(value = x);
 pkg.api.Type;
 ```
 
-The binder resolves whether the left side is a module, package, type, value, or access path.
+The left side resolves to a module, package, type, value, or access path.
 
 A named path into another logical module requires a matching `using` declaration, including paths within the current
 package. A fully qualified path identifies its target but does not declare the dependency. Local `internal` and `trusted`

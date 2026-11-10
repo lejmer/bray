@@ -43,8 +43,8 @@ required. Type checking does not waive those requirements merely because other b
 ## Flow-state merge
 
 A flow-state merge combines the states of paths that reach the same continuation. It does not require the incoming
-states to be identical. Only reachable incoming paths contribute. A path remains relevant unless the checker establishes
-that it cannot reach that continuation.
+states to be identical. Only reachable incoming paths contribute. A path remains relevant unless it is established
+that the path cannot reach that continuation.
 
 A branch that returns, propagates an error, breaks to an outer region, panics, cancels, or diverges does not contribute
 state to the next normal statement in the abandoned region. Its exit still resolves the ownership and lifecycle

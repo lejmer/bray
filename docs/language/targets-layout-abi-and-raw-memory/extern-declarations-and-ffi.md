@@ -11,9 +11,9 @@ An extern callable declaration has no Bray body and ends with `;`.
 An extern static declaration has no Bray initializer and ends with `;`. Its source reference produces a provider-rooted
 raw pointer and is defined in [Foreign data and symbols](foreign-data-and-symbols.md).
 
-The providing artifact can contain separately compiled Bray code, compiler-generated runtime code, a platform or system
-library, or code written in another language. `extern` therefore does not by itself mean C, FFI, or foreign code. The
-selected callable ABI and link dependency determine whether the call crosses a foreign boundary.
+The providing artifact can contain Bray code, runtime code, a platform or system library, or code written in another
+language. `extern` therefore does not by itself mean C, FFI, or foreign code. The selected callable ABI and link
+dependency determine whether the call crosses a foreign boundary.
 
 ```bray
 @link(name = "c")
@@ -206,12 +206,11 @@ struct CallbackPair
 A lambda can satisfy an ABI-qualified callable type only when the lambda expression explicitly carries the same
 `@abi(...)` directive and the selected ABI permits the required callable representation.
 
-An exported foreign callable address names a compiler-generated trampoline rather than the Bray body directly. The
-trampoline acquires an entry dependency on the provider product, attaches an otherwise foreign thread to that product,
-establishes a synchronous Bray run, and contains panic or cancellation at that boundary. Normal completion returns the
-body's ABI result. A panic is reported through the runtime panic sink before the trampoline returns the ABI-zero result.
-Cancellation also returns the ABI-zero result, and result-less callbacks return normally after either abnormal outcome.
-Neither panic nor cancellation unwinds into foreign code.
+Calling an exported foreign callable acquires an entry dependency on the provider product, attaches an otherwise
+foreign thread to that product, and establishes a synchronous Bray run. The foreign boundary contains panic and
+cancellation. Normal completion returns the body's ABI result. A panic is reported through the runtime panic sink before
+the call returns the ABI-zero result. Cancellation also returns the ABI-zero result, and result-less callbacks return
+normally after either abnormal outcome. Neither panic nor cancellation unwinds into foreign code.
 
 Nested foreign entries on one native thread reuse its current product attachment. The outermost matching detach resolves
 thread-local static instances on that exact thread after all nested entries, pinned tasks, callbacks, and external
@@ -233,7 +232,7 @@ or outlive the context owner. This operation does not capture enclosing state or
 
 A retained registration must deregister first, prevent new invocations, and wait for in-flight entries before resolving
 the context owner. Invocation after the foreign provider has released the context violates the foreign API contract
-before Bray entry. No generated wrapper reads retired storage to diagnose it.
+before Bray entry. A foreign entry must not read retired storage to diagnose that violation.
 
 ## Navigation
 

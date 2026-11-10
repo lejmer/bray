@@ -2,13 +2,8 @@
 
 The compiler may recognize selected standard-library declarations by stable declaration identity.
 
-Recognized standard-library declarations can have compiler-defined:
-
-- checking,
-- lowering,
-- optimization,
-- const eligibility,
-- contract behavior.
+Recognized standard-library declarations can have language-defined checking, const eligibility, and contract behavior.
+Their implementations can be optimized only while preserving their specified semantics.
 
 Recognition is based on the declaration's identity, not on accidental spelling.
 
