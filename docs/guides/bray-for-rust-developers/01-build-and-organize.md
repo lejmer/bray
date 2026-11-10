@@ -624,7 +624,7 @@ else
 
 Here, the local `internal` acknowledges only this particular call. Without either form of acknowledgment, the compiler rejects access.
 
-And yes, in the this case we still need:
+And yes, in this case we still need:
 
 ```bray
 using stock.inventory;
@@ -632,7 +632,7 @@ using stock.inventory;
 
 The local `internal` prefix doesn't declare the module dependency itself.
 
-### Why not just use something akin to `publ(crate)`?
+### Why not just use something akin to `pub(crate)`?
 
 Rust's `pub(crate)` makes a declaration accessible within its crate but inaccessible to external crates. Bray's `internal` follows a different philosophy.
 
