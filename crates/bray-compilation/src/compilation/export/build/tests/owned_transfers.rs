@@ -463,6 +463,15 @@ const API: &str = r"
         marker: Marker;
     }
 
+    func dependency_pair() -> (Dependency, Dependency)
+    {
+        return
+        (
+            Dependency { marker = Marker {} },
+            Dependency { marker = Marker {} }
+        );
+    }
+
     trusted predicate related(owner: &Marker, state: &Marker);
 
     trusted func make_related(pos state: &Dependency) -> RelatedOwner
@@ -1248,6 +1257,80 @@ fn check_owned_transfers(imported: bool) {
             "unchanged_dependency",
             "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.keep(api.make_related(&state), &mut state); api.observe_related(&result.1, &state);",
             true,
+        ),
+        (
+            "projected_dependency_nullable_join",
+            r"let (state, other) = api.dependency_pair();
+            let result: api.RelatedOwner? = if choice
+            {
+                yield none;
+            }
+            else
+            {
+                yield api.make_related(&state);
+            };
+
+            if let ?value = result
+            {
+                api.observe_related(&value, &state);
+            }",
+            true,
+        ),
+        (
+            "projected_dependency_nullable_move",
+            r"let (state, other) = api.dependency_pair();
+            let result: api.RelatedOwner? = if choice
+            {
+                yield none;
+            }
+            else
+            {
+                yield api.make_related(&state);
+            };
+
+            let moved = result;
+
+            if let ?value = moved
+            {
+                api.observe_related(&value, &state);
+            }",
+            true,
+        ),
+        (
+            "projected_dependency_nullable_wrong_owner",
+            r"let (state, other) = api.dependency_pair();
+            let result: api.RelatedOwner? = if choice
+            {
+                yield none;
+            }
+            else
+            {
+                yield api.make_related(&state);
+            };
+
+            if let ?value = result
+            {
+                api.observe_related(&value, &other);
+            }",
+            false,
+        ),
+        (
+            "projected_dependency_nullable_fabricated",
+            r"let (state, other) = api.dependency_pair();
+            let result: api.RelatedOwner? = if choice
+            {
+                yield none;
+            }
+            else
+            {
+                yield api.RelatedOwner { marker = api.Marker {} };
+            };
+
+            if let ?value = result
+            {
+                api.observe_related(&value, &state);
+            }",
+            false,
         ),
         (
             "changed_dependency",
