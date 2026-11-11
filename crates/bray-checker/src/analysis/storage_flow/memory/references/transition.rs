@@ -303,6 +303,15 @@ impl State {
         }
     }
 
+    pub(in crate::analysis::storage_flow) fn stage_empty_reference(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+    ) {
+        // Empty alternatives contribute no target and cannot erase another origin.
+        self.pending.entry(call).or_default().values.entry(destination).or_default();
+    }
+
     pub(in crate::analysis::storage_flow) fn stage_null(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,

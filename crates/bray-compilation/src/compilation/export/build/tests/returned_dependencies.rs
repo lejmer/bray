@@ -5011,11 +5011,12 @@ fn conditional_component_guarantees_survive_complete_union_consumption() {
 #[test]
 fn escape_summaries_preserve_input_roots_before_alias_expansion() {
     let mut failures = Vec::new();
-    for (extra, expected) in [("", 1), ("expose(core.memory.address_of<Value>(owner.value));", 3)] {
+    for (extra, wrapped, expected) in [("", false, 1), ("expose(core.memory.address_of<Value>(owner.value));", false, 3), ("", true, 1)] {
         let source = r#"
             trusted module api;
 
             using core.memory;
+            using core.target;
 
             struct Value
             {
@@ -5028,6 +5029,25 @@ fn escape_summaries_preserve_input_roots_before_alias_expansion() {
                 pointer: DataPointer<Value>;
             }
 
+            union Packet
+            {
+                Selected(pos pointer: DataPointer<Value>);
+                Other(pos pointer: DataPointer<Value>);
+            }
+
+            struct Wrapped
+            {
+                packet: Packet;
+            }
+
+            func wrap(pos unrelated: &Frame, pos pointer: DataPointer<Value>) -> Wrapped
+            {
+                return
+                {
+                    packet = Packet.Selected(pointer)
+                };
+            }
+
             @link(name = "c")
             @abi(c)
             @symbol(name = "expose")
@@ -5035,13 +5055,15 @@ fn escape_summaries_preserve_input_roots_before_alias_expansion() {
                 uses(foreign_call);
 
             trusted func forward(pos owner: &mut Frame)
-                uses(foreign_call)
+                uses(CAPABILITY)
             {
                 _ = owner.value;
-                expose(owner.pointer);
+                PUBLISH_VALUE
                 ESCAPE_BORROW
             }
-        "#.replace("ESCAPE_BORROW", extra);
+        "#.replace("ESCAPE_BORROW", extra).replace("CAPABILITY", if wrapped { "intrinsic" } else { "foreign_call" }).replace("PUBLISH_VALUE", if wrapped {
+            "let wrapped = wrap(&owner, owner.pointer);\n                _ = trusted core.target.expose_address<Wrapped>(core.memory.address_of<Wrapped>(&wrapped));"
+        } else { "expose(owner.pointer);" });
 
         let application = super::fixtures::compilation_from_sources_for_product_with_platform_services_and_worker_budget(
             [source.as_str()], bray_symbols::ProductKind::Library, [], crate::WorkerBudget::default(), None,
@@ -5069,7 +5091,7 @@ fn escape_summaries_preserve_input_roots_before_alias_expansion() {
             let roots = effects.iter().filter(|effect| matches!(effect,
                 bray_symbols::DependencyStorageEffect::Direct { kind: bray_symbols::DependencyMutationKind::Escape, .. }
                 | bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Escape, .. })).count();
-            if roots != expected { failures.push(format!("{surface} {extra}: expected {expected} roots, got {effects:#?}")); }
+            if roots != expected { failures.push(format!("{surface} {extra} wrapped={wrapped}: expected {expected} roots, got {effects:#?}")); }
             assert!(!effects.contains(&bray_symbols::DependencyStorageEffect::Escape), "{surface}: known escape roots remain structured");
         }
     }

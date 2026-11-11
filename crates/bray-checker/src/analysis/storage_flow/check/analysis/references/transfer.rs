@@ -707,15 +707,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                state.memory.stage_returned_reference(
-                    occurrence,
-                    destination,
-                    logical,
-                    reference
-                        .addressed_type()
-                        .expect("independent reference retains its target type"),
-                    [],
-                );
+                self.stage_independent_reference(&mut state.memory, occurrence, destination, logical, reference);
 
                 continue;
             };
@@ -746,6 +738,22 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if let Some(destination) = self.invocation_result(occurrence) {
             self.prepare_returned_frames(state, occurrence, contracts, &destination);
+        }
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn stage_independent_reference(
+        &self,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        occurrence: BoundExecutionSite,
+        destination: Target,
+        logical: Place,
+        reference: &bray_bound_tree::BoundCallReference,
+    ) {
+        if reference.relation().is_empty_reference() {
+            memory.stage_empty_reference(occurrence, destination);
+        } else {
+            memory.stage_returned_reference(occurrence, destination, logical,
+                reference.addressed_type().expect("independent reference retains its target type"), []);
         }
     }
 

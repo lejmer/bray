@@ -4036,7 +4036,7 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
 
 #[test]
 fn returned_null_does_not_invent_an_outside_origin() {
-    let ([result, ..], origins) = places();
+    let ([result, input, ..], origins) = places();
 
     let call = origins[0].into();
     let mut state = State::default();
@@ -4046,9 +4046,23 @@ fn returned_null_does_not_invent_an_outside_origin() {
     state.complete_transition(call);
 
     assert_eq!(
-        state.value_targets(&Target::storage(result)),
+        state.value_targets(&Target::storage(result.clone())),
         Some(Vec::new())
     );
+
+    let exported = state.exit_references(result.root, &Default::default());
+    assert_eq!(exported.empty_slots().collect::<Vec<_>>(), vec![&result]);
+
+    let target = Target::storage(input);
+    state.begin_transition(call);
+    state.stage_address(call, target.clone(), Target::storage(result.clone()),
+        &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Address));
+    state.stage_empty_reference(call, Target::storage(result.clone()));
+    state.complete_transition(call);
+
+    assert_eq!(state.value_targets(&Target::storage(result.clone())), Some(vec![target]));
+    assert_eq!(state.exit_references(result.root, &Default::default()).empty_slots().count(), 0,
+        "an empty alternative cannot erase a possible target");
 }
 
 #[test]

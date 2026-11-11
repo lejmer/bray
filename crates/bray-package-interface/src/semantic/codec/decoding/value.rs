@@ -1507,6 +1507,8 @@ mod tests {
                 bray_symbols::DependencyReferenceKind::Address,
             )
             .with_exactness(false),
+            bray_symbols::DependencyBorrowRelation::new_empty(
+                result.clone(), bray_symbols::DependencyReferenceKind::Address),
             bray_symbols::DependencyBorrowRelation::new_allocation(
                 result.clone(), result, bray_symbols::DependencyReferenceKind::Address),
         ]);

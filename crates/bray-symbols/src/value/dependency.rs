@@ -358,6 +358,7 @@ enum ReferenceSource<Subject> {
     Input(Subject),
     Independent,
     Allocation(Subject),
+    Empty,
 }
 
 /// Checked origin information across one callable's normal completion.
@@ -405,6 +406,16 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
         }
     }
 
+    /// Records a slot with no reference target, including null and inactive payloads.
+    pub fn new_empty(exit: Subject, kind: DependencyReferenceKind) -> Self {
+        Self { source: ReferenceSource::Empty, ..Self::new(None, exit, kind) }
+    }
+
+    /// Whether the producer established that this slot has no reference target.
+    pub const fn is_empty_reference(&self) -> bool {
+        matches!(self.source, ReferenceSource::Empty)
+    }
+
     /// Retains a complete origin bound without claiming one exact address.
     pub const fn with_exactness(mut self, exact: bool) -> Self {
         assert!(
@@ -428,6 +439,8 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
 
     /// Records whether the relation forwards a value or only bounds possible reachability.
     pub fn with_provenance(mut self, provenance: DependencyReferenceProvenance) -> Self {
+        assert!(!self.is_empty_reference() || provenance == DependencyReferenceProvenance::Alternatives,
+            "an empty reference has no input provenance");
         assert!(
             provenance != DependencyReferenceProvenance::Exact || self.entry().is_some(),
             "independent reference origin cannot identify an input address"
@@ -489,7 +502,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn entry(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Input(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Allocation(_) => None,
+            ReferenceSource::Independent | ReferenceSource::Allocation(_) | ReferenceSource::Empty => None,
         }
     }
 
@@ -497,7 +510,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn allocation(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Allocation(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Input(_) => None,
+            ReferenceSource::Independent | ReferenceSource::Input(_) | ReferenceSource::Empty => None,
         }
     }
 
@@ -505,7 +518,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn source_subject(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Allocation(subject) | ReferenceSource::Input(subject) => Some(subject),
-            ReferenceSource::Independent => None,
+            ReferenceSource::Independent | ReferenceSource::Empty => None,
         }
     }
 
@@ -517,6 +530,10 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
             ReferenceSource::Independent => {
                 assert!(source.is_none(), "independent origin has no source subject");
                 ReferenceSource::Independent
+            }
+            ReferenceSource::Empty => {
+                assert!(source.is_none(), "empty reference has no source subject");
+                ReferenceSource::Empty
             }
         };
 

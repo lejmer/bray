@@ -161,6 +161,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
+        for slot in self.references.iter().flat_map(|references| references.empty_slots()) {
+            let Some(root) = self.formal_root(slot.root) else { continue; };
+            let ty = self.storage.identity_type(slot.root).expect("published reference has its storage type");
+            let Some(kind) = self.reference_kind(slot, ty)? else { continue; };
+            let Some(projections) = dependency_projections(&slot.projections) else { continue; };
+
+            relations.push((slot.clone(), bray_symbols::DependencyBorrowRelation::new_empty(
+                bray_symbols::DependencySubject::new(root, projections), kind,
+            )));
+        }
+
         let relations = relations
             .into_iter()
             .filter_map(|(slot, relation)| (!unbounded.contains(&slot)).then_some(relation))
