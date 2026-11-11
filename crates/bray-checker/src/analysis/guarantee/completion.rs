@@ -723,9 +723,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let result = self.invocation_value(state, expression.into());
 
-        let result = self.complete_trusted_call(state, expression.into(), result, observations);
+        let (result, post_state) = self.complete_trusted_call(state, expression.into(), result, observations);
 
         state.expressions.insert(expression, result);
+
+        let Some(post_state) = post_state else { return; };
 
         let Some(entry) = state.entries.get(&expression.into()) else {
             return;
@@ -760,8 +762,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if contracts.is_empty() {
             return;
         }
-
-        let post_state = self.call_post_state(state, expression, call);
 
         for contract in contracts {
             for (postcondition, source) in &contract.postconditions {
