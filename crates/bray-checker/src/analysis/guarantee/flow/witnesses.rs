@@ -434,7 +434,7 @@ fn collect_observations(
 
     let mut fields = BTreeSet::new();
 
-    for source in sources.into_iter().flatten() {
+    for source in sources.into_iter().flatten().map(ExecutionCondition::computed_value) {
         match source {
             ExecutionCondition::Tagged(variant, _) => insert_guard(
                 guards, &owner, ExecutionCondition::operation(
