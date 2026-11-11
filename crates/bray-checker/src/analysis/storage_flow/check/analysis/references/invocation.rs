@@ -154,19 +154,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }.into_iter().flatten().cloned()
         });
 
-        let escaped = memory.escaped_regions(targets.into_iter().chain(cleanup_references));
+        let roots = targets.into_iter().chain(cleanup_references).collect::<Vec<_>>();
 
-        for target in &escaped {
+        // A possible alias inside this body is not an unconditional input escape.
+        // Retain the operands so callers resolve aliases using their actual storage.
+        for target in memory.escape_roots(roots.iter().cloned()) {
             self.record_target_effect(
                 memory,
-                target,
+                &target,
                 DependencyMutationKind::Escape,
                 None,
                 normal_effects,
             );
         }
 
-        escaped
+        memory.escaped_regions(roots)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(

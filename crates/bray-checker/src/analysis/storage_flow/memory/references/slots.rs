@@ -120,14 +120,22 @@ impl State {
             )
             .collect::<Vec<_>>();
 
-        self.transitive_regions(pending, |_| true).0
+        self.transitive_regions(pending, |_, _| true).0
+    }
+
+    /// Returns escaped operands and their stored references before caller-side alias resolution.
+    pub(in crate::analysis::storage_flow) fn escape_roots(
+        &self,
+        roots: impl IntoIterator<Item = Target>,
+    ) -> BTreeSet<Target> {
+        self.transitive_regions(roots.into_iter().map(|root| exposure_region(&root)), |region, slot| region.contains(slot)).0
     }
 
     pub(in crate::analysis::storage_flow) fn escaped_regions(
         &self,
         roots: impl IntoIterator<Item = Target>,
     ) -> BTreeSet<Target> {
-        let (targets, _) = self.transitive_regions(roots, |_| true);
+        let (targets, _) = self.transitive_regions(roots, |_, _| true);
 
         // Publishing a symbolic result also exposes each possible input allocation.
         // Keep its own identity for backing produced independently of those inputs.
@@ -158,7 +166,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn transitive_regions(
         &self,
         roots: impl IntoIterator<Item = Target>,
-        follow: impl Fn(&Target) -> bool,
+        follow: impl Fn(&Target, &Target) -> bool,
     ) -> (BTreeSet<Target>, bool) {
         let mut pending = roots.into_iter().collect::<Vec<_>>();
         let mut reached = BTreeSet::new();
@@ -177,7 +185,7 @@ impl State {
             });
 
             for (slot, references) in &self.values {
-                if follow(slot)
+                if follow(&target, slot)
                     // Typed scalars cannot load unrelated pointer slots. Explicit
                     // stored references and raw allocation views remain authoritative.
                     && (!reference_free || target.contains(slot))

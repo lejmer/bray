@@ -126,7 +126,7 @@ impl State {
         let opaque_bounds = references
             .iter()
             .any(|(_, _, bounds)| bounds.is_none())
-            .then(|| self.unbounded_reference_regions(self.transitive_regions(inputs, |_| true).0));
+            .then(|| self.unbounded_reference_regions(self.transitive_regions(inputs, |_, _| true).0));
 
         for (destination, ty, forwarded) in references {
             let bounds = match forwarded {

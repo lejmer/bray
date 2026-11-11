@@ -29,14 +29,14 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Fixed evidence
 
 Frozen907 identities:778 pass/30 fail/99 ignored, with16 explained repairs. comparison.txt and its SHA stay fixed.
-Four added controls give fixed911 totals782/30/99. Checker503, bound136 and focused18 pass. All248 owned-transfer and148
+Five added controls give fixed912 totals783/30/99. Checker504, bound136 and focused18 pass. All248 owned-transfer and148
 deferred cases pass each source/import surface. Cleanup57/4 and predicates26/2/2 retain their known outcomes.
 Source/MIR async composition and3 invalid variants pass. Native composition has not run. No style pass yet.
 
-Complete native gate:32 sites, unchanged by the current physical-slot batch, with no new identities. Against original
-native.log30, root_scope265 is repaired and3 added E7135 cascades name already-failing polling.stage. Current32 comprises
-16 E7123 requirements and16 E7135 reports. Eleven E7135 reports explicitly name a failing callable dependency.
-Count reports separately from causes. Current E7123 inventory:7 cleanup,4 marker and5 relational requirements.
+Complete native gate:31 sites with no new identities. Against original native.log30, root_scope265 and task_entry77
+cleanup are repaired and3 added E7135 cascades name already-failing polling.stage. Current31 comprises15 E7123
+requirements and16 E7135 reports. Eleven E7135 reports explicitly name a failing callable dependency.
+Count reports separately from causes. Current E7123 inventory:6 cleanup,4 marker and5 relational requirements.
 
 Established boundaries include completed argument snapshots, consumed reference captures, scoped completion/retirement,
 owned versus borrowed contents, and projected-owner nullable joins. Fixed controls reject overwrite, wrong-owner,
@@ -50,19 +50,25 @@ The actual native program remains the reproduction. A rejected small probe was a
 not regression evidence. The temporary source harness and all trace hooks are removed.
 
 Native trace: task_start unit1116252 receives a precise Current escape from start_frame. PreparedStart.exit unit946710
-(source75) produces it. At call10 a Replace effect removes an established Current.pointer entry slot. At call19 a
-returned pointer alias at slot9 participates in transitive escape, which adds owner.selected (field2307). The resulting
-Current contents epoch disagrees with its surviving view_owned guarantee in both composite and proof passes.
-The nested physical slot cannot be represented by observation_path. Do not flatten its entry snapshot into a mutable
-containing descriptor or patch cleanup to accept stale contents.
+(source75) forwards it. The physical-slot batch now prevents the Current.pointer descriptor from being erased.
+A targeted producer/consumer trace confirms correct schema, referents and exact emitted slot; subsequent removals affect
+address-pointee state only. The next traced edge is in reserve_start unit960156 (source75): an incoming frame pointer
+may alias the live slot holding owner.selected. No historical slot participates. escape_effects publishes this possible
+alias closure as unconditional input escapes, discarding the caller's more precise storage identities.
+Do not flatten entry snapshots into mutable containing descriptors or let cleanup accept stale contents.
 
 Current batch carries proven physical reference slots in the existing invalidation publication. Shared views select
 prepared descriptor paths. Memory writes/effects consume exact physical identities. Merge intersects survival and
 atomic restriction carries it. Properties cover nested slots, exact replacement, revoked access authority and differing
-epochs. Fixed911 and native32 retain their expected outcomes. This has not repaired the native composition.
-Continue at the producer: establish why the failing operation still supplies no usable physical slot protection, then
-trace the same value through subsequent capture, mutation, aliasing, completion, failure and cleanup before rebuilding.
-Bound growth to this metadata and its existing producers/consumers. No reverse alias reconstruction.
+epochs. The physical-slot checkpoint017522 retained fixed911/native32. Native composition remains unverified.
+Escape-summary batch is verified. The real-source test escape_summaries_preserve_input_roots_before_alias_expansion
+fails at checkpoint017522: one actual pointer escape publishes3 roots instead of1. Its explicit-reference variant must
+retain that reference and its stored pointer. Keep local possible-alias checks conservative, but publish explicit roots
+and actual containment. A memory-boundary control also checks real stored-reference escapes through local field addresses.
+Source/import4 controls and the memory property pass. Fixed912, both ownership/deferred matrices, checker504/bound136,
+adjacent suites and complete native31 are verified. task_start's cleanup failure is repaired with no new native sites.
+All temporary trace hooks are removed. Next compare passing task_start with failing initialization/create_execution and
+EntryRestoration cleanup, tracing remaining losses beyond the two repaired boundaries. No reverse alias reconstruction.
 
 Use the ABI2 standard-library bundle at target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
 Direct233-source CLI checks add3 missing-native-link cascades and are investigation controls, not the native gate.
