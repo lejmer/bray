@@ -1230,7 +1230,7 @@ fn check_deferred_completion(imported: bool) {
 
         if diagnostics.has_errors() == *valid {
             failures.push(format!(
-                "{name}, imported={imported}, valid={valid}: {diagnostics:#?}"
+                "{name}, imported={imported}, valid={valid}: {}", super::fixtures::diagnostic_messages(diagnostics)
             ));
         } else if !valid
             && !diagnostics.iter().all(|diagnostic| {
@@ -1243,7 +1243,7 @@ fn check_deferred_completion(imported: bool) {
                 )
             })
         {
-            failures.push(format!("unexpected rejection for {name}: {diagnostics:#?}"));
+            failures.push(format!("unexpected rejection for {name}: {}", super::fixtures::diagnostic_messages(diagnostics)));
         }
     }
 

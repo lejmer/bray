@@ -28,8 +28,9 @@ impl Shape {
     }
 
     fn unknown() -> Self {
+        // Opaque reachable state does not expose this value's inline storage.
         Self {
-            observations: vec![(Vec::new(), Observation::Mutable)],
+            observations: vec![(Vec::new(), Observation::Identity), (Vec::new(), Observation::Mutable)],
             complete_value: false,
             inline_only: false,
             complete_references: false,
