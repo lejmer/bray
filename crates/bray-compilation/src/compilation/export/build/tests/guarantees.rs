@@ -47,6 +47,7 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
         }
 
         trusted func renew(pos owner: &Owner)
+            requires(trusted held(owner = &owner.acquisition))
             ensures(trusted held(owner = &owner.acquisition))
             uses(raw_memory, unchecked_init)
         {
@@ -83,18 +84,43 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
         );
 
         for imported in [false, true] {
-            for owned in [false, true] {
+            for (origin, entry) in [
+                ("borrowed", false), ("borrowed", true),
+                ("owned", false), ("owned", true), ("fresh", false),
+            ] {
                 let api = if imported { "example.package.api" } else { "api" };
-                let source_type = if owned { "" } else { "&" };
-                let source_borrow = if owned { "&" } else { "" };
+                let borrowed = origin == "borrowed";
+                let source_type = if borrowed { "&" } else { "" };
+                let source_borrow = if borrowed { "" } else { "&" };
+                let parameter = if origin == "fresh" { String::new() } else {
+                    format!("pos source: {source_type}{api}.Owner, ")
+                };
+                let initial = if origin == "fresh" {
+                    format!(r#"
+                        let source: {api}.Owner =
+                        {{
+                            acquisition = {api}.Marker {{}},
+                            pointer = core.memory.null<u64>()
+                        }};
+                    "#)
+                } else { String::new() };
+                let requirement = if entry {
+                    format!("requires(trusted {api}.held(owner = &source.acquisition))")
+                } else { String::new() };
+                let loan = if entry { format!("{source_borrow}source") } else {
+                    format!("{api}.obtain({source_borrow}source)")
+                };
                 let source = format!(r#"
                     module app;
 
                     using {api};
+                    using core.memory;
 
-                    func caller(pos source: {source_type}{api}.Owner, pos again: bool)
+                    func caller({parameter}pos again: bool)
+                        {requirement}
                     {{
-                        let owner = {api}.obtain({source_borrow}source);
+                        {initial}
+                        let owner = {loan};
 
                         while again
                         {{
@@ -114,7 +140,7 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
 
                 if diagnostics.has_errors() == renewed {
                     failures.push(format!(
-                        "renewed={renewed}, imported={imported}, owned={owned}: {}",
+                        "renewed={renewed}, imported={imported}, origin={origin}, entry={entry}: {}",
                         super::fixtures::diagnostic_messages(diagnostics)
                     ));
                 }
@@ -123,7 +149,7 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
                     diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
                 }) {
                     failures.push(format!(
-                        "unexpected rejection cause: imported={imported}, owned={owned}: {}",
+                        "unexpected rejection cause: imported={imported}, origin={origin}, entry={entry}: {}",
                         super::fixtures::diagnostic_messages(diagnostics)
                     ));
                 }

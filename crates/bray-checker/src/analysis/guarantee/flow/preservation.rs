@@ -40,11 +40,10 @@ impl ValuePreservation {
     ) -> ExecutionCondition {
         // Another alias can still retain the original snapshot and layout.
         let ownership = state.owned_result(source);
-        // An owned observation equal to its identity is normalized to that identity.
-        // The existing layout establishes ownership even without an explicit wrapper.
+        // Current ownership survives constructor normalization independently of
+        // formal input transfers. Fresh local owners have no input mapping.
         let owned_context = source.ownership_identity()
-            .is_some_and(|(role, _)| role == crate::execution_guarantees::ExecutionObservationKind::Owned)
-            && ownership.transfers().any(|transfer| transfer.output().is_empty());
+            .is_some_and(|(role, _)| role == crate::execution_guarantees::ExecutionObservationKind::Owned);
         let next = self.apply_bounded(source, place, mutation, owned_context, &mut { ExecutionCondition::WORK_LIMIT });
 
         if source == &next || ownership.is_empty() { return next; }
@@ -290,20 +289,25 @@ mod tests {
         let owner = ExecutionCondition::Input(place.clone());
         let previous = ExecutionCondition::Joined(BoundUnitId::new(0), 1, place.clone());
         let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![push_expression(tree, integer_literal_expression(origin, None))]
+            (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
         });
         let mutation = StorageMutation::Operation(sites[0].into());
         let mask = ValuePreservation::default();
-        for source in [owner.clone(), ExecutionCondition::owned_value(owner.clone(), previous.clone())] {
+        let fresh = ExecutionCondition::Expression(sites[1]);
+        for source in [owner.clone(), ExecutionCondition::owned_value(owner.clone(), previous.clone()), fresh] {
             let mut state = super::super::super::state::ExecutionState::default();
-            let layout = bray_symbols::DependencyOwnedResult::Transfer(
-                bray_symbols::DependencyOwnedTransfer::new(owner.clone(), []),
-            );
+            let layout = if matches!(source, ExecutionCondition::Expression(_)) {
+                bray_symbols::DependencyOwnedResult::default()
+            } else {
+                bray_symbols::DependencyOwnedResult::Transfer(
+                    bray_symbols::DependencyOwnedTransfer::new(owner.clone(), []),
+                )
+            };
             state.owned_results.insert(source.clone(), layout.clone());
             let updated = mask.frame(&mut state, &source, Some(&place), mutation);
 
             assert_eq!(updated.ownership_identity(), source.ownership_identity());
-            assert_eq!(updated.computed_value(), &ExecutionCondition::post_state(mutation, owner.clone()));
+            assert_eq!(updated.computed_value(), &ExecutionCondition::post_state(mutation, source.owner_identity().clone()));
             assert_ne!(updated.computed_value(), &previous);
             assert_ne!(updated.computed_value(), &owner);
             assert_eq!(mask.frame(&mut state, &updated, Some(&place), mutation), updated);

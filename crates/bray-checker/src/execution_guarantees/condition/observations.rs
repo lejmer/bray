@@ -128,6 +128,12 @@ impl ExecutionCondition {
     pub(crate) fn pointer_identity(&self) -> &Self {
         let mut pointer = self.copied_value();
 
+        // An owning context can survive replacement of the address stored in it.
+        // Read that descriptor's current data before selecting its identity.
+        while let Self::Observation { contents, kind: ObservationKind::Owned, .. } = pointer {
+            pointer = contents.copied_value();
+        }
+
         while let Self::Borrowed(reached) = pointer {
             pointer = reached.copied_value();
         }

@@ -246,18 +246,24 @@ fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority(
     let callable = crate::test_support::callable_instance(definition.into());
     let pointer = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
     let copy_identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-    let copied = ExecutionCondition::scalar_observation(copy_identity, pointer.clone());
+    let copied = ExecutionCondition::scalar_observation(copy_identity.clone(), pointer.clone());
+    let owned = ExecutionCondition::owned_value(copy_identity, pointer.clone());
     let count = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
     let condition = |value| ExecutionCondition::predicate(predicate.into(), callable.substitution(),
         vec![value, count.clone()]);
     let spatial = BTreeMap::from([(predicate.into(), &[0][..])]);
 
-    for observed in [copied.clone(), pointer.clone().borrowed()] {
+    for observed in [copied.clone(), owned.clone(), pointer.clone().borrowed()] {
         assert_eq!(condition(observed).pointer_observations(&spatial),
             condition(pointer.clone()).pointer_observations(&spatial));
     }
     assert_ne!(condition(copied.clone().borrowed()).pointer_observations(&spatial),
         condition(pointer.clone()).pointer_observations(&spatial));
+    assert_ne!(condition(owned.clone().borrowed()).pointer_observations(&spatial),
+        condition(pointer.clone()).pointer_observations(&spatial));
+    let replaced = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(3)));
+    assert_eq!(condition(owned.with_current_contents(replaced.clone())).pointer_observations(&spatial),
+        condition(replaced).pointer_observations(&spatial));
     assert_ne!(copied.clone().borrowed().owner_identity(), pointer.borrowed().owner_identity());
     assert!(copied.ownership_identity().is_none());
 }
