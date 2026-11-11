@@ -49,21 +49,14 @@ unguarded products reject. Full fixed comparison778/32/99 has no unexplained cha
 Trace native failures by producer/consumer families: shared requirements, allocation extents, attachment restoration,
 PreparedStart registration, returned-pointer retirement at driving197, initialized ranges and wait-link authority.
 Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains unresolved.
-All148 deferred source/import cases pass.
 All244 owned-transfer cases and all148 deferred cases pass each in source/import, including every invalid control.
 The fixed909 comparison is778/32/99 with14 explained repairs against the unchanged907 baseline and2 added tests.
-Checker502/bound136 pass. Native candidate regresses30->47 diagnostics, adding17 identities and removing none. This blocks checkpoint/expansion.
-Keep native.log as the30 baseline. Inspect native-candidate.log for the17 additions. Source success is not native completion.
-Checkpointf0886218b is pushed. Current verified source batch resumes admitted witnesses from the actual captured entry.
-The old construction entry names Expression while the ledger names CapturedInput. Resumption takes the entry directly
-at completion and future formation. Sparse constructed pending results complete ownership, while completed observations
-stay complete. The source/import gates clear the five temporary regressions, but native adds17 failures, mostly on factory results
-passed into later calls. Sparse construction must belong to the completing invocation, not a previous producer.
-The current guard checks that producer identity for Node, ScopedEnter and operation post-state before completion.
-This correction passes fixed778/32/99, checker502/bound136 and all source/import matrices. Native comparison is running.
-The prior17 additions still block checkpoint until the fresh candidate clears them.
-No tracing remains. ownership-selection.bray accepts all positives, including pending futures and returned-borrow tuples,
-and rejects fabricated/completed-owner controls. Keep these source/import results fixed while auditing native transitions.
+Checker502/bound136 pass. Native retains exactly30 diagnostic identities, with no additions or removals.
+Checkpointc9e0b8607 is pushed. Admitted witnesses resume from the actual captured entry at completion and formation.
+Sparse constructed pending results complete ownership only for their producing invocation. Complete observations and
+formed values staged into later arguments retain their data. All temporary source and native regressions are cleared.
+No tracing remains. The consumed ownership-selection probe was removed. Permanent matrices retain its controls.
+Preserve these gates while tracing native borrowed-view and scoped-cleanup authority.
 Framing lifted Present(payload) retains only payload lineage. Genuine whole-input contexts still survive. Contextual
 projection panics remain compiler invariants.
 The tag-query helpers moved into condition/tags.rs without behavior changes, keeping new logic outside oversized values.rs.
