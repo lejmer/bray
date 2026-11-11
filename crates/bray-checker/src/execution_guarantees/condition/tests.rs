@@ -419,6 +419,36 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
 }
 
 #[test]
+fn data_aliases_preserve_identity_without_assuming_numeric_equality() {
+    let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
+    let alias = ExecutionCondition::value_alias(input(0), input(1));
+    let numeric = ExecutionCondition::operation(bray_bound_tree::BoundOperator::Equal, vec![input(0), input(1)]);
+    let mut ordinary = BTreeSet::new();
+
+    numeric.assume(true, &mut ordinary);
+
+    assert_ne!(alias.prove_trusted(&BTreeSet::new(), &ordinary), Some(true));
+    assert_eq!(ExecutionCondition::value_alias(input(0), input(0)), ExecutionCondition::Boolean(true));
+    assert_eq!(ExecutionCondition::value_alias(input(1), input(0)), alias);
+    assert!(alias.ownership_identity().is_none());
+
+    let selected = input(2);
+    let guarded = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![
+        ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![selected.clone()]), alias.clone(),
+    ]);
+
+    ordinary.clear();
+    guarded.assume(true, &mut ordinary);
+    assert!(ExecutionCondition::equalities(&ordinary, None).is_empty());
+    selected.assume(true, &mut ordinary);
+
+    let bindings = ExecutionCondition::equalities(&ordinary, None);
+
+    assert_eq!(input(0).with_equalities(&bindings), input(1).with_equalities(&bindings));
+    assert_eq!(alias.prove_trusted(&BTreeSet::new(), &ordinary), Some(true));
+}
+
+#[test]
 fn structural_rewrites_preserve_initialized_nullable_contents() {
     let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
     let nullable = bray_bound_tree::StorageProjection::NullableValue;

@@ -7,7 +7,7 @@ use super::super::state::ExecutionState;
 use crate::{ExecutionCondition, ExecutionPlace};
 
 /// Propose value-contract facts and prove each against both original predecessors.
-pub(super) fn conditional_guarantees(
+pub(super) fn conditional_facts(
     left: (
         &ExecutionState,
         &BTreeMap<ExecutionCondition, ExecutionCondition>,
@@ -21,11 +21,8 @@ pub(super) fn conditional_guarantees(
     current: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     results: &[(BoundExpressionId, ExecutionCondition)],
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
+    facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> Vec<(ExecutionCondition, ExecutionCondition, ExecutionCondition, bool)> {
-    if left.0.witnesses.is_empty() && right.0.witnesses.is_empty() {
-        return Vec::new();
-    }
-
     let mut guards = availability.clone();
     let mut inputs = [BTreeMap::new(), BTreeMap::new()];
     let absent = [left.0, right.0].map(absent_observations);
@@ -80,6 +77,12 @@ pub(super) fn conditional_guarantees(
             ]
         })
         .collect::<BTreeSet<_>>();
+
+    conditional_aliases([left, right], [&left_inputs, &right_inputs], &guards, &path_guards, facts);
+
+    if left.0.witnesses.is_empty() && right.0.witnesses.is_empty() {
+        return Vec::new();
+    }
 
     let candidates = [left, right]
         .into_iter()
@@ -187,6 +190,57 @@ pub(super) fn conditional_guarantees(
     }
 
     retained
+}
+
+fn conditional_aliases(
+    sources: [(
+        &ExecutionState,
+        &BTreeMap<ExecutionCondition, ExecutionCondition>,
+        &BTreeMap<ExecutionCondition, ExecutionCondition>,
+    ); 2],
+    inputs: [&BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
+    availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
+    paths: &BTreeSet<ExecutionCondition>,
+    facts: &mut Vec<(ExecutionCondition, bool)>,
+) {
+    let (stable, _) = super::merge::stable_observations(sources[0].0, sources[1].0);
+    let mut aliases = BTreeSet::new();
+    let guards = availability.iter().map(|(_, guard)| guard).chain(paths).collect::<BTreeSet<_>>();
+    let proved = |condition: &ExecutionCondition| sources.iter().zip(inputs).all(|((state, _, _), inputs)| {
+        condition.with_snapshots(inputs).prove_trusted(&BTreeSet::new(), &state.assumptions) == Some(true)
+    });
+
+    for value in stable.into_iter().take(ExecutionCondition::WORK_LIMIT) {
+        let Some((_, copied)) = value.storage_contents() else { continue; };
+
+        if copied.is_reference() || copied.observes_live(None) { continue; }
+
+        for (_, values, identities) in sources {
+            let target = copied.with_joined_values(values, identities);
+
+            if target == *copied || target.is_reference() { continue; }
+
+            let alias = ExecutionCondition::value_alias(copied.clone(), target);
+
+            if matches!(alias, ExecutionCondition::Boolean(_) | ExecutionCondition::Unknown) { continue; }
+
+            if proved(&alias) {
+                aliases.insert(alias);
+                continue;
+            }
+
+            for guard in guards.iter().take(ExecutionCondition::WORK_LIMIT) {
+                let clause = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
+                    ExecutionCondition::operation(BoundOperator::LogicalNot, vec![(*guard).clone()]),
+                    alias.clone(),
+                ]);
+
+                if proved(&clause) { aliases.insert(clause); }
+            }
+        }
+    }
+
+    facts.extend(aliases.into_iter().map(|condition| (condition, true)));
 }
 
 /// Keep the same proven clause on its complete carrier after identity renaming.

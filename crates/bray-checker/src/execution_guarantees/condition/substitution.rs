@@ -69,6 +69,9 @@ impl ExecutionCondition {
         }
 
         match self {
+            Self::ValueAlias(left, right) => Self::value_alias(
+                left.substitute_values(replace, budget), right.substitute_values(replace, budget),
+            ),
             Self::Call(callable, implementation, witnesses, operands, reference_type) => Self::call(
                 *callable,
                 *implementation,
@@ -189,20 +192,20 @@ impl ExecutionCondition {
         let mut replacements = BTreeMap::new();
         let mut budget = Self::WORK_LIMIT;
 
-        for (condition, value) in assumptions.iter().take(Self::WORK_LIMIT) {
-            let Self::Operation(operator, operands) = condition else {
-                continue;
-            };
+        let derived = assumptions.iter().any(|(condition, _)| condition.contains_value_alias())
+            .then(|| crate::execution_guarantees::trusted_condition_closure(BTreeSet::new(), assumptions));
 
-            if !matches!(
-                (operator, value),
-                (BoundOperator::Equal, true) | (BoundOperator::NotEqual, false)
-            ) {
-                continue;
-            }
+        for (condition, value) in assumptions.iter().chain(derived.iter().flatten()
+            .filter(|(condition, _)| matches!(condition, Self::ValueAlias(_, _)))).take(Self::WORK_LIMIT) {
+            let (left, right) = match condition {
+                Self::ValueAlias(left, right) if *value => (left.as_ref(), right.as_ref()),
+                Self::Operation(operator, operands) if matches!((operator, value),
+                    (BoundOperator::Equal, true) | (BoundOperator::NotEqual, false)) => {
+                    let [left, right] = operands.as_ref() else { continue; };
 
-            let [left, right] = operands.as_ref() else {
-                continue;
+                    (left, right)
+                }
+                _ => continue,
             };
 
             if left == &Self::Unknown || right == &Self::Unknown {
@@ -336,6 +339,10 @@ fn rewrite_equalities(
     let value = resolve_equality(value, replacements, budget);
 
     let value = match value {
+        ExecutionCondition::ValueAlias(left, right) => ExecutionCondition::value_alias(
+            rewrite_equalities(&left, replacements, identities, budget),
+            rewrite_equalities(&right, replacements, identities, budget),
+        ),
         ExecutionCondition::Trusted(value) if identities.is_some() => ExecutionCondition::Trusted(
             Arc::new(rewrite_equalities(&value, replacements, identities, budget)),
         ),

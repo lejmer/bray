@@ -141,12 +141,13 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         .pending_results
         .insert(expression, right_value.clone());
 
-    let conditions = super::witnesses::conditional_guarantees(
+    let conditions = super::witnesses::conditional_facts(
         (target, &left, &left_ids),
         (&incoming, &right, &right_ids),
         &BTreeMap::new(),
         &[(expression, joined.clone())],
         &BTreeSet::new(),
+        &mut facts,
     );
 
     let ownership = super::witnesses::owned_alternatives(
@@ -552,15 +553,15 @@ mod tests {
             let retired = ExecutionPlace::argument(SymbolOrdinal::new(97));
             let snapshots = [(place.clone(), joined.clone()),
                 (retired.clone(), right_state.current.get(&retired).expect("retained terminal data").clone())].into();
-            let retained = super::super::witnesses::conditional_guarantees(
+            let retained = super::super::witnesses::conditional_facts(
                 (&left_state, &left_values, &left_owners), (&right_state, &right_values, &right_owners),
-                &snapshots, &[], &Default::default());
+                &snapshots, &[], &Default::default(), &mut Vec::new());
 
             let mut unknown = left_state.clone();
             unknown.current.insert(place.clone(), ExecutionCondition::Unknown);
-            let rejected = super::super::witnesses::conditional_guarantees(
+            let rejected = super::super::witnesses::conditional_facts(
                 (&unknown, &left_values, &left_owners), (&right_state, &right_values, &right_owners),
-                &snapshots, &[], &Default::default());
+                &snapshots, &[], &Default::default(), &mut Vec::new());
 
             assert!(!rejected.iter().any(|(_, _, condition, available)| *available && *condition == whole_guarantee(joined.clone())),
                 "a live Unknown observation cannot supply the missing whole-object evidence");
@@ -852,11 +853,11 @@ mod nested_guard_tests {
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
         ]);
 
-        for guarded in [false, true] {
+        for (guarded, materialized) in [(false, false), (true, false), (false, true), (true, true)] {
             for valid in [false, true] {
                 let choice = input(3);
-                let value = ExecutionCondition::constructed(input(0), [(field,
-                    ExecutionCondition::opaque_scalar(input(0).project(field)))].into());
+                let value = if materialized { ExecutionCondition::constructed(input(0), [(field,
+                    ExecutionCondition::opaque_scalar(input(0).project(field)))].into()) } else { input(0) };
                 let copied = ExecutionCondition::scalar_observation(input(4), value.clone().project(field));
                 let mut present = ExecutionState::default();
                 let mut missing = ExecutionState::default();
@@ -881,7 +882,13 @@ mod nested_guard_tests {
                 let joined = merge_returned(&mut present, &missing, &value.present(), &absent,
                     &ExecutionCondition::Result, expressions[0]);
                 let required = permission(copied);
-                let prove = |state: &ExecutionState| required.prove_trusted(&state.trusted_assumptions, &state.assumptions);
+                let prove = |state: &ExecutionState| {
+                    let aliases = ExecutionCondition::equalities(&state.assumptions, None);
+                    let trusted = state.trusted_assumptions.iter().map(|(condition, holds)|
+                        (condition.with_equalities(&aliases), *holds)).collect();
+
+                    required.with_equalities(&aliases).prove_trusted(&trusted, &state.assumptions)
+                };
 
                 assert_ne!(prove(&present), Some(true));
                 ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,

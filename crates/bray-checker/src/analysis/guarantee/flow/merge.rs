@@ -342,12 +342,13 @@ fn join_observations<'a>(
             joined_facts.extend(common_join_conditions(target, incoming, &joined_values));
         }
 
-        let conditional = super::witnesses::conditional_guarantees(
+        let conditional = super::witnesses::conditional_facts(
             (target, &left, &left_identities),
             (incoming_joined.as_ref(), &right, &right_identities),
             &joined_values,
             &results,
             &availability_guards,
+            &mut joined_facts,
         );
 
         target.join_values(&left, &left_identities);

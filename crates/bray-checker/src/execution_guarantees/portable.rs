@@ -245,6 +245,7 @@ fn encode(
                 .map(Some);
         }
         ExecutionCondition::Unknown
+        | ExecutionCondition::ValueAlias(_, _)
         | ExecutionCondition::Tagged(_, _)
         | ExecutionCondition::Variant(_)
         | ExecutionCondition::Constructed(_, _)

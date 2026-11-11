@@ -69,6 +69,9 @@ pub enum ExecutionCondition {
     ),
     /// A produced opaque scalar datum with an immutable execution identity and no owner authority.
     ScalarValue(Arc<ExecutionCondition>),
+    /// A proof-only correspondence between the same immutable data observations.
+    /// This is not numeric equality and carries no ownership or trusted evidence.
+    ValueAlias(Arc<ExecutionCondition>, Arc<ExecutionCondition>),
     /// Immutable initialized-state observation at an ownership join. The value
     /// identity distinguishes incarnations without becoming access authority.
     InitializedSnapshot(
@@ -136,6 +139,7 @@ impl ExecutionCondition {
     }
     pub(crate) fn contains_trusted(&self) -> bool {
         match self {
+            Self::ValueAlias(left, right) => left.contains_trusted() || right.contains_trusted(),
             Self::Trusted(_) => true,
             Self::Operation(_, operands)
             | Self::Predicate(_, _, operands)
@@ -170,6 +174,7 @@ impl ExecutionCondition {
 
     pub(super) fn contains_unknown(&self) -> bool {
         match self {
+            Self::ValueAlias(left, right) => left.contains_unknown() || right.contains_unknown(),
             Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),
             Self::Observation { owner, contents: value, .. } => owner.contains_unknown() || value.contains_unknown(),
             Self::Trusted(value)
