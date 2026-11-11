@@ -31,7 +31,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
 
                     (
                         capture(&condition),
-                        result_projection(self.dependencies, carrier.path()),
+                        result_projection(self.request.semantic_values(), self.dependencies, carrier.path()),
                     )
                 })
             })
@@ -76,7 +76,7 @@ impl super::check::TrustedChecks {
         state: &ExecutionState,
         result: &ExecutionCondition,
     ) {
-        let owners = returned_owners(result);
+        let owners = returned_owners(request, result);
 
         collect(state, result, &owners, &self.guarantees, &mut self.carriers);
 
@@ -145,7 +145,7 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
 ) {
     let identities = owners
         .iter()
-        .map(|(owner, path)| (owner.clone(), result_projection(dependencies, path)))
+        .map(|(owner, path)| (owner.clone(), result_projection(request.semantic_values(), dependencies, path)))
         .collect::<BTreeMap<_, _>>();
 
     let mut result = BTreeSet::new();
@@ -162,7 +162,11 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
         for condition in witness
             .conditions
             .iter()
-            .filter(|(_, guarantee)| guarantee.witness)
+            .filter(|(condition, guarantee)| {
+                guarantee.witness
+                    && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                        == Some(true)
+            })
             .map(|(condition, _)| condition)
         {
             // Rename actual returned storage identities, never ordinary field equalities.
@@ -181,10 +185,11 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
 }
 
 pub(in crate::analysis::guarantee) fn result_projection(
+    values: &bray_symbols::SemanticValueStore,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     path: &[DependencyProjection],
 ) -> ExecutionCondition {
-    crate::storage::storage_projections(dependencies, path)
+    crate::storage::storage_projections(values, dependencies, path)
         .expect("checked result carrier retains its projection")
         .into_iter()
         .fold(ExecutionCondition::Result, |value, projection| {
@@ -237,7 +242,11 @@ fn collect(
             for condition in witness
                 .conditions
                 .iter()
-                .filter(|(_, guarantee)| guarantee.witness)
+                .filter(|(condition, guarantee)| {
+                    guarantee.witness
+                        && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                            == Some(true)
+                })
                 .map(|(condition, _)| condition)
             {
                 // The temporary proof set owns its conditions independently of the exit state.
@@ -264,19 +273,17 @@ fn collect(
     }
 }
 
-fn returned_owners(
+fn returned_owners<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
     result: &ExecutionCondition,
 ) -> BTreeMap<ExecutionCondition, Vec<DependencyProjection>> {
     let mut owners = BTreeMap::new();
     let mut pending = vec![(result, Vec::new())];
-    let mut budget = ExecutionCondition::WORK_LIMIT;
 
     while let Some((value, path)) = pending.pop() {
-        let Some(remaining) = budget.checked_sub(1) else {
-            return BTreeMap::new();
-        };
-
-        budget = remaining;
+        if path.len() >= ExecutionCondition::WORK_LIMIT {
+            continue;
+        }
 
         if *value == ExecutionCondition::Unknown {
             continue;
@@ -286,13 +293,23 @@ fn returned_owners(
 
         match value {
             ExecutionCondition::Present(value) => {
+                // Presence snapshots can name the joined owner through their payload.
+                let reconstructed = value.owner_identity().clone().present();
+
+                if !matches!(
+                    reconstructed,
+                    ExecutionCondition::Present(_) | ExecutionCondition::Unknown
+                ) {
+                    owners.insert(reconstructed.owner_identity().clone(), path.clone());
+                }
+
                 let mut path = path;
 
                 path.push(DependencyProjection::NullableValue);
                 pending.push((value, path));
             }
             ExecutionCondition::Constructed(_, fields) => {
-                for (projection, value) in fields.iter() {
+                for (projection, component) in fields.iter() {
                     let projection = match projection {
                         bray_bound_tree::StorageProjection::ProductField(field) => {
                             DependencyProjection::ProductField(*field)
@@ -307,13 +324,34 @@ fn returned_owners(
                         bray_bound_tree::StorageProjection::NullableValue => {
                             DependencyProjection::NullableValue
                         }
+                        bray_bound_tree::StorageProjection::ElementFromStart(index) => {
+                            let values = request.semantic_values();
+
+                            let value = values.intern_constant_value(bray_symbols::ConstantValueData::new(
+                                crate::representation::representation_type(request, bray_compiler_known::RepresentationRole::ScalarUsize),
+                                bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(u64::from(index.raw()))),
+                            )).expect("checked array index belongs to the same semantic store");
+
+                            DependencyProjection::Element(values.intern_constant_term(bray_symbols::ConstantTermData::Value(value)).expect("checked array selector belongs to the same semantic store"))
+                        }
                         _ => continue,
                     };
 
                     let mut child = path.clone();
 
                     child.push(projection);
-                    pending.push((value, child));
+
+                    if projection == DependencyProjection::NullableValue {
+                        // Nullable extraction retains the complete snapshot's identity.
+                        owners.insert(
+                            value
+                                .clone()
+                                .project(bray_bound_tree::StorageProjection::NullableValue),
+                            child.clone(),
+                        );
+                    }
+
+                    pending.push((component, child));
                 }
             }
             _ => {}
@@ -338,7 +376,11 @@ impl ExecutionState {
 
             let mut evidence = BTreeSet::new();
 
-            for condition in witness.conditions.keys() {
+            for condition in witness.conditions.keys().filter(|condition| {
+                condition.prove_mixed(&self.trusted_assumptions, &self.assumptions, &mut {
+                    ExecutionCondition::WORK_LIMIT
+                }) == Some(true)
+            }) {
                 condition.clone().assume(true, &mut evidence);
             }
 
@@ -400,43 +442,4 @@ impl ExecutionState {
             }
         }
     }
-}
-
-/// An exact entry snapshot can transport an unknown witness only as a complete owned value.
-pub(super) fn returned_input<C: crate::CheckerRequestContext + ?Sized>(
-    domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
-    result: &ExecutionCondition,
-) -> Option<bray_symbols::ConstantTermId> {
-    let inputs = domain.request.trusted_contracts()?;
-
-    if !inputs.infer_result_witnesses {
-        return None;
-    }
-
-    let ty = domain.semantics.types().callable_result_type()?;
-
-    if domain.storage.copyable_types().contains(&ty) {
-        return None;
-    }
-
-    let mut input = result;
-
-    while let ExecutionCondition::Projection(_, value) = input {
-        input = value;
-    }
-
-    let ExecutionCondition::Input(place) = input else {
-        return None;
-    };
-
-    if !place.is_callable_input()
-        || domain
-            .borrowed_inputs
-            .iter()
-            .any(|borrow| borrow.contains(place))
-    {
-        return None;
-    }
-
-    portable(domain.request, result)
 }

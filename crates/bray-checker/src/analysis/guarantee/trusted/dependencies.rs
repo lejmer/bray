@@ -61,11 +61,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             })
                             .map(|reference| {
                                 super::carriers::result_projection(
-                                    self.dependencies,
+                                    self.request.semantic_values(), self.dependencies,
                                     reference.relation().exit().projections(),
                                 )
                             })
-                            .filter(|subject| guarantee.observes(subject)),
+                            .filter(|subject| guarantee.observes_trusted(subject)),
                     )
                     .collect::<BTreeSet<_>>();
 
@@ -83,7 +83,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 == bray_symbols::DependencyReferenceKind::Address
                             && subject
                                 == super::carriers::result_projection(
-                                    self.dependencies,
+                                    self.request.semantic_values(), self.dependencies,
                                     reference.relation().exit().projections(),
                                 )
                     });
@@ -148,17 +148,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for reference in references {
                 let address = super::carriers::result_projection(
-                    self.dependencies,
+                    self.request.semantic_values(), self.dependencies,
                     reference.relation().exit().projections(),
                 );
 
-                if guarantee.observes(&address) {
+                if guarantee.observes_trusted(&address) {
                     let entry = reference
                         .relation()
                         .entry()
                         .expect("selected returned borrow retains its input");
 
-                    let input = entry_subject(arguments, &reference_subject(self.dependencies, call, entry));
+                    let input = entry_subject(
+                        arguments,
+                        &reference_subject(self.request.semantic_values(), self.dependencies, call, entry),
+                    );
+
                     let owners = source.addresses.get(&input).unwrap_or(owners);
 
                     addresses
@@ -192,7 +196,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     == bray_symbols::DependencySubjectRoot::Result
                 && subject
                     == &super::carriers::result_projection(
-                        self.dependencies,
+                        self.request.semantic_values(), self.dependencies,
                         reference.relation().exit().projections(),
                     )
         }) {
@@ -206,7 +210,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let source = reference_subject(self.dependencies, call, entry);
+            let source = reference_subject(self.request.semantic_values(), self.dependencies, call, entry);
 
             let source = entry_subject(arguments, &source);
 
@@ -334,8 +338,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let addresses = self.input_guarantee_addresses(
                 invocation,
-                &state.entries.get(&invocation)
-                    .expect("completed invocation retains its captured arguments").arguments,
+                &state
+                    .entries
+                    .get(&invocation)
+                    .expect("completed invocation retains its captured arguments")
+                    .arguments,
                 template,
                 sources,
                 subjects,
@@ -349,7 +356,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for clause in guarantee
                 .conjuncts()
-                .filter(|clause| clause.observes(&address))
+                .filter(|clause| clause.observes_trusted(&address))
             {
                 carrier.carry(clause, false, &addresses);
             }
@@ -371,14 +378,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let relation = reference.relation();
 
             relation.kind() == bray_symbols::DependencyReferenceKind::Address
-                && reference_subject(self.dependencies, call, relation.exit()) == *subject
+                && reference_subject(self.request.semantic_values(), self.dependencies, call, relation.exit()) == *subject
         }) {
             let entry = reference.relation().entry()?;
 
             origins
                 .entry(call.input_site(expression, entry.subject_root())?)
                 .or_default()
-                .insert(reference_subject(self.dependencies, call, entry));
+                .insert(reference_subject(self.request.semantic_values(), self.dependencies, call, entry));
         }
 
         (!origins.is_empty()).then_some(origins)
@@ -387,6 +394,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
 /// Express a checked formal reference path in receiver-first argument order.
 fn reference_subject(
+    values: &bray_symbols::SemanticValueStore,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     call: &bray_bound_tree::SelectedCall,
     subject: &bray_symbols::DependencySubject,
@@ -400,7 +408,7 @@ fn reference_subject(
         ))
     };
 
-    super::carriers::result_projection(dependencies, subject.projections()).substitute(
+    super::carriers::result_projection(values, dependencies, subject.projections()).substitute(
         &|_| ExecutionCondition::Unknown,
         &root,
         &mut { ExecutionCondition::WORK_LIMIT },
@@ -413,7 +421,11 @@ fn entry_subject(
     subject: &ExecutionCondition,
 ) -> ExecutionCondition {
     subject.substitute(
-        &|input| input.value_in(arguments).unwrap_or(ExecutionCondition::Unknown),
+        &|input| {
+            input
+                .value_in(arguments)
+                .unwrap_or(ExecutionCondition::Unknown)
+        },
         &ExecutionCondition::Unknown,
         &mut { ExecutionCondition::WORK_LIMIT },
     )

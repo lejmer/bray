@@ -105,11 +105,13 @@ impl BoundCallReference {
 pub struct BoundCallDependencyContracts {
     synchronous_cleanup: Arc<[bray_symbols::DependencyRequirement]>,
     input_count: usize,
-    returned_input: Option<bray_symbols::ConstantTermId>,
-    returned_input_conditions: Arc<[bray_symbols::ConstantTermId]>,
+    owned_result: bray_symbols::DependencyOwnedResult,
+    returned_value_conditions:
+        BTreeMap<bray_symbols::DependencyOwnedTransfer, Arc<[bray_symbols::ConstantTermId]>>,
     carriers: Arc<[bray_symbols::DependencyWitnessCarrier]>,
     invocation: BoundDependencyContract,
     result: BoundDependencyContract,
+    deferred_result: Option<BoundDependencyContract>,
     deferred: Option<BoundDependencyContract>,
     reports: BoundCallReports,
     deferred_reports: Option<BoundCallReports>,
@@ -125,33 +127,39 @@ pub struct BoundCallDependencyContracts {
 }
 
 impl BoundCallDependencyContracts {
-    /// Records an unchanged owned input returned as the complete result on every normal exit.
-    /// Normal completion must have no observable storage mutation or cleanup effects.
-    /// The term contains only a formal input and owned projections, never an equality or dereference.
-    pub fn with_returned_input(mut self, input: Option<bray_symbols::ConstantTermId>) -> Self {
-        self.returned_input = input;
+    /// Records complete owning layouts retained inside the result.
+    pub fn with_owned_result(mut self, result: bray_symbols::DependencyOwnedResult) -> Self {
+        self.owned_result = result;
 
         self
     }
 
-    /// Returns the checked whole-value transport, without introducing trusted guarantees.
-    pub const fn returned_input(&self) -> Option<bray_symbols::ConstantTermId> {
-        self.returned_input
+    /// Returns the checked normal-result ownership contract.
+    pub const fn owned_result(&self) -> &bray_symbols::DependencyOwnedResult {
+        &self.owned_result
     }
 
     /// Retains presence facts implied by successfully returning the checked input projection.
-    pub fn with_returned_input_conditions(
+    pub fn with_returned_value_conditions(
         mut self,
-        conditions: impl IntoIterator<Item = bray_symbols::ConstantTermId>,
+        conditions: BTreeMap<
+            bray_symbols::DependencyOwnedTransfer,
+            Arc<[bray_symbols::ConstantTermId]>,
+        >,
     ) -> Self {
-        self.returned_input_conditions = conditions.into_iter().collect();
+        self.returned_value_conditions = conditions;
 
         self
     }
 
-    /// Returns ordinary presence facts prepared from the selected whole-value transport.
-    pub fn returned_input_conditions(&self) -> &[bray_symbols::ConstantTermId] {
-        &self.returned_input_conditions
+    /// Returns ordinary presence facts prepared from the selected input transfers.
+    pub fn returned_value_conditions(
+        &self,
+        transfer: &bray_symbols::DependencyOwnedTransfer,
+    ) -> &[bray_symbols::ConstantTermId] {
+        self.returned_value_conditions
+            .get(transfer)
+            .map_or(&[], AsRef::as_ref)
     }
 
     /// Creates the instantiated phase contracts for a selected call.
@@ -163,8 +171,9 @@ impl BoundCallDependencyContracts {
         Self {
             invocation,
             result,
-            returned_input: None,
-            returned_input_conditions: Arc::new([]),
+            deferred_result: None,
+            owned_result: bray_symbols::DependencyOwnedResult::default(),
+            returned_value_conditions: BTreeMap::new(),
             carriers: Arc::new([]),
             input_count: 0,
             synchronous_cleanup: Arc::new([]),
@@ -300,6 +309,18 @@ impl BoundCallDependencyContracts {
         self.result = result;
 
         self
+    }
+
+    /// Records dependencies of the value produced by normal completion of a lazy frame.
+    pub fn with_deferred_result(mut self, result: BoundDependencyContract) -> Self {
+        self.deferred_result = Some(result);
+
+        self
+    }
+
+    /// Returns the completed value's dependencies independently of the frame captures.
+    pub const fn deferred_result(&self) -> Option<&BoundDependencyContract> {
+        self.deferred_result.as_ref()
     }
 
     /// Attaches report ownership for argument evaluation and immediate execution.

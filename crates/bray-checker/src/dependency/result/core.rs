@@ -248,6 +248,13 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 BoundExpression::TraitQualifiedMember(member) => {
                     self.member_values(id, expression, member.receiver())?
                 }
+                BoundExpression::Await(_) if self.inputs.completion_source(id).is_some() => self
+                    .inputs
+                    .completion_source(id)
+                    .and_then(|source| self.state.completions.get(&source))
+                    // Each CFG state owns its requirement set independently of the producer snapshot.
+                    .expect("known awaited producer retains its captured completion dependencies")
+                    .clone(),
                 BoundExpression::Call(_)
                     if matches!(
                         self.selections.expression(id),

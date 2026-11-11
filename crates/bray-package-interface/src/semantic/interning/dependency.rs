@@ -117,14 +117,35 @@ impl InternState {
                 continue;
             };
 
-            let returned_input = if let Some(input) = input.returned_input {
-                let Some(input) = self.constant_term_id(input) else {
-                    continue;
-                };
+            let owned_result = input.owned_result.try_map(
+                &mut |transfer| {
+                    let term = self.constant_term_id(transfer.input()).ok_or(None)?;
 
-                Some(input)
-            } else {
-                None
+                    let condition = transfer
+                        .condition()
+                        .map(|condition| self.constant_term_id(condition).ok_or(None))
+                        .transpose()?;
+
+                    let output = transfer
+                        .output()
+                        .iter()
+                        .map(|projection| self.convert_constant_projection(projection, symbols))
+                        .collect::<Result<Option<Vec<_>>, _>>()
+                        .map_err(Some)?
+                        .ok_or(None)?;
+
+                    Ok(bray_symbols::DependencyOwnedResult::Transfer(
+                        bray_symbols::DependencyOwnedTransfer::new(term, output)
+                            .with_condition(condition),
+                    ))
+                },
+                &mut |condition| self.constant_term_id(*condition).map(Some).ok_or(None),
+            );
+
+            let owned_result = match owned_result {
+                Ok(result) => result,
+                Err(None) => continue,
+                Err(Some(error)) => return Err(error),
             };
 
             let observed_result = if let Some(term) = input.observed_result {
@@ -142,7 +163,7 @@ impl InternState {
                     contract
                         .with_borrows(borrows)
                         .with_carriers(carriers)
-                        .with_returned_input(returned_input)
+                        .with_owned_result(owned_result)
                         .with_observed_result(observed_result)
                         .with_effects(effects)
                         .with_synchronous_cleanup(synchronous_cleanup)

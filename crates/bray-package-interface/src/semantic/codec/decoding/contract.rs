@@ -146,7 +146,8 @@ pub(super) fn decode_dependency_contract(
         borrows.push(relation);
     }
 
-    let returned_input = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+    let owned_result = super::super::ownership::decode_owned_result(reader, limits, context)?;
+
     let observed_result = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
@@ -204,7 +205,7 @@ pub(super) fn decode_dependency_contract(
     Ok(contract
         .with_borrows(borrows)
         .with_carriers(carriers)
-        .with_returned_input(returned_input)
+        .with_owned_result(owned_result)
         .with_observed_result(observed_result)
         .with_effects(effects)
         .with_synchronous_cleanup(synchronous_cleanup)
@@ -779,7 +780,7 @@ mod tests {
         };
 
         let attributes = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
-        let mut words = vec![0, 1, 0, 0, 0, 0, 1, attributes, 3, 0, 0, 0, 0, 0];
+        let mut words = vec![0, 1, 0, 0, 0, 0, 1, attributes, 3, 0, 1, 0, 0, 0, 0];
         let limits = InterfaceValidationLimits::default();
         let contract = decode_words(&words, limits).expect("fixture encoded words must decode");
 
@@ -851,7 +852,7 @@ mod tests {
     fn synchronous_cleanup_types_decode_with_bounded_counts() {
         let limits = InterfaceValidationLimits::default();
 
-        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5], limits)
+        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 5], limits)
             .expect("fixture encoded words must decode");
 
         assert_eq!(
@@ -875,7 +876,9 @@ mod tests {
     #[test]
     fn report_outputs_preserve_presence_and_separate_requirements() {
         let decoded = decode_words(
-            &[0, 1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 0, 2, 0, 5],
+            &[
+                0, 1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 1, 0, 0, 0, 2, 0, 5,
+            ],
             InterfaceValidationLimits::default(),
         )
         .expect("fixture encoded words must decode");
@@ -906,7 +909,7 @@ mod tests {
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
             0, 0, // No normal or abnormal report output.
-            0, 0, 0, 0, 2, 0,
+            0, 1, 0, 0, 0, 2, 0,
             5, // No reference relations, returned input, result observation or carriers. Unknown effects and input escapes.
         ];
 
@@ -980,7 +983,7 @@ mod tests {
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
         let words = [
-            0, 1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5,
+            0, 1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 5,
         ];
 
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));

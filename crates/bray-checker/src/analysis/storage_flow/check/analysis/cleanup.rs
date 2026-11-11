@@ -401,7 +401,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .copied()
                     .chain(
                         crate::storage::storage_projections(
-                            self.dependencies,
+                            self.request.semantic_values(), self.dependencies,
                             relation.exit().projections(),
                         )
                         .expect("prepared lifecycle reference retains its projections"),

@@ -7,7 +7,7 @@ use super::core::Transfer;
 
 impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
     pub(super) fn call_values(
-        &self,
+        &mut self,
         expression: BoundExpressionId,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         let Some(SemanticSelection::Call(call)) = self.selections.expression(expression) else {
@@ -15,6 +15,24 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         };
 
         let template = self.selected_result_template(call)?;
+
+        if matches!(
+            call.resolution().result(),
+            bray_bound_tree::BoundCallResult::LazyFuture(_)
+        ) {
+            let completed = self.mapped_result_values(template.requirements(), |root| {
+                call.input_site(expression, root)
+            })?;
+
+            // One static producer can execute repeatedly. Retain every possible captured result.
+            self.state
+                .completions
+                .entry(expression)
+                .or_default()
+                .extend(completed);
+        }
+
+        let template = crate::dependency::invocation_result_template(call, template);
 
         let mut result = BTreeSet::new();
 
