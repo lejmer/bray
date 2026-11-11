@@ -874,10 +874,13 @@ fn check_owned_transfers(imported: bool) {
     ];
 
     let mut failures = Vec::new();
+    let mut checked = 0;
 
     for (name, body) in cases {
         for valid in [true, false] {
             let body = body.replace("INPUT", if valid { "api.make()" } else { "none" });
+
+            checked += 1;
 
             if let Some(failure) = check(&provider, imported, name, &body, valid) {
                 failures.push(failure);
@@ -1917,12 +1920,14 @@ fn check_owned_transfers(imported: bool) {
             true,
         ),
     ] {
+        checked += 1;
+
         if let Some(failure) = check(&provider, imported, name, body, valid) {
             failures.push(failure);
         }
     }
 
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(failures.is_empty(), "owned cases completed: imported={imported}, count={checked}\n{}", failures.join("\n"));
 }
 
 fn check(
@@ -1966,7 +1971,7 @@ fn check(
 
     if diagnostics.has_errors() == valid {
         return Some(format!(
-            "{name}, imported={imported}, valid={valid}: {diagnostics:#?}"
+            "{name}, imported={imported}, valid={valid}: {}", super::fixtures::diagnostic_messages(diagnostics)
         ));
     }
 
@@ -1979,7 +1984,7 @@ fn check(
                     | bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven
             )
         }) {
-            return Some(format!("unexpected rejection for {name}: {diagnostics:#?}"));
+            return Some(format!("unexpected rejection for {name}: {}", super::fixtures::diagnostic_messages(diagnostics)));
         }
     }
 
