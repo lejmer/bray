@@ -1464,7 +1464,7 @@ fn operation_cleanup_native_fixture_lowers_its_checked_inputs() {
 
     assert!(
         mir.is_valid(),
-        "operation cleanup fixture must publish valid MIR: {mir:#?}"
+        "operation cleanup fixture must publish valid MIR: {:?}", mir.key()
     );
 
     let mut defaults = 0;

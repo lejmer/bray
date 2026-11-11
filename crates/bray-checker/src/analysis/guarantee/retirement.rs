@@ -95,12 +95,7 @@ impl ExecutionState {
             condition
                 .observations_except(&retained_data)
                 .any(|observed| invalidated_observations.overlaps(observed)
-                    || selection && match observed {
-                        ExecutionCondition::Joined(_, _, place) => place.overlaps_any(places),
-                        ExecutionCondition::PostState(_, identity) => matches!(identity.as_ref(),
-                            ExecutionCondition::Input(place) if place.overlaps_any(places)),
-                        _ => false,
-                    })
+                    || selection && observed.selector_place().is_some_and(|place| place.overlaps_any(places)))
         };
 
         let borrowed_slot_changed = |condition: &ExecutionCondition| {
@@ -236,7 +231,7 @@ impl ExecutionState {
                 || !revokes_guarantee(condition) && !invalidated.contains(owner)
         });
 
-        self.retire_pending_conditions(&revokes, &retired_conditions);
+        self.retire_entry_context(&revokes, &|condition| observes(condition, true), &retired_conditions);
 
         for entries in self.deferred_invocations.values_mut() {
             // Current branch selectors can outlive a slot's loop incarnation.
@@ -414,28 +409,26 @@ impl ExecutionState {
         (dependents, input_dependents)
     }
 
-    fn retire_pending_conditions(
+    pub(super) fn retire_entry_context(
         &mut self,
         revokes: &impl Fn(&ExecutionCondition) -> bool,
+        revokes_source: &impl Fn(&ExecutionCondition) -> bool,
         retired: &BTreeSet<(ExecutionCondition, bool)>,
     ) {
-        for entry in self.pending_entries_mut(&|entry| {
-            entry
+        for entry in self.entry_snapshots_mut(&|entry| {
+            entry.pending_execution && entry
                 .assumptions
                 .iter()
                 .chain(&entry.trusted_assumptions)
                 .any(|fact| revokes(&fact.0) || retired.contains(fact))
-                || entry.copy_sources.values().any(revokes)
+                || entry.copy_sources.values().any(revokes_source)
         }) {
-            entry.copy_sources.retain(|_, value| !revokes(value));
+            entry.copy_sources.retain(|_, value| !revokes_source(value));
 
-            entry
-                .assumptions
-                .retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
-
-            entry
-                .trusted_assumptions
-                .retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
+            if entry.pending_execution {
+                entry.assumptions.retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
+                entry.trusted_assumptions.retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
+            }
         }
     }
 
@@ -525,7 +518,7 @@ impl ExecutionState {
         self.allocation_owners
             .retain(|condition, _| private_allocations.contains(condition) || !revokes_observation(condition));
 
-        for entry in self.pending_entries_mut(&|entry| {
+        for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution && {
             entry
                 .assumptions
                 .iter()
@@ -625,7 +618,7 @@ impl ExecutionState {
         self.allocation_owners
             .retain(|condition, _| !retired.contains(&(condition.clone(), true)));
 
-        for entry in self.pending_entries_mut(&|entry| {
+        for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution && {
             entry
                 .assumptions
                 .iter()
@@ -674,6 +667,52 @@ mod tests {
     use crate::ExecutionPlace;
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
+
+    #[test]
+    fn writing_a_loop_slot_retires_its_scalar_selector_without_retiring_captures() {
+        use crate::analysis::guarantee::deferred::{DeferredInvocation, DeferredValue};
+        use crate::test_support::{error_type, expression_unit, push_expression};
+        use bray_bound_tree::{BoundErrorExpression, BoundExpression, BoundUnitId};
+        use std::sync::Arc;
+
+        let (_, expressions) = expression_unit(BoundUnitId::new(91), |tree, origin| {
+            vec![push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))]
+        });
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let selector = ExecutionCondition::ScalarValue(Arc::new(ExecutionCondition::Joined(BoundUnitId::new(91), 6, place.clone())));
+        let unrelated = ExecutionCondition::ScalarValue(Arc::new(ExecutionCondition::Joined(BoundUnitId::new(91), 6,
+            ExecutionPlace::argument(SymbolOrdinal::new(1)))));
+        let captured = ExecutionCondition::CapturedInput {
+            owner: Arc::new(ExecutionCondition::Result), invocation: expressions[0].into(), ordinal: SymbolOrdinal::new(0),
+        };
+        let mut state = ExecutionState::default();
+
+        state.deferred_invocations.insert(ExecutionCondition::Result, DeferredValue {
+            producers: [(expressions[0].into(), DeferredInvocation {
+                entry: Arc::new(crate::ExecutionCallEvidence {
+                    arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), captured.clone())].into(),
+                    copy_sources: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), selector.clone())].into(),
+                    assumptions: [(captured.clone(), true)].into(), ..Default::default()
+                }), reports: Default::default(), selection: Default::default(),
+            })].into(),
+            unknown: Some(DeferredInvocation { entry: (), reports: Default::default(),
+                selection: [(selector.clone(), true), (unrelated.clone(), false), (captured.clone(), true)].into(),
+            }), ..Default::default()
+        });
+
+        state.invalidate_contents(&[place].into(), [], &Default::default(), &Default::default(), None);
+
+        let selection = &state.deferred_invocations[&ExecutionCondition::Result].unknown.as_ref().unwrap().selection;
+
+        assert!(!selection.contains(&(selector, true)));
+        assert!(selection.contains(&(unrelated, false)));
+        assert!(selection.contains(&(captured, true)));
+
+        let entry = &state.deferred_invocations[&ExecutionCondition::Result].producers[&expressions[0].into()].entry;
+
+        assert!(entry.copy_sources.is_empty());
+        assert!(!entry.assumptions.is_empty());
+    }
 
     #[test]
     fn retirement_revokes_owners_beyond_the_proof_budget() {

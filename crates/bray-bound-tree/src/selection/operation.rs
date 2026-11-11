@@ -711,7 +711,7 @@ impl SelectedOperation {
     }
 
     /// Returns whether this operation can panic directly or through a selected implementation.
-    pub fn may_propagate_synchronous_panic(&self) -> bool {
+    pub fn may_propagate_synchronous_panic(&self, expression: &BoundExpression) -> bool {
         match self {
             Self::Operator { target, .. }
             | Self::CompoundAssignment(SelectedCompoundAssignment { target, .. }) => match target {
@@ -723,8 +723,9 @@ impl SelectedOperation {
                 IndexTarget::Custom { .. } | IndexTarget::TraitConstraint { .. }
             ),
             Self::Conversion(conversion) => conversion.invokes_source(),
-            Self::Construction(_) => true,
-            Self::Member(member) => matches!(member.member(), AnySymbolId::UnionVariant(_)),
+            Self::Construction(construction) => matches!(construction.target(), ConstructionTarget::TypeForm { .. })
+                || matches!(expression, BoundExpression::BoxConstruction(_)),
+            Self::Member(_) => false,
             Self::Implementation(_) | Self::TraitView { .. } => false,
         }
     }

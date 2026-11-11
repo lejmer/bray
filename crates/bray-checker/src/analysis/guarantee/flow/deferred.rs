@@ -363,7 +363,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         ordinal,
                     };
 
-                    if matches!(value, ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
+                    if matches!(source, ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_))
+                        || matches!(source, ExecutionCondition::ScalarValue(_))
+                    {
                         identity
                     } else {
                         crate::execution_guarantees::owned_snapshot(&value, identity.clone(), &mut {
@@ -372,10 +374,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 });
 
-            if matches!(value, ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
+            if matches!(source, ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
                 ExecutionCondition::operation(
                     bray_bound_tree::BoundOperator::Equal,
-                    vec![captured.clone(), value],
+                    vec![captured.clone(), source],
                 ).assume(true, &mut entry.assumptions);
             } else {
                 let snapshots = [(value.clone(), captured.clone())].into();
@@ -516,12 +518,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let root = ExecutionCondition::Expression(expression);
 
-        if let Some((mut completed, value)) =
-            self.complete_producers(state, &root, expression, &deferred, observations)
-        {
-            completed.expressions.insert(expression, value);
-            *state = completed;
-        }
+        let (mut completed, value) = self.complete_producers(state, &root, expression, &deferred, observations)
+            .unwrap_or_else(|| panic!("reachable deferred completion has no feasible producer: {expression:?}, producers={:?}", deferred.producers.iter().map(|(source, candidate)| (*source,
+                super::super::deferred::possible(&candidate.selection, &state.assumptions),
+                self.dependencies.calls()[source].deferred_completion(),
+                self.owned_normal_completion(&state.assumptions, *source, &candidate.entry, &root),
+            )).collect::<Vec<_>>()));
+
+        completed.expressions.insert(expression, value);
+        *state = completed;
 
         true
     }
@@ -643,17 +648,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Some(true) => {
                 let payload = root.clone().project(projection);
 
-                if let Some((normal, value)) =
-                    self.complete_producers(state, &payload, expression, deferred, observations)
-                {
-                    *state = normal;
+                let (normal, value) = self.complete_producers(state, &payload, expression, deferred, observations)
+                    .unwrap_or_else(|| panic!("completed task observation has no feasible body producer: {expression:?}, producers={:?}", deferred.producers.keys().collect::<Vec<_>>()));
 
-                    return ExecutionCondition::constructed(root,
-                        [(projection, value)].into(),
-                    );
-                }
+                *state = normal;
 
-                return root;
+                return ExecutionCondition::constructed(root, [(projection, value)].into());
             }
             None => {}
         }

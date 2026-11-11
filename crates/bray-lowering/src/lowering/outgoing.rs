@@ -94,6 +94,12 @@ impl Lowerer<'_> {
         }
     }
 
+    pub(in crate::lowering) fn requires_outgoing_admission(&self, ty: TypeId) -> bool {
+        self.input.cleanup_type(ty).is_none_or(|shape| {
+            shape.cleanup() != bray_bound_tree::AsyncStorageCleanupRequirement::None
+        })
+    }
+
     pub(in crate::lowering) fn admit_outgoing_owner(
         &mut self,
         expression: BoundExpressionId,
@@ -101,9 +107,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         ty: TypeId,
     ) -> Result<MirBlockId, LoweringError> {
-        if self.input.cleanup_type(ty).is_some_and(|shape| {
-            shape.cleanup() == bray_bound_tree::AsyncStorageCleanupRequirement::None
-        }) {
+        if !self.requires_outgoing_admission(ty) {
             return Ok(block);
         }
 
@@ -154,9 +158,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         ty: TypeId,
     ) -> Result<(), LoweringError> {
-        if self.input.cleanup_type(ty).is_some_and(|shape| {
-            shape.cleanup() == bray_bound_tree::AsyncStorageCleanupRequirement::None
-        }) {
+        if !self.requires_outgoing_admission(ty) {
             return Ok(());
         }
 
