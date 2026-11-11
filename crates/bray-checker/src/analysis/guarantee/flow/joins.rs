@@ -827,9 +827,9 @@ mod nested_guard_tests {
         let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
         )));
-        let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
-            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
-        ]);
+        let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| (0..2).map(|_| {
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))
+        }).collect());
 
         for (depth, valid) in [(1, true), (2, true), (1, false), (2, false)] {
             let mut left = ExecutionState::default();
@@ -855,6 +855,55 @@ mod nested_guard_tests {
             assert_eq!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions) == Some(true), valid,
                 "depth={depth} valid={valid} required={required:?} facts={:?} witnesses={:?}",
                 left.trusted_assumptions, left.witnesses);
+        }
+
+        for parent in [input(2), ExecutionCondition::Expression(expressions[1])] {
+        for detailed in [None, Some(4), Some(6)] {
+        let support = parent.clone().project(marker);
+        let condition = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.borrowed(), support.clone().project(marker).borrowed()]),
+        ));
+        let mut left = ExecutionState::default();
+
+        left.assign(ExecutionPlace::argument(SymbolOrdinal::new(2)),
+            ExecutionCondition::constructed(parent.clone(), [(marker, ExecutionCondition::Unknown)].into()), None);
+        left.assign(ExecutionPlace::argument(SymbolOrdinal::new(5)), support.clone(), None);
+
+        if let Some(alias) = detailed {
+            let field = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+            let data = ExecutionCondition::constructed(support.clone(), [(field, support.clone().project(field))].into());
+
+            left.assign(ExecutionPlace::argument(SymbolOrdinal::new(alias)),
+                ExecutionCondition::reference_value(support.clone().borrowed(), data), None);
+        }
+
+        let mut right = left.clone();
+        let guarantee = condition(input(0));
+
+        left.carry_guarantee(input(0), guarantee.clone());
+        guarantee.assume(true, &mut left.trusted_assumptions);
+
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(7));
+
+        left.assign(place.clone(), input(0).present(), None);
+        right.assign(place.clone(), absent.clone(), None);
+
+        let mut merged = Some(left);
+
+        super::super::merge::merge(&mut merged, &Some(right),
+            Some(crate::analysis::id::AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)).into());
+
+        let mut merged = merged.expect("both nullable predecessors are reachable");
+        let joined = place.value_in(&merged.current).expect("joined value retains its slot");
+
+        ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
+            vec![joined.clone(), absent.clone()]).assume(true, &mut merged.assumptions);
+
+        let required = condition(joined.project(StorageProjection::NullableValue));
+
+        assert_eq!(required.prove_trusted(&merged.trusted_assumptions, &merged.assumptions), Some(true),
+            "a live extracted child must shield its observation from its partially moved parent snapshot: detailed={detailed:?}");
+        }
         }
     }
 

@@ -533,9 +533,16 @@ fn insert_snapshot(
     inputs: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
     joined: &ExecutionCondition, source: &ExecutionCondition,
 ) {
-    if source == joined { return; }
+    // An unchanged child shields its actual snapshot from ancestor substitution.
     inputs.entry(joined.clone()).and_modify(|previous| {
-        if previous != source { *previous = ExecutionCondition::Unknown; }
+        if previous == source { return; }
+
+        // An identity pin contributes no competing contents for the same owner.
+        if previous == joined && source.has_same_owner(joined) {
+            *previous = source.clone();
+        } else if source != joined || !previous.has_same_owner(joined) {
+            *previous = ExecutionCondition::Unknown;
+        }
     }).or_insert_with(|| source.clone());
 }
 

@@ -31,7 +31,7 @@ RetiredCell disposes control, pin and arena before vacancy. WaitResources retain
 
 Frozen907 identities:778 passed,30 failed,99 ignored, with16 explained repairs. comparison.txt is unchanged.
 Four added controls pass, giving fixed911 totals782/30/99. Checker503/bound136 and focused18 pass.
-All244 owned-transfer and148 deferred cases pass each in source/import. Cleanup57/4 and predicates26/2/2 retain known failures.
+All248 owned-transfer and148 deferred cases pass each in source/import. Cleanup57/4 and predicates26/2/2 retain known failures.
 The20-case loan fixture covers borrowed/owned/fresh origins, entry/result-established evidence, repeated admission,
 source/import and missing-renewal negatives. No accepted invalids remain in the fixed suite. No style pass yet.
 Source/MIR async composition and3 invalid variants pass. Native composition has not run.
@@ -69,9 +69,21 @@ Evidence: nested-borrow7 with independent negative causes, scoped10 across sync/
 Cleanup evidence also survives owner movement and rejects overwrite/wrong-owner controls. No cleanup-publication change
 is justified by that path. Continue from native families rather than counting reports as independent bugs.
 
+Projected-owner join batch is verified. An asymmetric nullable join erased a live extracted child by substituting its
+partially moved tuple parent. Exact child pins now shield it. Same-owner structured snapshots refine identity-only pins,
+while different owners and genuinely different contents still conflict. CFG properties cover both input/expression
+origins and richer-view insertion orders. Four new source/import cases cover valid join/move and wrong-owner/fabricated
+negatives. All248 cases pass each surface. The exact small source counterexample also passes. Fixed911, checker503,
+bound136 and adjacent checks retain their expected outcomes. Native32 is unchanged. The added driving219 regression was
+traced and cleared before acceptance. All hooks and consumed traces are removed.
+
+Next family: Current acquisition producer -> borrowed operations -> cleanup, and EntryScope's guarded optional Current
+through accessors, mutation and scoped exit. current() and create_execution/start_frame explicitly promise view_owned,
+so inspect actual publication and consumption before changing source contracts. Native composition remains blocked.
+
 Then verify native async success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.
 Finish production simplification/test pruning, AGENTS/DRY audit, mutating style/format, affected checks and independent
-PR review before Ready/In Review. tuple-context-projection.bray remains unresolved and does not establish copy validity.
+PR review before Ready/In Review.
 Two frozen negatives need genuine controls: trusted_implementation_does_not_export_undeclared_authority and
 shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. The terminating-branch negative has no owner input.
 
@@ -80,7 +92,8 @@ shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. The
 One CPU-heavy operation at a time. No Rust edits during Rust builds. Default24 Cargo processors/16 tooling codegen units.
 No clean. Share original target and target/cargo build dir. LLVM prefixes use target/toolchains/llvm/active.
 Compiler/linker/produced-executable workflows run outside sandbox. Native uses Rust1.98.1, LLVM bin on PATH and worktree target/audit as TMP/TEMP.
-Build compiler, driver and tests together. Capture executable paths/hashes from Cargo JSON in verification.json.
+Build compiler, driver and tests together, including focused compilation baselines, to avoid dependency-feature rebuilds.
+Capture executable paths/hashes from Cargo JSON in verification.json.
 Native command: target/tooling/xtask.exe runtime-artifact smoke-test --output target/audit/native --profile release.
 Compare native diagnostics only after the explicit completion marker. comparison-candidate.log holds current fixed-suite results.
 Keep only original comparison.txt, current native.log, verification.json and unresolved probes. Consume other logs promptly.
