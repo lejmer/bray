@@ -379,7 +379,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         };
 
-        feasible_layout(contract.owned_result(), assumptions, &instantiate)
+        let mut assumptions = assumptions.clone();
+
+        assumptions.extend(entry.assumptions.iter().cloned());
+
+        feasible_layout(contract.owned_result(), &assumptions, &instantiate)
     }
 }
 
