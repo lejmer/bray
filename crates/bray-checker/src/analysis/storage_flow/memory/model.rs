@@ -519,6 +519,12 @@ pub(in crate::analysis::storage_flow) struct ReferenceExit {
 }
 
 impl ReferenceExit {
+    pub(in crate::analysis::storage_flow) fn empty_slots(&self) -> impl Iterator<Item = &Place> {
+        self.slots.iter().filter_map(|(slot, references)| {
+            (!references.unknown && !references.displaced && references.targets.is_empty()).then_some(slot)
+        })
+    }
+
     pub(in crate::analysis::storage_flow) fn merge(&mut self, incoming: &Self) {
         merge_references(
             &mut self.slots,

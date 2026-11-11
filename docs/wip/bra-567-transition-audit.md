@@ -33,10 +33,10 @@ Five added controls give fixed912 totals783/30/99. Checker504, bound136 and focu
 deferred cases pass each source/import surface. Cleanup57/4 and predicates26/2/2 retain their known outcomes.
 Source/MIR async composition and3 invalid variants pass. Native composition has not run. No style pass yet.
 
-Complete native gate:31 sites with no new identities. Against original native.log30, root_scope265 and task_entry77
-cleanup are repaired and3 added E7135 cascades name already-failing polling.stage. Current31 comprises15 E7123
+Complete native gate:30 sites with no new identities. Against original native.log30, root_scope265, task_entry77 and initialization72
+cleanup are repaired and3 added E7135 cascades name already-failing polling.stage. Current30 comprises14 E7123
 requirements and16 E7135 reports. Eleven E7135 reports explicitly name a failing callable dependency.
-Count reports separately from causes. Current E7123 inventory:6 cleanup,4 marker and5 relational requirements.
+Count reports separately from causes. Current E7123 inventory:5 cleanup,4 marker and5 relational requirements.
 
 Established boundaries include completed argument snapshots, consumed reference captures, scoped completion/retirement,
 owned versus borrowed contents, and projected-owner nullable joins. Fixed controls reject overwrite, wrong-owner,
@@ -44,31 +44,18 @@ fabricated-evidence and escaped-pointer variants. Keep these contracts while tra
 
 ## Current boundary
 
-Follow Current acquisition -> borrowed operations -> cleanup, including EntryScope's guarded optional Current.
-current(), create_execution() and start_frame() explicitly promise view_owned. Basic and composed small controls pass.
-The actual native program remains the reproduction. A rejected small probe was a permission-order setup error and is
-not regression evidence. The temporary source harness and all trace hooks are removed.
+Continue Current acquisition -> borrowed operations -> cleanup and EntryScope's guarded optional Current.
+The physical-slot and explicit escape-root repairs are pushed in b363f24d0. task_start cleanup is repaired.
 
-Native trace: task_start unit1116252 receives a precise Current escape from start_frame. PreparedStart.exit unit946710
-(source75) forwards it. The physical-slot batch now prevents the Current.pointer descriptor from being erased.
-A targeted producer/consumer trace confirms correct schema, referents and exact emitted slot; subsequent removals affect
-address-pointee state only. The next traced edge is in reserve_start unit960156 (source75): an incoming frame pointer
-may alias the live slot holding owner.selected. No historical slot participates. escape_effects publishes this possible
-alias closure as unconditional input escapes, discarding the caller's more precise storage identities.
-Do not flatten entry snapshots into mutable containing descriptors or let cleanup accept stale contents.
-
-Current batch carries proven physical reference slots in the existing invalidation publication. Shared views select
-prepared descriptor paths. Memory writes/effects consume exact physical identities. Merge intersects survival and
-atomic restriction carries it. Properties cover nested slots, exact replacement, revoked access authority and differing
-epochs. The physical-slot checkpoint017522 retained fixed911/native32. Native composition remains unverified.
-Escape-summary batch is verified. The real-source test escape_summaries_preserve_input_roots_before_alias_expansion
-fails at checkpoint017522: one actual pointer escape publishes3 roots instead of1. Its explicit-reference variant must
-retain that reference and its stored pointer. Keep local possible-alias checks conservative, but publish explicit roots
-and actual containment. A memory-boundary control also checks real stored-reference escapes through local field addresses.
-Source/import4 controls and the memory property pass. Fixed912, both ownership/deferred matrices, checker504/bound136,
-adjacent suites and complete native31 are verified. task_start's cleanup failure is repaired with no new native sites.
-All temporary trace hooks are removed. Next compare passing task_start with failing initialization/create_execution and
-EntryRestoration cleanup, tracing remaining losses beyond the two repaired boundaries. No reverse alias reconstruction.
+The remaining startup trace reaches create_execution -> own_binding -> install_binding -> abnormal cleanup.
+own_binding's producer retains empty reference slots in its inactive Cleanup variant. ReferenceExit publication drops
+those slots. Callers then invent opaque pointers bounded by all inputs, including unrelated Current storage.
+The source/import wrapper-publication control fails before the repair and passes afterward. Carry the producer's empty
+reference source in the existing relation through substitution, package encoding, ordinary calls and lifecycle calls.
+Do not reconstruct variant activity from ownership evidence. Empty alternatives cannot erase real pointer origins.
+The memory property, symbols221/interface216, fixed912 and checker504/bound136 pass their expected comparisons.
+Both ownership/deferred matrices and adjacent suites retain their fixed outcomes. Complete native30 has no new failure identities. Startup cleanup now passes.
+Next trace the four scoped-entry cleanup failures together through the guarded optional Current transition.
 
 Use the ABI2 standard-library bundle at target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
 Direct233-source CLI checks add3 missing-native-link cascades and are investigation controls, not the native gate.

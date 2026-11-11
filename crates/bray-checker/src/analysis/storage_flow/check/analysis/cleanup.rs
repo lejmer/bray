@@ -436,15 +436,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .collect();
 
             let Some(entry) = relation.entry() else {
-                memory.stage_returned_reference(
-                    occurrence,
-                    destination,
-                    logical,
-                    reference
-                        .addressed_type()
-                        .expect("independent reference retains its target type"),
-                    [],
-                );
+                self.stage_independent_reference(memory, occurrence, destination, logical, reference);
 
                 continue;
             };
