@@ -72,7 +72,7 @@ impl ExecutionCondition {
                     *kind,
                 )
             }
-            Self::Present(value) => value.without_evaluation(mutation, remaining).present(),
+            Self::Present(value) => Self::Present(std::sync::Arc::new(value.without_evaluation(mutation, remaining))),
             Self::Tagged(variant, value) => Self::Tagged(
                 *variant,
                 std::sync::Arc::new(value.without_evaluation(mutation, remaining)),

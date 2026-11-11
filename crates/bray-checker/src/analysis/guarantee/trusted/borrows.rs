@@ -791,7 +791,7 @@ fn without_reached_contents(value: &ExecutionCondition, budget: &mut usize) -> E
                 (*projection, without_reached_contents(value, budget))
             }).collect(),
         ),
-        ExecutionCondition::Present(value) => without_reached_contents(value, budget).present(),
+        ExecutionCondition::Present(value) => ExecutionCondition::Present(std::sync::Arc::new(without_reached_contents(value, budget))),
         ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
             *variant, std::sync::Arc::new(without_reached_contents(value, budget)),
         ),

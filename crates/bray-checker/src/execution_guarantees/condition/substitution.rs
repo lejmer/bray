@@ -91,7 +91,7 @@ impl ExecutionCondition {
                 Self::Trusted(Arc::new(value.substitute_values(replace, budget)))
             }
             Self::Borrowed(value) => value.substitute_values(replace, budget).borrowed(),
-            Self::Present(value) => value.substitute_values(replace, budget).present(),
+            Self::Present(value) => Self::Present(Arc::new(value.substitute_values(replace, budget))),
             Self::Tagged(variant, value) => {
                 Self::Tagged(*variant, Arc::new(value.substitute_values(replace, budget)))
             }
@@ -367,7 +367,7 @@ fn rewrite_equalities(
             rewrite_equalities(&value, replacements, identities, budget).matches_variant(variant)
         }
         ExecutionCondition::Present(value) => {
-            rewrite_equalities(&value, replacements, identities, budget).present()
+            ExecutionCondition::Present(Arc::new(rewrite_equalities(&value, replacements, identities, budget)))
         }
         ExecutionCondition::Borrowed(value) if let Some(identities) = identities => {
             rewrite_equalities(&value, replacements, Some(identities), budget).borrowed()
