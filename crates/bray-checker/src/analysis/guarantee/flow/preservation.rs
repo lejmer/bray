@@ -240,9 +240,23 @@ mod tests {
             assert_ne!(presence(ValuePreservation::default().apply(&source, Some(&place), mutation)), presence(source));
         }
 
+        let mut payload_mask = ValuePreservation { discriminant: true, ..Default::default() };
+        payload_mask.at_mut(&[payload, StorageProjection::TupleElement(SymbolOrdinal::new(0))]).value = true;
+        let framed = payload_mask.apply(&owner, Some(&place), mutation);
+        let conditions = Default::default();
+        let joined = crate::execution_guarantees::common_components(&owner, &framed,
+            Some(ExecutionCondition::Result), (&conditions, &conditions), &mut Vec::new(),
+            &mut { ExecutionCondition::WORK_LIMIT });
+        let moved = crate::execution_guarantees::owned_snapshot(&framed,
+            ExecutionCondition::Result, &mut { ExecutionCondition::WORK_LIMIT });
+        for value in [joined, moved] {
+            assert_eq!(presence(value.clone()), presence(owner.clone()), "retained nullable tags survive joins and owner transfer");
+            assert_ne!(value.project(payload), owner.clone().project(payload), "retaining a tag does not restore old payload contents");
+        }
+
         let variant = bray_symbols::UnionVariantSymbolId::from_symbol_id(bray_symbols::SymbolId::new(902));
 
-        for source in [ExecutionCondition::Tagged(variant, Arc::new(owner.clone())), owner] {
+        for source in [ExecutionCondition::Tagged(variant, Arc::new(owner.clone())), owner.clone()] {
             let updated = mask.apply(&source, Some(&place), mutation);
 
             assert_eq!(updated.clone().matches_variant(variant), source.clone().matches_variant(variant));
@@ -250,7 +264,21 @@ mod tests {
             assert!(super::super::super::state::ExecutionState::default().owned_values(&updated)
                 .all(|value| value.ownership_identity().is_none()));
             assert_eq!(mask.apply(&updated, Some(&place), mutation), updated);
+            let moved = crate::execution_guarantees::owned_snapshot(&updated,
+                ExecutionCondition::Result, &mut { ExecutionCondition::WORK_LIMIT });
+            assert_eq!(moved.matches_variant(variant), source.clone().matches_variant(variant));
+            if matches!(updated, ExecutionCondition::Discriminant(_)) {
+                let joined = crate::execution_guarantees::common_components(&source, &updated,
+                    Some(ExecutionCondition::Result), (&conditions, &conditions), &mut Vec::new(),
+                    &mut { ExecutionCondition::WORK_LIMIT });
+                assert_eq!(joined.matches_variant(variant), source.clone().matches_variant(variant),
+                    "a physically retained union tag survives a join");
+            }
         }
+
+        let replaced = ExecutionCondition::PostState(mutation, Arc::new(owner.clone()));
+        assert_eq!(owner.common_retained_discriminant(&replaced.discriminant()), None,
+            "a different snapshot cannot preserve an older tag");
 
     }
 

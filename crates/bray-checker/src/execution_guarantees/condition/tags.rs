@@ -3,6 +3,26 @@ use std::sync::Arc;
 use super::ExecutionCondition;
 
 impl ExecutionCondition {
+    /// Retain the same physical tag snapshot independently of changed payload data.
+    pub(crate) fn common_retained_discriminant(&self, other: &Self) -> Option<Self> {
+        fn source(mut value: &ExecutionCondition) -> &ExecutionCondition {
+            loop {
+                match value.computed_value() {
+                    ExecutionCondition::Constructed(base, _) => value = base,
+                    value => return value,
+                }
+            }
+        }
+
+        let (left, right) = (source(self), source(other));
+
+        match (left, right) {
+            (Self::Discriminant(original), value) | (value, Self::Discriminant(original))
+                if original.as_ref() == value || left == right => Some(Self::Discriminant(Arc::clone(original))),
+            _ => None,
+        }
+    }
+
     /// Select only the retained tag from the actual current snapshot.
     pub(crate) fn discriminant(&self) -> Self {
         match self {
