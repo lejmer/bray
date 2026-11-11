@@ -36,9 +36,9 @@ Per-call scalar seeding and numeric-equality aliases are excluded because they b
 
 Frozen907 identities:772 passed,36 failed,99 ignored. Nine production repairs and one scalar-copy test correction
 explain all10 differences. comparison.txt stays unchanged. An additional allocation import case passes.
-Checker497, bound135, symbols221, interfaces216 pass. Cleanup57/4 and predicates26/2/2 retain their known failures.
+Checker498, bound135, symbols221, interfaces216 pass. Cleanup57/4 and predicates26/2/2 retain their known failures.
 Focused18 pass, including Source/MIR composition and3 invalid variants. The operation-cleanup fixture publishes valid MIR.
-Both witness matrices pass all positive/negative cases. Deferred source/import matrices have2 positive failures
+Both witness matrices pass all positive/negative cases. Deferred source/import matrices have1 positive failure
 and no accepted invalid cases. All loop controls pass. Native composition has not run.
 Both nested-future positives pass in source and imported form.
 
@@ -52,10 +52,18 @@ All temporary tracing hooks are removed. Read-materialization experiments are re
 
 ## Remaining
 
-Deferred positives: task_completed_permission and nullable_completed_permission.
-The saved scalar loses its relation to the returned owner's field. Trace the existing alias model before changing it.
-Data identity is distinct from numeric equality, including NaN. Any new representation must cover production, copying,
-capture, joins, mutation, retirement and interface boundaries together. Reads cannot materialize owner contents.
+Deferred positive: nullable_completed_permission in source/import. Task permission now passes.
+Proof-only ValueAlias preserves copied immutable data through joins without assuming numeric equality or carrying
+ownership. Both predecessor snapshots must prove every alias. Guarded aliases use the existing ordinary solver.
+All498 checker tests, the fixed comparison and adjacent suites pass. Native retains the same35 diagnostic identities.
+The permanent fresh-owner negative rejects presence as evidence of transferred authority. Temporary tracing is removed.
+
+Verified remaining cause: opaque cleanup of an unreturned generic input replaces the returned nullable discriminant.
+The none exit becomes a scalar observation with unknown contents, so ownership publication cannot recognize its absence.
+Carry the existing classified tag preservation through storage effects and the current-value tree. Preserve unknown tags
+without retaining overwritten payloads. Do not infer absence from empty ownership or add nullable consumer exceptions.
+permission-api.bray and permission-boundaries.bray are the current probe. Direct await and Task return pass. Nullable
+return fails. Fabrication, fresh-owner and retirement controls reject. Permanent case identities/expectations stay fixed.
 Native families include returned-pointer retirement at driving197, address expiry through mutation/input postconditions,
 PreparedStart registration, heap allocation extents, waiting-link authority and initialized-range permissions.
 Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains an unresolved control.

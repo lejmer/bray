@@ -382,6 +382,7 @@ impl ExecutionCondition {
             }
 
             match value {
+                Self::ValueAlias(left, right) => pending.extend([left.as_ref(), right.as_ref()]),
                 Self::Boolean(_)
                 | Self::Literal(_)
                 | Self::Variant(_)
@@ -428,6 +429,7 @@ impl ExecutionCondition {
                 }
 
                 match condition {
+                    Self::ValueAlias(left, right) => pending.extend([left.as_ref(), right.as_ref()]),
                     Self::Operation(_, operands)
                     | Self::Predicate(_, _, operands)
                     | Self::Call(_, _, _, operands, _) => {
@@ -496,6 +498,7 @@ impl ExecutionCondition {
             }
 
             match condition {
+                Self::ValueAlias(left, right) => pending.extend([(left.as_ref(), live), (right.as_ref(), live)]),
                 Self::Borrowed(value) => pending.push((value, true)),
                 Self::Entry {
                     condition,

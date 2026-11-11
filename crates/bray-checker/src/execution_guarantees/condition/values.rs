@@ -364,6 +364,23 @@ impl ExecutionCondition {
         Self::scalar_observation(identity.clone(), Self::ScalarValue(Arc::new(identity)))
     }
 
+    pub(crate) fn value_alias(left: Self, right: Self) -> Self {
+        let left = left.copied_value().clone();
+        let right = right.copied_value().clone();
+
+        if left.contains_unknown() || right.contains_unknown() { return Self::Unknown; }
+
+        assert!(!left.contains_trusted() && !right.contains_trusted()
+            && !left.is_reference() && !right.is_reference(),
+            "data aliases require ordinary copied observations: left={left:?}, right={right:?}");
+
+        if left == right { return Self::Boolean(true); }
+
+        let (left, right) = if left < right { (left, right) } else { (right, left) };
+
+        Self::ValueAlias(Arc::new(left), Arc::new(right))
+    }
+
     pub(crate) fn scalar_observation(owner: Self, contents: Self) -> Self {
         let owner = owner.owner_identity().clone().into_referent().owner_identity().clone();
 

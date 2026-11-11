@@ -12,6 +12,7 @@ impl ExecutionCondition {
             inspect(condition)?;
 
             match condition {
+                Self::ValueAlias(left, right) => pending.extend([left.as_ref(), right.as_ref()]),
                 Self::ScalarValue(value) => pending.push(value),
                 Self::Observation { owner, contents, .. } => pending.extend([owner.as_ref(), contents.as_ref()]),
                 Self::Constructed(base, fields) => {
@@ -41,6 +42,12 @@ impl ExecutionCondition {
             };
             if depends { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
         }).is_break()
+    }
+
+    pub(super) fn contains_value_alias(&self) -> bool {
+        self.visit(|condition| if matches!(condition, Self::ValueAlias(_, _)) {
+            ControlFlow::Break(())
+        } else { ControlFlow::Continue(()) }).is_break()
     }
 
     /// Mutations already retained by the current values, without reconstructing invalidation history.

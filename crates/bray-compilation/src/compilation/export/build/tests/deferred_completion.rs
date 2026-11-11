@@ -81,6 +81,16 @@ const API: &str = r"
         return none;
     }
 
+    async func maybe_fresh(pos value: Permit, pos keep: bool) -> Permit?
+    {
+        if keep
+        {
+            return value;
+        }
+
+        return Permit { id = 2 };
+    }
+
     trusted predicate held(owner: &Marker);
 
     trusted func make() -> Marker
@@ -954,6 +964,26 @@ const CASES: &[(&str, &str, bool)] = &[
         "nullable_completed_permission",
         r"let permit = api.permission(); let id = permit.id; let value = await api.maybe<api.Permit>(permit, choice); match consume value { case ?owner { api.inspect_permission(id); } case none {} }",
         true,
+    ),
+    (
+        "nullable_fresh_permission",
+        r"
+            let permit = api.permission();
+            let id = permit.id;
+            let value = await api.maybe_fresh(permit, choice);
+
+            match consume value
+            {
+                case ?owner
+                {
+                    api.inspect_permission(id);
+                }
+                case none
+                {
+                }
+            }
+        ",
+        false,
     ),
     (
         "nullable_dropped_permission",

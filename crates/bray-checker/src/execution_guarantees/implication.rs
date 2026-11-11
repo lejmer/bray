@@ -317,6 +317,10 @@ pub fn map_execution_condition_references<E>(
     ) -> Result<ExecutionCondition, E>,
 ) -> Result<ExecutionCondition, E> {
     Ok(match condition {
+        ExecutionCondition::ValueAlias(left, right) => ExecutionCondition::value_alias(
+            map_execution_condition_references(left, map, input, literal, call)?,
+            map_execution_condition_references(right, map, input, literal, call)?,
+        ),
         ExecutionCondition::Input(place) => input(place)?,
         ExecutionCondition::Literal(value) => ExecutionCondition::Literal(literal(value)?),
         ExecutionCondition::Trusted(value) => ExecutionCondition::Trusted(std::sync::Arc::new(
