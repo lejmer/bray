@@ -38,7 +38,9 @@
 
    Polymorphic behavior is declared intentionally. Overload sets, implementation overload families, trait
    implementations, implicit conversions, generic constraints, dynamic dispatch, and type-directed behavior do not
-   appear accidentally. Implicit casting is only allowed for literals.
+   appear accidentally. Implicit casting is limited to literal adaptation and ABI-required default argument promotions
+   at foreign variadic call boundaries. Initializing or assigning the present state of an expected `T?` from `T` is a
+   convenience rule outside conversion semantics.
 
 8. **Abstraction is behavioral.**
 

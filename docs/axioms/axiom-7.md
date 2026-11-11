@@ -23,9 +23,19 @@ declared constraints.
 Dynamic dispatch is explicit at the type or call boundary. A value whose behavior is selected dynamically carries that
 dispatch model in its type or contract.
 
-Conversions are explicit operations, except for literals. A literal may adapt to a target type when the target type is
-known and the literal value is valid for that type. Non-literal values do not implicitly cast, widen, narrow,
-reinterpret, allocate, borrow, clone, move, or dispatch through conversion-like behavior.
+Conversions are explicit operations, except for literal adaptation and ABI-required default argument promotions at
+foreign variadic call boundaries. A literal may adapt to a target type when the target type is known and the literal
+value is valid for that type. A trailing foreign variadic argument undergoes exactly the default argument promotions
+required by the explicitly selected ABI, including integer promotions and `r32` to `r64` promotion for the C ABI. This
+exception does not introduce implicit conversions in ordinary Bray calls or other expressions.
+
+Nullable present-state initialization is a separate convenience rule outside conversion semantics: a value of type `T`
+may initialize or assign the present state of an expected `T?` without an explicit wrapper. The contained value still
+follows the ordinary ownership, borrowing, movement, copying, and lifecycle rules of `T`. This rule does not convert the
+contained value to another type or implicitly unwrap a nullable value.
+
+Apart from the named exceptions, non-literal values do not implicitly cast, widen, narrow, reinterpret, allocate,
+borrow, clone, move, or dispatch through conversion-like behavior.
 
 Imported declarations do not silently extend overload sets, implementation overload families, operators, conversions, or
 trait behavior. Extension of polymorphic behavior must be explicit at the declaration site or import site according to

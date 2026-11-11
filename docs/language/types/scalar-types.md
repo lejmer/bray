@@ -49,6 +49,9 @@ numeric domain for assignment, calls, operators, overload selection, constructio
 present nullable value from its exact contained type follows
 [value type acceptance](../expressions/expression-context.md#value-type-acceptance).
 
+The sole exception is the selected ABI's required default argument promotions for trailing foreign variadic arguments,
+as defined by [callable ABI](../targets-layout-abi-and-raw-memory/callable-abi.md#variadic-callable-contracts).
+
 Arithmetic expression rules are defined under
 [real exponentiation](../expressions/unary-and-binary-expressions.md#real-exponentiation) and
 [complex arithmetic](../expressions/unary-and-binary-expressions.md#complex-arithmetic).
