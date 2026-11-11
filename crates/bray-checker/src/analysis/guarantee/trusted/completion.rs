@@ -301,9 +301,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let Some(owner) = self.input_witness_owner(
-                template, subject, &condition, &arguments, &address_subjects,
-            ) else { continue; };
+            let carriers = self.input_witness_owners(
+                state, template, subject, &condition, &arguments, &address_subjects,
+            );
+
+            if carriers.is_empty() { continue; }
 
             let addresses = self.input_guarantee_addresses(
                 invocation,
@@ -318,11 +320,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &instantiate,
             );
 
-            state
-                .witnesses
-                .entry(owner.owner_identity().clone())
-                .or_default()
-                .carry(&guarantee, true, &addresses);
+            for carrier in carriers {
+                state
+                    .witnesses
+                    .entry(carrier.owner_identity().clone())
+                    .or_default()
+                    .carry(&guarantee, true, &addresses);
+            }
         }
 
         self.carry_input_access_guarantees(

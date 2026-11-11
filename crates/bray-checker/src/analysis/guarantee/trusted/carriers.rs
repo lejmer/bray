@@ -32,22 +32,23 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
         matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)).then_some(value)
     }
 
-    /// Select the checked input owner without promoting a child's authority to its input container.
-    pub(super) fn input_witness_owner(
+    /// Preserve the input loan and any independently retained owning value.
+    pub(super) fn input_witness_owners(
         &self,
+        state: &ExecutionState,
         template: &ExecutionCondition,
         subject: &ExecutionCondition,
         condition: &ExecutionCondition,
         arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         addresses: &[(ExecutionCondition, ExecutionCondition, bool)],
-    ) -> Option<ExecutionCondition> {
+    ) -> Vec<ExecutionCondition> {
         if addresses.iter()
             .filter(|(guarantee, address, _)| guarantee == template && address == subject)
             .map(|(_, _, owning)| *owning)
             .reduce(|left, right| left || right) == Some(false)
         {
             // The access producer retains these bounds with their non-owning classification.
-            return None;
+            return Vec::new();
         }
 
         // Only a current borrowed input can establish an input owner's contract.
@@ -70,13 +71,26 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
             matches!(value.owner_identity(), ExecutionCondition::Borrowed(_))
         });
 
-        if !borrowed { return None; }
+        if !borrowed || condition == &ExecutionCondition::Unknown { return Vec::new(); }
 
         // The typed subject was projected from this same current argument context.
-        // Its physical owner can change while the input loan remains the same.
-        let owner = condition.clone().into_referent();
+        // A caller-owned object retains its guarantees when the temporary loan
+        // ends. Reached data alone cannot grant ownership to a borrowed object.
+        let referent = condition.clone().into_referent();
+        let owned = state.current.live_entries()
+            .filter(|(place, _)| !self.borrowed_inputs.iter()
+                .chain(&self.disposal.borrowed_inputs).any(|input| input.contains(place)))
+            .map(|(_, value)| value).collect::<BTreeSet<_>>();
+        // The loan and owning value share immutable completion data, but retain
+        // distinct authority. Moving an owner cannot depend on its temporary loan.
+        let mut carriers = vec![condition.clone()];
 
-        (owner != ExecutionCondition::Unknown).then_some(owner)
+        if referent != *condition
+            && crate::execution_guarantees::ObservationSet::retains_owner(&owned, &referent) {
+            carriers.push(referent);
+        }
+
+        carriers
     }
 
     /// Combine declared completion clauses with checked portable carrier promises.
