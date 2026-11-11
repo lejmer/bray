@@ -33,10 +33,10 @@ Five added controls give fixed912 totals783/30/99. Checker504, bound136 and focu
 deferred cases pass each source/import surface. Cleanup57/4 and predicates26/2/2 retain their known outcomes.
 Source/MIR async composition and3 invalid variants pass. Native composition has not run. No style pass yet.
 
-Complete native gate:30 sites with no new identities. Against original native.log30, root_scope265, task_entry77 and initialization72
-cleanup are repaired and3 added E7135 cascades name already-failing polling.stage. Current30 comprises14 E7123
+Complete native gate:27 sites with no new identities. Against original native.log30, root_scope265, task_entry77, initialization72, resolution35 and root93/root206
+cleanup are repaired and3 added E7135 cascades name already-failing polling.stage. Current27 comprises11 E7123
 requirements and16 E7135 reports. Eleven E7135 reports explicitly name a failing callable dependency.
-Count reports separately from causes. Current E7123 inventory:5 cleanup,4 marker and5 relational requirements.
+Count reports separately from causes. Current E7123 inventory:2 cleanup,4 marker and5 relational requirements.
 
 Established boundaries include completed argument snapshots, consumed reference captures, scoped completion/retirement,
 owned versus borrowed contents, and projected-owner nullable joins. Fixed controls reject overwrite, wrong-owner,
@@ -44,18 +44,18 @@ fabricated-evidence and escaped-pointer variants. Keep these contracts while tra
 
 ## Current boundary
 
-Continue Current acquisition -> borrowed operations -> cleanup and EntryScope's guarded optional Current.
-The physical-slot and explicit escape-root repairs are pushed in b363f24d0. task_start cleanup is repaired.
+Physical tags survive joins and owner reanchoring without retaining overwritten payloads. A Discriminant denotes the
+producer's surviving tag, separately from destination ownership. Known Present/Tagged joins use their existing path.
+The extended physical-tag property is red before and green after. Source/import witness matrices, fixed912,
+owned248/deferred148 each surface, checker504/bound136 and adjacent suites retain outcomes. Native27 has no new sites.
+Resolution, root observation and root completion scoped cleanup now pass. Start scoped cleanup still fails.
 
-The remaining startup trace reaches create_execution -> own_binding -> install_binding -> abnormal cleanup.
-own_binding's producer retains empty reference slots in its inactive Cleanup variant. ReferenceExit publication drops
-those slots. Callers then invent opaque pointers bounded by all inputs, including unrelated Current storage.
-The source/import wrapper-publication control fails before the repair and passes afterward. Carry the producer's empty
-reference source in the existing relation through substitution, package encoding, ordinary calls and lifecycle calls.
-Do not reconstruct variant activity from ownership evidence. Empty alternatives cannot erase real pointer origins.
-The memory property, symbols221/interface216, fixed912 and checker504/bound136 pass their expected comparisons.
-Both ownership/deferred matrices and adjacent suites retain their fixed outcomes. Complete native30 has no new failure identities. Startup cleanup now passes.
-Next trace the four scoped-entry cleanup failures together through the guarded optional Current transition.
+Trace the remaining start EntryRestoration path beyond the repaired boundary. The established root_observation trace
+receives optional_current from root_scope E1, transfers through scoped enter E34, calls entry_current E20 and body E24.
+Storage preserves operation's Discriminant and acquisition. Join21 previously dropped the tag while migrating payload
+evidence, leaving an E1 absence guard against Joined21 contents. The repair retains the actual tag in the current tree.
+All trace hooks and consumed trace logs are removed. Next compare start's additional transitions and follow evidence
+into its producer-token and service-owner cleanup consumers. Do not assume these remaining reports are separate bugs.
 
 Use the ABI2 standard-library bundle at target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
 Direct233-source CLI checks add3 missing-native-link cascades and are investigation controls, not the native gate.

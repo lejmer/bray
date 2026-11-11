@@ -97,6 +97,7 @@ pub(crate) fn common_components(
 
     let mut projections = left.component_projections();
     projections.extend(right.component_projections());
+    let discriminant = left.common_retained_discriminant(right);
 
     if projections.is_empty() {
         let joined = result.map_or(ExecutionCondition::Unknown, |identity| {
@@ -146,7 +147,10 @@ pub(crate) fn common_components(
             }
         }
 
-        return joined;
+        return match discriminant {
+            Some(tag) => tagged_join(joined, tag, [].into()),
+            None => joined,
+        };
     }
 
     // A changed observation does not replace its existing descriptor or loan.
@@ -225,7 +229,21 @@ pub(crate) fn common_components(
         })
         .collect();
 
-    ExecutionCondition::constructed(identity, fields)
+    match discriminant {
+        Some(tag) => tagged_join(identity, tag, fields),
+        None => ExecutionCondition::constructed(identity, fields),
+    }
+}
+
+fn tagged_join(
+    identity: ExecutionCondition,
+    tag: ExecutionCondition,
+    fields: std::sync::Arc<[(bray_bound_tree::StorageProjection, ExecutionCondition)]>,
+) -> ExecutionCondition {
+    // The initialized destination and its immutable tag have separate identities.
+    let contents = ExecutionCondition::constructed(tag, fields);
+
+    if identity == ExecutionCondition::Unknown { contents } else { identity.with_current_contents(contents) }
 }
 
 fn common_scalar_components(
@@ -370,6 +388,7 @@ pub(crate) fn owned_snapshot(
 
             ExecutionCondition::owned_value(identity, ExecutionCondition::Present(std::sync::Arc::new(payload)))
         }
+        ExecutionCondition::Discriminant(_) => ExecutionCondition::owned_value(identity, source.clone()),
         ExecutionCondition::Borrowed(_)
         | ExecutionCondition::Boolean(_)
         | ExecutionCondition::Literal(_)
