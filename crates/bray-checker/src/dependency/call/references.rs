@@ -46,6 +46,7 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         .with_owned_result(template.owned_result().clone())
         .with_returned_value_conditions(returned_value_conditions(
             request,
+            expression.into(),
             template.owned_result().transfers(),
             input_count,
             |ordinal| {
@@ -136,6 +137,7 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
         .with_owned_result(template.owned_result().clone())
         .with_returned_value_conditions(returned_value_conditions(
             request,
+            invocation,
             template.owned_result().transfers(),
             input_count,
             |ordinal| {
@@ -320,6 +322,7 @@ pub(super) fn reference_subject_path<C: CheckerRequestContext + ?Sized>(
 
 fn returned_value_conditions<'a, C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
+    invocation: bray_bound_tree::BoundExecutionSite,
     transfers: impl IntoIterator<Item = &'a bray_symbols::DependencyOwnedTransfer>,
     input_count: usize,
     mut input_type: impl FnMut(
@@ -342,6 +345,7 @@ fn returned_value_conditions<'a, C: CheckerRequestContext + ?Sized>(
 
         let transferred = returned_input_projection_conditions(
             request,
+            invocation,
             transfer.input(),
             input_count,
             &mut input_type,
@@ -382,6 +386,7 @@ fn returned_value_conditions<'a, C: CheckerRequestContext + ?Sized>(
 
 fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
+    invocation: bray_bound_tree::BoundExecutionSite,
     mut term: bray_symbols::ConstantTermId,
     input_count: usize,
     input_type: &mut impl FnMut(
@@ -486,7 +491,11 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
 
         ty = crate::storage::projected_value_type(request, ty, projection)?
             .value()
-            .expect("checked returned input retains its projected type");
+            .unwrap_or_else(|| panic!(
+                "checked returned input has no projected type: unit={:?}, invocation={invocation:?}, input={ordinal}, subject={:?}, type={:?}, projection={projection:?}, call={}",
+                request.unit().unit(), values.constant_term_data(subject), values.type_data(ty),
+                invocation.expression().map(|expression| crate::diagnostic::expression_text(request, expression)).unwrap_or_default(),
+            ));
     }
 
     Ok(conditions)

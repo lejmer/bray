@@ -30,7 +30,7 @@ RetiredCell disposes control, pin and arena before vacancy. WaitResources retain
 ## Current evidence
 
 Frozen907 identities:774 passed,34 failed,99 ignored, with12 explained verdict changes. comparison.txt stays unchanged.
-The extra allocation import case passes. Checker499/bound136 pass. Cleanup57/4 and predicates26/2/2 retain known failures.
+Both added allocation and arithmetic controls pass. Checker501/bound136 pass. Cleanup57/4 and predicates26/2/2 retain known failures.
 Focused18 pass, including Source/MIR composition and3 invalid variants. Native composition has not run.
 All148 deferred cases pass each in source/import. Both witness matrices pass. Loop controls stabilize.
 Pin per-case identities/outcomes and completed counts. An aggregate FAILED cannot certify that its cases executed.
@@ -40,24 +40,21 @@ preserves immutable copied data without numeric-equality assumptions or authorit
 complete values or only tags. Full values subsume tags, effect merges retain common survival, and tag snapshots carry no
 old payload or authority. Presence/variant queries inspect the same value tree. Temporary tracing is removed.
 
-Accepted native:31 diagnostics,18 E7123 and13 E7135, complete233-file request. Guarded equality extraction repairs
-the arena requirement and dependent initialization postcondition. No added identities. Native logs/verification.json identify the current products and evidence.
+Accepted native:30 diagnostics,17 E7123 and13 E7135, complete233-file request. Ordinary path alternatives survive
+joins and refute overflow through the existing Boolean solver. Compound/split guards and opaque const operands pass;
+unguarded products reject. Full fixed comparison776/34/99 has no unexplained changes. Temporary tracing is removed.
 
 ## Remaining
 
 Trace native failures by producer/consumer families: shared requirements, allocation extents, attachment restoration,
 PreparedStart registration, returned-pointer retirement at driving197, initialized ranges and wait-link authority.
 Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains unresolved.
-The consumed permission probe confirmed all3 positives and all3 rejections and is removed. Full source/import matrices pass.
-BRA567_TRACE_ENTRY in trusted/check.rs is temporary. Six families are captured in native-candidate.log; remove the hook before commit.
-Verified arena cause: conditional field equalities remain guarded after presence is known because equalities only
-extracts derived ValueAlias. The repair derives both kinds through the same ordinary solver. Checker499, fixed suite775/34/99 and full native31 pass their comparison gates.
-Heap bytes are opaque machine multiplication. Its compound overflow guard reaches call evidence only as an Expression.
-The real guarded-products.bray probe reproduces this with typed inputs and opaque const results. Both compound/split
-guards must pass and unguarded multiplication must reject. Use compiler line locations, not normalized CRLF byte offsets.
-Inspect actual Result production/join/publication before changing numeric proof rules. Never assume no wrapping.
-commit_start changes a retained owner into a PostState loan; unlink/attachment snapshots differ by reference-field wrappers.
-Driving loses its view witness at a join. Trace these actual producer transitions, not consumer exceptions.
+All148 deferred source/import cases pass.
+The source/import owned-transfer matrices now run beyond the invalid nullable projection. Each has61 rejected cases
+that expect acceptance, with no accepted invalid controls. Most select owners across branches, shapes or deferred calls.
+Their expected mismatch identities are pinned. Audit selected-owner guarantee transport as one composition boundary.
+Framing lifted Present(payload) retains only payload lineage. Genuine whole-input contexts still survive. Contextual
+projection panics remain compiler invariants. nullable-selection.bray reproduces the remaining valid selection rejection.
 The tag-query helpers moved into condition/tags.rs without behavior changes, keeping new logic outside oversized values.rs.
 Trace operation/input/result, scoped, iteration, await/yield, cancellation, recovery and cleanup through all consumers.
 Verify native success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.

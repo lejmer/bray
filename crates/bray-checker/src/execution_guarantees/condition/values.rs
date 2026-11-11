@@ -269,6 +269,13 @@ impl ExecutionCondition {
 
     /// Replaces current contents without reclassifying the actual descriptor.
     pub(crate) fn with_current_contents(&self, contents: Self) -> Self {
+        // A lifted nullable has its payload's identity, not a separate whole-input
+        // context. Its retained children already carry the surviving authority.
+        if self.observation_kind().is_none() && !self.is_reference() && self.known_presence().is_some() {
+            return contents;
+        }
+
+
         match self.ownership_identity() {
             Some((ObservationKind::Reference, _)) => self.with_referent(contents),
             Some((ObservationKind::Owned, identity)) => Self::owned_value(identity.clone(), contents),

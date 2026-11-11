@@ -5,6 +5,27 @@ use super::merge::result_replacements;
 use crate::ExecutionCondition;
 use crate::execution_guarantees::common_components;
 
+/// Join actual predecessor constraints without inventing an unevaluated operand.
+/// Only immutable observations participate. A missing constraint contributes true,
+/// so forgetting a bounded formula cannot reintroduce it on the next iteration.
+pub(super) fn ordinary_alternatives(
+    left: &BTreeSet<(ExecutionCondition, bool)>,
+    right: &BTreeSet<(ExecutionCondition, bool)>,
+) -> ExecutionCondition {
+    use bray_bound_tree::BoundOperator;
+
+    let branch = |source: &BTreeSet<(ExecutionCondition, bool)>, other: &BTreeSet<(ExecutionCondition, bool)>| {
+        ExecutionCondition::operation(BoundOperator::LogicalAnd, source.difference(other)
+            .filter(|(condition, _)| !condition.contains_trusted() && !condition.observes_live(None))
+            .take(ExecutionCondition::WORK_LIMIT)
+            .map(|(condition, holds)| if *holds { condition.clone() } else {
+                ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition.clone()])
+            }).collect())
+    };
+
+    ExecutionCondition::operation(BoundOperator::LogicalOr, vec![branch(left, right), branch(right, left)])
+}
+
 pub(super) fn common_current_owner(
     left: &ExecutionCondition,
     right: &ExecutionCondition,
