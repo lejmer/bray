@@ -510,6 +510,14 @@ fn collect_reference_data(
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
         let Some(source) = source else { continue; };
         insert_snapshot(inputs, joined, source);
+
+        // Unlisted components project through this existing contents identity.
+        // Resolve them from the same actual predecessor as the complete snapshot.
+        if let ExecutionCondition::Constructed(base, _) = joined
+            && base.ownership_identity().is_some()
+        {
+            insert_snapshot(inputs, base, source);
+        }
     }
 
     if let ExecutionCondition::Constructed(_, fields) = joined {

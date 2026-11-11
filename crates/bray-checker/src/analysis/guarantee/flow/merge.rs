@@ -872,6 +872,55 @@ mod tests {
     use super::{BTreeMap, ExecutionCondition, ExecutionState, current_replacements};
 
     #[test]
+    fn joining_loan_postconditions_preserves_implicit_field_snapshots() {
+        use bray_bound_tree::{BoundUnitId, StorageMutation, StorageProjection};
+        use bray_symbols::SymbolOrdinal;
+        use std::sync::Arc;
+
+        let place = crate::ExecutionPlace::argument(SymbolOrdinal::new(2));
+        let origin = ExecutionCondition::Input(crate::ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let updated = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let (_, sites) = crate::test_support::expression_unit(BoundUnitId::new(0), |tree, origin| {
+            vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
+        });
+        let mutation = StorageMutation::Operation(sites[0].into());
+        let loan = origin.clone().borrowed();
+        let refreshed = loan.with_referent(ExecutionCondition::owned_value(origin.clone(),
+            ExecutionCondition::constructed(ExecutionCondition::post_state(mutation, origin),
+                [(updated, ExecutionCondition::Boolean(false))].into())));
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let substitution = crate::test_support::empty_substitution(predicate.into());
+        let held = |value: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), substitution, vec![value.project(marker).borrowed()]),
+        ));
+        let boundary = super::ExecutionJoin::Block(crate::analysis::id::AnalysisBlockId::from_slot(BoundUnitId::new(0), 1));
+
+        for valid in [false, true] {
+            let mut left = ExecutionState::default();
+            let mut right = ExecutionState::default();
+            for (state, value, established) in [(&mut left, &loan, true), (&mut right, &refreshed, valid)] {
+                state.assign(place.clone(), value.clone(), None);
+                if established {
+                    let guarantee = held(value.clone());
+                    state.carry_guarantee(value.clone(), guarantee.clone());
+                    guarantee.assume(true, &mut state.trusted_assumptions);
+                }
+            }
+
+            let mut joined = Some(left);
+            let incoming = Some(right);
+            super::merge(&mut joined, &incoming, boundary);
+            let state = joined.as_ref().expect("reachable joined loan");
+            let value = place.value_in(&state.current).expect("initialized joined reference");
+            assert_eq!(held(value.clone()).prove_trusted(&state.trusted_assumptions, &state.assumptions) == Some(true), valid,
+                "valid={valid}, value={value:?}, facts={:?}", state.trusted_assumptions);
+            assert_eq!(value.owned_components().count(), 0, "a loan cannot acquire its pointee's ownership");
+            assert!(!super::merge(&mut joined, &incoming, boundary), "the same predecessor must stabilize");
+        }
+    }
+
+    #[test]
     fn ordinary_branch_constraints_compose_without_reviving_forgotten_paths() {
         use bray_bound_tree::BoundOperator;
 
