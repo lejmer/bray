@@ -74,19 +74,16 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
         if !borrowed || condition == &ExecutionCondition::Unknown { return Vec::new(); }
 
         // The typed subject was projected from this same current argument context.
-        // A caller-owned object retains its guarantees when the temporary loan
-        // ends. Reached data alone cannot grant ownership to a borrowed object.
+        // A live backing context retains its guarantees when a temporary loan
+        // ends. This does not add an owned-result transfer for a borrowed input.
         let referent = condition.clone().into_referent();
-        let owned = state.current.live_entries()
-            .filter(|(place, _)| !self.borrowed_inputs.iter()
-                .chain(&self.disposal.borrowed_inputs).any(|input| input.contains(place)))
-            .map(|(_, value)| value).collect::<BTreeSet<_>>();
+        let contexts = state.current.live_values().collect::<BTreeSet<_>>();
         // The loan and owning value share immutable completion data, but retain
         // distinct authority. Moving an owner cannot depend on its temporary loan.
         let mut carriers = vec![condition.clone()];
 
         if referent != *condition
-            && crate::execution_guarantees::ObservationSet::retains_owner(&owned, &referent) {
+            && crate::execution_guarantees::ObservationSet::retains_owner(&contexts, &referent) {
             carriers.push(referent);
         }
 

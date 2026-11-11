@@ -108,12 +108,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if crate::representation::type_representation(self.request, ty)
             .is_some_and(crate::representation::is_scalar_value)
-            && value.ownership_identity().is_some_and(|(kind, _)|
-                kind == crate::execution_guarantees::ExecutionObservationKind::Reference)
         {
-            // Copying through a loan produces scalar data, independently of the
-            // storage access. Opaque reached data still has this actual read's identity.
-            let contents = value.into_referent();
+            // A scalar copy reads current data independently of its source's
+            // owner or loan wrapper. The immutable data is shared by this read.
+            let contents = value.computed_value().clone();
             return if contents == ExecutionCondition::Unknown {
                 ExecutionCondition::opaque_scalar(identity)
             } else { ExecutionCondition::scalar_observation(identity, contents) };
