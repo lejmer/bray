@@ -126,20 +126,20 @@ impl ExecutionState {
         self.trusted_assumptions.retain(|fact| !retired.contains(fact));
     }
 
-    /// Mutate pending entry snapshots only when their captured context changes.
-    pub(super) fn pending_entries_mut<'a>(
+    /// Mutate entry snapshots only when their captured context changes.
+    pub(super) fn entry_snapshots_mut<'a>(
         &'a mut self,
         changed: &'a impl Fn(&crate::ExecutionCallEvidence) -> bool,
     ) -> impl Iterator<Item = &'a mut crate::ExecutionCallEvidence> {
         self.entries
             .values_mut()
-            .filter(move |entry| entry.pending_execution && changed(entry))
+            .filter(move |entry| changed(entry))
             .chain(
                 self.deferred_invocations
                     .values_mut()
                     .flat_map(|entries| entries.producers.values_mut())
                     .filter(move |candidate| {
-                        candidate.entry.pending_execution && changed(&candidate.entry)
+                        changed(&candidate.entry)
                     })
                     .map(|candidate| std::sync::Arc::make_mut(&mut candidate.entry)),
             )
@@ -401,25 +401,11 @@ impl ExecutionState {
         self.allocation_owners
             .retain(|condition, owner| !stale(condition) && !stale(owner));
 
-        for entry in self.pending_entries_mut(&|entry| {
-            entry
-                .arguments
-                .values()
-                .chain(entry.copy_sources.values())
-                .any(stale)
-                || entry
-                    .assumptions
-                    .iter()
-                    .chain(&entry.trusted_assumptions)
-                    .any(|(condition, _)| stale(condition))
-        }) {
-            entry.arguments.retain(|_, value| !stale(value));
-            entry.copy_sources.retain(|_, value| !stale(value));
-            entry.assumptions.retain(|(condition, _)| !stale(condition));
+        self.retire_entry_context(&stale, &stale, &BTreeSet::new());
 
-            entry
-                .trusted_assumptions
-                .retain(|(condition, _)| !stale(condition));
+        for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution
+            && entry.arguments.values().any(stale)) {
+            entry.arguments.retain(|_, value| !stale(value));
         }
 
         for value in self
@@ -501,7 +487,7 @@ impl ExecutionState {
                     && crate::execution_guarantees::ObservationSet::retains_owner(stable_owners, owner))
         });
 
-        for entry in self.pending_entries_mut(&|entry| {
+        for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution && {
             let owners = entry.owned_arguments().collect::<BTreeSet<_>>();
 
             entry.trusted_boundary
@@ -611,7 +597,7 @@ impl ExecutionState {
             entries.join_values(
                 replacements,
                 identities,
-                (value != owner).then_some(&self.assumptions),
+                (value != owner).then_some((&self.assumptions, &self.current)),
             );
 
             match computations.entry(value) {

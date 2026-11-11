@@ -2,6 +2,18 @@ use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::ExecutionCondition;
 
 impl ExecutionCondition {
+    pub(crate) fn selector_place(&self) -> Option<&crate::ExecutionPlace> {
+        match self {
+            Self::ScalarValue(origin) => origin.selector_place(),
+            Self::Joined(_, _, place) => Some(place),
+            Self::PostState(_, origin) => match origin.as_ref() {
+                Self::Input(place) => Some(place),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// Reading a stored reference preserves its own referent instead of rebasing it on the container.
     pub(super) fn projected_observation(
         kind: ObservationKind,

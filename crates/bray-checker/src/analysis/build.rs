@@ -543,7 +543,8 @@ where
                     return false;
                 }
 
-                operation.may_propagate_synchronous_panic()
+                operation.may_propagate_synchronous_panic(self.request.view().expression(expression)
+                    .expect("checked operation retains its bound expression"))
             }
             Some(SemanticSelection::Iteration(selection)) => !matches!(
                 self.request

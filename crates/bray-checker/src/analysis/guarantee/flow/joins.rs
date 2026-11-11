@@ -204,6 +204,21 @@ mod tests {
     }
 
     #[test]
+    fn moving_scalar_storage_preserves_its_data_without_keeping_the_old_place() {
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let data = ExecutionCondition::ScalarValue(Arc::new(input(2)));
+        let source = ExecutionCondition::scalar_observation(input(0), data.clone());
+        let destination = input(1);
+        let moved = crate::execution_guarantees::owned_snapshot(&source, destination.clone(), &mut {
+            ExecutionCondition::WORK_LIMIT
+        });
+
+        assert_eq!(moved.storage_contents().map(|(place, _)| place), Some(&destination));
+        assert_eq!(moved.copied_value(), &data);
+        assert_eq!(moved.ownership_identity(), None);
+    }
+
+    #[test]
     fn nullable_joins_preserve_payloads_and_normalization_makes_progress() {
         use crate::execution_guarantees::ExecutionObservationKind;
 

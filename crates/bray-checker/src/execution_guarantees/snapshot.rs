@@ -323,6 +323,10 @@ pub(crate) fn owned_snapshot(
     }
 
     match source {
+        ExecutionCondition::Observation { contents, kind: ObservationKind::Scalar, .. }
+            if contents.ownership_identity().is_none() => {
+            ExecutionCondition::scalar_observation(identity, contents.as_ref().clone())
+        }
         ExecutionCondition::Observation { kind: ObservationKind::Scalar, .. } => source.clone(),
         ExecutionCondition::Observation { contents, kind: ObservationKind::Reference, .. } => {
             ExecutionCondition::reference_value(identity, contents.as_ref().clone())

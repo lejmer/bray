@@ -419,7 +419,8 @@ where
             }
             // Union construction has call syntax and declaration-owned defaults.
             Some(SemanticSelection::Operation(operation)) => {
-                hook_may_panic && operation.may_propagate_synchronous_panic()
+                hook_may_panic && operation.may_propagate_synchronous_panic(self.request().view().expression(expression)
+                    .expect("checked operation retains its bound expression"))
             }
             _ => false,
         }

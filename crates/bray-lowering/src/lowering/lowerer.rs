@@ -307,12 +307,16 @@ impl<'unit> Lowerer<'unit> {
         let receiver_cleanup = self.receiver_cleanup.take();
         let unit = self.builder.finish(entry);
 
-        super::receiver::finish_receiver_cleanup(
+        let unit = super::receiver::finish_receiver_cleanup(
             &self.input,
             unit,
             receiver_cleanup,
             &self.storages,
-        )
+        )?;
+
+        assert!(unit.is_valid(), "lowering produced invalid MIR: {:?}", unit.key());
+
+        Ok(unit)
     }
 
     pub(in crate::lowering) fn is_reachable(&self, entry: MirBlockId, target: MirBlockId) -> bool {

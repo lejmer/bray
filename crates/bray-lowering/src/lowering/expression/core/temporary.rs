@@ -60,7 +60,7 @@ impl Lowerer<'_> {
                 return true;
             }
 
-            let may_check = match self.input.semantic_selections().expression(expression) {
+            let may_change_block = match self.input.semantic_selections().expression(expression) {
                 Some(SemanticSelection::Call(selection)) => {
                     selection.evaluates_defaults()
                         || (selection.abi() == CallableAbi::Bray
@@ -71,7 +71,13 @@ impl Lowerer<'_> {
                             && selection.implementation_hook().is_none())
                 }
                 Some(SemanticSelection::Operation(operation)) => {
-                    operation.may_propagate_synchronous_panic()
+                    let constructs = matches!(operation, bray_bound_tree::SelectedOperation::Construction(_))
+                        || matches!(operation, bray_bound_tree::SelectedOperation::Member(member)
+                            if matches!(member.member(), bray_symbols::AnySymbolId::UnionVariant(_)));
+
+                    // Admission can split the block even when packing the value cannot panic.
+                    operation.may_propagate_synchronous_panic(bound)
+                        || constructs && self.requires_outgoing_admission(self.expression_type(expression))
                 }
                 Some(SemanticSelection::Iteration(selection)) => !matches!(
                     self.input
@@ -93,7 +99,7 @@ impl Lowerer<'_> {
                 | None => false,
             };
 
-            if may_check {
+            if may_change_block {
                 return true;
             }
 

@@ -131,7 +131,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .is_some_and(|expression| self.awaited_unknown(state, expression))
         {
             true
-        } else if deferred.is_empty() {
+        } else if invocation.expression().is_none_or(|expression| !matches!(
+            self.request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Await(_))
+        )) {
             self.dependencies
                 .calls()
                 .get(&invocation)
