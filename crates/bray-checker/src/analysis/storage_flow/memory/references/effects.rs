@@ -7,6 +7,8 @@ impl State {
         target: &Target,
         invalidation: &bray_bound_tree::StorageInvalidation,
     ) -> bool {
+        if invalidation.preserves_reference_slot(target) { return true; }
+
         let descriptors = match invalidation {
             bray_bound_tree::StorageInvalidation::All {
                 stable_descriptors, ..

@@ -192,7 +192,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         StorageInvalidation::All {
             stable_descriptors,
             stable_values,
-            normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
         }
     }
 
@@ -203,6 +203,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind, bray_symbols::TypeId, bool) -> bool,
         invalidation: &mut StorageInvalidation,
     ) {
+        let mut references = Vec::new();
         let opaque = matches!(invalidation, StorageInvalidation::All { .. });
 
         let (stable_descriptors, stable_values) = match invalidation {
@@ -294,7 +295,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // Pointer descriptors belong to the shared owner, separately
                     // from the mutable storage they reach.
                     if observation == bray_bound_tree::StorageObservationKind::Address {
-                        stable_descriptors.insert(value.clone());
+                        references.extend(targets.iter().map(|target| (value.clone(), target.project(&value.projections[path.projections.len()..]))));
                         observed = true;
                         continue;
                     }
@@ -331,6 +332,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
+        for (logical, physical) in references {
+            invalidation.preserve_reference_slot(logical, physical);
+        }
     }
 
     pub(super) fn preserve_shared_views(
@@ -339,6 +343,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind, bray_symbols::TypeId) -> bool,
         invalidation: &mut StorageInvalidation,
     ) {
+        let mut references = Vec::new();
         let (stable_descriptors, stable_values, changed) = match invalidation {
             StorageInvalidation::All { stable_descriptors, stable_values, .. } => (stable_descriptors, stable_values, None),
             StorageInvalidation::Observed { stable_descriptors, stable_values, accesses, .. } => {
@@ -368,7 +373,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let location = match access {
+            let location = if let Some((slot, _, _)) = self.input.entry_references.get(&(reference.clone(), 1)) {
+                crate::analysis::storage_flow::model::StorageFlowInput::reference_location(
+                    self.request.semantic_values(), memory, reference.root, slot, None,
+                )
+            } else { match access {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
                 Some(access) => self.input.reference_target(self.request.semantic_values(), memory, self.storage, access),
                 None if self
@@ -381,7 +390,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     Some(Target::storage(reference.clone()))
                 }
                 None => None,
-            };
+            } };
 
             // A shared loan protects each possible referent. Exact pointer identity
             // is unnecessary, but unknown or retired backing supplies no protection.
@@ -435,7 +444,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 {
                     // The copied logical path shares immutable projection metadata.
                     if address {
-                        stable_descriptors.insert(path.clone());
+                        references.extend(targets.iter().map(|target| (path.clone(), target.project(&path.projections[reference.projections.len()..]))));
 
                         if exact
                             && let Some(physical) = targets[0]
@@ -455,6 +464,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
+        for (logical, physical) in references {
+            invalidation.preserve_reference_slot(logical, physical);
+        }
     }
 
     pub(super) fn preserve_store_values(
@@ -885,7 +897,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 referents,
                 stable_descriptors,
                 stable_values: BTreeMap::new(),
-                normal_snapshots: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
             };
         }
 
@@ -1038,7 +1050,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 referents,
                 stable_descriptors,
                 stable_values: BTreeMap::new(),
-                normal_snapshots: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
             }
         } else {
             self.opaque_observations(memory, mutations.cloned())

@@ -1,100 +1,70 @@
 # BRA-567 active audit
 
-## Contract
+## Contract and method
 
 Complete [BRA-567](https://linear.app/bray-lang/issue/BRA-567) on [PR710](https://github.com/lejmer/bray/pull/710).
-Use feature/bra-567-async-root-orchestration in target/bra-567-audit. Original develop stays untouched.
-Checkpoint commits/pushes are authorized. After completion obtain independent review, set PR ready and Linear In Review.
+Work on feature/bra-567-async-root-orchestration in target/bra-567-audit. Leave original develop untouched.
+Checkpoint pushes are authorized. After semantic completion obtain independent review, set PR ready and Linear In Review.
 Never merge or mark Done.
 
-1. Derive transitions from actual CFG producers and ownership, storage, liveness and lowering consumers.
-2. Execute async-ownership-composition.bray natively with invalid variants.
+1. Inventory actual CFG producers and ownership, storage, liveness and lowering consumers.
+2. Prove native async-ownership-composition.bray and its invalid variants.
 3. Check production before consumption, authority retirement, identity versus contents and loop convergence.
-4. Keep comparison identities/expectations fixed. Unexplained regressions block expansion.
-5. Name paths, evidence and exclusions. Source/MIR success does not certify native composition.
+4. Freeze comparison identities, expected outcomes and versions. Unexplained regressions block expansion.
+5. State traced paths, evidence and exclusions. Source/MIR success does not certify native composition.
 
-Keep producer-owned facts, one current-value tree, alias model, witness ledger and composite storage flow.
-Reconstruction is a last resort. Reads must not replace whole-owner contents snapshots. Preserve specific diagnostic
-causes. Internal compiler defects panic where detected. User-source and external-input failures use structured diagnostics.
-Batch independent fixes/checks. Use proper Bray formatting. Keep records short and delete consumed task-owned probes/logs.
-No style/format until semantic completion. Then simplify production code/prune tests, perform AGENTS/DRY audit,
-run mutating cargo xtask style and cargo xtask format, inspect changes and rerun affected checks.
+Keep one current-value tree, alias model, witness ledger and composite storage flow. Carry producer-owned identities.
+Reconstruction is a last resort. Preserve specific diagnostic causes. Internal defects panic at their owning boundary.
+Batch independent checks. Use Bray formatting. Keep only necessary current records and remove consumed task artifacts.
+No style/format until semantic completion. Then simplify production code and prune redundant tests, audit AGENTS/DRY,
+run mutating cargo xtask style and cargo xtask format, and rerun affected checks.
 
 Root cleanup precedes terminal publication. Main authority, execution, attachments and providers survive outcomes,
-incidents and static disposal. Direct await creates no TCB. Closed admission permits cleanup. Blocked shutdown
-returns unresolved ownership. Share teardown state. Sync products retain no async executor or migrated Rust.
-Verify worker/deadline omission, native provenance/costs and from_core admission/refcounts. PreparedStart retains
-admission/registration through publication/rollback. EntryRestoration retains displaced context through abnormal exits.
-RetiredCell disposes control, pin and arena before vacancy. WaitResources retains leased storage through membership changes.
+incidents and static disposal. Direct await creates no TCB. Closed admission permits cleanup. Blocked shutdown returns
+unresolved ownership. Share teardown state. Sync products retain no async executor or migrated Rust. Verify worker/deadline
+omission, native provenance/costs and from_core admission/refcounts. PreparedStart retains admission/registration through
+publication/rollback. EntryRestoration retains displaced context through abnormal exits. RetiredCell disposes control,
+pin and arena before vacancy. WaitResources retains leased storage through membership changes.
 
-## Current evidence
+## Fixed evidence
 
-Frozen907 identities:778 passed,30 failed,99 ignored, with16 explained repairs. comparison.txt is unchanged.
-Four added controls pass, giving fixed911 totals782/30/99. Checker503/bound136 and focused18 pass.
-All248 owned-transfer and148 deferred cases pass each in source/import. Cleanup57/4 and predicates26/2/2 retain known failures.
-The20-case loan fixture covers borrowed/owned/fresh origins, entry/result-established evidence, repeated admission,
-source/import and missing-renewal negatives. No accepted invalids remain in the fixed suite. No style pass yet.
-Source/MIR async composition and3 invalid variants pass. Native composition has not run.
+Frozen907 identities:778 pass/30 fail/99 ignored, with16 explained repairs. comparison.txt and its SHA stay fixed.
+Four added controls give fixed911 totals782/30/99. Checker503, bound136 and focused18 pass. All248 owned-transfer and148
+deferred cases pass each source/import surface. Cleanup57/4 and predicates26/2/2 retain their known outcomes.
+Source/MIR async composition and3 invalid variants pass. Native composition has not run. No style pass yet.
 
-Current carrier/framing batch is source-validated. Retain actual loan and backing-context evidence in the existing ledger.
-Borrowed contexts gain no owned-result transfer. Frame current value and existing formal-input layout atomically.
-Actual ownership does not require a formal-input mapping. Normalized/explicit/fresh owners retain identity while overwritten
-contents are replaced. Scalar copies read current data. Pointer projection reads current descriptor bits while keeping a
-borrowed pointer-slot address distinct. Both newly strengthened boundary properties fail before and pass after their repairs.
-An accepted-invalid escaped-pointer regression was found and cleared. The complete fixed comparison has no unexplained changes.
-Production contains no tracing. Latest native verification completes with32 sites, unchanged after the scoped batch.
-Against original native.log, root_scope265 is repaired and3 added E7135 cascades all name the already-failing polling.stage.
-The shared completed arguments now allow publication of postconditions previously lost as Unknown. Their existing
-completion_dependencies correctly require verification of stage. No primary failure is added. Native composition remains blocked.
+Complete native gate:32 sites, unchanged by the current physical-slot batch, with no new identities. Against original
+native.log30, root_scope265 is repaired and3 added E7135 cascades name already-failing polling.stage. Current32 comprises
+16 E7123 requirements and16 E7135 reports. Eleven E7135 reports explicitly name a failing callable dependency.
+Count reports separately from causes. Current E7123 inventory:7 cleanup,4 marker and5 relational requirements.
 
-Original native.log has30 sites and remains the fixed native baseline.
-Count sites and cascades separately. Current inventory groups7 cleanup requirements,4 marker requirements,5 relational requirements and16 postcondition
-reports. Eleven postcondition reports explicitly name a failing callable dependency. Five have no such label.
-Do not interpret totals as bug counts or choose the next patch from a diagnostic alone.
+Established boundaries include completed argument snapshots, consumed reference captures, scoped completion/retirement,
+owned versus borrowed contents, and projected-owner nullable joins. Fixed controls reject overwrite, wrong-owner,
+fabricated-evidence and escaped-pointer variants. Keep these contracts while tracing later consumers.
 
-## Remaining
+## Current boundary
 
-Trace whole producer/consumer families before another implementation batch. Current audit follows physical slot disjointness,
-published invalidation, value/layout framing, aliases, input/result/entry carriers, join remapping/predecessor proof,
-captured call/Future entry, transfer, retirement and cleanup. Continue through every applicable operation path.
+Follow Current acquisition -> borrowed operations -> cleanup, including EntryScope's guarded optional Current.
+current(), create_execution() and start_frame() explicitly promise view_owned. Basic and composed small controls pass.
+The actual native program remains the reproduction. A rejected small probe was a permission-order setup error and is
+not regression evidence. The temporary source harness and all trace hooks are removed.
 
-Direct and implicit completion now refresh the evaluated argument tree once. Ordinary postconditions use that tree.
-Consumed reference descriptors come from the existing captured transfer before commit. Live inputs use final committed
-observations. Phase-specific input ordinals agree with entry environments and reverse lookup. Shared retirement handles
-scoped capabilities. Retained-contents comparison preserves fresh facts about an actual surviving owner while rejecting
-stale contents, another owner, borrowed reference-slot addresses and borrowed-to-owned authority conversion.
+Native trace: task_start unit1116252 receives a precise Current escape from start_frame. PreparedStart.exit unit946710
+(source75) produces it. At call10 a Replace effect removes an established Current.pointer entry slot. At call19 a
+returned pointer alias at slot9 participates in transitive escape, which adds owner.selected (field2307). The resulting
+Current contents epoch disagrees with its surviving view_owned guarantee in both composite and proof passes.
+The nested physical slot cannot be represented by observation_path. Do not flatten its entry snapshot into a mutable
+containing descriptor or patch cleanup to accept stale contents.
 
-Evidence: nested-borrow7 with independent negative causes, scoped10 across sync/async exit, retained-referent property
-(red before, green after), cursor loop4 sourced/external combinations, fixed911 and adjacent suites. Native32 unchanged.
-Cleanup evidence also survives owner movement and rejects overwrite/wrong-owner controls. No cleanup-publication change
-is justified by that path. Continue from native families rather than counting reports as independent bugs.
+Current batch carries proven physical reference slots in the existing invalidation publication. Shared views select
+prepared descriptor paths. Memory writes/effects consume exact physical identities. Merge intersects survival and
+atomic restriction carries it. Properties cover nested slots, exact replacement, revoked access authority and differing
+epochs. Fixed911 and native32 retain their expected outcomes. This has not repaired the native composition.
+Continue at the producer: establish why the failing operation still supplies no usable physical slot protection, then
+trace the same value through subsequent capture, mutation, aliasing, completion, failure and cleanup before rebuilding.
+Bound growth to this metadata and its existing producers/consumers. No reverse alias reconstruction.
 
-Projected-owner join batch is verified. An asymmetric nullable join erased a live extracted child by substituting its
-partially moved tuple parent. Exact child pins now shield it. Same-owner structured snapshots refine identity-only pins,
-while different owners and genuinely different contents still conflict. CFG properties cover both input/expression
-origins and richer-view insertion orders. Four new source/import cases cover valid join/move and wrong-owner/fabricated
-negatives. All248 cases pass each surface. The exact small source counterexample also passes. Fixed911, checker503,
-bound136 and adjacent checks retain their expected outcomes. Native32 is unchanged. The added driving219 regression was
-traced and cleared before acceptance. All hooks and consumed traces are removed.
-
-Next family: Current acquisition producer -> borrowed operations -> cleanup, and EntryScope's guarded optional Current
-through accessors, mutation and scoped exit. current() and create_execution/start_frame explicitly promise view_owned,
-so inspect actual publication and consumption before changing source contracts. Native composition remains blocked.
-
-Then verify native async success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.
-Finish production simplification/test pruning, AGENTS/DRY audit, mutating style/format, affected checks and independent
-PR review before Ready/In Review.
-Two frozen negatives need genuine controls: trusted_implementation_does_not_export_undeclared_authority and
-shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. The terminating-branch negative has no owner input.
-
-## Execution
-
-One CPU-heavy operation at a time. No Rust edits during Rust builds. Default24 Cargo processors/16 tooling codegen units.
-No clean. Share original target and target/cargo build dir. LLVM prefixes use target/toolchains/llvm/active.
-Compiler/linker/produced-executable workflows run outside sandbox. Native uses Rust1.98.1, LLVM bin on PATH and worktree target/audit as TMP/TEMP.
-Build compiler, driver and tests together, including focused compilation baselines, to avoid dependency-feature rebuilds.
-Capture executable paths/hashes from Cargo JSON in verification.json.
-Native command: target/tooling/xtask.exe runtime-artifact smoke-test --output target/audit/native --profile release.
-Compare native diagnostics only after the explicit completion marker. comparison-candidate.log holds current fixed-suite results.
-Keep only original comparison.txt, current native.log, verification.json and unresolved probes. Consume other logs promptly.
-Git trust: public lejmer/bray, git@github.com:lejmer/bray.git, authenticated lejmer. No goal or review agent is active.
+Use the ABI2 standard-library bundle at target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
+Direct233-source CLI checks add3 missing-native-link cascades and are investigation controls, not the native gate.
+Remaining completion gates: native async success/panic/cancel/startup rollback/blocked shutdown, result/static disposal,
+foreign restoration, architecture/test pruning, final style/format, independent review and PR/Linear review handoff.

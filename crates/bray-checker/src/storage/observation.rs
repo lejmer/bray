@@ -142,7 +142,7 @@ impl Footprint {
             referents: BTreeSet::new(),
             stable_descriptors: BTreeSet::new(),
             stable_values: BTreeMap::new(),
-            normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
         });
 
         let mut static_types = BTreeMap::<_, BTreeSet<_>>::new();
@@ -948,7 +948,7 @@ pub(crate) fn restrict(
         unreachable!("prepared atomic frame contains resolved observations");
     };
 
-    let (mut accesses, mut referents, mut snapshots, mut stable_descriptors, stable_values, normal_snapshots) =
+    let (mut accesses, mut referents, mut snapshots, mut stable_descriptors, stable_values, stable_reference_slots, normal_snapshots) =
         match invalidation {
             StorageInvalidation::Observed {
                 accesses,
@@ -956,6 +956,7 @@ pub(crate) fn restrict(
                 snapshots,
                 stable_descriptors,
                 stable_values,
+                stable_reference_slots,
                 normal_snapshots,
                 ..
             } => (
@@ -964,11 +965,13 @@ pub(crate) fn restrict(
                 snapshots,
                 stable_descriptors,
                 stable_values,
+                stable_reference_slots,
                 normal_snapshots,
             ),
             StorageInvalidation::All {
                 stable_values,
                 mut stable_descriptors,
+                stable_reference_slots,
                 normal_snapshots,
             } => {
                 let mut accesses = frame_paths.clone();
@@ -988,6 +991,7 @@ pub(crate) fn restrict(
                     snapshots: BTreeMap::new(),
                     stable_descriptors,
                     stable_values,
+                    stable_reference_slots,
                     normal_snapshots,
                 };
             }
@@ -1032,6 +1036,7 @@ pub(crate) fn restrict(
         snapshots,
         stable_descriptors,
         stable_values,
+        stable_reference_slots,
         normal_snapshots,
     }
 }
