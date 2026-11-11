@@ -44,12 +44,17 @@ impl ExecutionCondition {
     pub(crate) fn owner_identity(&self) -> &Self {
         let mut value = self;
 
-        while let Self::Constructed(base, _) = value {
-            if **base == Self::Unknown {
-                break;
+        loop {
+            match value {
+                Self::Constructed(base, _) if **base != Self::Unknown => value = base,
+                _ => {
+                    if let Some(payload) = value.nullable_payload_snapshot() {
+                        value = payload;
+                    } else {
+                        break;
+                    }
+                }
             }
-
-            value = base;
         }
 
         value
@@ -85,6 +90,7 @@ impl ExecutionCondition {
                 | Self::ScopedCapability(_)
                 | Self::PostState(_, _)
                 | Self::Joined(_, _, _)
+                | Self::CapturedInput { .. }
                 | Self::Result => {
                     path.reverse();
 
@@ -107,19 +113,20 @@ impl ExecutionCondition {
 
     pub(crate) fn is_owned_projection_of(&self, owner: &Self) -> bool {
         let owner = owner.owner_identity();
-        let mut value = self.owner_identity();
 
-        loop {
-            if value == owner {
-                return true;
-            }
+        self.ownership_ancestors().any(|value| {
+            value == owner || matches!((value, owner), (Self::Input(value), Self::Input(owner)) if owner.contains(value))
+        })
+    }
 
-            match (value, owner) {
-                (Self::Input(value), Self::Input(owner)) => return owner.contains(value),
-                (Self::Projection(_, parent), _) => value = parent.owner_identity(),
-                _ => return false,
+    /// Traverses containing value observations and captured frame identities.
+    pub(crate) fn ownership_ancestors(&self) -> impl Iterator<Item = &Self> {
+        std::iter::successors(Some(self.owner_identity()), |value| match value {
+            Self::Projection(_, parent) | Self::Tagged(_, parent) | Self::CapturedInput { owner: parent, .. } => {
+                Some(parent.owner_identity())
             }
-        }
+            _ => None,
+        })
     }
 
     /// Returns the exact input places observed by this checked condition.
@@ -141,7 +148,8 @@ impl ExecutionCondition {
                 | Self::Present(value)
                 | Self::Entry {
                     condition: value, ..
-                } => pending.push(value),
+                }
+                | Self::CapturedInput { owner: value, .. } => pending.push(value),
                 Self::Constructed(base, fields) => {
                     pending.push(base);
 
@@ -184,7 +192,8 @@ impl ExecutionCondition {
                 | Self::Present(value)
                 | Self::Entry {
                     condition: value, ..
-                } => pending.push(value),
+                }
+                | Self::CapturedInput { owner: value, .. } => pending.push(value),
                 _ => {}
             }
         }
@@ -253,8 +262,10 @@ impl ExecutionCondition {
 
             match value {
                 Self::Boolean(_) | Self::Literal(_) | Self::Variant(_) => {}
+                Self::CapturedInput { owner, .. } => pending.push(owner),
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
+                | Self::Projection(_, value)
                 | Self::Trusted(value)
                 | Self::Borrowed(value)
                 | Self::Present(value) => pending.push(value),
@@ -334,30 +345,43 @@ impl ExecutionCondition {
         })
     }
 
-    pub(crate) fn observes_borrowed(&self, changed: Option<&Self>) -> bool {
-        self.observes_borrowed_where(|value| changed.is_none_or(|changed| value.observes(changed)))
+    pub(crate) fn observes_live(&self, changed: Option<&Self>) -> bool {
+        self.observes_live_where(|value| changed.is_none_or(|changed| value.observes(changed)))
     }
 
-    pub(crate) fn observes_borrowed_where(&self, observes: impl Fn(&Self) -> bool) -> bool {
-        let mut pending = vec![self];
+    /// Inspect live borrowed observations and entry guards that are not captured yet.
+    pub(crate) fn observes_live_where(&self, observes: impl Fn(&Self) -> bool) -> bool {
+        let mut pending = vec![(self, false)];
 
-        while let Some(condition) = pending.pop() {
-            match condition {
-                Self::Borrowed(value) if observes(value) => {
+        while let Some((condition, live)) = pending.pop() {
+            if live && condition.observation_path().is_some() {
+                if observes(condition) {
                     return true;
                 }
+
+                continue;
+            }
+
+            match condition {
+                Self::Borrowed(value) => pending.push((value, true)),
+                Self::Entry {
+                    condition,
+                    captured: false,
+                } => pending.push((condition, true)),
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
-                | Self::Call(_, _, _, operands) => pending.extend(operands.iter()),
+                | Self::Call(_, _, _, operands) => {
+                    pending.extend(operands.iter().map(|value| (value, live)))
+                }
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Trusted(value)
                 | Self::Projection(_, value)
-                | Self::Present(value) => pending.push(value),
-                Self::Entry {
-                    condition,
-                    captured: false,
-                } => pending.push(condition),
+                | Self::Present(value) => pending.push((value, live)),
+                Self::Constructed(base, fields) => {
+                    pending.push((base, live));
+                    pending.extend(fields.iter().map(|(_, value)| (value, live)));
+                }
                 _ => {}
             }
         }

@@ -124,14 +124,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
 
         let normalize = |conditions: &BTreeSet<(ExecutionCondition, bool)>| {
-            conditions
-                .iter()
+            entry
+                .proof_facts(conditions)
                 .map(|(condition, value)| {
                     (
                         condition
                             .with_equalities(&equalities)
                             .spatial_observations(&self.spatial_predicates),
-                        *value,
+                        value,
                     )
                 })
                 .collect::<BTreeSet<_>>()

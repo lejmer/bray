@@ -37,13 +37,13 @@ pub(in crate::analysis) fn merge(
 
     changed |= dependencies != target.completion_dependencies.len();
 
-    let before = target.deferred_invocations.len();
-
-    target
-        .deferred_invocations
-        .retain(|value, source| incoming.deferred_invocations.get(value) == Some(source));
-
-    changed |= before != target.deferred_invocations.len();
+    for (owner, entries) in &incoming.deferred_invocations {
+        changed |= target
+            .deferred_invocations
+            .entry(owner.clone())
+            .or_default()
+            .merge(entries);
+    }
 
     for (expression, evidence) in &incoming.entries {
         match target.entries.entry(*expression) {
@@ -75,11 +75,15 @@ pub(in crate::analysis) fn merge(
 
     // Proven truth is intersected below; retain every possible carrier obligation.
     for (carrier, witness) in &incoming.witnesses {
-        changed |= target
-            .witnesses
-            .entry(carrier.clone())
-            .or_default()
-            .merge(witness);
+        if let Some(previous) = target.witnesses.get_mut(carrier) {
+            changed |= previous.merge(witness);
+        } else {
+            target
+                .witnesses
+                .insert(carrier.clone(), std::sync::Arc::clone(witness));
+
+            changed = true;
+        }
     }
 
     let before = target.trusted_assumptions.len();
@@ -369,10 +373,7 @@ fn publish_owned_results(
     incoming: &mut std::borrow::Cow<'_, ExecutionState>,
     owned_results: BTreeMap<
         ExecutionCondition,
-        bray_symbols::DependencyOwnedResult<
-            bray_symbols::ConstantProjectionKind,
-            ExecutionCondition,
-        >,
+        bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition>,
     >,
 ) -> bool {
     let mut changed = false;
@@ -596,7 +597,7 @@ pub(super) fn result_replacements(
             for (field, component) in fields.iter() {
                 result_replacements(
                     component,
-                    &joined.owner_identity().clone().project(*field),
+                    &joined.clone().project(*field),
                     stable_values,
                     stable_identities,
                     values,
@@ -608,7 +609,6 @@ pub(super) fn result_replacements(
             result_replacements(
                 component,
                 &joined
-                    .owner_identity()
                     .clone()
                     .project(bray_bound_tree::StorageProjection::NullableValue),
                 stable_values,

@@ -1,6 +1,31 @@
 use bray_bound_tree::BoundExpressionId;
 use bray_symbols::{DependencyRequirement, LocalBindingSymbolId};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+/// Scope obligations and portable dependencies captured by the same report owner.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ReportDependencies {
+    pub(crate) subjects: BTreeSet<bray_bound_tree::BoundDependencySubject>,
+    pub(crate) requirements: BTreeSet<DependencyRequirement>,
+}
+
+impl ReportDependencies {
+    pub(crate) fn merge(self: &mut Arc<Self>, incoming: &Self) -> bool {
+        if incoming.subjects.is_subset(&self.subjects)
+            && incoming.requirements.is_subset(&self.requirements)
+        {
+            return false;
+        }
+
+        let retained = Arc::make_mut(self);
+
+        retained.subjects.extend(incoming.subjects.iter().copied());
+        retained.requirements.extend(incoming.requirements.iter().cloned());
+
+        true
+    }
+}
 
 /// Possible retained dependencies travel with the same control-flow state as storage.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -20,7 +45,7 @@ pub(crate) struct State {
             bray_bound_tree::BoundExecutionSite,
             bray_bound_tree::CallReportOutput,
         ),
-        BTreeSet<DependencyRequirement>,
+        Arc<ReportDependencies>,
     >,
     completed_reports: Option<BTreeSet<DependencyRequirement>>,
     abnormal_reports: Option<BTreeSet<DependencyRequirement>>,
@@ -36,7 +61,16 @@ impl State {
         changed |= merge_map(&mut self.sources, &incoming.sources);
         changed |= merge_map(&mut self.call_definitions, &incoming.call_definitions);
         changed |= merge_map(&mut self.reports, &incoming.reports);
-        changed |= merge_map(&mut self.report_candidates, &incoming.report_candidates);
+
+        for (output, dependencies) in &incoming.report_candidates {
+            if let Some(previous) = self.report_candidates.get_mut(output) {
+                changed |= previous.merge(dependencies);
+            } else {
+                self.report_candidates.insert(*output, Arc::clone(dependencies));
+                changed = true;
+            }
+        }
+
         changed |= super::core::extend(&mut self.returned, incoming.returned.iter().cloned());
 
         for (binding, expression) in &incoming.borrowed_bindings {
@@ -69,17 +103,17 @@ impl State {
         &mut self,
         occurrence: bray_bound_tree::BoundExecutionSite,
         output: bray_bound_tree::CallReportOutput,
-        requirements: BTreeSet<DependencyRequirement>,
+        dependencies: Arc<ReportDependencies>,
     ) {
         self.report_candidates
-            .insert((occurrence, output), requirements);
+            .insert((occurrence, output), dependencies);
     }
 
     pub(crate) fn report_candidate(
         &self,
         occurrence: bray_bound_tree::BoundExecutionSite,
         output: bray_bound_tree::CallReportOutput,
-    ) -> Option<&BTreeSet<DependencyRequirement>> {
+    ) -> Option<&Arc<ReportDependencies>> {
         self.report_candidates.get(&(occurrence, output))
     }
 
@@ -145,12 +179,18 @@ impl State {
         output: bray_bound_tree::CallReportOutput,
         boundary: Option<BoundExpressionId>,
     ) {
-        let requirements = self
+        let dependencies = self
             .report_candidates
             .remove(&(occurrence, output))
             .expect("a checked report output has its entry dependency snapshot");
 
         self.discard_report_candidates(occurrence);
+
+        let requirements = match Arc::try_unwrap(dependencies) {
+            Ok(dependencies) => dependencies.requirements,
+            Err(shared) => shared.requirements.clone(),
+        };
+
         self.retain_reports(boundary, requirements);
     }
 

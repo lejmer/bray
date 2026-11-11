@@ -32,54 +32,88 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
         return;
     };
 
-    let invocation = domain
-        .awaited_invocation(state, expression)
-        .unwrap_or(occurrence);
+    let mut deferred = domain
+        .awaited_invocations(state, expression)
+        .collect::<Vec<_>>();
 
-    let Some(contract) = domain.dependencies.calls().get(&invocation) else {
-        return;
-    };
-
-    // Creating an inactive frame owns its inputs. Driving it performs the extraction.
-    if invocation == occurrence && contract.deferred_effects().is_some() {
-        return;
+    if matches!(domain.semantics.selections().expression(expression), Some(bray_bound_tree::SemanticSelection::Call(call)) if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::FutureStart))
+    {
+        // Starting a task activates its body even when the task is later cancelled or disposed.
+        deferred.extend(
+            state
+                .deferred_entries(&domain.value(state, expression))
+                .into_iter()
+                .flat_map(|value| value.producers.iter())
+                .filter(|(_, candidate)| {
+                    super::super::deferred::possible(&candidate.selection, &state.assumptions)
+                })
+                .map(|(source, candidate)| (*source, &candidate.entry)),
+        );
     }
 
-    let Some(entry) = state.entries.get(&invocation) else {
-        return;
+    let entries = if deferred.is_empty() {
+        state
+            .entries
+            .get(&occurrence)
+            .map(|entry| (occurrence, entry))
+            .into_iter()
+            .collect::<Vec<_>>()
+    } else {
+        deferred
+            .into_iter()
+            .map(|(source, entry)| (source, entry.as_ref()))
+            .collect()
     };
 
-    for (transfer, cases) in contract.owned_result().guarded_transfers() {
-        let crate::ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
-            domain.request.semantic_values(),
-            transfer.input(),
-            contract.input_count(),
-        )
-        .expect("checked owned input decodes in the same semantic store") else {
-            unreachable!("checked ownership source contains only input projections");
+    for (invocation, entry) in entries {
+        let Some(contract) = domain.dependencies.calls().get(&invocation) else {
+            continue;
         };
 
-        let root = crate::ExecutionPlace {
-            root: input.root.clone(),
-            projections: std::sync::Arc::new([]),
-        };
+        if invocation == occurrence && contract.deferred_effects().is_some() {
+            continue;
+        }
 
-        let mut value = root
-            .value_in(&entry.arguments)
-            .unwrap_or(crate::ExecutionCondition::Unknown);
+        for (transfer, cases) in contract.owned_result().guarded_transfers() {
+            let crate::ExecutionCondition::Input(input) =
+                crate::execution_condition_from_type_term(
+                    domain.request.semantic_values(),
+                    transfer.input(),
+                    contract.input_count(),
+                )
+                .expect("checked owned input decodes in the same semantic store")
+            else {
+                unreachable!("checked ownership source contains only input projections");
+            };
 
-        for (index, projection) in input.projections.iter().enumerate() {
-            if state.directly_carries_witness(&value)
-                && input.projections[index..].iter().any(|projection| {
-                    *projection != bray_symbols::ConstantProjectionKind::NullableValue
-                })
-            {
-                let condition = cases
-                    .into_iter()
-                    .copied()
-                    .chain(transfer.condition())
-                    .map(|condition| {
-                        crate::execution_condition_from_type_term(
+            let root = crate::ExecutionPlace {
+                root: input.root.clone(),
+                projections: std::sync::Arc::new([]),
+            };
+
+            let mut value = root
+                .value_in(&entry.arguments)
+                .unwrap_or(crate::ExecutionCondition::Unknown);
+
+            for (index, projection) in input.projections.iter().enumerate() {
+                if (state.directly_carries_witness(&value)
+                    || state
+                        .witnesses
+                        .get(value.owner_identity())
+                        .is_some_and(|witness| {
+                            witness.is_owning(&entry.trusted_assumptions, &entry.assumptions)
+                        }))
+                    && input.projections[index..].iter().any(|projection| {
+                        *projection != bray_symbols::ConstantProjectionKind::NullableValue
+                    })
+                {
+                    let condition =
+                        cases
+                            .into_iter()
+                            .copied()
+                            .chain(transfer.condition())
+                            .map(|condition| {
+                                crate::execution_condition_from_type_term(
                             domain.request.semantic_values(),
                             condition,
                             contract.input_count(),
@@ -94,20 +128,21 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                             &crate::ExecutionCondition::Result,
                             &mut { crate::ExecutionCondition::WORK_LIMIT },
                         )
-                    })
-                    .reduce(|left, right| {
-                        crate::ExecutionCondition::operation(
-                            bray_bound_tree::BoundOperator::LogicalAnd,
-                            vec![left, right],
-                        )
-                    });
+                            })
+                            .reduce(|left, right| {
+                                crate::ExecutionCondition::operation(
+                                    bray_bound_tree::BoundOperator::LogicalAnd,
+                                    vec![left, right],
+                                )
+                            });
 
-                transfers.push((occurrence, condition));
+                    transfers.push((occurrence, condition));
 
-                break;
+                    break;
+                }
+
+                value = value.component(*projection);
             }
-
-            value = value.component(*projection);
         }
     }
 }

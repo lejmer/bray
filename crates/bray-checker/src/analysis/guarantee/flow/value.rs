@@ -241,7 +241,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             bray_bound_tree::StorageIdentity::Temporary(expression)
             | bray_bound_tree::StorageIdentity::Allocation(expression)
             | bray_bound_tree::StorageIdentity::Result(AnyBoundNodeId::Expression(expression)) => {
-                self.value(state, expression)
+                let owner = ExecutionCondition::Expression(expression);
+
+                // Physical frame storage names the formed owner after its expression cache expires.
+                if state.deferred_entries(&owner).is_some() {
+                    owner
+                } else {
+                    self.value(state, expression)
+                }
             }
             bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } => {
                 ExecutionCondition::ScopedCapability(expression)
@@ -356,11 +363,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.assign(place, value);
     }
 
-    pub(in crate::analysis) fn task_effect_source(
+    pub(in crate::analysis) fn task_invocations(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
-    ) -> Option<bray_bound_tree::BoundExecutionSite> {
+    ) -> Option<std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>> {
         let bray_bound_tree::SemanticSelection::Call(call) =
             self.semantics.selections().expression(expression)?
         else {
@@ -371,19 +378,46 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             call.implementation_hook()?,
         )?;
 
-        let value = if call.evaluates_defaults() {
-            self.invocation_value(
-                state,
-                bray_bound_tree::BoundExecutionSite::CallInput {
-                    expression,
-                    ordinal: bray_symbols::SymbolOrdinal::new(0),
-                },
-            )
-        } else {
-            self.value(state, call.receiver()?.expression())
+        let value = self.receiver_value(state, expression, call);
+
+        state
+            .deferred_entries(&value)?
+            .known_sources(&state.assumptions)
+    }
+
+    pub(super) fn started_future(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> Option<ExecutionCondition> {
+        let bray_bound_tree::SemanticSelection::Call(call) =
+            self.semantics.selections().expression(expression)?
+        else {
+            return None;
         };
 
-        self.deferred_effect_source(state, &value)
+        if call.implementation_hook() != Some(bray_compiler_known::ImplementationHook::FutureStart)
+        {
+            return None;
+        }
+
+        Some(self.receiver_value(state, expression, call))
+    }
+
+    pub(super) fn receiver_value(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+        call: &bray_bound_tree::SelectedCall,
+    ) -> ExecutionCondition {
+        if call.evaluates_defaults() {
+            self.invocation_value(state, bray_bound_tree::BoundExecutionSite::CallInput {
+                expression,
+                ordinal: bray_symbols::SymbolOrdinal::new(0),
+            })
+        } else {
+            self.value(state, call.receiver().expect("selected receiver operation retains its receiver").expression())
+        }
     }
 
     pub(in crate::analysis) fn inactive_future_captures(
@@ -391,7 +425,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         ty: bray_symbols::TypeId,
         path: &bray_bound_tree::StoragePath,
-    ) -> Option<&[bray_symbols::TypeId]> {
+    ) -> Option<Vec<bray_symbols::TypeId>> {
         if crate::representation::type_representation(self.request, ty)
             != Some(bray_compiler_known::RepresentationRole::Future)
         {
@@ -399,88 +433,66 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let value = self.storage_path_value(state, path);
+        let entries = state.deferred_entries(&value)?;
+        let mut captures = std::collections::BTreeSet::new();
 
-        let ExecutionCondition::Expression(source) = value.owner_identity() else {
-            return None;
-        };
+        for source in entries.known_sources(&state.assumptions)? {
+            let (types, _) = self
+                .disposal
+                .plan
+                .future_cleanup
+                .get(&source.expression()?)?;
 
-        // Capture disposal is selected at construction, even when the body has
-        // no deferred effects. The creator table retains that independent fact.
-        self.disposal
-            .plan
-            .future_cleanup
-            .get(source)
-            .map(|(captures, _)| captures.as_slice())
+            captures.extend(types.iter().copied());
+        }
+
+        Some(captures.into_iter().collect())
     }
 
-    pub(in crate::analysis) fn task_cleanup_source(
+    pub(in crate::analysis) fn task_cleanup_invocations(
         &self,
         state: &ExecutionState,
         ty: bray_symbols::TypeId,
         path: &bray_bound_tree::StoragePath,
-    ) -> Option<bray_bound_tree::BoundExecutionSite> {
+    ) -> Option<std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>> {
         if crate::representation::type_representation(self.request, ty)
             != Some(bray_compiler_known::RepresentationRole::Task)
         {
             return None;
         }
 
-        let value = self.storage_path_value(state, path);
-
-        self.deferred_effect_source(state, &value)
+        state
+            .deferred_entries(&self.storage_path_value(state, path))?
+            .known_sources(&state.assumptions)
     }
 
-    fn deferred_effect_source(
+    /// Complete known task effects with the cleanup phases that can execute.
+    /// Observations transfer the body result. Disposal also destroys that result.
+    pub(in crate::analysis) fn task_cleanup_types(
         &self,
-        state: &ExecutionState,
-        value: &ExecutionCondition,
-    ) -> Option<bray_bound_tree::BoundExecutionSite> {
-        let value = value.owner_identity();
+        sources: &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
+        discard_result: bool,
+    ) -> Option<std::collections::BTreeSet<bray_symbols::TypeId>> {
+        let mut types = std::collections::BTreeSet::new();
 
-        if let Some(source) = state.deferred_invocations.get(value) {
-            return Some(*source);
+        for source in sources {
+            let expression = source.expression()?;
+
+            let (captures, result) = self.disposal.plan.future_cleanup.get(&expression)?;
+
+            types.extend(captures.iter().copied());
+
+            if discard_result && *result != bray_bound_tree::AsyncStorageCleanupRequirement::None {
+                let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+                    self.semantics.selections().expression(expression)
+                else {
+                    unreachable!("prepared future cleanup retains its selected call");
+                };
+
+                types.insert(call.resolution().result().completion_type());
+            }
         }
 
-        let source = self.deferred_invocation(value)?;
-
-        // Cancellation destroys captures before the first poll or the retained
-        // result after completion. Reuse the owning cleanup classification for both.
-        self.disposal
-            .plan
-            .future_cleanup
-            .get(&source)
-            .is_some_and(|(captures, result)| {
-                captures.is_empty()
-                    && *result == bray_bound_tree::AsyncStorageCleanupRequirement::None
-            })
-            .then(|| source.into())
-    }
-
-    fn deferred_invocation(&self, value: &ExecutionCondition) -> Option<BoundExpressionId> {
-        let ExecutionCondition::Expression(source) = value.owner_identity() else {
-            return None;
-        };
-
-        self.dependencies
-            .calls()
-            .get(&(*source).into())?
-            .deferred_effects()
-            .map(|_| *source)
-    }
-
-    pub(in crate::analysis) fn awaited_invocation(
-        &self,
-        state: &ExecutionState,
-        expression: BoundExpressionId,
-    ) -> Option<bray_bound_tree::BoundExecutionSite> {
-        let bray_bound_tree::BoundExpression::Await(awaited) =
-            self.request.view().expression(expression)?
-        else {
-            return None;
-        };
-
-        let observed = self.value(state, awaited.operand());
-
-        self.deferred_invocation(&observed).map(Into::into)
+        Some(types)
     }
 }

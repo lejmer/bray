@@ -3,6 +3,7 @@ mod cleanup_shapes;
 mod constants;
 mod default_arguments;
 mod default_borrows;
+mod deferred_completion;
 mod dependencies;
 mod discovery;
 mod fixtures;

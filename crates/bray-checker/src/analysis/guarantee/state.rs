@@ -4,12 +4,14 @@ use bray_bound_tree::BoundExpressionId;
 
 use crate::ExecutionCondition;
 
+pub(super) type DeferredInvocations = BTreeMap<ExecutionCondition, super::deferred::DeferredValue>;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ExecutionState {
     pub(super) trust_boundaries: BTreeSet<BoundExpressionId>,
     pub(super) assumptions: BTreeSet<(ExecutionCondition, bool)>,
     pub(super) witnesses:
-        BTreeMap<ExecutionCondition, crate::execution_guarantees::ExecutionWitness>,
+        BTreeMap<ExecutionCondition, std::sync::Arc<crate::execution_guarantees::ExecutionWitness>>,
     pub(super) trusted_assumptions: BTreeSet<(ExecutionCondition, bool)>,
     pub(super) allocation_owners: BTreeMap<ExecutionCondition, ExecutionCondition>,
     pub(super) current: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
@@ -18,14 +20,10 @@ pub(crate) struct ExecutionState {
     pub(super) result: ExecutionCondition,
     pub(super) owned_results: BTreeMap<
         ExecutionCondition,
-        bray_symbols::DependencyOwnedResult<
-            bray_symbols::ConstantProjectionKind,
-            ExecutionCondition,
-        >,
+        bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition>,
     >,
     pub(super) entries: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::ExecutionCallEvidence>,
-    pub(super) deferred_invocations:
-        BTreeMap<ExecutionCondition, bray_bound_tree::BoundExecutionSite>,
+    pub(super) deferred_invocations: DeferredInvocations,
     pub(super) completion_dependencies: BTreeSet<crate::ExecutionCompletionDependency>,
 }
 
@@ -66,29 +64,63 @@ pub(super) fn update_parent_observations(
 }
 
 impl ExecutionState {
-    pub(super) fn deferred_owner(
+    /// Mutate pending entry snapshots only when their captured context changes.
+    pub(super) fn pending_entries_mut<'a>(
+        &'a mut self,
+        changed: &'a impl Fn(&crate::ExecutionCallEvidence) -> bool,
+    ) -> impl Iterator<Item = &'a mut crate::ExecutionCallEvidence> {
+        self.entries
+            .values_mut()
+            .filter(move |entry| entry.pending_execution && changed(entry))
+            .chain(
+                self.deferred_invocations
+                    .values_mut()
+                    .flat_map(|entries| entries.producers.values_mut())
+                    .filter(move |candidate| {
+                        candidate.entry.pending_execution && changed(&candidate.entry)
+                    })
+                    .map(|candidate| std::sync::Arc::make_mut(&mut candidate.entry)),
+            )
+    }
+
+    pub(super) fn resume_owned_witnesses(
+        &mut self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+    ) {
+        let entry = &self.entries[&invocation];
+
+        let mut assumptions = entry.assumptions.clone();
+
+        assumptions.extend(self.assumptions.iter().cloned());
+
+        for owner in &entry.witness_inputs {
+            let Some(witness) = self.witnesses.get_mut(owner) else {
+                continue;
+            };
+
+            let mut resumed = false;
+
+            for condition in witness.conditions.keys() {
+                if condition.prove_trusted(&entry.trusted_assumptions, &assumptions) == Some(true) {
+                    resumed = true;
+
+                    condition
+                        .clone()
+                        .assume(true, &mut self.trusted_assumptions);
+                }
+            }
+
+            if resumed && !witness.available {
+                std::sync::Arc::make_mut(witness).available = true;
+            }
+        }
+    }
+
+    pub(super) fn deferred_entries(
         &self,
         value: &ExecutionCondition,
-    ) -> Option<(
-        bray_bound_tree::BoundExecutionSite,
-        &crate::ExecutionCallEvidence,
-    )> {
-        let owner = value.owner_identity();
-
-        let invocation = self.deferred_invocations.get(owner).copied().or_else(|| {
-            if let ExecutionCondition::Expression(expression) = owner {
-                Some((*expression).into())
-            } else {
-                None
-            }
-        })?;
-
-        let entry = self
-            .entries
-            .get(&invocation)
-            .filter(|entry| entry.pending_execution)?;
-
-        Some((invocation, entry))
+    ) -> Option<&super::deferred::DeferredValue> {
+        self.deferred_invocations.get(value.owner_identity())
     }
 
     /// Visits initialized owned components and the checked captures of pending futures.
@@ -98,6 +130,7 @@ impl ExecutionState {
     ) -> impl Iterator<Item = ExecutionCondition> + 'a {
         // Snapshots share immutable components. Only the traversal's small worklist is owned.
         let mut pending = vec![value.clone()];
+
         let mut deferred = BTreeSet::new();
 
         std::iter::from_fn(move || {
@@ -105,63 +138,38 @@ impl ExecutionState {
 
             pending.extend(value.owned_components().cloned());
 
-            if let Some((invocation, entry)) = self.deferred_owner(&value)
-                && deferred.insert(invocation)
-            {
-                pending.extend(entry.owned_inputs.iter().filter_map(|ordinal| {
-                    crate::ExecutionPlace::argument(*ordinal).value_in(&entry.arguments)
-                }));
+            if let Some(entries) = self.deferred_entries(&value) {
+                for (invocation, candidate) in &entries.producers {
+                    let entry = &candidate.entry;
+
+                    if deferred.insert((value.owner_identity().clone(), *invocation)) {
+                        pending.extend(entry.owned_arguments());
+                    }
+                }
             }
 
             Some(value)
         })
     }
 
-    pub(super) fn restore_returned_evidence(
-        &mut self,
-        returned: crate::execution_guarantees::ExecutionValueEvidence,
-    ) {
-        // Replace old ownership evidence without retiring the moved storage or its dependents.
-        let mut retired = BTreeSet::new();
+    /// Finds actual witness carriers contained by owned values and their deferred captures.
+    pub(super) fn owned_witnesses(
+        &self,
+        values: impl IntoIterator<Item = ExecutionCondition>,
+    ) -> impl Iterator<Item = (&ExecutionCondition, &std::sync::Arc<crate::execution_guarantees::ExecutionWitness>)> {
+        let mut owned = Vec::new();
 
-        for carrier in returned.witnesses.keys() {
-            if let Some(previous) = self.witnesses.remove(carrier) {
-                for condition in previous.conditions.keys() {
-                    condition.clone().assume(true, &mut retired);
-                }
+        if !self.witnesses.is_empty() {
+            for value in values {
+                owned.extend(self.owned_values(&value));
             }
         }
 
-        self.exclude_live_witnesses(&mut retired);
+        let count = if owned.is_empty() { 0 } else { self.witnesses.len() };
 
-        self.trusted_assumptions
-            .retain(|fact| !retired.contains(fact));
-
-        // Call effects have already retired invalid captured evidence.
-        // Only normal completion restores surviving ownership to the caller.
-        for (carrier, witness) in returned.witnesses {
-            for condition in witness.conditions.keys() {
-                condition
-                    .clone()
-                    .assume(true, &mut self.trusted_assumptions);
-            }
-
-            let retained = self.witnesses.entry(carrier).or_default();
-
-            retained.dependencies.extend(witness.dependencies);
-
-            for (condition, guarantee) in witness.conditions {
-                let entry = retained.conditions.entry(condition).or_default();
-
-                entry.witness |= guarantee.witness;
-
-                for (address, owners) in guarantee.addresses {
-                    entry.addresses.entry(address).or_default().extend(owners);
-                }
-            }
-        }
-
-        self.allocation_owners.extend(returned.allocations);
+        self.witnesses.iter().take(count).filter(move |(carrier, _)| {
+            owned.iter().any(|value| carrier.is_owned_projection_of(value))
+        })
     }
 
     pub(super) fn call_trusted_assumptions(
@@ -270,18 +278,7 @@ impl ExecutionState {
         self.witnesses
             .get(value.owner_identity())
             .is_some_and(|witness| {
-                witness.conditions.iter().any(|(condition, guarantee)| {
-                    guarantee.witness
-                        && (self
-                            .trusted_assumptions
-                            .contains(&(condition.clone(), true))
-                            || condition
-                                .prove_trusted(&self.trusted_assumptions, &self.assumptions)
-                                == Some(true))
-                        && condition
-                            .prove(&self.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                            != Some(true)
-                })
+                witness.available && witness.is_owning(&self.trusted_assumptions, &self.assumptions)
             })
     }
 
@@ -318,26 +315,22 @@ impl ExecutionState {
 
         self.owned_results.retain(|value, _| !stale(value));
 
-        for witnesses in std::iter::once(&mut self.witnesses).chain(
-            self.entries
-                .values_mut()
-                .map(|entry| &mut entry.returned.witnesses),
-        ) {
-            witnesses.retain(|value, witness| {
-                witness.conditions.retain(|condition, guarantee| {
-                    !stale(condition) && !guarantee.addresses.keys().any(stale)
-                });
+        self.witnesses.retain(|value, witness| {
+            if stale(value) {
+                return false;
+            }
 
-                !stale(value)
-                    && (!witness.conditions.is_empty() || !witness.dependencies.is_empty())
+            witness.retain_conditions(|condition, guarantee| {
+                !stale(condition) && !guarantee.addresses.keys().any(stale)
             });
-        }
 
-        self.deferred_invocations.retain(|value, source| {
+            !witness.conditions.is_empty() || !witness.dependencies.is_empty()
+        });
+
+        self.deferred_invocations.retain(|value, entries| {
+            entries.retire_selection(|condition| condition.depends_on(mutation));
+
             !stale(value)
-                && !source
-                    .expression()
-                    .is_some_and(|expression| stale(&ExecutionCondition::Expression(expression)))
         });
 
         self.trusted_assumptions
@@ -345,20 +338,23 @@ impl ExecutionState {
 
         self.assumptions.retain(|(condition, _)| !stale(condition));
 
-        for allocations in std::iter::once(&mut self.allocation_owners).chain(
-            self.entries
-                .values_mut()
-                .map(|entry| &mut entry.returned.allocations),
-        ) {
-            allocations.retain(|condition, owner| !stale(condition) && !stale(owner));
-        }
+        self.allocation_owners
+            .retain(|condition, owner| !stale(condition) && !stale(owner));
 
-        for entry in self
-            .entries
-            .values_mut()
-            .filter(|entry| entry.pending_execution)
-        {
+        for entry in self.pending_entries_mut(&|entry| {
+            entry
+                .arguments
+                .values()
+                .chain(entry.copy_sources.values())
+                .any(stale)
+                || entry
+                    .assumptions
+                    .iter()
+                    .chain(&entry.trusted_assumptions)
+                    .any(|(condition, _)| stale(condition))
+        }) {
             entry.arguments.retain(|_, value| !stale(value));
+            entry.copy_sources.retain(|_, value| !stale(value));
             entry.assumptions.retain(|(condition, _)| !stale(condition));
 
             entry
@@ -410,7 +406,7 @@ impl ExecutionState {
         self.refine_witnesses();
 
         self.assumptions.retain(|(condition, _)| {
-            !condition.observes_borrowed(None) || condition.observes_only(stable_values)
+            !condition.observes_live(None) || condition.observes_only(stable_values)
         });
 
         let mut retained = BTreeSet::new();
@@ -423,35 +419,14 @@ impl ExecutionState {
                 return false;
             }
 
-            witness
-                .conditions
-                .retain(|condition, _| condition.observes_only(stable_values));
+            witness.retain_conditions(|condition, _| condition.observes_only(stable_values));
 
-            for condition in witness.conditions.keys() {
+            for condition in witness.conditions.keys().filter(|_| witness.available) {
                 condition.clone().assume(true, &mut retained);
             }
 
             !witness.conditions.is_empty()
         });
-
-        for entry in self.entries.values_mut() {
-            entry.returned.witnesses.retain(|carrier, witness| {
-                if !stable_owners
-                    .iter()
-                    .any(|owner| carrier.is_owned_projection_of(owner))
-                {
-                    return false;
-                }
-
-                witness
-                    .conditions
-                    .retain(|condition, _| condition.observes_only(stable_values));
-
-                !witness.conditions.is_empty()
-            });
-
-            entry.returned.allocations.clear();
-        }
 
         // Opaque predicates cannot observe mutable state absent from their arguments.
         // Preserve established facts with no observations, without creating new evidence.
@@ -461,20 +436,57 @@ impl ExecutionState {
             retained.contains(fact) || fact.0.observes_only(&no_values)
         };
 
+        // Private moved inputs retain historical entry facts while child execution
+        // owns their authority. Completion still requires their surviving live witness.
+        let preserves_owned = |fact: &(ExecutionCondition, bool), owners: &[ExecutionCondition]| {
+            preserves(fact)
+                || (fact.0.observes_only(stable_values)
+                    && fact.0.observations().any(|value| {
+                        owners
+                            .iter()
+                            .any(|owner| value.is_owned_projection_of(owner))
+                    }))
+        };
+
         self.trusted_assumptions.retain(preserves);
 
-        self.allocation_owners.clear();
+        self.allocation_owners.retain(|condition, owner| {
+            condition.observes_only(stable_values)
+                && stable_owners
+                    .iter()
+                    .any(|stable| owner.is_owned_projection_of(stable))
+        });
 
-        for entry in self
-            .entries
-            .values_mut()
-            .filter(|entry| entry.pending_execution)
-        {
+        for entry in self.pending_entries_mut(&|entry| {
+            let owners = entry.owned_arguments().collect::<Vec<_>>();
+
+            entry.trusted_boundary
+                || entry
+                    .copy_sources
+                    .values()
+                    .any(|value| !value.observes_only(stable_values))
+                || entry
+                    .assumptions
+                    .iter()
+                    .any(|(condition, _)| !condition.observes_only(stable_values))
+                || entry
+                    .trusted_assumptions
+                    .iter()
+                    .any(|fact| !preserves_owned(fact, &owners))
+        }) {
+            let owners = entry.owned_arguments().collect::<Vec<_>>();
+
+            entry
+                .copy_sources
+                .retain(|_, value| value.observes_only(stable_values));
+
             entry
                 .assumptions
                 .retain(|(condition, _)| condition.observes_only(stable_values));
 
-            entry.trusted_assumptions.retain(preserves);
+            entry
+                .trusted_assumptions
+                .retain(|fact| preserves_owned(fact, &owners));
 
             entry.trusted_boundary = false;
         }
@@ -505,47 +517,11 @@ impl ExecutionState {
             *facts = renamed;
         }
 
-        let mut witnesses = BTreeMap::<_, crate::execution_guarantees::ExecutionWitness>::new();
-
-        for (carrier, witness) in &self.witnesses {
-            let carrier = rename_identity(carrier);
-
-            if carrier == ExecutionCondition::Unknown {
-                continue;
-            }
-
-            let retained = witnesses.entry(carrier).or_default();
-
-            retained
-                .dependencies
-                .extend(witness.dependencies.iter().cloned());
-
-            for (condition, guarantee) in &witness.conditions {
-                let condition = rename(condition);
-
-                if condition == ExecutionCondition::Unknown {
-                    continue;
-                }
-
-                let entry = retained.conditions.entry(condition).or_default();
-
-                entry.witness |= guarantee.witness;
-
-                for (address, owners) in &guarantee.addresses {
-                    let address = rename(address);
-
-                    if address != ExecutionCondition::Unknown {
-                        entry
-                            .addresses
-                            .entry(address)
-                            .or_default()
-                            .extend(owners.iter().cloned());
-                    }
-                }
-            }
-        }
-
-        self.witnesses = witnesses;
+        crate::execution_guarantees::rename_witnesses(
+            &mut self.witnesses,
+            &rename,
+            &rename_identity,
+        );
 
         self.allocation_owners = self
             .allocation_owners
@@ -554,27 +530,57 @@ impl ExecutionState {
             .filter(|(condition, _)| *condition != ExecutionCondition::Unknown)
             .collect();
 
-        let mut computations = BTreeMap::<_, Option<_>>::new();
+        let mut ownership = BTreeMap::new();
 
-        for (value, source) in &self.deferred_invocations {
-            let value = rename_identity(value);
+        for (value, result) in std::mem::take(&mut self.owned_results) {
+            let value = rename_identity(&value);
 
             if value != ExecutionCondition::Unknown {
-                computations
+                ownership
                     .entry(value)
-                    .and_modify(|previous| {
-                        if *previous != Some(*source) {
-                            *previous = None;
-                        }
-                    })
-                    .or_insert(Some(*source));
+                    .and_modify(
+                        |previous: &mut bray_symbols::DependencyOwnedResult<
+                            bray_bound_tree::StorageProjection,
+                            ExecutionCondition,
+                        >| {
+                            *previous = bray_symbols::DependencyOwnedResult::choice([
+                                previous.clone(),
+                                result.clone(),
+                            ]);
+                        },
+                    )
+                    .or_insert(result);
             }
         }
 
-        self.deferred_invocations = computations
-            .into_iter()
-            .filter_map(|(value, source)| Some((value, source?)))
-            .collect();
+        self.owned_results = ownership;
+
+        let mut computations = DeferredInvocations::new();
+
+        for (owner, mut entries) in std::mem::take(&mut self.deferred_invocations) {
+            let value = rename_identity(&owner);
+
+            if value == ExecutionCondition::Unknown {
+                continue;
+            }
+
+            entries.join_values(
+                replacements,
+                identities,
+                (value != owner).then_some(&self.assumptions),
+            );
+
+            match computations.entry(value) {
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(entries);
+                }
+                std::collections::btree_map::Entry::Occupied(mut slot) => {
+                    slot.get_mut().merge(&entries);
+                }
+            }
+        }
+
+        self.deferred_invocations = computations;
 
         for value in self.current.values_mut() {
             *value = rename(value);
@@ -663,10 +669,7 @@ mod tests {
         let access = ExecutionCondition::Trusted(Arc::new(address.clone()));
         let mut state = ExecutionState::default();
 
-        state
-            .witnesses
-            .entry(carrier)
-            .or_default()
+        std::sync::Arc::make_mut(state.witnesses.entry(carrier).or_default())
             .conditions
             .entry(access.clone())
             .or_default()
@@ -695,10 +698,7 @@ mod tests {
 
         state.current.insert(owner.clone(), input(30));
 
-        state
-            .witnesses
-            .entry(pointer.clone())
-            .or_default()
+        std::sync::Arc::make_mut(state.witnesses.entry(pointer.clone()).or_default())
             .conditions
             .entry(access.clone())
             .or_default()
@@ -737,7 +737,7 @@ mod tests {
                 .get_mut(&carrier)
                 .expect("the complete carrier owns its clauses");
 
-            witness
+            std::sync::Arc::make_mut(witness)
                 .conditions
                 .get_mut(&access)
                 .expect("the access conjunct is retained")
@@ -745,7 +745,9 @@ mod tests {
                 .insert(input(2), BTreeSet::from([owner.clone()]));
 
             if whole_lifetime {
-                witness.dependencies.insert(owner.clone());
+                std::sync::Arc::make_mut(witness)
+                    .dependencies
+                    .insert(owner.clone());
             }
 
             if by_root {
@@ -785,15 +787,17 @@ mod tests {
             state.carry_guarantee(carrier.clone(), access.clone());
             access.clone().assume(true, &mut state.trusted_assumptions);
 
-            state
-                .witnesses
-                .get_mut(&carrier)
-                .expect("one carrier retains both addresses")
-                .conditions
-                .get_mut(&access)
-                .expect("each access has its own clause")
-                .addresses
-                .insert(input(ordinal), BTreeSet::from([owner]));
+            std::sync::Arc::make_mut(
+                state
+                    .witnesses
+                    .get_mut(&carrier)
+                    .expect("one carrier retains both addresses"),
+            )
+            .conditions
+            .get_mut(&access)
+            .expect("each access has its own clause")
+            .addresses
+            .insert(input(ordinal), BTreeSet::from([owner]));
         }
 
         state.invalidate_trusted_roots(&BTreeSet::from([ExecutionPlace::argument(
@@ -847,7 +851,9 @@ mod tests {
         );
 
         let owners = BTreeSet::from([ExecutionPlace::argument(SymbolOrdinal::new(30))]);
-        let mut witness = crate::execution_guarantees::ExecutionWitness::default();
+
+        let mut witness =
+            std::sync::Arc::new(crate::execution_guarantees::ExecutionWitness::default());
 
         witness.carry(
             &condition,
@@ -897,15 +903,17 @@ mod tests {
             state.carry_guarantee(carrier.clone(), guarded.clone());
             guarded.clone().assume(true, &mut state.trusted_assumptions);
 
-            state
-                .witnesses
-                .get_mut(&carrier)
-                .expect("the conditional has one complete carrier")
-                .conditions
-                .get_mut(&guarded)
-                .expect("the guarded clause is retained")
-                .addresses
-                .insert(input(2), BTreeSet::from([owner.clone()]));
+            std::sync::Arc::make_mut(
+                state
+                    .witnesses
+                    .get_mut(&carrier)
+                    .expect("the conditional has one complete carrier"),
+            )
+            .conditions
+            .get_mut(&guarded)
+            .expect("the guarded clause is retained")
+            .addresses
+            .insert(input(2), BTreeSet::from([owner.clone()]));
 
             state.assumptions.insert((flag, select_marker));
             state.refine_witnesses();
@@ -1088,8 +1096,9 @@ mod tests {
             occurrence,
             crate::ExecutionCallEvidence {
                 implementation_witnesses: Default::default(),
+                witness_inputs: Default::default(),
+                copy_sources: Default::default(),
                 owned_inputs: Default::default(),
-                returned: Default::default(),
                 addresses: Default::default(),
                 anonymous_target: None,
                 trusted_boundary: true,
@@ -1132,10 +1141,7 @@ mod tests {
 
         state.current.insert(owner.clone(), input(0));
 
-        state
-            .witnesses
-            .entry(carrier.clone())
-            .or_default()
+        std::sync::Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
             .dependencies = BTreeSet::from([owner.clone()]);
 
         state.carry_guarantee(carrier.clone(), spatial.clone());
@@ -1214,12 +1220,10 @@ mod tests {
         state.current.insert(owner.clone(), input(0));
         state.current.insert(intermediate.clone(), input(1));
 
-        state.witnesses.entry(input(1)).or_default().dependencies = BTreeSet::from([owner.clone()]);
+        std::sync::Arc::make_mut(state.witnesses.entry(input(1)).or_default()).dependencies =
+            BTreeSet::from([owner.clone()]);
 
-        state
-            .witnesses
-            .entry(carrier.clone())
-            .or_default()
+        std::sync::Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
             .dependencies = BTreeSet::from([intermediate]);
 
         state.carry_guarantee(carrier, spatial.clone());
@@ -1290,7 +1294,8 @@ mod tests {
         );
 
         // Retaining a value cannot extend the storage required by its witness.
-        state.witnesses.entry(child).or_default().dependencies = BTreeSet::from([root.clone()]);
+        std::sync::Arc::make_mut(state.witnesses.entry(child).or_default()).dependencies =
+            BTreeSet::from([root.clone()]);
 
         state.invalidate_trusted_roots(&BTreeSet::from([root.root.clone()]));
         state.retire_trusted_values([ExecutionCondition::Input(root)], &retained);
@@ -1315,10 +1320,7 @@ mod tests {
 
             state.current.insert(dependency.clone(), input(ordinal));
 
-            state
-                .witnesses
-                .entry(carrier.clone())
-                .or_default()
+            std::sync::Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
                 .dependencies = BTreeSet::from([dependency]);
 
             state.carry_guarantee(carrier.clone(), carrier.clone());
@@ -1330,7 +1332,8 @@ mod tests {
 
         state.current.insert(cycle.clone(), input(513));
 
-        state.witnesses.entry(input(1)).or_default().dependencies = BTreeSet::from([cycle]);
+        std::sync::Arc::make_mut(state.witnesses.entry(input(1)).or_default()).dependencies =
+            BTreeSet::from([cycle]);
 
         state.carry_guarantee(independent.clone(), independent.clone());
 
@@ -1439,10 +1442,7 @@ mod tests {
                 .current
                 .insert(dependency.clone(), ExecutionCondition::Input(place));
 
-            state
-                .witnesses
-                .entry(carrier.clone())
-                .or_default()
+            std::sync::Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
                 .dependencies = BTreeSet::from([dependency]);
 
             state.carry_guarantee(carrier.clone(), carrier.clone());
@@ -1532,7 +1532,7 @@ mod tests {
         };
 
         for witness in state.witnesses.values_mut() {
-            witness.conditions.clear();
+            std::sync::Arc::make_mut(witness).conditions.clear();
         }
 
         state.carry_guarantee(child.clone(), live.clone());
