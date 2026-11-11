@@ -602,12 +602,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
         outside: &std::collections::BTreeSet<ExecutionCondition>,
     ) -> ExecutionCondition {
+        // Reference observations can add fields around this invocation's pending
+        // result. A constructed input from an earlier producer is already complete.
+        let pending = match &result {
+            ExecutionCondition::Constructed(base, _) => {
+                let belongs = match base.as_ref() {
+                    ExecutionCondition::Expression(expression) => invocation == (*expression).into(),
+                    ExecutionCondition::ScopedCapability(expression) => invocation == BoundExecutionSite::ScopedEnter(*expression),
+                    ExecutionCondition::PostState(bray_bound_tree::StorageMutation::Operation(site), _) => *site == invocation,
+                    _ => false,
+                };
+
+                if !belongs { return result; }
+                base.as_ref()
+            }
+            value => value,
+        };
         let retains_identity = matches!(
-            result,
+            pending,
             ExecutionCondition::Expression(_)
                 | ExecutionCondition::ScopedCapability(_)
                 | ExecutionCondition::Projection(_, _)
-        ) || matches!(&result, ExecutionCondition::PostState(
+        ) || matches!(pending, ExecutionCondition::PostState(
                 bray_bound_tree::StorageMutation::Operation(site), _) if *site == invocation);
 
         if !retains_identity {

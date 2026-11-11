@@ -190,6 +190,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         // Publish the admitted entry snapshot independently of current mutable contents.
+        state.resume_owned_witnesses(&entry);
+
         let completed = state
             .entries
             .get_mut(&invocation)
@@ -197,7 +199,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         completed.assumptions = entry.assumptions;
         completed.trusted_assumptions = entry.trusted_assumptions;
-        state.resume_owned_witnesses(invocation);
         self.guard_returned_inputs(state, invocation, &entry.arguments, &result);
 
         let outside = self.surviving_call_values(state, invocation);

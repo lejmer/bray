@@ -403,6 +403,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
+        state.resume_owned_witnesses(&entry);
+
         state
             .deferred_invocations
             .entry(result.owner_identity().clone())
@@ -422,6 +424,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get_mut(&invocation)
             .expect("formed future retains its entry until publication")
             .pending_execution = false;
+
     }
 
     pub(in crate::analysis) fn awaited_invocations<'s>(
