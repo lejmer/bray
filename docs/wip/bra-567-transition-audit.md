@@ -55,7 +55,13 @@ Checker502/bound136 pass. Native retains exactly30 diagnostic identities, with n
 Checkpointc9e0b8607 is pushed. Admitted witnesses resume from the actual captured entry at completion and formation.
 Sparse constructed pending results complete ownership only for their producing invocation. Complete observations and
 formed values staged into later arguments retain their data. All temporary source and native regressions are cleared.
-No tracing remains. The consumed ownership-selection probe was removed. Permanent matrices retain its controls.
+The consumed ownership-selection probe was removed. Permanent matrices retain its controls.
+Current verified batch maps an existing constructed loan contents identity to its actual predecessor for implicit
+field proof. The regression fails before and passes after, including one-sided rejection, no pointee ownership and
+stable replay. Fixed778/32/99, checker503/bound136, owned/deferred matrices and focused18 pass without regression.
+Native retains the same30 identities. This fixes a real proof boundary but does not clear the native borrowed-view loop.
+Next trace compares joined live witness facts with later call-admission facts and their owner dependencies.
+All instrumentation and consumed transition traces are removed.
 Preserve these gates while tracing native borrowed-view and scoped-cleanup authority.
 Framing lifted Present(payload) retains only payload lineage. Genuine whole-input contexts still survive. Contextual
 projection panics remain compiler invariants.
