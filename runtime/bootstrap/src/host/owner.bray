@@ -3,6 +3,7 @@ trusted internal module bray.runtime.bootstrap.host;
 
 using internal bray.runtime.bootstrap.domain;
 using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap.event;
 using std.numeric;
 using core.target;
 using core.atomic;
@@ -37,6 +38,7 @@ internal struct HostOwner
     mut transitioning: bool;
     mut callbacks_ready: bool;
     mut tasks: bray.runtime.bootstrap.task.Entries;
+    mut events: std.memory.RawBuffer<bray.runtime.bootstrap.event.DirectoryEntry>?;
 }
 
 internal struct HostStorage
@@ -71,6 +73,7 @@ internal static HOST_OWNER: Uninit<HostOwner> = core.memory.uninit_from<HostOwne
         next_identity = 1,
         transitioning = false,
         callbacks_ready = false,
+        events = none,
         tasks =
         {
             slabs = none,
@@ -545,7 +548,8 @@ trusted internal func shutdown_host() -> u32
 
             let host: &mut HostOwner = trusted host_value(lease, anchor);
 
-            if host.transitioning || retired matches ?_ || host.tasks.active != 0
+            if host.transitioning || retired matches ?_ || host.tasks.active != 0 ||
+                trusted bray.runtime.bootstrap.event.names_live(&host.events)
             {
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
@@ -588,12 +592,12 @@ trusted internal func shutdown_host() -> u32
                     return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
                 }
 
-                host.transitioning = true;
                 core.atomic.store<u64, 2>(&synchronization.key, 0);
                 core.atomic.store<u64, 2>(&synchronization.cleanup_key, 0);
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, retired);
             }
 
+            host.transitioning = true;
             return bray.runtime.bootstrap.STATUS_SUCCESS;
         };
 
@@ -655,7 +659,8 @@ trusted internal func shutdown_host() -> u32
         pos anchor: &mut HostAnchor,
         pos retired: &mut(HostStorage?),
         pos products: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?),
-        pos tasks: &mut bray.runtime.bootstrap.task.Entries
+        pos tasks: &mut bray.runtime.bootstrap.task.Entries,
+        pos events: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.event.DirectoryEntry>?)
     ) -> u32
         requires(
             trusted prepared_host_storage(owner = &retired),
@@ -713,6 +718,11 @@ trusted internal func shutdown_host() -> u32
         // outside the host acquisition after the directory has no live owners.
         trusted internal std.memory.swap_values<bray.runtime.bootstrap.task.Entries>(&mut host.tasks, tasks);
 
+        trusted internal std.memory.swap_values<(std.memory.RawBuffer<bray.runtime.bootstrap.event.DirectoryEntry>?)>(
+            &mut host.events,
+            events
+        );
+
         host.transitioning = false;
         return bray.runtime.bootstrap.STATUS_SUCCESS;
     };
@@ -722,11 +732,6 @@ trusted internal func shutdown_host() -> u32
     if selected != bray.runtime.bootstrap.STATUS_SUCCESS
     {
         return selected;
-    }
-
-    if retired matches none
-    {
-        return bray.runtime.bootstrap.STATUS_SUCCESS;
     }
 
     let mut products: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>? = none;
@@ -739,12 +744,21 @@ trusted internal func shutdown_host() -> u32
         active = 0
     };
 
+    let mut events: std.memory.RawBuffer<bray.runtime.bootstrap.event.DirectoryEntry>? = none;
+
     let status =
     {
         let lease: HostLease = trusted access_prepared_host(&retired);
         let mut anchor: HostAnchor = trusted host_anchor(&lease);
 
-        yield trusted finish_host_shutdown_locked(&lease, &mut anchor, &mut retired, &mut products, &mut tasks);
+        yield trusted finish_host_shutdown_locked(
+            &lease,
+            &mut anchor,
+            &mut retired,
+            &mut products,
+            &mut tasks,
+            &mut events
+        );
     };
 
     // The caught report remains owned until the transition has been resolved.

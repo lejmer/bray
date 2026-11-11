@@ -22,6 +22,8 @@ mod static_finalizer;
 mod task;
 mod workers;
 
-pub(crate) use state::{RuntimeRetirement, RetainedRuntime, retain_current_runtime, retain_runtime};
+pub(crate) use state::{
+    NativeRuntimeCore, RetainedRuntime, RuntimeRetirement, retain_current_runtime, retain_runtime,
+};
 pub(crate) use static_finalizer::{run_static_finalizer, with_static_cleanup_context};
 pub(crate) use task::NativeTaskServices;

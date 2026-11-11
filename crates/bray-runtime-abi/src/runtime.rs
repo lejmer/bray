@@ -29,7 +29,7 @@ impl NativeRuntimeStatus {
     pub const PENDING: Self = Self(6);
     /// The supplied task handle does not identify owned runtime state.
     pub const UNKNOWN_TASK: Self = Self(7);
-    /// Process-local identities for admitted cleanup were exhausted.
+    /// Process-local identities or generations cannot advance safely.
     pub const IDENTITY_EXHAUSTED: Self = Self(8);
     /// Required outgoing cleanup storage could not be admitted.
     pub const OUTGOING_STORAGE_UNAVAILABLE: Self = Self(9);

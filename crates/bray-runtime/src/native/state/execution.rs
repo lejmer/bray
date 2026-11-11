@@ -8,7 +8,6 @@ use bray_runtime_abi::{
 use bray_runtime_model::ProtectedFrameStateId;
 
 use super::super::NativeTaskServices;
-use super::super::task::SuspendedWait;
 use super::binding::{CleanupWorkloadScope, current_thread_lanes, lane_result, runtime_failure};
 use super::core::{NativeRuntime, current_services, with_task_services};
 use crate::context::with_task_execution_context;
@@ -104,7 +103,10 @@ impl NativeRuntime {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
 
-        let task = Arc::new(NativeTaskServices::new(cancellation, registration));
+        let task = match NativeTaskServices::new(cancellation, registration, &self.core) {
+            Ok(task) => Arc::new(task),
+            Err(status) => return status,
+        };
 
         self.scheduler
             .install_native_task(Arc::clone(&task))
@@ -248,7 +250,6 @@ impl NativeRuntime {
                     progress.payload(),
                 ),
                 execution,
-                wake,
             );
         }
 
@@ -274,7 +275,6 @@ impl NativeRuntime {
         started: &NativeTaskServices,
         suspension: crate::FrameSuspension,
         execution: crate::FrameExecutionState,
-        wake: crate::TaskWakeHandle,
     ) -> NativeRuntimeStatus {
         let Some(identity) = suspension.payload() else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
@@ -288,24 +288,20 @@ impl NativeRuntime {
 
         // Keep the dispatch running until registration ownership is published. An immediate
         // event wake then becomes a pending scheduler wake that suspension releases.
-        let Ok(registration) = event.register(
+        let registration = match event.register(
             generation,
-            Arc::new(move || {
-                let _ = wake.wake();
-            }),
-        ) else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
+            started.cancellation.clone(),
+            &started.event_wake,
+        ) {
+            Ok(registration) => registration,
+            Err(status) => return status,
         };
 
         let previous = started
             .suspended_wait
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .replace(SuspendedWait::Event {
-                event,
-                observed: generation,
-                _registration: registration,
-            });
+            .replace(registration);
 
         assert!(
             previous.is_none(),

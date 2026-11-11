@@ -28,7 +28,7 @@ trusted internal func creation() -> u64
     let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
     let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
 
-    if host.next_identity == std.numeric.U64_MAX
+    if host.transitioning || host.next_identity == std.numeric.U64_MAX
     {
         return 0;
     }
@@ -78,6 +78,11 @@ trusted internal func admit(pos runtime: u64) -> u64
 
             let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
             let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+            if host.transitioning
+            {
+                return 0;
+            }
 
             yield match consume trusted admit_locked(&mut host.tasks, &mut prepared, runtime)
             {

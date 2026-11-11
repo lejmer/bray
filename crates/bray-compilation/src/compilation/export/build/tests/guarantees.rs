@@ -2752,3 +2752,54 @@ fn imported_generator_predicates_reuse_eager_checked_loop_state() {
         ],
     );
 }
+
+#[test]
+fn interleaved_guarded_postconditions_round_trip_in_source_order() {
+    let provider = compilation(
+        r"
+        trusted module api;
+        struct Reference { address: usize; }
+        trusted predicate retained(owner: &Reference);
+        trusted predicate owned(owner: &Reference);
+        trusted predicate available(owner: &Reference);
+        trusted func preserve(pos owner: &Reference)
+            requires(trusted retained(owner = owner))
+            ensures(trusted retained(owner = owner))
+            when(trusted owned(owner = owner))
+            {
+                ensures(trusted owned(owner = owner))
+            }
+            ensures(trusted available(owner = owner))
+        {}
+        ",
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r"
+        trusted module app;
+        using example.package.api;
+        trusted func forward(pos owner: &example.package.api.Reference)
+            requires(trusted example.package.api.retained(owner = owner))
+            ensures(trusted example.package.api.retained(owner = owner))
+            when(trusted example.package.api.owned(owner = owner))
+            {
+                ensures(trusted example.package.api.owned(owner = owner))
+            }
+            ensures(trusted example.package.api.available(owner = owner))
+        { trusted example.package.api.preserve(owner); }
+        ",
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+}
