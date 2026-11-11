@@ -147,10 +147,8 @@ impl ExecutionState {
 
     pub(super) fn resume_owned_witnesses(
         &mut self,
-        invocation: bray_bound_tree::BoundExecutionSite,
+        entry: &crate::ExecutionCallEvidence,
     ) {
-        let entry = &self.entries[&invocation];
-
         let mut assumptions = entry.assumptions.clone();
 
         assumptions.extend(self.assumptions.iter().cloned());
@@ -935,7 +933,8 @@ mod tests {
             assert_eq!(state.allocation_owners.contains_key(&condition), accepted);
             assert!(!state.trusted_assumptions.contains(&(condition.clone(), true)));
 
-            state.resume_owned_witnesses(invocation);
+            let entry = state.entries[&invocation].clone();
+            state.resume_owned_witnesses(&entry);
 
             assert_eq!(condition.prove_trusted(&state.trusted_assumptions, &state.assumptions) == Some(true), accepted);
         }

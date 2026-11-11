@@ -29,7 +29,7 @@ RetiredCell disposes control, pin and arena before vacancy. WaitResources retain
 
 ## Current evidence
 
-Frozen907 identities:774 passed,34 failed,99 ignored, with12 explained verdict changes. comparison.txt stays unchanged.
+Frozen907 identities:776 passed,32 failed,99 ignored, with14 explained verdict changes. comparison.txt stays unchanged.
 Both added allocation and arithmetic controls pass. Checker502/bound136 pass. Cleanup57/4 and predicates26/2/2 retain known failures.
 Focused18 pass, including Source/MIR composition and3 invalid variants. Native composition has not run.
 All148 deferred cases pass each in source/import. Both witness matrices pass. Loop controls stabilize.
@@ -42,7 +42,7 @@ old payload or authority. Presence/variant queries inspect the same value tree. 
 
 Accepted native:30 diagnostics,17 E7123 and13 E7135, complete233-file request. Ordinary path alternatives survive
 joins and refute overflow through the existing Boolean solver. Compound/split guards and opaque const operands pass;
-unguarded products reject. Full fixed comparison776/34/99 has no unexplained changes. Temporary tracing is removed.
+unguarded products reject. Full fixed comparison778/32/99 has no unexplained changes. Temporary tracing is removed.
 
 ## Remaining
 
@@ -50,17 +50,22 @@ Trace native failures by producer/consumer families: shared requirements, alloca
 PreparedStart registration, returned-pointer retirement at driving197, initialized ranges and wait-link authority.
 Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains unresolved.
 All148 deferred source/import cases pass.
-The source/import owned-transfer matrices each complete244 cases with3 pinned positive rejections and no accepted
-invalids: reference, deferred_live_capture and conditional_future_active. All148 deferred cases pass each.
-Unknown shapes retain existing Identity plus Mutable observations. Unrelated opaque cleanup preserves their unexposed
-inline snapshot while reachable state remains mutable. Existing Identity consumers are unchanged.
-Checkpoint401a321b1 is pushed. The next coherent batch collects tags through owned wrappers and carries the existing
-ownership layout through the same physical survival mask as its actual value. CFG publication was correct, but
-cancellation framing lost opaque joined child metadata. The property checks retained/overwritten children, prior snapshot
-independence and replay stabilization. Checker502/bound136 and fixed776/34/99 pass. The complete native comparison retains exactly30 diagnostic identities.
-All temporary tracing is removed. ownership-selection.bray accepts all valid branch/join probes and rejects fabrication.
+All244 owned-transfer cases and all148 deferred cases pass each in source/import, including every invalid control.
+The fixed909 comparison is778/32/99 with14 explained repairs against the unchanged907 baseline and2 added tests.
+Checker502/bound136 pass. Native candidate regresses30->47 diagnostics, adding17 identities and removing none. This blocks checkpoint/expansion.
+Keep native.log as the30 baseline. Inspect native-candidate.log for the17 additions. Source success is not native completion.
+Checkpointf0886218b is pushed. Current verified source batch resumes admitted witnesses from the actual captured entry.
+The old construction entry names Expression while the ledger names CapturedInput. Resumption takes the entry directly
+at completion and future formation. Sparse constructed pending results complete ownership, while completed observations
+stay complete. The source/import gates clear the five temporary regressions, but native adds17 failures, mostly on factory results
+passed into later calls. Sparse construction must belong to the completing invocation, not a previous producer.
+The current guard checks that producer identity for Node, ScopedEnter and operation post-state before completion.
+This correction passes fixed778/32/99, checker502/bound136 and all source/import matrices. Native comparison is running.
+The prior17 additions still block checkpoint until the fresh candidate clears them.
+No tracing remains. ownership-selection.bray accepts all positives, including pending futures and returned-borrow tuples,
+and rejects fabricated/completed-owner controls. Keep these source/import results fixed while auditing native transitions.
 Framing lifted Present(payload) retains only payload lineage. Genuine whole-input contexts still survive. Contextual
-projection panics remain compiler invariants. 
+projection panics remain compiler invariants.
 The tag-query helpers moved into condition/tags.rs without behavior changes, keeping new logic outside oversized values.rs.
 Trace operation/input/result, scoped, iteration, await/yield, cancellation, recovery and cleanup through all consumers.
 Verify native success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.
