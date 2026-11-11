@@ -37,22 +37,32 @@ pub(crate) const fn implementation_dependency_source(
     }
 }
 
-/// Exact address origin, independent of the input that supplies a returned lifetime.
+/// Address origin, independent of lifetime retention and exact numeric value identity.
 pub(super) fn implementation_borrow(
     implementation: ImplementationHook,
 ) -> Option<bray_symbols::DependencyBorrowRelation> {
-    let (parameter, kind, projections): (_, _, &[bray_symbols::DependencyProjection]) =
+    let (parameter, kind, projections, exact): (_, _, &[bray_symbols::DependencyProjection], _) =
         match implementation {
             ImplementationHook::AddressOf | ImplementationHook::AddressOfMut => {
-                (0, DependencyReferenceKind::Address, &[])
+                (0, DependencyReferenceKind::Address, &[], true)
             }
             ImplementationHook::UninitPointer | ImplementationHook::UninitPointerMut => (
                 0,
                 DependencyReferenceKind::Address,
                 &[bray_symbols::DependencyProjection::UninitPayload],
+                true,
             ),
             ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom => {
-                (1, DependencyReferenceKind::Borrow, &[])
+                (1, DependencyReferenceKind::Borrow, &[], true)
+            }
+            ImplementationHook::RawPointerOffset
+            | ImplementationHook::RawPointerByteOffset
+            | ImplementationHook::RawPointerByteAddress
+            | ImplementationHook::RawPointerReinterpret
+            | ImplementationHook::FunctionPointerReinterpret
+            | ImplementationHook::FunctionPointerFromData
+            | ImplementationHook::FunctionPointerToData => {
+                (0, DependencyReferenceKind::Address, &[], false)
             }
             _ => return None,
         };
@@ -65,7 +75,8 @@ pub(super) fn implementation_borrow(
             bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
             kind,
         )
-        .with_target_projections(projections.iter().copied()),
+        .with_target_projections(projections.iter().copied())
+        .with_exactness(exact),
     )
 }
 
