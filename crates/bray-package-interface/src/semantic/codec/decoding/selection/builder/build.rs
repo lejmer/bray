@@ -48,7 +48,7 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
     }
 
     let tables = SelectedTables::read(sections, kind, &mut context)?;
-    let mut builder = SelectionBuilder::new(tables, context, owner);
+    let mut builder = SelectionBuilder::new(tables, context, owner, &directory);
 
     builder.include_requested_semantics(&directory, kind)?;
 
@@ -91,6 +91,7 @@ enum PendingRecord {
     CallableContract(u32),
     GenericDeclaration(u32),
     DeclaredType(u32),
+    TypeRepresentation(u32),
     Implementation(u32),
     Coherence(u32),
     Target(u32),
@@ -105,20 +106,22 @@ enum PendingRecord {
     DependencyContract(u32),
 }
 
-struct SelectionBuilder<'bytes> {
+struct SelectionBuilder<'bytes, 'records> {
     tables: SelectedTables<'bytes>,
     context: SemanticDecodeContext,
     owner: InterfaceSymbolReference,
     pending: Vec<PendingRecord>,
     scheduled: BTreeSet<PendingRecord>,
     records: SelectedRecords,
+    directory: &'records [InterfaceSemanticRecord],
 }
 
-impl<'bytes> SelectionBuilder<'bytes> {
+impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
     fn new(
         tables: SelectedTables<'bytes>,
         context: SemanticDecodeContext,
         owner: InterfaceSymbolId,
+        directory: &'records [InterfaceSemanticRecord],
     ) -> Self {
         Self {
             tables,
@@ -127,6 +130,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
             pending: Vec::new(),
             scheduled: BTreeSet::new(),
             records: SelectedRecords::new(),
+            directory,
         }
     }
 
@@ -228,7 +232,42 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.enqueue(PendingRecord::Runtime(index));
         }
 
-        self.include_pending_records()
+        self.include_pending_records()?;
+
+        if !self.records.callable_signatures.values().is_empty()
+            && self.records.dependency_contracts.values().values().any(|contract| {
+            contract.owned_result.transfers().any(|transfer| !transfer.preservation().children().is_empty())
+        }) {
+            self.include_preservation_representations()?;
+        }
+
+        Ok(())
+    }
+
+    fn include_preservation_representations(&mut self) -> Result<(), InterfaceValidationError> {
+        loop {
+            let representations = self.records.types.values().values().filter_map(|ty| {
+                let InterfaceType::Named { definition, .. } = ty else { return None; };
+
+                Some(directory::records_for_owner(
+                    self.directory, definition, InterfaceSemanticRecordKind::TypeRepresentation,
+                ))
+            }).flatten().cloned().collect::<Vec<_>>();
+
+            for record in representations {
+                if record.section() != InterfaceSectionTag::DeclarationSemantics {
+                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+                }
+
+                self.enqueue(PendingRecord::TypeRepresentation(record.record()));
+            }
+
+            if self.pending.is_empty() {
+                return Ok(());
+            }
+
+            self.include_pending_records()?;
+        }
     }
 
     fn enqueue(&mut self, record: PendingRecord) {
@@ -249,6 +288,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                     self.include_generic_declaration(index)?;
                 }
                 PendingRecord::DeclaredType(index) => self.include_declared_type(index)?,
+                PendingRecord::TypeRepresentation(index) => self.include_type_representation(index)?,
                 PendingRecord::Implementation(index) => self.include_implementation(index)?,
                 PendingRecord::Coherence(index) => self.include_coherence(index)?,
                 PendingRecord::Target(index) => self.include_target(index)?,
@@ -798,6 +838,22 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
 
         self.records.types.insert(index, ty);
+
+        Ok(())
+    }
+
+    fn include_type_representation(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        let tables = self.tables.declarations.as_ref()
+            .expect("selected representation has declaration tables");
+        let representation = tables.type_representations.decode(index, &mut self.context, |reader, context| {
+            declaration::decode_type_representation(reader, context.limits(), context)
+        })?;
+
+        for ty in representation.referenced_types() {
+            self.enqueue(PendingRecord::Type(ty.raw()));
+        }
+
+        self.records.type_representations.insert(index, representation);
 
         Ok(())
     }

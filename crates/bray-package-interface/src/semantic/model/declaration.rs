@@ -99,6 +99,17 @@ pub enum InterfaceStorageShape {
     Union(Arc<[InterfaceUnionStorageVariant]>),
 }
 
+impl InterfaceStorageShape {
+    pub(crate) fn members(&self) -> impl Iterator<Item = &InterfaceStorageMember> {
+        let (members, variants): (&[InterfaceStorageMember], &[InterfaceUnionStorageVariant]) = match self {
+            Self::Structure(members) => (members, &[]),
+            Self::Union(variants) => (&[], variants),
+        };
+
+        members.iter().chain(variants.iter().flat_map(|variant| variant.members()))
+    }
+}
+
 impl InterfaceUnionTag {
     /// Creates one checked union tag.
     pub const fn new(variant: InterfaceSymbolReference, value: IntegerConstant) -> Self {
@@ -136,6 +147,36 @@ pub struct InterfaceTypeRepresentation {
 }
 
 impl InterfaceTypeRepresentation {
+    pub(crate) fn referenced_types(&self) -> impl Iterator<Item = InterfaceTypeId> + '_ {
+        self.union_tag_type.into_iter().chain(self.storage.members().map(InterfaceStorageMember::ty))
+    }
+
+    pub(crate) fn try_map_types<E>(
+        &mut self,
+        mut map: impl FnMut(InterfaceTypeId) -> Result<InterfaceTypeId, E>,
+    ) -> Result<(), E> {
+        self.union_tag_type = self.union_tag_type.map(&mut map).transpose()?;
+
+        let mut map_members = |members: &mut Arc<[InterfaceStorageMember]>| {
+            for member in Arc::make_mut(members) {
+                member.ty = map(member.ty)?;
+            }
+
+            Ok(())
+        };
+
+        match &mut self.storage {
+            InterfaceStorageShape::Structure(members) => map_members(members)?,
+            InterfaceStorageShape::Union(variants) => {
+                for variant in Arc::make_mut(variants) {
+                    map_members(&mut variant.members)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Creates one complete declared type representation contract.
     pub fn new(owner: InterfaceSymbolReference) -> Self {
         Self {

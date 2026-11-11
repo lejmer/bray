@@ -29,7 +29,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Current evidence and blockers
 
-Pushed checkpoint4a0d59a90. Both source/import witness matrices pass all positives and negatives.
+Current accepted semantic batch. Both source/import witness matrices pass all positives and negatives.
 Canonical return publication removes the duplicate reconstruction map. Nullable wrapper/payload snapshots,
 whole-carrier protocols, projected aliases and admitted-entry publication retain owning-boundary checks.
 
@@ -39,19 +39,23 @@ bound135, symbols221 and interfaces216 pass. Cleanup57/4, predicates26/2/2 and f
 Source/MIR composition plus3 invalid variants pass. Native composition has not run.
 Accepted native baseline:37 diagnostics,22 E7123 and15 E7135, complete233-file request, Source64a4e5490.
 
-Pending FutureStart repair uses complete result transfer instead of identity-only rebasing. The captured
+FutureStart uses complete result transfer instead of identity-only rebasing. The captured
 input previously named the old Future after captures moved under Task. All16 direct/Task controls pass,
 fabrication rejects, checker492 and fixed comparison are unchanged. Native verification retains exactly37 original identities.
-The provider now passes. Newly reachable source consumers have8 positive failures and one invalid loop
-accepted. These cases were previously blocked and unverified. Imported consumers panic on CallableSignature
-interface0/owner4. Export does contain that signature for change_state. Trace selected graph diagnostics
-and resolved owner before changing export or import. Temporary failure traces remain pending consumption.
+The provider now passes. Newly reachable source consumers have7 positive failures and one invalid loop
+accepted. These cases were previously blocked and unverified. Imported decoding now reaches all consumers. Selected decoding omitted storage representations needed to
+validate partial preservation masks. The verified repair carries those representations through the same
+selected graph, with shared type remapping. Restrict it to preservation validation so unrelated declared
+type selections retain their minimal graph. Source/import matrices now agree on the same7 positive
+failures and one invalid loop accepted. The original import panic masked InterfaceValidationFailed.
 
 Error projection now propagates TypeData::Error at its owning boundary. The permanent unresolved-async-input
 regression passes with originating E6001 instead of the copying invariant panic. No downstream catch/default.
 
-The grouped147-case deferred source is a cheap experiment. Identical source is stable, but grouped module
-context differs from the original harness. Do not replace the fixed tests. Trace existing normal-completion
+The13-case deferred probe uses the original api/app modules. CLI uses the real standard library and
+does not replace the source/import harness. Do not replace the fixed tests. Captured false values remain in immutable entry assumptions but normal-completion checked only flow facts.
+The verified owning-boundary repair includes entry assumptions. only_diverging now passes source/import.
+Interface216, checker492, fixed907 comparison and native37 identities remain unchanged. Trace existing normal-completion
 edges for only_diverging, captured entries/guards for repeated-site failures and Task/container publication.
 Do not add preservation exceptions or weaken initialized-memory policy. Batch independent fixes/checks.
 

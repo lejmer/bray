@@ -213,6 +213,13 @@ pub(super) fn remap_selected_records(
 
     let runtime_requirements = records.runtime_requirements.into_values();
 
+    let type_representations = records.type_representations.into_values()
+        .map(|mut representation| {
+            representation.try_map_types(|ty| maps.type_id(ty))?;
+
+            Ok(representation)
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
     Ok(InterfaceSemantics::new()
         .with_applications(
             substitutions,
@@ -229,6 +236,7 @@ pub(super) fn remap_selected_records(
             [],
         )
         .with_declared_types(declared_types)
+        .with_type_representations(type_representations)
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, [])
         .with_runtime_requirements(runtime_requirements))
