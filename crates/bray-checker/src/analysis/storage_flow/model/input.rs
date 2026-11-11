@@ -20,7 +20,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     /// Assignments preserving tags, with whether their write domain is limited to contents.
     pub(in crate::analysis::storage_flow) tag_preserving_assignments:
         BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
-    pub(in crate::analysis::storage_flow) opaque_values: BTreeSet<bray_bound_tree::StoragePath>,
+    pub(in crate::analysis::storage_flow) opaque_values: BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind>,
     /// Inline owner slots, including independently typed nested carriers.
     pub(in crate::analysis::storage_flow) opaque_descriptors: BTreeSet<bray_bound_tree::StoragePath>,
     pub(in crate::analysis::storage_flow) opaque_candidates: Vec<bray_bound_tree::StoragePath>,
@@ -129,12 +129,14 @@ impl StorageFlowInput {
             .map(bray_bound_tree::StoragePath::root);
 
         let opaque_values = footprint.owned_observations.values().flatten()
-            .filter(|(_, kind)| *kind != bray_bound_tree::StorageObservationKind::Discriminant)
-            .map(|(path, _)| path.clone()).collect::<BTreeSet<_>>();
+            .fold(BTreeMap::new(), |mut retained, (path, kind)| {
+                kind.record_preservation(path.clone(), &mut retained);
+                retained
+            });
 
         // A field can keep its complete owner while another component changes.
         // Prepare the finite inline ancestry once, without following pointees.
-        let opaque_descriptors = owned_descriptors.chain(opaque_values.iter().flat_map(|path| {
+        let opaque_descriptors = owned_descriptors.chain(opaque_values.keys().flat_map(|path| {
             (0..path.projections.len()).map(move |length| bray_bound_tree::StoragePath {
                 root: path.root,
                 projections: path.projections[..length].into(),
@@ -150,7 +152,7 @@ impl StorageFlowInput {
                     .copied()
                     .map(bray_bound_tree::StoragePath::root),
             )
-            .chain(opaque_values.iter().cloned())
+            .chain(opaque_values.keys().cloned())
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();

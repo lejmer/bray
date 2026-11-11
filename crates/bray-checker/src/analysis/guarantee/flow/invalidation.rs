@@ -410,32 +410,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         );
     }
 
+    fn storage_preservations(
+        &self,
+        state: &ExecutionState,
+        paths: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind>,
+    ) -> Vec<(crate::ExecutionPlace, bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind)> {
+        paths.iter().flat_map(|(path, kind)| self.storage_places(state, path.clone())
+            .map(move |place| (place, path.clone(), *kind))).collect()
+    }
+
     fn preserved_storage_values(
         &self,
         state: &ExecutionState,
-        paths: &BTreeSet<bray_bound_tree::StoragePath>,
+        paths: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind>,
         mutation: bray_bound_tree::StorageMutation,
-    ) -> (
-        BTreeMap<crate::ExecutionPlace, (ExecutionCondition, bray_bound_tree::StoragePath)>,
-        crate::execution_guarantees::ObservationSet,
-    ) {
-        let values = paths
-            .iter()
-            .flat_map(|path| {
-                self.storage_places(state, path.clone())
-                    .into_iter()
-                    .map(move |place| (place, path.clone()))
-            })
-            .filter_map(|(place, path)| {
-                place
-                    .value_in(&state.current)
-                    .map(|value| (place, (value, path)))
-            })
-            .collect();
-
+    ) -> crate::execution_guarantees::ObservationSet {
         let snapshots = paths
             .iter()
-            .flat_map(|path| self.storage_path_values(state, path.clone(), mutation))
+            .filter(|(_, kind)| **kind != bray_bound_tree::StorageObservationKind::Discriminant)
+            .flat_map(|(path, _)| self.storage_path_values(state, path.clone(), mutation))
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| *value != ExecutionCondition::Unknown)
             .flat_map(|value| {
@@ -451,7 +444,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for value in snapshots { observations.insert(value); }
 
-        (values, observations)
+        for (path, kind) in paths.iter().filter(|(_, kind)| **kind == bray_bound_tree::StorageObservationKind::Discriminant) {
+            for value in self.storage_path_values(state, path.clone(), mutation) {
+                observations.insert_classified(value.clone(), *kind);
+                observations.insert_classified(value.borrowed(), *kind);
+            }
+        }
+
+        observations
     }
 
     fn preserve_normal_snapshots(
@@ -496,7 +496,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         mutation: bray_bound_tree::StorageMutation,
         descriptors: &BTreeSet<bray_bound_tree::StoragePath>,
-        stable_values: &BTreeSet<bray_bound_tree::StoragePath>,
+        stable_values: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind>,
         normal_snapshots: &BTreeMap<(bray_symbols::DependencySubjectRoot, std::sync::Arc<[bray_bound_tree::StorageProjection]>), bray_bound_tree::StorageObservationKind>,
     ) {
         let descriptor_paths = descriptors
@@ -504,13 +504,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .flat_map(|path| self.storage_places(state, path.clone()).map(move |place| (place, path.clone())))
             .collect::<BTreeMap<_, _>>();
 
-        let (retained, mut snapshots) = self.preserved_storage_values(state, stable_values, mutation);
+        let mut snapshots = self.preserved_storage_values(state, stable_values, mutation);
 
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
+        let values = self.storage_preservations(state, stable_values);
+
         let mut masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.projections.as_ref())),
-            retained.iter().map(|(place, (_, path))| (place, path.projections.as_ref())));
+            values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind)));
 
         let current = state.current.iter().map(|(place, value)| (place.clone(), value.clone())).collect::<Vec<_>>();
 
@@ -540,11 +542,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn preservation_masks<'a>(
         &self,
         descriptors: impl Iterator<Item = (&'a crate::ExecutionPlace, &'a [bray_bound_tree::StorageProjection])>,
-        values: impl Iterator<Item = (&'a crate::ExecutionPlace, &'a [bray_bound_tree::StorageProjection])>,
+        values: impl Iterator<Item = (&'a crate::ExecutionPlace, &'a [bray_bound_tree::StorageProjection], bray_bound_tree::StorageObservationKind)>,
     ) -> BTreeMap<crate::ExecutionPlace, super::preservation::ValuePreservation> {
         let mut masks = BTreeMap::<crate::ExecutionPlace, super::preservation::ValuePreservation>::new();
 
-        for (preserves_value, (place, path)) in descriptors.map(|entry| (false, entry)).chain(values.map(|entry| (true, entry))) {
+        for (place, path, kind) in descriptors.map(|(place, path)| (place, path, bray_bound_tree::StorageObservationKind::Identity)).chain(values) {
             let mut root = place.clone();
 
             root.projections = [].into();
@@ -557,7 +559,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .is_some_and(|ty| crate::representation::reference_kind(self.request, ty)
                     == Some(bray_symbols::DependencyReferenceKind::Address));
 
-            if preserves_value || address { mask.value = true; } else { mask.descriptor = true; }
+            if kind == bray_bound_tree::StorageObservationKind::Discriminant { mask.discriminant = true; }
+            else if kind != bray_bound_tree::StorageObservationKind::Identity || address { mask.value = true; }
+            else { mask.descriptor = true; }
         }
 
         masks
@@ -591,11 +595,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        let (mut stable_places, mut stable_values) = match invalidation {
+        let mut stable_values = match invalidation {
             StorageInvalidation::Observed { stable_values, .. } => {
                 self.preserved_storage_values(state, stable_values, mutation)
             }
-            _ => (BTreeMap::new(), crate::execution_guarantees::ObservationSet::default()),
+            _ => crate::execution_guarantees::ObservationSet::default(),
         };
 
         if let Some(snapshots) = invalidation.normal_snapshots() {
@@ -663,10 +667,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         self.extend_static_changes(state, invalidation, &mut changed_places, &mut changed_paths);
 
-        // Disjoint values already retain their complete snapshot. Reconstructing
-        // their fields can erase a joined variant or revive old loop inputs.
-        stable_places.retain(|place, _| place.overlaps_any(&changed_places));
-
         // Storage flow distinguishes the descriptor slot from its reached elements.
         // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
         // and predicates from equating the old contents with the new contents.
@@ -719,9 +719,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             admitted,
         );
 
+        let values = match invalidation {
+            StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations(state, stable_values),
+            _ => Vec::new(),
+        };
         let masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.as_ref())),
-            stable_places.iter().map(|(place, (_, path))| (place, path.projections.as_ref())));
+            values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind)));
 
         let mut updates = BTreeMap::new();
 

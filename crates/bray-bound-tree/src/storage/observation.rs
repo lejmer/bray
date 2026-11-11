@@ -18,6 +18,19 @@ pub enum StorageObservationKind {
 }
 
 impl StorageObservationKind {
+    /// Records a proven survival claim. A complete value subsumes a tag-only claim.
+    pub fn record_preservation(
+        self,
+        path: crate::StoragePath,
+        observations: &mut std::collections::BTreeMap<crate::StoragePath, Self>,
+    ) {
+        let retained = if self == Self::Discriminant { self } else { Self::Value };
+
+        observations.entry(path).and_modify(|previous| {
+            if *previous == Self::Discriminant { *previous = retained; }
+        }).or_insert(retained);
+    }
+
     /// Whether retaining this exact value preserves all of its observable contents.
     pub const fn is_immutable_inline(self) -> bool {
         matches!(self, Self::Value | Self::Marker(_))

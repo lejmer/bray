@@ -10,6 +10,7 @@ use crate::{ExecutionCondition, ExecutionPlace};
 pub(super) struct ValuePreservation {
     pub(super) value: bool,
     pub(super) descriptor: bool,
+    pub(super) discriminant: bool,
     children: BTreeMap<StorageProjection, Self>,
 }
 
@@ -83,7 +84,9 @@ impl ValuePreservation {
         } else {
             place.cloned().map_or(ExecutionCondition::Unknown, ExecutionCondition::Input)
         };
-        let mut contents = ExecutionCondition::post_state(mutation, identity);
+        let mut contents = if self.discriminant {
+            source.discriminant()
+        } else { ExecutionCondition::post_state(mutation, identity) };
 
         for (projection, preservation) in &self.children {
             let child = source.clone().project(*projection);
@@ -110,6 +113,48 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::{BoundExecutionSite, BoundUnitId, StorageMutation, StorageProjection};
     use bray_symbols::SymbolOrdinal;
+
+    #[test]
+    fn retained_discriminants_keep_tags_without_payload_data_or_authority() {
+        use bray_bound_tree::BoundOperator;
+        use bray_symbols::{ConstantValueData, ConstantValueKind};
+        use std::sync::Arc;
+
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(place.clone());
+        let absent = ExecutionCondition::Literal(Arc::new(ConstantValueData::new(crate::test_support::error_type(), ConstantValueKind::NullableAbsent)));
+        let payload = bray_bound_tree::StorageProjection::NullableValue;
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            vec![push_expression(tree, integer_literal_expression(origin, None))]
+        });
+        let mutation = StorageMutation::Operation(sites[0].into());
+        let mask = ValuePreservation { discriminant: true, ..Default::default() };
+        let presence = |value| ExecutionCondition::operation(BoundOperator::NotEqual, vec![value, absent.clone()]);
+
+        for source in [absent.clone(), owner.clone().present(), owner.clone()] {
+            let updated = mask.apply(&source, Some(&place), mutation);
+
+            assert_eq!(presence(updated.clone()), presence(source.clone()));
+            assert_ne!(updated.clone().project(payload), owner);
+            assert!(super::super::super::state::ExecutionState::default().owned_values(&updated)
+                .all(|value| value.ownership_identity().is_none()));
+            assert_eq!(mask.apply(&updated, Some(&place), mutation), updated);
+            assert_ne!(presence(ValuePreservation::default().apply(&source, Some(&place), mutation)), presence(source));
+        }
+
+        let variant = bray_symbols::UnionVariantSymbolId::from_symbol_id(bray_symbols::SymbolId::new(902));
+
+        for source in [ExecutionCondition::Tagged(variant, Arc::new(owner.clone())), owner] {
+            let updated = mask.apply(&source, Some(&place), mutation);
+
+            assert_eq!(updated.clone().matches_variant(variant), source.clone().matches_variant(variant));
+            assert_eq!(updated.known_variant(), source.known_variant());
+            assert!(super::super::super::state::ExecutionState::default().owned_values(&updated)
+                .all(|value| value.ownership_identity().is_none()));
+            assert_eq!(mask.apply(&updated, Some(&place), mutation), updated);
+        }
+
+    }
 
     #[test]
     fn mutation_retains_an_existing_owned_context_without_retaining_joined_contents() {

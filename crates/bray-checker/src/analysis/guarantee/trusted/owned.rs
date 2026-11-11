@@ -256,11 +256,8 @@ pub(super) fn activity(
     for projection in path {
         let known = match projection {
             StorageProjection::NullableValue => {
-                if matches!(value, ExecutionCondition::Present(_)) {
-                    Some(true)
-                } else if matches!(&value, ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
-                {
-                    Some(false)
+                if let Some(present) = value.known_presence() {
+                    Some(present)
                 } else {
                     assumptions.iter().find_map(|(condition, holds)| {
                         condition
@@ -296,7 +293,7 @@ pub(super) fn activity(
         value = value.project(*projection);
     }
 
-    if matches!(&value, ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
+    if value.known_presence() == Some(false)
         || assumptions.iter().any(|(condition, holds)| {
             condition
                 .nullable_absence(*holds)

@@ -134,13 +134,41 @@ impl ExecutionCondition {
     }
 
     /// The active tag established by this produced value, through inline data wrappers.
+    /// Select only the retained tag from the actual current snapshot.
+    pub(crate) fn discriminant(&self) -> Self {
+        match self {
+            Self::Observation { contents, .. } | Self::Borrowed(contents)
+            | Self::Constructed(contents, _) => contents.discriminant(),
+            Self::Present(_) => Self::Present(Arc::new(Self::Unknown)),
+            Self::Tagged(variant, _) => Self::Tagged(*variant, Arc::new(Self::Unknown)),
+            Self::Literal(value) => match value.kind() {
+                bray_symbols::ConstantValueKind::NullableAbsent => self.clone(),
+                bray_symbols::ConstantValueKind::Union { variant, .. } =>
+                    Self::Tagged(*variant, Arc::new(Self::Unknown)),
+                _ => panic!("discriminant requires a nullable or union value: {self:?}"),
+            },
+            Self::Discriminant(_) | Self::Unknown => self.clone(),
+            value => Self::Discriminant(Arc::new(value.clone())),
+        }
+    }
+
+    pub(crate) fn known_presence(&self) -> Option<bool> {
+        match self {
+            Self::Observation { contents, .. } | Self::Borrowed(contents)
+            | Self::Constructed(contents, _) | Self::Discriminant(contents) => contents.known_presence(),
+            Self::Present(_) => Some(true),
+            Self::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) => Some(false),
+            _ => None,
+        }
+    }
+
     pub(crate) fn known_variant(&self) -> Option<bray_symbols::UnionVariantSymbolId> {
         let mut value = self;
 
         loop {
             match value {
                 Self::Tagged(variant, _) => return Some(*variant),
-                Self::Constructed(base, _) => value = base,
+                Self::Constructed(base, _) | Self::Discriminant(base) => value = base,
                 Self::Observation { contents, .. } | Self::Borrowed(contents) => value = contents,
                 Self::Literal(literal) => return match literal.kind() {
                     bray_symbols::ConstantValueKind::Union { variant, .. } => Some(*variant),
@@ -163,7 +191,7 @@ impl ExecutionCondition {
                 Self::Boolean(*active == variant)
             }
             Self::Tagged(active, _) => Self::Boolean(active == variant),
-            Self::Constructed(base, _) => base.as_ref().clone().matches_variant(variant),
+            Self::Constructed(base, _) | Self::Discriminant(base) => base.as_ref().clone().matches_variant(variant),
             value => {
                 if let Some(snapshot) = value.nullable_payload_snapshot() {
                     snapshot.clone().matches_variant(variant)
@@ -686,7 +714,7 @@ impl ExecutionCondition {
                 .unwrap_or_else(|| {
                     base.as_ref().clone().component(projection)
                 }),
-            Self::Unknown => Self::Unknown,
+            Self::Unknown | Self::Discriminant(_) => Self::Unknown,
             value => Self::Projection(projection, Arc::new(value)),
         }
     }
@@ -870,6 +898,24 @@ impl ExecutionCondition {
             return Self::boolean_operation(operator, operands);
         }
 
+        if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual)
+            && let [value, Self::Literal(absent)] | [Self::Literal(absent), value] = operands.as_slice()
+            && matches!(absent.kind(), bray_symbols::ConstantValueKind::NullableAbsent)
+        {
+            if let Some(present) = value.known_presence() {
+                return Self::Boolean(present == (operator == BoundOperator::NotEqual));
+            }
+
+            let tag = match value {
+                Self::Discriminant(base) | Self::Constructed(base, _) => Some(base),
+                _ => None,
+            };
+
+            if let Some(tag) = tag {
+                return Self::operation(operator, vec![(**tag).clone(), Self::Literal(Arc::clone(absent))]);
+            }
+        }
+
         if !matches!(
             operator,
             BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr
@@ -908,26 +954,6 @@ impl ExecutionCondition {
             return Self::Boolean(value);
         }
 
-        if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
-            if let [left, Self::Literal(absent)] | [Self::Literal(absent), left] =
-                operands.as_slice()
-                && matches!(
-                    absent.kind(),
-                    bray_symbols::ConstantValueKind::NullableAbsent
-                )
-                && let Self::Constructed(base, fields) = left
-                && fields.iter().all(|(projection, _)| {
-                    *projection == bray_bound_tree::StorageProjection::NullableValue
-                })
-            {
-                // Updating a present payload snapshot does not replace the nullable tag.
-                return Self::operation(
-                    operator,
-                    vec![(**base).clone(), Self::Literal(Arc::clone(absent))],
-                );
-            }
-        }
-
         if operator == BoundOperator::LogicalNot
             && let [Self::Operation(comparison, inner)] = operands.as_slice()
             && let Some(complement) = comparison.equality_complement()
@@ -936,17 +962,6 @@ impl ExecutionCondition {
         }
 
         match (operator, operands.as_slice()) {
-            (
-                BoundOperator::Equal | BoundOperator::NotEqual,
-                [Self::Present(_), Self::Literal(absent)]
-                | [Self::Literal(absent), Self::Present(_)],
-            ) if matches!(
-                absent.kind(),
-                bray_symbols::ConstantValueKind::NullableAbsent
-            ) =>
-            {
-                Self::Boolean(operator == BoundOperator::NotEqual)
-            }
             // Strict self-ordering is false even for NaN. Equality and weak ordering
             // require value-domain evidence that this untyped normalization does not carry.
             (BoundOperator::Less | BoundOperator::Greater, [left, right]) if left == right => {

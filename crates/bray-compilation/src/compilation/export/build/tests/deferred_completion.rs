@@ -88,7 +88,9 @@ const API: &str = r"
             return value;
         }
 
-        return Permit { id = 2 };
+        let fresh: Permit = { id = 2 };
+
+        return fresh;
     }
 
     trusted predicate held(owner: &Marker);
@@ -1245,7 +1247,7 @@ fn check_deferred_completion(imported: bool) {
         }
     }
 
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(failures.is_empty(), "deferred cases completed: imported={imported}, count={}\n{}", CASES.len(), failures.join("\n"));
 }
 
 #[test]

@@ -691,7 +691,7 @@ fn preserve_run_descriptor(
         // The owner token was unexposed before capture effects were applied.
         // Broadcasting passes only captures to user code, never this token.
         stable_descriptors.insert(path.clone());
-        stable_values.insert(path.clone());
+        stable_values.insert(path.clone(), bray_bound_tree::StorageObservationKind::Value);
         return;
     }
 
@@ -716,6 +716,6 @@ fn preserve_run_descriptor(
         // Cancellation changes the task's frame, not its unexposed handle.
         // The lifecycle phase must retain the same computation identity.
         stable_descriptors.insert(path.clone());
-        stable_values.insert(path.clone());
+        stable_values.insert(path.clone(), bray_bound_tree::StorageObservationKind::Value);
     }
 }
