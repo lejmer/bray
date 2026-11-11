@@ -848,6 +848,96 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: []
             }
+            DeadlineCreation {
+                "Admit an ordered deadline owner borrowing the existing scheduler.", "deadline_creation",
+                native: (DEADLINE_CREATION_SYMBOL = "bray_runtime_deadline_creation", [Pointer, Usize, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.creation"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineDestruction {
+                "Release a deadline owner after its registration owners retire.", "deadline_destruction",
+                native: (DEADLINE_DESTRUCTION_SYMBOL = "bray_runtime_deadline_destruction", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("deadline.destruction"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineRegistration {
+                "Transfer admitted notification ownership into the ordered deadline heap.", "deadline_registration",
+                native: (DEADLINE_REGISTRATION_SYMBOL = "bray_runtime_deadline_registration", [Pointer, U64, U64, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, U64, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.registration"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineWithdrawal {
+                "Withdraw pending deadline membership before delivery commitment.", "deadline_withdrawal",
+                native: (DEADLINE_WITHDRAWAL_SYMBOL = "bray_runtime_deadline_withdrawal", [Pointer, U64] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.withdrawal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineScopeWithdrawal {
+                "Withdraw pending deadlines for one retired scheduler registration.", "deadline_scope_withdrawal",
+                native: (DEADLINE_SCOPE_WITHDRAWAL_SYMBOL = "bray_runtime_deadline_scope_withdrawal", [Pointer, U64] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64] -> Void,
+                owner: Host, availability: All, bootstrap: ("deadline.scope_withdrawal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineDispatch {
+                "Commit elapsed deadlines and deliver retained callbacks outside the heap lock.", "deadline_dispatch",
+                native: (DEADLINE_DISPATCH_SYMBOL = "bray_runtime_deadline_dispatch", [Pointer, U64] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.dispatch"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineNext {
+                "Observe the earliest pending monotonic deadline.", "deadline_next",
+                native: (DEADLINE_NEXT_SYMBOL = "bray_runtime_deadline_next", [Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.next"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineMembershipCount {
+                "Observe the number of pending deadline registrations.", "deadline_membership_count",
+                native: (DEADLINE_MEMBERSHIP_COUNT_SYMBOL = "bray_runtime_deadline_membership_count", [Pointer] -> Usize),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Usize,
+                owner: Host, availability: All, bootstrap: ("deadline.membership_count"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineClosure {
+                "Close admission while preserving existing deadline and delivery owners.", "deadline_closure",
+                native: (DEADLINE_CLOSURE_SYMBOL = "bray_runtime_deadline_closure", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("scheduler.deadline_closure"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
             TaskControlCreation {
                 "Create the runtime identity for resident Bray task control.", "task_control_creation",
                 native: (TASK_CONTROL_CREATION_SYMBOL = "bray_runtime_task_control_creation", [] -> U64),

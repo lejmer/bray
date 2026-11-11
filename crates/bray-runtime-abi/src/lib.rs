@@ -93,6 +93,6 @@ pub use storage::{
 };
 
 pub use scheduler::{
-    NativeSchedulerLane, NativeSchedulerObservation, NativeSchedulerReference,
+    NativeDeadlineReference, NativeSchedulerLane, NativeSchedulerObservation, NativeSchedulerReference,
     NativeSchedulerRequirements,
 };

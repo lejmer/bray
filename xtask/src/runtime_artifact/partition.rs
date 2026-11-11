@@ -97,7 +97,7 @@ impl RuntimeArchivePartitioner {
 
         let reachable =
             NativeUnitResolver::new([index])
-                .select_seeded(owned.keys().map(|&digest| {
+                .select_seeded([], owned.keys().map(|&digest| {
                     bray_native_artifact::NativeUnitLocation {
                         artifact: 0,
                         digest,

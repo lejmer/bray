@@ -120,6 +120,7 @@ fn replace_runtime(runtime: Option<NativeRuntimeBinding>) -> Option<NativeRuntim
 
 fn retire_runtime(runtime: Option<NativeRuntimeBinding>) {
     if let Some(NativeRuntimeBinding::Owned(runtime)) = runtime {
+        runtime.scheduler.close_timers();
         runtime.core.release_owner();
     }
 }
@@ -251,7 +252,7 @@ pub(in crate::native) struct NativeRuntime {
     pub(in crate::native) main_thread_lane: bool,
     pub(in crate::native) cleanup_workloads: Cell<bool>,
     pub(in crate::native) worker: Option<Arc<super::super::workers::WorkerControl>>,
-    pub(in crate::native) core: Arc<NativeRuntimeCore>,
+    pub(crate) core: Arc<NativeRuntimeCore>,
     #[cfg(test)]
     pub(in crate::native) _test_isolation: Option<TestRuntimeIsolation>,
 }
@@ -615,7 +616,7 @@ mod tests {
 
 #[derive(Clone)]
 pub(crate) struct RetainedRuntime {
-    pub(in crate::native) core: Arc<NativeRuntimeCore>,
+    pub(crate) core: Arc<NativeRuntimeCore>,
     pub(in crate::native) main_thread: Option<RuntimeThreadId>,
     pub(in crate::native) released: Arc<AtomicBool>,
 }
@@ -637,7 +638,7 @@ pub(crate) struct RuntimeRetirement<'a> {
 }
 
 impl NativeRuntimeCore {
-    pub(in crate::native) const fn scheduler(&self) -> &Scheduler {
+    pub(crate) const fn scheduler(&self) -> &Scheduler {
         &self.scheduler
     }
 
@@ -680,6 +681,7 @@ impl NativeRuntimeCore {
             .filter(|runtime| std::ptr::eq(Arc::as_ptr(&runtime.core), self))
             .and_then(|runtime| runtime.worker.clone());
 
+        self.scheduler.close_timers();
         self.workers.stop(&self.scheduler, current.as_ref());
         self.clear_tasks();
 
@@ -883,6 +885,18 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
     drop(runtime);
 
     Ok(retained)
+}
+
+pub(crate) fn retain_timeout_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
+    if current_runtime().is_none() {
+        let status = initialize(NativeRuntimeConfiguration::new(usize::MAX, usize::MAX));
+
+        if !status.is_success() {
+            return Err(status);
+        }
+    }
+
+    retain_current_runtime().map(|runtime| runtime.expect("timeout demand establishes the current runtime"))
 }
 
 pub(in crate::native) fn run_worker(

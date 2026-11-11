@@ -1,0 +1,188 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.deadline;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.host.product;
+
+@abi(c)
+trusted internal func dispatch(pos pointer: DataPointer<Reference>, pos now: u64) -> u32
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+    let mut status: u32 = 0;
+
+    while true
+    {
+        let pending = trusted commit(&owner, now, 0, 0);
+
+        if pending matches none
+        {
+            return status;
+        }
+
+        let entry = trusted take_entry(pending);
+        let delivered = trusted release(&owner, entry, true);
+
+        if status == 0
+        {
+            status = delivered;
+        }
+    }
+}
+
+// A removed row is the sole committed callback owner. Withdrawal cannot recover it.
+trusted internal func commit(pos owner: &Reference, pos now: u64, pos identity: u64, pos scope: u64) -> Entry?
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner), trusted optional_entry_owned(owner = &result))
+{
+    let value = trusted domain(owner);
+    let mut guard = trusted lock(value);
+    let current = trusted state(value, &mut guard);
+
+    let found = trusted find(&current, now, identity, scope);
+
+    if found < count(&current)
+    {
+        return trusted remove_at(current, found);
+    }
+
+    return none;
+}
+
+trusted internal func find(pos owner: &State, pos now: u64, pos identity: u64, pos scope: u64) -> usize
+    requires(trusted heap_owned(owner = owner))
+    ensures(trusted heap_owned(owner = owner))
+    executes(pure)
+    uses(raw_memory)
+{
+    if let ?entries = owner.entries
+    {
+        let rows = trusted std.memory.initialized_slice<Entry>(&entries);
+
+        if identity == 0 && scope == 0
+        {
+            if entries.initialized != 0 && rows[0].deadline <= now
+            {
+                return 0;
+            }
+        }
+        else
+        {
+            let mut index: usize = 0;
+
+            while index < entries.initialized
+            {
+                if (identity != 0 && rows[index].identity == identity) || (scope != 0 && rows[index].scope == scope)
+                {
+                    return index;
+                }
+
+                index += 1;
+            }
+        }
+
+        return entries.initialized;
+    }
+
+    return 0;
+}
+
+@abi(c)
+trusted internal func withdrawal(pos pointer: DataPointer<Reference>, pos identity: u64) -> u32
+    requires(trusted reference_slot(pointer = pointer))
+{
+    if identity == 0
+    {
+        return 0;
+    }
+
+    let owner = trusted read_reference(pointer);
+
+    let pending = trusted commit(&owner, 0, identity, 0);
+
+    if pending matches none
+    {
+        return 0;
+    }
+
+    _ = trusted release(&owner, trusted take_entry(pending), false);
+
+    trusted notify(&owner);
+    return 1;
+}
+
+@abi(c)
+trusted internal func scope_withdrawal(pos pointer: DataPointer<Reference>, pos scope: u64)
+    requires(trusted reference_slot(pointer = pointer))
+{
+    if scope == 0
+    {
+        return;
+    }
+
+    let owner = trusted read_reference(pointer);
+
+    while true
+    {
+        let pending = trusted commit(&owner, 0, 0, scope);
+
+        if pending matches none
+        {
+            trusted notify(&owner);
+            return;
+        }
+
+        _ = trusted release(&owner, trusted take_entry(pending), false);
+    }
+}
+
+@abi(c)
+trusted internal func next(pos pointer: DataPointer<Reference>, pos output: DataPointer<u64>) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+    uses(raw_memory)
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+    let mut guard = trusted lock(value);
+    let current = trusted state(value, &mut guard);
+
+    if let ?entries = current.entries
+    {
+        if entries.initialized != 0
+        {
+            let rows = trusted std.memory.initialized_slice<Entry>(&entries);
+
+            trusted bray.runtime.bootstrap.host.product.publish_provider<u64>(output, rows[0].deadline);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+@abi(c)
+trusted internal func membership_count(pos pointer: DataPointer<Reference>) -> usize
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+    let mut guard = trusted lock(value);
+
+    let current = trusted state(value, &mut guard);
+
+    return count(&current);
+}
+
+trusted internal func take_entry(pos owner: Entry?) -> Entry
+    requires(owner matches ?_, trusted optional_entry_owned(owner = &owner))
+    ensures(trusted entry_owned(owner = &result))
+    uses(intrinsic)
+{
+    return match consume owner
+    {
+        case ?entry { yield entry; }
+        case none { yield trusted core.target.abort(); }
+    };
+}

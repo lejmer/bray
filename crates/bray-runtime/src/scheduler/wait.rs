@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bray_platform::{MonotonicDeadline, RuntimeThread, RuntimeThreadId};
 
 use super::contract::SchedulerError;
@@ -43,7 +45,9 @@ impl Scheduler {
                 return Ok(None);
             }
 
-            let wait_deadline = match (deadline, self.next_deadline()?) {
+            let timer_remaining = self.timer_remaining()?;
+
+            let wait_deadline = match (deadline.map(|deadline| deadline.remaining()), timer_remaining) {
                 (Some(first), Some(second)) => Some(first.min(second)),
                 (deadline, None) | (None, deadline) => deadline,
             };
@@ -68,9 +72,9 @@ impl<'a> Parking<'a> {
         Self { scheduler, group }
     }
 
-    pub(super) fn wait(&self, deadline: Option<MonotonicDeadline>) {
-        let milliseconds = deadline.map_or(u32::MAX - 1, |deadline| {
-            let remaining = deadline.remaining().as_nanos().div_ceil(1_000_000);
+    pub(super) fn wait(&self, remaining: Option<Duration>) {
+        let milliseconds = remaining.map_or(u32::MAX - 1, |remaining| {
+            let remaining = remaining.as_nanos().div_ceil(1_000_000);
 
             u32::try_from(remaining)
                 .unwrap_or(u32::MAX - 1)
