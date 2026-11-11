@@ -29,45 +29,52 @@ RetiredCell disposes control, pin and arena before vacancy. WaitResources retain
 
 ## Current evidence
 
-Frozen907 identities:776 passed,32 failed,99 ignored, with14 explained verdict changes. comparison.txt stays unchanged.
-Both added allocation and arithmetic controls pass. Checker502/bound136 pass. Cleanup57/4 and predicates26/2/2 retain known failures.
-Focused18 pass, including Source/MIR composition and3 invalid variants. Native composition has not run.
-All148 deferred cases pass each in source/import. Both witness matrices pass. Loop controls stabilize.
-Pin per-case identities/outcomes and completed counts. An aggregate FAILED cannot certify that its cases executed.
+Frozen907 identities:776 passed,32 failed,99 ignored, with14 explained repairs.
+The original comparison.txt is unchanged. Three added controls pass, giving fixed910 totals779/32/99.
+Checker503/bound136 pass. Cleanup57/4, predicates26/2/2 retain known failures. Focused18 pass, including
+Source/MIR async composition and3 invalid variants. Native composition has not run.
+All244 owned-transfer and148 deferred cases pass each in source/import. Per-case identities and outcomes are fixed.
+An aggregate FAILED does not prove its later cases executed.
+Accepted native:30 diagnostic identities,17 E7123 and13 E7135, complete233-file request.
 
-Present snapshots survive all structural rewrites. Join facts use actual predecessor evidence. Proof-only ValueAlias
-preserves immutable copied data without numeric-equality assumptions or authority. Classified physical survival retains
-complete values or only tags. Full values subsume tags, effect merges retain common survival, and tag snapshots carry no
-old payload or authority. Presence/variant queries inspect the same value tree. Temporary tracing is removed.
+Current source-validated batch preserves input loan evidence and independently retained owner evidence in the same ledger.
+Borrowed input storage cannot count as owned authority. Selecting only one carrier either breaks owner transfer or loses
+the loan across a loop. The source/import regression covers borrowed/owned inputs and absent renewal guarantees.
+Physical storage-flow tracing confirms that a pointee write is disjoint from its stored loan descriptor. The producer
+now publishes that descriptor identity, which reaches guarantee analysis unchanged. Actual contents remain invalidated.
+Candidate native29 has no new diagnostic locations and clears scheduler_reference(owner) after the resume_binding backedge.
+All8 source/import loop cases now pass. Framing consumes the existing ownership layout with the value, handling
+normalized and explicit owned observations identically while replacing overwritten contents. Both forms, prior-snapshot
+independence and replay are covered. Fixed910 is779/32/99 with no unexplained changes. Checker503/bound136 and focused18 pass.
+All244 owned-transfer and148 deferred cases pass each in source/import. Adjacent known failures are unchanged.
+No temporary tracing remains. Latest native verification is next.
 
-Accepted native:30 diagnostics,17 E7123 and13 E7135, complete233-file request. Ordinary path alternatives survive
-joins and refute overflow through the existing Boolean solver. Compound/split guards and opaque const operands pass;
-unguarded products reject. Full fixed comparison778/32/99 has no unexplained changes. Temporary tracing is removed.
+Audit the full downstream path before another implementation batch. Diagnostics validate the audit, not select its next boundary.
+The29 native sites group into7 scoped/optional cleanup requirements,4 marker requirements across calls/mutation/loops,
+5 relational requirements involving multiple values, and13 postcondition failures. At least8 postcondition failures directly
+name already-failing required callables. These are sites and dependency cascades, not29 identified compiler bugs.
+Trace families by shared producers before deciding whether a source contract or compiler transport is wrong.
+
+Current framing path audit: physical slot disjointness -> published StorageInvalidation -> atomic value/layout framing
+-> current tree and aliases -> input loan/actual-owner publication -> join value/identity remapping and predecessor proof
+-> captured call/Future entry -> strict-role transfer/retirement -> cleanup. Constructor normalization, both invalidation
+consumers, common_components, owned_result, collect_reference_data, join_values, rename_witnesses, retire_evaluation and
+retire_trusted_values were inspected. Structural unwraps do not themselves grant ownership. Repeating-call admission with
+a matching renewal requirement passes the real borrowed source probe. No speculative expiry or join changes were made.
+Native full composition and remaining families still require evidence. Strengthen the permanent loop fixture with that
+renewal requirement when batching the next necessary test build.
 
 ## Remaining
 
-Trace native failures by producer/consumer families: shared requirements, allocation extents, attachment restoration,
-PreparedStart registration, returned-pointer retirement at driving197, initialized ranges and wait-link authority.
-Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains unresolved.
-All244 owned-transfer cases and all148 deferred cases pass each in source/import, including every invalid control.
-The fixed909 comparison is778/32/99 with14 explained repairs against the unchanged907 baseline and2 added tests.
-Checker502/bound136 pass. Native retains exactly30 diagnostic identities, with no additions or removals.
-Checkpointc9e0b8607 is pushed. Admitted witnesses resume from the actual captured entry at completion and formation.
-Sparse constructed pending results complete ownership only for their producing invocation. Complete observations and
-formed values staged into later arguments retain their data. All temporary source and native regressions are cleared.
-The consumed ownership-selection probe was removed. Permanent matrices retain its controls.
-Current verified batch maps an existing constructed loan contents identity to its actual predecessor for implicit
-field proof. The regression fails before and passes after, including one-sided rejection, no pointee ownership and
-stable replay. Fixed778/32/99, checker503/bound136, owned/deferred matrices and focused18 pass without regression.
-Native retains the same30 identities. This fixes a real proof boundary but does not clear the native borrowed-view loop.
-Next trace compares joined live witness facts with later call-admission facts and their owner dependencies.
-All instrumentation and consumed transition traces are removed.
-Preserve these gates while tracing native borrowed-view and scoped-cleanup authority.
-Framing lifted Present(payload) retains only payload lineage. Genuine whole-input contexts still survive. Contextual
-projection panics remain compiler invariants.
-The tag-query helpers moved into condition/tags.rs without behavior changes, keeping new logic outside oversized values.rs.
+Keep the carrier/descriptor repair fixed while validating native family outcomes. Then trace scoped cleanup, PreparedStart registration,
+returned-pointer retirement, attachment restoration, initialized ranges and wait-link authority. Keep the current tree,
+physical storage model and witness ledger authoritative. Do not introduce preservation exceptions or recover data from traces.
+The unresolved tuple-context-projection.bray probe does not establish that copying its owner is valid language behavior.
+
 Trace operation/input/result, scoped, iteration, await/yield, cancellation, recovery and cleanup through all consumers.
-Verify native success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.
+Verify native async success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.
+Then simplify production mechanisms, prune redundant tests, complete the AGENTS/DRY audit, run mutating style/format,
+rerun affected checks and obtain independent draft PR review before Ready/In Review. No final verification claim yet.
 
 Two frozen negatives need genuine fabrication/mutation controls: trusted_implementation_does_not_export_undeclared_authority
 and shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. The terminating-branch positive passes,

@@ -940,7 +940,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 && matches!(access_data.root(), bray_bound_tree::StorageAccessRoot::Storage(_));
 
             let observed = if borrowed_value {
-                let Some(targets) = observed.and_then(|slot| memory.value_targets(&slot)) else { continue; };
+                let Some(slot) = observed else { continue; };
+
+                // The access names a stored loan. A pointee write changes reached
+                // data, while a disjoint descriptor retains the evaluated loan.
+                if mutations.clone().all(|mutation| {
+                    memory.target_relationship(&slot, mutation) == StorageRelationship::Disjoint
+                }) {
+                    stable_descriptors.insert(logical.clone());
+                }
+
+                let Some(targets) = memory.value_targets(&slot) else { continue; };
                 let [target] = targets.as_slice() else { continue; };
 
                 Some(target.clone())

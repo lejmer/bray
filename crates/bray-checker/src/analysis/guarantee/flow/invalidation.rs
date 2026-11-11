@@ -519,9 +519,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for (place, source) in current {
             let mask = masks.remove(&place).unwrap_or_default();
 
-            let next = mask.apply(&source, Some(&place), mutation);
-
-            mask.retain_ownership(state, &source, &next);
+            let next = mask.frame(state, &source, Some(&place), mutation);
 
             state.observe(place, next, None);
         }
@@ -744,10 +742,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let mask = masks.get(&root).and_then(|mask| mask.at(path)).unwrap_or(&empty);
 
             let next = if transfers { ExecutionCondition::Unknown } else {
-                mask.apply(&previous, Some(&place), mutation)
+                mask.frame(state, &previous, Some(&place), mutation)
             };
-
-            if !transfers { mask.retain_ownership(state, &previous, &next); }
 
             let updated = updates.entry(root).or_insert(source);
 

@@ -19,6 +19,122 @@ use super::fixtures::{
 };
 
 #[test]
+fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
+    let provider = r#"
+        trusted module api;
+
+        using core.memory;
+
+        struct Marker {}
+
+        struct Owner
+        {
+            acquisition: Marker;
+            pointer: DataPointer<u64>;
+        }
+
+        trusted predicate held(owner: &Marker);
+
+        trusted func authorize(pos pointer: DataPointer<Owner>)
+            ensures(trusted core.memory.valid_write<Owner>(pointer = pointer, count = 1))
+        {
+        }
+
+        trusted func obtain(pos owner: &Owner) -> &Owner
+            ensures(trusted held(owner = &result.acquisition))
+        {
+            return owner;
+        }
+
+        trusted func renew(pos owner: &Owner)
+            ensures(trusted held(owner = &owner.acquisition))
+            uses(raw_memory, unchecked_init)
+        {
+            let replacement: Owner =
+            {
+                acquisition = Marker {},
+                pointer = owner.pointer
+            };
+
+            let pointer = core.memory.address_of<Owner>(owner);
+            authorize(pointer);
+            trusted core.memory.write<Owner>(pointer, replacement);
+        }
+
+        func observe(pos owner: &Owner)
+            requires(trusted held(owner = &owner.acquisition))
+        {
+        }
+    "#;
+    let mut failures = Vec::new();
+
+    for renewed in [false, true] {
+        let provider_source = if renewed {
+            provider.to_owned()
+        } else {
+            provider.replace("ensures(trusted held(owner = &owner.acquisition))", "")
+        };
+        let provider = compilation(&provider_source);
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{}",
+            super::fixtures::diagnostic_messages(provider.check_diagnostics())
+        );
+
+        for imported in [false, true] {
+            for owned in [false, true] {
+                let api = if imported { "example.package.api" } else { "api" };
+                let source_type = if owned { "" } else { "&" };
+                let source_borrow = if owned { "&" } else { "" };
+                let source = format!(r#"
+                    module app;
+
+                    using {api};
+
+                    func caller(pos source: {source_type}{api}.Owner, pos again: bool)
+                    {{
+                        let owner = {api}.obtain({source_borrow}source);
+
+                        while again
+                        {{
+                            {api}.observe(owner);
+                            {api}.renew(owner);
+                        }}
+
+                        {api}.observe(owner);
+                    }}
+                "#);
+                let consumer = if imported {
+                    execution_consumer(&provider, &source)
+                } else {
+                    super::fixtures::compilation_from_sources([provider_source.as_str(), &source])
+                };
+                let diagnostics = consumer.check_diagnostics();
+
+                if diagnostics.has_errors() == renewed {
+                    failures.push(format!(
+                        "renewed={renewed}, imported={imported}, owned={owned}: {}",
+                        super::fixtures::diagnostic_messages(diagnostics)
+                    ));
+                }
+
+                if !renewed && !diagnostics.iter().any(|diagnostic| {
+                    diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
+                }) {
+                    failures.push(format!(
+                        "unexpected rejection cause: imported={imported}, owned={owned}: {}",
+                        super::fixtures::diagnostic_messages(diagnostics)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn bodyless_execution_promises_require_an_external_assertion() {
     for boundary in ["", "@link(name = \"c\", kind = system)\n        @symbol(name = \"asserted\")"] {
         let source = format!(r#"
