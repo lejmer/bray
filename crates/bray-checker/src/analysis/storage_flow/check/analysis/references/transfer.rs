@@ -594,15 +594,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         state.memory.begin_transition(occurrence);
 
-        if contracts.deferred_effects().is_some() {
-            let roots = contracts.reference_subjects()
-                .filter(|subject| subject.subject_root() != DependencySubjectRoot::Result)
-                .filter_map(|subject| self.invocation_place(occurrence, subject.subject_root()))
-                .map(Target::storage)
-                .collect::<std::collections::BTreeSet<_>>();
+        let roots = contracts.reference_subjects()
+            .filter(|subject| subject.subject_root() != DependencySubjectRoot::Result)
+            .filter_map(|subject| self.invocation_place(occurrence, subject.subject_root()))
+            .map(Target::storage)
+            .collect::<std::collections::BTreeSet<_>>();
 
-            state.memory.capture_reference_inputs(occurrence, roots);
-        }
+        state.memory.capture_reference_inputs(occurrence, roots);
 
         if let BoundExecutionSite::CallInput {
             expression,

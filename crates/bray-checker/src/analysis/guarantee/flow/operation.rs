@@ -210,12 +210,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                         state.trust_boundaries.remove(&expression);
                     } else {
-                        if let Site::ScopedExit(expression) = invocation {
-                            let capability = self.invocation_value(state, Site::ScopedEnter(expression));
-
-                            state.invalidate_trusted(&capability);
-                        }
-
                         self.invalidate(state, invocation, invalidation);
                     }
 

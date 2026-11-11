@@ -42,7 +42,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         visible.then_some((expression, call))
     }
 
-    fn refresh_borrowed_arguments(
+    pub(super) fn refresh_borrowed_arguments(
         &self,
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
@@ -183,7 +183,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let ordinal = selection
                 .invocation_input_ordinal(invocation, subject.subject_root())
-                .expect("prepared input reference retains its ordinal");
+                .unwrap_or_else(|| panic!("prepared input reference retains its ordinal: {invocation:?}, {subject:?}, input={input:?}"));
 
             let Some(place) =
                 crate::ExecutionPlace::argument(ordinal).project(prepared.projections())
@@ -223,6 +223,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .inputs()
                 .find(|input| input.root() == subject.subject_root())
                 .and_then(|input| input.reference())
+                .or_else(|| self.request.trusted_contracts()
+                    .and_then(|contracts| contracts.calls.get(&invocation))
+                    .and_then(|contract| contract.arguments.iter()
+                        .find(|(_, source)| **source == input)
+                        .map(|(reference, _)| *reference)))
                 && let Some(value) = arguments.get(&crate::ExecutionPlace::argument(ordinal))
             {
                 arguments.insert(reference.into(), value.clone());
@@ -233,7 +238,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
     pub(super) fn prepare_call_observations(
         &self,
-        state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
         call: &bray_bound_tree::SelectedCall,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
@@ -244,8 +248,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         completion: &bray_bound_tree::StorageCompletion,
         retain_authority: bool,
     ) -> BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource> {
-        self.refresh_borrowed_arguments(state, invocation, arguments, completion);
-
         let expression = invocation
             .expression()
             .expect("visible selected call retains its expression");

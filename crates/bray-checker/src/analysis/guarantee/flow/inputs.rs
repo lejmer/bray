@@ -39,14 +39,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
-        if let BoundExecutionSite::ScopedExit(_) = invocation {
-            // The captured actual input survives physical retirement at exit.
-            if let Some(capability) = state.entries.get(&invocation).and_then(|entry| {
-                ExecutionPlace::argument(SymbolOrdinal::new(0)).value_in(&entry.arguments)
-            }) {
-                state.invalidate_trusted(&capability);
-            }
-        }
     }
 
     pub(in crate::analysis) fn observe_memory_read(

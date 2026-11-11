@@ -1538,6 +1538,95 @@ fn borrowed_postconditions_name_the_updated_storage_only() {
 }
 
 #[test]
+fn scoped_borrow_postconditions_survive_capability_retirement() {
+    let mut failures = Vec::new();
+
+    for asynchronous in ["", "async"] {
+    for (case, (action, promised, valid)) in [
+        ("observe(&first);", true, true),
+        ("let moved = relay(first); observe(&moved);", true, true),
+        ("first.epoch = 2; observe(&first);", true, false),
+        ("observe(&second);", true, false),
+        ("observe(&first);", false, false),
+    ].into_iter().enumerate() {
+        let guarantee = if promised { "ensures(trusted live(&lease.slot))" } else { "" };
+        let source = format!(r#"
+            trusted module app;
+
+            struct Owner
+            {{
+                mut epoch: u64;
+            }}
+
+            trusted predicate live(value: &Owner);
+
+            struct Lease
+            {{
+                slot: &mut Owner;
+            }}
+
+            struct Scope
+            {{
+                slot: &mut Owner;
+
+                trusted consume enter() -> Lease
+                    ensures(trusted live(&result.slot))
+                {{
+                    return {{ slot = self.slot }};
+                }}
+
+                trusted {asynchronous} exit(pos lease: Lease)
+                    {guarantee}
+                {{
+                    lease.slot.epoch = 1;
+                }}
+            }}
+
+            func relay(pos owner: Owner) -> Owner
+                requires(trusted live(&owner))
+                ensures(trusted live(&result))
+            {{
+                return owner;
+            }}
+
+            func observe(pos owner: &Owner)
+                requires(trusted live(owner))
+            {{
+            }}
+
+            {asynchronous} func caller()
+            {{
+                let mut first: Owner = {{ epoch = 0 }};
+                let second: Owner = {{ epoch = 0 }};
+                let scope: Scope = {{ slot = &mut first }};
+
+                with lease = scope
+                {{
+                    observe(&lease.slot);
+                }};
+
+                {action}
+            }}
+        "#);
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+        let kinds = diagnostics.iter().map(|diagnostic| diagnostic.kind()).collect::<Vec<_>>();
+
+        if diagnostics.has_errors() == valid {
+            failures.push(format!("scoped borrow asynchronous={asynchronous:?}, case={case}, valid={valid}, diagnostics={kinds:?}"));
+        }
+
+        if !valid && !kinds.contains(&DiagnosticKind::CheckingTrustedObligationNotProven) {
+            failures.push(format!("scoped borrow asynchronous={asynchronous:?}, case={case} lacks its authority rejection: {kinds:?}"));
+        }
+    }
+
+    }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn completion_observes_the_evaluated_borrow_after_its_source_slot_changes() {
     for (invocation, observed, expected) in [
         (
