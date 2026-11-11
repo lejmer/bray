@@ -44,8 +44,8 @@ impl ExecutionCondition {
         }).is_break()
     }
 
-    pub(super) fn contains_value_alias(&self) -> bool {
-        self.visit(|condition| if matches!(condition, Self::ValueAlias(_, _)) {
+    pub(super) fn contains_equivalence(&self) -> bool {
+        self.visit(|condition| if matches!(condition, Self::ValueAlias(_, _) | Self::Operation(bray_bound_tree::BoundOperator::Equal | bray_bound_tree::BoundOperator::NotEqual, _)) {
             ControlFlow::Break(())
         } else { ControlFlow::Continue(()) }).is_break()
     }

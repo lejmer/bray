@@ -4,6 +4,7 @@ mod proof;
 mod substitution;
 mod traversal;
 mod values;
+mod tags;
 
 #[cfg(test)]
 mod tests;
