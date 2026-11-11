@@ -588,6 +588,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             stable_descriptors: descriptors,
             stable_values,
             normal_snapshots,
+            ..
         } = invalidation
         {
             self.invalidate_all_observations(state, mutation, descriptors, stable_values, normal_snapshots);

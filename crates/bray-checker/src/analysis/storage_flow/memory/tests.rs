@@ -90,7 +90,7 @@ fn cleanup_retains_its_value_scope_and_follows_actual_contained_references() {
         let protected = [left.clone()];
         let stable = state.unexposed_storage(&protected, [Target::storage(right.clone())]).cloned().collect();
         let invalidation = bray_bound_tree::StorageInvalidation::All {
-            stable_descriptors: stable, stable_values: Default::default(), normal_snapshots: Default::default(),
+            stable_descriptors: stable, stable_values: Default::default(), stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
         };
         state.apply_effects(Some(&effects), &invalidation, &storage);
         assert_eq!(state.referent(&left, error_type()), (!references_sibling).then_some(left_source));
@@ -2785,7 +2785,7 @@ fn opaque_effects_preserve_unexposed_reference_slots_but_revoke_contents() {
             &bray_bound_tree::StorageInvalidation::All {
                 stable_descriptors,
                 stable_values: Default::default(),
-                normal_snapshots: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
             },
             &storage,
             bray_symbols::DependencyMutationKind::Retire,
@@ -2861,7 +2861,7 @@ fn typed_writes_keep_protected_reference_slots_until_exact_replacement() {
     let invalidation = bray_bound_tree::StorageInvalidation::All {
         stable_descriptors: [parameter].into(),
         stable_values: Default::default(),
-        normal_snapshots: Default::default(),
+        stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
     };
 
     let other = Target {
@@ -2883,6 +2883,7 @@ fn typed_writes_keep_protected_reference_slots_until_exact_replacement() {
 
 #[test]
 fn effects_preserve_protected_entry_reference_slots_without_referent_authority() {
+    for nested in [false, true] {
     for (protected, resolved) in [(false, false), (true, false), (false, true), (true, true)] {
         let ([parameter, field_reference, ..], _, capability) = borrowed_places();
 
@@ -2893,10 +2894,13 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
 
         let projection = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
-        let target = state
-            .borrow_target(capability, ty)
-            .expect("fixture `borrow_target` call must succeed")
-            .project(&[projection]);
+        let nested_reference = Place { root: parameter.root, projections: [projection].into() };
+        let base = if nested {
+            Target { previous: false, origin: super::Origin::entry(nested_reference.clone(), bray_symbols::DependencyReferenceKind::Borrow) }
+        } else {
+            state.borrow_target(capability, ty).expect("entry referent")
+        };
+        let target = base.project(&[projection]);
 
         let slot = Place {
             root: parameter.root,
@@ -2911,11 +2915,15 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
         let storage =
             StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
 
-        let invalidation = bray_bound_tree::StorageInvalidation::All {
+        let mut invalidation = bray_bound_tree::StorageInvalidation::All {
             stable_descriptors: protected.then_some(parameter).into_iter().collect(),
             stable_values: Default::default(),
-            normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
         };
+
+        if nested && protected {
+            invalidation.preserve_reference_slot(Place { root: nested_reference.root, projections: [projection, projection].into() }, target.clone());
+        }
 
         if resolved {
             state.apply_effects(
@@ -2939,6 +2947,7 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
         assert!(!state.initialized(&target, ty));
     }
 }
+    }
 
 #[test]
 fn null_pointer_has_no_effect_targets_or_initialization_authority() {
