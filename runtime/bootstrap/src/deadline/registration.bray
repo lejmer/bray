@@ -38,8 +38,8 @@ trusted internal func registration(
             {
                 if admission.0 == 0
                 {
-                    trusted bray.runtime.bootstrap.host.product.publish_provider<u64>(output, admission.1);
                     trusted notify(&owner);
+                    trusted bray.runtime.bootstrap.host.product.publish_provider<u64>(output, admission.1);
                 }
 
                 return admission.0;

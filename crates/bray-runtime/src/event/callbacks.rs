@@ -19,6 +19,9 @@ enum Resources {
         wake: TaskWakeHandle,
         runtime: Option<Weak<NativeRuntimeCore>>,
     },
+    Worker {
+        runtime: Weak<NativeRuntimeCore>,
+    },
     Timeout {
         cancellation: RootCancellationHandle,
         runtime: RetainedRuntime,
@@ -61,14 +64,98 @@ impl NativeCallback {
         cancellation: Option<CancellationContext>,
         wake: TaskWakeHandle,
     ) -> Result<Self, NativeRuntimeStatus> {
-        Self::insert(Resources::Task { cancellation, wake, runtime: None })
+        Self::insert(Resources::Task {
+            cancellation,
+            wake,
+            runtime: None,
+        })
     }
 
     pub(crate) fn timeout(
         cancellation: RootCancellationHandle,
         runtime: RetainedRuntime,
     ) -> Result<Self, NativeRuntimeStatus> {
-        Self::insert(Resources::Timeout { cancellation, runtime })
+        Self::insert(Resources::Timeout {
+            cancellation,
+            runtime,
+        })
+    }
+
+    pub(crate) fn worker(owner: &Arc<NativeRuntimeCore>) -> Result<Self, NativeRuntimeStatus> {
+        Self::insert(Resources::Worker {
+            runtime: Arc::downgrade(owner),
+        })
+    }
+
+    pub(crate) fn worker_descriptor(&self) -> bray_runtime_abi::NativeWorkerCallback {
+        bray_runtime_abi::NativeWorkerCallback {
+            context: self.identity,
+            call: crate::native::workers::invoke,
+        }
+    }
+
+    pub(crate) fn retain_worker(context: usize) {
+        let mut callbacks = CALLBACKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let binding = callbacks
+            .get_mut(&context)
+            .expect("the Source pool borrows its native callback owner");
+
+        let Resources::Worker { runtime } = binding.resources.as_ref() else {
+            panic!("worker descriptors retain only worker resources");
+        };
+
+        if binding.descriptors == 0 {
+            binding.retained = Some(
+                runtime
+                    .upgrade()
+                    .expect("formation borrows its live runtime"),
+            );
+        }
+
+        binding.descriptors = binding
+            .descriptors
+            .checked_add(1)
+            .expect("worker descriptor counts remain representable");
+    }
+
+    pub(crate) fn worker_runtime(context: usize) -> Arc<NativeRuntimeCore> {
+        let callbacks = CALLBACKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        Arc::clone(
+            callbacks
+                .get(&context)
+                .expect("Source owns its worker descriptor")
+                .retained
+                .as_ref()
+                .expect("a committed worker retains its runtime"),
+        )
+    }
+
+    pub(crate) fn worker_owner(context: usize) -> Arc<NativeRuntimeCore> {
+        let callbacks = CALLBACKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let binding = callbacks
+            .get(&context)
+            .expect("the Source pool retains its callback template");
+
+        let Resources::Worker { runtime } = binding.resources.as_ref() else {
+            panic!("worker completion belongs to the actual worker binding");
+        };
+
+        runtime
+            .upgrade()
+            .expect("worker completion retains its retiring runtime")
+    }
+
+    pub(crate) fn release_worker(context: usize) {
+        release(context);
     }
 
     fn insert(resources: Resources) -> Result<Self, NativeRuntimeStatus> {
@@ -128,7 +215,10 @@ impl NativeCallback {
         self.retain_with(invoke)
     }
 
-    fn retain_with(&self, call: extern "C" fn(usize, u32) -> NativeRuntimeStatus) -> NativeEventCallback {
+    fn retain_with(
+        &self,
+        call: extern "C" fn(usize, u32) -> NativeRuntimeStatus,
+    ) -> NativeEventCallback {
         let mut callbacks = CALLBACKS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -138,9 +228,16 @@ impl NativeCallback {
             .expect("the native owner retains its event callback");
 
         if binding.descriptors == 0
-            && let Resources::Task { runtime: Some(runtime), .. } = binding.resources.as_ref()
+            && let Resources::Task {
+                runtime: Some(runtime),
+                ..
+            } = binding.resources.as_ref()
         {
-            binding.retained = Some(runtime.upgrade().expect("registration borrows its live runtime"));
+            binding.retained = Some(
+                runtime
+                    .upgrade()
+                    .expect("registration borrows its live runtime"),
+            );
         }
 
         binding.descriptors = binding
@@ -195,8 +292,13 @@ fn invoke_with(context: usize, notify: u32, cause: TaskWakeCause) -> NativeRunti
         }
 
         let (resources, retained) = {
-            let callbacks = CALLBACKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let binding = callbacks.get(&context).expect("Source invokes a retained callback descriptor");
+            let callbacks = CALLBACKS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            let binding = callbacks
+                .get(&context)
+                .expect("Source invokes a retained callback descriptor");
 
             (Arc::clone(&binding.resources), binding.retained.clone())
         };
@@ -205,10 +307,13 @@ fn invoke_with(context: usize, notify: u32, cause: TaskWakeCause) -> NativeRunti
         let _retained = retained;
 
         match resources.as_ref() {
-            Resources::Task { cancellation, wake, .. } => {
+            Resources::Task {
+                cancellation, wake, ..
+            } => {
                 let _cancellation = cancellation;
                 let _ = wake.wake_with_cause(cause);
             }
+            Resources::Worker { .. } => panic!("worker resources use their typed callback adapter"),
             Resources::Timeout { cancellation, .. } => {
                 cancellation.request_timeout();
             }

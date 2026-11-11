@@ -239,18 +239,6 @@ impl ExecutionCondition {
         })
     }
 
-    pub(crate) fn owned_values(&self) -> impl Iterator<Item = &Self> {
-        let mut pending = vec![self];
-
-        std::iter::from_fn(move || {
-            let condition = pending.pop()?;
-
-            pending.extend(condition.owned_components());
-
-            Some(condition)
-        })
-    }
-
     /// Whether every observed value is in the established unchanged set.
     pub(crate) fn observes_only(&self, stable: &std::collections::BTreeSet<Self>) -> bool {
         let mut pending = vec![self];

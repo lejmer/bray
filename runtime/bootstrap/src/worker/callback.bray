@@ -1,0 +1,354 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.pool;
+
+trusted internal func invoke(pos scope: &ScopeReference, pos operation: u32, pos argument: &mut u64) -> u32
+    requires(
+        operation >= 2 && operation <= 7 && operation != 5,
+        trusted scope_live(owner = &scope.marker),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted scope_live(owner = &scope.marker))
+{
+    let mut outcome: bray.runtime.bootstrap.ReportOutcome =
+    {
+        state = bray.runtime.bootstrap.RUN_COMPLETED,
+        payload = 0,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
+
+    let result = trusted invoke_owned(scope, operation, argument, &mut outcome);
+
+    if outcome.state == bray.runtime.bootstrap.RUN_PANICKED
+    {
+        let pointer = std.memory.address_of_mut<bray.runtime.bootstrap.PanicReportData>(&mut outcome.report);
+
+        let authorize = trusted lambda(
+            pos report: &bray.runtime.bootstrap.PanicReportData,
+            pos pointer: DataPointer<bray.runtime.bootstrap.PanicReportData>
+        )
+            requires(trusted bray.runtime.bootstrap.native_report_callbacks(report = report))
+            ensures(trusted bray.runtime.bootstrap.native_report_slot_callbacks(pointer = pointer))
+            executes(pure, total) {};
+
+        trusted authorize(&outcome.report, pointer);
+
+        _ = trusted bray.runtime.bootstrap.panic_reporting(pointer);
+    }
+
+    return result;
+}
+
+trusted internal func invoke_owned(
+    pos scope: &ScopeReference,
+    pos operation: u32,
+    pos argument: &mut u64,
+    pos outcome: &mut bray.runtime.bootstrap.ReportOutcome
+) -> u32
+    requires(
+        operation >= 2 && operation <= 7 && operation != 5,
+        trusted scope_live(owner = &scope.marker),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &outcome.report)
+    )
+    ensures(
+        trusted scope_live(owner = &scope.marker),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &outcome.report)
+    )
+{
+    let row = trusted worker(scope);
+    let value = trusted domain(&row.pool);
+    let wire = scope.pointer;
+    let scope_pointer = std.memory.address_of<DataPointer<Scope>>(&wire);
+    let argument_pointer = std.memory.address_of_mut<u64>(argument);
+    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(outcome);
+    let callback = value.callback.call;
+    let context = value.callback.context;
+
+    let authorize = trusted lambda(
+        pos scope: &ScopeReference,
+        pos operation: u32,
+        pos context: usize,
+        pos scope_pointer: DataPointer<DataPointer<Scope>>,
+        pos argument_pointer: DataPointer<u64>,
+        pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    )
+        requires(trusted scope_live(owner = &scope.marker), operation >= 2 && operation <= 7 && operation != 5)
+        ensures(
+            trusted callback_authorized(
+                context = context,
+                operation = operation,
+                scope = scope_pointer,
+                argument = argument_pointer,
+                outcome = output
+            )
+        )
+        executes(pure, total) {};
+
+    trusted authorize(scope, operation, context, scope_pointer, argument_pointer, output);
+
+    let status = trusted perform(callback, context, operation, scope_pointer, argument_pointer, output);
+
+    let returned = trusted lambda(
+        pos pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos outcome: &mut bray.runtime.bootstrap.ReportOutcome
+    )
+        requires(trusted callback_returned(outcome = pointer))
+        ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &outcome.report))
+        executes(pure, total) {};
+
+    trusted returned(output, outcome);
+    return status;
+}
+
+trusted internal func perform(
+    pos callback: Operation,
+    pos context: usize,
+    pos operation: u32,
+    pos scope: DataPointer<DataPointer<Scope>>,
+    pos argument: DataPointer<u64>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(
+        trusted callback_authorized(
+            context = context,
+            operation = operation,
+            scope = scope,
+            argument = argument,
+            outcome = outcome
+        )
+    )
+    ensures(trusted callback_returned(outcome = outcome))
+    uses(foreign_call)
+{
+    return trusted callback(context, operation, scope, argument, outcome);
+}
+
+// Consume the actual formation claim before retaining the OS entry's descriptor.
+trusted internal func retain_descriptor(pos formation: Descriptor) -> (Descriptor, WorkerReference)
+    requires(trusted forming(owner = &formation.marker), trusted retained_worker(owner = &formation.reference.marker))
+    ensures(
+        trusted descriptor_owned(owner = &result.0.marker),
+        trusted retained_worker(owner = &result.0.reference.marker),
+        trusted retained_worker(owner = &result.1.marker)
+    )
+{
+    let retain = trusted lambda(pos formation: Descriptor) -> (Descriptor, WorkerReference)
+        requires(
+            trusted forming(owner = &formation.marker),
+            trusted retained_worker(owner = &formation.reference.marker)
+        )
+        ensures(
+            trusted descriptor_owned(owner = &result.0.marker),
+            trusted retained_worker(owner = &result.0.reference.marker),
+            trusted retained_worker(owner = &result.1.marker)
+        )
+        uses(intrinsic)
+    {
+        let row = trusted retained_worker_value(&formation.reference);
+        let value = trusted domain(&row.pool);
+
+        let wire = std.memory.null<Scope>();
+
+        let mut argument: u64 = 0;
+
+        let mut outcome: bray.runtime.bootstrap.ReportOutcome =
+        {
+            state = bray.runtime.bootstrap.RUN_COMPLETED,
+            payload = 0,
+            report = bray.runtime.bootstrap.empty_panic_report()
+        };
+
+        let scope_pointer = std.memory.address_of<DataPointer<Scope>>(&wire);
+        let argument_pointer = std.memory.address_of_mut<u64>(&mut argument);
+        let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+        let context = value.callback.context;
+        let callback = value.callback.call;
+
+        let authorize = trusted lambda(
+            pos formation: &Descriptor,
+            pos context: usize,
+            pos scope: DataPointer<DataPointer<Scope>>,
+            pos argument: DataPointer<u64>,
+            pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+        )
+            requires(trusted forming(owner = &formation.marker))
+            ensures(
+                trusted callback_authorized(
+                    context = context,
+                    operation = 0,
+                    scope = scope,
+                    argument = argument,
+                    outcome = outcome
+                )
+            )
+            executes(pure, total) {};
+
+        trusted authorize(&formation, context, scope_pointer, argument_pointer, output);
+
+        if trusted perform(callback, context, 0, scope_pointer, argument_pointer, output) != 0
+        {
+            trusted core.target.abort();
+        }
+
+        let pointer = formation.reference.pointer;
+
+        let observer: WorkerReference =
+        {
+            marker = Marker
+            {
+            },
+            pointer = pointer
+        };
+
+        return (formation, observer);
+    };
+
+    return trusted retain(formation);
+}
+
+// Consume the actual descriptor after OS rejection or exact-thread cleanup.
+trusted internal func release_descriptor(pos descriptor: Descriptor)
+    requires(
+        trusted descriptor_owned(owner = &descriptor.marker),
+        trusted retained_worker(owner = &descriptor.reference.marker)
+    )
+    uses(intrinsic)
+{
+    let row = trusted retained_worker_value(&descriptor.reference);
+    let value = trusted domain(&row.pool);
+
+    let retire =
+    {
+        let mut guard = trusted lock(&row.pool);
+        let state = trusted locked_state(&row.pool, &mut guard);
+
+        if state.live == 0
+        {
+            trusted core.target.abort();
+        }
+
+        state.live -= 1;
+
+        yield if state.stopping && state.live == 0 && !state.completed
+        {
+            state.completed = true;
+            yield true;
+        }
+        else
+        {
+            yield false;
+        };
+    };
+
+    let wire = std.memory.null<Scope>();
+
+    let mut argument: u64 = 0;
+
+    let mut outcome: bray.runtime.bootstrap.ReportOutcome =
+    {
+        state = bray.runtime.bootstrap.RUN_COMPLETED,
+        payload = 0,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
+
+    let scope_pointer = std.memory.address_of<DataPointer<Scope>>(&wire);
+    let argument_pointer = std.memory.address_of_mut<u64>(&mut argument);
+    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+    let context = value.callback.context;
+    let callback = value.callback.call;
+
+    let authorize = trusted lambda(
+        pos descriptor: &Descriptor,
+        pos context: usize,
+        pos operation: u32,
+        pos scope: DataPointer<DataPointer<Scope>>,
+        pos argument: DataPointer<u64>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    )
+        requires(trusted descriptor_owned(owner = &descriptor.marker), operation == 1 || operation == 8)
+        ensures(
+            trusted callback_authorized(
+                context = context,
+                operation = operation,
+                scope = scope,
+                argument = argument,
+                outcome = outcome
+            )
+        )
+        executes(pure, total) {};
+
+    if retire
+    {
+        trusted authorize(&descriptor, context, 8, scope_pointer, argument_pointer, output);
+
+        if trusted perform(callback, context, 8, scope_pointer, argument_pointer, output) != 0
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    trusted authorize(&descriptor, context, 1, scope_pointer, argument_pointer, output);
+
+    if trusted perform(callback, context, 1, scope_pointer, argument_pointer, output) != 0
+    {
+        trusted core.target.abort();
+    }
+}
+
+// Attachment cleanup has ended execution authority. Retire only the native binding.
+trusted internal func unbind(pos descriptor: &Descriptor)
+    requires(
+        trusted native_entry(),
+        trusted descriptor_owned(owner = &descriptor.marker),
+        trusted retained_worker(owner = &descriptor.reference.marker)
+    )
+    uses(intrinsic)
+{
+    let row = trusted retained_worker_value(&descriptor.reference);
+    let value = trusted domain(&row.pool);
+    let wire = std.memory.null<Scope>();
+    let mut argument: u64 = 0;
+
+    let mut outcome: bray.runtime.bootstrap.ReportOutcome =
+    {
+        state = bray.runtime.bootstrap.RUN_COMPLETED,
+        payload = 0,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
+
+    let scope_pointer = std.memory.address_of<DataPointer<Scope>>(&wire);
+    let argument_pointer = std.memory.address_of_mut<u64>(&mut argument);
+    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+    let context = value.callback.context;
+
+    let authorize = trusted lambda(
+        pos descriptor: &Descriptor,
+        pos context: usize,
+        pos scope: DataPointer<DataPointer<Scope>>,
+        pos argument: DataPointer<u64>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    )
+        requires(trusted native_entry(), trusted descriptor_owned(owner = &descriptor.marker))
+        ensures(
+            trusted callback_authorized(
+                context = context,
+                operation = 5,
+                scope = scope,
+                argument = argument,
+                outcome = outcome
+            )
+        )
+        executes(pure, total) {};
+
+    trusted authorize(descriptor, context, scope_pointer, argument_pointer, output);
+
+    if trusted perform(value.callback.call, context, 5, scope_pointer, argument_pointer, output) != 0
+    {
+        trusted core.target.abort();
+    }
+}

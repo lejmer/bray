@@ -1,8 +1,8 @@
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_KIND_SHIFT, SemanticDecodeContext,
-    map_wire_error, read_count, read_optional_u32, read_symbol_reference, read_symbol_references,
-    read_u32,
+    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
+    SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
+    read_symbol_references, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
@@ -111,7 +111,9 @@ pub(super) fn decode_dependency_contract(
         let independent = attributes & REFERENCE_INPUT_ABSENT != 0;
         let exact = attributes & REFERENCE_EXACT != 0;
 
-        if independent && exact {
+        let regions = attributes & REFERENCE_INPUT_REGIONS != 0;
+
+        if exact && (independent || regions) {
             return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Discriminant,
                 attributes,
@@ -119,12 +121,6 @@ pub(super) fn decode_dependency_contract(
         }
 
         let kind = decode_tag(attributes >> REFERENCE_KIND_SHIFT)?;
-
-        if independent && kind != bray_symbols::DependencyReferenceKind::Address {
-            return Err(crate::semantic::codec::invalid_value(
-                crate::InterfaceValidationField::Dependency,
-            ));
-        }
 
         let entry = if independent {
             None
@@ -134,8 +130,14 @@ pub(super) fn decode_dependency_contract(
 
         let exit = decode_dependency_subject(reader, limits, context)?;
 
-        let mut relation =
-            bray_symbols::DependencyBorrowRelation::new(entry, exit, kind).with_exactness(exact);
+        let mut relation = bray_symbols::DependencyBorrowRelation::new(entry, exit, kind)
+            .with_provenance(if regions {
+                bray_symbols::DependencyReferenceProvenance::InputRegions
+            } else if exact {
+                bray_symbols::DependencyReferenceProvenance::Exact
+            } else {
+                bray_symbols::DependencyReferenceProvenance::Alternatives
+            });
 
         if !independent {
             relation = relation
@@ -776,7 +778,7 @@ mod tests {
     #[test]
     fn independent_reference_origins_cannot_claim_exact_input_identity() {
         use crate::semantic::codec::common::{
-            REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_KIND_SHIFT,
+            REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
         };
 
         let attributes = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
@@ -787,12 +789,30 @@ mod tests {
         assert_eq!(contract.borrows.len(), 1);
         assert!(contract.borrows[0].entry().is_none());
         assert!(!contract.borrows[0].is_exact());
+        words[7] |= REFERENCE_INPUT_REGIONS;
+
+        let contract = decode_words(&words, limits).expect("region provenance must decode");
+
+        assert_eq!(
+            contract.borrows[0].provenance(),
+            bray_symbols::DependencyReferenceProvenance::InputRegions
+        );
+
         words[7] |= REFERENCE_EXACT;
         assert!(decode_words(&words, limits).is_err());
 
-        // A raw-address origin bound cannot supply an ordinary borrow lifetime.
+        // Physical input independence carries no ordinary borrow lifetime.
         words[7] = (1 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
-        assert!(decode_words(&words, limits).is_err());
+
+        let contract = decode_words(&words, limits).expect("independent borrow origin must decode");
+
+        assert_eq!(
+            contract.borrows[0].kind(),
+            bray_symbols::DependencyReferenceKind::Borrow
+        );
+
+        assert!(contract.borrows[0].entry().is_none());
+        assert!(contract.requirements.is_empty());
     }
 
     #[test]

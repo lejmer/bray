@@ -35,6 +35,11 @@ trusted internal func release(pos owner: &mut Control) -> bool
         trusted core.target.abort();
     }
 
+    if owner.references == 0 && owner.failure_records.count != 0
+    {
+        trusted core.target.abort();
+    }
+
     return owner.references == 0;
 }
 

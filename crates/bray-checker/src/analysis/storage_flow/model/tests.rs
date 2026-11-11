@@ -390,6 +390,7 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
         snapshots: BTreeMap::new(),
         referents: BTreeSet::new(),
         stable_descriptors: BTreeSet::new(),
+        stable_values: BTreeSet::new(),
     };
 
     let opaque = StorageInvalidation::All {

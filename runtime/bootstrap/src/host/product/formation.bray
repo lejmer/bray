@@ -110,7 +110,7 @@ trusted internal func form_selected(pos key: usize, pos provider: &mut(LoadedPro
 {
     let selected = trusted descriptor(key);
 
-    if selected.version != 2 || selected.asynchronous > 1
+    if selected.version != bray.runtime.bootstrap.host.product.ABI_VERSION || selected.asynchronous > 1
     {
         return unavailable(3);
     }
@@ -261,7 +261,8 @@ trusted internal func form_selected(pos key: usize, pos provider: &mut(LoadedPro
             {
                 let entry = trusted selected.static_entry(ordinal);
 
-                if entry.version != 2 || entry.duration > 1 || entry.finalizer.execution > 2
+                if entry.version != bray.runtime.bootstrap.host.product.ABI_VERSION || entry.duration > 1 ||
+                    entry.finalizer.execution > 2
                 {
                     failure = 3;
                     break;

@@ -62,7 +62,7 @@ trusted internal func delivery_access(pos owner: &Delivery) -> bray.runtime.boot
 
 trusted internal func pop_delivery(pos owner: Delivery) -> (WaitRegistration, Delivery)
     requires(owner.next != 0, trusted delivery_owned(owner = &owner))
-    ensures(trusted registration_owned(owner = &result.0), trusted delivery_owned(owner = &result.1))
+    ensures(trusted registration_owned(owner = &result.0.marker), trusted delivery_owned(owner = &result.1))
     uses(intrinsic)
 {
     let lease = trusted delivery_access(&owner);
@@ -130,12 +130,12 @@ trusted internal func wake_waiter(
     pos remaining: Delivery
 ) -> Delivery
     requires(
-        trusted registration_owned(owner = registration),
+        trusted registration_owned(owner = &registration.marker),
         trusted delivery_owned(owner = &remaining),
         trusted dispatch_acquired(owner = &owner.acquisition)
     )
     ensures(
-        trusted registration_owned(owner = registration),
+        trusted registration_owned(owner = &registration.marker),
         trusted delivery_owned(owner = &result),
         trusted dispatch_acquired(owner = &owner.acquisition)
     )
@@ -145,10 +145,16 @@ trusted internal func wake_waiter(
 }
 
 trusted internal func release_wait(pos owner: WaitRegistration)
-    requires(trusted registration_owned(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(
+        trusted registration_owned(owner = &owner.marker),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
 {
     let release_target = trusted lambda(pos owner: WaitRegistration) -> Reference
-        requires(trusted registration_owned(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
+        requires(
+            trusted registration_owned(owner = &owner.marker),
+            trusted bray.runtime.bootstrap.host.product.native_host()
+        )
         ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
     {
         match owner.target
@@ -156,7 +162,7 @@ trusted internal func release_wait(pos owner: WaitRegistration)
             case WaitTarget.Task(_)
             {
                 let take = trusted lambda(pos owner: &WaitRegistration) -> Reference
-                    requires(trusted registration_owned(owner = owner))
+                    requires(trusted registration_owned(owner = &owner.marker))
                     ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
                 {
                     let reference = trusted registration_target(owner);
@@ -195,7 +201,7 @@ trusted internal func release_wait(pos owner: WaitRegistration)
 // These projections consume the independently retained components only while
 // release_wait owns the whole registration, after any entered callback drains.
 trusted internal func take_event_reference(pos owner: &WaitRegistration) -> bray.runtime.bootstrap.event.Reference
-    requires(trusted registration_owned(owner = owner))
+    requires(trusted registration_owned(owner = &owner.marker))
     ensures(
         trusted bray.runtime.bootstrap.event.retained(owner = &result),
         trusted bray.runtime.bootstrap.event.owned_reference(owner = &result)
@@ -216,7 +222,7 @@ trusted internal func take_event_reference(pos owner: &WaitRegistration) -> bray
 }
 
 trusted internal func take_event_callback(pos owner: &WaitRegistration) -> bray.runtime.bootstrap.event.Callback
-    requires(trusted registration_owned(owner = owner))
+    requires(trusted registration_owned(owner = &owner.marker))
     ensures(trusted bray.runtime.bootstrap.event.callback_owned(owner = &result))
 {
     let callback = trusted event_callback(owner);

@@ -214,17 +214,14 @@ internal struct AttachmentRetirement
     trusted destruct()
         requires(trusted attachment_cleanup_completed(owner = &self))
         executes(total)
-        uses(raw_memory, unchecked_init, unchecked_alias)
+        uses(raw_memory, unchecked_init)
     {
         let identity = self.identity;
         let native_thread = self.native_thread;
         let active_pointer = trusted completed_active_pointer(&self);
         let pointer = trusted completed_attachment_pointer(&self);
 
-        let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-            self.lease.synchronization,
-            trusted lease_synchronization_pointer(&self.lease)
-        );
+        let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(&self.lease);
 
         trusted std.memory.write<Attachment>(
             pointer,
@@ -370,7 +367,7 @@ trusted internal func select_attachment_slot(
         !result.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = result.slot.storage)
     )
     executes(total)
-    uses(raw_memory, unchecked_alias)
+    uses(raw_memory)
 {
     let rejected: AttachmentSelection =
     {
@@ -388,10 +385,7 @@ trusted internal func select_attachment_slot(
         return rejected;
     }
 
-    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        lease.synchronization,
-        trusted lease_synchronization_pointer(lease)
-    );
+    let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
 
     let native_thread = core.atomic.load<u64, 1>(&synchronization.lock);
     let host = trusted host_value(lease, anchor);

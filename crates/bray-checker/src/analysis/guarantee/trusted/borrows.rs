@@ -78,7 +78,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let path = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+            let path =
+                crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
             fields.push((path, value));
         }
@@ -198,12 +199,58 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
+    /// Owners outside the completing frame keep copied observations alive.
+    pub(super) fn surviving_call_values(
+        &self,
+        state: &super::super::state::ExecutionState,
+        invocation: BoundExecutionSite,
+    ) -> std::collections::BTreeSet<ExecutionCondition> {
+        if state.entries[&invocation].owned_inputs.is_empty() {
+            return Default::default();
+        }
+
+        state
+            .current
+            .iter()
+            .filter(|(place, _)| {
+                let crate::execution_guarantees::ExecutionInput::Storage(identity) = place.root
+                else {
+                    return true;
+                };
+
+                // Staged arguments belong to this callee after admission. Including
+                // them would retain authority even when the call consumes its owner.
+                match self.storage.identity(identity) {
+                    Some(bray_bound_tree::StorageIdentity::InvocationInput {
+                        expression,
+                        ordinal,
+                    }) => {
+                        invocation != expression.into()
+                            && invocation
+                                != BoundExecutionSite::CallInput {
+                                    expression,
+                                    ordinal,
+                                }
+                    }
+                    Some(bray_bound_tree::StorageIdentity::InvocationResult(source)) => {
+                        source != invocation
+                    }
+                    _ => true,
+                }
+            })
+            .map(|(_, value)| value)
+            .chain(std::iter::once(&state.result))
+            .flat_map(|value| state.owned_values(value))
+            .collect()
+    }
+
     pub(super) fn retire_consumed_inputs(
         &self,
         state: &mut super::super::state::ExecutionState,
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
         result: &ExecutionCondition,
+        outside: &std::collections::BTreeSet<ExecutionCondition>,
     ) {
         let entry = state
             .entries
@@ -231,6 +278,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .iter()
             .flat_map(|(_, value)| state.owned_values(value))
             .chain(state.owned_values(result))
+            .chain(outside.iter().cloned())
+            .chain(self.preserved_borrowed_inputs(invocation, arguments))
             .collect();
 
         state.retire_trusted_values(consumed, &retained);
@@ -256,9 +305,48 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let retained = state
             .owned_values(result)
             .chain(outside.iter().cloned())
+            .chain(self.preserved_borrowed_inputs(invocation, arguments))
             .collect();
 
         state.retire_trusted_values(consumed, &retained);
+    }
+
+    fn preserved_borrowed_inputs<'s>(
+        &'s self,
+        invocation: BoundExecutionSite,
+        arguments: &'s BTreeMap<ExecutionPlace, ExecutionCondition>,
+    ) -> impl Iterator<Item = ExecutionCondition> + 's {
+        let selection = invocation
+            .expression()
+            .and_then(|expression| self.semantics.selections().expression(expression));
+
+        self.dependencies
+            .calls()
+            .get(&invocation)
+            .into_iter()
+            .flat_map(|dependencies| dependencies.references())
+            .filter_map(move |reference| {
+                let relation = reference.relation();
+
+                if !reference.preserves_value()
+                    || relation.kind() != DependencyReferenceKind::Borrow
+                    || relation.entry() != Some(relation.exit())
+                    || !relation.is_exact()
+                    || relation.dereferences() != 0
+                    || !relation.target_projections().is_empty()
+                {
+                    return None;
+                }
+
+                let subject = relation.exit();
+
+                let ordinal =
+                    selection?.invocation_input_ordinal(invocation, subject.subject_root())?;
+
+                // A checked preserved reference names caller-owned storage. Consuming
+                // its containing value retires the descriptor, not the referent.
+                project_place(ExecutionPlace::argument(ordinal), subject)?.value_in(arguments)
+            })
     }
 
     fn complete_owned_result(
@@ -304,7 +392,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.complete_owned_result(invocation, state, result, arguments, layout, outside)
             }
             DependencyOwnedResult::Transfer(transfer) => {
-
                 let dependencies = &self.dependencies.calls()[&invocation];
 
                 for term in dependencies.returned_value_conditions(transfer) {
@@ -413,6 +500,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut super::super::state::ExecutionState,
         result: ExecutionCondition,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        outside: &std::collections::BTreeSet<ExecutionCondition>,
     ) -> ExecutionCondition {
         let retains_identity = matches!(
             result,
@@ -441,19 +529,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 result,
                 arguments,
                 dependencies.owned_result(),
-                &Default::default(),
+                outside,
             )
             .expect("completed checked call has a feasible ownership layout");
 
-        self.retire_owned_alternative(state, invocation, arguments, &result, &Default::default());
+        self.retire_owned_alternative(state, invocation, arguments, &result, outside);
 
-        let has_receiver = match self.semantics.selections().expression(source) {
-            Some(bray_bound_tree::SemanticSelection::Call(call)) => call.receiver().is_some(),
-            Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) => {
-                scoped.invocation(invocation).1.receiver().is_some()
-            }
-            _ => return result,
-        };
+        let selection = self
+            .semantics
+            .selections()
+            .expression(source)
+            .expect("completed checked call retains its selection");
 
         let mut fields = BTreeMap::new();
 
@@ -471,18 +557,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .entry()
                 .expect("value-preserving reference has an exact input origin");
 
-            let ordinal = match entry.subject_root() {
-                DependencySubjectRoot::Receiver => 0,
-                DependencySubjectRoot::Parameter(ordinal) => {
-                    ordinal.raw() + u32::from(has_receiver)
-                }
-                _ => continue,
+            let Some(ordinal) =
+                selection.invocation_input_ordinal(invocation, entry.subject_root())
+            else {
+                continue;
             };
 
-            let Some(input) = project_place(
-                ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)),
-                entry,
-            ) else {
+            let Some(input) = project_place(ExecutionPlace::argument(ordinal), entry) else {
                 continue;
             };
 

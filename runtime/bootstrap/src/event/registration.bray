@@ -99,7 +99,7 @@ trusted internal func publish_event_wait(
     pos observed: u64
 ) -> bray.runtime.bootstrap.task.WaitRegistration?
     requires(
-        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner),
+        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
@@ -168,7 +168,7 @@ trusted internal func withdrawal(pos parent: DataPointer<bray.runtime.bootstrap.
 {
     let waiter = trusted bray.runtime.bootstrap.task.read_reference(parent);
 
-    return if trusted bray.runtime.bootstrap.task.withdraw_wait(&waiter)
+    return if trusted bray.runtime.bootstrap.task.withdraw_wait(&waiter, false)
     {
         yield 1;
     }
@@ -299,10 +299,13 @@ trusted internal func make_wait(
         trusted bray.runtime.bootstrap.task.retained(owner = &waiter),
         trusted callback_owned(owner = &callback)
     )
-    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result))
+    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result.marker))
 {
     return
     {
+        marker = bray.runtime.bootstrap.task.RegistrationMarker
+        {
+        },
         target = bray.runtime.bootstrap.task.WaitTarget.Event(event, observed, callback),
         waiter = waiter,
         retirement = 0,
@@ -334,9 +337,9 @@ trusted internal func retain_event_for_wait(
 trusted internal func wait_registration_access(
     pos owner: &bray.runtime.bootstrap.task.WaitRegistration
 ) -> bray.runtime.bootstrap.host.HostLease
-    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = owner))
+    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker))
     ensures(
-        trusted bray.runtime.bootstrap.task.registration_owned(owner = owner),
+        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
     )

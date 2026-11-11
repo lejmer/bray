@@ -35,6 +35,7 @@ static unsigned deallocation_reentries;
 static unsigned deallocation_reentry_status;
 static void reenter_pool_on_release(void);
 static int check_numeric_runtime(void);
+static int check_worker_runtime(void);
 static int check_event_runtime(void);
 static int check_deadline_runtime(void);
 static int check_event_cold_shutdown(void);
@@ -249,6 +250,19 @@ typedef struct SourceAnchor
     uint8_t namespace[32];
 } SourceAnchor;
 
+typedef struct
+{
+    uintptr_t address;
+} SchedulerReference;
+
+extern uint32_t bray_runtime_scheduler_creation(
+    uint32_t,
+    uint64_t,
+    size_t,
+    SchedulerReference*
+);
+extern void bray_runtime_scheduler_destruction(const SchedulerReference*);
+
 typedef struct PanicReport PanicReport;
 typedef struct RunOutcome RunOutcome;
 
@@ -257,6 +271,9 @@ struct PanicReport
     SourceAnchor source;
     uint32_t cause;
     uint32_t primary_present;
+    uint32_t worker_stage;
+    uint32_t worker_category;
+    int64_t worker_native_code;
     uintptr_t message;
     uintptr_t message_length;
     uint32_t (*copy_message)(uintptr_t, uintptr_t, uint8_t*, uintptr_t);
@@ -277,8 +294,8 @@ struct RunOutcome
     PanicReport report;
 };
 
-_Static_assert(sizeof(PanicReport) == 152, "native report layout");
-_Static_assert(sizeof(RunOutcome) == 168, "native outcome layout");
+_Static_assert(sizeof(PanicReport) == 168, "native report layout");
+_Static_assert(sizeof(RunOutcome) == 184, "native outcome layout");
 
 extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
 
@@ -3297,6 +3314,11 @@ int main(void)
     )
         return 35;
 #endif
+
+    int worker_status = check_worker_runtime();
+
+    if (worker_status != 0)
+        return worker_status;
 
     if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_initialization(1, 1) != 2)
         return 1;

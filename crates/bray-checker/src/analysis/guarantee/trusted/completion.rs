@@ -222,7 +222,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         completed.assumptions = entry.assumptions;
         state.resume_owned_witnesses(invocation);
         self.guard_returned_inputs(state, invocation, &entry.arguments, &result);
-        self.retire_consumed_inputs(state, invocation, &entry.arguments, &result);
+
+        let outside = self.surviving_call_values(state, invocation);
+
+        self.retire_consumed_inputs(state, invocation, &entry.arguments, &result, &outside);
 
         let mut arguments = entry.arguments;
 
@@ -238,6 +241,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             && let Some((expression, call)) = self.observation_call(invocation)
         {
             // Completion clauses observe final contents, independently of trusted authority.
+            self.refresh_borrowed_arguments(state, invocation, &mut arguments);
+
             self.prepare_call_observations(
                 state,
                 expression,
@@ -251,7 +256,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Default::default()
         };
 
-        let result = self.complete_returned_values(invocation, state, result, &arguments);
+        let result = self.complete_returned_values(invocation, state, result, &arguments, &outside);
 
         let instantiate = |condition: &ExecutionCondition| {
             let condition = condition.substitute(
@@ -283,6 +288,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .expect("completed invocation retains its captured arguments")
                     .arguments,
                 template,
+                owning,
                 &owners,
                 &address_subjects,
                 &instantiate,

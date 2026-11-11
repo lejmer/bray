@@ -4,6 +4,7 @@ trusted internal module bray.runtime.bootstrap.scheduler;
 using core.memory;
 using std.memory;
 using internal bray.runtime.bootstrap.host.product;
+using internal bray.runtime.bootstrap.worker;
 
 // Capability bits: cooperative, local, migratable, blocking, compute, main.
 // Workload bits retain every checked requirement; blocking and compute compose.
@@ -92,6 +93,7 @@ internal func choose_lane(pos capabilities: u32, pos main: u64, pos requirements
 @abi(c)
 trusted internal func selection(
     pos pointer: DataPointer<Reference>,
+    pos registration: u64,
     pos requirements_pointer: DataPointer<Requirements>,
     pos output: DataPointer<Lane>
 ) -> u32
@@ -104,7 +106,32 @@ trusted internal func selection(
     let requirements = trusted read_requirements(requirements_pointer);
     let owner = trusted read_reference(pointer);
     let value = trusted domain(&owner);
-    let (lane, status) = choose_lane(value.capabilities, value.main, requirements);
+    let (mut lane, status) = choose_lane(value.capabilities, value.main, requirements);
+
+    if status == 0 && registration != 0 && lane.placement == 0
+    {
+        let mut guard = trusted lock(value);
+        let state = trusted guard.get();
+        let index = trusted index_of(state, registration);
+
+        if index == 0
+        {
+            return 7;
+        }
+
+        if let ?driver = trusted entry(state, index).driver
+        {
+            if (driver.workload & lane.workload) == lane.workload
+            {
+                lane =
+                {
+                    placement = driver.placement,
+                    workload = lane.workload,
+                    thread = driver.thread
+                };
+            }
+        }
+    }
 
     if status == 0
     {
@@ -112,6 +139,84 @@ trusted internal func selection(
     }
 
     return status;
+}
+
+// The native caller owns a continuing root driver through resolution of this
+// registration. Its optional worker scope is live on this exact OS entry.
+trusted internal predicate driver_entry(scope: DataPointer<DataPointer<bray.runtime.bootstrap.worker.Scope>>);
+
+@abi(c)
+trusted internal func recovery(
+    pos pointer: DataPointer<Reference>,
+    pos registration: u64,
+    pos scope: DataPointer<DataPointer<bray.runtime.bootstrap.worker.Scope>>,
+    pos cleanup: u32
+)
+    requires(trusted reference_slot(pointer = pointer), trusted driver_entry(scope = scope), cleanup <= 1)
+    uses(intrinsic)
+{
+    let selected = trusted bray.runtime.bootstrap.worker.driver_scope(scope);
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+    let mut guard = trusted lock(value);
+    let state = trusted guard.get();
+    let index = trusted index_of(state, registration);
+
+    if index == 0
+    {
+        // Observation can retire the terminal binding before native return.
+        return;
+    }
+
+    let row = trusted entry(state, index);
+
+    if row.phase != 2 || !row.slot
+    {
+        trusted core.target.abort();
+    }
+
+    if cleanup == 0
+    {
+        if let ?driver = row.driver
+        {
+            return;
+        }
+    }
+
+    let workload = if cleanup != 0
+    {
+        yield 3;
+    }
+    else
+    {
+        yield row.lane.workload;
+    };
+
+    if let ?worker_thread = selected
+    {
+        row.driver =
+        {
+            placement = 2,
+            workload = workload,
+            thread = worker_thread
+        };
+    }
+    else
+    {
+        if row.lane.placement == 0 || row.lane.thread == 0
+        {
+            trusted core.target.abort();
+        }
+
+        // The continuing host root owns cleanup authority independently of its
+        // ordinary task callback. Never use the initialization thread as an owner.
+        row.driver =
+        {
+            placement = row.lane.placement,
+            workload = workload,
+            thread = row.lane.thread
+        };
+    }
 }
 
 internal func same_lane(pos first: Lane, pos second: Lane) -> bool

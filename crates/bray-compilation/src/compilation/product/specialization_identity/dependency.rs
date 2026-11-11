@@ -214,7 +214,13 @@ impl StructuralValueEncoder<'_, '_> {
 
         self.dependency_subject(relation.exit())?;
         self.digest.write_u32(relation.dereferences());
-        self.boolean(relation.is_exact());
+
+        self.tag(match relation.provenance() {
+            bray_symbols::DependencyReferenceProvenance::Exact => 1,
+            bray_symbols::DependencyReferenceProvenance::Alternatives => 2,
+            bray_symbols::DependencyReferenceProvenance::InputRegions => 3,
+        });
+
         self.dependency_projections(relation.target_projections())?;
 
         self.tag(match relation.kind() {

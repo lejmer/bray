@@ -53,6 +53,11 @@ pub(super) fn smoke_test(
             0,
         ),
         (
+            "worker-continuations",
+            include_str!("../../fixtures/native-execution/worker-continuations.bray"),
+            0,
+        ),
+        (
             "task-observation-retained-error",
             include_str!("../../fixtures/native-execution/task-observation-retained-error.bray"),
             0,

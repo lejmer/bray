@@ -225,10 +225,7 @@ trusted internal func initialize_host() -> u32
             executes(total)
             uses(raw_memory, unchecked_alias)
         {
-            let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-                lease.synchronization,
-                trusted lease_synchronization_pointer(lease)
-            );
+            let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
 
             let host: &mut HostOwner = trusted host_value(lease, anchor);
 
@@ -336,12 +333,8 @@ trusted internal func current_attachment_locked(pos lease: &HostLease) -> u64
     )
     ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
     executes(total)
-    uses(raw_memory, unchecked_alias)
 {
-    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        lease.synchronization,
-        trusted lease_synchronization_pointer(lease)
-    );
+    let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
 
     let observed: u64 = core.atomic.load<u64, 1>(&synchronization.key);
 
@@ -541,10 +534,7 @@ trusted internal func shutdown_host() -> u32
             executes(total)
             uses(raw_memory, unchecked_alias)
         {
-            let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-                lease.synchronization,
-                trusted lease_synchronization_pointer(lease)
-            );
+            let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
 
             let host: &mut HostOwner = trusted host_value(lease, anchor);
 
@@ -678,10 +668,7 @@ trusted internal func shutdown_host() -> u32
         executes(total)
         uses(raw_memory, unchecked_alias)
     {
-        let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-            lease.synchronization,
-            trusted lease_synchronization_pointer(lease)
-        );
+        let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
 
         let host: &mut HostOwner = trusted host_value(lease, anchor);
 

@@ -478,6 +478,9 @@ pub(crate) fn result_inputs(
         .borrows()
         .iter()
         .filter(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result)
+        .filter(|relation| {
+            relation.provenance() != bray_symbols::DependencyReferenceProvenance::InputRegions
+        })
         .filter_map(|relation| relation.entry())
         .filter_map(|entry| call.input_site(expression, entry.subject_root()))
         .collect::<std::collections::BTreeSet<_>>();

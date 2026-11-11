@@ -14,6 +14,19 @@ trusted internal func abandon(pos cursor: &mut Cursor) -> usize
 {
     let header = trusted bray.runtime.bootstrap.activation.execution.access(cursor);
 
+    if header.phase == bray.runtime.bootstrap.activation.RUNNING && (header.incoming.kind == 2 ||
+        header.incoming.kind == 3)
+    {
+        // These outcomes own no initialized result. Keep an incoming panic or
+        // incident report while the existing abandonment path resolves the frame.
+        header.progress = std.memory.replace_value<bray.runtime.bootstrap.activation.Progress>(
+            &mut header.incoming,
+            bray.runtime.bootstrap.activation.empty_progress()
+        );
+
+        header.phase = bray.runtime.bootstrap.activation.CLEANUP;
+    }
+
     return trusted bray.runtime.bootstrap.activation.abandon(header);
 }
 
@@ -32,7 +45,10 @@ trusted internal func broadcast(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
     )
-    ensures(trusted selected(cursor = &cursor))
+    ensures(
+        trusted selected(cursor = &cursor),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report)
+    )
 {
     let header = trusted bray.runtime.bootstrap.activation.execution.read(cursor);
 

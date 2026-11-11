@@ -44,6 +44,7 @@ enum Observation {
     Outcome(TestOutcome),
     Panic {
         cause: NativePanicCause,
+        worker_failure: Option<bray_runtime_abi::NativeWorkerFailure>,
         source: NativeSourceAnchor,
         message: String,
     },
@@ -66,27 +67,34 @@ impl Observation {
             },
             Self::Panic {
                 cause,
+                worker_failure,
                 source,
                 message,
             } => {
                 let source = test_source(source);
 
-                let panic_cause = match cause {
-                    NativePanicCause::ASSERTION => TestPanicCause::Assertion,
-                    NativePanicCause::RUNTIME_PANIC => TestPanicCause::RuntimePanic,
-                    NativePanicCause::ALLOCATION_FAILURE => TestPanicCause::AllocationFailure,
-                    NativePanicCause::ENTRY_FAILURE => TestPanicCause::EntryFailure,
-                    NativePanicCause::MEMORY_LAYOUT_SIZE_OVERFLOW => {
-                        TestPanicCause::MemoryLayoutSizeOverflow
-                    }
-                    NativePanicCause::MEMORY_LAYOUT_UNSUPPORTED_ALIGNMENT => {
-                        TestPanicCause::MemoryLayoutUnsupportedAlignment
-                    }
-                    NativePanicCause::MESSAGE | NativePanicCause::EXPLICIT_TEST_FAILURE => {
-                        TestPanicCause::Message
-                    }
-                    _ => panic!("native report published an unknown panic cause"),
-                };
+                let panic_cause =
+                    match cause {
+                        NativePanicCause::ASSERTION => TestPanicCause::Assertion,
+                        NativePanicCause::RUNTIME_PANIC => TestPanicCause::RuntimePanic,
+                        NativePanicCause::ALLOCATION_FAILURE => TestPanicCause::AllocationFailure,
+                        NativePanicCause::ENTRY_FAILURE => TestPanicCause::EntryFailure,
+                        NativePanicCause::WORKER_FORMATION_FAILURE => {
+                            TestPanicCause::WorkerFormationFailure(worker_failure.expect(
+                                "worker formation reports retain their typed failure context",
+                            ))
+                        }
+                        NativePanicCause::MEMORY_LAYOUT_SIZE_OVERFLOW => {
+                            TestPanicCause::MemoryLayoutSizeOverflow
+                        }
+                        NativePanicCause::MEMORY_LAYOUT_UNSUPPORTED_ALIGNMENT => {
+                            TestPanicCause::MemoryLayoutUnsupportedAlignment
+                        }
+                        NativePanicCause::MESSAGE | NativePanicCause::EXPLICIT_TEST_FAILURE => {
+                            TestPanicCause::Message
+                        }
+                        _ => panic!("native report published an unknown panic cause"),
+                    };
 
                 match (cause, source) {
                     (NativePanicCause::EXPLICIT_TEST_FAILURE, source) => {
@@ -167,27 +175,89 @@ fn output() -> Option<RunOutputContext> {
 }
 
 pub(super) fn register_timeout(cancellation: RootCancellationHandle) {
-    TEST_SESSION.with(|session| {
-        let mut session = session.borrow_mut();
-
-        let Some(session) = session.as_mut() else {
-            return;
-        };
+    let Some((command, timeout)) = TEST_SESSION.with_borrow_mut(|session| {
+        let session = session.as_mut()?;
 
         session.cancellation = Some(cancellation.clone());
-        session.command_cancellation.register(cancellation.clone());
 
-        let TestTimeoutPolicy::Limit(limit) = session.command.timeout() else {
-            return;
-        };
+        Some((
+            Arc::clone(&session.command_cancellation),
+            session.command.timeout(),
+        ))
+    }) else {
+        return;
+    };
 
-        match register_run_timeout(limit.duration(), &cancellation) {
-            Ok(timer) => {
-                session.timer = Some(timer);
+    // Cancellation and admission can enter callbacks on this same thread.
+    command.register(cancellation.clone());
+
+    let TestTimeoutPolicy::Limit(limit) = timeout else {
+        return;
+    };
+
+    let result = register_run_timeout(limit.duration(), &cancellation);
+
+    TEST_SESSION.with_borrow_mut(|session| {
+        let session = session
+            .as_mut()
+            .expect("timeout admission retains its active test session");
+
+        match result {
+            Ok(timer) => session.timer = Some(timer),
+            Err(error) => {
+                session.observe(timeout_failure(error));
             }
-            Err(_) => session.fail(TestInfrastructureFailureKind::Host),
         }
     });
+}
+
+fn timeout_failure(error: bray_runtime::RunTimeoutError) -> Observation {
+    use bray_runtime::{RunTimeoutError, SchedulerError};
+
+    let failure = match error {
+        RunTimeoutError::Worker(failure) => {
+            return Observation::Panic {
+                cause: NativePanicCause::WORKER_FORMATION_FAILURE,
+                worker_failure: Some(failure),
+                source: NativeSourceAnchor::unavailable(),
+                message: String::new(),
+            };
+        }
+        RunTimeoutError::Runtime(status) => TestInfrastructureFailure::new(
+            TestInfrastructureFailureKind::TimeoutRuntime,
+            Some(u64::from(status.code())),
+        ),
+        RunTimeoutError::Callback(status) => TestInfrastructureFailure::new(
+            TestInfrastructureFailureKind::TimeoutCallbackResources,
+            Some(u64::from(status.code())),
+        ),
+        RunTimeoutError::Deadline(error) => TestInfrastructureFailure::new(
+            match error {
+                SchedulerError::DeadlineOverflow => {
+                    TestInfrastructureFailureKind::TimeoutDeadlineOverflow
+                }
+                SchedulerError::TimerCapacityReached => {
+                    TestInfrastructureFailureKind::TimeoutCapacity
+                }
+                SchedulerError::TimerBackingUnavailable => {
+                    TestInfrastructureFailureKind::TimeoutStorage
+                }
+                SchedulerError::TimerIdentityExhausted => {
+                    TestInfrastructureFailureKind::TimeoutIdentityExhausted
+                }
+                SchedulerError::TimersClosed => TestInfrastructureFailureKind::TimeoutClosed,
+                SchedulerError::TimerClock(status) => {
+                    TestInfrastructureFailureKind::TimeoutClock(status)
+                }
+                error => panic!(
+                    "timeout admission returned a failure from a different scheduler phase: {error:?}"
+                ),
+            },
+            None,
+        ),
+    };
+
+    Observation::Outcome(TestOutcome::InfrastructureFailed(failure))
 }
 
 pub(super) fn record_outcome(outcome: &NativeRunOutcome) {
@@ -247,20 +317,23 @@ pub(super) fn record_report(
     } else {
         let mut bytes = Vec::new();
 
-        if !reserve_capture(&mut bytes, primary.message().len()) {
-            return capture_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
-        }
+        if !primary.message().is_empty() {
+            if !reserve_capture(&mut bytes, primary.message().len()) {
+                return capture_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
+            }
 
-        bytes.resize(primary.message().len(), 0);
+            bytes.resize(primary.message().len(), 0);
 
-        let status = primary.message().copy_to(0, &mut bytes);
+            let status = primary.message().copy_to(0, &mut bytes);
 
-        if !status.is_success() {
-            return capture_failure(status);
+            if !status.is_success() {
+                return capture_failure(status);
+            }
         }
 
         Observation::Panic {
             cause: primary.cause(),
+            worker_failure: primary.worker_failure(),
             source: primary.source(),
             message: String::from_utf8(bytes).expect("panic messages contain checked UTF-8"),
         }
@@ -712,14 +785,55 @@ mod tests {
         );
     }
     #[test]
+    fn worker_failure_capture_does_not_allocate_message_backing() {
+        TEST_SESSION.set(Some(session()));
+        DENY_CAPTURE.set(true);
+
+        let failure = bray_runtime_abi::NativeWorkerFailure {
+            stage: 2,
+            category: 12,
+            native_code: i64::MIN,
+        };
+
+        let primary = NativePanicPrimary::from_worker_failure(failure);
+
+        assert!(record_report(&primary, None).is_success());
+        DENY_CAPTURE.set(false);
+
+        let session = TEST_SESSION
+            .take()
+            .expect("the fixture retains its session");
+
+        assert!(!session.capture_failed);
+
+        assert_eq!(
+            session.outcome.map(super::Observation::into_outcome),
+            Some(TestOutcome::Panicked(TestPanicReport::new(
+                TestPanicCause::WorkerFormationFailure(failure),
+                None,
+                ""
+            ),))
+        );
+    }
+
+    #[test]
     fn denied_capture_returns_failure_without_protocol_allocation() {
+        extern "C" fn copy(
+            _: usize,
+            _: usize,
+            _: *mut u8,
+            _: usize,
+        ) -> bray_runtime_abi::NativeRuntimeStatus {
+            panic!("denied message admission must not invoke its provider")
+        }
+
         TEST_SESSION.set(Some(session()));
         DENY_CAPTURE.set(true);
 
         let primary = NativePanicPrimary::new(
             NativePanicCause::MESSAGE,
             NativeSourceAnchor::unavailable(),
-            NativePanicMessage::empty(),
+            NativePanicMessage::new(0, 1, Some(copy), None),
         );
 
         assert_eq!(

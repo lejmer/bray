@@ -301,7 +301,9 @@ pub(crate) fn panic_report_type(context: &Context) -> StructType<'_> {
 pub(super) fn panic_field_type(context: &Context, field: RuntimeAbiType) -> BasicTypeEnum<'_> {
     match field {
         RuntimeAbiType::U32 => context.i32_type().into(),
-        RuntimeAbiType::U64 | RuntimeAbiType::Usize => context.i64_type().into(),
+        RuntimeAbiType::U64 | RuntimeAbiType::I64 | RuntimeAbiType::Usize => {
+            context.i64_type().into()
+        }
         RuntimeAbiType::Pointer => context.ptr_type(AddressSpace::default()).into(),
         _ => panic!("panic report field has an unsupported native ABI type"),
     }
@@ -455,7 +457,7 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::Void | RuntimeAbiType::Never => return None,
         RuntimeAbiType::U8 => context.i8_type().into(),
         RuntimeAbiType::U32 => context.i32_type().into(),
-        RuntimeAbiType::U64 => context.i64_type().into(),
+        RuntimeAbiType::U64 | RuntimeAbiType::I64 => context.i64_type().into(),
         RuntimeAbiType::Usize => usize.into(),
         RuntimeAbiType::Pointer | RuntimeAbiType::PanicReportPointer => {
             context.ptr_type(AddressSpace::default()).into()
@@ -530,7 +532,7 @@ mod tests {
 
             let data = machine.target_data();
 
-            assert_eq!(data.get_store_size(&report), 152);
+            assert_eq!(data.get_store_size(&report), 168);
             assert_eq!(data.get_abi_alignment(&report), 8);
 
             for (element, offset) in [
@@ -539,9 +541,12 @@ mod tests {
                 (9, 56),
                 (10, 60),
                 (11, 64),
-                (15, 96),
-                (16, 104),
-                (21, 144),
+                (12, 68),
+                (13, 72),
+                (14, 80),
+                (18, 112),
+                (19, 120),
+                (24, 160),
             ] {
                 assert_eq!(data.offset_of_element(&report, element), Some(offset));
             }
@@ -807,7 +812,7 @@ mod tests {
             .unwrap_or_else(|| panic!("root execution must have a native ABI"));
 
         assert_eq!(root.get_return_type(), None);
-        assert_eq!(root.count_param_types(), 3);
+        assert_eq!(root.count_param_types(), 4);
 
         let resume =
             super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);
@@ -867,7 +872,7 @@ mod tests {
             Some(super::root_start_type(&context).into())
         );
 
-        assert_eq!(root.count_param_types(), 3);
+        assert_eq!(root.count_param_types(), 4);
 
         let resume =
             super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);

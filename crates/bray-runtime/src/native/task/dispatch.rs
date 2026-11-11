@@ -15,14 +15,21 @@ impl NativeTaskServices {
             ready: activation::readiness,
             transfer,
             wake,
+            cancel_wait,
         };
 
         let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
         let mut execution = NativeActivationExecution::default();
+        let mut failure = self.pending_worker_failure().copied().unwrap_or_default();
+        let pending_failure = failure.stage != 0;
 
         let status = report_provider::bray_runtime_task_control_dispatch(
-            self.control(), &services, &mut progress, &mut execution,
+            self.control(), &services, &mut failure, &mut progress, &mut execution,
         );
+
+        if pending_failure && failure.stage == 0 {
+            self.acknowledge_worker_failure();
+        }
 
         (status, progress, execution)
     }
@@ -40,6 +47,13 @@ impl NativeTaskServices {
 
         CallbackScope { services: self, previous, previous_resumable }
     }
+}
+
+pub(super) extern "C" fn cancel_wait() {
+    let task = state::current_services().expect("wait withdrawal retains its native task");
+    let wait = task.suspended_wait.lock().expect("task wait transport is available").take();
+
+    drop(wait);
 }
 
 pub(in crate::native) struct CallbackScope<'a> {

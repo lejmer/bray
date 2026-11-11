@@ -36,15 +36,17 @@ impl ExecutionState {
         kind: bray_symbols::DependencyMutationKind,
     ) {
         let mut pending = values.into_iter().collect::<Vec<_>>();
-        let mut directly_changed = crate::execution_guarantees::ObservationSet::default();
 
-        if !stable_predicates.is_empty() {
-            for value in &pending {
-                for component in value.owned_values() {
-                    directly_changed.insert(component.clone());
-                }
-            }
-        }
+        // A spatial fact survives a contents change, but replacing its actual
+        // carrier revokes it. Components reached through that carrier are distinct.
+        let directly_changed = if stable_predicates.is_empty() {
+            BTreeSet::new()
+        } else {
+            pending
+                .iter()
+                .map(|value| value.owner_identity().clone())
+                .collect()
+        };
 
         if pending.is_empty() {
             return;
@@ -58,71 +60,8 @@ impl ExecutionState {
             retained_observations.insert(value.clone());
         }
 
-        let mut dependents = BTreeMap::<ExecutionCondition, BTreeSet<ExecutionCondition>>::new();
-
-        let mut input_dependents =
-            BTreeMap::<crate::ExecutionPlace, BTreeSet<ExecutionCondition>>::new();
-
-        // Index current dependencies once, then visit only carriers reached by the worklist.
-        for (carrier, witness) in &self.witnesses {
-            // Captured inputs belong to a frame. Ordinary projection identities can
-            // survive extraction, so their former containing slot is not a lifetime owner.
-            // A retained captured owner also severs its former frame's ownership edge.
-            for owner in carrier
-                .ownership_ancestors()
-                .take_while(|value| !retained_observations.contains(value))
-                .filter_map(|value| match value {
-                    ExecutionCondition::CapturedInput { owner, .. } => Some(owner.owner_identity()),
-                    _ => None,
-                })
-            {
-                if let ExecutionCondition::Input(place) = owner {
-                    input_dependents
-                        .entry(place.clone())
-                        .or_default()
-                        .insert(carrier.clone());
-                } else {
-                    dependents
-                        .entry(owner.clone())
-                        .or_default()
-                        .insert(carrier.clone());
-                }
-            }
-
-            if kind.is_write() {
-                continue;
-            }
-
-            for dependency in witness
-                .dependencies
-                .iter()
-                .filter_map(|place| place.value_in(&self.current))
-            {
-                for observed in dependency.observations() {
-                    if let ExecutionCondition::Input(place) = observed {
-                        input_dependents
-                            .entry(place.clone())
-                            .or_default()
-                            .insert(carrier.clone());
-                    } else {
-                        let mut owner = observed;
-
-                        loop {
-                            dependents
-                                .entry(owner.owner_identity().clone())
-                                .or_default()
-                                .insert(carrier.clone());
-
-                            let ExecutionCondition::Projection(_, parent) = owner else {
-                                break;
-                            };
-
-                            owner = parent;
-                        }
-                    }
-                }
-            }
-        }
+        let (dependents, input_dependents) =
+            self.retirement_dependents(kind, &retained_observations);
 
         let mut invalidated = BTreeSet::new();
         let mut invalidated_observations = crate::execution_guarantees::ObservationSet::default();
@@ -191,6 +130,11 @@ impl ExecutionState {
             // the slot that supplied that value. Contents writes neither free nor resize
             // allocations. A changed slot receives a new observation below its caller.
             matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
+                || kind.is_write()
+                    && condition.observes_only(retained)
+                    && condition
+                        .observations()
+                        .any(|value| retained_observations.contains(value))
         };
 
         // A surviving carrier keeps facts about immutable captured contents after
@@ -226,7 +170,8 @@ impl ExecutionState {
                         })
                     });
 
-                if (retired && (directly_changed.contains(carrier) || !stable(condition)))
+                if (retired
+                    && (directly_changed.contains(carrier.owner_identity()) || !stable(condition)))
                     || revokes_guarantee(condition)
                     || address_expired
                 {
@@ -241,7 +186,8 @@ impl ExecutionState {
             if !kind.is_write()
                 && retired
                 && witness.conditions.is_empty()
-                && (stable_predicates.is_empty() || directly_changed.contains(carrier))
+                && (stable_predicates.is_empty()
+                    || directly_changed.contains(carrier.owner_identity()))
             {
                 if !witness.dependencies.is_empty() {
                     std::sync::Arc::make_mut(witness).dependencies.clear();
@@ -278,6 +224,83 @@ impl ExecutionState {
         });
     }
 
+    fn retirement_dependents(
+        &self,
+        kind: bray_symbols::DependencyMutationKind,
+        retained_observations: &crate::execution_guarantees::ObservationSet,
+    ) -> (
+        BTreeMap<ExecutionCondition, BTreeSet<ExecutionCondition>>,
+        BTreeMap<crate::ExecutionPlace, BTreeSet<ExecutionCondition>>,
+    ) {
+        let mut dependents = BTreeMap::<ExecutionCondition, BTreeSet<ExecutionCondition>>::new();
+
+        let mut input_dependents =
+            BTreeMap::<crate::ExecutionPlace, BTreeSet<ExecutionCondition>>::new();
+
+        // Index current dependencies once, then visit only carriers reached by the worklist.
+        for (carrier, witness) in &self.witnesses {
+            // Captured inputs belong to a frame. Ordinary projection identities can
+            // survive extraction, so their former containing slot is not a lifetime owner.
+            // A retained captured owner also severs its former frame's ownership edge.
+            for owner in carrier
+                .ownership_ancestors()
+                .take_while(|value| !retained_observations.contains(value))
+                .filter_map(|value| match value {
+                    ExecutionCondition::CapturedInput { owner, .. } => Some(owner.owner_identity()),
+                    _ => None,
+                })
+            {
+                if let ExecutionCondition::Input(place) = owner {
+                    input_dependents
+                        .entry(place.clone())
+                        .or_default()
+                        .insert(carrier.clone());
+                } else {
+                    dependents
+                        .entry(owner.clone())
+                        .or_default()
+                        .insert(carrier.clone());
+                }
+            }
+
+            if kind.is_write() {
+                continue;
+            }
+
+            for dependency in witness
+                .dependencies
+                .iter()
+                .filter_map(|place| place.value_in(&self.current))
+            {
+                for observed in dependency.observations() {
+                    if let ExecutionCondition::Input(place) = observed {
+                        input_dependents
+                            .entry(place.clone())
+                            .or_default()
+                            .insert(carrier.clone());
+                    } else {
+                        let mut owner = observed;
+
+                        loop {
+                            dependents
+                                .entry(owner.owner_identity().clone())
+                                .or_default()
+                                .insert(carrier.clone());
+
+                            let ExecutionCondition::Projection(_, parent) = owner else {
+                                break;
+                            };
+
+                            owner = parent;
+                        }
+                    }
+                }
+            }
+        }
+
+        (dependents, input_dependents)
+    }
+
     fn retire_pending_conditions(
         &mut self,
         revokes: &impl Fn(&ExecutionCondition) -> bool,
@@ -308,6 +331,7 @@ impl ExecutionState {
         values: &[ExecutionCondition],
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         preserved: &BTreeSet<ExecutionCondition>,
+        stable_values: &BTreeSet<ExecutionCondition>,
     ) {
         if values.is_empty() {
             return;
@@ -320,6 +344,7 @@ impl ExecutionState {
             };
 
             !preserved.contains(condition)
+                && !condition.observes_only(stable_values)
                 && !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
                 && values.iter().any(|value| condition.observes(value))
         };
@@ -373,21 +398,23 @@ impl ExecutionState {
         places: &BTreeSet<crate::ExecutionPlace>,
         values: impl IntoIterator<Item = ExecutionCondition>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
+        stable_values: &BTreeSet<ExecutionCondition>,
     ) {
         self.assumptions.retain(|(condition, _)| {
-            !condition.observes_live_where(|value| {
-                value.observations().any(|observed| {
-                    matches!(observed,
+            condition.observes_only(stable_values)
+                || !condition.observes_live_where(|value| {
+                    value.observations().any(|observed| {
+                        matches!(observed,
                 ExecutionCondition::Input(place) if place.overlaps_any(places))
+                    })
                 })
-            })
         });
 
         // Writes revoke observed contents. A live carrier's lifetime dependencies
         // are retired only when the physical owner or capability ends.
         self.retire_values(
             values,
-            &BTreeSet::new(),
+            stable_values,
             stable_predicates,
             bray_symbols::DependencyMutationKind::Write,
         );

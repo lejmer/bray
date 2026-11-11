@@ -84,8 +84,9 @@ impl State {
         references: impl IntoIterator<Item = (Place, TypeId)>,
         inputs: impl IntoIterator<Item = Target>,
     ) {
-        // Exact forwarding and known absence need no symbolic result. Region bounds
-        // retain the result's declared cell type without asserting an input address.
+        // Established pointer values and known absence need no symbolic result.
+        // Preserve displacement as well as exact identity. Opaque values receive
+        // region bounds without asserting an input address.
         let references = references
             .into_iter()
             .filter_map(|(destination, ty)| {
@@ -95,7 +96,10 @@ impl State {
                     .and_then(|pending| pending.values.get(&Target::storage(destination.clone())));
 
                 if forwarded.is_some_and(|references| {
-                    !references.unknown && (references.targets.is_empty() || references.is_exact())
+                    !references.unknown
+                        && (references.displaced
+                            || references.targets.is_empty()
+                            || references.is_exact())
                 }) {
                     return None;
                 }
@@ -108,12 +112,7 @@ impl State {
             .iter()
             .any(|(_, _, bounds)| bounds.is_none())
             .then(|| {
-                let mut bounds =
-                    self.expand_returned_regions(self.transitive_regions(inputs, |_| true).0);
-
-                bounds.unknown = true;
-
-                bounds
+                self.unbounded_reference_regions(self.transitive_regions(inputs, |_| true).0)
             });
 
         for (destination, ty, forwarded) in references {
@@ -159,6 +158,21 @@ impl State {
         bounds
     }
 
+    fn unbounded_reference_regions(&self, inputs: impl IntoIterator<Item = Target>) -> References {
+        // An external result can reach inline storage already published at its
+        // introduction. Later publication cannot change an older reference's origins.
+        let exposed = self.contents.iter().filter_map(|(target, contents)| {
+            (!target.previous && contents.escaped && target.storage_path().is_some_and(|path| self.is_owned_inline_storage(path)))
+                .then(|| target.clone())
+        });
+
+        let mut bounds = self.expand_returned_regions(inputs.into_iter().chain(exposed));
+
+        bounds.unknown = true;
+
+        bounds
+    }
+
     pub(in crate::analysis::storage_flow) fn stage_returned_reference(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
@@ -167,17 +181,48 @@ impl State {
         ty: TypeId,
         inputs: impl IntoIterator<Item = Target>,
     ) {
-        self.stage_bounded_reference(
-            call,
-            destination,
-            reference,
-            ty,
-            References {
-                targets: inputs.into_iter().collect(),
-                unknown: true,
-                ..References::default()
+        // Store the established input regions, never another returned identity.
+        // Repeated writes can otherwise make an output its own region bound.
+        let bounds = self.unbounded_reference_regions(inputs);
+
+        self.stage_bounded_reference(call, destination, reference, ty, bounds);
+    }
+
+    pub(in crate::analysis::storage_flow) fn observe_reference(
+        &mut self,
+        destination: Target,
+        reference: Place,
+        ty: TypeId,
+        inputs: impl IntoIterator<Item = Target>,
+    ) {
+        let bounds = self.unbounded_reference_regions(inputs);
+
+        let target = self.returned_reference(reference, &bounds);
+
+        // A new read after replacement must not equal a pointer retained from the old value.
+        self.retire(&target);
+
+        self.contents
+            .entry(target.clone())
+            .or_default()
+            .storage_type = Some(ty);
+
+        self.values.insert(destination, References::one(target));
+    }
+
+    fn returned_reference(&mut self, reference: Place, bounds: &References) -> Target {
+        self.returned_inputs
+            .entry(reference.clone())
+            .or_default()
+            .merge(bounds);
+
+        Target {
+            previous: false,
+            origin: Origin::Returned {
+                reference,
+                projections: std::sync::Arc::from([]),
             },
-        );
+        }
     }
 
     fn stage_bounded_reference(
@@ -188,10 +233,7 @@ impl State {
         ty: TypeId,
         bounds: References,
     ) {
-        self.returned_inputs
-            .entry(reference.clone())
-            .or_default()
-            .merge(&bounds);
+        let target = self.returned_reference(reference.clone(), &bounds);
 
         self.pending
             .entry(call)
@@ -200,14 +242,6 @@ impl State {
             .entry(reference.clone())
             .or_default()
             .merge(&bounds);
-
-        let target = Target {
-            previous: false,
-            origin: Origin::Returned {
-                reference,
-                projections: std::sync::Arc::from([]),
-            },
-        };
 
         self.pending
             .entry(call)
@@ -353,17 +387,44 @@ impl State {
         }
     }
 
+    pub(in crate::analysis::storage_flow::memory) fn stable_reference_slot(
+        target: &Target,
+        invalidation: &bray_bound_tree::StorageInvalidation,
+    ) -> bool {
+        let descriptors = match invalidation {
+            bray_bound_tree::StorageInvalidation::All {
+                stable_descriptors, ..
+            }
+            | bray_bound_tree::StorageInvalidation::Observed {
+                stable_descriptors, ..
+            } => stable_descriptors,
+            bray_bound_tree::StorageInvalidation::Paths(_) => return false,
+        };
+
+        // A retained whole descriptor protects its inline reference values. It does
+        // not protect the storage reached through those references or owned backing.
+        target.observation_path().is_some_and(|slot| {
+            !slot
+                .projections
+                .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+                && descriptors.contains(&Place::root(slot.root))
+        })
+    }
+
     pub(in crate::analysis::storage_flow) fn invalidate_target(
         &mut self,
         target: &Target,
         kind: bray_symbols::DependencyMutationKind,
+        invalidation: &bray_bound_tree::StorageInvalidation,
     ) {
         let references = References::one(target.clone());
 
         for affected in self.affected_targets(&references) {
             // Atomic effects change protected payload observations, not ordinary
             // reference slots that merely may alias the atomic's address.
-            if kind != bray_symbols::DependencyMutationKind::Atomic {
+            if kind != bray_symbols::DependencyMutationKind::Atomic
+                && !Self::stable_reference_slot(&affected, invalidation)
+            {
                 self.values.remove(&affected);
             }
 
@@ -387,30 +448,14 @@ impl State {
         storage: &bray_bound_tree::StoragePlan,
         kind: bray_symbols::DependencyMutationKind,
     ) {
-        let unexposed = match invalidation {
-            bray_bound_tree::StorageInvalidation::All {
-                stable_descriptors, ..
-            } => stable_descriptors
-                .iter()
-                .filter(|path| path.projections.is_empty())
-                .map(|path| path.root)
-                .collect::<std::collections::BTreeSet<_>>(),
-            _ => Default::default(),
-        };
-
         // An opaque operation can change the referent without replacing a reference
         // stored in an unexposed owner or reached through a protected shared entry borrow.
         // The established observation identifies the slot independently of its referent.
         self.values.retain(|target, _| {
             kind == bray_symbols::DependencyMutationKind::Atomic
+                || Self::stable_reference_slot(target, invalidation)
                 || match target.observation_path() {
-                    Some(slot) => {
-                        unexposed.contains(&slot.root)
-                            && !slot
-                                .projections
-                                .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                            || !invalidation.invalidates_path(&slot, storage)
-                    }
+                    Some(slot) => !invalidation.invalidates_path(&slot, storage),
                     None => !matches!(
                         invalidation,
                         bray_bound_tree::StorageInvalidation::All { .. }
@@ -421,7 +466,8 @@ impl State {
         for (target, contents) in &mut self.contents {
             let affected = match &target.origin {
                 Origin::Storage(path) => invalidation.invalidates_path(path, storage),
-                Origin::Entry { .. } | Origin::Returned { .. } | Origin::Allocation(_) => {
+                Origin::Entry { .. } | Origin::Returned { .. } | Origin::Allocation(_)
+                | Origin::Static { .. } => {
                     matches!(
                         invalidation,
                         bray_bound_tree::StorageInvalidation::All { .. }
@@ -483,10 +529,30 @@ impl State {
         );
     }
 
-    fn owned_references(&self, owner: &Target) -> std::borrow::Cow<'_, References> {
-        match self.values.get(owner) {
+    fn owned_references(
+        &self,
+        owner: &Target,
+        pointer: bray_bound_tree::StorageProjection,
+    ) -> std::borrow::Cow<'_, References> {
+        if let Some(references) = self.values.get(owner).filter(|references| !references.unknown) {
+            return std::borrow::Cow::Borrowed(references);
+        }
+
+        let backing = owner.project(&[pointer]);
+        let declared_backing = backing.observation_path();
+
+        let pointer = self.values.get(&backing).filter(|references| {
+            !references.unknown && (references.targets.is_empty() || !references.targets.iter().all(|target| {
+                matches!(&target.origin, Origin::Entry { reference, layer: 1, projections }
+                    if declared_backing.as_ref() == Some(reference) && projections.is_empty())
+            }))
+        });
+
+        // An entry descriptor's own pointer snapshot denotes its owned region.
+        // Returned and transferred pointers retain their established physical origins.
+        match pointer {
             Some(references) => std::borrow::Cow::Borrowed(references),
-            None => std::borrow::Cow::Owned(References::one(
+            _ => std::borrow::Cow::Owned(References::one(
                 owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
             )),
         }
@@ -495,22 +561,34 @@ impl State {
     pub(in crate::analysis::storage_flow) fn owned_regions(
         &self,
         owner: &Target,
+        pointer: bray_bound_tree::StorageProjection,
     ) -> Option<Vec<Target>> {
-        self.owned_references(owner).regions()
+        self.owned_references(owner, pointer).regions()
     }
 
     pub(in crate::analysis::storage_flow) fn owned_region(
         &mut self,
-        owner: Target,
-        destination: Place,
+        owners: &[Target],
+        destination: Target,
         ty: bray_symbols::TypeId,
+        pointer: bray_bound_tree::StorageProjection,
+        inexact: bool,
     ) {
-        let references = self.owned_references(&owner).into_owned();
+        let mut references = References { inexact, ..References::default() };
 
-        // The owner and returned view retain independent reference records through moves.
-        self.values
-            .entry(owner)
-            .or_insert_with(|| references.clone());
+        for owner in owners {
+            let materialized = self.values.get(owner).is_some_and(|value| !value.unknown);
+            let owned = self.owned_references(owner, pointer);
+
+            references.merge(&owned);
+
+            // Owners and their returned views retain independent records through moves.
+            if !materialized {
+                let owned = owned.into_owned();
+
+                self.values.insert(owner.clone(), owned);
+            }
+        }
 
         for target in &references.targets {
             self.contents
@@ -520,7 +598,7 @@ impl State {
                 .get_or_insert(ty);
         }
 
-        self.values.insert(Target::storage(destination), references);
+        self.values.insert(destination, references);
     }
 
     pub(in crate::analysis::storage_flow) fn point_at(
@@ -546,11 +624,7 @@ impl State {
             return;
         }
 
-        for references in self
-            .values
-            .values_mut()
-            .chain(self.borrows.values_mut())
-        {
+        for references in self.values.values_mut().chain(self.borrows.values_mut()) {
             references.retire(current);
         }
 

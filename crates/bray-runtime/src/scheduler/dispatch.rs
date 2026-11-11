@@ -18,6 +18,7 @@ pub(super) fn pop_ready(
     scheduler: &Arc<SchedulerData>,
     thread: RuntimeThreadId,
     lanes: u32,
+    worker: Option<&bray_runtime_abi::NativeWorkerScope>,
 ) -> Result<Option<ReadyTask>, SchedulerError> {
     let state = scheduler
         .state
@@ -26,12 +27,16 @@ pub(super) fn pop_ready(
 
     let mut selected = NativeSchedulerObservation::default();
 
-    let status = native::bray_runtime_scheduler_acquisition(
-        &scheduler.source.reference,
-        thread.raw(),
-        lanes,
-        &mut selected,
-    );
+    let status = if let Some(worker) = worker {
+        crate::native::workers::acquisition(worker, lanes, &mut selected)
+    } else {
+        native::bray_runtime_scheduler_acquisition(
+            &scheduler.source.reference,
+            thread.raw(),
+            lanes,
+            &mut selected,
+        )
+    };
 
     if status == 0 {
         return Ok(None);
@@ -131,7 +136,10 @@ pub(super) fn scheduler_snapshot(
             ));
         }
 
-        let timers = scheduler.deadlines.get().map_or(0, super::deadline::BrayDeadlines::count);
+        let timers = scheduler
+            .deadlines
+            .get()
+            .map_or(0, super::deadline::BrayDeadlines::count);
 
         drop(state);
         tasks.sort_unstable_by_key(ScheduledTaskSnapshot::task);
@@ -163,6 +171,11 @@ pub struct ReadyTask {
 impl ReadyTask {
     pub(crate) fn take_native_task(&mut self) -> Option<Arc<crate::native::NativeTaskServices>> {
         self.native.take()
+    }
+
+    pub(crate) fn record_worker_failure(&self, failure: bray_runtime_abi::NativeWorkerFailure, scope: &bray_runtime_abi::NativeWorkerScope) {
+        self.native.as_ref().expect("a native worker dispatch retains its task services")
+            .record_worker_failure(failure, Some(scope));
     }
     /// Returns the independent run identity.
     pub const fn task(&self) -> TaskId {
@@ -221,6 +234,7 @@ impl ReadyTask {
         );
 
         let lane = self.scheduler.source.select(
+            Some((self.task, self.registration)),
             execution.descriptor(),
             execution.origin().unwrap_or(binding.origin),
         )?;

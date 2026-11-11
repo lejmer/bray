@@ -41,6 +41,7 @@ unsafe extern "C" {
     pub(crate) safe fn bray_runtime_task_control_dispatch(
         reference: &bray_runtime_abi::NativeTaskReference,
         services: &bray_runtime_abi::NativeTaskDispatchServices,
+        failure: &mut bray_runtime_abi::NativeWorkerFailure,
         progress: &mut bray_runtime_abi::NativeFrameProgress,
         execution: &mut bray_runtime_abi::NativeActivationExecution,
     ) -> u32;

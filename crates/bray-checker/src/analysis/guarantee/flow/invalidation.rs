@@ -244,10 +244,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some(expression) = occurrence.expression() {
-            if self.awaited_invocations(state, expression).any(|(source, _)| self.is_task_observation(source))
-                && let Some(bray_bound_tree::BoundExpression::Await(awaited)) = self.request.view().expression(expression)
+            if self
+                .awaited_invocations(state, expression)
+                .any(|(source, _)| self.is_task_observation(source))
+                && let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
+                    self.request.view().expression(expression)
             {
-                return self.deferred_preserves_storage(state, self.value(state, awaited.operand()));
+                return self
+                    .deferred_preserves_storage(state, self.value(state, awaited.operand()));
             }
 
             if self.awaited_unknown(state, expression) {
@@ -347,6 +351,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         );
     }
 
+    fn preserved_storage_values(
+        &self,
+        state: &ExecutionState,
+        paths: &BTreeSet<bray_bound_tree::StoragePath>,
+    ) -> (
+        BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+        BTreeSet<ExecutionCondition>,
+    ) {
+        let values = paths
+            .iter()
+            .flat_map(|path| self.storage_places(state, path.clone()))
+            .filter_map(|place| place.value_in(&state.current).map(|value| (place, value)))
+            .collect();
+
+        let snapshots = paths
+            .iter()
+            .flat_map(|path| self.storage_path_values(state, path.clone()))
+            .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
+            .filter(|value| *value != ExecutionCondition::Unknown)
+            .flat_map(|value| [value.owner_identity().clone(), value])
+            .collect();
+
+        (values, snapshots)
+    }
+
     fn invalidate_all_observations(
         &self,
         state: &mut ExecutionState,
@@ -364,15 +393,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let mut retained = stable_values
-            .iter()
-            .flat_map(|path| self.storage_places(state, path.clone()))
-            .filter_map(|place| {
-                let value = place.value_in(&state.current)?;
-
-                Some((place, value))
-            })
-            .collect::<BTreeMap<_, _>>();
+        let (mut retained, snapshots) = self.preserved_storage_values(state, stable_values);
 
         let stable_roots = stable_values
             .iter()
@@ -387,21 +408,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| *value != ExecutionCondition::Unknown)
             .map(|value| value.owner_identity().clone())
-            .collect();
-
-        // Preserved storage includes selected static instances, expression
-        // temporaries and invocation inputs without local-variable entries.
-        let snapshots = stable_values
-            .iter()
-            .flat_map(|path| self.storage_path_values(state, path.clone()))
-            .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
-            .filter(|value| {
-                !matches!(
-                    value,
-                    ExecutionCondition::Unknown | ExecutionCondition::Borrowed(_)
-                )
-            })
-            .flat_map(|value| [value.owner_identity().clone(), value])
             .collect();
 
         state.invalidate_cleanup(&snapshots, &owners);
@@ -477,8 +483,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         } = invalidation
         {
             self.invalidate_all_observations(state, mutation, descriptors, stable_values);
+
             return;
         }
+
+        let (mut stable_places, stable_values) = match invalidation {
+            StorageInvalidation::Observed { stable_values, .. } => {
+                self.preserved_storage_values(state, stable_values)
+            }
+            _ => (BTreeMap::new(), BTreeSet::new()),
+        };
 
         if !transfers && let StorageInvalidation::Observed { referents, .. } = invalidation {
             let observed = referents
@@ -500,6 +514,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &unstable
                 },
                 &preserved,
+                &stable_values,
             );
         }
 
@@ -594,6 +609,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
         }
 
+        // Disjoint values already retain their complete snapshot. Reconstructing
+        // their fields can erase a joined variant or revive old loop inputs.
+        stable_places.retain(|place, _| place.overlaps_any(&changed_places));
+
         // Storage flow distinguishes the descriptor slot from its reached elements.
         // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
         // and predicates from equating the old contents with the new contents.
@@ -634,9 +653,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &changed_places,
                 invalidated_values,
                 &self.spatial_predicates,
+                &stable_values,
             );
         } else {
-            state.invalidate_contents(&changed_places, invalidated_values, &BTreeSet::new());
+            state.invalidate_contents(
+                &changed_places,
+                invalidated_values,
+                &BTreeSet::new(),
+                &stable_values,
+            );
         }
 
         // Preserve observations of disjoint components before retiring the containing snapshot.
@@ -676,6 +701,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 });
 
+            state.assign(place, value);
+        }
+
+        // Restore unchanged components before refreshing aliases to the new snapshot.
+        for (place, value) in stable_places {
             state.assign(place, value);
         }
 

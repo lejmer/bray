@@ -203,6 +203,33 @@ impl SemanticSelection {
             .find(|input| self.input_ordinal(input.root()) == Some(ordinal))
     }
 
+    /// Returns a formal input's receiver-first ordinal for this invocation phase.
+    pub fn invocation_input_ordinal(
+        &self,
+        occurrence: BoundExecutionSite,
+        root: DependencySubjectRoot,
+    ) -> Option<SymbolOrdinal> {
+        match (self, occurrence, root) {
+            (
+                Self::Iteration(_),
+                BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_),
+                DependencySubjectRoot::Receiver,
+            )
+            | (
+                Self::ScopedUse(_),
+                BoundExecutionSite::ScopedEnter(_),
+                DependencySubjectRoot::Receiver,
+            ) => Some(SymbolOrdinal::new(0)),
+            (
+                Self::ScopedUse(_),
+                BoundExecutionSite::ScopedExit(_),
+                DependencySubjectRoot::Parameter(ordinal),
+            ) if ordinal.raw() == 0 => Some(ordinal),
+            (Self::Iteration(_) | Self::ScopedUse(_), _, _) => None,
+            _ => self.input_ordinal(root),
+        }
+    }
+
     /// Returns the formal root at a receiver-first ordinal for this invocation phase.
     pub fn invocation_input_root(
         &self,
@@ -211,10 +238,12 @@ impl SemanticSelection {
     ) -> Option<DependencySubjectRoot> {
         match (self, occurrence) {
             (Self::Iteration(_), BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_))
-            | (Self::ScopedUse(_), BoundExecutionSite::ScopedEnter(_)) =>
-                (ordinal.raw() == 0).then_some(DependencySubjectRoot::Receiver),
-            (Self::ScopedUse(_), BoundExecutionSite::ScopedExit(_)) =>
-                (ordinal.raw() == 0).then_some(DependencySubjectRoot::Parameter(ordinal)),
+            | (Self::ScopedUse(_), BoundExecutionSite::ScopedEnter(_)) => {
+                (ordinal.raw() == 0).then_some(DependencySubjectRoot::Receiver)
+            }
+            (Self::ScopedUse(_), BoundExecutionSite::ScopedExit(_)) => {
+                (ordinal.raw() == 0).then_some(DependencySubjectRoot::Parameter(ordinal))
+            }
             _ => self.input(ordinal).map(SelectedInput::root),
         }
     }

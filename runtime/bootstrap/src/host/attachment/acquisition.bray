@@ -19,7 +19,7 @@ internal struct Owner
     mut identity: u64;
 
     trusted destruct()
-        requires(trusted acquired(owner = &self))
+        requires(self.status != bray.runtime.bootstrap.STATUS_SUCCESS || trusted acquired(owner = &self))
         when(self.status != bray.runtime.bootstrap.STATUS_SUCCESS)
         {
             executes(total)

@@ -16,6 +16,9 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         bray_bound_tree::BoundCallResult::LazyFuture(_)
     );
 
+    let pure = call.phase_behaviors().invocation().execution_properties()
+        .contains(&bray_symbols::ExecutionProperty::Pure);
+
     let contracts = if deferred {
         contracts
             .with_deferred_execution(
@@ -36,7 +39,7 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         with_reference_inputs(request, contracts, template, retained_inputs, |subject| {
             reference_input_type(request, call, subject)
         })?
-        .with_effects(template.effects().iter().filter(|_| !deferred).cloned())
+        .with_effects(template.effects().iter().filter(|_| !deferred && !pure).cloned())
         .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
         .with_owned_result(template.owned_result().clone())
@@ -65,7 +68,7 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         )?)
         .with_normal_completion(deferred || template.normal_completion())
         .with_normal_storage_preservation(
-            deferred || template.preserves_storage_on_normal_return(),
+            deferred || pure || template.preserves_storage_on_normal_return(),
         ),
     )
 }
@@ -169,11 +172,41 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
         }
     }
 
+    // Completion observes every evaluated reference input, independently of
+    // whether its origin is forwarded into a result or mentioned by an effect.
+    for root in std::iter::once(DependencySubjectRoot::Receiver).chain(
+        (0..contracts.input_count()).map(|ordinal| {
+            DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
+                u32::try_from(ordinal)
+                    .expect("checked invocation arity fits its parameter ordinals"),
+            ))
+        }),
+    ) {
+        let subject = bray_symbols::DependencySubject::root(root);
+
+        if !inputs.contains_key(&subject)
+            && let Some(prepared) = input_type(&subject)?
+            && crate::representation::reference_kind(request, prepared.0).is_some()
+        {
+            inputs.insert(subject, prepared);
+        }
+    }
+
     let mut references = Vec::with_capacity(template.borrows().len());
     let mut incomplete = std::collections::BTreeSet::new();
 
     for relation in template.borrows() {
-        if let Some((ty, _)) = inputs.get(relation.entry().unwrap_or_else(|| relation.exit()))
+        let subject =
+            if relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions {
+                relation.exit()
+            } else {
+                relation.entry().unwrap_or_else(|| relation.exit())
+            };
+
+        if relation
+            .entry()
+            .is_none_or(|entry| inputs.contains_key(entry))
+            && let Some((ty, _)) = inputs.get(subject)
             && let Some(reference) = prepare_reference(request, relation, *ty)?
         {
             references.push(reference);
@@ -185,12 +218,7 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
     references.retain(|reference| !incomplete.contains(reference.relation().exit()));
 
     Ok(contracts
-        .with_reference_paths(
-            inputs
-                .into_iter()
-                .map(|(subject, (_, path))| (subject, path))
-                .collect(),
-        )
+        .with_reference_subjects(inputs)
         .with_references(references, retained_inputs))
 }
 
@@ -199,7 +227,9 @@ pub(crate) fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     relation: &bray_symbols::DependencyBorrowRelation,
     mut ty: bray_symbols::TypeId,
 ) -> Result<Option<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
-    if relation.entry().is_none() {
+    if relation.entry().is_none()
+        || relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions
+    {
         return Ok(crate::representation::reference_target_type(request, ty)
             .map(|target| BoundCallReference::new(relation.clone(), false, Some(target))));
     }

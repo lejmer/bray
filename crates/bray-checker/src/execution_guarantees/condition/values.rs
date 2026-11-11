@@ -429,6 +429,22 @@ impl ExecutionCondition {
             return value;
         };
 
+        if let Some(snapshot) = self.nullable_payload_snapshot() {
+            let updated = snapshot.with_component(path, value);
+
+            if updated == *snapshot {
+                return self.clone();
+            }
+
+            let Self::Projection(_, owner) = self else {
+                unreachable!("a nullable payload snapshot retains its owner projection");
+            };
+
+            return owner
+                .with_component(&[ConstantProjectionKind::NullableValue], updated)
+                .component(ConstantProjectionKind::NullableValue);
+        }
+
         let projection = match first {
             ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(*field),
             ConstantProjectionKind::TupleElement(index) => StorageProjection::TupleElement(*index),
@@ -451,9 +467,13 @@ impl ExecutionCondition {
         };
 
         let previous = self.clone().component(*first);
+
+        // Stored components contain payload data. The extraction view retains
+        // its owner separately and must not become its own payload's backing.
+        let previous = previous.nullable_payload_snapshot().unwrap_or(&previous);
         let child = previous.with_component(rest, value);
 
-        if child == previous {
+        if child == *previous {
             return self.clone();
         }
 

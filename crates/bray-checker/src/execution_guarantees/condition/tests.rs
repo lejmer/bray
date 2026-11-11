@@ -230,20 +230,38 @@ fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
 #[test]
 fn repeated_component_observation_keeps_the_original_snapshot() {
     let original = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-    let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
     let nested = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
-    let value = original.clone().component(first).component(nested);
 
-    assert_eq!(original.with_component(&[first, nested], value), original);
+    for first in [
+        ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)),
+        ConstantProjectionKind::NullableValue,
+    ] {
+        let path = [first, nested];
+        let value = original.clone().component(first).component(nested);
 
-    let changed = original.with_component(&[first, nested], ExecutionCondition::Boolean(true));
+        assert_eq!(original.with_component(&path, value), original);
 
-    assert_ne!(changed, original);
+        let changed = original.with_component(&path, ExecutionCondition::Boolean(true));
 
-    assert_eq!(
-        changed.clone().component(first).component(nested),
-        ExecutionCondition::Boolean(true)
-    );
+        assert_ne!(changed, original);
+
+        assert_eq!(
+            changed.clone().component(first).component(nested),
+            ExecutionCondition::Boolean(true)
+        );
+
+        let updated = changed.with_component(&path, ExecutionCondition::Boolean(false));
+        let expected = original.with_component(&path, ExecutionCondition::Boolean(false));
+
+        assert_eq!(updated, expected);
+
+        if first == ConstantProjectionKind::NullableValue {
+            let payload = changed.component(first);
+            let updated = payload.with_component(&[nested], ExecutionCondition::Boolean(false));
+
+            assert_eq!(updated.present(), expected);
+        }
+    }
 }
 
 #[test]

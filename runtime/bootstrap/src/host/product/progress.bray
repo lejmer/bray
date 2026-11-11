@@ -204,7 +204,14 @@ trusted internal func finish_progress_locked(
                     trusted core.target.abort();
                 }
 
-                product.state.phase = Phase.Closing;
+                product.state.phase = if product.state.workers == 0
+                {
+                    yield Phase.Closing;
+                }
+                else
+                {
+                    yield Phase.WaitingForWorkers;
+                };
             }
 
             if let ?failure = product.failure

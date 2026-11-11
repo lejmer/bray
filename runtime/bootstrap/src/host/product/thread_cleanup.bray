@@ -290,3 +290,102 @@ trusted internal func cleanup_domains(pos identity: u64)
         }
     }
 }
+
+// The product's admitted phase and this thread's existing membership are the
+// request and acknowledgement. Workers need no separate product request queue.
+trusted internal func drain_detaching_domains(pos attachment: &bray.runtime.bootstrap.host.attachment.Owner)
+    requires(
+        trusted native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment),
+        attachment.status == bray.runtime.bootstrap.STATUS_SUCCESS
+    )
+    ensures(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment))
+    uses(raw_memory, intrinsic)
+{
+    while true
+    {
+        let key: usize =
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                trusted core.target.abort();
+            }
+
+            let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+            let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+            let mut selected: usize = 0;
+
+            if let ?storage = host.storage
+            {
+                if let ?current = trusted bray.runtime.bootstrap.host.find_attachment(
+                    &mut storage,
+                    attachment.identity,
+                    0
+                )
+                {
+                    if let ?domains = current.domains
+                    {
+                        let rows = trusted std.memory.initialized_slice<ThreadDomain>(&domains);
+                        let mut index: usize = 0;
+
+                        while index < rows.length()
+                        {
+                            let row = &rows[index];
+
+                            if row.identity != 0 && row.worker && row.depth == 0 && !row.busy && !row.closing &&
+                                trusted detaching_product(&host.products, row.key)
+                            {
+                                selected = row.key;
+                                break;
+                            }
+
+                            index += 1;
+                        }
+                    }
+                }
+            }
+
+            yield selected;
+        };
+
+        if key == 0
+        {
+            return;
+        }
+
+        let result = trusted leave_domain(attachment.identity, key, false);
+
+        if result.status == 3 || result.status >= 5
+        {
+            // Selection held the same exact-thread membership. No other thread
+            // can enter its lexical scope between selection and retirement.
+            trusted core.target.abort();
+        }
+    }
+}
+
+trusted internal func detaching_product(pos products: &(std.memory.RawBuffer<Product>?), pos key: usize) -> bool
+    executes(pure, total)
+    uses(raw_memory)
+{
+    if let ?entries = products
+    {
+        let rows = trusted std.memory.initialized_slice<Product>(&entries);
+        let mut index: usize = 0;
+
+        while index < rows.length()
+        {
+            if rows[index].key == key
+            {
+                return rows[index].state.phase matches Detaching | WaitingForWorkers;
+            }
+
+            index += 1;
+        }
+    }
+
+    return false;
+}

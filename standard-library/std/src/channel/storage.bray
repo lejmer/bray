@@ -144,16 +144,16 @@ internal struct ChannelState<T>
             panic("channel rendezvous ticket is not committed");
         }
 
-        let message = trusted self.take_message();
-
         self.rendezvous_ticket = none;
         self.send_waiters.pop_head();
-        return message;
+
+        return trusted self.take_message();
     }
 
-    trusted mut func store_message(pos value: T)
+    trusted mut func store_message(pos pending: &mut PendingValue<T>)
         requires(trusted std.channel.owner.valid(&self.instance))
         ensures(trusted std.channel.owner.valid(&self.instance))
+        ensures(pending.storage matches none)
         uses(raw_memory)
     {
         let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
@@ -170,19 +170,27 @@ internal struct ChannelState<T>
         );
 
         let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut self.storage);
-        _ = std.memory.uninit_write<T>(&mut slots[index], value);
+        let slot: &mut Uninit<T> = &mut slots[index];
 
         self.length += 1;
+
+        _ = std.memory.uninit_write<T>(slot, trusted pending.take());
     }
 
     trusted mut func take_message() -> T
         requires(trusted std.channel.owner.valid(&self.instance))
         ensures(trusted std.channel.owner.valid(&self.instance))
-        uses(unchecked_init)
+        uses(raw_memory)
     {
         let storage_capacity: usize = std.memory.capacity<Uninit<T>>(&self.storage);
-        let slot: &mut Uninit<T> = trusted internal channel_initialized_head<T>(&mut self);
-        let value: T = trusted std.memory.move_initialized<T>(slot);
+
+        if self.length == 0
+        {
+            panic("channel has no message to take");
+        }
+
+        let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut self.storage);
+        let pointer: DataPointer<T> = std.memory.uninit_pointer_mut<T>(&mut slots[self.head]);
 
         self.length -= 1;
         self.head += 1;
@@ -192,15 +200,24 @@ internal struct ChannelState<T>
             self.head = 0;
         }
 
-        return value;
+        // The live head slot remains initialized while only the ring header changes.
+        let authorize = trusted lambda(pos pointer: DataPointer<T>)
+            ensures(
+                trusted core.memory.valid_read<T>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<T>(pointer = pointer),
+                trusted core.memory.initialized_as<T>(pointer = pointer),
+            )
+            executes(pure, total) {};
+
+        authorize(pointer);
+
+        return trusted std.memory.read<T>(pointer);
     }
 
     trusted mut func take_received_message() -> T
         requires(trusted std.channel.owner.valid(&self.instance))
         ensures(trusted std.channel.owner.valid(&self.instance))
     {
-        let message: T = trusted self.take_message();
-
         match self.rendezvous_ticket
         {
             case ?ticket
@@ -211,23 +228,8 @@ internal struct ChannelState<T>
             case none {}
         }
 
-        return message;
+        return trusted self.take_message();
     }
-}
-
-trusted internal func channel_initialized_head<T>(pos state: &mut ChannelState<T>) -> &mut Uninit<T>
-    requires(trusted std.channel.owner.valid(&state.instance))
-    ensures(trusted core.memory.uninit_initialized<T>(storage = &result))
-    uses(raw_memory)
-{
-    if state.length == 0
-    {
-        panic("channel has no message to take");
-    }
-
-    let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut state.storage);
-
-    return &mut slots[state.head];
 }
 
 internal struct ChannelCore<T>

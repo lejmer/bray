@@ -1,9 +1,6 @@
 // Concatenated after event callback and native platform declarations.
-typedef struct { uintptr_t address; } SchedulerReference;
 typedef struct { uintptr_t address; } DeadlineReference;
 
-extern uint32_t bray_runtime_scheduler_creation(uint32_t, uint64_t, size_t, SchedulerReference*);
-extern void bray_runtime_scheduler_destruction(const SchedulerReference*);
 extern uint32_t bray_runtime_deadline_creation(
     const SchedulerReference*,
     size_t,

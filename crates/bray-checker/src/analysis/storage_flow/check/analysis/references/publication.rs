@@ -65,6 +65,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if let Some(relation) = self.result_reference(slot, target, ty, exact)? {
                 let bounded = match bounds {
                     ReferenceBounds::Known => true,
+                    ReferenceBounds::InputRegions => true,
                     ReferenceBounds::Displaced => {
                         relation.kind() == bray_symbols::DependencyReferenceKind::Address
                     }
@@ -74,7 +75,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if bounded {
                     let exact = exact && relation.entry().is_some();
 
-                    relations.push((slot.clone(), relation.with_exactness(exact)));
+                    let relation = relation.with_exactness(exact);
+
+                    let relation = if bounds == ReferenceBounds::InputRegions {
+                        relation.with_provenance(
+                            bray_symbols::DependencyReferenceProvenance::InputRegions,
+                        )
+                    } else {
+                        relation
+                    };
+
+                    relations.push((slot.clone(), relation));
                 } else {
                     unbounded.insert(slot.clone());
                 }
@@ -90,13 +101,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut requirements = summary.requirements().to_vec();
 
-        // Complete borrow origins retain references installed by mutation. Raw-address
-        // bounds carry no lifetime requirement, and incomplete origins add no certificate.
+        // Established borrow origins retain references installed by mutation.
+        // Possible physical input regions do not establish a borrow origin.
         requirements.extend(
             relations
                 .iter()
                 .filter(|relation| {
                     relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
+                        && relation.provenance()
+                            != bray_symbols::DependencyReferenceProvenance::InputRegions
+                        && relation.entry().is_some()
                         && relation.exit().subject_root() == DependencySubjectRoot::Result
                 })
                 .map(|relation| {
@@ -163,6 +177,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             bray_bound_tree::StorageIdentity::Result(_) => {
                 return Some(DependencySubjectRoot::Result);
             }
+            bray_bound_tree::StorageIdentity::Static(declaration) => {
+                return Some(
+                    *self
+                        .request
+                        .static_dependencies()
+                        .get(&declaration)
+                        .expect("planned static storage retains its prepared dependency root"),
+                );
+            }
             _ => return None,
         };
 
@@ -177,34 +200,47 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         exact: bool,
     ) -> crate::CheckerQueryResult<Option<bray_symbols::DependencyBorrowRelation>, C::UpstreamError>
     {
-        let (target, stored_reference) = match origin {
+        let source = match origin {
             Origin::Entry {
                 reference: path, ..
-            } => (path, true),
-            Origin::Storage(path) => (path, false),
-            Origin::Allocation(_) | Origin::Returned { .. } => {
-                let Some(exit) = dependency_projections(&slot.projections) else {
-                    return Ok(None);
-                };
-
-                // Coarse call-input bounds describe raw addresses. They cannot replace
-                // the ordinary borrow origin/lifetime contract, including deferred selection.
-                let kind = self.reference_kind(slot, ty)?;
-
-                return Ok(kind
-                    .filter(|kind| *kind == bray_symbols::DependencyReferenceKind::Address)
-                    .map(|kind| {
-                        bray_symbols::DependencyBorrowRelation::new(
-                            None,
-                            bray_symbols::DependencySubject::new(
-                                self.formal_root(slot.root)
-                                    .expect("reference exit has a formal root"),
-                                exit,
-                            ),
-                            kind,
-                        )
-                    }));
+            } => Some((path, true)),
+            Origin::Storage(path)
+                if !matches!(
+                    self.storage.identity(path.root),
+                    Some(bray_bound_tree::StorageIdentity::Static(_))
+                ) =>
+            {
+                Some((path, false))
             }
+            Origin::Storage(_) | Origin::Allocation(_) | Origin::Returned { .. }
+            | Origin::Static { .. } => None,
+        };
+
+        let Some((target, stored_reference)) = source else {
+            let Some(exit) = dependency_projections(&slot.projections) else {
+                return Ok(None);
+            };
+
+            let kind = self.reference_kind(slot, ty)?;
+
+            // An ordinary borrow's lifetime is established separately. Static and
+            // forwarded external origins need no invented alias to a call input.
+            return Ok(kind
+                .filter(|kind| {
+                    *kind == bray_symbols::DependencyReferenceKind::Address
+                        || !matches!(origin, Origin::Allocation(_))
+                })
+                .map(|kind| {
+                    bray_symbols::DependencyBorrowRelation::new(
+                        None,
+                        bray_symbols::DependencySubject::new(
+                            self.formal_root(slot.root)
+                                .expect("reference exit has a formal root"),
+                            exit,
+                        ),
+                        kind,
+                    )
+                }));
         };
 
         let Some(root) = self.formal_root(target.root) else {
