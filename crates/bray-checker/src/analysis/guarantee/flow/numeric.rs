@@ -294,7 +294,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             // The captured value keeps the checked operand's unsigned type,
                             // including deterministic call identities without an embedded type.
                             self.unsigned_value(&ExecutionCondition::Expression(*operand))
-                                && self.value(state, *operand) == *value
+                                && self.value(state, *operand).computed_value() == value.computed_value()
                         })
                 },
             ) {

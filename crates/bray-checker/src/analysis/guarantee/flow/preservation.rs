@@ -157,6 +157,35 @@ mod tests {
     }
 
     #[test]
+    fn framing_a_lifted_payload_does_not_claim_the_whole_nullable_input() {
+        use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer};
+
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let input = ExecutionCondition::Input(place.clone());
+        let mut state = super::super::super::state::ExecutionState::default();
+        state.owned_results.insert(input.clone(), DependencyOwnedResult::Transfer(
+            DependencyOwnedTransfer::new(input.clone(), []),
+        ));
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            vec![push_expression(tree, integer_literal_expression(origin, None))]
+        });
+        let mutation = StorageMutation::Operation(sites[0].into());
+        let mut mask = ValuePreservation { descriptor: true, discriminant: true, ..Default::default() };
+        mask.at_mut(&[StorageProjection::NullableValue]).value = true;
+        let lifted = mask.apply(&input.clone().present(), Some(&place), mutation);
+        let transfers = state.owned_result(&lifted);
+        let transfers = transfers.transfers().collect::<Vec<_>>();
+
+        assert_eq!(transfers.len(), 1);
+        assert_eq!(transfers[0].input(), input);
+        assert_eq!(transfers[0].output(), &[StorageProjection::NullableValue]);
+
+        let retained = mask.apply(&input, Some(&place), mutation);
+        assert!(state.owned_result(&retained).transfers().any(|transfer| transfer.output().is_empty()),
+            "an actual nullable input keeps its existing whole-owner context");
+    }
+
+    #[test]
     fn mutation_retains_an_existing_owned_context_without_retaining_joined_contents() {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let owner = ExecutionCondition::Input(place.clone());

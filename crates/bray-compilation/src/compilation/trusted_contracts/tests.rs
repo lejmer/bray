@@ -2878,6 +2878,75 @@ fn spare_capacity_bounds_prove_unsigned_sums_without_wrapping_subtraction() {
 }
 
 #[test]
+fn machine_products_retain_proven_bounds_across_boolean_joins() {
+    let compound = r"
+        if stride != 0 && capacity > maximum / stride
+        {
+            return;
+        }
+    ";
+    let split = r"
+        if stride != 0
+        {
+            if capacity > maximum / stride
+            {
+                return;
+            }
+        }
+    ";
+
+    for (source_value, guard, valid) in [
+        ("supplied", "", false),
+        ("supplied", compound, true),
+        ("supplied", split, true),
+        ("trusted opaque_stride()", compound, true),
+    ] {
+        let source = format!(r"
+            trusted module app;
+
+            struct Owner {{}}
+
+            trusted predicate extent(owner: &Owner, bytes: usize);
+
+            trusted func allocate(pos bytes: usize) -> Owner
+                ensures(trusted extent(owner = &result, bytes = bytes))
+            {{
+                return Owner {{}};
+            }}
+
+            extern const func opaque_stride() -> usize;
+
+            func inspect(pos owner: &Owner, pos stride: usize, pos capacity: usize)
+                requires(
+                    stride * capacity <= 18446744073709551615,
+                    trusted extent(owner = owner, bytes = stride * capacity)
+                )
+            {{
+            }}
+
+            trusted func caller(pos supplied: usize, pos capacity: usize)
+            {{
+                let stride: usize = {source_value};
+                let maximum: usize = 18446744073709551615;
+
+                {guard}
+
+                let bytes: usize = stride * capacity;
+                let owner = allocate(bytes);
+
+                inspect(&owner, stride, capacity);
+            }}
+        ");
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "source={source_value}, guard={guard}: {diagnostics:#?}");
+        assert!(diagnostics.iter().all(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven),
+            "the negative must reach its ownership requirement: {diagnostics:#?}");
+    }
+}
+
+#[test]
 fn machine_arithmetic_totality_distinguishes_wrapping_from_trapping_operations() {
     for (operator, valid) in [
         ("+", true),

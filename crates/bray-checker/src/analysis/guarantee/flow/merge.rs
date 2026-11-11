@@ -87,7 +87,8 @@ pub(in crate::analysis) fn merge(
         }
     }
 
-    let before = target.assumptions.len();
+    let before = target.assumptions.clone();
+    let alternatives = super::joins::ordinary_alternatives(&target.assumptions, &incoming.assumptions);
 
     let boundaries_before = target.trust_boundaries.len();
 
@@ -101,7 +102,11 @@ pub(in crate::analysis) fn merge(
         .assumptions
         .retain(|condition| incoming.assumptions.contains(condition));
 
-    changed |= before != target.assumptions.len();
+    if !matches!(alternatives, ExecutionCondition::Boolean(_) | ExecutionCondition::Unknown) {
+        alternatives.assume(true, &mut target.assumptions);
+    }
+
+    changed |= before != target.assumptions;
 
     // Proven truth is intersected below; retain every possible carrier obligation.
     for (carrier, witness) in &incoming.witnesses {
@@ -865,6 +870,30 @@ fn insert_replacement(
 #[cfg(test)]
 mod tests {
     use super::{BTreeMap, ExecutionCondition, ExecutionState, current_replacements};
+
+    #[test]
+    fn ordinary_branch_constraints_compose_without_reviving_forgotten_paths() {
+        use bray_bound_tree::BoundOperator;
+
+        let input = |ordinal| ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)));
+        let first = input(0);
+        let second = input(1);
+        let rejected = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![first.clone(), second.clone()]);
+        let mut skipped = ExecutionState::default();
+        first.clone().assume(false, &mut skipped.assumptions);
+        let mut evaluated = ExecutionState::default();
+        first.assume(true, &mut evaluated.assumptions);
+        second.assume(false, &mut evaluated.assumptions);
+        let mut joined = Some(skipped);
+        let incoming = Some(evaluated);
+
+        assert!(super::merge(&mut joined, &incoming, super::ExecutionJoin::Boundary));
+        assert!(!rejected.can_assume(true, &joined.as_ref().expect("reachable join").assumptions));
+        assert!(!super::merge(&mut joined, &incoming, super::ExecutionJoin::Boundary));
+        assert!(super::merge(&mut joined, &Some(ExecutionState::default()), super::ExecutionJoin::Boundary));
+        assert!(rejected.can_assume(true, &joined.as_ref().expect("reachable join").assumptions));
+        assert!(!super::merge(&mut joined, &incoming, super::ExecutionJoin::Boundary));
+    }
 
     #[test]
     fn unchanged_scalar_observations_do_not_follow_an_overwritten_copy() {

@@ -514,7 +514,7 @@ pub(in crate::analysis::guarantee) fn unsigned_arithmetic_is_bounded(
                 let rejected =
                     ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![nonzero, excess]);
 
-                rejected.prove(known, &mut { ExecutionCondition::WORK_LIMIT }) == Some(false)
+                !rejected.can_assume(true, known)
             });
     }
 
