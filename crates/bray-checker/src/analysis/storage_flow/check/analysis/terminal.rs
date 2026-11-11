@@ -188,7 +188,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let (protected, unknown) =
-            memory.transitive_regions([Target::storage(receiver.clone())], |slot| {
+            memory.transitive_regions([Target::storage(receiver.clone())], |_, slot| {
                 self.input.terminal_dependencies
                     && !state.fully_moved.contains(&receiver.root)
                     && slot.observation_path().is_none_or(|path| {

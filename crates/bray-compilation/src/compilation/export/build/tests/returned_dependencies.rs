@@ -5007,3 +5007,71 @@ fn conditional_component_guarantees_survive_complete_union_consumption() {
         }
     }
 }
+
+#[test]
+fn escape_summaries_preserve_input_roots_before_alias_expansion() {
+    let mut failures = Vec::new();
+    for (extra, expected) in [("", 1), ("expose(core.memory.address_of<Value>(owner.value));", 3)] {
+        let source = r#"
+            trusted module api;
+
+            using core.memory;
+
+            struct Value
+            {
+                pointer: DataPointer<u8>;
+            }
+
+            struct Frame
+            {
+                value: &Value;
+                pointer: DataPointer<Value>;
+            }
+
+            @link(name = "c")
+            @abi(c)
+            @symbol(name = "expose")
+            extern trusted func expose(pos pointer: DataPointer<Value>)
+                uses(foreign_call);
+
+            trusted func forward(pos owner: &mut Frame)
+                uses(foreign_call)
+            {
+                _ = owner.value;
+                expose(owner.pointer);
+                ESCAPE_BORROW
+            }
+        "#.replace("ESCAPE_BORROW", extra);
+
+        let application = super::fixtures::compilation_from_sources_for_product_with_platform_services_and_worker_budget(
+            [source.as_str()], bray_symbols::ProductKind::Library, [], crate::WorkerBudget::default(), None,
+            [bray_symbols::NativeLinkRequirement::new(
+                bray_base::NonEmptySharedStr::try_new("c").expect("native link name"),
+                bray_symbols::NativeLinkKind::Dynamic,
+            )],
+        );
+        let consumer = execution_consumer(&application, r"
+            module app;
+
+            using example.package.api;
+
+            trusted func relay(pos owner: &mut example.package.api.Frame)
+            {
+                example.package.api.forward(owner);
+            }
+        ");
+        for (application, name, surface) in [(&application, "forward", "source"), (&consumer, "relay", "imported")] {
+            let diagnostics = application.check_diagnostics();
+            assert!(!diagnostics.has_errors(), "{surface}: {}", super::fixtures::diagnostic_messages(diagnostics));
+            let flow = application.storage_flow(source_function_body_key(application, name))
+                .expect("escape summary composes");
+            let effects = flow.value().dependencies().effects();
+            let roots = effects.iter().filter(|effect| matches!(effect,
+                bray_symbols::DependencyStorageEffect::Direct { kind: bray_symbols::DependencyMutationKind::Escape, .. }
+                | bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Escape, .. })).count();
+            if roots != expected { failures.push(format!("{surface} {extra}: expected {expected} roots, got {effects:#?}")); }
+            assert!(!effects.contains(&bray_symbols::DependencyStorageEffect::Escape), "{surface}: known escape roots remain structured");
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

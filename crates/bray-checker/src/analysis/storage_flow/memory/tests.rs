@@ -4514,3 +4514,22 @@ fn produced_owned_buffer_bounds_survive_transport_without_publishing_early() {
     assert_ne!(state.target_relationship(&raw, &Target::storage(exposed)), bray_bound_tree::StorageRelationship::Disjoint,
         "an ordinary returned raw address can still reach previously published inline storage");
 }
+
+#[test]
+fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
+    let ([parameter, local, ..], _) = places();
+    let field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+    let pointer_field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(1));
+    let owner = Target { previous: false, origin: super::Origin::entry(parameter.clone(), bray_symbols::DependencyReferenceKind::Borrow) };
+    let stored = Target { previous: false, origin: super::Origin::entry(Place { root: parameter.root, projections: [field].into() }, bray_symbols::DependencyReferenceKind::Borrow) };
+    let pointer = Target { previous: false, origin: super::Origin::entry(Place { root: parameter.root, projections: [pointer_field].into() }, bray_symbols::DependencyReferenceKind::Address) };
+    let mut state = State { owned_storage: [local.root].into(), ..State::default() };
+    state.values.insert(owner.project(&[field]), super::model::References::one(stored.clone()));
+    assert!(state.escaped_regions([pointer.clone()]).contains(&stored), "body-local checks retain possible aliases");
+    assert_eq!(state.escape_roots([pointer.clone()]), BTreeSet::from([pointer]), "possible aliases are resolved again at the caller");
+
+    let local = Target::storage(local);
+    state.values.insert(local.project(&[field]), super::model::References::one(stored.clone()));
+    assert!(state.escape_roots([local.project(&[pointer_field])]).contains(&stored),
+        "an escaped local allocation retains its actual stored references even through a field address");
+}

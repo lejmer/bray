@@ -63,7 +63,7 @@ impl State {
             match effect {
                 Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
                 Effect::Mutation(target, DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _) => {
-                    let (targets, _) = self.transitive_regions([target.clone()], |_| true);
+                    let (targets, _) = self.transitive_regions([target.clone()], |_, _| true);
                     self.invalidate(invalidation, storage, DependencyMutationKind::Retire);
 
                     for target in targets {
