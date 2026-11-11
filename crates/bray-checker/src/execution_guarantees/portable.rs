@@ -340,7 +340,7 @@ pub(crate) fn decode(
             decode(values, *subject, inputs, budget)?.matches_variant(*variant)
         }
         ConstantTermData::NullablePresent(value) => {
-            decode(values, *value, inputs, budget)?.present()
+            ExecutionCondition::Present(std::sync::Arc::new(decode(values, *value, inputs, budget)?))
         }
         ConstantTermData::CallableArgument(ordinal) => {
             let index = usize::try_from(ordinal.raw()).ok();

@@ -29,12 +29,18 @@ RetiredCell disposes control, pin and arena before vacancy. WaitResources retain
 
 ## Current evidence
 
+Explicit Present snapshots survive substitution, identity/reference remapping, portable decoding, evaluation expiry
+and returned-content filtering. Predicate arguments retain canonical nullable value identity. Join proposals reuse
+witness refinement with each predecessor's evidence. Two boundary checks cover these contracts and authority retirement.
+Per-call scalar seeding and numeric-equality aliases are excluded because they break existing value contracts and NaN semantics.
+
 Frozen907 identities:772 passed,36 failed,99 ignored. Nine production repairs and one scalar-copy test correction
 explain all10 differences. comparison.txt stays unchanged. An additional allocation import case passes.
-Checker495, bound135, symbols221, interfaces216 pass. Cleanup57/4 and predicates26/2/2 retain their known failures.
+Checker497, bound135, symbols221, interfaces216 pass. Cleanup57/4 and predicates26/2/2 retain their known failures.
 Focused18 pass, including Source/MIR composition and3 invalid variants. The operation-cleanup fixture publishes valid MIR.
-Both witness matrices pass all positive/negative cases. Deferred source/import matrices have the same4 positive failures
+Both witness matrices pass all positive/negative cases. Deferred source/import matrices have2 positive failures
 and no accepted invalid cases. All loop controls pass. Native composition has not run.
+Both nested-future positives pass in source and imported form.
 
 Accepted native:35 diagnostics,21 E7123 and14 E7135, complete233-file request. No new identities.
 Intrinsic construction fallibility removes retirement205 and dependent267. Native logs/verification.json are current.
@@ -46,8 +52,10 @@ All temporary tracing hooks are removed. Read-materialization experiments are re
 
 ## Remaining
 
-Deferred positives: task_returns_nullable_future, nullable_task_result_keeps_independent_evidence,
-task_completed_permission and nullable_completed_permission. deferred-boundaries.bray retains these plus2 rejection controls.
+Deferred positives: task_completed_permission and nullable_completed_permission.
+The saved scalar loses its relation to the returned owner's field. Trace the existing alias model before changing it.
+Data identity is distinct from numeric equality, including NaN. Any new representation must cover production, copying,
+capture, joins, mutation, retirement and interface boundaries together. Reads cannot materialize owner contents.
 Native families include returned-pointer retirement at driving197, address expiry through mutation/input postconditions,
 PreparedStart registration, heap allocation extents, waiting-link authority and initialized-range permissions.
 Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains an unresolved control.

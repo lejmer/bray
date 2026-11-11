@@ -88,10 +88,18 @@ pub(super) fn conditional_guarantees(
                 .witnesses
                 .iter()
                 .flat_map(move |(owner, witness)| {
-                    witness.conditions.keys().filter_map(move |condition| {
+                    let mut witness = std::sync::Arc::clone(witness);
+                    let mut trusted = std::borrow::Cow::Borrowed(&state.trusted_assumptions);
+                    let mut ordinary = std::borrow::Cow::Borrowed(&state.assumptions);
+
+                    if witness.has_guards() {
+                        witness.refine(trusted.to_mut(), ordinary.to_mut());
+                    }
+
+                    witness.conditions.keys().filter_map(|condition| {
                         (!witness.available || condition.prove_mixed(
-                            &state.trusted_assumptions,
-                            &state.assumptions,
+                            &trusted,
+                            &ordinary,
                             &mut { ExecutionCondition::WORK_LIMIT },
                         ) == Some(true))
                         .then(|| {
@@ -100,7 +108,7 @@ pub(super) fn conditional_guarantees(
                                 condition.with_joined_values(values, identities),
                             )
                         })
-                    })
+                    }).collect::<Vec<_>>()
                 })
         })
         .collect::<BTreeSet<_>>();

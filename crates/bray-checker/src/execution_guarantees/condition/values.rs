@@ -486,6 +486,12 @@ impl ExecutionCondition {
             // retains its storage context even when the contents are equal.
             *argument = argument.copied_value().clone();
 
+            if let Self::Present(payload) = argument {
+                // Predicate arguments name the nullable value. Structural visitors
+                // separately retain its explicit initialized payload snapshot.
+                *argument = payload.as_ref().clone().present();
+            }
+
             if let Self::Observation { contents, kind: ObservationKind::Reference, .. } = argument
                 && (contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
                     || contents.is_reference_computation())

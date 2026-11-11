@@ -333,7 +333,9 @@ pub fn map_execution_condition_references<E>(
             )?),
         ),
         ExecutionCondition::Present(value) => {
-            map_execution_condition_references(value, map, input, literal, call)?.present()
+            ExecutionCondition::Present(std::sync::Arc::new(map_execution_condition_references(
+                value, map, input, literal, call,
+            )?))
         }
         ExecutionCondition::Borrowed(value) => {
             map_execution_condition_references(value, map, input, literal, call)?.borrowed()

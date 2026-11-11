@@ -837,6 +837,65 @@ mod nested_guard_tests {
     }
 
     #[test]
+    fn conditional_returns_keep_scalar_data_and_retire_its_authority() {
+        let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let substitution = crate::test_support::empty_substitution(predicate.into());
+        let permission = |value| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), substitution, vec![value]),
+        ));
+        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+        let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
+        ]);
+
+        for guarded in [false, true] {
+            for valid in [false, true] {
+                let choice = input(3);
+                let value = ExecutionCondition::constructed(input(0), [(field,
+                    ExecutionCondition::opaque_scalar(input(0).project(field)))].into());
+                let copied = ExecutionCondition::scalar_observation(input(4), value.clone().project(field));
+                let mut present = ExecutionState::default();
+                let mut missing = ExecutionState::default();
+
+                for state in [&mut present, &mut missing] {
+                    state.current.insert(ExecutionPlace::argument(SymbolOrdinal::new(4)), copied.clone());
+                }
+
+                choice.clone().assume(true, &mut present.assumptions);
+                choice.clone().assume(false, &mut missing.assumptions);
+
+                let owner = input(u32::from(!valid));
+                let claim = permission(if valid { value.clone().project(field) } else { owner.clone().project(field) });
+                let claim = if guarded { ExecutionCondition::operation(
+                    bray_bound_tree::BoundOperator::LogicalOr,
+                    vec![ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![choice]), claim],
+                ) } else { claim };
+
+                present.carry_guarantee(owner, claim.clone());
+                claim.assume(true, &mut present.trusted_assumptions);
+
+                let joined = merge_returned(&mut present, &missing, &value.present(), &absent,
+                    &ExecutionCondition::Result, expressions[0]);
+                let required = permission(copied);
+                let prove = |state: &ExecutionState| required.prove_trusted(&state.trusted_assumptions, &state.assumptions);
+
+                assert_ne!(prove(&present), Some(true));
+                ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
+                    vec![joined.clone(), absent.clone()]).assume(true, &mut present.assumptions);
+                assert_eq!(prove(&present) == Some(true), valid,
+                    "guarded={guarded} valid={valid} facts={:?} ordinary={:?}", present.trusted_assumptions, present.assumptions);
+
+                present.invalidate_trusted(&joined.project(StorageProjection::NullableValue));
+                assert_ne!(prove(&present), Some(true));
+            }
+        }
+    }
+
+    #[test]
     fn nullable_whole_carrier_claims_survive_only_the_present_branch() {
         let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");

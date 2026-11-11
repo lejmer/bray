@@ -419,6 +419,54 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
 }
 
 #[test]
+fn structural_rewrites_preserve_initialized_nullable_contents() {
+    let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
+    let nullable = bray_bound_tree::StorageProjection::NullableValue;
+    let source = input(0).present();
+    let captured = crate::execution_guarantees::owned_snapshot(
+        &source, input(1), &mut { ExecutionCondition::WORK_LIMIT },
+    );
+    let moved = crate::execution_guarantees::owned_snapshot(
+        &source, input(2), &mut { ExecutionCondition::WORK_LIMIT },
+    );
+    let values = [(input(1), input(2))].into();
+
+    assert_eq!(captured.with_snapshots(&Default::default()), captured);
+    assert_eq!(captured.with_joined_values(&Default::default(), &Default::default()), captured);
+    assert_eq!(captured.with_joined_values(&values, &values), moved);
+    let mapped = crate::map_execution_condition_references(
+        &captured,
+        &|value| Ok::<_, std::convert::Infallible>(value),
+        &|place| Ok(ExecutionCondition::Input(place.clone())),
+        &|literal| Ok(Arc::clone(literal)),
+        &mut |_, _, _, _, _| unreachable!("the snapshot fixture contains no callable"),
+    ).expect("identity remapping is infallible");
+
+    assert_eq!(mapped, captured);
+    assert!(captured.owned_components().any(|value| matches!(value, ExecutionCondition::Present(_))));
+    assert_eq!(captured.project(nullable), input(1).project(nullable));
+
+    let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+    let substitution = crate::test_support::empty_substitution(predicate.into());
+    let held = |value| ExecutionCondition::predicate(predicate.into(), substitution, vec![value]);
+    let republished = ExecutionCondition::Present(Arc::new(input(1).project(nullable)));
+
+    assert_eq!(held(republished.clone()), held(input(1)), "payload extraction retains the whole nullable predicate argument");
+
+    let values = crate::test_support::semantic_values();
+    let argument = values.intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(SymbolOrdinal::new(1)))
+        .expect("the formal argument belongs to the test store");
+    let payload = values.intern_constant_term(bray_symbols::ConstantTermData::Projection(
+        bray_symbols::ConstantProjection::new(argument, ConstantProjectionKind::NullableValue),
+    )).expect("the payload belongs to the test store");
+    let term = values.intern_constant_term(bray_symbols::ConstantTermData::NullablePresent(payload))
+        .expect("the present term belongs to the test store");
+
+    assert_eq!(crate::execution_condition_from_type_term(values, term, 2)
+        .expect("the portable snapshot is valid"), republished);
+}
+
+#[test]
 fn republishing_a_nullable_payload_keeps_one_parent_snapshot() {
     let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
     let payload = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
