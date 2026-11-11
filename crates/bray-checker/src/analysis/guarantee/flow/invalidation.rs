@@ -521,6 +521,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let next = mask.apply(&source, Some(&place), mutation);
 
+            mask.retain_ownership(state, &source, &next);
+
             state.observe(place, next, None);
         }
 
@@ -744,6 +746,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let next = if transfers { ExecutionCondition::Unknown } else {
                 mask.apply(&previous, Some(&place), mutation)
             };
+
+            if !transfers { mask.retain_ownership(state, &previous, &next); }
 
             let updated = updates.entry(root).or_insert(source);
 

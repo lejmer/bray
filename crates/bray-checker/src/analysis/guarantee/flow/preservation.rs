@@ -30,6 +30,51 @@ impl ValuePreservation {
         Some(node)
     }
 
+    /// Apply the same physical survival to the source's existing ownership layouts.
+    /// Opaque joined components have no independent ledger entry to rediscover later.
+    pub(super) fn retain_ownership(
+        &self,
+        state: &mut super::super::state::ExecutionState,
+        source: &ExecutionCondition,
+        next: &ExecutionCondition,
+    ) {
+        if source == next { return; }
+
+        // Another alias can still retain the original snapshot and layout.
+        let ownership = state.owned_result(source);
+        if ownership.is_empty() { return; }
+
+        let ownership = ownership.try_map(
+            &mut |transfer| {
+                let before = transfer.output().iter().fold(source.clone(), |value, field| value.project(*field));
+                let after = transfer.output().iter().fold(next.clone(), |value, field| value.project(*field));
+
+                if before.ownership_identity().is_none()
+                    || before.ownership_identity() != after.ownership_identity()
+                {
+                    return Ok::<_, std::convert::Infallible>(bray_symbols::DependencyOwnedResult::default());
+                }
+
+                let preservation = self.at(transfer.output()).map_or_else(
+                    bray_symbols::DependencyValuePreservation::none,
+                    Self::contents_preservation,
+                );
+
+                Ok(bray_symbols::DependencyOwnedResult::Transfer(transfer.clone().with_preservation(
+                    transfer.preservation().intersection(&preservation),
+                )))
+            },
+            &mut |condition| Ok(Some(condition.clone())),
+        ).expect("physical ownership preservation is infallible");
+
+        state.owned_results.insert(next.clone(), ownership);
+    }
+
+    fn contents_preservation(&self) -> bray_symbols::DependencyValuePreservation<StorageProjection> {
+        bray_symbols::DependencyValuePreservation::new(self.value, self.children.iter()
+            .map(|(field, child)| (*field, child.contents_preservation())).collect())
+    }
+
     /// A mutation produces unknown new contents and carries only actual source
     /// nodes selected by physical survival. It never recovers data from witnesses,
     /// source syntax, another slot or a marker constructed after the operation.
@@ -113,6 +158,54 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::{BoundExecutionSite, BoundUnitId, StorageMutation, StorageProjection};
     use bray_symbols::SymbolOrdinal;
+
+    #[test]
+    fn framing_joined_ownership_keeps_only_retained_actual_components() {
+        use bray_symbols::{DependencyOwnedResult as Layout, DependencyOwnedTransfer as Transfer, DependencyValuePreservation as Mask};
+
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let kept = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let changed = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let origin = input(3);
+        let source = ExecutionCondition::constructed(origin.clone(), [
+            (kept, origin.clone().project(kept)),
+            (changed, origin.project(changed)),
+        ].into());
+        let ownership = Layout::all([
+            Layout::Transfer(Transfer::new(input(0), []).with_preservation(Mask::all())),
+            Layout::Transfer(Transfer::new(input(1), [kept]).with_preservation(Mask::all())),
+            Layout::Transfer(Transfer::new(input(2), [changed]).with_preservation(Mask::all())),
+        ]);
+        let mut state = super::super::super::state::ExecutionState::default();
+        state.owned_results.insert(source.clone(), ownership.clone());
+
+        let mut mask = ValuePreservation { descriptor: true, ..Default::default() };
+        mask.at_mut(&[kept]).value = true;
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            vec![push_expression(tree, integer_literal_expression(origin, None))]
+        });
+        let mutation = StorageMutation::Operation(sites[0].into());
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(3));
+        let next = mask.apply(&source, Some(&place), mutation);
+        mask.retain_ownership(&mut state, &source, &next);
+        let retained = state.owned_result(&next);
+        assert_eq!(retained.transfers().count(), 2);
+        let root = retained.transfers().find(|transfer| transfer.output().is_empty()).expect("retained aggregate identity");
+        assert!(!root.preservation().preserves_value());
+        assert!(root.preservation().projected(&kept).preserves_value());
+        assert!(!root.preservation().projected(&changed).preserves_value());
+        assert!(retained.transfers().any(|transfer| transfer.input() == input(1) && transfer.preservation().preserves_value()));
+        assert_eq!(state.owned_result(&source), ownership, "framing cannot rewrite a prior snapshot");
+
+        let replay = mask.apply(&next, Some(&place), mutation);
+        mask.retain_ownership(&mut state, &next, &replay);
+        assert_eq!(state.owned_result(&replay), retained, "repeated physical framing stabilizes");
+
+        let overwritten = ValuePreservation { descriptor: true, ..Default::default() };
+        let final_value = overwritten.apply(&next, Some(&place), mutation);
+        overwritten.retain_ownership(&mut state, &next, &final_value);
+        assert_eq!(state.owned_result(&final_value).transfers().count(), 1, "a later overwrite retires the old child authority");
+    }
 
     #[test]
     fn retained_discriminants_keep_tags_without_payload_data_or_authority() {

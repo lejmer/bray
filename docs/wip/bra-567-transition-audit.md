@@ -30,7 +30,7 @@ RetiredCell disposes control, pin and arena before vacancy. WaitResources retain
 ## Current evidence
 
 Frozen907 identities:774 passed,34 failed,99 ignored, with12 explained verdict changes. comparison.txt stays unchanged.
-Both added allocation and arithmetic controls pass. Checker501/bound136 pass. Cleanup57/4 and predicates26/2/2 retain known failures.
+Both added allocation and arithmetic controls pass. Checker502/bound136 pass. Cleanup57/4 and predicates26/2/2 retain known failures.
 Focused18 pass, including Source/MIR composition and3 invalid variants. Native composition has not run.
 All148 deferred cases pass each in source/import. Both witness matrices pass. Loop controls stabilize.
 Pin per-case identities/outcomes and completed counts. An aggregate FAILED cannot certify that its cases executed.
@@ -50,17 +50,17 @@ Trace native failures by producer/consumer families: shared requirements, alloca
 PreparedStart registration, returned-pointer retirement at driving197, initialized ranges and wait-link authority.
 Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains unresolved.
 All148 deferred source/import cases pass.
-The source/import owned-transfer matrices each have16 rejected cases
-that expect acceptance, with no accepted invalid controls. Most select owners across branches, shapes or deferred calls.
-Their expected mismatch identities are pinned. Audit payload joins, nested projections and pending-future guarantees together.
-Unknown shapes now retain existing Identity plus Mutable observations. Unrelated opaque cleanup preserves their
-unexposed inline snapshot while reachable state remains mutable. Existing Identity consumers are unchanged.
-All244 cases execute each, with16 positive rejections and no accepted invalids.
-Checker501/bound136 and fixed776/34/99 pass their pinned gates. The complete native comparison retains exactly30 diagnostic identities.
-All temporary tracing is removed. nullable-selection.bray accepts unknown/known-left/linear and rejects fabrication.
-Owned/deferred failures render actual conditions, and owned cases report completed counts.
+The source/import owned-transfer matrices each complete244 cases with3 pinned positive rejections and no accepted
+invalids: reference, deferred_live_capture and conditional_future_active. All148 deferred cases pass each.
+Unknown shapes retain existing Identity plus Mutable observations. Unrelated opaque cleanup preserves their unexposed
+inline snapshot while reachable state remains mutable. Existing Identity consumers are unchanged.
+Checkpoint401a321b1 is pushed. The next coherent batch collects tags through owned wrappers and carries the existing
+ownership layout through the same physical survival mask as its actual value. CFG publication was correct, but
+cancellation framing lost opaque joined child metadata. The property checks retained/overwritten children, prior snapshot
+independence and replay stabilization. Checker502/bound136 and fixed776/34/99 pass. The complete native comparison retains exactly30 diagnostic identities.
+All temporary tracing is removed. ownership-selection.bray accepts all valid branch/join probes and rejects fabrication.
 Framing lifted Present(payload) retains only payload lineage. Genuine whole-input contexts still survive. Contextual
-projection panics remain compiler invariants. nullable-selection.bray reproduces the remaining valid selection rejection.
+projection panics remain compiler invariants. 
 The tag-query helpers moved into condition/tags.rs without behavior changes, keeping new logic outside oversized values.rs.
 Trace operation/input/result, scoped, iteration, await/yield, cancellation, recovery and cleanup through all consumers.
 Verify native success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.
