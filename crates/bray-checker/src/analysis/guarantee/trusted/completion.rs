@@ -137,7 +137,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite,
         result: ExecutionCondition,
         observations: &bray_bound_tree::StorageCompletion,
-    ) -> ExecutionCondition {
+    ) -> (ExecutionCondition, Option<BTreeMap<crate::ExecutionPlace, ExecutionCondition>>) {
         // Calls without trusted clauses still establish checked result identities.
         // An empty contract contributes no authority or preservation guarantees.
         let ordinary = crate::TrustedCallContract {
@@ -152,7 +152,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or(&ordinary);
 
         let Some(entry) = self.completed_entry(state, invocation, &result, contract) else {
-            return result;
+            return (result, None);
         };
 
         let capture = |condition: &ExecutionCondition| {
@@ -368,7 +368,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             condition.assume(true, &mut state.assumptions);
         }
 
-        result
+        (result, Some(arguments))
     }
     fn carry_result_guarantee(
         &self,

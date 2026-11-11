@@ -1,11 +1,6 @@
-use std::collections::BTreeMap;
-
-use bray_bound_tree::{BoundReferenceTarget, SelectedCall};
-use bray_symbols::ReceiverMode;
-
 use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
-use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
+use crate::{CheckerRequestContext, ExecutionCondition};
 
 pub(super) fn unproven_postcondition<C: CheckerRequestContext + ?Sized>(
     flow: &ExecutionFlow<'_, '_, C>,
@@ -160,89 +155,4 @@ fn reflexive_comparison<C: CheckerRequestContext + ?Sized>(
                 ExecutionCondition::WORK_LIMIT
             })
             .is_some()
-}
-
-impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(super) fn call_post_state(
-        &self,
-        state: &ExecutionState,
-        expression: bray_bound_tree::BoundExpressionId,
-        call: &SelectedCall,
-    ) -> BTreeMap<ExecutionPlace, ExecutionCondition> {
-        let mut inputs = BTreeMap::new();
-
-        for argument in call.arguments() {
-            let (parameter, ordinal, ty) = match argument {
-                bray_bound_tree::SelectedArgument::Explicit {
-                    parameter,
-                    ordinal,
-                    conversion,
-                    ..
-                } => (*parameter, *ordinal, conversion.target_type()),
-                bray_bound_tree::SelectedArgument::Default {
-                    parameter,
-                    ordinal,
-                    ty,
-                    ..
-                } => (Some(*parameter), *ordinal, *ty),
-            };
-
-            if !matches!(
-                self.request.semantic_values().type_data(ty).as_ref(),
-                bray_symbols::TypeData::Borrow { .. }
-            ) {
-                continue;
-            }
-
-            let root = bray_symbols::DependencySubjectRoot::Parameter(
-                bray_symbols::SymbolOrdinal::new(ordinal),
-            );
-
-            let input = call
-                .input_site(expression, root)
-                .expect("postcondition has its evaluated input");
-
-            let value = self.current_input(state, input);
-
-            if let Some(parameter) = parameter {
-                inputs.insert(
-                    BoundReferenceTarget::Surface(parameter.into()).into(),
-                    value.clone(),
-                );
-            }
-
-            inputs.insert(
-                ExecutionPlace::argument(
-                    call.input_ordinal(root)
-                        .expect("formal input has its ordinal"),
-                ),
-                value,
-            );
-        }
-
-        if let Some(receiver) = call.receiver().filter(|receiver| {
-            matches!(
-                receiver.mode(),
-                ReceiverMode::Shared | ReceiverMode::Mutable
-            )
-        }) {
-            let input = call
-                .input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
-                .expect("borrowed receiver has its input");
-
-            let value = self.current_input(state, input);
-
-            inputs.insert(
-                BoundReferenceTarget::Surface(receiver.parameter().into()).into(),
-                value.clone(),
-            );
-
-            inputs.insert(
-                ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)),
-                value,
-            );
-        }
-
-        inputs
-    }
 }

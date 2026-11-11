@@ -29,7 +29,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => unreachable!("implicit completion has a protocol invocation"),
         };
 
-        let result = self.complete_trusted_call(state, invocation, result, observations);
+        let (result, _) = self.complete_trusted_call(state, invocation, result, observations);
 
         if matches!(invocation, BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_)) {
             state.assign(

@@ -60,6 +60,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
+        let mut refreshed = BTreeSet::<crate::ExecutionPlace>::new();
+
         for subject in contracts.reference_subjects() {
             if contracts
                 .reference_type(subject)
@@ -189,20 +191,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            let context = if prepared.projections().is_empty() {
-                // The evaluated input loan survives independently of its binding.
-                place.value_in(arguments)
+            // Project the refreshed evaluated argument. Its source expression
+            // can expire or name a different value while the call is executing.
+            // Root refresh supplies current fields without rereading that source.
+            let argument = crate::ExecutionPlace::argument(ordinal).value_in(arguments)
+                .unwrap_or_else(|| panic!("completed borrow input retains its evaluated root: {invocation:?}, {subject:?}"));
+            let context = prepared.projections().iter().copied()
+                .fold(argument, ExecutionCondition::project);
+
+            // An unavailable source handle cannot erase a child already supplied
+            // by this completion's refreshed parent snapshot.
+            value = if value.is_unknown() && refreshed.iter().any(|parent| parent.contains(&place)) {
+                context
             } else {
-                // A reached reference field can itself have been replaced.
-                Some(prepared.projections().iter().copied().fold(
-                    self.current_input(state, input),
-                    ExecutionCondition::project,
-                ))
+                context.with_referent(value)
             };
 
-            value = context
-                .unwrap_or(ExecutionCondition::Unknown)
-                .with_referent(value);
+            if !value.contains_unknown() { refreshed.insert(place.clone()); }
 
             // Consuming the carrier does not freeze the contents of its borrowed fields.
             super::super::state::update_parent_observations(

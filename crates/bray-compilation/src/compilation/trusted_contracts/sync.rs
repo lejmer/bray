@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use bray_diagnostics::DiagnosticKind;
+use bray_diagnostics::{DiagnosticArgValue, DiagnosticContractObligationKind, DiagnosticKind};
 use bray_symbols::PackageIdentity;
 
 use crate::compilation::result_dependencies::callable_dependencies;
@@ -1422,7 +1422,10 @@ fn borrowed_scalar_authority_tracks_storage_independently_of_copied_values() {
 
 #[test]
 fn borrowed_postconditions_name_the_updated_storage_only() {
-    for (action, observed, valid) in [
+    let mut failures = Vec::new();
+    let mut completed = 0;
+
+    for (case, (action, observed, valid)) in [
         (
             "{ let mut writer: Writer = { slot = &mut first }; set(&mut writer); observe(&writer.slot); }",
             "first",
@@ -1458,24 +1461,54 @@ fn borrowed_postconditions_name_the_updated_storage_only() {
             "first",
             false,
         ),
-    ] {
+    ].into_iter().enumerate() {
+        let forward = if action.contains("forward(") { r#"
+            func forward(pos writer: &mut Writer)
+                ensures(trusted live(&writer.slot))
+            {
+                set(writer);
+            }
+        "# } else { "" };
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{ mut epoch: u64; }}
-            trusted predicate live(value: &Owner);
-            struct Writer {{
-                slot: &mut Owner;
-                trusted destruct() ensures(trusted live(&self.slot)) {{ self.slot.epoch = 1; }}
+
+            struct Owner
+            {{
+                mut epoch: u64;
             }}
+
+            trusted predicate live(value: &Owner);
+
+            struct Writer
+            {{
+                slot: &mut Owner;
+
+                trusted destruct()
+                    ensures(trusted live(&self.slot))
+                {{
+                    self.slot.epoch = 1;
+                }}
+            }}
+
             trusted func set(pos writer: &mut Writer)
-                ensures(trusted live(&writer.slot)) {{ writer.slot.epoch = 1; }}
-            func forward(pos writer: &mut Writer)
-                ensures(trusted live(&writer.slot)) {{ set(writer); }}
-            func observe(pos owner: &Owner) requires(trusted live(owner)) {{}}
-            func caller() {{
+                ensures(trusted live(&writer.slot))
+            {{
+                writer.slot.epoch = 1;
+            }}
+
+            {forward}
+
+            func observe(pos owner: &Owner)
+                requires(trusted live(owner))
+            {{
+            }}
+
+            func caller()
+            {{
                 let mut first: Owner = {{ epoch = 0 }};
                 let second: Owner = {{ epoch = 0 }};
+
                 {action}
                 observe(&{observed});
             }}
@@ -1485,19 +1518,23 @@ fn borrowed_postconditions_name_the_updated_storage_only() {
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
-        assert_eq!(
-            !diagnostics.has_errors(),
-            valid,
-            "{source}: {diagnostics:#?}"
-        );
+        let boundaries = diagnostics.iter().flat_map(|diagnostic| diagnostic.args())
+            .filter_map(|argument| match argument.value() {
+                DiagnosticArgValue::ContractObligation(obligation) => Some(obligation.kind),
+                _ => None,
+            }).collect::<Vec<_>>();
+        completed += 1;
 
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                diagnostics,
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
+        if diagnostics.has_errors() == valid {
+            failures.push(format!("nested borrowed case={case}, valid={valid}, boundaries={boundaries:?}"));
+        }
+
+        if !valid && !boundaries.contains(&DiagnosticContractObligationKind::CallRequirement) {
+            failures.push(format!("nested borrowed case={case} did not reject the caller independently: {boundaries:?}"));
         }
     }
+
+    assert!(failures.is_empty(), "nested borrowed cases completed: count={completed}\n{}", failures.join("\n"));
 }
 
 #[test]

@@ -29,8 +29,8 @@ RetiredCell disposes control, pin and arena before vacancy. WaitResources retain
 
 ## Current evidence
 
-Frozen907 identities:776 passed,32 failed,99 ignored, with14 explained repairs. comparison.txt is unchanged.
-Three added controls pass, giving fixed910 totals779/32/99. Checker503/bound136 and focused18 pass.
+Frozen907 identities:777 passed,31 failed,99 ignored, with15 explained repairs. comparison.txt is unchanged.
+Three added controls pass, giving fixed910 totals780/31/99. Checker503/bound136 and focused18 pass.
 All244 owned-transfer and148 deferred cases pass each in source/import. Cleanup57/4 and predicates26/2/2 retain known failures.
 The20-case loan fixture covers borrowed/owned/fresh origins, entry/result-established evidence, repeated admission,
 source/import and missing-renewal negatives. No accepted invalids remain in the fixed suite. No style pass yet.
@@ -42,10 +42,12 @@ Actual ownership does not require a formal-input mapping. Normalized/explicit/fr
 contents are replaced. Scalar copies read current data. Pointer projection reads current descriptor bits while keeping a
 borrowed pointer-slot address distinct. Both newly strengthened boundary properties fail before and pass after their repairs.
 An accepted-invalid escaped-pointer regression was found and cleared. The complete fixed comparison has no unexplained changes.
-All trace hooks are removed. Current native verification is next.
+Checkpoint production contains no tracing. Checkpoint64a1b821a is pushed. Latest native verification completes with32 sites.
+Against original native.log, root_scope265 is repaired and3 added E7135 cascades all name the already-failing polling.stage.
+The shared completed arguments now allow publication of postconditions previously lost as Unknown. Their existing
+completion_dependencies correctly require verification of stage. No primary failure is added. Native composition remains blocked.
 
-Original native.log has30 sites. Last native atd6f30b594 also has30, with root_scope265 and resolution110 removed but
-new E7123 atdriving201 and resolution124. Those additions remain unresolved until the current batch is checked.
+Original native.log has30 sites and remains the fixed native baseline.
 Count sites and cascades separately. Earlier29-site inventory grouped7 cleanup requirements,4 marker requirements,
 5 relational requirements and13 postcondition failures, at least8 directly naming already-failing required callables.
 Do not interpret totals as bug counts or choose the next patch from a diagnostic alone.
@@ -56,9 +58,12 @@ Trace whole producer/consumer families before another implementation batch. Curr
 published invalidation, value/layout framing, aliases, input/result/entry carriers, join remapping/predecessor proof,
 captured call/Future entry, transfer, retirement and cleanup. Continue through every applicable operation path.
 
-The7 nested-borrow cases were masked by an unused forward function whose own postcondition fails. With unused forward
-omitted,2 non-forwarding positives pass and4 negatives reject. Forwarding cases remain blocked by its own postcondition.
-Keep expectations fixed, make caller checks independent, and aggregate outcomes instead of stopping at the first failure.
+The7 nested-borrow cases now execute without an unused failing forwarder masking their outcomes. Every negative must
+report its own CallRequirement. All7 pass. The repair projects nested contexts from the refreshed argument tree and preserves a completed parent's known child
+when the expired source yields Unknown. Ordinary postconditions consume that same completed tree, removing call_post_state
+reconstruction. Missing root arguments panic. The7-case regression covers certification and caller use. No broader
+invalidation policy changed. Temporary hooks are removed. Integrated build, focused5, fixed910 and adjacent checks pass
+their frozen expectations. Native32 has3 explained dependency cascades and no added primary failure.
 complete_trusted_cleanup separately assumes guarantees without registering witnesses, and lifecycle.contract lacks
 witness_subjects. This is an unverified publication gap, not the demonstrated cause of those7 failures. Inspect final
 receiver snapshots and retirement before changing it. Share typed subject production/publication, never reconstruct it

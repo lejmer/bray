@@ -176,7 +176,7 @@ impl ExecutionCondition {
         }
     }
 
-    pub(super) fn contains_unknown(&self) -> bool {
+    pub(crate) fn contains_unknown(&self) -> bool {
         match self {
             Self::ValueAlias(left, right) => left.contains_unknown() || right.contains_unknown(),
             Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),

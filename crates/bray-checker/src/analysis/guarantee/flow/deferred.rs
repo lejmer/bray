@@ -608,7 +608,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             // Resolve body ownership before observation consumes the Task's captures.
-            let value = self.complete_trusted_call(&mut branch, source, value, observations);
+            let (value, _) = self.complete_trusted_call(&mut branch, source, value, observations);
 
             if let Some((previous, previous_value)) = &mut completed {
                 *previous_value = super::merge_returned(
