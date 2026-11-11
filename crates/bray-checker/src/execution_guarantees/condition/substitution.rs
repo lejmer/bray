@@ -193,11 +193,13 @@ impl ExecutionCondition {
         let mut replacements = BTreeMap::new();
         let mut budget = Self::WORK_LIMIT;
 
-        let derived = assumptions.iter().any(|(condition, _)| condition.contains_value_alias())
+        let derived = assumptions.iter().any(|(condition, _)| matches!(condition, Self::Operation(
+            BoundOperator::LogicalAnd | BoundOperator::LogicalOr | BoundOperator::LogicalNot, _)) && condition.contains_equivalence())
             .then(|| crate::execution_guarantees::trusted_condition_closure(BTreeSet::new(), assumptions));
 
         for (condition, value) in assumptions.iter().chain(derived.iter().flatten()
-            .filter(|(condition, _)| matches!(condition, Self::ValueAlias(_, _)))).take(Self::WORK_LIMIT) {
+            .filter(|(condition, _)| matches!(condition, Self::ValueAlias(_, _)
+                | Self::Operation(BoundOperator::Equal | BoundOperator::NotEqual, _)))).take(Self::WORK_LIMIT) {
             let (left, right) = match condition {
                 Self::ValueAlias(left, right) if *value => (left.as_ref(), right.as_ref()),
                 Self::Operation(operator, operands) if matches!((operator, value),

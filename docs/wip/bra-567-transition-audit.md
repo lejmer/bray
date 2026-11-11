@@ -40,15 +40,25 @@ preserves immutable copied data without numeric-equality assumptions or authorit
 complete values or only tags. Full values subsume tags, effect merges retain common survival, and tag snapshots carry no
 old payload or authority. Presence/variant queries inspect the same value tree. Temporary tracing is removed.
 
-Accepted native:33 diagnostics,19 E7123 and14 E7135, complete233-file request. Only root_scope cleanup and its enclosing
-contract disappeared from the prior35. Native logs/verification.json identify the current products and evidence.
+Accepted native:31 diagnostics,18 E7123 and13 E7135, complete233-file request. Guarded equality extraction repairs
+the arena requirement and dependent initialization postcondition. No added identities. Native logs/verification.json identify the current products and evidence.
 
 ## Remaining
 
 Trace native failures by producer/consumer families: shared requirements, allocation extents, attachment restoration,
 PreparedStart registration, returned-pointer retirement at driving197, initialized ranges and wait-link authority.
 Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains unresolved.
-permission-api.bray and permission-boundaries.bray are the small async probe. Full source/import deferred matrices pass.
+The consumed permission probe confirmed all3 positives and all3 rejections and is removed. Full source/import matrices pass.
+BRA567_TRACE_ENTRY in trusted/check.rs is temporary. Six families are captured in native-candidate.log; remove the hook before commit.
+Verified arena cause: conditional field equalities remain guarded after presence is known because equalities only
+extracts derived ValueAlias. The repair derives both kinds through the same ordinary solver. Checker499, fixed suite775/34/99 and full native31 pass their comparison gates.
+Heap bytes are opaque machine multiplication. Its compound overflow guard reaches call evidence only as an Expression.
+The real guarded-products.bray probe reproduces this with typed inputs and opaque const results. Both compound/split
+guards must pass and unguarded multiplication must reject. Use compiler line locations, not normalized CRLF byte offsets.
+Inspect actual Result production/join/publication before changing numeric proof rules. Never assume no wrapping.
+commit_start changes a retained owner into a PostState loan; unlink/attachment snapshots differ by reference-field wrappers.
+Driving loses its view witness at a join. Trace these actual producer transitions, not consumer exceptions.
+The tag-query helpers moved into condition/tags.rs without behavior changes, keeping new logic outside oversized values.rs.
 Trace operation/input/result, scoped, iteration, await/yield, cancellation, recovery and cleanup through all consumers.
 Verify native success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.
 
