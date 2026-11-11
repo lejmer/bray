@@ -69,6 +69,7 @@ impl ExecutionCondition {
         }
 
         match self {
+            Self::Discriminant(value) => value.substitute_values(replace, budget).discriminant(),
             Self::ValueAlias(left, right) => Self::value_alias(
                 left.substitute_values(replace, budget), right.substitute_values(replace, budget),
             ),
@@ -339,6 +340,7 @@ fn rewrite_equalities(
     let value = resolve_equality(value, replacements, budget);
 
     let value = match value {
+        ExecutionCondition::Discriminant(value) => rewrite_equalities(&value, replacements, identities, budget).discriminant(),
         ExecutionCondition::ValueAlias(left, right) => ExecutionCondition::value_alias(
             rewrite_equalities(&left, replacements, identities, budget),
             rewrite_equalities(&right, replacements, identities, budget),

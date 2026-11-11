@@ -13,7 +13,7 @@ impl ExecutionCondition {
 
             match condition {
                 Self::ValueAlias(left, right) => pending.extend([left.as_ref(), right.as_ref()]),
-                Self::ScalarValue(value) => pending.push(value),
+                Self::ScalarValue(value) | Self::Discriminant(value) => pending.push(value),
                 Self::Observation { owner, contents, .. } => pending.extend([owner.as_ref(), contents.as_ref()]),
                 Self::Constructed(base, fields) => {
                     pending.push(base);

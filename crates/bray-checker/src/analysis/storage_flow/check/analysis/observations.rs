@@ -155,17 +155,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         roots: impl IntoIterator<Item = Target>,
     ) -> StorageInvalidation {
         let mut stable_descriptors = std::collections::BTreeSet::new();
-        let mut stable_values = std::collections::BTreeSet::new();
+        let mut stable_values = BTreeMap::new();
 
         for path in memory.unexposed_storage(&self.input.opaque_candidates, roots) {
             if self.input.opaque_descriptors.contains(path) {
                 stable_descriptors.insert(path.clone());
             }
 
-            if self.input.opaque_values.contains(path) {
+            if let Some(kind) = self.input.opaque_values.get(path) {
                 // Reaching one payload does not expose disjoint scalar or marker fields.
                 // Only the prepared immutable observations retain their values.
-                stable_values.insert(path.clone());
+                kind.record_preservation(path.clone(), &mut stable_values);
             }
         }
 
@@ -180,10 +180,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             {
                 stable_descriptors.insert(StoragePath::root(*root));
 
-                stable_values.extend(observations.iter().filter_map(|(path, observation)| {
-                    matches!(observation, bray_bound_tree::StorageObservationKind::Identity
-                        | bray_bound_tree::StorageObservationKind::Marker(_)).then(|| path.clone())
-                }));
+                for (path, observation) in observations {
+                    if matches!(observation, bray_bound_tree::StorageObservationKind::Identity
+                        | bray_bound_tree::StorageObservationKind::Marker(_)) {
+                        observation.record_preservation(path.clone(), &mut stable_values);
+                    }
+                }
             }
         }
 
@@ -257,7 +259,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             && targets.iter().all(|target| {
                                 survives(&target.project(&value.projections[path.projections.len()..]), observation, ty, false)
                             }) {
-                            stable_values.insert(value.clone());
+                            observation.record_preservation(value.clone(), stable_values);
                             stable_descriptors.extend(owner_paths(value, path));
                         }
                     }
@@ -278,11 +280,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let mut observed = false;
 
                 if !exposed_referent {
-                    for value in self.input.opaque_values.range(path.clone()..).take_while(|value| path.contains(value)) {
+                    for (value, observation) in self.input.opaque_values.range(path.clone()..).take_while(|(value, _)| path.contains(value)) {
                         if targets.iter().all(|target| {
                             survives(&target.project(&value.projections[path.projections.len()..]), bray_bound_tree::StorageObservationKind::Mutable, ty, true)
                         }) {
-                            stable_values.insert(value.clone());
+                            observation.record_preservation(value.clone(), stable_values);
                             observed = true;
                         }
                     }
@@ -302,7 +304,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     ));
 
                     if survives && (!exposed_referent || opaque && observation.is_immutable_inline()) {
-                        stable_values.insert(value.clone());
+                        observation.record_preservation(value.clone(), stable_values);
 
                         if matches!(observation, bray_bound_tree::StorageObservationKind::Marker(_)) {
                             stable_descriptors.extend(owner_paths(value, path));
@@ -416,7 +418,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageOrigin::Entry { .. }
                             | bray_bound_tree::StorageOrigin::Returned { .. }
                             | bray_bound_tree::StorageOrigin::Static { .. } => {
-                                let framed = if address { stable_descriptors.contains(path) } else { stable_values.contains(path) };
+                                let framed = if address { stable_descriptors.contains(path) } else { stable_values.get(path).is_some_and(|kind| *kind == *observation || *kind != bray_bound_tree::StorageObservationKind::Discriminant) };
 
                                 framed || immutable_value || address
                                     || !exposed.iter().any(|raw| {
@@ -426,7 +428,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             }
                             _ => target
                                 .storage_path()
-                                .is_some_and(|path| stable_values.contains(path)
+                                .is_some_and(|path| stable_values.get(path).is_some_and(|kind| *kind == *observation || *kind != bray_bound_tree::StorageObservationKind::Discriminant)
                                     || address && stable_descriptors.contains(path)),
                         }
                     })
@@ -443,7 +445,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             stable_descriptors.insert(physical);
                         }
                     } else {
-                        stable_values.insert(path.clone());
+                        observation.record_preservation(path.clone(), stable_values);
 
                         if matches!(observation, bray_bound_tree::StorageObservationKind::Marker(_)) {
                             stable_descriptors.extend(owner_paths(path, reference));
@@ -507,7 +509,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if contents {
             // Plain assignments and typed data stores cannot transfer empty
             // ownership markers, even when their destination has inexact aliases.
-            stable_values.extend(self.input.footprint.empty_markers.keys().cloned());
+            stable_values.extend(self.input.footprint.empty_markers.keys().map(|path| (path.clone(), bray_bound_tree::StorageObservationKind::Value)));
         }
     }
 
@@ -874,7 +876,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 snapshots,
                 referents,
                 stable_descriptors,
-                stable_values: std::collections::BTreeSet::new(),
+                stable_values: BTreeMap::new(),
                 normal_snapshots: Default::default(),
             };
         }
@@ -1017,7 +1019,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 snapshots,
                 referents,
                 stable_descriptors,
-                stable_values: std::collections::BTreeSet::new(),
+                stable_values: BTreeMap::new(),
                 normal_snapshots: Default::default(),
             }
         } else {

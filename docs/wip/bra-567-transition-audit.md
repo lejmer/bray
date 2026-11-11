@@ -29,46 +29,28 @@ RetiredCell disposes control, pin and arena before vacancy. WaitResources retain
 
 ## Current evidence
 
-Explicit Present snapshots survive substitution, identity/reference remapping, portable decoding, evaluation expiry
-and returned-content filtering. Predicate arguments retain canonical nullable value identity. Join proposals reuse
-witness refinement with each predecessor's evidence. Two boundary checks cover these contracts and authority retirement.
-Per-call scalar seeding and numeric-equality aliases are excluded because they break existing value contracts and NaN semantics.
+Frozen907 identities:774 passed,34 failed,99 ignored, with12 explained verdict changes. comparison.txt stays unchanged.
+The extra allocation import case passes. Checker499/bound136 pass. Cleanup57/4 and predicates26/2/2 retain known failures.
+Focused18 pass, including Source/MIR composition and3 invalid variants. Native composition has not run.
+All148 deferred cases pass each in source/import. Both witness matrices pass. Loop controls stabilize.
+Pin per-case identities/outcomes and completed counts. An aggregate FAILED cannot certify that its cases executed.
 
-Frozen907 identities:772 passed,36 failed,99 ignored. Nine production repairs and one scalar-copy test correction
-explain all10 differences. comparison.txt stays unchanged. An additional allocation import case passes.
-Checker498, bound135, symbols221, interfaces216 pass. Cleanup57/4 and predicates26/2/2 retain their known failures.
-Focused18 pass, including Source/MIR composition and3 invalid variants. The operation-cleanup fixture publishes valid MIR.
-Both witness matrices pass all positive/negative cases. Deferred source/import matrices have1 positive failure
-and no accepted invalid cases. All loop controls pass. Native composition has not run.
-Both nested-future positives pass in source and imported form.
+Present snapshots survive all structural rewrites. Join facts use actual predecessor evidence. Proof-only ValueAlias
+preserves immutable copied data without numeric-equality assumptions or authority. Classified physical survival retains
+complete values or only tags. Full values subsume tags, effect merges retain common survival, and tag snapshots carry no
+old payload or authority. Presence/variant queries inspect the same value tree. Temporary tracing is removed.
 
-Accepted native:35 diagnostics,21 E7123 and14 E7135, complete233-file request. No new identities.
-Intrinsic construction fallibility removes retirement205 and dependent267. Native logs/verification.json are current.
-The current checkpoint freezes copied-input facts at frame moves, expires mutable source links for pending and active
-captures, filters old loop incarnations, and distinguishes known-empty producer sets from opaque frames.
-Impossible completions panic. Intrinsic packing creates no source-panic edge. MIR still preserves operands across
-outgoing admission and asserts validity before publishing a lowered unit. Scalar data survives storage movement.
-All temporary tracing hooks are removed. Read-materialization experiments are removed because they changed whole-owner snapshots.
+Accepted native:33 diagnostics,19 E7123 and14 E7135, complete233-file request. Only root_scope cleanup and its enclosing
+contract disappeared from the prior35. Native logs/verification.json identify the current products and evidence.
 
 ## Remaining
 
-Deferred positive: nullable_completed_permission in source/import. Task permission now passes.
-Proof-only ValueAlias preserves copied immutable data through joins without assuming numeric equality or carrying
-ownership. Both predecessor snapshots must prove every alias. Guarded aliases use the existing ordinary solver.
-All498 checker tests, the fixed comparison and adjacent suites pass. Native retains the same35 diagnostic identities.
-The permanent fresh-owner negative rejects presence as evidence of transferred authority. Temporary tracing is removed.
-
-Verified remaining cause: opaque cleanup of an unreturned generic input replaces the returned nullable discriminant.
-The none exit becomes a scalar observation with unknown contents, so ownership publication cannot recognize its absence.
-Carry the existing classified tag preservation through storage effects and the current-value tree. Preserve unknown tags
-without retaining overwritten payloads. Do not infer absence from empty ownership or add nullable consumer exceptions.
-permission-api.bray and permission-boundaries.bray are the current probe. Direct await and Task return pass. Nullable
-return fails. Fabrication, fresh-owner and retirement controls reject. Permanent case identities/expectations stay fixed.
-Native families include returned-pointer retirement at driving197, address expiry through mutation/input postconditions,
-PreparedStart registration, heap allocation extents, waiting-link authority and initialized-range permissions.
-Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains an unresolved control.
-Trace remaining operation/input/result, scoped, iteration, await/yield, cancellation, recovery and cleanup paths through
-all consumers. Verify native success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.
+Trace native failures by producer/consumer families: shared requirements, allocation extents, attachment restoration,
+PreparedStart registration, returned-pointer retirement at driving197, initialized ranges and wait-link authority.
+Do not weaken initialized-memory policy or add preservation exceptions. tuple-context-projection.bray remains unresolved.
+permission-api.bray and permission-boundaries.bray are the small async probe. Full source/import deferred matrices pass.
+Trace operation/input/result, scoped, iteration, await/yield, cancellation, recovery and cleanup through all consumers.
+Verify native success/panic/cancel/startup rollback/blocked shutdown, result/static disposal and foreign restoration.
 
 Two frozen negatives need genuine fabrication/mutation controls: trusted_implementation_does_not_export_undeclared_authority
 and shared_marker_borrows_preserve_the_original_owner_without_mutable_authority. The terminating-branch positive passes,

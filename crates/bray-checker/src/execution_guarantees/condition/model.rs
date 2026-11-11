@@ -24,6 +24,8 @@ pub enum ExecutionCondition {
     Tagged(bray_symbols::UnionVariantSymbolId, Arc<ExecutionCondition>),
     /// A test of a union tag, independent of its payload.
     VariantTest(bray_symbols::UnionVariantSymbolId, Arc<ExecutionCondition>),
+    /// An immutable nullable presence or union tag, without payload data or authority.
+    Discriminant(Arc<ExecutionCondition>),
     /// A checked literal value.
     Literal(Arc<ConstantValueData>),
     /// The value of a supplied input before execution begins.
@@ -126,7 +128,8 @@ impl ExecutionCondition {
                 Self::Unknown => return true,
                 Self::Trusted(value)
                 | Self::Borrowed(value)
-                | Self::Present(value)
+                | Self::Discriminant(value)
+            | Self::Present(value)
                 | Self::Projection(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Entry {
@@ -146,6 +149,7 @@ impl ExecutionCondition {
             | Self::Call(_, _, _, operands, _) => operands.iter().any(Self::contains_trusted),
             Self::Tagged(_, value)
             | Self::VariantTest(_, value)
+            | Self::Discriminant(value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::Borrowed(value)
@@ -179,6 +183,7 @@ impl ExecutionCondition {
             Self::Observation { owner, contents: value, .. } => owner.contains_unknown() || value.contains_unknown(),
             Self::Trusted(value)
             | Self::Borrowed(value)
+            | Self::Discriminant(value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::VariantTest(_, value)

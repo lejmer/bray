@@ -26,8 +26,8 @@ pub enum StorageInvalidation {
     All {
         /// Unexposed descriptor slots retain identity, without retaining their reachable contents.
         stable_descriptors: BTreeSet<crate::StoragePath>,
-        /// Unexposed owned observations with no mutable or reachable payload retain their value.
-        stable_values: BTreeSet<crate::StoragePath>,
+        /// Classified inline observations retain their value or only their discriminant.
+        stable_values: BTreeMap<crate::StoragePath, crate::StorageObservationKind>,
         /// Classified unchanged values held by this invocation's entry or normal result.
         normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
     },
@@ -48,11 +48,24 @@ pub enum StorageInvalidation {
         referents: BTreeSet<crate::StoragePath>,
         /// Slice descriptors proven disjoint from all writes to their reachable elements.
         stable_descriptors: BTreeSet<crate::StoragePath>,
-        /// Immutable component observations proven unchanged by these writes.
-        stable_values: BTreeSet<crate::StoragePath>,
+        /// Classified component values or discriminants proven unchanged by these writes.
+        stable_values: BTreeMap<crate::StoragePath, crate::StorageObservationKind>,
         /// Classified unchanged values held by this invocation's entry or normal result.
         normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
     },
+}
+
+fn intersect_preserved_values(
+    retained: &mut BTreeMap<crate::StoragePath, crate::StorageObservationKind>,
+    incoming: &BTreeMap<crate::StoragePath, crate::StorageObservationKind>,
+    unchanged: impl Fn(&crate::StoragePath) -> bool,
+) {
+    retained.retain(|path, kind| {
+        if let Some(other) = incoming.get(path) {
+            if *other == crate::StorageObservationKind::Discriminant { *kind = *other; }
+            true
+        } else { unchanged(path) }
+    });
 }
 
 impl StorageInvalidation {
@@ -69,7 +82,7 @@ impl StorageInvalidation {
     pub fn unknown() -> Self {
         Self::All {
             stable_descriptors: BTreeSet::new(),
-            stable_values: BTreeSet::new(),
+            stable_values: Default::default(),
             normal_snapshots: Default::default(),
         }
     }
@@ -99,7 +112,7 @@ impl StorageInvalidation {
                 },
             ) => {
                 stable_descriptors.retain(|path| descriptors.contains(path));
-                stable_values.retain(|path| values.contains(path));
+                intersect_preserved_values(stable_values, values, |_| false);
             }
             (
                 Self::All {
@@ -121,7 +134,7 @@ impl StorageInvalidation {
 
                 stable_descriptors.retain(|path| descriptors.contains(path) || unchanged(path));
 
-                stable_values.retain(|path| values.contains(path) || unchanged(path)
+                intersect_preserved_values(stable_values, values, |path| unchanged(path)
                     && referents.iter().all(|changed| changed.relationship(path) == StorageRelationship::Disjoint));
             }
             (Self::Observed { .. }, Self::All { .. }) => {
@@ -160,12 +173,12 @@ impl StorageInvalidation {
 
                 let descriptors = incoming_descriptors.iter().filter(|path| !stable_descriptors.contains(*path) && disjoint(path, current)).cloned().collect::<Vec<_>>();
 
-                let values = incoming_values.iter().filter(|path| !stable_values.contains(*path) && disjoint(path, current)
-                    && referents.iter().all(|changed| changed.relationship(path) == StorageRelationship::Disjoint)).cloned().collect::<Vec<_>>();
+                let values = incoming_values.iter().filter(|(path, _)| !stable_values.contains_key(*path) && disjoint(path, current)
+                    && referents.iter().all(|changed| changed.relationship(path) == StorageRelationship::Disjoint)).map(|(path, kind)| (path.clone(), *kind)).collect::<Vec<_>>();
 
                 stable_descriptors.retain(|path| incoming_descriptors.contains(path) || disjoint(path, incoming));
 
-                stable_values.retain(|path| incoming_values.contains(path) || disjoint(path, incoming)
+                intersect_preserved_values(stable_values, incoming_values, |path| disjoint(path, incoming)
                     && incoming_referents.iter().all(|changed| changed.relationship(path) == StorageRelationship::Disjoint));
 
                 stable_descriptors.extend(descriptors);
@@ -210,7 +223,7 @@ impl StorageInvalidation {
         match self {
             Self::All { .. } => true,
             Self::Observed { stable_values, .. }
-                if stable_values.iter().any(|stable| stable.contains(path)) =>
+                if stable_values.iter().any(|(stable, kind)| *kind != crate::StorageObservationKind::Discriminant && stable.contains(path)) =>
             {
                 false
             }
@@ -235,7 +248,7 @@ impl StorageInvalidation {
             } => {
                 accesses.contains_key(&access)
                     && !storage.logical_path(access).is_some_and(|path| {
-                        stable_values.iter().any(|stable| stable.contains(path))
+                        stable_values.iter().any(|(stable, kind)| *kind != crate::StorageObservationKind::Discriminant && stable.contains(path))
                     })
             }
             Self::Paths(mutations) => mutations.iter().any(|mutation| {
@@ -409,7 +422,7 @@ impl CheckedRefinements {
                         ..
                     } => stable_descriptors
                         .iter()
-                        .chain(stable_values)
+                        .chain(stable_values.keys())
                         .any(|path| !path.is_valid_for(unit)),
                     StorageInvalidation::Paths(paths) => {
                         paths.iter().any(|path| !path.is_valid_for(unit))
@@ -430,7 +443,7 @@ impl CheckedRefinements {
                         }) || referents
                             .iter()
                             .chain(stable_descriptors)
-                            .chain(stable_values)
+                            .chain(stable_values.keys())
                             .any(|path| !path.is_valid_for(unit))
                     }
                 }
@@ -507,6 +520,34 @@ mod tests {
         StorageAccessId,
     };
     use std::collections::BTreeSet;
+
+    #[test]
+    fn preserved_values_subsume_tags_and_effect_merges_keep_only_common_survival() {
+        use crate::StorageObservationKind;
+
+        let path = crate::StoragePath::root(crate::StorageIdentityId::from_slot(BoundUnitId::new(0), 0));
+
+        for kinds in [[StorageObservationKind::Value, StorageObservationKind::Discriminant],
+            [StorageObservationKind::Discriminant, StorageObservationKind::Value]] {
+            let mut values = std::collections::BTreeMap::new();
+
+            for kind in kinds { kind.record_preservation(path.clone(), &mut values); }
+
+            assert_eq!(values[&path], StorageObservationKind::Value);
+
+            let mut retained = super::StorageInvalidation::All {
+                stable_descriptors: Default::default(), stable_values: values, normal_snapshots: Default::default(),
+            };
+            let tag = super::StorageInvalidation::All {
+                stable_descriptors: Default::default(),
+                stable_values: [(path.clone(), StorageObservationKind::Discriminant)].into(),
+                normal_snapshots: Default::default(),
+            };
+
+            retained.merge(&tag);
+            assert_eq!(retained, tag);
+        }
+    }
 
     #[test]
     fn checked_refinements_are_send_and_sync() {
@@ -671,7 +712,7 @@ mod tests {
             .into(),
             referents: [first.clone()].into(),
             stable_descriptors: [first.clone(), second.clone()].into(),
-            stable_values: [first.clone(), second.clone()].into(),
+            stable_values: [first.clone(), second.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
             normal_snapshots: Default::default(),
         };
 
@@ -685,7 +726,7 @@ mod tests {
             .into(),
             referents: [second.clone()].into(),
             stable_descriptors: [first.clone()].into(),
-            stable_values: [first.clone()].into(),
+            stable_values: [first.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
             normal_snapshots: Default::default(),
         };
 
@@ -693,7 +734,7 @@ mod tests {
 
         let opaque = super::StorageInvalidation::All {
             stable_descriptors: [first.clone()].into(),
-            stable_values: [first.clone()].into(),
+            stable_values: [first.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
             normal_snapshots: Default::default(),
         };
 
@@ -712,7 +753,7 @@ mod tests {
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
                 snapshots: [(first.clone(), crate::StorageTarget::storage(first.clone()))].into(),
                 stable_descriptors: [first.clone()].into(),
-                stable_values: [first.clone()].into(),
+                stable_values: [first.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
                 normal_snapshots: Default::default(),
                 referents: [first, second].into(),
             }
@@ -747,7 +788,7 @@ mod tests {
             let frame = if opaque {
                 super::StorageInvalidation::All {
                     stable_descriptors: retained.clone(),
-                    stable_values: retained.clone(),
+                    stable_values: retained.iter().cloned().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
                     normal_snapshots: Default::default(),
                 }
             } else {
@@ -757,7 +798,7 @@ mod tests {
                     snapshots: Default::default(),
                     referents: Default::default(),
                     stable_descriptors: retained.clone(),
-                    stable_values: retained.clone(),
+                    stable_values: retained.iter().cloned().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
                     normal_snapshots: Default::default(),
                 }
             };
@@ -777,7 +818,7 @@ mod tests {
             let expected = [sibling.clone(), other.clone()].into_iter().collect::<BTreeSet<_>>();
 
             assert_eq!(stable_descriptors, expected);
-            assert_eq!(stable_values, [sibling.clone()].into());
+            assert_eq!(stable_values, [(sibling.clone(), crate::StorageObservationKind::Value)].into());
         }
     }
 
@@ -789,13 +830,13 @@ mod tests {
 
         let mut effects = super::StorageInvalidation::All {
             stable_descriptors: [first.clone(), second].into(),
-            stable_values: BTreeSet::new(),
+            stable_values: Default::default(),
             normal_snapshots: Default::default(),
         };
 
         effects.merge(&super::StorageInvalidation::All {
             stable_descriptors: [first.clone()].into(),
-            stable_values: BTreeSet::new(),
+            stable_values: Default::default(),
             normal_snapshots: Default::default(),
         });
 
@@ -803,7 +844,7 @@ mod tests {
             effects,
             super::StorageInvalidation::All {
                 stable_descriptors: [first.clone()].into(),
-                stable_values: BTreeSet::new(),
+                stable_values: Default::default(),
                 normal_snapshots: Default::default()
             }
         );

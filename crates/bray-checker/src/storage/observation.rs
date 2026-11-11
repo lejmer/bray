@@ -140,7 +140,7 @@ impl Footprint {
             snapshots: BTreeMap::new(),
             referents: BTreeSet::new(),
             stable_descriptors: BTreeSet::new(),
-            stable_values: BTreeSet::new(),
+            stable_values: BTreeMap::new(),
             normal_snapshots: Default::default(),
         });
 
@@ -973,7 +973,7 @@ pub(crate) fn restrict(
                 let mut accesses = frame_paths.clone();
 
                 accesses.retain(|_, paths| {
-                    paths.retain(|path| !stable_values.iter().any(|stable| stable.contains(path)));
+                    paths.retain(|path| !stable_values.iter().any(|(stable, kind)| *kind != Observation::Discriminant && stable.contains(path)));
 
                     !paths.is_empty()
                 });

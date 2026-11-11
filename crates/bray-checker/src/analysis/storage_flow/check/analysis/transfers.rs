@@ -111,7 +111,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 for (path, marker) in &self.input.footprint.empty_markers {
                     if !survives(&Target::storage(path.clone()), Observation::Marker(*marker), None, false) { continue; }
 
-                    stable_values.insert(path.clone());
+                    stable_values.insert(path.clone(), bray_bound_tree::StorageObservationKind::Value);
 
                     // A surviving marker retains its typed carrier identity. Its
                     // enclosing snapshots may still have different contents.

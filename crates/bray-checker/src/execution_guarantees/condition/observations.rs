@@ -72,6 +72,7 @@ impl ExecutionCondition {
                     *kind,
                 )
             }
+            Self::Discriminant(value) => value.without_evaluation(mutation, remaining).discriminant(),
             Self::Present(value) => Self::Present(std::sync::Arc::new(value.without_evaluation(mutation, remaining))),
             Self::Tagged(variant, value) => Self::Tagged(
                 *variant,

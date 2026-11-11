@@ -256,6 +256,7 @@ fn encode(
         | ExecutionCondition::PostState(_, _)
         | ExecutionCondition::InitializedSnapshot(_, _, _)
         | ExecutionCondition::Joined(_, _, _)
+        | ExecutionCondition::Discriminant(_)
         | ExecutionCondition::ScalarValue(_) => return Ok(None),
     };
 
