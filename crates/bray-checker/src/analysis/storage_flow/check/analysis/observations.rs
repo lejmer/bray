@@ -719,7 +719,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         invalidation
     }
 
-    pub(super) fn completed_deferred_references(
+    pub(super) fn completed_input_references(
         &self,
         state: &StorageFlowState,
         operation: crate::analysis::model::AnalysisOperationKind,
@@ -737,6 +737,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let producers = self.execution.awaited_invocations(execution, expression)
             .map(|(producer, _)| producer)
             .chain(self.execution.awaited_task_invocations(execution, expression).into_iter().flatten())
+            .chain(self.dependencies.calls().contains_key(&operation.occurrence()).then_some(operation.occurrence()))
             .collect::<std::collections::BTreeSet<_>>();
 
         for producer in producers {
@@ -754,6 +755,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 let Some(root) = self.invocation_place(producer, subject.subject_root()) else { continue; };
+
+                // A consumed input's descriptor belongs to its captured entry.
+                // Live inputs are observed after their normal updates are committed.
+                if producer == operation.occurrence() && !state.fully_moved.contains(&root.root) {
+                    continue;
+                }
+
                 let Some(observed) = self.invocation_logical_path(producer, subject) else { continue; };
                 let path = contracts.reference_path(subject).expect("prepared input retains its reference route");
                 let Some(path) = self.invocation_reference_path(producer, subject.subject_root(), path) else { continue; };

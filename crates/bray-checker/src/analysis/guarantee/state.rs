@@ -2069,6 +2069,33 @@ mod tests {
                 assert!(!crate::execution_guarantees::ObservationSet::retains_owner(&retained, &marker));
             }
         }
+
+        let before = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::Boolean(false));
+        let current = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::Boolean(true));
+        let other = ExecutionCondition::owned_value(input(4), ExecutionCondition::Boolean(true));
+        let temporary = ExecutionCondition::constructed(input(1), [(field, before.clone().borrowed())].into());
+        let retained = BTreeSet::from([current.clone()]);
+        let borrowed_slot = ExecutionCondition::reference_value(input(5).borrowed(), current.clone().borrowed());
+
+        assert!(!crate::execution_guarantees::ObservationSet::retains_contents(&retained, &borrowed_slot));
+        assert!(!crate::execution_guarantees::ObservationSet::retains_owner(&retained, &current.clone().borrowed()));
+
+        for (observed, retained, valid) in [
+            (current.clone(), current.clone(), true),
+            (before, current.clone(), false),
+            (current, other, false),
+        ] {
+            let condition = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+                symbol.into(), crate::test_support::empty_substitution(symbol.into()), [observed.clone().borrowed()].into(),
+            )));
+            let mut state = ExecutionState::default();
+
+            state.carry_guarantee(observed, condition.clone());
+            state.trusted_assumptions.insert((condition.clone(), true));
+            state.retire_trusted_values([temporary.clone()], &BTreeSet::from([retained]));
+
+            assert_eq!(state.trusted_assumptions.contains(&(condition, true)), valid, "retirement must compare the established fact with the surviving owner");
+        }
     }
 
 }

@@ -567,6 +567,16 @@ impl Set {
         snapshots: &std::collections::BTreeSet<ExecutionCondition>,
         value: &ExecutionCondition,
     ) -> bool {
+        if let ExecutionCondition::Observation { owner, contents, kind: ObservationKind::Reference } = value
+            && contents.ownership_identity().is_some_and(|(kind, _)| kind == ObservationKind::Owned)
+            && **owner == contents.owner_identity().clone().borrowed()
+            && Self::retained_snapshot(snapshots, contents, false, |selected| {
+                selected.has_same_owner(contents) && Self::same_snapshot_contents(selected, contents)
+            })
+        {
+            return true;
+        }
+
         Self::retained_snapshot(snapshots, value, true, |selected| {
             Self::same_snapshot_contents(selected, value)
         })

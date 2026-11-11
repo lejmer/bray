@@ -4,6 +4,7 @@ use super::state::ExecutionState;
 use crate::ExecutionCondition;
 
 impl ExecutionState {
+    #[cfg(test)]
     pub(super) fn invalidate_trusted(&mut self, value: &ExecutionCondition) {
         self.invalidate_trusted_values([value.clone()]);
     }
