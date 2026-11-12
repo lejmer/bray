@@ -517,7 +517,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let current = state.current.iter().map(|(place, value)| (place.clone(), value.clone())).collect::<Vec<_>>();
 
         for (place, source) in current {
-            let mask = masks.remove(&place).unwrap_or_default();
+            let mut mask = masks.remove(&place).unwrap_or_default();
 
             let next = mask.frame(state, &source, Some(&place), mutation);
 
@@ -724,7 +724,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations(state, stable_values),
             _ => Vec::new(),
         };
-        let masks = self.preservation_masks(
+        let mut masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.as_ref())),
             values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind)));
 
@@ -739,8 +739,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let path = changed_paths.get(&place).map_or(&[][..], |path| path.as_ref());
             let previous = path.iter().copied().fold(source.clone(), ExecutionCondition::project);
-            let empty = super::preservation::ValuePreservation::default();
-            let mask = masks.get(&root).and_then(|mask| mask.at(path)).unwrap_or(&empty);
+            let mut empty = super::preservation::ValuePreservation::default();
+            let mask = masks.get_mut(&root).map(|mask| mask.at_mut(path)).unwrap_or(&mut empty);
 
             let next = if transfers { ExecutionCondition::Unknown } else {
                 mask.frame(state, &previous, Some(&place), mutation)

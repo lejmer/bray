@@ -429,6 +429,55 @@ fn nullable_borrowed_witnesses_preserve_their_portable_guards() {
 }
 
 #[test]
+fn compound_borrow_postconditions_agree_with_the_next_owner_read() {
+    for (replacement, valid) in [("", true), ("lease = { first = first, second = second };", false)] {
+        let source = format!(r#"
+            trusted module app;
+
+            struct Cell
+            {{
+                mut value: u32;
+            }}
+
+            struct Lease
+            {{
+                first: &Cell;
+                second: &Cell;
+            }}
+
+            trusted predicate acquired(owner: &Lease);
+
+            extern trusted func checkpoint(pos owner: &Lease) -> bool
+                ensures(result || trusted acquired(owner = owner));
+
+            func observe(pos owner: &Lease)
+                requires(trusted acquired(owner = owner))
+            {{
+            }}
+
+            func caller(pos first: &Cell, pos second: &Cell)
+            {{
+                let mut lease: Lease = {{ first = first, second = second }};
+                let ready = checkpoint(&lease);
+
+                if !ready
+                {{
+                    {replacement}
+                    observe(&lease);
+                }}
+            }}
+        "#);
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
 fn transparent_predicate_getters_preserve_the_contained_owner() {
     for (body, valid) in [
         (
