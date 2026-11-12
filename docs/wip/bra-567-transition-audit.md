@@ -46,8 +46,8 @@ fabricated-evidence and escaped-pointer variants. Keep these contracts while tra
 
 Physical tags survive joins and owner reanchoring without retaining overwritten payloads. Known Present/Tagged joins
 retain their existing handling. Fixed912, owned248/deferred148 each surface, witness matrices, checker505/bound136
-and adjacent suites retain accepted outcomes. Native remains27 with no new identities. Checkpoint8219aaf71 is pushed.
-No trace hooks remain. The private-backed-view root-rule repair passes fixed912, checker505/bound136,
+and adjacent suites retain accepted outcomes. Native remains27 with no new identities. Checkpoint5062c5b35 is pushed.
+No trace hooks remain. Retained-component discovery passes its red-before property, fixed912, checker505/bound136,
 owned/deferred/witness matrices and adjacent suites. Complete native remains27 with no new identities.
 
 Stored-pointer reads now use existing field values through a complete, current, equally typed returned view.
@@ -64,8 +64,14 @@ overlapping22 at E135 is choice30.pointer with those complete private bounds. Th
 repair and checks private backing before/after nested-pointer publication, plus actual owner publication. The root repair
 uses existing producer bounds and preserves explicit roots, escaped regions, unknown backing and heap projections.
 The fixed property and exact source/import escapes pass. Native start cleanup now reports an unknown payload obligation.
-Trace the surviving tag and payload authority through subsequent joins and scoped cleanup. Selected inspect-lowered
-reproduces it in about30s.
+Trace proves the tag survives but nullable fields disappear when an ownership observation joins an untouched value.
+component_projections did not inspect observation contents, so joins saw no retained payload fields. The extended existing
+preservation property reproduces the exact empty-payload state through repeated framing/joins and checks stabilization.
+Canonical component discovery now unwraps actual observation contents and nullable snapshots. Joins and witness renaming
+consume it, and redundant caller unwrapping is removed. Repeated-frame/join marker and stabilization assertions pass.
+Native cleanup now has a represented payload, but its guarantee remains unproven. Trace actual versus known marker
+identities and guarantee renaming through that same path. Do not infer complete composition from the local property.
+Selected inspect-lowered reproduces the native path in about30s.
 Follow reserve_start E31 as well: start_frame loses token and service-owner proof, and reserve_start fails its registration
 postcondition. Both observed calls carry UnboundedMutation Retire with no access type, which alone establishes no defect.
 Keep the fixed comparison and native27 identities unchanged unless explained.

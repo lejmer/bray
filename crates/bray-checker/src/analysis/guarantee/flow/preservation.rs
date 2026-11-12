@@ -251,7 +251,24 @@ mod tests {
             ExecutionCondition::Result, &mut { ExecutionCondition::WORK_LIMIT });
         for value in [joined, moved] {
             assert_eq!(presence(value.clone()), presence(owner.clone()), "retained nullable tags survive joins and owner transfer");
+            let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+            assert_ne!(value.clone().project(payload).project(marker), ExecutionCondition::Unknown, "joining a framed nullable owner preserves its retained payload marker");
             assert_ne!(value.project(payload), owner.clone().project(payload), "retaining a tag does not restore old payload contents");
+        }
+
+        for source in [owner.clone(), ExecutionCondition::owned_value(owner.clone(), owner.clone())] {
+            let join = |left: &ExecutionCondition, right: &ExecutionCondition| crate::execution_guarantees::common_components(
+                left, right, Some(ExecutionCondition::Result), (&conditions, &conditions), &mut Vec::new(),
+                &mut { ExecutionCondition::WORK_LIMIT });
+            let mut joined = join(&source, &payload_mask.apply(&source, Some(&place), mutation));
+            for _ in 0..3 {
+                let updated = payload_mask.apply(&joined, Some(&place), mutation);
+                joined = join(&joined, &updated);
+                joined = join(&joined, &source);
+                let marker = joined.clone().project(payload).project(StorageProjection::TupleElement(SymbolOrdinal::new(0)));
+                assert_ne!(marker, ExecutionCondition::Unknown, "repeated framing and joining cannot erase a physically retained payload marker: {joined:?}");
+            }
+            assert_eq!(join(&joined, &payload_mask.apply(&joined, Some(&place), mutation)), joined, "retained payload analysis stabilizes");
         }
 
         let variant = bray_symbols::UnionVariantSymbolId::from_symbol_id(bray_symbols::SymbolId::new(902));
