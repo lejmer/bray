@@ -1,5 +1,12 @@
 # BRA-567 active audit
 
+## Resume gate
+
+Read this record and the active worktree's [contract gate](../../.agents/skills/work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it)
+after compaction or restart. Resume at the unresolved contract below, not the last command. Do not patch the next
+diagnostic until the affected mechanism's producers, consumers and preservation limits are traced. A regression
+reopens that contract and equivalent paths. Tests verify the reasoning, they do not replace it.
+
 ## Contract
 
 Complete [BRA-567](https://linear.app/bray-lang/issue/BRA-567) on [PR710](https://github.com/lejmer/bray/pull/710).
@@ -40,53 +47,59 @@ Reports are not independent bug counts.
 
 ## Current boundary
 
-root_execution now checks and produces MIR, including conditional EntryRestoration cleanup.
-Red-before composition properties cover shared nested contents identities, inactive payload retention and idempotent
-same-owner snapshots. Conditional witnesses survive independently framed views and subsequent joins.
-Explicit owned observations retain nested producers. Structural data still needs anchoring.
-Fixed914, checker508/bound136, all matrices and adjacent suites retain accepted outcomes.
+Both whole-value and projected invalidation frame from the complete owner before selecting the affected component.
+Producer-owned reference descriptors survive, reached contents expire and overwritten owned children lose authority.
+Regression covers whole owners, direct slots, projected updates, replay and a real conditional compound-lease contract.
+The native attachment exit464 and withdrawal58 obligations are repaired. Withdrawal26 cites existing unlink errors.
+No trace hooks remain. Correct system host/callback inputs make direct source checking reproduce all native report
+identities exactly. Use this semantic gate while errors remain, then rerun native emission/execution. Both use ABI2
+standard-library root target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
 
-Imported execution selection owns its decision diagnostics and appends them to the caller's output afterward.
-The real exported/imported diagnostic-isolation control is red before and green after. The accepted native baseline before descriptor framing had27 identities,
-with12 primary failures and15 explicit cascades. Three false guard.get causes now name existing driving errors.
-Diagnostics collected from unrelated dependencies must never revoke applicable evidence.
+### Open contract: slice descriptor observations
 
-Remaining failures are grouped by first loss, not report count. Current raw-retirement group:
-dispatch_ready source63/unit746973 loses view_owned at wait_execution call53 before join76.
-The active shared loan and marker classification are present. Retire reaches an opaque returned raw-byte
-pointer. Its recorded Control type is a view, not the complete allocation extent. Do not use that view type
-to weaken lifetime invalidation. Producer bounds include an execution-owner pointer and an independent origin.
+Rule: descriptor observations survive reached-content writes and real descriptor copies. They grant no ownership,
+do not follow unrelated descriptors and do not turn unknown reference identity into known identity.
+Hypothesis: carry one explicit Descriptor selector through substitution and portable terms. Replace eager owner
+selection for SequenceLength/IsEmpty. Growth limit: one selector and portable unary operator, no hook reconstruction
+or parallel descriptor framework. Reconsider if ordinary equality can rename physical identities.
 
-Descriptor framing now carries actual inline reference slots of retained owners, while refreshing reached contents.
-It stops at stored references and owned-storage boundaries. No values or identities are reconstructed from types.
-The boundary regression is red before and green after. Direct-slot/whole-owner retention, referent expiry,
-overwrite rejection, replay and a real conditional compound-lease postcondition pass. Fixed914, checker508,
-bound136, source/import matrices and adjacent suites retain outcomes. Native attachment exit464 is repaired.
+| Transition | Required behavior and current evidence |
+| --- | --- |
+| SliceIndex production | Produce evaluated projection identity. Enclosing borrow supplies lifetime/access. Source controls pass. |
+| Copy and borrow | Unwrap actual copied reference, retain original descriptor and no extra authority. Property passes. |
+| Substitution and import | Select descriptor after argument substitution, preserve selector in portable terms. Roundtrip property passes. |
+| Mutation and expiry | Descriptor skips reached contents, unknown owner stays unknown. Property passes. |
+| Bounds and postconditions | Compare descriptor observations consistently, normalize ordinary data equality. Full source positives and unrelated-slice negative pass. |
+| Equality and joins | UNRESOLVED: Descriptor rewriting currently uses ordinary data replacements. Establish whether it can equate unrelated owners or substitute overwritten contents. Trace identity-map callers before patching. |
+| Other consumers | Traversal, mapping, snapshots, constant evaluation, lowering and diagnostics updated. Recheck against the unresolved identity rule. |
 
-Whole-value and projected updates now frame from the same complete owner and affected projection.
-The descriptor mask is prepared before selecting the child, so partial updates retain producer-owned reference roles.
-The regression covers that path, and fixed914, checker508/bound136, matrices and adjacent outcomes remain unchanged.
-Native withdrawal58 is repaired. Withdrawal26 is an explicit cascade from unlink_registration185/199.
-All trace hooks are removed. Correct system host/callback inputs make direct source checking reproduce every
-native diagnostic identity exactly. Use this cheaper semantic gate while fixing checking failures, then rerun native
-emission/execution. The same ABI2 standard-library root is used by both workflows.
+Oracles: descriptor_selection_survives_substitution_without_observing_reached_contents,
+portable_descriptor_calls_keep_their_observation_after_substitution and
+projected_slices_keep_their_descriptor_in_downstream_contracts. The source test uses ordinary callers and full
+check_diagnostics. Trusted definitions and dependent execution_properties alone cannot discharge its negative oracle.
+Add equality/join preservation and rejection checks before changing that behavior.
 
-The simple nullable and dynamic-subslice source controls pass. An intervening opaque operation invalidates a
-whole Access predicate containing a nested borrow. Do not assume every lost whole predicate is unsound.
-Panic360 separately fails slice_pointer entry count <= slice.length with actual Unknown.
-Consumed controls and broad traces have been deleted.
+Current uncommitted batch: fixed915 gives786/30/99 with all original identities preserved. Checker510/bound136,
+symbols221/interface216/messages92, matrices and adjacent groups pass. Refreshed native gate gives25 reports,
+9 primary/16 cascades. Only removed identity is panic338, no new identities. Do not accept or checkpoint the
+semantic batch until the open identity contract is resolved. Temporary slice probes are deleted, no trace hooks remain.
 
-Remaining E7123 groups: prepared cleanup/start234, driving197, entry_scope422,
-root_scope268, observer/polling105 and withdrawal185/199.
-Primary E7135: reserve_start175 registration postcondition and panic338. The three execution/root reports are cascades.
-Follow reserve_start into start_frame too. UnboundedMutation Retire with no access type alone proves no defect.
+Remaining raw-retirement group: dispatch_ready source63/unit746973 loses view_owned at wait_execution call53,
+before join76. Active shared loan and marker classification are present. Retire reaches an opaque returned byte
+pointer. Its Control type is a view, not a complete allocation extent. Do not use it to weaken lifetime invalidation.
+Producer bounds include an execution-owner pointer and an independent origin.
+
+Remaining groups: prepared cleanup/start234, driving197, entry_scope422, root_scope268, observer/polling105,
+withdrawal185/199, reserve_start175 and panic338. Follow reserve_start into start_frame. Unbounded Retire alone
+proves no defect. The simple nullable control passes, while an opaque operation invalidates an Access predicate
+containing a nested borrow. Do not assume every lost whole predicate is unsound.
 
 ## Execution and remaining gates
 
 One CPU-heavy job at a time. Cargo jobs24, tooling profile, same combined target set. No Rust edits during Rust builds.
 Native tools run escalated outside sandbox. Shared target/cargo build dirs, no clean. Selected lowering takes30s.
 Use ABI2 bundle target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
-Direct233-source checks without the native host link add3 cascades. Keep the complete native gate as acceptance evidence.
+Use system link inputs bray_runtime_host and bray_runtime_callback for the matching direct source check.
 Remove consumed probes immediately after extracting evidence.
 
 Remaining gates: all native errors, native async success/panic/cancel/startup rollback/blocked shutdown,

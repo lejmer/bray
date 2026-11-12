@@ -31,6 +31,8 @@ Maximize uncertainty removed per expensive run. Narrow through code, data flow, 
 
 For cross-layer concepts, trace the authoritative declaration through closed inventories, enums, text identities, ABI symbols and signatures, artifact ownership, compiler mappings, serialization, validation, and consumers. Prefer one authority with exhaustive projections over parallel lists.
 
+The first failing boundary locates the cause, not the full repair scope. Before a semantic patch, trace equivalent producers and downstream consumers through the complete affected mechanism. State both what must survive and what must become invalid. Use the contract gate in [Work on Bray Issues](../work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it) for cross-cutting repairs. A new regression reopens that contract before another local patch.
+
 ## Keep the loop cheap
 
 Escalate from a focused boundary test to a minimal real compiler/runtime/standard-library product, selected integration test, affected conformance group, then broad suites. Keep the smallest real producer and consumer. Do not replace them with mocks.
