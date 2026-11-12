@@ -96,7 +96,7 @@ fn fallible_pair_factory_keeps_each_complete_owner() {
         }
         const func first(pos value: &Result<(Owner, Owner), u32>) -> &Marker
             requires(value matches Ok(_)) executes(pure, total)
-            {
+        {
             match value
             {
                 case Ok((owner, _))
@@ -111,7 +111,7 @@ fn fallible_pair_factory_keeps_each_complete_owner() {
         }
         const func second(pos value: &Result<(Owner, Owner), u32>) -> &Marker
             requires(value matches Ok(_)) executes(pure, total)
-            {
+        {
             match value
             {
                 case Ok((_, owner))
@@ -126,7 +126,7 @@ fn fallible_pair_factory_keeps_each_complete_owner() {
         }
         func pair(pos fail: bool) -> Result<(Owner, Owner), u32>
             ensures(!(result matches Ok(_)) || trusted live(first(&result)), !(result matches Ok(_)) || trusted live(second(&result)))
-            {
+        {
             if fail
             {
                 return Error(1);

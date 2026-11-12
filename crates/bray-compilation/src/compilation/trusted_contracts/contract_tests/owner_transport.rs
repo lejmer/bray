@@ -284,9 +284,9 @@ fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
             trusted func address_view(pos owner: &u32) -> DataPointer<u32>
                 ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
                 executes(pure, total)
-                {{
-                    return std.memory.address_of<u32>(owner);
-                }}
+            {{
+                return std.memory.address_of<u32>(owner);
+            }}
             func observe(pos pointer: DataPointer<u32>)
                 requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
                 executes(pure, total) {{}}

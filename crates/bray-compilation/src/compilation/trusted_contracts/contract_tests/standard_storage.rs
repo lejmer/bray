@@ -461,7 +461,7 @@ fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
         let compilation = production_host_compilation(&caller);
 
         let lowered = compilation
-            .lowered_unit(crate::test_support::source_function_body_key(
+            .lowered_unit(source_function_body_key(
                 &compilation,
                 "probe",
             ))
