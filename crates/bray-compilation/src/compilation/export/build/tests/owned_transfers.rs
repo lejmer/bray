@@ -463,6 +463,15 @@ const API: &str = r"
         marker: Marker;
     }
 
+    func dependency_pair() -> (Dependency, Dependency)
+    {
+        return
+        (
+            Dependency { marker = Marker {} },
+            Dependency { marker = Marker {} }
+        );
+    }
+
     trusted predicate related(owner: &Marker, state: &Marker);
 
     trusted func make_related(pos state: &Dependency) -> RelatedOwner
@@ -874,10 +883,13 @@ fn check_owned_transfers(imported: bool) {
     ];
 
     let mut failures = Vec::new();
+    let mut checked = 0;
 
     for (name, body) in cases {
         for valid in [true, false] {
             let body = body.replace("INPUT", if valid { "api.make()" } else { "none" });
+
+            checked += 1;
 
             if let Some(failure) = check(&provider, imported, name, &body, valid) {
                 failures.push(failure);
@@ -1245,6 +1257,80 @@ fn check_owned_transfers(imported: bool) {
             "unchanged_dependency",
             "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.keep(api.make_related(&state), &mut state); api.observe_related(&result.1, &state);",
             true,
+        ),
+        (
+            "projected_dependency_nullable_join",
+            r"let (state, other) = api.dependency_pair();
+            let result: api.RelatedOwner? = if choice
+            {
+                yield none;
+            }
+            else
+            {
+                yield api.make_related(&state);
+            };
+
+            if let ?value = result
+            {
+                api.observe_related(&value, &state);
+            }",
+            true,
+        ),
+        (
+            "projected_dependency_nullable_move",
+            r"let (state, other) = api.dependency_pair();
+            let result: api.RelatedOwner? = if choice
+            {
+                yield none;
+            }
+            else
+            {
+                yield api.make_related(&state);
+            };
+
+            let moved = result;
+
+            if let ?value = moved
+            {
+                api.observe_related(&value, &state);
+            }",
+            true,
+        ),
+        (
+            "projected_dependency_nullable_wrong_owner",
+            r"let (state, other) = api.dependency_pair();
+            let result: api.RelatedOwner? = if choice
+            {
+                yield none;
+            }
+            else
+            {
+                yield api.make_related(&state);
+            };
+
+            if let ?value = result
+            {
+                api.observe_related(&value, &other);
+            }",
+            false,
+        ),
+        (
+            "projected_dependency_nullable_fabricated",
+            r"let (state, other) = api.dependency_pair();
+            let result: api.RelatedOwner? = if choice
+            {
+                yield none;
+            }
+            else
+            {
+                yield api.RelatedOwner { marker = api.Marker {} };
+            };
+
+            if let ?value = result
+            {
+                api.observe_related(&value, &state);
+            }",
+            false,
         ),
         (
             "changed_dependency",
@@ -1917,12 +2003,14 @@ fn check_owned_transfers(imported: bool) {
             true,
         ),
     ] {
+        checked += 1;
+
         if let Some(failure) = check(&provider, imported, name, body, valid) {
             failures.push(failure);
         }
     }
 
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(failures.is_empty(), "owned cases completed: imported={imported}, count={checked}\n{}", failures.join("\n"));
 }
 
 fn check(
@@ -1966,7 +2054,7 @@ fn check(
 
     if diagnostics.has_errors() == valid {
         return Some(format!(
-            "{name}, imported={imported}, valid={valid}: {diagnostics:#?}"
+            "{name}, imported={imported}, valid={valid}: {}", super::fixtures::diagnostic_messages(diagnostics)
         ));
     }
 
@@ -1979,7 +2067,7 @@ fn check(
                     | bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven
             )
         }) {
-            return Some(format!("unexpected rejection for {name}: {diagnostics:#?}"));
+            return Some(format!("unexpected rejection for {name}: {}", super::fixtures::diagnostic_messages(diagnostics)));
         }
     }
 
@@ -1994,4 +2082,554 @@ fn source_owned_transfers_preserve_complete_carriers_and_dependencies() {
 #[test]
 fn imported_owned_transfers_preserve_complete_carriers_and_dependencies() {
     check_owned_transfers(true);
+}
+
+#[test]
+fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
+    let created = r#"
+                let mut owner = match consume api.make(flag)
+                {
+                    case Ok(value) { yield value; }
+                    case Error(status) { return status; }
+                };
+    "#;
+    let branch = r#"
+                if api.opaque() != 0
+                {
+                    api.take(owner);
+                    return 1;
+                }
+
+                api.take(owner);
+    "#;
+    for guard in ["!(result matches Ok(_))", "result matches Error(_)"] {
+    for (published, setup, body, valid) in [
+        (false, created, "_ = api.opaque();\n                api.take(owner);", true),
+        (true, created, "api.take(owner);", true),
+        (true, created, "_ = api.opaque();\n                api.take(owner);", true),
+        (true, created, branch, true),
+        (true, "let owner: api.Owner? = api.Owner\n                {\n                    value = 0\n                };", "api.take(owner);", false),
+        (true, created, "owner = api.Owner\n                {\n                    value = 1\n                };\n                api.take(owner);", false),
+        (true, "let owner: api.Owner? = none;", "api.take(owner);", true),
+    ] {
+        let publication = if published { "publish(&owner);" } else { "" };
+        let declarations = format!(r#"
+            trusted module api;
+
+            struct Owner
+            {{
+                value: u32;
+            }}
+
+            trusted predicate owned(owner: &Owner);
+
+            predicate optional_owned(owner: &(Owner?)) = owner matches none || owned(owner = present(owner));
+
+            const func present(pos owner: &(Owner?)) -> &Owner
+                requires(owner matches ?_)
+                executes(pure, total)
+            {{
+                return match owner
+                {{
+                    case ?value {{ yield &value; }}
+                    case none {{ panic("missing owner"); }}
+                }};
+            }}
+
+            const func created(pos owner: &Result<(Owner?), u32>) -> &(Owner?)
+                requires(owner matches Ok(_))
+                executes(pure, total)
+            {{
+                return match owner
+                {{
+                    case Ok(value) {{ yield &value; }}
+                    case Error(_) {{ panic("failed creation"); }}
+                }};
+            }}
+
+            trusted func publish(pos owner: &Owner)
+                ensures(trusted owned(owner = owner))
+                executes(pure, total)
+            {{
+            }}
+
+            trusted func make(pos flag: bool) -> Result<(Owner?), u32>
+                ensures({guard} || trusted optional_owned(owner = created(&result)))
+            {{
+                if flag
+                {{
+                    let owner: Owner =
+                    {{
+                        value = 0
+                    }};
+
+                    {publication}
+                    return Ok(owner);
+                }}
+
+                return Error(1);
+            }}
+
+            func take(pos owner: Owner?)
+                requires(trusted optional_owned(owner = &owner))
+            {{
+            }}
+
+            extern func opaque() -> u32;
+        "#);
+        let provider = compilation(&declarations);
+        assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+        let source = format!(r#"
+            module app;
+
+            using api;
+
+            func caller(pos flag: bool) -> u32
+            {{
+                {setup}
+                {body}
+                return 0;
+            }}
+        "#);
+        for imported in [false, true] {
+            let application = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                compilation_from_sources([declarations.as_str(), &source])
+            };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "guard={guard}, published={published}, imported={imported}: {source}\n{diagnostics:#?}\n{:#?}",
+                crate::compilation::result_dependencies::source_function_dependencies(&provider, "make"));
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+    }
+}
+
+#[test]
+fn produced_owned_results_survive_enclosing_scope_cleanup() {
+    for complex in [false, true] {
+    for (region, transfer) in [("", "yield"), ("loop", "break"), ("return", "return")] {
+    if complex && transfer == "return" { continue; }
+
+    for (guard, cleanup, created, valid) in [
+        ("", "", "trusted api.create()", true),
+        ("let guard = api.Guard\n{\n};", "", "trusted api.create()", true),
+        ("let guard = api.Guard\n{\n};", "release();", "trusted api.create()", true),
+        ("let guard = api.Guard\n{\n};", "release();", "api.Worker\n{\n    marker = api.Marker {}\n}", false),
+    ] {
+        let extra_variants = if complex { "Created(pos owner: Worker);\nBacking;" } else { "" };
+        let declarations = format!(r#"
+            trusted module api;
+
+            struct Marker
+            {{
+            }}
+
+            struct Worker
+            {{
+                marker: Marker;
+            }}
+
+            trusted predicate live(owner: &Marker);
+
+            trusted func create() -> Worker
+                ensures(trusted live(owner = &result.marker))
+            {{
+                return
+                {{
+                    marker = Marker {{}}
+                }};
+            }}
+
+            extern func release();
+
+            struct Guard
+            {{
+                destruct()
+                {{
+                    {cleanup}
+                }}
+            }}
+
+            union Choice
+            {{
+                Existing(pos owner: Worker);
+                Empty;
+                {extra_variants}
+            }}
+
+            func inspect(pos owner: &Worker)
+                requires(trusted live(owner = &owner.marker))
+            {{
+            }}
+        "#);
+        let provider = compilation(&declarations);
+        assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+        let source = format!(r#"
+            module app;
+
+            using api;
+
+            func caller(pos branch: bool, pos other: bool, pos third: bool)
+            {{
+                let selected: api.Choice = {region}
+                {{
+                    {guard}
+                    {transfer} if branch
+                    {{
+                        yield api.Choice.Existing({created});
+                    }}
+                    else
+                    {{
+                        yield api.Choice.Empty;
+                    }};
+                }};
+
+                match consume selected
+                {{
+                    case api.Choice.Existing(owner)
+                    {{
+                        api.inspect(&owner);
+                    }}
+                    case api.Choice.Empty
+                    {{
+                    }}
+                }}
+            }}
+        "#);
+        let source = if complex {
+            source.replace("yield api.Choice.Empty;", &format!(r#"
+                yield if other
+                {{
+                    yield api.Choice.Created({created});
+                }}
+                else
+                {{
+                    yield if third
+                    {{
+                        yield api.Choice.Empty;
+                    }}
+                    else
+                    {{
+                        yield api.Choice.Backing;
+                    }};
+                }};
+            "#))
+                .replace("case api.Choice.Empty", r#"
+                    case api.Choice.Created(owner)
+                    {
+                        api.inspect(&owner);
+                    }
+                    case api.Choice.Backing
+                    {
+                    }
+                    case api.Choice.Empty"#)
+        } else { source };
+        let source = if transfer == "return" {
+            format!(r#"
+                module app;
+
+                using api;
+
+                func caller(pos branch: bool, pos other: bool, pos third: bool) -> api.Worker
+                    ensures(trusted api.live(owner = &result.marker))
+                {{
+                    {guard}
+                    return {created};
+                }}
+            "#)
+        } else { source };
+        for imported in [false, true] {
+            let application = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                compilation_from_sources([declarations.as_str(), source.as_str()])
+            };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid,
+                "complex={complex}, region={region}, guard={guard}, cleanup={cleanup}, imported={imported}: {source}\n{diagnostics:#?}");
+            if valid {
+                let lowered = application.lowered_unit(
+                    crate::test_support::source_function_body_key(&application, "caller"))
+                    .expect("produced result survives cleanup through lowering");
+
+                assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+                assert!(lowered.value().is_some(), "valid composition produces MIR: {lowered:#?}");
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}
+}
+}
+
+#[test]
+fn caught_nullable_results_preserve_container_evidence() {
+    for asynchronous in [false, true] {
+    let declarations = r#"
+        trusted module api;
+
+        struct Marker
+        {
+        }
+
+        struct Worker
+        {
+            marker: Marker;
+        }
+
+        trusted predicate optional(owner: &(Worker?));
+        extern func may_fail();
+
+        trusted func create() -> Worker?
+            ensures(trusted optional(owner = &result))
+        {
+            may_fail();
+
+            let owner: Worker =
+            {
+                marker = Marker {}
+            };
+
+            return owner;
+        }
+
+        func take(pos owner: Worker?)
+            requires(owner matches ?_, trusted optional(owner = &owner))
+        {
+        }
+    "#;
+    let declarations = if asynchronous {
+        declarations.replace("trusted func create()", "trusted async func create()")
+    } else { declarations.to_owned() };
+    let provider = compilation(&declarations);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for (name, setup, valid) in [
+        ("direct", "let value = trusted api.create();", true),
+        ("caught", r#"
+            let caught = catch trusted api.create();
+            let value = match consume caught
+            {
+                case Ok(owner)
+                {
+                    yield owner;
+                }
+                case Error(_)
+                {
+                    return;
+                }
+            };
+        "#, true),
+        ("fabricated", r#"
+            let owner: api.Worker =
+            {
+                marker = api.Marker {}
+            };
+            let value: api.Worker? = owner;
+        "#, false),
+    ] {
+        let source = format!(r#"
+            module app;
+
+            using api;
+
+            func caller()
+            {{
+                {setup}
+                if value matches none
+                {{
+                    return;
+                }}
+
+                api.take(value);
+            }}
+        "#);
+        let source = if asynchronous {
+            source.replace("func caller()", "async func caller()")
+                .replace("trusted api.create()", "await trusted api.create()")
+        } else { source };
+        for imported in [false, true] {
+            let application = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                compilation_from_sources([declarations.as_str(), source.as_str()])
+            };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "{name}, asynchronous={asynchronous}, imported={imported}: {source}\n{diagnostics:#?}");
+            if valid {
+                let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, "caller"))
+                    .expect("caught result has a checked lowering");
+
+                assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+                assert!(lowered.value().is_some(), "{lowered:#?}");
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}
+}
+
+#[test]
+fn ending_a_mutable_view_preserves_an_independent_borrowed_owner() {
+    let declarations = r#"trusted module api;
+
+struct Marker
+{
+}
+
+struct Owner
+{
+    mut marker: Marker;
+}
+
+trusted predicate acquired(owner: &Marker);
+predicate retained(owner: &Owner) = acquired(owner = &owner.marker);
+
+trusted predicate held(owner: &Marker);
+
+struct Lease
+{
+    marker: Marker;
+
+    destruct()
+    {
+    }
+}
+
+trusted func acquire() -> Lease
+    ensures(trusted held(owner = &result.marker))
+{
+    return
+    {
+        marker = Marker {}
+    };
+}
+
+
+struct Entries
+{
+    mut counter: u32;
+}
+
+struct Anchor
+{
+    mut entries: Entries;
+    owner: &Owner;
+    lease: &Lease;
+}
+
+predicate access(owner: &Anchor) = retained(owner = owner.owner) && held(owner = &owner.lease.marker);
+
+trusted func arena_anchor(pos owner: &Owner, pos lease: &Lease) -> Anchor
+    requires(trusted retained(owner = owner), trusted held(owner = &lease.marker))
+    ensures(trusted retained(owner = owner), trusted access(owner = &result))
+{
+    return
+    {
+        owner = owner,
+        lease = lease,
+        entries =
+        {
+            counter = 0
+        }
+    };
+}
+
+trusted func entries(pos anchor: &mut Anchor) -> &mut Entries
+    requires(trusted access(owner = &anchor))
+    ensures(trusted access(owner = &anchor))
+{
+    return &mut anchor.entries;
+}
+
+trusted func update(pos entries: &mut Entries, pos owner: &Owner)
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    entries.counter += 1;
+}
+
+func inspect(pos owner: &Owner)
+    requires(trusted retained(owner = owner))
+{
+}
+
+
+async func pause()
+{
+}
+"#;
+    let provider = compilation(declarations);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for (repeats, mutation, asynchronous) in [
+        (false, false, false), (true, false, false),
+        (false, false, true), (true, false, true),
+        (false, true, false), (false, true, true),
+    ] {
+        let repeat = if repeats { "while" } else { "if" };
+        let mode = if mutation { "&mut " } else { "&" };
+        let asynchronous = if asynchronous { "async " } else { "" };
+        let suspension = if asynchronous.is_empty() { "" } else { "await api.pause();" };
+        let mutate = if mutation { "owner.marker = api.Marker {};" } else { "" };
+        let source = format!(r#"
+            module app;
+
+            using api;
+
+            {asynchronous}func caller(pos owner: {mode}api.Owner, pos again: bool)
+                requires(trusted api.retained(owner = &owner))
+            {{
+                {repeat} again
+                {{
+                    let request: u32 =
+                    {{
+                        let lease = trusted api.acquire();
+                        let mut anchor = trusted api.arena_anchor(&owner, &lease);
+                        let current = trusted api.entries(&mut anchor);
+                        trusted api.update(current, &owner);
+                        {suspension}
+                        yield 0;
+                    }};
+
+                    {mutate}
+                    api.inspect(&owner);
+                }}
+            }}
+        "#);
+        for imported in [false, true] {
+            let application = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                compilation_from_sources([declarations, source.as_str()])
+            };
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), !mutation,
+                "repeats={repeats}, mutation={mutation}, async={asynchronous}, imported={imported}: {source}\n{diagnostics:#?}");
+            if mutation {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            } else {
+                let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, "caller"))
+                    .expect("borrowed owner scope composition lowers");
+
+                assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
+                assert!(lowered.value().is_some(), "{lowered:#?}");
+            }
+        }
+    }
 }

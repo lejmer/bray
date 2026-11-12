@@ -138,30 +138,31 @@ impl Compilation {
             .collect()
     }
 
-    pub(super) fn select_imported_execution_obligation(
+    pub(in crate::compilation) fn select_imported_execution_obligation(
         &self,
         callable: CallableInstanceData,
         required: ExecutionObligation,
         evidence: Option<&ExecutionCallEvidence>,
-        diagnostics: &mut DiagnosticBag,
+        collected: &mut DiagnosticBag,
         cancellation: &CancellationToken,
     ) -> Result<Option<ExecutionObligation>, FactQueryError> {
         if self.intrinsic_projection_obligation(callable, required, cancellation)? {
             return Ok(Some(required));
         }
 
+        let mut diagnostics = DiagnosticBag::new();
         let evidence = self.instantiate_execution_evidence(
             evidence.unwrap_or(&ExecutionCallEvidence::default()),
             cancellation,
-            diagnostics,
+            &mut diagnostics,
         )?;
 
-        let contract = self.imported_execution_contract(callable, diagnostics, cancellation)?;
+        let contract = self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
 
         let inputs =
             self.execution_callable_inputs(callable.definition().symbol(), cancellation)?;
 
-        match required {
+        let selected = match required {
             ExecutionObligation::FiniteIteration => Ok(contract
                 .evidence
                 .iter()
@@ -200,12 +201,13 @@ impl Compilation {
                         domain.entry.iter().copied(),
                         evidence.implementation_witnesses(),
                         cancellation,
-                        diagnostics,
+                        &mut diagnostics,
                     )?;
 
                     if !diagnostics.has_errors()
-                        && evidence.proves_trusted_with_inputs(&entry, &inputs)
+                        && evidence.prove_trusted_with_inputs(&entry, &inputs).is_ok()
                     {
+                        collected.add_range(diagnostics);
                         return Ok(Some(ExecutionObligation::Property(
                             property,
                             Some(ExecutionClauseId::Imported(domain.ordinal)),
@@ -226,7 +228,10 @@ impl Compilation {
                 Ok(Some(required))
             }
             ExecutionObligation::Postcondition(ExecutionClauseId::Source(_)) => Ok(None),
-        }
+        };
+
+        collected.add_range(diagnostics);
+        selected
     }
 }
 

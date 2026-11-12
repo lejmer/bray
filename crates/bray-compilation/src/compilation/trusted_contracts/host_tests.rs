@@ -4,6 +4,537 @@ use super::fixtures::production_host_compilation;
 use crate::test_support::source_function_body_key;
 
 #[test]
+fn production_byte_copy_does_not_publish_its_input_addresses() {
+    use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
+
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
+        &compilation, "copy_spare_raw_bytes");
+
+    assert!(!dependencies.effects().iter().any(|effect| matches!(effect,
+        DependencyStorageEffect::Escape
+        | DependencyStorageEffect::Direct { kind: DependencyMutationKind::Escape, .. }
+        | DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Escape, .. })),
+        "{:?}", dependencies.effects());
+}
+
+#[test]
+fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
+    for (value, valid) in [("none", true), ("maybe_buffer()", false)] {
+        let source = format!(r#"
+            trusted module probe;
+
+            using core.memory;
+
+            using std.memory;
+
+            extern trusted func maybe_buffer() -> std.memory.RawBuffer<u8>?
+                executes(pure, total);
+
+            extern trusted func observe(pos pointer: DataPointer<u8>)
+                requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1))
+                executes(pure, total);
+
+            trusted func caller(pos pointer: DataPointer<u8>)
+                requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1))
+            {{
+                {{
+                    let buffer: std.memory.RawBuffer<u8>? = {value};
+                }}
+
+                trusted observe(pointer);
+            }}
+        "#);
+        let compilation = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::baseline(), &source);
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "caller"))
+            .expect("conditional buffer disposal retains its checked transition");
+
+        assert_eq!(!lowered.diagnostics().has_errors(), valid, "{value}: {:?}", lowered.diagnostics());
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
+fn production_awaited_writer_does_not_return_its_completed_receiver_loan() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let key = crate::test_support::source_type_callable_member_body_key(&compilation, "into_sink_async");
+    let lowered = compilation.lowered_unit(key)
+        .expect("the consuming async writer publishes its checked completion");
+
+    assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+
+    let key = crate::test_support::source_type_callable_member_body_key(&compilation, "into_sink_async");
+    let flow = compilation.storage_flow(key).expect("the writer publishes its portable reports");
+
+    for reports in [flow.value().dependencies().completion_reports(), flow.value().dependencies().abnormal_reports()]
+        .into_iter().flatten() {
+        assert!(!reports.iter().any(|requirement| matches!(requirement,
+            bray_symbols::DependencyRequirement::Direct { subject, kind: bray_symbols::DependencyRequirementKind::StorageAlive }
+                if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver)),
+            "a completed writer must not export its invocation receiver loan: {reports:?}");
+    }
+}
+
+#[test]
+fn production_native_paths_preserve_their_admitted_input_contracts() {
+    let mut failures = Vec::new();
+
+    for target in [bray_target::NativeTarget::X86_64LinuxGnu, bray_target::NativeTarget::X86_64WindowsMsvc] {
+        let compilation = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::for_native(target), "module probe;");
+
+        for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path", "platform_path_rename"] {
+            let key = source_function_body_key(&compilation, name);
+            let lowered = compilation.lowered_unit(key.clone())
+                .expect("the native path wrapper publishes its checked source contract");
+
+            if lowered.diagnostics().has_errors() {
+                failures.push((target, name, "lowering", lowered.diagnostics().clone()));
+            }
+
+            let output = compilation.source_output_unit(key, &crate::CancellationToken::new())
+                .expect("the native path wrapper completes the production Source-output boundary");
+
+            if output.has_errors() {
+                failures.push((target, name, "Source output", output.diagnostic_bag()));
+            }
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn implicit_receiver_reborrows_do_not_escape_local_owners() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(),
+        r#"
+        module probe;
+
+        struct Owner
+        {
+            value: u32;
+
+            func borrowed_value() -> &u32
+            {
+                return &self.value;
+            }
+        }
+
+        func escape() -> &u32
+        {
+            let owner: Owner =
+            {
+                value = 1,
+            };
+
+            return owner.borrowed_value();
+        }
+        "#,
+    );
+    let checked = compilation.lowered_unit(source_function_body_key(&compilation, "escape"))
+        .expect("receiver escape retains its checked lifetime contract");
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        checked.diagnostics(), DiagnosticKind::CheckingEscapingStorageDependency);
+}
+
+#[test]
+fn production_formatted_bytes_retain_the_buffer_owner() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "bytes"))
+        .expect("production formatted bytes reports its checked source contract");
+
+    assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+}
+
+#[test]
+fn production_buffer_views_retain_external_storage() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let symbols = compilation.symbol_graph().expect("production symbols are available");
+    let mut failures = Vec::new();
+
+    for name in ["as_slice", "as_slice_mut"] {
+        let key = crate::test_support::source_type_callable_member_body_key(&compilation, name);
+        let member = symbols.symbol_for_key(key.declared_owner()).expect("buffer method is declared");
+        let owner = symbols.containing_symbol(member).expect("buffer method has its owning type");
+        assert_eq!(symbols.member_name(owner).map(|name| name.as_str()), Some("Buffer"));
+        let lowered = compilation.lowered_unit(key)
+            .expect("production buffer view reports its checked source contract");
+
+        if lowered.diagnostics().has_errors() {
+            failures.push((name, lowered.diagnostics().clone()));
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn production_dynamic_outputs_preserve_their_write_contracts() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module probe;");
+    let mut failures = Vec::new();
+
+    for name in [
+        "platform_dynamic_library_open_path",
+        "platform_dynamic_library_open_system",
+        "platform_dynamic_library_symbol",
+    ] {
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
+            .expect("production dynamic operation reports its checked source contract");
+
+        if lowered.diagnostics().has_errors() {
+            failures.push((name, lowered.diagnostics().clone()));
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn production_buffer_range_contracts_survive_pointer_staging() {
+    let compilation = production_host_compilation("module probe;");
+    let mut failures = Vec::new();
+
+    for name in ["fill_spare_bytes", "copy_spare_bytes", "copy_bytes_from_pointer"] {
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
+            .expect("production buffer operation reports its checked source contract");
+
+        if lowered.diagnostics().has_errors() {
+            failures.push((name, lowered.diagnostics().clone()));
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn production_spare_fill_preserves_its_descriptor_bound() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let key = source_function_body_key(&compilation, "fill_spare_bytes");
+    let properties = compilation.execution_properties(key.clone()).expect("production fill is certified");
+    let body = compilation.lowered_unit(key).expect("production fill lowers");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+}
+
+#[test]
+fn production_channel_storage_publishes_its_taken_pending_value() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let key = crate::test_support::source_type_callable_member_body_key(&compilation, "store_message");
+    let properties = compilation.execution_properties(key.clone()).expect("channel storage is certified");
+    let body = compilation.lowered_unit(key).expect("channel storage lowers");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+}
+
+#[test]
+fn ownership_guarantees_precede_fallible_wrapping() {
+    for (initializer, valid) in [
+        ("introduce()", true),
+        (r"Owner
+            {
+                marker = Marker
+                {
+                },
+            }", false),
+    ] {
+        let source = r#"
+        trusted module app;
+
+        struct Marker
+        {
+        }
+
+        trusted predicate live(marker: &Marker);
+
+        struct Owner
+        {
+            marker: Marker;
+
+            trusted destruct()
+                requires(trusted live(&self.marker))
+            {
+            }
+        }
+
+        struct Wrapped
+        {
+            owner: Owner;
+        }
+
+        trusted func introduce() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return
+            {
+                marker = Marker
+                {
+                },
+            };
+        }
+
+        func inspect(pos fail: bool)
+        {
+            if fail
+            {
+                panic("owner wrapping probe");
+            }
+        }
+
+        trusted func wrap(pos fail: bool) -> Wrapped
+            ensures(trusted live(&result.owner.marker))
+        {
+            let owner: Owner = INITIAL_VALUE;
+
+            inspect(fail);
+
+            return
+            {
+                owner = owner,
+            };
+        }
+        "#.replace("INITIAL_VALUE", initializer);
+        let compilation = crate::test_support::compilation(&source);
+
+        assert_eq!(!compilation.check_diagnostics().has_errors(), valid, "{source}: {:?}", compilation.check_diagnostics());
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
+fn production_bounded_channel_creation_retains_its_cleanup_evidence() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let key = source_function_body_key(&compilation, "bounded");
+    let properties = compilation.execution_properties(key.clone()).expect("channel creation is certified");
+    let body = compilation.lowered_unit(key.clone()).expect("channel creation lowers");
+    let output = compilation.source_output_unit(key, &crate::CancellationToken::new())
+        .expect("channel creation publishes Source output");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+    assert!(!output.has_errors(), "{:?}", output.diagnostic_bag());
+}
+
+#[test]
+fn production_windows_environment_storage_retains_its_cleanup_evidence() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc), "module app;");
+    let key = source_function_body_key(&compilation, "environment_storage");
+    let properties = compilation.execution_properties(key.clone()).expect("environment storage is certified");
+    let body = compilation.lowered_unit(key.clone()).expect("environment storage lowers");
+    let output = compilation.source_output_unit(key, &crate::CancellationToken::new())
+        .expect("environment storage publishes Source output");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+    assert!(!output.has_errors(), "{:?}", output.diagnostic_bag());
+}
+
+#[test]
+fn production_channel_endpoints_preserve_loop_and_cleanup_authority() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let symbols = compilation.symbol_graph().expect("production symbols are available");
+    let mut failures = Vec::new();
+    let mut bodies = 0;
+
+    for key in compilation.declared_unit_keys_for_test().expect("production bodies are declared") {
+        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
+            continue;
+        }
+        let Some(owner) = symbols.symbol_for_key(key.declared_owner()) else { continue; };
+        let member = symbols.member_name(owner).map(|name| name.as_str());
+        let ty = symbols.containing_symbol(owner).and_then(|ty| symbols.member_name(ty)).map(|name| name.as_str());
+        if !matches!((ty, member), (Some("Sender"), Some("send")) | (Some("Receiver"), Some("receive"))) {
+            continue;
+        }
+
+        bodies += 1;
+        let properties = compilation.execution_properties(key.clone()).expect("endpoint execution is certified");
+        if properties.diagnostics().has_errors() {
+            failures.push((key, properties.diagnostics().clone()));
+        } else {
+            let body = compilation.lowered_unit(key.clone()).expect("endpoint body lowers");
+            if body.diagnostics().has_errors() { failures.push((key, body.diagnostics().clone())); }
+        }
+    }
+    assert_eq!(bodies, 2, "both actual endpoint bodies must be selected");
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn production_byte_reads_keep_their_loop_entry_evidence() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let key = source_function_body_key(&compilation, "read_native_u64");
+    let properties = compilation.execution_properties(key.clone()).expect("native byte reads are certified");
+    let body = compilation.lowered_unit(key).expect("native byte reads lower");
+
+    assert!(!properties.diagnostics().has_errors(), "{:?}", properties.diagnostics());
+    assert!(!body.diagnostics().has_errors(), "{:?}", body.diagnostics());
+}
+
+#[test]
+fn bounded_collection_storage_effects_keep_their_physical_scope() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+
+    for name in ["hash_table_clear_storage", "ordered_tree_clear_storage"] {
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(&compilation, name);
+
+        assert!(!dependencies.effects().iter().any(|effect| matches!(effect,
+            bray_symbols::DependencyStorageEffect::UnboundedMutation { kind, ambient, .. }
+                if !*ambient || !matches!(kind, bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_)))),
+            "{name}: {:?}", dependencies.effects());
+    }
+}
+
+#[test]
+fn production_collection_destructors_release_transferred_backing() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let symbols = compilation.symbol_graph().expect("production symbols are available");
+    let mut failures = Vec::new();
+    let mut bodies = 0;
+
+    for key in compilation.declared_unit_keys_for_test().expect("production bodies are declared") {
+        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
+            || key.declared_owner().kind() != bray_symbols::SymbolKind::Destructor
+            || !symbols.symbol_for_key(key.declared_owner()).and_then(|owner| symbols.containing_symbol(owner))
+                .and_then(|owner| symbols.member_name(owner))
+                .is_some_and(|name| matches!(name.as_str(), "HashTable" | "OrderedTree")) {
+            continue;
+        }
+
+        bodies += 1;
+        let properties = compilation.execution_properties(key.clone()).expect("collection cleanup is certified");
+        let body = compilation.lowered_unit(key.clone()).expect("collection cleanup lowers");
+
+        if properties.diagnostics().has_errors() || body.diagnostics().has_errors() {
+            failures.push((key, properties.diagnostics().clone(), body.diagnostics().clone()));
+        }
+    }
+
+    assert_eq!(bodies, 2, "both actual collection destructors must be selected");
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn production_completion_predicates_match_returned_booleans() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let symbols = compilation.symbol_graph().expect("production symbols are available");
+    let mut failures = Vec::new();
+    let mut bodies = 0;
+
+    for key in compilation.declared_unit_keys_for_test().expect("production bodies are declared") {
+        if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
+            || !symbols.symbol_for_key(key.declared_owner()).and_then(|owner| symbols.member_name(owner))
+                .is_some_and(|name| name.as_str() == "is_complete") {
+            continue;
+        }
+
+        bodies += 1;
+        let properties = compilation.execution_properties(key.clone()).expect("completion predicate is certified");
+        let body = compilation.lowered_unit(key.clone()).expect("completion predicate lowers");
+
+        if properties.diagnostics().has_errors() || body.diagnostics().has_errors() {
+            failures.push((key, properties.diagnostics().clone(), body.diagnostics().clone()));
+        }
+    }
+
+    assert!(bodies > 0, "actual completion predicates must be selected");
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn production_process_context_preserves_static_once_authority() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+    let mut failures = Vec::new();
+
+    for name in ["argument_context_table", "environment_context_table", "directory_context"] {
+        let body = compilation.lowered_unit(source_function_body_key(&compilation, name))
+            .expect("production process-context getter lowers");
+
+        if body.diagnostics().has_errors() {
+            failures.push((name, body.diagnostics().clone()));
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn async_ownership_composition_checks_real_source_transitions() {
+    let source = include_str!("../../../../../xtask/fixtures/native-execution/async-ownership-composition.bray");
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), source);
+
+    let source_id = source_function_body_key(&compilation, "main").source().syntax().source_id();
+    let keys = compilation.declared_unit_keys_for_test().expect("composition units are declared");
+
+    for key in keys.iter().filter(|key| key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
+        && key.source().syntax().source_id() == source_id) {
+          let properties = compilation.execution_properties(key.clone())
+              .expect("every composition function and lifecycle body is certified");
+          assert!(!properties.diagnostics().has_errors(), "{key:?}: {:?}", properties.diagnostics());
+        let checked = compilation.lowered_unit(key.clone())
+            .expect("every composition function and lifecycle body lowers");
+        assert!(!checked.diagnostics().has_errors(), "{key:?}: {:?}", checked.diagnostics());
+    }
+}
+
+#[test]
+fn async_ownership_composition_rejects_fabricated_and_moved_owners() {
+    let source = include_str!("../../../../../xtask/fixtures/native-execution/async-ownership-composition.bray");
+
+    for (original, replacement, body, expected) in [
+        ("acquire(false)", r#"ChildCleanup
+        {
+            marker = Marker
+            {
+            },
+            cancelled = false,
+            visits = 0
+        }"#, "produce", DiagnosticKind::CheckingTrustedObligationNotProven),
+        ("let pending = child(owner).start();", r#"let pending = child(owner).start();
+    observe(&owner);"#, "main", DiagnosticKind::CheckingUseOfMovedStorage),
+        ("await owner.advance();", r#"let pending = owner.advance();
+        observe(&owner);
+        await pending;"#, "transport", DiagnosticKind::CheckingConflictingBorrow),
+    ] {
+        assert_eq!(source.matches(original).count(), 1);
+        let invalid = source.replace(original, replacement);
+        let compilation = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::baseline(), &invalid);
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, body))
+            .expect("invalid composition reports source diagnostics");
+
+        bray_testing::assert_goal_state_diagnostic_kind(lowered.diagnostics(), expected);
+    }
+}
+
+#[test]
 #[ignore = "tier:proof"]
 fn production_buffer_views_keep_nested_allocations_bounded() {
     let compilation = production_host_compilation("module probe;");
@@ -11,11 +542,25 @@ fn production_buffer_views_keep_nested_allocations_bounded() {
     for name in ["slot_at", "record"] {
         let key = source_function_body_key(&compilation, name);
 
-        let flow = compilation.storage_flow(key).expect("production getter retains its storage analysis");
+        let flow = compilation
+            .storage_flow(key)
+            .expect("production getter retains its storage analysis");
 
-        assert!(!flow.diagnostics().has_errors(), "{name}: {:?}", flow.diagnostics());
+        assert!(
+            !flow.diagnostics().has_errors(),
+            "{name}: {:?}",
+            flow.diagnostics()
+        );
+
         assert!(!flow.value().is_recovered(), "{name}: {:?}", flow.value());
-        assert!(flow.value().dependencies().preserves_storage_on_normal_return(), "{name}: {:?}", flow.value().dependencies());
+
+        assert!(
+            flow.value()
+                .dependencies()
+                .preserves_storage_on_normal_return(),
+            "{name}: {:?}",
+            flow.value().dependencies()
+        );
     }
 }
 
@@ -2548,111 +3093,52 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
 #[test]
 #[ignore = "tier:proof"]
 fn activation_callback_requires_one_exact_authorized_invocation() {
-    for (execution, descriptor, context, operation, argument, progress, records, repeat, valid) in [
+    let authorized =
+        "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition)";
+
+    let outputs = "trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)";
+
+    let other_authorized =
+        "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &other.acquisition)";
+
+    let other_outputs = "trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &other.acquisition)";
+    let invoke = "_ = trusted callback(owner);";
+
+    for (requirements, body, valid) in [
+        (String::new(), invoke, false),
+        (authorized.to_owned(), invoke, false),
+        (outputs.to_owned(), invoke, false),
+        (format!("{other_authorized}, {outputs}"), invoke, false),
+        (format!("{authorized}, {other_outputs}"), invoke, false),
+        (format!("{authorized}, {outputs}"), invoke, true),
         (
-            "other_execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            false,
+            format!("{authorized}, {outputs}"),
+            r#"
+                let reconstructed: bray.runtime.bootstrap.activation.callback.Invocation = {
+                    acquisition = owner.acquisition,
+                    execution = other.execution,
+                    descriptor = owner.descriptor,
+                    context = owner.context,
+                    operation = owner.operation,
+                    progress = owner.progress,
+                    records = owner.records,
+                };
+
+                _ = trusted callback(reconstructed);
+            "#,
             false,
         ),
         (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            false,
-            true,
-        ),
-        (
-            "execution",
-            "other_descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "other_context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "1",
-            "0",
-            "progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "1",
-            "progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "other_progress",
-            "records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "other_records",
-            false,
-            false,
-        ),
-        (
-            "execution",
-            "descriptor",
-            "context",
-            "0",
-            "0",
-            "progress",
-            "records",
-            true,
+            format!("{authorized}, {outputs}"),
+            "let returned = trusted callback(owner); _ = trusted callback(returned);",
             false,
         ),
     ] {
-        let invocation =
-            "trusted callback(execution, descriptor, context, 0, 0, progress, records);";
-
-        let repeated = if repeat { invocation } else { "" };
+        let requirements = if requirements.is_empty() {
+            requirements
+        } else {
+            format!(", {requirements}")
+        };
 
         let caller = format!(
             r#"
@@ -2662,32 +3148,12 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             using internal bray.runtime.bootstrap.entry;
             trusted func production_probe(
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
-                pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
-                pos other_execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
-                pos descriptor: DataPointer<bray.runtime.bootstrap.activation.Descriptor>,
-                pos other_descriptor: DataPointer<bray.runtime.bootstrap.activation.Descriptor>,
-                pos context: usize,
-                pos other_context: usize,
-                pos progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
-                pos other_progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
-                pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
-                pos other_records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
+                pos owner: bray.runtime.bootstrap.activation.callback.Invocation,
+                pos other: bray.runtime.bootstrap.activation.callback.Invocation,
             )
-                requires(
-                    trusted bray.runtime.bootstrap.entry.native_entry(),
-                    trusted bray.runtime.bootstrap.activation.callback.authorized(
-                        execution = {execution},
-                        descriptor = {descriptor},
-                        context = {context},
-                        operation = {operation},
-                        argument = {argument},
-                        progress = {progress},
-                        records = {records},
-                    ),
-                )
+                requires(trusted bray.runtime.bootstrap.entry.native_entry(){requirements})
             {{
-                {invocation}
-                {repeated}
+                {body}
             }}
             "#
         );
@@ -2709,6 +3175,54 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             bray_testing::assert_goal_state_diagnostic_kind(
                 lowered.diagnostics(),
                 DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "tier:proof"]
+fn driver_view_keeps_its_source_acquisition_with_the_complete_owner() {
+    for (body, valid) in [
+        ("return owner;", true),
+        (
+            "return { acquisition = owner.acquisition, pointer = pointer, status = 0 };",
+            false,
+        ),
+    ] {
+        let caller = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap;
+
+            trusted func production_probe(
+                pos owner: bray.runtime.bootstrap.execution.Current,
+                pos pointer: DataPointer<bray.runtime.bootstrap.execution.Context>,
+            ) -> bray.runtime.bootstrap.execution.Current
+                requires(trusted bray.runtime.bootstrap.execution.view_owned(owner = &owner.acquisition))
+                ensures(trusted bray.runtime.bootstrap.execution.view_owned(owner = &result.acquisition))
+            {{
+                {body}
+            }}
+            "#
+        );
+
+        let compilation = production_host_compilation(&caller);
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .expect("fixture callable must lower successfully");
+
+        assert_eq!(
+            !lowered.diagnostics().has_errors(),
+            valid,
+            "{caller}: {:?}",
+            lowered.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                lowered.diagnostics(),
+                DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
             );
         }
     }
@@ -3316,5 +3830,25 @@ fn inactive_cleanup_retains_only_its_independent_native_destination() {
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
+    }
+}
+
+#[test]
+fn production_observer_keeps_authority_through_conditional_protocol_changes() {
+    for target in [bray_target::NativeTarget::X86_64LinuxGnu, bray_target::NativeTarget::X86_64WindowsMsvc] {
+    let compilation = super::fixtures::production_host_compilation_for_target(
+        "module probe;", crate::SelectedTarget::for_native(target));
+    let symbols = compilation.symbol_graph().expect("production symbols");
+    let function = symbols.functions().iter().find(|function| {
+        if !symbols.member_name(function.id().into()).is_some_and(|name| name.as_str() == "poll") {
+            return false;
+        }
+        let bray_symbols::SymbolKeyData::SourceDeclaration { owner, .. } = function.key().data() else { return false; };
+        matches!(owner.data(), bray_symbols::SymbolKeyData::Module { path, .. }
+            if path.segments().eq(["bray", "runtime", "bootstrap", "task", "observer"]))
+    }).expect("actual observer poll");
+    let key = crate::test_support::source_symbol_body_key(&compilation, symbols, function.id().into());
+    let flow = compilation.storage_flow(key).expect("production poll storage flow");
+    assert!(!flow.diagnostics().has_errors(), "{target:?}: {:?}", flow.diagnostics());
     }
 }

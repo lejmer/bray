@@ -84,6 +84,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         budget: &mut usize,
     ) -> Option<(BigInt, BigInt)> {
         *budget = budget.checked_sub(1)?;
+        let value = value.computed_value();
 
         let range = match value {
             ExecutionCondition::Literal(_) => {
@@ -91,9 +92,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .map(|value| (value.clone(), value))
             }
             ExecutionCondition::Expression(expression)
-                if self.request.unit().key().kind().uses_machine_arithmetic()
-                    && state.expressions.get(expression) == Some(value) =>
+                if self.request.unit().key().kind().uses_machine_arithmetic() =>
             {
+                // An opaque produced value retains its checked representation.
+                // Its old operands must not be read again from current storage.
                 self.semantics
                     .types()
                     .expression(*expression)
@@ -368,6 +370,8 @@ pub(in crate::analysis::guarantee) fn refined_arithmetic_range(
     assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
     typed_range: &impl Fn(&ExecutionCondition) -> Option<(BigInt, BigInt)>,
 ) -> Option<(BigInt, BigInt)> {
+    let left = left.computed_value();
+    let right = right.computed_value();
     let nonnegative = left_range.0 >= BigInt::from(0) && right_range.0 >= BigInt::from(0);
     let mut range = arithmetic_range(operator, left_range, right_range)?;
 
@@ -510,7 +514,7 @@ pub(in crate::analysis::guarantee) fn unsigned_arithmetic_is_bounded(
                 let rejected =
                     ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![nonzero, excess]);
 
-                rejected.prove(known, &mut { ExecutionCondition::WORK_LIMIT }) == Some(false)
+                !rejected.can_assume(true, known)
             });
     }
 
@@ -622,6 +626,8 @@ fn refine_integer_range_with(
     ranges: &mut BTreeMap<ExecutionCondition, Option<(BigInt, BigInt)>>,
     budget: &mut usize,
 ) -> Option<(BigInt, BigInt)> {
+    let value = value.computed_value();
+
     if let Some(range) = ranges.get(value) {
         return range.clone();
     }
@@ -747,6 +753,51 @@ mod tests {
     use bray_symbols::SymbolOrdinal;
     use num_bigint::BigInt;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn bounded_sums_use_captured_scalar_data() {
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let capacity = input(0);
+        let initialized = input(1);
+        let count = input(2);
+
+        for (copied, changed) in [(false, false), (true, false), (true, true)] {
+            let used = if copied {
+                ExecutionCondition::scalar_observation(input(3), initialized.clone())
+            } else { initialized.clone() };
+            let guarded = if changed { input(4) } else { initialized.clone() };
+            let assumptions = BTreeSet::from([
+                (ExecutionCondition::operation(BoundOperator::LessEqual, vec![guarded.clone(), capacity.clone()]), true),
+                (ExecutionCondition::operation(BoundOperator::LessEqual, vec![count.clone(),
+                    ExecutionCondition::operation(BoundOperator::Subtract, vec![capacity.clone(), guarded])]), true),
+            ]);
+            let range = super::refined_arithmetic_range(BoundOperator::Add, &used, &count,
+                (0.into(), 255.into()), (0.into(), 255.into()), &assumptions,
+                &|value| (value == &capacity).then(|| (0.into(), 255.into())));
+
+            assert_eq!(range, Some((0.into(), if changed { 510.into() } else { 255.into() })),
+                "captured={copied}, changed source={changed}");
+        }
+    }
+
+    #[test]
+    fn scalar_range_constraints_follow_captured_data() {
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let original = input(0);
+        let captured = ExecutionCondition::scalar_observation(input(1), original.clone());
+        let limit = input(2);
+
+        for changed in [false, true] {
+            let current = if changed { input(3) } else { original.clone() };
+            let assumptions = BTreeSet::from([(
+                ExecutionCondition::operation(BoundOperator::Less, vec![current, limit.clone()]), true,
+            )]);
+            let range = refine_integer_range(&captured, Some((0.into(), 255.into())), &assumptions,
+                &|value| (value == &limit).then(|| (10.into(), 10.into())));
+
+            assert_eq!(range, Some((0.into(), if changed { 255.into() } else { 9.into() })));
+        }
+    }
 
     #[test]
     fn excluded_endpoints_refine_the_completed_interval() {

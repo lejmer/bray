@@ -11,26 +11,29 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.event;
 using internal bray.runtime.bootstrap.host.product;
 
-internal struct RegistrationMarker
-{
-}
-
 // One ordinary noncopy owner retains both the collection and callback target.
 // Directory links are bookkeeping under the resident acquisition. They do not
 // confer ownership or authorize source result observation.
 internal struct WaitRegistration
 {
-    marker: RegistrationMarker;
+    resources: WaitResources;
+    retirement: u8;
+    mut previous: WaitLink;
+    mut next: WaitLink;
+}
+
+// Resource ownership remains stable while membership links change. This
+// complete carrier owns both retained endpoints and the selected callback.
+internal struct WaitResources
+{
     target: WaitTarget;
     waiter: Reference;
-    retirement: u8;
-    mut previous: u64;
-    mut next: u64;
 }
 
 internal union WaitTarget
 {
     Task(pos reference: Reference);
+    ExecutionEvent(pos reference: bray.runtime.bootstrap.event.Reference, pos observed: u64);
     Event(
         pos reference: bray.runtime.bootstrap.event.Reference,
         pos observed: u64,
@@ -38,19 +41,91 @@ internal union WaitTarget
     );
 }
 
-trusted internal predicate registration_owned(owner: &RegistrationMarker);
+// Ownership belongs to the acquired component values. It does not assert that
+// the mutable slots reached through their pointers keep their old contents.
+internal predicate registration_owned(owner: &WaitResources) = retained(owner = &owner.waiter) &&
+    owned_reference(owner = &owner.waiter) &&
+    (
+        (
+            owner.target matches WaitTarget.Task(_) &&
+            retained(owner = task_wait_target(&owner.target)) &&
+            owned_reference(owner = task_wait_target(&owner.target))
+        ) ||
+        (
+            owner.target matches WaitTarget.Event(_, _, _) &&
+            bray.runtime.bootstrap.event.retained(owner = event_wait_target(&owner.target)) &&
+            bray.runtime.bootstrap.event.owned_reference(owner = event_wait_target(&owner.target)) &&
+            bray.runtime.bootstrap.event.callback_owned(owner = callback_wait_target(&owner.target))
+        ) ||
+        (
+            owner.target matches WaitTarget.ExecutionEvent(_, _) &&
+            bray.runtime.bootstrap.event.retained(owner = execution_event_wait_target(&owner.target)) &&
+            bray.runtime.bootstrap.event.owned_reference(owner = execution_event_wait_target(&owner.target))
+        )
+    );
 
-trusted internal predicate optional_registration(owner: &(WaitRegistration?));
+internal predicate optional_registration(owner: &(WaitRegistration?)) = owner matches none ||
+    (owner matches ?_ && registration_owned(owner = &registration_value(owner).resources));
+
+internal const func registration_value(pos owner: &(WaitRegistration?)) -> &WaitRegistration
+    requires(owner matches ?_)
+{
+    return match owner
+    {
+        case ?registration { yield &registration; }
+        case none { panic("missing wait registration"); }
+    };
+}
+
+internal const func task_wait_target(pos owner: &WaitTarget) -> &Reference
+    requires(owner matches WaitTarget.Task(_))
+{
+    return match owner
+    {
+        case WaitTarget.Task(reference) { yield &reference; }
+        case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _) { panic("missing task wait target"); }
+    };
+}
+
+internal const func event_wait_target(pos owner: &WaitTarget) -> &bray.runtime.bootstrap.event.Reference
+    requires(owner matches WaitTarget.Event(_, _, _))
+{
+    return match owner
+    {
+        case WaitTarget.Event(reference, _, _) { yield &reference; }
+        case WaitTarget.Task(_) | WaitTarget.ExecutionEvent(_, _) { panic("missing event wait target"); }
+    };
+}
+
+internal const func execution_event_wait_target(pos owner: &WaitTarget) -> &bray.runtime.bootstrap.event.Reference
+    requires(owner matches WaitTarget.ExecutionEvent(_, _))
+{
+    return match owner
+    {
+        case WaitTarget.ExecutionEvent(reference, _) { yield &reference; }
+        case WaitTarget.Task(_) | WaitTarget.Event(_, _, _) { panic("missing execution event wait target"); }
+    };
+}
+
+internal const func callback_wait_target(pos owner: &WaitTarget) -> &bray.runtime.bootstrap.event.Callback
+    requires(owner matches WaitTarget.Event(_, _, _))
+{
+    return match owner
+    {
+        case WaitTarget.Event(_, _, callback) { yield &callback; }
+        case WaitTarget.Task(_) | WaitTarget.ExecutionEvent(_, _) { panic("missing wait callback"); }
+    };
+}
 
 trusted internal func registration_target(pos owner: &WaitRegistration) -> &Reference
-    requires(trusted registration_owned(owner = &owner.marker))
+    requires(trusted registration_owned(owner = &owner.resources))
     ensures(trusted retained(owner = result))
     uses(intrinsic)
 {
-    return match owner.target
+    return match owner.resources.target
     {
-        case WaitTarget.Task(reference) { yield &reference; }
-        case WaitTarget.Event(_, _, _) { yield trusted core.target.abort(); }
+        case WaitTarget.Task(_) { yield task_wait_target(&owner.resources.target); }
+        case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _) { yield trusted core.target.abort(); }
     };
 }
 
@@ -69,7 +144,7 @@ trusted internal func check_wait(pos observed: &Reference, pos retirement: u8) -
 
     if retirement == 0
     {
-        return if child.phase matches Phase.Terminal | Phase.Resolved
+        return if child.phase matches Phase.Terminal(_) | Phase.Resolved
         {
             yield (0, false);
         }
@@ -84,130 +159,60 @@ trusted internal func check_wait(pos observed: &Reference, pos retirement: u8) -
         return (6, false);
     }
 
-    if child.retired
+    if (child.retirement matches Retirement.Complete)
     {
         return (0, false);
     }
 
-    child.retiring = true;
+    child.retirement = Retirement.Requested;
     return (6, true);
 }
 
-// Reuse resident retention instead of borrowing the native reference slots as
-// backing for a new registration. Each successful result already owns its cell.
-trusted internal func admit_wait(
-    pos lease: &bray.runtime.bootstrap.host.HostLease,
-    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
-    pos runtime: u64,
-    pos child: u64,
-    pos parent: u64,
-    pos retirement: u8
-) -> (WaitRegistration?, u32)
-    requires(
-        lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
-    )
-    ensures(
-        trusted optional_registration(owner = &result.0),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
-    )
-    uses(intrinsic)
+// Both native inputs retain their actual cells through the resident lease.
+// Admission duplicates those owners, without another directory lookup.
+trusted internal func admit_wait(pos child: &Reference, pos parent: &Reference, pos retirement: u8) -> WaitRegistration
+    requires(trusted retained(owner = child), trusted retained(owner = parent))
+    ensures(trusted registration_owned(owner = &result.resources))
 {
-    let (observed_owner, status) = trusted retain_locked(lease, anchor, runtime, child);
+    let observed = trusted duplicate_reference(child);
+    let waiter = trusted duplicate_reference(parent);
 
-    if observed_owner matches none
+    return
     {
-        return (none, status);
-    }
-
-    let observed = trusted take_retained(observed_owner);
-    let (waiter_owner, waiter_status) = trusted retain_waiter(lease, anchor, runtime, parent, &observed);
-
-    if waiter_owner matches none
-    {
-        // The native input still retains this cell. Rolling back this temporary
-        // count cannot dispose storage or invoke a callback.
-        let mut guard = trusted lock_cell(&observed);
-
-        if trusted release(trusted guard.get())
+        resources =
         {
-            trusted core.target.abort();
-        }
-
-        return (none, waiter_status);
-    }
-
-    let waiter = trusted take_retained(waiter_owner);
-
-    let registration: WaitRegistration =
-    {
-        marker = RegistrationMarker
-        {
+            target = WaitTarget.Task(observed),
+            waiter = waiter
         },
-        target = WaitTarget.Task(observed),
-        waiter = waiter,
         retirement = retirement,
-        previous = 0,
-        next = 0
+        previous = no_wait_link(),
+        next = no_wait_link()
     };
-
-    let owned: WaitRegistration? = registration;
-
-    return (owned, 6);
-}
-
-trusted internal func wait_slot(pos entries: &mut Entries, pos handle: u64) -> &mut Slot
-    uses(intrinsic)
-{
-    let index = std.numeric.truncate_to<usize, u64>(handle & 0xffffffff);
-    let generation = std.numeric.truncate_to<u32, u64>(handle >> 32);
-
-    if index == 0 || index > entries.total
-    {
-        trusted core.target.abort();
-    }
-
-    let slot = trusted slot_at(entries, index);
-
-    if slot.generation != generation || slot.control matches none
-    {
-        trusted core.target.abort();
-    }
-
-    return slot;
 }
 
 trusted internal func publish_wait(
     pos mut registration: WaitRegistration,
-    pos lease: &bray.runtime.bootstrap.host.HostLease,
-    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor
+    pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> (u32, WaitRegistration?)
     requires(
-        trusted registration_owned(owner = &registration.marker),
+        trusted registration_owned(owner = &registration.resources),
         lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
         trusted optional_registration(owner = &result.1),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(intrinsic)
 {
-    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
-    let mut entries = &mut host.tasks;
-    let parent = registration.waiter.handle;
-    let child = (trusted registration_target(&registration)).handle;
+    let waiter = trusted registration_waiter(&registration);
+    let child = trusted registration_target(&registration);
+    let parent = trusted wait_link(waiter);
     let retirement = registration.retirement;
 
     {
-        let slot = trusted wait_slot(&mut entries, parent);
+        let mut access = trusted task_slot_access(waiter, lease);
+        let slot = trusted link_slot(&mut access);
 
         if let ?existing = slot.registration
         {
@@ -228,7 +233,8 @@ trusted internal func publish_wait(
 
     let head =
     {
-        let slot = trusted wait_slot(&mut entries, child);
+        let mut access = trusted task_slot_access(child, lease);
+        let slot = trusted link_slot(&mut access);
 
         yield if retirement == 0
         {
@@ -240,13 +246,14 @@ trusted internal func publish_wait(
         };
     };
 
-    if head != 0
+    if !head.empty()
     {
-        let slot = trusted wait_slot(&mut entries, head);
+        let mut access = trusted task_head_access(child, lease, retirement);
+        let slot = trusted link_slot(&mut access);
 
-        if let ?owner = slot.registration
+        if let ?prior = slot.registration
         {
-            owner.previous = parent;
+            prior.previous = parent;
         }
         else
         {
@@ -254,67 +261,75 @@ trusted internal func publish_wait(
         }
     }
 
+    {
+        let mut access = trusted task_slot_access(child, lease);
+        let slot = trusted link_slot(&mut access);
+
+        if retirement == 0
+        {
+            slot.terminal_waiters = parent;
+        }
+        else
+        {
+            slot.retirement_waiters = parent;
+        }
+    }
+
     registration.next = head;
-
-    (trusted wait_slot(&mut entries, parent)).registration = registration;
-
-    let slot = trusted wait_slot(&mut entries, child);
-
-    if retirement == 0
-    {
-        slot.terminal_waiters = parent;
-    }
-    else
-    {
-        slot.retirement_waiters = parent;
-    }
-
+    trusted store_registration(registration, lease);
     return (6, none);
 }
 
-trusted internal func same_task_wait(pos owner: &WaitRegistration, pos child: u64, pos retirement: u8) -> bool
+trusted internal func same_task_wait(pos owner: &WaitRegistration, pos child: &Reference, pos retirement: u8) -> bool
 {
-    return match owner.target
+    return match owner.resources.target
     {
-        case WaitTarget.Task(reference) { yield reference.handle == child && owner.retirement == retirement; }
-        case WaitTarget.Event(_, _, _) { yield false; }
+        case WaitTarget.Task(reference)
+        {
+            yield reference.runtime == child.runtime && reference.handle == child.handle && owner.retirement ==
+                retirement;
+        }
+        case WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _) { yield false; }
     };
 }
 
 // The registration retains this event independently of its external name.
 // A local carrier lends that storage under the resident acquisition.
-trusted internal func event_reference(pos owner: &WaitRegistration) -> bray.runtime.bootstrap.event.Reference
-    requires(trusted registration_owned(owner = &owner.marker))
+trusted internal func event_reference(pos owner: &WaitRegistration) -> &bray.runtime.bootstrap.event.Reference
+    requires(trusted registration_owned(owner = &owner.resources))
     ensures(
-        trusted bray.runtime.bootstrap.event.retained(owner = &result),
-        trusted registration_owned(owner = &owner.marker)
+        trusted bray.runtime.bootstrap.event.retained(owner = result),
+        trusted registration_owned(owner = &owner.resources)
     )
     uses(intrinsic)
 {
-    return match owner.target
+    return match owner.resources.target
     {
-        case WaitTarget.Event(reference, _, _)
-        {
-            yield
-            {
-                address = reference.address
-            };
-        }
+        case WaitTarget.Event(_, _, _) { yield event_wait_target(&owner.resources.target); }
+        case WaitTarget.ExecutionEvent(_, _) { yield execution_event_wait_target(&owner.resources.target); }
         case WaitTarget.Task(_) { yield trusted core.target.abort(); }
     };
 }
 
 trusted internal func event_callback(pos owner: &WaitRegistration) -> &bray.runtime.bootstrap.event.Callback
-    requires(trusted registration_owned(owner = &owner.marker))
+    requires(trusted registration_owned(owner = &owner.resources))
     ensures(
         trusted bray.runtime.bootstrap.event.callback_owned(owner = result),
-        trusted registration_owned(owner = &owner.marker)
+        trusted registration_owned(owner = &owner.resources)
     )
     uses(intrinsic)
 {
-    return match owner.target
+    return match owner.resources.target
     {
-        case WaitTarget.Event(_, _, callback) { yield &callback; }
-        case WaitTarget.Task(_) { yield trusted core.target.abort(); }
+        case WaitTarget.Event(_, _, _) { yield callback_wait_target(&owner.resources.target); }
+        case WaitTarget.Task(_) | WaitTarget.ExecutionEvent(_, _) { yield trusted core.target.abort(); }
     };
+}
+
+trusted internal func registration_waiter(pos owner: &WaitRegistration) -> &Reference
+    requires(trusted registration_owned(owner = &owner.resources))
+    ensures(trusted retained(owner = result), trusted registration_owned(owner = &owner.resources))
+    executes(pure, total)
+{
+    return &owner.resources.waiter;
 }

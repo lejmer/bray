@@ -217,9 +217,9 @@ where
                     .expect("checked compiler-only requirement has portable predicate meaning");
 
                 if requirement.is_trusted() {
-                    evidence.proves_trusted(&[condition])
+                    evidence.prove_trusted_requirements(&[condition]).is_ok()
                 } else {
-                    evidence.proves(&[condition])
+                    evidence.prove_requirements(&[condition]).is_ok()
                 }
             } else {
                 false

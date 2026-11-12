@@ -18,14 +18,10 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn observed_references(
         &self,
-    ) -> impl Iterator<Item = (Place, &BTreeSet<Target>, bool)> {
-        self.values.iter().filter_map(|(location, references)| {
-            Some((
-                location.observation_path()?,
-                &references.targets,
-                references.unknown,
-            ))
-        })
+    ) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {
+        self.values
+            .iter()
+            .map(|(location, references)| (location, &references.targets, references.unknown))
     }
 
     pub(in crate::analysis::storage_flow) fn contained_regions<'a>(
@@ -39,7 +35,8 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn raw_exposed_regions(&self) -> BTreeSet<Target> {
-        self.contents.iter()
+        self.contents
+            .iter()
             // A callee can publish an address without forming it in this caller.
             .filter(|(_, contents)| contents.exposed || contents.escaped)
             .map(|(target, _)| exposure_region(target))
@@ -111,32 +108,51 @@ impl State {
                     .filter(|target| {
                         // Retired reference slots are history, not external roots. A surviving raw
                         // address can still reach them through the explicit exposure roots above.
-                        !target.previous
-                            && target.storage_path().is_none_or(|path| {
-                                self.owned_storage.binary_search(&path.root).is_err()
-                                    || path
-                                        .projections
-                                        .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                            })
+                        !target.previous && self.reference_slot_is_external(target)
                     })
                     .cloned(),
             )
             .collect::<Vec<_>>();
 
-        self.transitive_regions(pending, |_| true).0
+        self.transitive_regions(pending, |_, _| true).0
+    }
+
+    fn reference_slot_is_external(&self, target: &Target) -> bool {
+        match &target.origin {
+            Origin::Storage(path) => !self.is_owned_inline_storage(path),
+            Origin::Returned { reference, projections }
+                if !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget) => {
+                let bounds = self.returned_reference_bounds(reference);
+
+                // A complete view of private inline storage does not publish
+                // its containing owner merely by observing a stored reference.
+                bounds.unknown || bounds.displaced || bounds.inexact || bounds.targets.is_empty()
+                    || bounds.targets.iter().any(|target| target.previous
+                        || target.storage_path().is_none_or(|path| !self.is_owned_inline_storage(path)))
+            }
+            _ => true,
+        }
+    }
+
+    /// Returns escaped operands and their stored references before caller-side alias resolution.
+    pub(in crate::analysis::storage_flow) fn escape_roots(
+        &self,
+        roots: impl IntoIterator<Item = Target>,
+    ) -> BTreeSet<Target> {
+        self.transitive_regions(roots.into_iter().map(|root| exposure_region(&root)), |region, slot| region.contains(slot)).0
     }
 
     pub(in crate::analysis::storage_flow) fn escaped_regions(
         &self,
         roots: impl IntoIterator<Item = Target>,
     ) -> BTreeSet<Target> {
-        let (targets, _) = self.transitive_regions(roots, |_| true);
+        let (targets, _) = self.transitive_regions(roots, |_, _| true);
 
         // Publishing a symbolic result also exposes each possible input allocation.
         // Keep its own identity for backing produced independently of those inputs.
         targets
             .iter()
-            .flat_map(|target| std::iter::once(target).chain(self.effect_origins(target)))
+            .flat_map(|target| std::iter::once(target).chain(self.effect_origins(target).0))
             .map(exposure_region)
             .collect()
     }
@@ -161,7 +177,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn transitive_regions(
         &self,
         roots: impl IntoIterator<Item = Target>,
-        follow: impl Fn(&Target) -> bool,
+        follow: impl Fn(&Target, &Target) -> bool,
     ) -> (BTreeSet<Target>, bool) {
         let mut pending = roots.into_iter().collect::<Vec<_>>();
         let mut reached = BTreeSet::new();
@@ -173,13 +189,14 @@ impl State {
             }
 
             let reference_free = self.contents.get(&target).is_some_and(|contents| {
-                !contents.exposed && contents.storage_type.is_some_and(|ty| {
-                    self.complete_reference_types.get(&ty) == Some(&true)
-                })
+                !contents.exposed
+                    && contents
+                        .storage_type
+                        .is_some_and(|ty| self.complete_reference_types.get(&ty) == Some(&true))
             });
 
             for (slot, references) in &self.values {
-                if follow(slot)
+                if follow(&target, slot)
                     // Typed scalars cannot load unrelated pointer slots. Explicit
                     // stored references and raw allocation views remain authoritative.
                     && (!reference_free || target.contains(slot))
@@ -197,7 +214,7 @@ impl State {
 
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn entry_reference(&mut self, slot: Place) {
-        self.entry_reference_at(slot.clone(), 1, Target::storage(slot), None);
+        self.entry_reference_at(slot.clone(), 1, Target::storage(slot), None, bray_symbols::DependencyReferenceKind::Address);
     }
 
     pub(in crate::analysis::storage_flow) fn exit_references(
@@ -412,7 +429,7 @@ impl State {
             // raw pointers can still name the destination's previous contents.
             self.retire(target);
 
-            if matches!(target.origin, Origin::Returned { .. }) {
+            if matches!(target.origin, Origin::Returned { .. } | Origin::Allocation { .. }) {
                 continue;
             }
 
@@ -505,10 +522,11 @@ impl State {
 fn is_entry_slot(contents: &std::collections::BTreeMap<Target, Contents>, slot: &Place) -> bool {
     // An entry value snapshot remains useful after its local slot's lifetime ends.
     // Keeping its value does not retain initialization or access authority.
-    contents.contains_key(&Target {
-        origin: Origin::entry(slot.clone()),
-        previous: false,
-    })
+    [bray_symbols::DependencyReferenceKind::Borrow, bray_symbols::DependencyReferenceKind::Address]
+        .into_iter().any(|kind| contents.contains_key(&Target {
+            origin: Origin::entry(slot.clone(), kind),
+            previous: false,
+        }))
 }
 
 pub(super) fn take_subtree<'a, V>(

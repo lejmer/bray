@@ -5,7 +5,7 @@ use bray_runtime_abi::NativeEventCallback;
 
 use super::contract::SchedulerError;
 use super::deadline::{self, BrayDeadlines};
-use super::engine::{Scheduler, SchedulerData, TaskWakeHandle};
+use super::engine::{Scheduler, SchedulerData, TaskWakeHandle, WakeOwner};
 use crate::event::NativeCallback;
 
 impl Scheduler {
@@ -15,42 +15,43 @@ impl Scheduler {
         duration: Duration,
         wake: &TaskWakeHandle,
     ) -> Result<TimerRegistration, SchedulerError> {
-        if !Weak::ptr_eq(&wake.scheduler, &Arc::downgrade(&self.data)) {
-            return Err(SchedulerError::UnknownTask(wake.task));
+        let (task, registration, scheduler) = match &wake.owner {
+            WakeOwner::Scheduler {
+                task,
+                registration,
+                scheduler,
+            } => (task, registration, scheduler),
+            WakeOwner::Native(cancellation) => {
+                return Err(SchedulerError::UnknownTask(
+                    crate::TaskId::from_bray_handle(cancellation.native_reference().task()),
+                ));
+            }
+        };
+
+        if !Weak::ptr_eq(scheduler, &Arc::downgrade(&self.data)) {
+            return Err(SchedulerError::UnknownTask(*task));
         }
 
-        let (native, cancellation) = {
+        // The timer callback retains the same cancellation owner until its
+        // committed wake or withdrawal, independently of this registry lookup.
+        let cancellation = {
             let state = self.lock_state()?;
 
-            let task = state
+            state
                 .tasks
-                .get(&wake.task)
-                .filter(|task| task.registration == wake.registration)
-                .ok_or(SchedulerError::UnknownTask(wake.task))?;
-
-            (task.native.clone(), task.cancellation.clone())
+                .get(task)
+                .filter(|task| task.registration == *registration)
+                .ok_or(SchedulerError::UnknownTask(*task))?
+                .cancellation
+                .clone()
         };
 
         let deadline = deadline::deadline_after(duration)?;
 
-        let resources = if native.is_none() {
-            Some(
-                NativeCallback::task(cancellation, wake.clone())
-                    .map_err(SchedulerError::TimerResources)?,
-            )
-        } else {
-            None
-        };
+        let resources = NativeCallback::task(cancellation, wake.clone())
+            .map_err(SchedulerError::TimerResources)?;
 
-        let descriptor = native.as_ref().map_or_else(
-            || {
-                resources
-                    .as_ref()
-                    .expect("host task admits callback resources")
-                    .retain_timer()
-            },
-            |native| native.callback.retain_timer(),
-        );
+        let descriptor = resources.retain_timer();
 
         // Source admission invokes no callbacks. Serialize publication with task
         // retirement so no deadline can be published after its scope is withdrawn.
@@ -60,26 +61,14 @@ impl Scheduler {
 
             if !state
                 .tasks
-                .get(&wake.task)
-                .is_some_and(|task| task.registration == wake.registration)
+                .get(task)
+                .is_some_and(|task| task.registration == *registration)
             {
-                return Err(SchedulerError::UnknownTask(wake.task));
+                return Err(SchedulerError::UnknownTask(*task));
             }
 
-            deadlines.register(deadline, wake.registration, &descriptor)
+            deadlines.register(deadline, *registration, &descriptor)
         })();
-
-        self.finish_registration(result, descriptor)
-    }
-
-    pub(crate) fn register_callback(
-        &self,
-        deadline_ns: u64,
-        descriptor: NativeEventCallback,
-    ) -> Result<TimerRegistration, SchedulerError> {
-        let result = self
-            .deadlines()
-            .and_then(|deadlines| deadlines.register(deadline_ns, 0, &descriptor));
 
         self.finish_registration(result, descriptor)
     }
@@ -92,7 +81,7 @@ impl Scheduler {
         match result {
             Ok(identity) => Ok(TimerRegistration {
                 identity,
-                scheduler: Arc::clone(&self.data),
+                owner: TimerOwner::Scheduler(Arc::clone(&self.data)),
             }),
             Err(error) => {
                 // Rejection leaves the descriptor with its native producer.
@@ -139,16 +128,6 @@ impl Scheduler {
             .map_or(Ok(None), BrayDeadlines::remaining)
     }
 
-    pub(crate) fn worker_wait_milliseconds(&self) -> u64 {
-        self.timer_remaining()
-            .expect("a retained worker can observe its optional deadline")
-            .map_or(u64::from(u32::MAX - 1), |remaining| {
-                u64::try_from(remaining.as_nanos().div_ceil(1_000_000))
-                    .unwrap_or(u64::from(u32::MAX - 1))
-                    .min(u64::from(u32::MAX - 1))
-            })
-    }
-
     pub(crate) fn close_timers(&self) {
         super::native::close_deadlines(&self.data.source.reference);
     }
@@ -158,15 +137,44 @@ impl Scheduler {
 #[derive(Debug)]
 pub struct TimerRegistration {
     identity: u64,
-    scheduler: Arc<SchedulerData>,
+    owner: TimerOwner,
+}
+
+#[derive(Debug)]
+enum TimerOwner {
+    Scheduler(Arc<SchedulerData>),
+    Execution(Arc<crate::event::Resources>),
+}
+
+impl TimerRegistration {
+    pub(crate) fn execution(identity: u64, owner: Arc<crate::event::Resources>) -> Self {
+        assert!(
+            matches!(owner.as_ref(), crate::event::Resources::Timeout { .. }),
+            "an execution timer retains its actual timeout resources"
+        );
+
+        Self {
+            identity,
+            owner: TimerOwner::Execution(owner),
+        }
+    }
 }
 
 impl Drop for TimerRegistration {
     fn drop(&mut self) {
-        self.scheduler
-            .deadlines
-            .get()
-            .expect("a registered timer retains its deadline owner")
-            .withdraw(self.identity);
+        match &self.owner {
+            TimerOwner::Scheduler(scheduler) => scheduler
+                .deadlines
+                .get()
+                .expect("a registered timer retains its deadline owner")
+                .withdraw(self.identity),
+            TimerOwner::Execution(owner) => {
+                let crate::event::Resources::Timeout { runtime, .. } = owner.as_ref() else {
+                    unreachable!("execution registration retains its timeout owner");
+                };
+
+                crate::timeout::withdraw(runtime, self.identity);
+            }
+        }
     }
 }

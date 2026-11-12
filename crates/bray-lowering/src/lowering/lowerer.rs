@@ -307,12 +307,16 @@ impl<'unit> Lowerer<'unit> {
         let receiver_cleanup = self.receiver_cleanup.take();
         let unit = self.builder.finish(entry);
 
-        super::receiver::finish_receiver_cleanup(
+        let unit = super::receiver::finish_receiver_cleanup(
             &self.input,
             unit,
             receiver_cleanup,
             &self.storages,
-        )
+        )?;
+
+        assert!(unit.is_valid(), "lowering produced invalid MIR: {:?}", unit.key());
+
+        Ok(unit)
     }
 
     pub(in crate::lowering) fn is_reachable(&self, entry: MirBlockId, target: MirBlockId) -> bool {
@@ -1122,6 +1126,16 @@ mod tests {
                 MirCallArgument::Explicit { ordinal: 1, .. }
             ]
         ));
+
+        for argument in call.arguments() {
+            let bray_ir::MirOperand::Move(place) = argument.value() else {
+                panic!("selected callee must receive its actual private staged input");
+            };
+
+            assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+                MirOperationKind::Store { kind: bray_ir::MirStoreKind::Initialize, destination, .. }
+                    if destination == place)), "each call input must be initialized before admission");
+        }
     }
 
     #[test]
@@ -1344,13 +1358,17 @@ mod tests {
             let mir = lower_unit(fixture.input())
                 .unwrap_or_else(|error| panic!("checked memory call must lower: {error:?}"));
 
-            assert!(matches!(
-                mir.operations()[0].kind(),
-                MirOperationKind::Memory(operation)
-                    if operation.kind() == &kind
-                        && operation.operands().len() == argument_count
-                        && operation.result_type().is_some() == kind.produces_value()
-            ));
+            let operation = mir.operations().iter().find_map(|operation| match operation.kind() {
+                MirOperationKind::Memory(memory) => Some(memory),
+                _ => None,
+            }).expect("checked memory family must lower to an explicit memory operation");
+
+            assert_eq!(operation.kind(), &kind);
+            assert_eq!(operation.operands().len(), argument_count);
+            assert_eq!(operation.result_type().is_some(), kind.produces_value());
+
+            assert!(operation.operands().iter().all(|operand| matches!(operand, bray_ir::MirOperand::Move(_))),
+                "runtime memory operands must come from their actual staged input slots");
 
             assert_eq!(
                 matches!(
@@ -1965,7 +1983,7 @@ mod tests {
         );
 
         let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
-        let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
+        let storage = fixture_value_storage(&unit, &types, &selections, &values, expressions);
 
         let exit_nodes = unit
             .tree()
@@ -1988,7 +2006,12 @@ mod tests {
         let storage_flow = StorageFlow::try_new(
             unit.unit(),
             unit.key().kind(),
-            [],
+            storage.access_plans().iter().map(|plan| bray_bound_tree::StorageOperationDecision::new(
+                plan.node(), plan.expression(),
+                if plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer {
+                    bray_bound_tree::StorageAccessPurpose::Move
+                } else { plan.purpose() },
+                plan.access(), None, bray_bound_tree::StorageOperationStatus::Valid)),
             [],
             unit.tree().blocks().map(|(block, _)| block),
             scope_exits
@@ -2084,6 +2107,80 @@ mod tests {
     ) -> BoundExpressionId {
         tree.push_expression(expression)
             .unwrap_or_else(|error| panic!("test expression must fit: {error:?}"))
+    }
+
+    fn fixture_value_storage(
+        unit: &BoundUnit,
+        types: &CheckedExpressionTypes,
+        selections: &CheckedSemanticSelections,
+        values: &SemanticValueStore,
+        expressions: &[BoundExpressionId],
+    ) -> bray_bound_tree::StoragePlan {
+        use bray_bound_tree::{StorageAccess, StorageAccessPurpose, StorageAccessRoot, StorageBinding,
+            StorageBindingTarget, StorageIdentity, StoragePath, StorageValueConsumptionPhase};
+
+        let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        for expression in expressions.iter().copied() {
+            if matches!(unit.view().expression(expression), Some(BoundExpression::ControlTransfer(_))) {
+                continue;
+            }
+
+            let ty = types.expression(expression).expect("fixture expression has its checked type").ty();
+            let identity = storage.push_identity(StorageIdentity::Temporary(expression)).expect("fixture value identity is local");
+
+            storage.set_identity_type(identity, ty).expect("fixture value retains its checked type");
+            storage.set_value_slot(expression, identity).expect("fixture declares its actual evaluated output");
+
+            storage.push_access(StorageAccess::new(StorageAccessRoot::Storage(identity), [], ty,
+                unit.key().source(), false)).expect("fixture evaluated output access is local");
+        }
+
+        for entry in selections.entries().iter().filter(|entry| entry.selection().stages_inputs()) {
+            let expression = entry.expression();
+
+            for input in entry.selection().inputs() {
+                let ordinal = entry.selection().input_ordinal(input.root()).expect("fixture input has its ordinal");
+                let occurrence = bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal };
+                let ty = input.ty(values);
+
+                let identity = storage.push_identity(StorageIdentity::InvocationInput { expression, ordinal })
+                    .expect("fixture private input identity is local");
+
+                storage.set_identity_type(identity, ty).expect("fixture private input retains its target type");
+
+                storage.bind(StorageBindingTarget::InvocationInput { expression, ordinal }, StorageBinding::Identity(identity))
+                    .expect("fixture binds the selected private input");
+
+                let access = storage.push_access(StorageAccess::new(StorageAccessRoot::Storage(identity), [], ty,
+                    unit.key().source(), false)).expect("fixture private input access is local");
+
+                if let Some(source) = input.expression() {
+                    let source_root = storage.value_slot(source).expect("fixture explicit input has its produced value slot");
+                    let source_ty = types.expression(source).expect("fixture input source has its checked type").ty();
+
+                    let source_access = storage.push_access(StorageAccess::new(StorageAccessRoot::Storage(source_root), [], source_ty,
+                        unit.key().source(), false)).expect("fixture source access names its produced value");
+
+                    storage.plan_occurrence_access(occurrence, source, StorageAccessPurpose::ValueTransfer, source_access)
+                        .expect("fixture stage captures its actual evaluated source");
+
+                    storage.consume_value(occurrence, StorageValueConsumptionPhase::Completion, StoragePath::root(source_root))
+                        .expect("fixture stage consumes its produced source after capture");
+                }
+
+                storage.plan_occurrence_access(occurrence, expression, StorageAccessPurpose::Initialize, access)
+                    .expect("fixture stage publishes the private input");
+
+                storage.plan_occurrence_access(expression.into(), expression, StorageAccessPurpose::ValueTransfer, access)
+                    .expect("fixture callee receives the actual staged input");
+
+                storage.consume_value(expression.into(), StorageValueConsumptionPhase::Admission, StoragePath::root(identity))
+                    .expect("fixture admission consumes the private handle");
+            }
+        }
+
+        storage.finish()
     }
 
     fn constant_value(

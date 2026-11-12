@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundCallableTarget, BoundExpressionId, SelectedOperation, SemanticSelection, StorageAccessId,
-    StorageAccessPurpose, StorageIdentity,
+    StorageAccessPurpose, StorageIdentity, StorageValueConsumptionPhase,
 };
 use bray_symbols::{BorrowKind, ReceiverMode, TypeData};
 
@@ -36,8 +36,19 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             ))
         );
 
+        let observational = matches!(semantic_selection, Some(SemanticSelection::Predicate(_)))
+            || selection.is_some_and(|call| matches!(call.target(), BoundCallableTarget::Predicate(_)));
+
+        assert!(selection.is_none_or(|call| !call.stages_inputs()),
+            "runtime selected calls plan their private inputs before admission");
+
+        let phase = self.value_consumer_phase(id);
+
         if !direct {
             self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
+
+            self.consume_expression_value(id.into(), phase,
+                callee, StorageAccessPurpose::Read);
         }
 
         if let Some(receiver) = selection.and_then(bray_bound_tree::SelectedCall::receiver) {
@@ -46,6 +57,9 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 receiver.expression(),
                 Self::call_receiver_purpose(receiver.mode()),
             )?;
+
+            self.consume_expression_value(id.into(), phase,
+                receiver.expression(), Self::call_receiver_purpose(receiver.mode()));
         }
 
         let mut reborrows = selection
@@ -56,18 +70,22 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 bray_bound_tree::SelectedArgument::Default { .. } => None,
             });
 
-        let observational = matches!(semantic_selection, Some(SemanticSelection::Predicate(_)))
-            || selection
-                .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Predicate(_)));
-
         for argument in arguments {
-            if observational {
+            let purpose = if observational {
                 self.plan_expression(argument, Some(StorageAccessPurpose::Read))?;
+
+                StorageAccessPurpose::Read
             } else if let Some(kind) = reborrows.next().flatten() {
                 self.plan_call_reborrow(argument, kind)?;
+
+                StorageAccessPurpose::Borrow(kind)
             } else {
                 self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
-            }
+
+                StorageAccessPurpose::ValueTransfer
+            };
+
+            self.consume_expression_value(id.into(), phase, argument, purpose);
         }
 
         self.temporary_access(id)
@@ -128,6 +146,16 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         self.builder_mut()
             .plan_occurrence_access(occurrence, expression, purpose, source)
             .unwrap_or_else(|error| panic!("input access must match its invocation: {error:?}"));
+
+        if occurrence != expression.into() {
+            let phase = if matches!(occurrence, bray_bound_tree::BoundExecutionSite::CallInput { .. }) {
+                StorageValueConsumptionPhase::Completion
+            } else {
+                StorageValueConsumptionPhase::Admission
+            };
+
+            self.consume_expression_value(occurrence, phase, expression, purpose);
+        }
 
         Ok(source)
     }
@@ -231,6 +259,17 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 StorageAccessPurpose::ValueTransfer,
                 capability,
             ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
+
+        let bray_bound_tree::StorageAccessRoot::Storage(root) = self.builder().access(capability)
+            .expect("scoped entry retains its produced access").root()
+        else {
+            unreachable!("scoped entry produces an owned capability slot");
+        };
+
+        self.builder_mut().consume_value(
+            bray_bound_tree::BoundExecutionSite::ScopedExit(id), StorageValueConsumptionPhase::Admission,
+            bray_bound_tree::StoragePath::root(root),
+        ).expect("scoped exit consumes the actual admitted capability result");
 
         self.plan_pattern(*pattern, id, capability)?;
         self.plan_block(*body)?;

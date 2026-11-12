@@ -1,0 +1,276 @@
+trusted module async_ownership_composition;
+
+using core.atomic;
+using std.run;
+using std.task;
+using std.thread;
+
+internal static CHILD_STARTED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static CHILD_FINALIZED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static CHILD_DESTROYED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static BODY_RETURNED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static LEXICAL_CLEANUP: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static RETURNED_FINALIZED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static RETURNED_DESTROYED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static INACTIVE_BODIES: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static SCOPED_EXITS: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+struct Marker
+{
+}
+
+trusted predicate retained(marker: &Marker);
+
+trusted predicate coherent(owner: &ChildCleanup);
+
+struct ChildCleanup
+{
+    marker: Marker;
+    cancelled: bool;
+    mut visits: u32;
+
+    trusted mut async func advance()
+        requires(main_thread_execution(), trusted retained(marker = &self.marker), trusted coherent(owner = &self))
+        ensures(trusted retained(marker = &self.marker), trusted coherent(owner = &self))
+    {
+        await direct();
+        self.visits += 1;
+        observe(&self);
+    }
+
+    async finalize()
+        requires(main_thread_execution(), trusted retained(marker = &self.marker))
+    {
+        assert(std.thread.is_main());
+        assert(std.run.cancellation_requested() == self.cancelled);
+        await std.task.yield_now();
+        assert(std.thread.is_main());
+
+        if self.cancelled
+        {
+            assert(core.atomic.fetch_add<u32, 3>(&CHILD_FINALIZED, 1) == 0);
+        }
+        else
+        {
+            assert(core.atomic.fetch_add<u32, 3>(&RETURNED_FINALIZED, 1) == 0);
+        }
+    }
+
+    destruct()
+        requires(main_thread_execution(), trusted retained(marker = &self.marker))
+    {
+        assert(std.thread.is_main());
+
+        if self.cancelled
+        {
+            assert(core.atomic.load<u32, 1>(&CHILD_FINALIZED) == 1);
+            assert(core.atomic.fetch_add<u32, 3>(&CHILD_DESTROYED, 1) == 0);
+        }
+        else
+        {
+            assert(core.atomic.load<u32, 1>(&RETURNED_FINALIZED) == 1);
+            assert(core.atomic.fetch_add<u32, 3>(&RETURNED_DESTROYED, 1) == 0);
+        }
+    }
+}
+
+trusted func acquire(pos cancelled: bool) -> ChildCleanup
+    ensures(trusted retained(marker = &result.marker), trusted coherent(owner = &result))
+{
+    return
+    {
+        marker = Marker
+        {
+        },
+        cancelled = cancelled,
+        visits = 0
+    };
+}
+
+func observe(pos owner: &ChildCleanup)
+    requires(trusted retained(marker = &owner.marker))
+{
+}
+
+func observe_whole(pos owner: &ChildCleanup)
+    requires(trusted coherent(owner = owner))
+{
+}
+
+struct ScopedOwner
+{
+    owner: ChildCleanup;
+
+    async consume enter() -> ChildCleanup
+        requires(main_thread_execution(), trusted retained(marker = &self.owner.marker))
+        ensures(trusted retained(marker = &result.marker))
+    {
+        await direct();
+        return self.owner;
+    }
+
+    async exit(pos owner: ChildCleanup)
+        requires(main_thread_execution(), trusted retained(marker = &owner.marker))
+    {
+        assert(std.run.cancellation_requested());
+        await direct();
+        observe(&owner);
+        assert(core.atomic.fetch_add<u32, 3>(&SCOPED_EXITS, 1) == 0);
+    }
+}
+
+struct RootCleanup
+{
+    destruct()
+        requires(main_thread_execution())
+    {
+        assert(std.thread.is_main());
+        assert(core.atomic.load<u32, 1>(&BODY_RETURNED) == 1);
+        assert(core.atomic.load<u32, 1>(&CHILD_DESTROYED) == 1);
+        assert(core.atomic.load<u32, 1>(&SCOPED_EXITS) == 1);
+        assert(core.atomic.load<u32, 1>(&RETURNED_DESTROYED) == 1);
+        assert(core.atomic.load<u32, 1>(&INACTIVE_BODIES) == 0);
+        assert(core.atomic.fetch_add<u32, 3>(&LEXICAL_CLEANUP, 1) == 0);
+    }
+}
+
+struct StaticCleanup
+{
+    value: u32;
+
+    destruct()
+        requires(main_thread_execution())
+    {
+        assert(std.thread.is_main());
+        assert(core.atomic.load<u32, 1>(&LEXICAL_CLEANUP) == self.value);
+    }
+}
+
+static FINAL_OBSERVER: StaticCleanup =
+{
+    value = 1
+};
+
+async func child(pos cleanup: ChildCleanup)
+    requires(main_thread_execution(), trusted retained(marker = &cleanup.marker))
+{
+    let scope: ScopedOwner =
+    {
+        owner = cleanup
+    };
+
+    _ = with owner = scope
+    {
+        core.atomic.store<u32, 2>(&CHILD_STARTED, 1);
+
+        loop
+        {
+            assert(std.thread.is_main());
+            await std.task.yield_now();
+            observe(&owner);
+        }
+    };
+}
+
+async func direct()
+    requires(main_thread_execution())
+{
+    assert(std.thread.is_main());
+    await std.task.yield_now();
+    assert(std.thread.is_main());
+}
+
+async func transport(pos mut owner: ChildCleanup, pos early: bool) -> ChildCleanup
+    requires(main_thread_execution(), trusted retained(marker = &owner.marker), trusted coherent(owner = &owner))
+    ensures(trusted retained(marker = &result.marker), trusted coherent(owner = &result))
+{
+    let mut progress: u32 = 0;
+
+    while progress != 2
+    {
+        await owner.advance();
+        observe(&owner);
+        observe_whole(&owner);
+        progress += 1;
+        assert(owner.visits == progress);
+    }
+
+    if early
+    {
+        return owner;
+    }
+
+    await direct();
+    return owner;
+}
+
+async func inactive(pos owner: ChildCleanup)
+    requires(main_thread_execution(), trusted retained(marker = &owner.marker))
+{
+    _ = core.atomic.fetch_add<u32, 3>(&INACTIVE_BODIES, 1);
+    observe(&owner);
+}
+
+async func produce() -> Future<unit>
+    requires(main_thread_execution())
+{
+    let mut returned_owner = await transport(acquire(false), true);
+    await returned_owner.advance();
+    observe_whole(&returned_owner);
+    return inactive(returned_owner);
+}
+
+async func dispose_returned()
+    requires(main_thread_execution())
+{
+    match consume await produce().start().join()
+    {
+        case Completed(pending)
+        {
+        }
+        case Panicked(report)
+        {
+            panic("payload producer panicked");
+        }
+        case Cancelled
+        {
+            panic("payload producer was cancelled");
+        }
+    }
+}
+
+async func main() -> i32
+    requires(main_thread_execution())
+{
+    assert(FINAL_OBSERVER.value == 1);
+
+    let cleanup = RootCleanup
+    {
+    };
+
+    await dispose_returned();
+    assert(core.atomic.load<u32, 1>(&RETURNED_FINALIZED) == 1);
+    assert(core.atomic.load<u32, 1>(&RETURNED_DESTROYED) == 1);
+    assert(core.atomic.load<u32, 1>(&INACTIVE_BODIES) == 0);
+
+    let owner = await transport(acquire(true), false);
+    let pending = child(owner).start();
+
+    await direct();
+
+    while core.atomic.load<u32, 1>(&CHILD_STARTED) == 0
+    {
+        await std.task.yield_now();
+    }
+
+    core.atomic.store<u32, 2>(&BODY_RETURNED, 1);
+    return 0;
+}

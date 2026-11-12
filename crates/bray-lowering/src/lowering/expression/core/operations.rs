@@ -1184,37 +1184,15 @@ impl Lowerer<'_> {
         };
 
         if let Some(receiver) = selection.receiver() {
-            let (lowered, receiver_type) = self.lower_call_receiver(receiver, current)?;
+            let (lowered, _) = self.lower_selected_receiver_input(id, receiver, current, &source)?;
 
-            let Some(continuation) = lowered.block else {
-                return Ok(lowered);
-            };
+            let Some(continuation) = lowered.block else { return Ok(lowered); };
 
             current = continuation;
-
-            let Some(operand) = lowered.value else {
-                panic!(
-                    "lowering contract violation: MissingOperationResult {value:?}",
-                    value = receiver.expression()
-                );
-            };
-
-            let input = bray_bound_tree::BoundExecutionSite::CallInput {
-                expression: id,
-                ordinal: bray_symbols::SymbolOrdinal::new(0),
-            };
-
-            let (continuation, operand) =
-                self.consume_staged_input(input, receiver.expression(), current, &source, operand)?;
-
-            current = continuation;
-
-            let value =
-                self.materialize_call_input(input, current, &source, operand, receiver_type)?;
 
             arguments.push(MirCallArgument::Receiver {
                 parameter: receiver.parameter(),
-                value,
+                value: lowered.value.expect("staged receiver retains its actual input slot"),
             });
         }
 
@@ -1230,59 +1208,17 @@ impl Lowerer<'_> {
                         &mut arguments,
                     )?;
                 }
-                SelectedArgument::Explicit {
-                    expression,
-                    parameter,
-                    ordinal,
-                    conversion,
-                    reborrow,
-                } => {
-                    let lowered = self.lower_call_argument(*expression, *reborrow, current)?;
+                SelectedArgument::Explicit { parameter, ordinal, .. } => {
+                    let lowered = self.lower_selected_argument_input(id, argument, current, &source)?;
 
-                    let Some(continuation) = lowered.block else {
-                        return Ok(lowered);
-                    };
+                    let Some(continuation) = lowered.block else { return Ok(lowered); };
 
                     current = continuation;
-
-                    let Some(operand) = lowered.value else {
-                        panic!(
-                            "lowering contract violation: MissingOperationResult {value:?}",
-                            value = *expression
-                        );
-                    };
-
-                    let input = selection
-                        .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
-                            bray_symbols::SymbolOrdinal::new(*ordinal),
-                        ))
-                        .expect("selected argument has its input ordinal");
-
-                    let input = bray_bound_tree::BoundExecutionSite::CallInput {
-                        expression: id,
-                        ordinal: input,
-                    };
-
-                    let (continuation, operand) =
-                        self.consume_staged_input(input, *expression, current, &source, operand)?;
-
-                    let (continuation, value) = self.convert_operand(
-                        id,
-                        continuation,
-                        Self::retained_source(&source),
-                        operand,
-                        conversion,
-                    )?;
-
-                    current = continuation;
-
-                    let ty = self.builder.operand_type(&value);
-                    let value = self.materialize_call_input(input, current, &source, value, ty)?;
 
                     arguments.push(MirCallArgument::Explicit {
                         parameter: *parameter,
                         ordinal: *ordinal,
-                        value,
+                        value: lowered.value.expect("staged argument retains its actual input slot"),
                     });
                 }
             }
@@ -1793,6 +1729,7 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         }
         StorageIdentity::Result(_) => MirStorageKind::Return,
         StorageIdentity::Temporary(_)
+        | StorageIdentity::Evaluated(_)
         | StorageIdentity::InvocationInput { .. }
         | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::PostconditionResult(_)

@@ -687,7 +687,7 @@ mod tests {
     }
 
     #[test]
-    fn temporary_lookup_preserves_first_matching_type_and_shared_indices() {
+    fn temporary_lookup_uses_the_declared_value_slot_and_shared_indices() {
         let mut expression = None;
 
         let unit = test_runtime_default_unit(41, |tree, origin| {
@@ -714,9 +714,10 @@ mod tests {
         let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
         let mut identities = Vec::new();
 
-        for ty in [first_type, second_type, second_type] {
+        for (index, ty) in [first_type, second_type, second_type].into_iter().enumerate() {
             let identity = storage
-                .push_identity(StorageIdentity::Temporary(expression))
+                .push_identity(if index == 2 { StorageIdentity::Evaluated(expression) }
+                    else { StorageIdentity::Temporary(expression) })
                 .expect("fixture identity must fit its identity space");
 
             storage
@@ -725,6 +726,9 @@ mod tests {
 
             identities.push(identity);
         }
+
+        storage.set_value_slot(expression, identities[2])
+            .expect("fixture declares one actual evaluated result independently of source temporaries");
 
         analysis.storage = storage.finish();
 
@@ -735,12 +739,12 @@ mod tests {
 
         assert_eq!(
             input.temporary_storage(expression, first_type),
-            Some(identities[0])
+            None
         );
 
         assert_eq!(
             input.temporary_storage(expression, second_type),
-            Some(identities[1])
+            Some(identities[2])
         );
 
         assert!(std::sync::Arc::ptr_eq(

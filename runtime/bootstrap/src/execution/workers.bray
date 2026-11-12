@@ -1,0 +1,81 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using core.target;
+using internal std.sync;
+using internal std.sync.once;
+using internal bray.runtime.bootstrap.worker;
+using internal bray.runtime.bootstrap.scheduler;
+
+trusted internal func ensure_workers(pos owner: &bray.runtime.bootstrap.execution.Reference) -> u32
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.entry.native_entry()
+    )
+    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+{
+    let value = trusted domain(owner);
+
+    if core.atomic.load<usize, 1>(&value.owners) == 0
+    {
+        return 4;
+    }
+
+    match consume trusted value.workers.claim()
+    {
+        case none { return 0; }
+        case ?attempt
+        {
+            let callback: bray.runtime.bootstrap.worker.Callback =
+            {
+                context = 0,
+                call = worker_callback
+            };
+
+            match consume bray.runtime.bootstrap.worker.create_execution(trusted pin(owner), callback)
+            {
+                case Ok(service)
+                {
+                    _ = trusted attempt.publish(service);
+
+                    return 0;
+                }
+                case Error((rejected, status))
+                {
+                    _ = trusted release_pin(rejected);
+
+                    return status;
+                }
+            }
+        }
+    }
+}
+
+// The generated host selects this role before publishing user tasks.
+@abi(c)
+trusted internal func workers_startup() -> u32
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    if !has_execution(&selected)
+    {
+        return 1;
+    }
+
+    return trusted ensure_workers(trusted bound_execution(&selected));
+}

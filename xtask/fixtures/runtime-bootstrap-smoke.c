@@ -297,9 +297,8 @@ struct RunOutcome
 _Static_assert(sizeof(PanicReport) == 168, "native report layout");
 _Static_assert(sizeof(RunOutcome) == 184, "native outcome layout");
 
-extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
+extern uint32_t bray_runtime_initialization(void);
 
-static uint32_t substrate_initialized;
 static atomic_uint cleanup_shield_balance;
 
 extern void bray_runtime_cleanup_shield_enter(void);
@@ -332,28 +331,7 @@ static uint32_t execution_control(uint32_t operation)
     return 0;
 }
 
-uint32_t bray_runtime_substrate_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity)
-{
-    (void)worker_capacity;
-    (void)timer_capacity;
-
-    if (substrate_initialized != 0)
-        return 2;
-
-    substrate_initialized = 1;
-
-    return 0;
-}
-
-uint32_t bray_runtime_execution_shutdown(void)
-{
-    if (substrate_initialized == 0)
-        return 1;
-
-    substrate_initialized = 0;
-
-    return 0;
-}
+extern uint32_t bray_runtime_execution_shutdown(void);
 
 extern uint32_t bray_runtime_panic_reporting(PanicReport*);
 extern uint32_t bray_runtime_panic_report_destruction(PanicReport*);
@@ -383,7 +361,7 @@ static uint32_t shutdown_product(void)
 
     uint32_t host = bray_runtime_structured_shutdown();
 
-    return host == 0 ? execution : host;
+    return host;
 }
 
 typedef struct
@@ -1166,7 +1144,7 @@ static int check_concurrent_attachments(void)
 
 static int check_pool_retirement(void)
 {
-    if (bray_runtime_initialization(1, 1) != 0)
+    if (bray_runtime_initialization() != 0)
         return 42;
 
     RunOutcome outcome = {0};
@@ -1201,7 +1179,7 @@ static int check_pool_retirement(void)
     atomic_store(&reject_allocations, 0);
 
     // A new epoch must allocate a usable pool after the previous one released its backing.
-    if (bray_runtime_initialization(1, 1) != 0)
+    if (bray_runtime_initialization() != 0)
         return 46;
 
     bray_runtime_outgoing_admission(&(CleanupBundle){ 1, NULL, 0 }, &outcome);
@@ -1379,17 +1357,32 @@ typedef struct
     uint64_t origin;
 } ActivationExecution;
 
-typedef uint32_t (*ActivationReady)(const ActivationExecution*);
+typedef struct ActivationInvocation ActivationInvocation;
+typedef void (*ActivationReady)(ActivationInvocation*);
 
-typedef void (*ActivationCallback)(
-    const ActivationExecution*,
-    const ActivationDescriptor*,
-    uintptr_t,
-    uint32_t,
-    uintptr_t,
-    ActivationProgress*,
-    ActivationRecords*
-);
+typedef struct
+{
+    uint32_t tag;
+    union
+    {
+        uint32_t cleanup_exit;
+        uintptr_t destination;
+    } value;
+} ActivationOperation;
+
+typedef struct ActivationInvocation
+{
+    const ActivationExecution* execution;
+    const ActivationDescriptor* descriptor;
+    uintptr_t context;
+    ActivationOperation operation;
+    ActivationProgress* progress;
+    ActivationRecords* records;
+    uint32_t admission;
+} ActivationInvocation;
+
+typedef void (*ActivationCallback)(ActivationInvocation*);
+
 
 extern uint32_t bray_runtime_activation_snapshot(const ActivationHeader*, uint32_t, uint32_t, uintptr_t, ActivationExecution*);
 extern uint32_t bray_runtime_activation_inspection(const InactiveActivation*, uint32_t, uint32_t, uintptr_t, ActivationExecution*);
@@ -1448,24 +1441,33 @@ static const struct
 
 // This fixture's attached cooperative lane admits no blocking/compute or main
 // work. Origin-affine callbacks must use this exact native thread attachment.
-static uint32_t activation_ready(const ActivationExecution* execution)
+static void activation_ready(ActivationInvocation* invocation)
 {
-    return execution->address != 0 &&
+    const ActivationExecution* execution = invocation->execution;
+
+    invocation->admission = execution->address != 0 &&
         execution->requirements.lanes == 0 &&
         execution->requirements.affinity <= 1 &&
         execution->origin == bray_runtime_current_native_thread_identity() ? 0 : 6;
+
+    return;
 }
 
-static void activation_callback(
-    const ActivationExecution* execution,
-    const ActivationDescriptor* descriptor,
-    uintptr_t context,
-    uint32_t operation,
-    uintptr_t argument,
-    ActivationProgress* progress,
-    ActivationRecords* records
-)
+static void activation_callback(ActivationInvocation* invocation)
 {
+    const ActivationExecution* execution = invocation->execution;
+    const ActivationDescriptor* descriptor = invocation->descriptor;
+    uintptr_t context = invocation->context;
+    uint32_t operation = invocation->operation.tag;
+    uintptr_t argument = 0;
+
+    if (operation == 3)
+        argument = invocation->operation.value.cleanup_exit;
+    else if (operation == 4)
+        argument = invocation->operation.value.destination;
+    ActivationProgress* progress = invocation->progress;
+    ActivationRecords* records = invocation->records;
+
     ActivationHeader* header = (ActivationHeader*)context;
 
     if (operation != 4)
@@ -1506,20 +1508,16 @@ static void activation_callback(
     header->broadcasted = 1;
 
     *progress = (ActivationProgress){ .kind = operation == 3 ? 0 : 1, .state = 7 };
+    return;
 }
 
-static void activation_move_failure(
-    const ActivationExecution* execution,
-    const ActivationDescriptor* descriptor,
-    uintptr_t context,
-    uint32_t operation,
-    uintptr_t argument,
-    ActivationProgress* progress,
-    ActivationRecords* records
-)
+static void activation_move_failure(ActivationInvocation* invocation)
 {
-    (void)descriptor;
-    (void)records;
+    const ActivationExecution* execution = invocation->execution;
+    uintptr_t context = invocation->context;
+    uint32_t operation = invocation->operation.tag;
+    uintptr_t argument = invocation->operation.value.destination;
+    ActivationProgress* progress = invocation->progress;
 
     if (operation != 4 || execution->address != context || argument == 0)
         abort();
@@ -1529,6 +1527,7 @@ static void activation_move_failure(
         .kind = 3,
         .report = { .cause = 1, .primary_present = 1, .consume = bray_runtime_report_consumer },
     };
+    return;
 }
 
 static int check_activation_deferral(ActivationHeader* header, ActivationCallback callback)
@@ -1927,12 +1926,16 @@ static int check_activation_snapshot(ActivationHeader* header)
     return 0;
 }
 
-static uint32_t composition_ready(const ActivationExecution* execution)
+static void composition_ready(ActivationInvocation* invocation)
 {
-    return execution->address != 0 &&
+    const ActivationExecution* execution = invocation->execution;
+
+    invocation->admission = execution->address != 0 &&
         execution->requirements.affinity == 1 &&
         execution->requirements.lanes == 1 &&
         execution->origin == bray_runtime_current_native_thread_identity() ? 0 : 6;
+
+    return;
 }
 
 static int check_activation_composition(ActivationHeader* parent, InactiveActivation* token)
@@ -2231,20 +2234,22 @@ static void chain_release_report(uintptr_t message, uintptr_t length, RunOutcome
     ++chain_reports_released;
 }
 
-static void chain_callback(
-    const ActivationExecution* execution,
-    const ActivationDescriptor* descriptor,
-    uintptr_t context,
-    uint32_t operation,
-    uintptr_t argument,
-    ActivationProgress* progress,
-    ActivationRecords* records
-)
+static void chain_callback(ActivationInvocation* invocation)
 {
+    const ActivationDescriptor* descriptor = invocation->descriptor;
+    uintptr_t context = invocation->context;
+    uint32_t operation = invocation->operation.tag;
+    uintptr_t argument = 0;
+    ActivationProgress* progress = invocation->progress;
+    ActivationRecords* records = invocation->records;
+
+    if (operation == 3)
+        argument = invocation->operation.value.cleanup_exit;
+    else if (operation == 4)
+        argument = invocation->operation.value.destination;
+
     volatile unsigned char stack_marker = 0;
     uintptr_t stack = (uintptr_t)&stack_marker;
-
-    (void)execution;
 
     if (records->count != 0)
         abort();
@@ -2316,6 +2321,7 @@ static void chain_callback(
         activation_report_retain(0);
         progress->report.provider_callbacks = &activation_report_callbacks;
     }
+    return;
 }
 
 static int check_activation_chain(unsigned depth, enum ChainMode mode)
@@ -3124,9 +3130,12 @@ typedef struct
 _Static_assert(sizeof(TaskReference) == 24, "native task reference layout");
 _Static_assert(sizeof(TaskSnapshot) == 88, "native task snapshot layout");
 
-extern uint64_t bray_runtime_task_control_creation(void);
-extern uint64_t bray_runtime_task_control_admission(uint64_t);
-extern uint32_t bray_runtime_task_control_retention(uint64_t, uint64_t, TaskReference*);
+typedef struct { uintptr_t address; } TaskArenaReference;
+
+extern uint64_t bray_runtime_task_control_creation(TaskArenaReference*);
+extern void bray_runtime_task_control_arena_release(const TaskArenaReference*);
+extern uint64_t bray_runtime_task_control_admission(const TaskArenaReference*);
+extern uint32_t bray_runtime_task_control_retention(const TaskArenaReference*, uint64_t, TaskReference*);
 extern uint32_t bray_runtime_task_control_cancellation(const TaskReference*, uint32_t);
 extern uint32_t bray_runtime_task_control_snapshot(const TaskReference*, TaskSnapshot*);
 extern uint32_t bray_runtime_task_control_wait(const TaskReference*, const TaskReference*, uint8_t);
@@ -3146,16 +3155,17 @@ static int check_task_cancellation(void)
     if (bray_runtime_thread_attachment_enter() != 0)
         return 193;
 
-    uint64_t runtime = bray_runtime_task_control_creation();
+    TaskArenaReference arena = {0};
+    uint64_t runtime = bray_runtime_task_control_creation(&arena);
     size_t previous_bytes = atomic_load(&retained_bytes);
     unsigned setup_attempts = atomic_load(&allocation_attempts);
     uintptr_t cell_stride = UINTPTR_MAX;
 
     for (unsigned index = 0; index < TASKS; ++index)
     {
-        uint64_t handle = bray_runtime_task_control_admission(runtime);
+        uint64_t handle = bray_runtime_task_control_admission(&arena);
 
-        if (runtime == 0 || handle == 0 || bray_runtime_task_control_retention(runtime, handle, &cells[index]) != 0)
+        if (runtime == 0 || handle == 0 || bray_runtime_task_control_retention(&arena, handle, &cells[index]) != 0)
             return 194;
 
         if (index != 0)
@@ -3170,6 +3180,9 @@ static int check_task_cancellation(void)
     }
 
     size_t pooled_bytes = atomic_load(&retained_bytes) - previous_bytes;
+
+    // Cells retain their backing after the independent arena owner retires.
+    bray_runtime_task_control_arena_release(&arena);
 
     printf(
         "task_control admitted=%u cell_stride_bytes=%zu pool_requested_bytes=%zu pool_bytes_per_cell=%.1f setup_allocations=%u\n",
@@ -3240,6 +3253,7 @@ static int check_task_cancellation(void)
 static void check_product_teardown(void);
 static void check_thread_product_teardown(void);
 static void check_shutdown_during_product_admission(void);
+static int check_execution_roots(void);
 
 int main(void)
 {
@@ -3248,7 +3262,7 @@ int main(void)
 
     if (getenv("BRAY_RUNTIME_SMOKE_DEADLINES"))
     {
-        if (bray_runtime_initialization(1, 1) != 0)
+        if (bray_runtime_initialization() != 0)
             return 1;
 
         int status = check_deadline_runtime();
@@ -3320,7 +3334,7 @@ int main(void)
     if (worker_status != 0)
         return worker_status;
 
-    if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_initialization(1, 1) != 2)
+    if (bray_runtime_initialization() != 0 || bray_runtime_initialization() != 2)
         return 1;
 
     int numeric_status = check_numeric_runtime();
@@ -3369,7 +3383,7 @@ int main(void)
     if (shutdown_product() != 1 || shutdown_product() != 1)
         return 5;
 
-    if (bray_runtime_initialization(1, 1) != 0 || shutdown_product() != 0)
+    if (bray_runtime_initialization() != 0 || shutdown_product() != 0)
         return 6;
 
     int retirement_status = check_pool_retirement();
@@ -3377,7 +3391,7 @@ int main(void)
     if (retirement_status != 0)
         return retirement_status;
 
-    if (bray_runtime_initialization(1, 1) != 0)
+    if (bray_runtime_initialization() != 0)
         return 76;
 
     int bundle_status = check_cleanup_bundle();
@@ -3447,6 +3461,11 @@ int main(void)
         return 77;
 
     check_shutdown_during_product_admission();
+
+    int root_status = check_execution_roots();
+
+    if (root_status != 0)
+        return root_status;
 
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0)
         return 7;

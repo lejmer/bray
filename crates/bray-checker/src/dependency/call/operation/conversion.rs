@@ -57,9 +57,9 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                             return Ok(requirements.to_vec());
                         }
 
-                        crate::dependency::witness::map_requirements(
+                        crate::dependency::witness::map_requirements::<std::convert::Infallible>(
                             requirements,
-                            &mut |subject, kind| {
+                            &mut |subject, kind, _| {
                                 // Array elements form one dependency summary. Retain the
                                 // aggregate instead of manufacturing an element identity.
                                 let subject = project_subject(subject, ordinal, shape.as_ref())
@@ -134,7 +134,8 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     .then_some(bray_symbols::ConstantProjectionKind::NullableValue);
 
                 result = result.with_owned_result(bray_symbols::DependencyOwnedResult::Transfer(
-                    bray_symbols::DependencyOwnedTransfer::new(input, output),
+                    bray_symbols::DependencyOwnedTransfer::new(input, output)
+                        .with_preservation(bray_symbols::DependencyValuePreservation::all()),
                 ));
             }
 
@@ -174,32 +175,35 @@ fn project_effect(
 ) -> DependencyStorageEffect {
     // Projection retains the callee's immutable reference suffix and mutation kind.
     match effect {
-        DependencyStorageEffect::Direct { subject, kind } => {
+        DependencyStorageEffect::Direct { subject, kind, access_type } => {
             project_subject(subject, ordinal, shape)
                 .map(|subject| DependencyStorageEffect::Direct {
                     subject,
                     kind: *kind,
+                    access_type: *access_type,
                 })
-                .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind))
+                .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind, *access_type))
         }
         DependencyStorageEffect::Indirect {
             reference,
             projections,
             kind,
+            access_type,
         } => project_subject(reference, ordinal, shape)
             .map(|reference| DependencyStorageEffect::Indirect {
                 reference,
                 projections: std::sync::Arc::clone(projections),
                 kind: *kind,
+                access_type: *access_type,
             })
             // A uniform array summary cannot select one runtime element. Use the
             // existing unresolved-alias meaning, never a path in the element type.
-            .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind)),
-        DependencyStorageEffect::Atomic
+            .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind, *access_type)),
+        DependencyStorageEffect::UnboundedMutation { .. }
+        | DependencyStorageEffect::Atomic
         | DependencyStorageEffect::Escape
         | DependencyStorageEffect::Ambient
-        | DependencyStorageEffect::Unknown
-        | DependencyStorageEffect::Cleanup(_) => effect.clone(),
+        | DependencyStorageEffect::Unknown => effect.clone(),
     }
 }
 

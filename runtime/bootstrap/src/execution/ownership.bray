@@ -1,0 +1,129 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+
+// Publish the native transport from its actual source owner. Copying ordinary
+// address bits never introduces a source claim or a wake lifetime.
+trusted internal func publish_admission(pos owner: &bray.runtime.bootstrap.task.Reference, pos status: u32) -> Admission
+    requires(
+        trusted bray.runtime.bootstrap.task.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = owner)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.task.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = owner),
+        result.status != 0 || trusted resolution_input(owner = &result.task)
+    )
+{
+    return
+    {
+        status = status,
+        task = if status == 0
+        {
+            yield trusted bray.runtime.bootstrap.task.source_claim(owner);
+        }
+        else
+        {
+            yield 0;
+        }
+    };
+}
+
+trusted internal func admit_source_task(
+    pos selected: &Current,
+    pos root: bool
+) -> (bray.runtime.bootstrap.task.Reference?, u32)
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained_option(owner = &result.0),
+        trusted bray.runtime.bootstrap.task.resolution_owner_option(owner = &result.0)
+    )
+{
+    let execution = trusted domain(bound_execution(selected));
+    let admitted = catch trusted bray.runtime.bootstrap.task.admit(&execution.arena);
+
+    let reference = match consume admitted
+    {
+        case Ok(acquired) { yield acquired; }
+        case Error(_) { return (none, 4); }
+    };
+
+    if reference matches none
+    {
+        return (none, 4);
+    }
+
+    let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
+
+    let status = trusted admit_task_context(selected, &owner, root);
+
+    if status != 0
+    {
+        _ = trusted bray.runtime.bootstrap.task.destroy_claim(&owner);
+        _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
+        return (none, status);
+    }
+
+    let source: bray.runtime.bootstrap.task.Reference? = owner;
+
+    return (source, 0);
+}
+
+trusted internal func admit_task_context(
+    pos selected: &Current,
+    pos reference: &bray.runtime.bootstrap.task.Reference,
+    pos root: bool
+) -> u32
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
+    )
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
+    uses(foreign_call)
+{
+    trusted bray.runtime.bootstrap.task.attach_execution(reference, trusted pin(bound_execution(selected)));
+
+    let execution = trusted bray.runtime.bootstrap.task.execution_reference(reference);
+    let admission = trusted context_admission(execution);
+
+    if let ?accept = admission
+    {
+        let owner = trusted bray.runtime.bootstrap.task.duplicate_reference(reference);
+
+        return trusted accept(
+            owner,
+            if root
+            {
+                yield 1;
+            }
+            else
+            {
+                yield 0;
+            }
+        );
+    }
+
+    return 0;
+}

@@ -9,6 +9,8 @@ pub enum StorageOrigin {
         reference: StoragePath,
         /// Successive borrow layers identify distinct entry snapshots at the same path.
         layer: usize,
+        /// The declared reference category at this exact incoming slot.
+        kind: bray_symbols::DependencyReferenceKind,
         /// Components reached within that original referent.
         projections: std::sync::Arc<[crate::StorageProjection]>,
     },
@@ -29,7 +31,12 @@ pub enum StorageOrigin {
     /// A value slot directly belonging to this semantic unit.
     Storage(StoragePath),
     /// An allocation created by one checked operation.
-    Allocation(StoragePath),
+    Allocation {
+        /// The checked producer slot identifying this allocation.
+        allocation: StoragePath,
+        /// Components within the allocation, independently of its producer slot.
+        projections: std::sync::Arc<[StorageProjection]>,
+    },
 }
 
 /// `previous` summarizes older executions of one creation site. It is never a must-alias.
@@ -44,10 +51,11 @@ pub struct StorageTarget {
 
 impl StorageOrigin {
     /// Creates the first referent supplied through this entry reference.
-    pub fn entry(reference: StoragePath) -> Self {
+    pub fn entry(reference: StoragePath, kind: bray_symbols::DependencyReferenceKind) -> Self {
         Self::Entry {
             reference,
             layer: 1,
+            kind,
             projections: std::sync::Arc::from([]),
         }
     }
@@ -58,13 +66,20 @@ impl StorageTarget {
         match &self.origin {
             StorageOrigin::Static { root, projections } => {
                 !self.previous
-                    && matches!(root, bray_symbols::DependencySubjectRoot::ProductStatic(_)
-                        | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_))
-                    && projections.iter().all(|projection| projection.is_valid_for(unit))
+                    && matches!(
+                        root,
+                        bray_symbols::DependencySubjectRoot::ProductStatic(_)
+                            | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
+                    )
+                    && projections
+                        .iter()
+                        .all(|projection| projection.is_valid_for(unit))
             }
-            StorageOrigin::Storage(path) | StorageOrigin::Allocation(path) => {
+            StorageOrigin::Storage(path) => {
                 path.is_valid_for(unit)
             }
+            StorageOrigin::Allocation { allocation, projections } => allocation.is_valid_for(unit)
+                && projections.iter().all(|projection| projection.is_valid_for(unit)),
             StorageOrigin::Entry {
                 reference,
                 projections,
@@ -107,6 +122,7 @@ impl StorageTarget {
                 reference,
                 layer: 1,
                 projections,
+                            ..
             } if reference.projections.is_empty()
                 && StoragePath::inline_projections(projections)
                 && matches!(
@@ -146,6 +162,7 @@ impl StorageTarget {
                 reference,
                 layer: 1,
                 projections,
+                            ..
             } if reference.projections.is_empty()
                 && StoragePath::inline_projections(projections) =>
             {
@@ -192,16 +209,20 @@ impl StorageTarget {
                     reference.is_exact()
                         && projections.iter().all(|projection| projection.is_exact())
                 }
-                StorageOrigin::Storage(place) | StorageOrigin::Allocation(place) => {
+                StorageOrigin::Storage(place) => {
                     place.is_exact()
                 }
+                StorageOrigin::Allocation { allocation, projections } => allocation.is_exact()
+                    && projections.iter().all(|projection| projection.is_exact()),
                 StorageOrigin::Static { projections, .. } => {
                     projections.iter().all(|projection| projection.is_exact())
                 }
             }
     }
 
-    /// Returns the value observation supplied by a direct slot or one entry borrow layer.
+    /// Returns a direct slot or first incoming-reference layer structurally.
+    /// Interpreting an entry as a logical value also requires its declared storage type.
+    /// A raw pointer's pointee is distinct from the pointer descriptor.
     pub fn observation_path(&self) -> Option<StoragePath> {
         if self.previous || self.projections().contains(&StorageProjection::OwnedTarget) {
             return None;
@@ -213,10 +234,30 @@ impl StorageTarget {
                 reference,
                 projections,
                 layer: 1,
+                            ..
             } if reference.projections.is_empty() => Some(StoragePath {
                 root: reference.root,
                 projections: projections.clone(),
             }),
+            _ => None,
+        }
+    }
+
+    /// Returns the logical value observed through an incoming borrow.
+    /// Nested entry snapshots cannot be rebound through a descriptor's current slot.
+    /// Raw addresses retain their distinct pointee identity.
+    pub fn value_observation_path(&self) -> Option<StoragePath> {
+        if self.previous || self.projections().contains(&StorageProjection::OwnedTarget) {
+            return None;
+        }
+
+        match &self.origin {
+            StorageOrigin::Storage(path) => Some(path.clone()),
+            StorageOrigin::Entry { reference, layer: 1, kind: bray_symbols::DependencyReferenceKind::Borrow, projections }
+                if reference.projections.is_empty() => Some(StoragePath {
+                    root: reference.root,
+                    projections: projections.clone(),
+                }),
             _ => None,
         }
     }
@@ -226,8 +267,9 @@ impl StorageTarget {
         match &self.origin {
             StorageOrigin::Entry { projections, .. }
             | StorageOrigin::Returned { projections, .. }
-            | StorageOrigin::Static { projections, .. } => projections,
-            StorageOrigin::Storage(place) | StorageOrigin::Allocation(place) => &place.projections,
+            | StorageOrigin::Static { projections, .. }
+            | StorageOrigin::Allocation { projections, .. } => projections,
+            StorageOrigin::Storage(place) => &place.projections,
         }
     }
 
@@ -245,10 +287,7 @@ impl StorageTarget {
         match &mut region.origin {
             StorageOrigin::Returned {
                 projections: path, ..
-            } => *path = projections[..boundary.unwrap_or(0)].into(),
-            StorageOrigin::Allocation(place) => {
-                place.projections = projections[..boundary.unwrap_or(0)].into()
-            }
+            } | StorageOrigin::Allocation { projections: path, .. } => *path = projections[..boundary.unwrap_or(0)].into(),
             StorageOrigin::Entry {
                 projections: path, ..
             }
@@ -285,11 +324,13 @@ impl StorageTarget {
                     reference: left,
                     layer: left_layer,
                     projections: left_path,
+                                    ..
                 },
                 StorageOrigin::Entry {
                     reference: right,
                     layer: right_layer,
                     projections: right_path,
+                                    ..
                 },
             ) if left == right && left_layer == right_layer => {
                 region_relationship(left_path, right_path)
@@ -307,8 +348,8 @@ impl StorageTarget {
             (StorageOrigin::Returned { .. }, _) | (_, StorageOrigin::Returned { .. }) => {
                 StorageRelationship::PotentiallyOverlapping
             }
-            (StorageOrigin::Entry { .. }, StorageOrigin::Allocation(_))
-            | (StorageOrigin::Allocation(_), StorageOrigin::Entry { .. }) => {
+            (StorageOrigin::Entry { .. }, StorageOrigin::Allocation { .. })
+            | (StorageOrigin::Allocation { .. }, StorageOrigin::Entry { .. }) => {
                 // Entry referents predate allocations created by this unit. Later
                 // stores retain explicit aliases to the allocation's own identity.
                 StorageRelationship::Disjoint
@@ -317,11 +358,21 @@ impl StorageTarget {
                 StorageRelationship::PotentiallyOverlapping
             }
             (
-                StorageOrigin::Static { root: left, projections: left_path },
-                StorageOrigin::Static { root: right, projections: right_path },
+                StorageOrigin::Static {
+                    root: left,
+                    projections: left_path,
+                },
+                StorageOrigin::Static {
+                    root: right,
+                    projections: right_path,
+                },
             ) if left == right => region_relationship(left_path, right_path),
-            (StorageOrigin::Storage(left), StorageOrigin::Storage(right))
-            | (StorageOrigin::Allocation(left), StorageOrigin::Allocation(right)) => {
+            (StorageOrigin::Allocation { allocation: left, projections: left_path },
+                StorageOrigin::Allocation { allocation: right, projections: right_path }) => {
+                if left == right { region_relationship(left_path, right_path) }
+                else { StorageRelationship::Disjoint }
+            }
+            (StorageOrigin::Storage(left), StorageOrigin::Storage(right)) => {
                 if left.root != right.root {
                     StorageRelationship::Disjoint
                 } else {
@@ -344,11 +395,13 @@ impl StorageTarget {
                     reference: left,
                     layer: left_layer,
                     projections: prefix,
+                                    ..
                 },
                 StorageOrigin::Entry {
                     reference: right,
                     layer: right_layer,
                     projections,
+                                    ..
                 },
             ) => left == right && left_layer == right_layer && projections.starts_with(prefix),
             (
@@ -361,13 +414,20 @@ impl StorageTarget {
                     projections,
                 },
             ) => left == right && projections.starts_with(prefix),
-            (StorageOrigin::Storage(left), StorageOrigin::Storage(right))
-            | (StorageOrigin::Allocation(left), StorageOrigin::Allocation(right)) => {
+            (StorageOrigin::Allocation { allocation: left, projections: prefix },
+                StorageOrigin::Allocation { allocation: right, projections }) => left == right && projections.starts_with(prefix),
+            (StorageOrigin::Storage(left), StorageOrigin::Storage(right)) => {
                 left.contains(right)
             }
             (
-                StorageOrigin::Static { root: left, projections: prefix },
-                StorageOrigin::Static { root: right, projections },
+                StorageOrigin::Static {
+                    root: left,
+                    projections: prefix,
+                },
+                StorageOrigin::Static {
+                    root: right,
+                    projections,
+                },
             ) => left == right && projections.starts_with(prefix),
             _ => false,
         }
@@ -387,11 +447,13 @@ impl StorageTarget {
             StorageOrigin::Entry {
                 reference,
                 layer,
+                kind,
                 projections: prefix,
             } => StorageOrigin::Entry {
                 // The original reference identity survives later assignments to its source slot.
                 reference: reference.clone(),
                 layer: *layer,
+                kind: *kind,
                 projections: append(prefix),
             },
             StorageOrigin::Returned {
@@ -402,8 +464,13 @@ impl StorageTarget {
                 projections: append(prefix),
             },
             StorageOrigin::Storage(place) => StorageOrigin::Storage(path(place)),
-            StorageOrigin::Allocation(place) => StorageOrigin::Allocation(path(place)),
-            StorageOrigin::Static { root, projections: prefix } => StorageOrigin::Static {
+            StorageOrigin::Allocation { allocation, projections: prefix } => StorageOrigin::Allocation {
+                allocation: allocation.clone(), projections: append(prefix),
+            },
+            StorageOrigin::Static {
+                root,
+                projections: prefix,
+            } => StorageOrigin::Static {
                 root: *root,
                 projections: append(prefix),
             },
@@ -446,15 +513,49 @@ mod tests {
     }
 
     #[test]
+    fn entry_reference_kind_separates_values_from_raw_addresses() {
+        let reference = slot(0);
+        let component = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let borrowed = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(reference.clone(), bray_symbols::DependencyReferenceKind::Borrow),
+        }.project(&[component]);
+        let address = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(reference.clone(), bray_symbols::DependencyReferenceKind::Address),
+        }.project(&[component]);
+
+        assert_eq!(borrowed.value_observation_path(), Some(StoragePath {
+            root: reference.root,
+            projections: [component].into(),
+        }));
+        assert!(address.value_observation_path().is_none());
+        assert_eq!(borrowed.relationship(&address), StorageRelationship::Identical);
+        assert!(StorageTarget { previous: true, ..borrowed }.value_observation_path().is_none());
+
+        let nested = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(StoragePath {
+                root: reference.root,
+                projections: [StorageProjection::NullableValue].into(),
+            }, bray_symbols::DependencyReferenceKind::Borrow),
+        };
+
+        // The descriptor's current slot can be overwritten after entry. It
+        // cannot stand in for the captured referent of this incoming borrow.
+        assert!(nested.value_observation_path().is_none());
+    }
+
+    #[test]
     fn independent_reference_slots_do_not_prove_disjoint_referents() {
         let left = StorageTarget {
             previous: false,
-            origin: StorageOrigin::entry(slot(0)),
+            origin: StorageOrigin::entry(slot(0), bray_symbols::DependencyReferenceKind::Address),
         };
 
         let right = StorageTarget {
             previous: false,
-            origin: StorageOrigin::entry(slot(1)),
+            origin: StorageOrigin::entry(slot(1), bray_symbols::DependencyReferenceKind::Address),
         };
 
         assert!(left.is_exact());
@@ -472,7 +573,7 @@ mod tests {
     fn projected_entry_snapshots_keep_their_epoch_and_borrow_layer() {
         let current = StorageTarget {
             previous: false,
-            origin: StorageOrigin::entry(slot(0)),
+            origin: StorageOrigin::entry(slot(0), bray_symbols::DependencyReferenceKind::Address),
         };
 
         let projected = current.project(&[StorageProjection::TupleElement(SymbolOrdinal::new(1))]);
@@ -487,6 +588,7 @@ mod tests {
             origin: StorageOrigin::Entry {
                 reference: slot(0),
                 layer: 2,
+                kind: bray_symbols::DependencyReferenceKind::Address,
                 projections: [].into(),
             },
         };
@@ -561,15 +663,23 @@ mod tests {
         assert!(root.contains(&field));
         assert_eq!(payload.allocation_region(), Some(payload.clone()));
         assert_eq!(root.relationship(&thread), StorageRelationship::Disjoint);
-        assert_eq!(root.relationship(&StorageTarget::storage(slot(0))), StorageRelationship::Disjoint);
+
+        assert_eq!(
+            root.relationship(&StorageTarget::storage(slot(0))),
+            StorageRelationship::Disjoint
+        );
+
         assert_eq!(root.relationship(&payload), StorageRelationship::Disjoint);
 
         let borrowed = StorageTarget {
             previous: false,
-            origin: StorageOrigin::entry(slot(0)),
+            origin: StorageOrigin::entry(slot(0), bray_symbols::DependencyReferenceKind::Address),
         };
 
-        assert_eq!(root.relationship(&borrowed), StorageRelationship::PotentiallyOverlapping);
+        assert_eq!(
+            root.relationship(&borrowed),
+            StorageRelationship::PotentiallyOverlapping
+        );
     }
 
     #[test]
@@ -578,8 +688,8 @@ mod tests {
 
         let origins = [
             StorageOrigin::Storage(path.clone()),
-            StorageOrigin::Allocation(path.clone()),
-            StorageOrigin::entry(path.clone()),
+            StorageOrigin::Allocation { allocation: path.clone(), projections: [].into() },
+            StorageOrigin::entry(path.clone(), bray_symbols::DependencyReferenceKind::Address),
             StorageOrigin::Returned {
                 reference: path,
                 projections: [].into(),

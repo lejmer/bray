@@ -17,13 +17,15 @@ pub(super) fn selected_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    storage: Option<&bray_bound_tree::StoragePlan>,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     patterns: &BTreeMap<
         bray_bound_tree::BoundPatternId,
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
-    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-    evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
+    evaluated: &impl Fn(BoundExpressionId) -> Option<ExecutionCondition>,
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
@@ -38,7 +40,7 @@ pub(super) fn selected_condition(
             call,
             |budget| {
                 call_argument_conditions(
-                    call, unit, semantics, values, literals, patterns, current, evaluated, budget,
+                    call, unit, semantics, values, known, storage, literals, patterns, current, evaluated, budget,
                     predicates,
                 )
             },
@@ -57,6 +59,8 @@ pub(super) fn selected_condition(
                     unit,
                     semantics,
                     values,
+                    known,
+                    storage,
                     literals,
                     patterns,
                     current,
@@ -66,14 +70,10 @@ pub(super) fn selected_condition(
                     predicates,
                 );
 
-                let condition = if matches!(
+                let condition = condition.argument_value(matches!(
                     values.type_data(argument.ty()).as_ref(),
                     bray_symbols::TypeData::Borrow { .. }
-                ) {
-                    condition.borrowed()
-                } else {
-                    condition
-                };
+                ));
 
                 (argument.parameter(), condition)
             })
@@ -129,8 +129,15 @@ pub(crate) fn selected_call_condition(
             .expect("pointer projection has its single input");
     }
 
-    if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
+    let argument_values = |budget: &mut usize| {
         let mut arguments = arguments(budget);
+
+        if let Some(receiver) = call.receiver() {
+            arguments[0] = arguments[0].clone().argument_value(matches!(
+                values.type_data(receiver.target_type()).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            ));
+        }
 
         for input in call.arguments() {
             let (ordinal, ty) = match input {
@@ -142,18 +149,26 @@ pub(crate) fn selected_call_condition(
                 bray_bound_tree::SelectedArgument::Default { ordinal, ty, .. } => (*ordinal, *ty),
             };
 
-            if matches!(
+            let index = usize::try_from(ordinal).expect("input ordinal fits host")
+                + usize::from(call.receiver().is_some());
+
+            arguments[index] = arguments[index].clone().argument_value(matches!(
                 values.type_data(ty).as_ref(),
                 bray_symbols::TypeData::Borrow { .. }
-            ) {
-                let index = usize::try_from(ordinal).expect("input ordinal fits host")
-                    + usize::from(call.receiver().is_some());
-
-                arguments[index] = arguments[index].clone().borrowed();
-            }
+            ));
         }
 
-        return predicate_condition(values, predicates, predicate, arguments, budget);
+        arguments
+    };
+
+    if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
+        return predicate_condition(
+            values,
+            predicates,
+            predicate,
+            argument_values(budget),
+            budget,
+        );
     }
 
     let observed_intrinsic = matches!(
@@ -164,7 +179,9 @@ pub(crate) fn selected_call_condition(
     if let Some(callable) = call.resolution().declaration_source()
         && (observed_intrinsic || call.constness() == bray_symbols::CallableConstness::Constant)
     {
-        let mut arguments = arguments(budget);
+        // Predicate terms and runtime observations use the same selected borrow
+        // inputs. A reference value must not become a different const-call key.
+        let mut arguments = argument_values(budget);
 
         if matches!(
             call.implementation_hook(),
@@ -184,6 +201,11 @@ pub(crate) fn selected_call_condition(
                 .iter()
                 .map(|witness| *values.implementation_instance_data(*witness)),
             arguments,
+            match call.resolution().result() {
+                bray_bound_tree::BoundCallResult::Immediate(ty)
+                    if matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) => Some(ty),
+                _ => None,
+            },
         );
 
         return if condition == ExecutionCondition::Unknown {
@@ -205,13 +227,15 @@ fn call_argument_conditions(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    storage: Option<&bray_bound_tree::StoragePlan>,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     patterns: &BTreeMap<
         bray_bound_tree::BoundPatternId,
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
-    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-    evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
+    evaluated: &impl Fn(BoundExpressionId) -> Option<ExecutionCondition>,
     budget: &mut usize,
     predicates: Option<
         &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
@@ -224,6 +248,8 @@ fn call_argument_conditions(
             unit,
             semantics,
             values,
+            known,
+            storage,
             literals,
             patterns,
             current,
@@ -255,6 +281,8 @@ fn call_argument_conditions(
                     unit,
                     semantics,
                     values,
+                    known,
+                    storage,
                     literals,
                     patterns,
                     current,
@@ -290,7 +318,7 @@ fn call_argument_conditions(
         {
             let place = bray_bound_tree::BoundReferenceTarget::Surface((*provider).into()).into();
 
-            if let Some(meaning) = current.get(&place) {
+            if let Some(meaning) = current.get_value(&place) {
                 let meaning = match call.resolution().declaration_source() {
                     Some(callable) => crate::substitute_execution_condition(
                         values,
@@ -301,7 +329,7 @@ fn call_argument_conditions(
                     None => meaning.clone(), // Lexical anonymous input paths are already selected.
                 };
 
-                let inputs = arguments
+                let inputs: std::collections::BTreeMap<_, _> = arguments
                     .iter()
                     .enumerate()
                     .map(|(ordinal, value)| {

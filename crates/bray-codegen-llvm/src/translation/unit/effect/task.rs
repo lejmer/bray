@@ -71,6 +71,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(self.builder.build_store(storage, token))?;
 
+        // Inactive disposal obeys the same checked-call outcome contract as its
+        // enclosing source or generated helper, including an incoming destination.
+        let outcome = self.checked_call_panic_report_context()?;
+
+        self.cleanup_inactive_storage(storage, runtime, outcome)?;
+
+        self.set_pending_call_context(outcome)
+    }
+
+    pub(in crate::translation::unit::effect) fn cleanup_inactive_storage(
+        &mut self,
+        storage: PointerValue<'context>,
+        runtime: bray_ir::MirRuntimeReference,
+        outcome: PointerValue<'context>,
+    ) -> Result<(), CodegenFailure> {
         let callback = crate::native::declare_runtime_function(
             self.module,
             self.types.context(),
@@ -89,10 +104,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         .as_global_value()
         .as_pointer_value();
 
-        // Inactive disposal obeys the same checked-call outcome contract as its
-        // enclosing source or generated helper, including an incoming destination.
-        let outcome = self.checked_call_panic_report_context()?;
-
         self.invoke_native_runtime(
             runtime,
             &[
@@ -103,7 +114,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ],
         )?;
 
-        self.set_pending_call_context(outcome)
+        Ok(())
     }
 
     pub(super) fn start_native_task(
@@ -139,8 +150,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.builder.position_at_end(starting);
 
+        let frame_storage =
+            self.allocate_temporary(frame.get_type(), "task.frame.transfer.storage")?;
+
+        llvm(self.builder.build_store(frame_storage, frame))?;
+
+        let frame_transfer = llvm(self.builder.build_ptr_to_int(
+            frame_storage,
+            self.pointer_integer_type(),
+            "task.frame.transfer",
+        ))?;
+
         let status = self
-            .invoke_native_runtime(start, &[task.into(), frame, context.into()])?
+            .invoke_native_runtime(start, &[task.into(), frame_transfer.into(), context.into()])?
             .expect("task start returns its ownership transition status")
             .into_int_value();
 

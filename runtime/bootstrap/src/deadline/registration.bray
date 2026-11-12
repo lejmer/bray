@@ -27,7 +27,7 @@ trusted internal func registration(
     )
 {
     let header = trusted read_header(pointer, callback);
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
     let mut prepared: std.memory.RawBuffer<Entry>? = none;
 
     while true
@@ -86,7 +86,7 @@ trusted internal func try_register(
     let mut guard = trusted lock(value);
     let current = trusted state(value, &mut guard);
 
-    if !trusted bray.runtime.bootstrap.scheduler.deadline_admission(trusted scheduler_reference(value))
+    if !trusted bray.runtime.bootstrap.scheduler.deadline_admission(trusted scheduler_reference(owner))
     {
         let rejected: (u32, u64) = (4, 0);
 

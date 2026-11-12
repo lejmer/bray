@@ -37,7 +37,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let storages = operation
             .arguments()
             .iter()
-            .filter_map(|argument| self.expression_target(state, *argument))
+            .filter_map(|argument| self.memory_argument_target(state, operation, *argument))
             .collect::<Vec<_>>();
 
         match status {

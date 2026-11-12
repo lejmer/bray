@@ -17,6 +17,12 @@ impl Status {
 struct Configuration {
     task_capacity: usize,
     timer_capacity: usize,
+    capabilities: u32,
+    invoke: *const u8,
+    admit_context: *const u8,
+    release_context: *const u8,
+    scope_enter: usize,
+    scope_finish: usize,
 }
 
 #[repr(transparent)]
@@ -209,10 +215,10 @@ unsafe extern "C" {
         failure: &WorkerFailure,
         outcome: &mut RunOutcome,
     );
-    safe fn bray_runtime_initialization(worker_capacity: usize, timer_capacity: usize) -> Status;
+    safe fn bray_runtime_initialization() -> Status;
+    safe fn bray_runtime_main_thread_lane_startup(configuration: Configuration) -> Status;
     safe fn bray_runtime_root_execution(
         frame: InactiveFrameTransfer,
-        configuration: Configuration,
         outcome: &mut RunOutcome,
     ) -> RootStart;
     safe fn bray_runtime_root_cancellation_request(root: RootHandle) -> Status;
@@ -254,7 +260,7 @@ unsafe extern "C" {
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
     safe fn bray_runtime_task_start(
         task: TaskHandle,
-        frame: InactiveFrame,
+        frame: usize,
         outcome: &mut RunOutcome,
     ) -> Status;
     safe fn bray_runtime_main_thread_lane_drive() -> Status;
@@ -490,7 +496,18 @@ fn admit(descriptor: &ActivationDescriptor) -> InactiveFrame {
 }
 
 fn start_root(descriptor: &ActivationDescriptor) -> RootHandle {
-    assert!(bray_runtime_initialization(8, 8) == Status::SUCCESS);
+    assert!(bray_runtime_initialization() == Status::SUCCESS);
+
+    assert!(bray_runtime_main_thread_lane_startup(Configuration {
+        task_capacity: 8,
+        timer_capacity: 8,
+        capabilities: 63,
+        invoke: std::ptr::null(),
+        admit_context: std::ptr::null(),
+        release_context: std::ptr::null(),
+        scope_enter: 0,
+        scope_finish: 0,
+    }) == Status::SUCCESS);
 
     let frame = admit(descriptor);
     let transfer = InactiveFrameTransfer(std::ptr::from_ref(&frame).addr());
@@ -503,10 +520,6 @@ fn start_root(descriptor: &ActivationDescriptor) -> RootHandle {
 
     let start = bray_runtime_root_execution(
         transfer,
-        Configuration {
-            task_capacity: 8,
-            timer_capacity: 8,
-        },
         &mut outcome,
     );
 
@@ -597,12 +610,18 @@ fn main() {
             == Status::SUCCESS
     );
 
-    assert!(bray_runtime_initialization(8, 8) == Status::SUCCESS);
+    assert!(bray_runtime_initialization() == Status::SUCCESS);
 
     assert!(
         bray_runtime_main_thread_lane_startup(Configuration {
             task_capacity: 8,
             timer_capacity: 8,
+            capabilities: 63,
+            invoke: std::ptr::null(),
+            admit_context: std::ptr::null(),
+            release_context: std::ptr::null(),
+            scope_enter: 0,
+            scope_finish: 0,
         }) == Status::SUCCESS
     );
 
@@ -622,7 +641,7 @@ fn main() {
         report: PanicReport::empty(),
     };
 
-    assert!(bray_runtime_task_start(task, frame, &mut admission) == Status::SUCCESS);
+    assert!(bray_runtime_task_start(task, std::ptr::from_ref(&frame).addr(), &mut admission) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive() == Status::SUCCESS);
 
     let mut outcome = RunOutcome {

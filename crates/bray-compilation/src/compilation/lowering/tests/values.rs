@@ -255,3 +255,115 @@ fn construction_inputs_lower_nullable_values_before_aggregate_transfer() {
         )).count(), 1, "{name}: {mir:#?}");
     }
 }
+
+
+#[test]
+fn returned_temporary_is_borrowable_after_call_completion() {
+    let compilation = compilation(r#"
+        module app;
+
+        struct Value
+        {
+            data: i32;
+        }
+
+        impl Value
+        {
+            func read() -> i32
+            {
+                return self.data;
+            }
+        }
+
+        func make() -> Value
+        {
+            return
+            {
+                data = 7
+            };
+        }
+
+        func main() -> i32
+        {
+            return make().read();
+        }
+    "#);
+    assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "main"))
+        .expect("checked caller lowers");
+    lowered_mir(&lowered);
+}
+
+#[test]
+fn trust_boundary_preserves_a_completed_call_result() {
+    let compilation = compilation(r#"
+        trusted module app;
+
+        trusted func identity(pos value: i32) -> i32
+        {
+            return value;
+        }
+
+        trusted func borrow(pos value: &i32) -> &i32
+        {
+            return value;
+        }
+
+        func forward(pos value: &i32) -> &i32
+        {
+            return trusted borrow(value);
+        }
+
+        func main() -> i32
+        {
+            let first = trusted identity(7);
+            return trusted identity(first);
+        }
+    "#);
+    assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+    for name in ["main", "forward"] {
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
+            .expect("trusted result caller lowers");
+        lowered_mir(&lowered);
+    }
+}
+
+#[test]
+fn returned_borrow_survives_field_and_index_projection() {
+    let compilation = compilation(r#"
+        module app;
+
+        struct Item
+        {
+            value: i32;
+        }
+
+        func field_view(pos value: &Item) -> &Item
+        {
+            return value;
+        }
+
+        func array_view(pos values: &[Item; 2]) -> &[Item; 2]
+        {
+            return values;
+        }
+
+        func borrow_field(pos value: &Item) -> &i32
+        {
+            return &field_view(value).value;
+        }
+
+        func read_index(pos values: &[Item; 2]) -> i32
+        {
+            return array_view(values)[0].value;
+        }
+    "#);
+    let diagnostics = compilation.check_diagnostics();
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for name in ["borrow_field", "read_index"] {
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
+            .expect("projection through a returned borrow lowers");
+        lowered_mir(&lowered);
+    }
+}

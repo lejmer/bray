@@ -201,6 +201,7 @@ impl Compilation {
                     None,
                     std::sync::Arc::new([]),
                     std::sync::Arc::new([]),
+                    None,
                 ))
             };
 

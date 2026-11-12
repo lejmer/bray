@@ -485,10 +485,78 @@ where
             .push_access(access).unwrap_or_else(|error| panic!("conservative_subject_access must satisfy its checked construction contract: {error:?}")))
     }
 
+    /// Plan the produced value separately from a name or member's source access.
+    pub(super) fn plan_value_slot(
+        &mut self,
+        expression: BoundExpressionId,
+        source: StorageAccessId,
+        purpose: Option<StorageAccessPurpose>,
+    ) -> Result<(), PlanError<C::UpstreamError>> {
+        if self.builder().value_slot(expression).is_some()
+            || self.request.view().is_compile_time_qualifier(expression, Some(self.selections))
+        {
+            return Ok(());
+        }
+
+        let bound = self.request.view().expression(expression)
+            .expect("planned value expression belongs to its unit");
+
+        let result = self.expression_type(expression);
+
+        if bound.is_recovered() || result.is_recovered()
+            || matches!(bound, bray_bound_tree::BoundExpression::ControlTransfer(_))
+            || crate::representation::type_representation(self.request, result.ty())
+                == Some(bray_compiler_known::RepresentationRole::Never)
+        {
+            return Ok(());
+        }
+
+        let access = self.builder().access(source)
+            .expect("planned source access belongs to its unit");
+
+        let existing = match access.root() {
+            StorageAccessRoot::Storage(identity) if access.projections().is_empty()
+                && matches!(self.builder().identity(identity),
+                    Some(StorageIdentity::Temporary(owner)
+                        | StorageIdentity::Result(bray_bound_tree::AnyBoundNodeId::Expression(owner)))
+                        if *owner == expression) => Some(identity),
+            _ => None,
+        };
+
+        let identity = if let Some(identity) = existing {
+            identity
+        } else {
+            if !matches!(purpose,
+                Some(StorageAccessPurpose::Copy | StorageAccessPurpose::Move | StorageAccessPurpose::ValueTransfer))
+            {
+                return Ok(());
+            }
+
+            let identity = self.builder_mut().push_identity(StorageIdentity::Evaluated(expression))
+                .expect("materialized value identity belongs to its expression unit");
+
+            self.builder_mut().set_identity_type(identity, result.ty())
+                .expect("materialized value retains its checked type");
+
+            self.direct_access(expression, identity)?;
+
+            identity
+        };
+
+        self.builder_mut().set_value_slot(expression, identity)
+            .expect("one checked expression has one materialized value slot");
+
+        Ok(())
+    }
+
     pub(super) fn temporary_access(
         &mut self,
         expression: BoundExpressionId,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        if let Some(storage) = self.builder().value_slot(expression) {
+            return self.direct_access(expression, storage);
+        }
+
         let ty = self.expression_type(expression).ty();
 
         let storage = self
@@ -564,6 +632,21 @@ where
         self.builder_mut()
             .set_identity_type(storage, stored_type).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in retain_borrow_value: {error:?}"));
 
+        if matches!(identity, StorageIdentity::CustomIndexBorrow(_)) {
+            self.builder_mut().bind(
+                StorageBindingTarget::InvocationResult(expression.into()),
+                bray_bound_tree::StorageBinding::Identity(storage),
+            ).expect("custom indexing retains its returned borrow separately from reached data");
+
+            let node = self.request.view().expression(expression)
+                .expect("returned index borrow belongs to its expression");
+            let access = StorageAccess::new(StorageAccessRoot::Storage(storage), [], stored_type,
+                node.origin().source_anchor(), node.is_recovered());
+
+            self.builder_mut().push_access(access)
+                .expect("returned index borrow has a complete result-slot access");
+        }
+
         self.push_expression_access(
             expression,
             StorageAccessRoot::BorrowedStorage {
@@ -590,19 +673,15 @@ where
         let source = node.origin().source_anchor();
         let is_recovered = node.is_recovered();
 
-        let storage = match identity {
-            StorageIdentity::InvocationResult(occurrence) => self
-                .bind_identity(
-                    StorageBindingTarget::InvocationResult(occurrence),
-                    identity,
-                    Some(ty),
-                )?
-                .expect("selected invocation result is planned once"),
-            _ => self
-                .builder_mut()
-                .push_identity(identity)
-                .expect("protocol identity belongs to its checked unit"),
+        let occurrence = match identity {
+            StorageIdentity::InvocationResult(occurrence) => occurrence,
+            StorageIdentity::ScopedCapability { expression, .. } => bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
+            _ => unreachable!("protocol storage belongs to an implicit invocation"),
         };
+
+        let storage = self.bind_identity(
+            StorageBindingTarget::InvocationResult(occurrence), identity, Some(ty),
+        )?.expect("selected invocation result is planned once");
 
         self.builder_mut()
             .set_identity_type(storage, ty).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in protocol_access: {error:?}"));
@@ -723,6 +802,8 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             .unwrap_or_else(|error| {
                 panic!("record_purpose must satisfy its checked construction contract: {error:?}")
             });
+
+        self.plan_value_slot(expression, access, Some(purpose))?;
 
         Ok(())
     }

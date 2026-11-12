@@ -9,6 +9,7 @@ using internal std.sync.spin_lock;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.product;
 using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap.execution;
 
 // Task admission backs the only membership slot. Event waits use the same
 // noncopy registration and committed delivery as task completion waits.
@@ -20,13 +21,29 @@ trusted internal func registration(
     pos descriptor: DataPointer<Callback>
 ) -> u32
     requires(
-        trusted registration_entry(event = pointer, task = parent, callback = descriptor),
+        trusted registration_entry(event = &pointer, task = &parent, callback = descriptor),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
 {
-    let (event, waiter, callback) = trusted read_registration_inputs(pointer, parent, descriptor);
-    let mut borrowed_event = event;
-    let immediate = trusted register_wait(borrowed_event, waiter, observed, callback);
+    let permit = trusted lambda(
+        pos event: &DataPointer<Reference>,
+        pos task: &DataPointer<bray.runtime.bootstrap.task.Reference>,
+        pos callback: DataPointer<Callback>
+    )
+        requires(trusted registration_entry(event = event, task = task, callback = callback))
+        ensures(
+            trusted reference_slot(owner = event),
+            trusted bray.runtime.bootstrap.task.reference_slot(owner = task),
+            trusted callback_slot(pointer = callback)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&pointer, &parent, descriptor);
+
+    let event = trusted borrow_reference(&pointer);
+    let waiter = trusted bray.runtime.bootstrap.task.borrow_reference(&parent);
+    let callback = trusted read_callback(descriptor);
+    let immediate = trusted register_wait(event, waiter, observed, callback);
 
     if immediate matches none
     {
@@ -63,21 +80,21 @@ trusted internal func retain_waiter(
 }
 
 trusted internal func register_wait(
-    pos event: Reference,
-    pos waiter: bray.runtime.bootstrap.task.Reference,
+    pos event: &Reference,
+    pos waiter: &bray.runtime.bootstrap.task.Reference,
     pos observed: u64,
     pos callback: Callback
 ) -> bray.runtime.bootstrap.task.WaitRegistration?
     requires(
-        trusted retained(owner = &event),
-        trusted bray.runtime.bootstrap.task.retained(owner = &waiter),
+        trusted retained(owner = event),
+        trusted bray.runtime.bootstrap.task.retained(owner = waiter),
         trusted callback_owned(owner = &callback)
     )
     ensures(trusted bray.runtime.bootstrap.task.optional_registration(owner = &result))
     uses(intrinsic)
 {
-    let retained_event = trusted retain_event_for_wait(&event, &waiter, &callback);
-    let retained_waiter = trusted retain_waiter(&retained_event, &waiter, &callback);
+    let retained_event = trusted retain_event_for_wait(event, waiter, &callback);
+    let retained_waiter = trusted retain_waiter(&retained_event, waiter, &callback);
     let owner = trusted make_wait(retained_event, retained_waiter, observed, callback);
 
     let lease = trusted wait_registration_access(&owner);
@@ -87,88 +104,104 @@ trusted internal func register_wait(
         trusted core.target.abort();
     }
 
-    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-
-    return trusted publish_event_wait(owner, &lease, &mut anchor, observed);
+    return trusted publish_event_wait(owner, &lease, observed);
 }
 
 trusted internal func publish_event_wait(
     pos owner: bray.runtime.bootstrap.task.WaitRegistration,
     pos lease: &bray.runtime.bootstrap.host.HostLease,
-    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
     pos observed: u64
 ) -> bray.runtime.bootstrap.task.WaitRegistration?
     requires(
-        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker),
+        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.resources),
         lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
         trusted bray.runtime.bootstrap.task.optional_registration(owner = &result),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(intrinsic)
 {
-    let retained_event = trusted bray.runtime.bootstrap.task.event_reference(&owner);
-    let mut mutation = trusted event_anchor(&retained_event, lease);
-    let state = trusted event_state(lease, &mut mutation);
-    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
-    let mut entries = &mut host.tasks;
-    let parent = owner.waiter.handle;
-    let slot = trusted bray.runtime.bootstrap.task.wait_slot(&mut entries, parent);
+    let parent = trusted bray.runtime.bootstrap.task.wait_link(
+        trusted bray.runtime.bootstrap.task.registration_waiter(&owner)
+    );
 
-    if slot.registration matches ?_
+    let (previous, immediate): (bray.runtime.bootstrap.task.WaitLink, bool) =
     {
-        trusted core.target.abort();
-    }
+        let retained_event = trusted bray.runtime.bootstrap.task.event_reference(&owner);
+        let mut mutation = trusted event_anchor(retained_event, lease);
+        let state = trusted event_state(lease, &mut mutation);
 
-    if state.closed || state.generation != observed
+        let mut access = trusted bray.runtime.bootstrap.task.task_slot_access(
+            trusted bray.runtime.bootstrap.task.registration_waiter(&owner),
+            lease
+        );
+
+        let slot = trusted bray.runtime.bootstrap.task.link_slot(&mut access);
+
+        if slot.registration matches ?_
+        {
+            trusted core.target.abort();
+        }
+
+        yield if state.closed || state.generation != observed
+        {
+            yield (bray.runtime.bootstrap.task.no_wait_link(), true);
+        }
+        else
+        {
+            let previous = state.tail;
+
+            if previous.empty()
+            {
+                state.head = parent;
+            }
+            else
+            {
+                let mut tail_access = trusted bray.runtime.bootstrap.task.event_tail_access(&state, lease);
+                let tail = trusted bray.runtime.bootstrap.task.link_slot(&mut tail_access);
+
+                if let ?prior_wait = tail.registration
+                {
+                    prior_wait.next = parent;
+                }
+                else
+                {
+                    trusted core.target.abort();
+                }
+            }
+
+            state.tail = parent;
+            yield (previous, false);
+        };
+    };
+
+    // End the borrow of the registration's event before transferring the whole
+    // owner. The same host lease still excludes delivery and withdrawal.
+    if immediate
     {
-        let immediate: bray.runtime.bootstrap.task.WaitRegistration? = owner;
-
-        return immediate;
+        return owner;
     }
 
     let mut wait = owner;
 
-    wait.previous = state.tail;
+    wait.previous = previous;
 
-    if state.tail == 0
-    {
-        state.head = parent;
-    }
-    else
-    {
-        let tail = trusted bray.runtime.bootstrap.task.wait_slot(&mut entries, state.tail);
-
-        if let ?previous = tail.registration
-        {
-            previous.next = parent;
-        }
-        else
-        {
-            trusted core.target.abort();
-        }
-    }
-
-    state.tail = parent;
-    (trusted bray.runtime.bootstrap.task.wait_slot(&mut entries, parent)).registration = wait;
+    trusted bray.runtime.bootstrap.task.store_registration(wait, lease);
     return none;
 }
 
 @abi(c)
 trusted internal func withdrawal(pos parent: DataPointer<bray.runtime.bootstrap.task.Reference>) -> u32
     requires(
-        trusted bray.runtime.bootstrap.task.reference_slot(pointer = parent),
+        trusted bray.runtime.bootstrap.task.reference_slot(owner = &parent),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
 {
-    let waiter = trusted bray.runtime.bootstrap.task.read_reference(parent);
+    let waiter = trusted bray.runtime.bootstrap.task.borrow_reference(&parent);
 
-    return if trusted bray.runtime.bootstrap.task.withdraw_wait(&waiter, false)
+    return if trusted bray.runtime.bootstrap.task.withdraw_wait(waiter, false)
     {
         yield 1;
     }
@@ -181,22 +214,21 @@ trusted internal func withdrawal(pos parent: DataPointer<bray.runtime.bootstrap.
 @abi(c)
 trusted internal func readiness(pos parent: DataPointer<bray.runtime.bootstrap.task.Reference>) -> u32
     requires(
-        trusted bray.runtime.bootstrap.task.reference_slot(pointer = parent),
+        trusted bray.runtime.bootstrap.task.reference_slot(owner = &parent),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     uses(intrinsic)
 {
-    let waiter = trusted bray.runtime.bootstrap.task.read_reference(parent);
-    let lease = trusted bray.runtime.bootstrap.task.registration_access(&waiter);
+    let waiter = trusted bray.runtime.bootstrap.task.borrow_reference(&parent);
+    let lease = trusted bray.runtime.bootstrap.task.registration_access(waiter);
 
     if !lease.active
     {
         trusted core.target.abort();
     }
 
-    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
-    let slot = trusted bray.runtime.bootstrap.task.wait_slot(&mut host.tasks, waiter.handle);
+    let mut access = trusted bray.runtime.bootstrap.task.task_slot_access(waiter, &lease);
+    let slot = trusted bray.runtime.bootstrap.task.link_slot(&mut access);
 
     return if slot.registration matches none
     {
@@ -206,85 +238,6 @@ trusted internal func readiness(pos parent: DataPointer<bray.runtime.bootstrap.t
     {
         yield 0;
     };
-}
-
-trusted internal func read_registration_inputs(
-    pos event: DataPointer<Reference>,
-    pos task: DataPointer<bray.runtime.bootstrap.task.Reference>,
-    pos callback: DataPointer<Callback>
-) -> (Reference, bray.runtime.bootstrap.task.Reference, Callback)
-    requires(trusted registration_entry(event = event, task = task, callback = callback))
-    ensures(
-        trusted retained(owner = &result.0),
-        trusted bray.runtime.bootstrap.task.retained(owner = &result.1),
-        trusted callback_owned(owner = &result.2)
-    )
-{
-    let native_event = trusted read_registration_event(event, task, callback);
-    let native_task = trusted read_registration_task(task, callback);
-    let native_callback = trusted read_callback(callback);
-
-    return (native_event, native_task, native_callback);
-}
-
-trusted internal func read_registration_event(
-    pos event: DataPointer<Reference>,
-    pos task: DataPointer<bray.runtime.bootstrap.task.Reference>,
-    pos callback: DataPointer<Callback>
-) -> Reference
-    requires(trusted registration_entry(event = event, task = task, callback = callback))
-    ensures(
-        trusted retained(owner = &result),
-        trusted bray.runtime.bootstrap.task.reference_slot(pointer = task),
-        trusted callback_slot(pointer = callback)
-    )
-    uses(raw_memory)
-{
-    let permit = trusted lambda(
-        pos event: DataPointer<Reference>,
-        pos task: DataPointer<bray.runtime.bootstrap.task.Reference>,
-        pos callback: DataPointer<Callback>
-    )
-        requires(trusted registration_entry(event = event, task = task, callback = callback))
-        ensures(
-            trusted core.memory.valid_read<Reference>(pointer = event, count = 1),
-            trusted core.memory.aligned_for<Reference>(pointer = event),
-            trusted core.memory.initialized_as<Reference>(pointer = event)
-        )
-        executes(pure, total) {};
-
-    trusted permit(event, task, callback);
-    return trusted std.memory.read<Reference>(event);
-}
-
-trusted internal func read_registration_task(
-    pos task: DataPointer<bray.runtime.bootstrap.task.Reference>,
-    pos callback: DataPointer<Callback>
-) -> bray.runtime.bootstrap.task.Reference
-    requires(
-        trusted bray.runtime.bootstrap.task.reference_slot(pointer = task),
-        trusted callback_slot(pointer = callback)
-    )
-    ensures(trusted bray.runtime.bootstrap.task.retained(owner = &result), trusted callback_slot(pointer = callback))
-    uses(raw_memory)
-{
-    let permit = trusted lambda(
-        pos task: DataPointer<bray.runtime.bootstrap.task.Reference>,
-        pos callback: DataPointer<Callback>
-    )
-        requires(
-            trusted bray.runtime.bootstrap.task.reference_slot(pointer = task),
-            trusted callback_slot(pointer = callback)
-        )
-        ensures(
-            trusted core.memory.valid_read<bray.runtime.bootstrap.task.Reference>(pointer = task, count = 1),
-            trusted core.memory.aligned_for<bray.runtime.bootstrap.task.Reference>(pointer = task),
-            trusted core.memory.initialized_as<bray.runtime.bootstrap.task.Reference>(pointer = task)
-        )
-        executes(pure, total) {};
-
-    trusted permit(task, callback);
-    return trusted std.memory.read<bray.runtime.bootstrap.task.Reference>(task);
 }
 
 trusted internal func make_wait(
@@ -297,20 +250,21 @@ trusted internal func make_wait(
         trusted retained(owner = &event),
         trusted owned_reference(owner = &event),
         trusted bray.runtime.bootstrap.task.retained(owner = &waiter),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &waiter),
         trusted callback_owned(owner = &callback)
     )
-    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result.marker))
+    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result.resources))
 {
     return
     {
-        marker = bray.runtime.bootstrap.task.RegistrationMarker
+        resources =
         {
+            target = bray.runtime.bootstrap.task.WaitTarget.Event(event, observed, callback),
+            waiter = waiter
         },
-        target = bray.runtime.bootstrap.task.WaitTarget.Event(event, observed, callback),
-        waiter = waiter,
         retirement = 0,
-        previous = 0,
-        next = 0
+        previous = bray.runtime.bootstrap.task.no_wait_link(),
+        next = bray.runtime.bootstrap.task.no_wait_link()
     };
 }
 
@@ -337,12 +291,149 @@ trusted internal func retain_event_for_wait(
 trusted internal func wait_registration_access(
     pos owner: &bray.runtime.bootstrap.task.WaitRegistration
 ) -> bray.runtime.bootstrap.host.HostLease
-    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker))
+    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.resources))
     ensures(
-        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.resources),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();
+}
+
+// Source execution already owns its wake provider through the retained waiter.
+// The registration carries no additional native callback resource.
+trusted internal func register_execution_wait(
+    pos event: Reference,
+    pos waiter: bray.runtime.bootstrap.task.Reference,
+    pos observed: u64
+) -> bray.runtime.bootstrap.task.WaitRegistration?
+    requires(
+        trusted retained(owner = &event),
+        trusted owned_reference(owner = &event),
+        trusted bray.runtime.bootstrap.task.retained(owner = &waiter),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &waiter)
+    )
+    ensures(trusted bray.runtime.bootstrap.task.optional_registration(owner = &result))
+    uses(intrinsic)
+{
+    let owner = trusted make_execution_wait(event, waiter, observed);
+
+    let lease = trusted wait_registration_access(&owner);
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    return trusted publish_event_wait(owner, &lease, observed);
+}
+
+// The acquired scheduler dispatch remains exclusive through publication. A
+// racing event delivery records a pending wake before that dispatch releases.
+trusted internal func wait_execution(
+    pos execution: &bray.runtime.bootstrap.execution.Reference,
+    pos waiter: &bray.runtime.bootstrap.task.Reference,
+    pos identity: usize
+) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+        trusted bray.runtime.bootstrap.task.retained(owner = waiter),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+        trusted bray.runtime.bootstrap.task.retained(owner = waiter)
+    )
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = waiter))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = waiter))
+    }
+{
+    let (acquired, observed) = trusted prepare_execution_wait(execution, waiter, identity);
+
+    if acquired matches none
+    {
+        return 3;
+    }
+
+    let event = trusted take_optional_reference(acquired);
+    let retained_waiter = trusted bray.runtime.bootstrap.task.duplicate_reference(waiter);
+    let immediate = trusted register_execution_wait(event, retained_waiter, observed);
+
+    if immediate matches ?_
+    {
+        let owner = trusted bray.runtime.bootstrap.task.take_optional_registration(immediate);
+        let status = trusted wake_waiter(&owner);
+
+        trusted bray.runtime.bootstrap.task.release_wait(owner);
+        return status;
+    }
+
+    return 0;
+}
+
+trusted internal func make_execution_wait(
+    pos event: Reference,
+    pos waiter: bray.runtime.bootstrap.task.Reference,
+    pos observed: u64
+) -> bray.runtime.bootstrap.task.WaitRegistration
+    requires(
+        trusted retained(owner = &event),
+        trusted owned_reference(owner = &event),
+        trusted bray.runtime.bootstrap.task.retained(owner = &waiter),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &waiter)
+    )
+    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &result.resources))
+{
+    return
+    {
+        resources =
+        {
+            target = bray.runtime.bootstrap.task.WaitTarget.ExecutionEvent(event, observed),
+            waiter = waiter
+        },
+        retirement = 0,
+        previous = bray.runtime.bootstrap.task.no_wait_link(),
+        next = bray.runtime.bootstrap.task.no_wait_link()
+    };
+}
+
+// The actual waiter remains retained while its event is looked up and
+// observed. The returned event owns its count independently of its name.
+trusted internal func prepare_execution_wait(
+    pos execution: &bray.runtime.bootstrap.execution.Reference,
+    pos waiter: &bray.runtime.bootstrap.task.Reference,
+    pos identity: usize
+) -> (Reference?, u64)
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+        trusted bray.runtime.bootstrap.task.retained(owner = waiter),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+        trusted bray.runtime.bootstrap.task.retained(owner = waiter),
+        trusted optional_reference(owner = &result.0)
+    )
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = waiter))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = waiter))
+    }
+{
+    let acquired = trusted lookup(
+        (trusted bray.runtime.bootstrap.execution.domain(execution)).identity,
+        identity,
+        false
+    );
+
+    if acquired matches none
+    {
+        return (none, 0);
+    }
+
+    let event = trusted take_optional_reference(acquired);
+    let (observed, _) = trusted observe(&event);
+    let owned: Reference? = event;
+
+    return (owned, observed);
 }

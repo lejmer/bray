@@ -96,13 +96,7 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
     {
         return
         {
-            owner =
-            {
-                instance = std.channel.owner.Marker
-                {
-                },
-                core = pointer
-            }
+            owner = trusted internal std.channel.owner.from_core<T>(pointer),
         };
     };
 
@@ -114,13 +108,7 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
     {
         return
         {
-            owner =
-            {
-                instance = std.channel.owner.Marker
-                {
-                },
-                core = pointer
-            }
+            owner = trusted internal std.channel.owner.from_core<T>(pointer),
         };
     };
 

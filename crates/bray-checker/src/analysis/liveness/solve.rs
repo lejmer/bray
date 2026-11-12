@@ -591,7 +591,7 @@ mod tests {
                 previous = block;
             }
 
-            graph.push_exit(previous, AnalysisExitKind::NormalFallthrough);
+            graph.push_exit(previous, AnalysisExitKind::NormalFallthrough, unit.root().into());
 
             let graph = graph.finish(entry);
             let storage = storage.finish();
@@ -1020,6 +1020,15 @@ mod tests {
             transfer_operation(&mut state, &completed, &effects, &effects.universe);
             assert!(state.is_empty(), "the result is born only on completion");
         }
+
+        let produced = operation(AnalysisOperationKind::Result {
+            expression,
+            phase: crate::analysis::model::AnalysisResultPhase::Production,
+        });
+        let mut pending = BTreeSet::from([subject, cursor]);
+
+        transfer_operation(&mut pending, &produced, &effects, &effects.universe);
+        assert_eq!(pending, BTreeSet::from([subject, cursor]), "private production does not publish output storage");
 
         let published = operation(AnalysisOperationKind::Result {
             expression,

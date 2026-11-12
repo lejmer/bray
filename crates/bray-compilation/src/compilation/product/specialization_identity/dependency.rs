@@ -207,8 +207,9 @@ impl StructuralValueEncoder<'_, '_> {
         relation: &bray_symbols::DependencyBorrowRelation,
     ) -> Result<(), FactQueryError> {
         self.boolean(relation.entry().is_some());
+        self.boolean(relation.allocation().is_some());
 
-        if let Some(entry) = relation.entry() {
+        if let Some(entry) = relation.source_subject() {
             self.dependency_subject(entry)?;
         }
 
@@ -248,7 +249,23 @@ impl StructuralValueEncoder<'_, '_> {
             self.constant_projection_kind(*projection)?;
         }
 
-        Ok(())
+        self.dependency_value_preservation(transfer.preservation())
+    }
+
+    fn dependency_value_preservation(
+        &mut self,
+        preservation: &bray_symbols::DependencyValuePreservation<bray_symbols::ConstantProjectionKind>,
+    ) -> Result<(), FactQueryError> {
+        self.boolean(preservation.preserves_value());
+
+        // Selector symbols have structural identities independent of interning order.
+        let children = preservation.children().iter().collect::<Vec<_>>();
+
+        self.dependency_set(&children, |encoder, (projection, child)| {
+            encoder.constant_projection_kind(**projection)?;
+
+            encoder.dependency_value_preservation(child)
+        })
     }
 
     pub(in crate::compilation) fn dependency_carrier(
@@ -266,11 +283,12 @@ impl StructuralValueEncoder<'_, '_> {
     ) -> Result<(), FactQueryError> {
         use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 
-        let kind = match effect {
-            DependencyStorageEffect::Cleanup(ty) => {
-                self.tag(3);
+        let (kind, access_type) = match effect {
+            DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
+                self.tag(7);
+                self.tag(u8::from(*ambient));
 
-                return self.ty(*ty);
+                (kind, access_type)
             }
             DependencyStorageEffect::Atomic => {
                 self.tag(4);
@@ -292,24 +310,29 @@ impl StructuralValueEncoder<'_, '_> {
 
                 return Ok(());
             }
-            DependencyStorageEffect::Direct { subject, kind } => {
+            DependencyStorageEffect::Direct { subject, kind, access_type } => {
                 self.tag(1);
                 self.dependency_subject(subject)?;
 
-                kind
+                (kind, access_type)
             }
             DependencyStorageEffect::Indirect {
                 reference,
                 projections,
                 kind,
+                access_type,
             } => {
                 self.tag(2);
                 self.dependency_subject(reference)?;
                 self.dependency_projections(projections)?;
 
-                kind
+                (kind, access_type)
             }
         };
+
+        self.tag(u8::from(access_type.is_some()));
+
+        if let Some(ty) = access_type { self.ty(*ty)?; }
 
         self.tag(match kind {
             DependencyMutationKind::Write => 1,
@@ -319,9 +342,11 @@ impl StructuralValueEncoder<'_, '_> {
             DependencyMutationKind::Replace(_) => 5,
             DependencyMutationKind::Clear => 6,
             DependencyMutationKind::Escape => 7,
+            DependencyMutationKind::Cleanup(_) => 8,
+            DependencyMutationKind::Dispose(_) => 9,
         });
 
-        if let DependencyMutationKind::Replace(ty) = kind {
+        if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) = kind {
             self.ty(*ty)?;
         }
 

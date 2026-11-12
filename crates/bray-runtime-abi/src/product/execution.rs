@@ -30,11 +30,11 @@ pub struct NativeProductExecution {
     pub with_cleanup:
         extern "C" fn(usize, usize, NativeProductCleanupBody, u64) -> NativeProductCleanupResult,
     /// Admit one asynchronous frame before its static owner becomes live.
-    pub admit: extern "C" fn(&mut usize) -> NativeRuntimeStatus,
+    pub admit: extern "C" fn(&NativeProductExecution, &mut usize) -> NativeRuntimeStatus,
     /// Release unused asynchronous frame admission after failed formation.
-    pub discard: extern "C" fn(usize),
+    pub discard: extern "C" fn(&NativeProductExecution, usize),
     /// Drive an admitted asynchronous finalizer and drain its execution incidents.
-    pub finalize: extern "C" fn(usize, NativeStaticFinalizer) -> usize,
+    pub finalize: extern "C" fn(&NativeProductExecution, usize, NativeStaticFinalizer) -> usize,
     /// Retire this product's worker attachments outside the host lock.
     pub detach_workers: extern "C" fn(usize, usize),
     /// Release execution retention after terminal reporting.

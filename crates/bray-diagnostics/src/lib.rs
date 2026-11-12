@@ -29,9 +29,9 @@ mod target_predicate;
 mod type_representation;
 
 pub use argument::{
-    DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
+    DiagnosticAlignmentKind, DiagnosticBorrowKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
     DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
-    DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticCallableAbi,
+    DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticCallableAbi, DiagnosticCallableParameter,
     DiagnosticDebugInformationMode, DiagnosticDebugOutputMode, DiagnosticDependencyRequirementKind,
     DiagnosticDependencySubjectKind, DiagnosticDocumentParseKind,
     DiagnosticEmissionArtifactOperation, DiagnosticExternalToolFailureKind,
@@ -55,10 +55,10 @@ pub use checking::{
     DiagnosticCallableContractSurface, DiagnosticCallableExecution, DiagnosticCallableOverloadArm,
     DiagnosticCallableOverloadContext, DiagnosticCallableOverloadProblem,
     DiagnosticCallableParameterMode, DiagnosticCallablePosition, DiagnosticCallableTrust,
-    DiagnosticCallbackStateProblem, DiagnosticConstantOperation, DiagnosticConstraintCategory,
+    DiagnosticCallbackStateProblem, DiagnosticConstantOperation, DiagnosticConstraintCategory, DiagnosticCondition, DiagnosticConditionProjection, DiagnosticContractObligation, DiagnosticContractObligationKind, DiagnosticExecutionProofFailure, DiagnosticWitnessTransfer, DiagnosticWitnessTransferKind,
     DiagnosticConstructionInputRejection, DiagnosticDirectiveArgumentProblem,
     DiagnosticExpressionCategory, DiagnosticGenericConstraintMismatch,
-    DiagnosticGenericParameterCategory, DiagnosticImplementationBorrowKind,
+    DiagnosticGenericParameterCategory, 
     DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
     DiagnosticImplementationOverloadProblem, DiagnosticMemoryOperation,
     DiagnosticNativeLinkDirectiveProblem, DiagnosticNativeLinkKind,

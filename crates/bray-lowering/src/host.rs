@@ -87,18 +87,22 @@ pub fn lower_executable_host(
 
     let entry = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
 
-    if contract
-        .requirements()
-        .requires_role(RuntimeAbiRole::RuntimeInitialization)
-    {
-        builder.push_operation(
-            entry,
-            source.clone(),
-            MirOperationKind::Host(MirHostOperation::InitializeRuntime {
-                runtime: runtime_reference(RuntimeAbiRole::RuntimeInitialization, runtime_abi),
-            }),
-            None,
-        )?;
+    for role in [
+        RuntimeAbiRole::RuntimeInitialization,
+        RuntimeAbiRole::MainThreadLaneStartup,
+        RuntimeAbiRole::ExecutionWorkersStartup,
+        RuntimeAbiRole::ExecutionDeadlinesStartup,
+    ] {
+        if contract.requirements().requires_role(role) {
+            builder.push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Host(MirHostOperation::InitializeRuntime {
+                    runtime: runtime_reference(role, runtime_abi),
+                }),
+                None,
+            )?;
+        }
     }
 
     builder.push_operation(
@@ -359,12 +363,27 @@ mod tests {
 
         assert_eq!(unit.kind(), &MirUnitKind::ExecutableHost(host));
 
+        let operations = unit
+            .operations()
+            .iter()
+            .map(bray_ir::MirOperation::kind)
+            .collect::<Vec<_>>();
+
         assert!(matches!(
-            unit.operations().get(1).map(bray_ir::MirOperation::kind),
-            Some(MirOperationKind::Host(MirHostOperation::ExecuteRoot {
-                execution: RootExecution::Asynchronous { .. },
-                ..
-            }))
+            operations.as_slice(),
+            [
+                MirOperationKind::Host(MirHostOperation::InitializeRuntime { runtime: startup }),
+                MirOperationKind::Host(MirHostOperation::BeginProductEntry),
+                MirOperationKind::Host(MirHostOperation::ExecuteRoot {
+                    execution: RootExecution::Asynchronous { .. },
+                    ..
+                }),
+                MirOperationKind::Host(MirHostOperation::ObserveRootTerminal { .. }),
+                MirOperationKind::Host(MirHostOperation::ResolveRootTerminal { .. }),
+                MirOperationKind::Host(MirHostOperation::BeginStaticCleanup),
+                MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. }),
+                MirOperationKind::Host(MirHostOperation::StructuredShutdown { .. }),
+            ] if startup.role() == RuntimeAbiRole::MainThreadLaneStartup
         ));
     }
 

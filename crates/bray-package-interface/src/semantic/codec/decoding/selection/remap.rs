@@ -213,6 +213,13 @@ pub(super) fn remap_selected_records(
 
     let runtime_requirements = records.runtime_requirements.into_values();
 
+    let type_representations = records.type_representations.into_values()
+        .map(|mut representation| {
+            representation.try_map_types(|ty| maps.type_id(ty))?;
+
+            Ok(representation)
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
     Ok(InterfaceSemantics::new()
         .with_applications(
             substitutions,
@@ -229,6 +236,7 @@ pub(super) fn remap_selected_records(
             [],
         )
         .with_declared_types(declared_types)
+        .with_type_representations(type_representations)
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, [])
         .with_runtime_requirements(runtime_requirements))
@@ -253,7 +261,7 @@ fn remap_dependency_contract(
         .iter()
         .map(|relation| {
             // The selected record owns remapped paths independently of the decoded table.
-            let mut entry = relation.entry().cloned();
+            let mut entry = relation.source_subject().cloned();
             let mut exit = relation.exit().clone();
 
             if let Some(entry) = &mut entry {
@@ -267,10 +275,7 @@ fn remap_dependency_contract(
             remap_dependency_projections(&mut projections, maps)?;
 
             Ok(
-                bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
-                    .with_dereferences(relation.dereferences())
-                    .with_provenance(relation.provenance())
-                    .with_target_projections(projections),
+                relation.remap(entry, exit, projections),
             )
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
@@ -287,6 +292,7 @@ fn remap_dependency_contract(
                     maps.constant_term_id(transfer.input())?,
                     transfer.output().iter().cloned(),
                 )
+                .with_preservation(transfer.preservation().clone())
                 .with_condition(
                     transfer
                         .condition()
@@ -317,20 +323,20 @@ fn remap_dependency_contract(
     for effect in Arc::make_mut(&mut contract.effects) {
         use bray_symbols::DependencyStorageEffect;
 
-        if let DependencyStorageEffect::Direct { kind, .. }
-        | DependencyStorageEffect::Indirect { kind, .. } = effect
+        if let DependencyStorageEffect::Direct { kind, access_type, .. }
+        | DependencyStorageEffect::Indirect { kind, access_type, .. }
+        | DependencyStorageEffect::UnboundedMutation { kind, access_type, .. } = effect
         {
             *kind = kind.try_map_type(|ty| maps.type_id(ty))?;
+            *access_type = access_type.map(|ty| maps.type_id(ty)).transpose()?;
         }
 
         match effect {
-            DependencyStorageEffect::Atomic
+            DependencyStorageEffect::UnboundedMutation { .. }
+                | DependencyStorageEffect::Atomic
             | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}
-            DependencyStorageEffect::Cleanup(ty) => {
-                *ty = maps.type_id(*ty)?;
-            }
             DependencyStorageEffect::Direct { subject, .. } => {
                 remap_dependency_subject(subject, maps)?
             }

@@ -2,10 +2,12 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 
-use super::ConstantTermId;
+use super::{ConstantTermId, DependencyValuePreservation};
 
-/// One unchanged owned input embedded wherever its result condition holds.
+/// One owned input embedded wherever its result condition holds.
 /// This records identity rather than equality, borrowing, or a new trusted guarantee.
+/// Contents preservation is separate. The owner's identity alone does not retain
+/// its previous descendants.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyOwnedTransfer<
     Projection = super::ConstantProjectionKind,
@@ -14,6 +16,7 @@ pub struct DependencyOwnedTransfer<
     input: Input,
     output: Arc<[Projection]>,
     condition: Option<Input>,
+    preservation: DependencyValuePreservation<Projection>,
 }
 
 impl<Projection, Input: Clone> DependencyOwnedTransfer<Projection, Input> {
@@ -23,6 +26,7 @@ impl<Projection, Input: Clone> DependencyOwnedTransfer<Projection, Input> {
             input,
             output: shared_slice(output),
             condition: None,
+            preservation: DependencyValuePreservation::none(),
         }
     }
 
@@ -47,6 +51,24 @@ impl<Projection, Input: Clone> DependencyOwnedTransfer<Projection, Input> {
     pub fn output(&self) -> &[Projection] {
         &self.output
     }
+
+    /// Records which input contents survive the identity transfer.
+    pub fn with_preservation(mut self, preservation: DependencyValuePreservation<Projection>) -> Self {
+        self.preservation = preservation;
+
+        self
+    }
+
+    /// Returns the contents-preservation mask relative to the input.
+    pub fn preservation(&self) -> &DependencyValuePreservation<Projection> {
+        &self.preservation
+    }
+
+    /// Compares the identity mapping independently of preserved contents.
+    pub fn same_identity(&self, other: &Self) -> bool
+    where Projection: PartialEq, Input: PartialEq {
+        self.input == other.input && self.output == other.output && self.condition == other.condition
+    }
 }
 
 /// The complete owning layouts possible at a callable's normal return.
@@ -70,6 +92,27 @@ impl<Projection, Input> Default for DependencyOwnedResult<Projection, Input> {
 }
 
 impl<Projection: Clone + Ord, Input: Clone + Ord> DependencyOwnedResult<Projection, Input> {
+    /// Selects only this complete owner's mappings, retaining empty alternatives.
+    /// Guards on discarded descendant mappings do not constrain the owner.
+    /// Actual child mappings must be selected from the current contents separately.
+    pub fn root_layout(&self) -> Self {
+        match self {
+            Self::Transfer(transfer) if transfer.output().is_empty() => self.clone(),
+            Self::Transfer(_) => Self::default(),
+            Self::All(values) => Self::all(values.iter().map(Self::root_layout)),
+            Self::Choice(values) => Self::choice(values.iter().map(Self::root_layout)),
+            Self::Case { condition, result } => {
+                let result = result.root_layout();
+
+                if result.is_empty() {
+                    Self::default()
+                } else {
+                    Self::case(condition.clone(), result)
+                }
+            }
+        }
+    }
+
     /// Retains a complete alternative's ordinary shape, including empty layouts.
     /// Distributes guards over choices and orders them so repeated joins remain canonical.
     pub fn case(condition: Input, result: Self) -> Self {
@@ -175,6 +218,53 @@ impl<Projection, Input> DependencyOwnedResult<Projection, Input> {
         })
     }
 
+    /// Returns input identities transferred in every normal owning alternative.
+    /// A conditional transfer alone does not establish unconditional ownership.
+    /// Contents are retained only according to each transfer's preservation mask.
+    pub fn guaranteed_transfers(&self) -> std::collections::BTreeSet<DependencyOwnedTransfer<Projection, Input>>
+    where Projection: Clone + Ord, Input: Clone + Ord {
+        match self {
+            Self::Transfer(transfer) if transfer.condition.is_none() => [transfer.clone()].into(),
+            Self::Transfer(_) | Self::Case { .. } => Default::default(),
+            Self::All(values) => {
+                let mut shared = std::collections::BTreeMap::<_, DependencyOwnedTransfer<Projection, Input>>::new();
+
+                for transfer in values.iter().flat_map(Self::guaranteed_transfers) {
+                    shared.entry((transfer.input.clone(), transfer.output.clone(), transfer.condition.clone()))
+                        .and_modify(|previous| {
+                            previous.preservation = previous.preservation.intersection(&transfer.preservation);
+                        })
+                        .or_insert(transfer);
+                }
+
+                shared.into_values().collect()
+            }
+            Self::Choice(values) => {
+                let mut values = values.iter();
+
+                let Some(first) = values.next() else {
+                    return Default::default();
+                };
+
+                let mut shared = first.guaranteed_transfers();
+
+                for value in values {
+                    let incoming = value.guaranteed_transfers();
+
+                    shared = shared.into_iter().filter_map(|mut transfer| {
+                        let other = incoming.iter().find(|other| transfer.same_identity(other))?;
+
+                        transfer.preservation = transfer.preservation.intersection(&other.preservation);
+
+                        Some(transfer)
+                    }).collect();
+                }
+
+                shared
+            }
+        }
+    }
+
     /// Visits exact moves with the ordinary conditions of their complete alternatives.
     pub fn guarded_transfers(
         &self,
@@ -261,6 +351,55 @@ mod tests {
     use super::{DependencyOwnedResult, DependencyOwnedTransfer};
 
     type Layout = DependencyOwnedResult<u8, u8>;
+
+    #[test]
+    fn root_layout_drops_discarded_child_guards_and_keeps_empty_choices() {
+        let root = Layout::Transfer(DependencyOwnedTransfer::new(1, []));
+        let child = Layout::Transfer(DependencyOwnedTransfer::new(2, [0]));
+        let layout = Layout::all([root.clone(), Layout::case(3, child.clone())]);
+
+        assert_eq!(layout.root_layout(), root);
+        assert_eq!(Layout::case(3, child).root_layout(), Layout::default());
+
+        assert_eq!(
+            Layout::choice([layout, Layout::default()]).root_layout(),
+            Layout::choice([root.clone(), Layout::default()]),
+        );
+
+        assert_eq!(Layout::case(4, root.clone()).root_layout(), Layout::case(4, root));
+    }
+
+    #[test]
+    fn guaranteed_identity_intersects_contents_in_choices_and_duplicate_mappings() {
+        use super::DependencyValuePreservation;
+
+        let partial = DependencyValuePreservation::new(true, [(0, DependencyValuePreservation::none())].into());
+        let complete = DependencyOwnedTransfer::new(5, [0]).with_preservation(DependencyValuePreservation::all());
+        let changed = complete.clone().with_preservation(partial);
+
+        assert!(complete.same_identity(&changed));
+
+        for layout in [
+            Layout::choice([Layout::Transfer(complete.clone()), Layout::Transfer(changed.clone())]),
+            Layout::all([Layout::Transfer(complete), Layout::Transfer(changed.clone())]),
+        ] {
+            assert_eq!(layout.guaranteed_transfers(), [changed.clone()].into());
+        }
+    }
+
+    #[test]
+    fn guaranteed_transfers_require_the_same_move_in_every_alternative() {
+        let common = DependencyOwnedTransfer::new(5, [0]);
+        let other = DependencyOwnedTransfer::new(7, [1]);
+        let simultaneous = Layout::all([Layout::Transfer(common.clone()), Layout::Transfer(other.clone())]);
+        let choice = Layout::choice([simultaneous.clone(), Layout::Transfer(common.clone())]);
+
+        assert_eq!(choice.guaranteed_transfers(), [common.clone()].into());
+        assert_eq!(simultaneous.guaranteed_transfers(), [common.clone(), other].into());
+        assert!(Layout::case(2, simultaneous).guaranteed_transfers().is_empty());
+        assert!(Layout::choice([choice, Layout::default()]).guaranteed_transfers().is_empty());
+        assert!(Layout::Transfer(common.with_condition(Some(2))).guaranteed_transfers().is_empty());
+    }
 
     #[test]
     fn guarded_loop_alternatives_reach_a_fixed_point() {

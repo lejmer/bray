@@ -66,11 +66,56 @@ pub(super) fn format_english_type(ty: &bray_diagnostics::DiagnosticType) -> Stri
         DiagnosticType::Slice => "slice type".to_owned(),
         DiagnosticType::Generator => "generator type".to_owned(),
         DiagnosticType::Nullable => "nullable type".to_owned(),
-        DiagnosticType::Borrow => "borrow type".to_owned(),
+        DiagnosticType::Borrow { kind, target } => match kind {
+            bray_diagnostics::DiagnosticBorrowKind::Shared => format!("&{}", format_english_type(target)),
+            bray_diagnostics::DiagnosticBorrowKind::Mutable => format!("&mut {}", format_english_type(target)),
+        },
         DiagnosticType::TraitView => "trait view type".to_owned(),
         DiagnosticType::OwnedIndirection => "owned indirection type".to_owned(),
-        DiagnosticType::Callable => "callable type".to_owned(),
+        DiagnosticType::Callable { parameters, variadic, result, constness, execution, trust, abi } =>
+            format_english_callable_type(parameters, *variadic, result, *constness, *execution, *trust, *abi),
     }
+}
+
+fn format_english_callable_type(
+    parameters: &[bray_diagnostics::DiagnosticCallableParameter],
+    variadic: bool,
+    result: &bray_diagnostics::DiagnosticType,
+    constness: bray_diagnostics::DiagnosticCallableConstness,
+    execution: bray_diagnostics::DiagnosticCallableExecution,
+    trust: bray_diagnostics::DiagnosticCallableTrust,
+    abi: bray_diagnostics::DiagnosticCallableAbi,
+) -> String {
+    use bray_diagnostics::{DiagnosticCallableAbi, DiagnosticCallableConstness, DiagnosticCallableExecution,
+        DiagnosticCallableParameterMode, DiagnosticCallablePosition, DiagnosticCallableTrust};
+
+    let mut signature = String::new();
+
+    if abi != DiagnosticCallableAbi::Bray {
+        write!(signature, "@abi({}) ", abi.as_str()).expect("writing a string cannot fail");
+    }
+    if trust == DiagnosticCallableTrust::Trusted { signature.push_str("trusted "); }
+    if constness == DiagnosticCallableConstness::Constant { signature.push_str("const "); }
+    if execution == DiagnosticCallableExecution::Asynchronous { signature.push_str("async "); }
+
+    signature.push_str("func(");
+
+    for (index, parameter) in parameters.iter().enumerate() {
+        if index != 0 { signature.push_str(", "); }
+        if parameter.position == DiagnosticCallablePosition::PositionalOrNamed { signature.push_str("pos "); }
+        if parameter.mode == DiagnosticCallableParameterMode::Mutable { signature.push_str("mut "); }
+
+        write!(signature, "{}: {}", parameter.name, format_english_type(&parameter.ty))
+            .expect("writing a string cannot fail");
+    }
+    if variadic {
+        if !parameters.is_empty() { signature.push_str(", "); }
+        signature.push_str("...");
+    }
+
+    write!(signature, ") -> {}", format_english_type(result)).expect("writing a string cannot fail");
+
+    signature
 }
 
 pub(super) fn format_english_artifact_digest(digest: &DiagnosticArtifactDigest) -> String {
@@ -160,6 +205,12 @@ pub(super) fn format_english_quoted_text(text: &str) -> String {
     format!("'{}'", text.escape_default())
 }
 
+pub(super) fn format_english_quoted_code(text: &str) -> String {
+    let snippet = crate::code_snippet::format_code_snippet(text);
+    let escaped = snippet.escape_debug().to_string();
+    format!("'{}'", crate::code_snippet::format_code_snippet(&escaped))
+}
+
 pub(super) fn format_english_path(path: &Path) -> String {
     path.display().to_string()
 }
@@ -242,5 +293,48 @@ fn format_english_source_origin(source_id: u32, origin: &SourceOrigin) -> String
         | SourceOrigin::TestFixture { name } => name.clone(),
         SourceOrigin::LspDocument { uri } => uri.clone(),
         SourceOrigin::Stdin => format!("source {source_id}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{DiagnosticBorrowKind, DiagnosticNamedType, DiagnosticType, DiagnosticTypeArgument};
+
+    #[test]
+    fn callable_types_render_their_signature_and_execution_mode() {
+        use bray_diagnostics::{DiagnosticCallableAbi, DiagnosticCallableConstness, DiagnosticCallableExecution,
+            DiagnosticCallableParameter, DiagnosticCallableParameterMode, DiagnosticCallablePosition, DiagnosticCallableTrust};
+
+        let mut ty = DiagnosticType::Callable {
+            parameters: vec![DiagnosticCallableParameter {
+                name: "value".to_owned(), position: DiagnosticCallablePosition::PositionalOrNamed,
+                mode: DiagnosticCallableParameterMode::Mutable, ty: DiagnosticType::U32,
+            }],
+            variadic: false, result: Box::new(DiagnosticType::Boolean),
+            constness: DiagnosticCallableConstness::Runtime, execution: DiagnosticCallableExecution::Asynchronous,
+            trust: DiagnosticCallableTrust::Trusted, abi: DiagnosticCallableAbi::Bray,
+        };
+
+        assert_eq!(super::format_english_type(&ty), "trusted async func(pos mut value: u32) -> bool");
+
+        let DiagnosticType::Callable { execution, abi, variadic, .. } = &mut ty else { unreachable!() };
+        *execution = DiagnosticCallableExecution::Synchronous;
+        *abi = DiagnosticCallableAbi::C;
+        *variadic = true;
+
+        assert_eq!(super::format_english_type(&ty), "@abi(c) trusted func(pos mut value: u32, ...) -> bool");
+    }
+
+    #[test]
+    fn borrowed_types_render_their_target_and_mutability() {
+        for (kind, expected) in [(DiagnosticBorrowKind::Shared, "&std.memory.Uninit<i32>"),
+            (DiagnosticBorrowKind::Mutable, "&mut std.memory.Uninit<i32>")]
+        {
+            let target = DiagnosticType::Named(DiagnosticNamedType::new(
+                ["std".to_owned(), "memory".to_owned(), "Uninit".to_owned()],
+                [DiagnosticTypeArgument::Type(DiagnosticType::I32)],
+            ));
+            assert_eq!(super::format_english_type(&DiagnosticType::Borrow { kind, target: Box::new(target) }), expected);
+        }
     }
 }

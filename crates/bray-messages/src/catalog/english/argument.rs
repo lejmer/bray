@@ -1,4 +1,5 @@
 mod callable;
+mod condition;
 #[cfg(test)]
 mod catalog;
 mod emission;

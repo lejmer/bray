@@ -164,13 +164,9 @@ trusted internal func reserve_domain_locked(
         trusted native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     uses(raw_memory, unchecked_init, intrinsic)
 {
     let attached = trusted bray.runtime.bootstrap.host.current_attachment_locked(lease);

@@ -1,21 +1,16 @@
-use std::collections::BTreeMap;
-
-use bray_bound_tree::{BoundReferenceTarget, SelectedCall};
-use bray_symbols::ReceiverMode;
-
 use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
-use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
+use crate::{CheckerRequestContext, ExecutionCondition};
 
-pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
+pub(super) fn unproven_postcondition<C: CheckerRequestContext + ?Sized>(
     flow: &ExecutionFlow<'_, '_, C>,
     postconditions: &[(ExecutionCondition, bray_source::SourceSpan)],
-) -> Vec<bray_source::SourceSpan> {
+) -> Option<(bray_source::SourceSpan, crate::UnprovenExecutionCondition)> {
     if postconditions.is_empty() {
-        return Vec::new();
+        return None;
     }
 
-    let mut failed = vec![false; postconditions.len()];
+    let mut failed = vec![None; postconditions.len()];
 
     for exit in flow.domain.graph.completion_exits() {
         let output = flow.output(exit.block());
@@ -30,35 +25,34 @@ pub(super) fn unproven_postconditions<C: CheckerRequestContext + ?Sized>(
     postconditions
         .iter()
         .zip(failed)
-        .filter_map(|((_, span), failed)| failed.then_some(*span))
-        .collect()
+        .find_map(|((_, span), failed)| failed.map(|failed| (*span, failed)))
 }
 
 pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
     state: &ExecutionState,
     postconditions: &[(ExecutionCondition, bray_source::SourceSpan)],
-    failed: &mut [bool],
+    failed: &mut [Option<crate::UnprovenExecutionCondition>],
 ) {
     // Replay each exit once, sharing any implication closure across its clauses.
     let mut trusted = None;
     let mut unsigned = None;
     let mut integer_ranges = super::integer::IntegerRanges::new();
 
-    for ((condition, _), failed) in postconditions.iter().zip(failed) {
-        if *failed {
+    for ((required, _), failed) in postconditions.iter().zip(failed) {
+        if failed.is_some() {
             continue;
         }
 
-        let condition = condition.substitute(
+        let condition = required.substitute(
             &|input| {
                 input
                     .value_in(&state.current)
-                    .unwrap_or_else(|| ExecutionCondition::Input(input.clone()))
+                    .unwrap_or(ExecutionCondition::Unknown)
             },
-            &state.result,
+            &domain.returned_value(state),
             &mut { ExecutionCondition::WORK_LIMIT },
-        );
+        ).with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions);
 
         if reflexive_comparison(domain, state, &condition) {
             continue;
@@ -77,7 +71,9 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
 
         let trusted = trusted.get_or_insert_with(|| {
             crate::execution_guarantees::trusted_condition_closure(
-                state.trusted_assumptions.clone(),
+                state.trusted_assumptions.iter().map(|(condition, holds)| (
+                    condition.with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions), *holds,
+                )).collect(),
                 &state.assumptions,
             )
         });
@@ -101,11 +97,11 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             (equalities, known)
         });
 
-        *failed = !super::integer::unsigned_arithmetic_is_bounded(
-            &condition.with_equalities(equalities),
-            known,
-            &|value| domain.unsigned_value(value),
-        );
+        if !super::integer::unsigned_arithmetic_is_bounded(
+            &condition.with_equalities(equalities), known, &|value| domain.unsigned_value(value),
+        ) {
+            *failed = Some(crate::UnprovenExecutionCondition::new(required.clone(), condition));
+        }
     }
 }
 
@@ -159,89 +155,4 @@ fn reflexive_comparison<C: CheckerRequestContext + ?Sized>(
                 ExecutionCondition::WORK_LIMIT
             })
             .is_some()
-}
-
-impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(super) fn call_post_state(
-        &self,
-        state: &ExecutionState,
-        expression: bray_bound_tree::BoundExpressionId,
-        call: &SelectedCall,
-    ) -> BTreeMap<ExecutionPlace, ExecutionCondition> {
-        let mut inputs = BTreeMap::new();
-
-        for argument in call.arguments() {
-            let (parameter, ordinal, ty) = match argument {
-                bray_bound_tree::SelectedArgument::Explicit {
-                    parameter,
-                    ordinal,
-                    conversion,
-                    ..
-                } => (*parameter, *ordinal, conversion.target_type()),
-                bray_bound_tree::SelectedArgument::Default {
-                    parameter,
-                    ordinal,
-                    ty,
-                    ..
-                } => (Some(*parameter), *ordinal, *ty),
-            };
-
-            if !matches!(
-                self.request.semantic_values().type_data(ty).as_ref(),
-                bray_symbols::TypeData::Borrow { .. }
-            ) {
-                continue;
-            }
-
-            let root = bray_symbols::DependencySubjectRoot::Parameter(
-                bray_symbols::SymbolOrdinal::new(ordinal),
-            );
-
-            let input = call
-                .input_site(expression, root)
-                .expect("postcondition has its evaluated input");
-
-            let value = self.current_input(state, input);
-
-            if let Some(parameter) = parameter {
-                inputs.insert(
-                    BoundReferenceTarget::Surface(parameter.into()).into(),
-                    value.clone(),
-                );
-            }
-
-            inputs.insert(
-                ExecutionPlace::argument(
-                    call.input_ordinal(root)
-                        .expect("formal input has its ordinal"),
-                ),
-                value,
-            );
-        }
-
-        if let Some(receiver) = call.receiver().filter(|receiver| {
-            matches!(
-                receiver.mode(),
-                ReceiverMode::Shared | ReceiverMode::Mutable
-            )
-        }) {
-            let input = call
-                .input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
-                .expect("borrowed receiver has its input");
-
-            let value = self.current_input(state, input);
-
-            inputs.insert(
-                BoundReferenceTarget::Surface(receiver.parameter().into()).into(),
-                value.clone(),
-            );
-
-            inputs.insert(
-                ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)),
-                value,
-            );
-        }
-
-        inputs
-    }
 }

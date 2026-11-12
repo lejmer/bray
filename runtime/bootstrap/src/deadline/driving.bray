@@ -1,0 +1,138 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.deadline;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal std.platform;
+
+internal func poll_reference(pos owner: &Reference) -> Result<u32, std.platform.PlatformStatus>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    let now = try monotonic_now();
+
+    return Ok(trusted dispatch_reference(owner, now));
+}
+
+internal func wait_reference(pos owner: &Reference, pos maximum: u32) -> Result<u32, std.platform.PlatformStatus>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    let scheduled = trusted next_deadline(owner);
+
+    if let ?deadline = scheduled
+    {
+        let now = try monotonic_now();
+
+        if deadline <= now
+        {
+            return Ok(0);
+        }
+
+        let remaining = deadline - now;
+
+        let milliseconds = remaining / 1_000_000 + if remaining % 1_000_000 == 0
+        {
+            yield 0;
+        }
+        else
+        {
+            yield 1;
+        };
+
+        return Ok(
+            if milliseconds < maximum as u64
+            {
+                yield std.numeric.truncate_to<u32, u64>(milliseconds);
+            }
+            else
+            {
+                yield maximum;
+            }
+        );
+    }
+
+    return Ok(maximum);
+}
+
+trusted internal func close(pos owner: &Reference)
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    loop
+    {
+        let pending = trusted commit(owner, 18_446_744_073_709_551_615, 0, 0);
+
+        if pending matches none
+        {
+            return;
+        }
+
+        _ = trusted release(owner, trusted take_entry(pending), false);
+    }
+}
+
+trusted internal func monotonic_now() -> Result<u64, std.platform.PlatformStatus>
+    uses(raw_memory, unchecked_init)
+{
+    let mut ticks: u64 = 0;
+    let status = trusted std.platform.clock_monotonic_now(std.memory.address_of_mut<u64>(&mut ticks));
+
+    if status.category != 0
+    {
+        return Error(status);
+    }
+
+    return Ok(ticks);
+}
+
+@abi(c)
+trusted internal func poll_service(pos owner: DataPointer<Reference>) -> DrivingResult
+    requires(trusted reference_slot(pointer = owner))
+{
+    return match consume poll_reference(trusted borrow_reference(&owner, owner))
+    {
+        case Ok(value)
+        {
+            yield
+            {
+                status = std.platform.success_status(),
+                value = value
+            };
+        }
+        case Error(status)
+        {
+            yield
+            {
+                status = status,
+                value = 0
+            };
+        }
+    };
+}
+
+@abi(c)
+trusted internal func wait_service(pos owner: DataPointer<Reference>, pos maximum: u32) -> DrivingResult
+    requires(trusted reference_slot(pointer = owner))
+{
+    return match consume wait_reference(trusted borrow_reference(&owner, owner), maximum)
+    {
+        case Ok(value)
+        {
+            yield
+            {
+                status = std.platform.success_status(),
+                value = value
+            };
+        }
+        case Error(status)
+        {
+            yield
+            {
+                status = status,
+                value = 0
+            };
+        }
+    };
+}

@@ -74,46 +74,18 @@ impl Lowerer<'_> {
 
                 let mut current = current;
 
-                let mut payload = if hook == ImplementationHook::TaskEventWait {
-                    let [
-                        SelectedArgument::Explicit {
-                            expression: event,
-                            conversion,
-                            reborrow,
-                            ..
-                        },
-                    ] = selection.arguments()
-                    else {
-                        panic!(
-                            "lowering contract violation: MissingSemanticSelection {value:?}",
-                            value = expression
-                        );
+                let payload = if hook == ImplementationHook::TaskEventWait {
+                    let [argument @ SelectedArgument::Explicit { .. }] = selection.arguments() else {
+                        panic!("event wait retains its selected explicit event input");
                     };
 
-                    let lowered = self.lower_call_argument(*event, *reborrow, current)?;
+                    let lowered = self.lower_selected_argument_input(expression, argument, current, &source)?;
 
-                    let Some(continuation) = lowered.block else {
-                        return Ok(Some(lowered));
-                    };
+                    let Some(continuation) = lowered.block else { return Ok(Some(lowered)); };
 
                     current = continuation;
 
-                    let event = lowered.value.unwrap_or_else(|| {
-                        panic!(
-                            "lowering contract violation: MissingOperationResult {value:?}",
-                            value = *event
-                        )
-                    });
-
-                    let (continuation, event) = self.convert_operand(
-                        expression,
-                        current,
-                        Self::retained_source(&source),
-                        event,
-                        conversion,
-                    )?;
-
-                    current = continuation;
+                    let event = lowered.value.expect("event wait retains its staged event value");
 
                     Some(event)
                 } else {
@@ -125,7 +97,7 @@ impl Lowerer<'_> {
                     current,
                     &source,
                     selection,
-                    payload.as_mut_slice(),
+                    payload.as_slice(),
                 )?;
 
                 let resume = self

@@ -1,7 +1,26 @@
+use super::evidence::ExecutionCallEvidence;
 use bray_bound_tree::{AnyBoundNodeId, BoundCallableTarget};
 use bray_source::SourceSpan;
 
 use bray_symbols::ExecutionProperty;
+
+/// Certification failure retaining the source identity and specific known cause.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ExecutionVerificationFailure<Source> {
+    /// Source of the failed operation or dependency.
+    pub source: Source,
+    /// Why the requested behavior could not be established.
+    pub cause: bray_diagnostics::DiagnosticExecutionProofFailure,
+    /// The unproven contract with its actual values, resolved only on failure.
+    pub condition: Option<std::sync::Arc<bray_diagnostics::DiagnosticContractObligation>>,
+}
+
+impl<Source> ExecutionVerificationFailure<Source> {
+    /// Changes the source representation without discarding the proof's diagnostic context.
+    pub fn map_source<T>(self, map: impl FnOnce(Source) -> T) -> ExecutionVerificationFailure<T> {
+        ExecutionVerificationFailure { source: map(self.source), cause: self.cause, condition: self.condition }
+    }
+}
 
 /// A declaration creates an obligation without certifying its implementation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -138,7 +157,7 @@ pub struct ExecutionCandidate {
     pub(crate) completion_dependencies: Vec<ExecutionCompletionDependency>,
     pub(crate) calls:
         std::collections::BTreeMap<bray_bound_tree::BoundExecutionSite, ExecutionCallEvidence>,
-    pub(crate) failure: Option<SourceSpan>,
+    pub(crate) failure: Option<ExecutionVerificationFailure<SourceSpan>>,
     pub(crate) constant_failure: Option<SourceSpan>,
     pub(crate) observation_failure: Option<SourceSpan>,
     pub(crate) finite_iteration: bool,
@@ -208,17 +227,23 @@ impl ExecutionCandidate {
     }
 
     /// Returns the first operation preventing a local proof, if any.
-    pub const fn failure(&self) -> Option<SourceSpan> {
-        match self.failure {
-            Some(failure) => Some(failure),
-            None => self.input_mutation,
+    pub fn failure(&self) -> Option<ExecutionVerificationFailure<SourceSpan>> {
+        // Failure context is immutable and shared with the candidate's certificate consumers.
+        match &self.failure {
+            Some(failure) => Some(failure.clone()),
+            None => match self.input_mutation {
+                Some(source) => Some(ExecutionVerificationFailure { condition: None,
+                    source, cause: bray_diagnostics::DiagnosticExecutionProofFailure::InputMutation,
+                }),
+                None => None,
+            },
         }
     }
 
     /// Returns an operation that escapes the supported deterministic observation frame.
     pub const fn observation_failure(&self) -> Option<SourceSpan> {
-        match self.failure {
-            Some(failure) => Some(failure),
+        match &self.failure {
+            Some(failure) => Some(failure.source),
             None => self.observation_failure,
         }
     }
@@ -301,377 +326,6 @@ pub struct ExecutionDomain {
     pub postconditions: Vec<bray_declarations::SyntaxAnchor>,
 }
 
-/// Values captured at a selected call's entry, before callee mutation can occur.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct ExecutionCallEvidence {
-    pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
-    /// Caller-owned carriers admitted at invocation. Valid clauses remain in the
-    /// live state. These identities prevent another carrier from lending provenance.
-    pub(crate) witness_inputs: std::collections::BTreeSet<super::ExecutionCondition>,
-    /// Copy origins while their observations remain unchanged. These are value
-    /// correlations, never language equality predicates or ownership authority.
-    pub(crate) copy_sources:
-        std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
-    /// Noncopying owned inputs, in receiver-first checked signature order.
-    pub(crate) owned_inputs: std::sync::Arc<[bray_symbols::SymbolOrdinal]>,
-    /// Access dependencies captured before consuming inputs, without owning authority.
-    pub(crate) addresses:
-        std::collections::BTreeMap<super::ExecutionPlace, super::AddressDependencies>,
-    pub(crate) anonymous_target: Option<bray_bound_tree::BoundUnitKey>,
-    pub(crate) trusted_boundary: bool,
-    pub(crate) pending_execution: bool,
-    pub(crate) arguments:
-        std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
-    pub(crate) assumptions: std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-    pub(crate) trusted_assumptions: std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-}
-
-impl ExecutionCallEvidence {
-    /// Actual values moved into the receiver-first noncopying input slots.
-    pub(crate) fn owned_arguments(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
-        self.owned_inputs.iter().filter_map(|ordinal| {
-            super::ExecutionPlace::argument(*ordinal).value_in(&self.arguments)
-        })
-    }
-
-    /// Project current ordinary knowledge into immutable copied input identities.
-    pub(crate) fn captured_facts(
-        &self,
-        ordinary: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-    ) -> std::collections::BTreeSet<(super::ExecutionCondition, bool)> {
-        use super::ExecutionCondition as Condition;
-
-        let bindings = self.copy_bindings();
-        let mut facts = std::collections::BTreeSet::new();
-
-        if bindings.is_empty() {
-            return facts;
-        }
-
-        for (condition, holds) in ordinary {
-            if condition.contains_trusted() || condition.observes_live(None) {
-                continue;
-            }
-
-            let captured = condition.with_snapshots(&bindings);
-
-            if captured != *condition {
-                captured.assume(*holds, &mut facts);
-            }
-        }
-
-        for (source, captured) in bindings {
-            if let Some(holds) = source.prove(ordinary, &mut { Condition::WORK_LIMIT }) {
-                captured.assume(holds, &mut facts);
-            }
-        }
-
-        facts
-    }
-
-    /// Read historical proof through still-valid copy origins. This projection
-    /// supplies call-entry proof only. It never publishes copied live authority.
-    pub(crate) fn proof_facts<'a>(
-        &self,
-        facts: &'a std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-    ) -> impl Iterator<Item = (super::ExecutionCondition, bool)> + 'a {
-        let bindings = self.copy_bindings();
-
-        facts
-            .iter()
-            .map(move |(condition, holds)| (condition.with_snapshots(&bindings), *holds))
-    }
-
-    fn copy_bindings(
-        &self,
-    ) -> std::collections::BTreeMap<super::ExecutionCondition, super::ExecutionCondition> {
-        let mut bindings = std::collections::BTreeMap::new();
-
-        for (place, source) in &self.copy_sources {
-            let Some(captured) = place.value_in(&self.arguments) else {
-                continue;
-            };
-
-            bindings.insert(source.clone(), captured.clone());
-
-            bindings.insert(
-                source.owner_identity().clone(),
-                captured.owner_identity().clone(),
-            );
-        }
-
-        bindings
-    }
-
-    /// Captures only constant argument values, with no trusted authority or runtime execution lane.
-    pub fn from_constants(
-        values: &bray_symbols::SemanticValueStore,
-        arguments: &[bray_symbols::ConstantValueId],
-    ) -> Self {
-        Self {
-            arguments: arguments
-                .iter()
-                .enumerate()
-                .map(|(index, value)| {
-                    (
-                        super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
-                            u32::try_from(index)
-                                .expect("constant call argument index fits its signature"),
-                        )),
-                        super::ExecutionCondition::from_constant(values, *value),
-                    )
-                })
-                .collect(),
-            ..Self::default()
-        }
-    }
-
-    /// Retains the implementation choices selected for this invocation.
-    pub fn with_implementation_witnesses(
-        mut self,
-        witnesses: impl IntoIterator<Item = bray_symbols::ImplementationInstanceId>,
-    ) -> Self {
-        self.implementation_witnesses = witnesses.into_iter().collect::<Vec<_>>().into();
-
-        self
-    }
-
-    /// Returns the selected invocation's implementation choices.
-    pub fn implementation_witnesses(&self) -> &[bray_symbols::ImplementationInstanceId] {
-        &self.implementation_witnesses
-    }
-
-    /// Instantiates call identities in captured values without changing the reusable entry snapshot.
-    pub fn try_map_conditions<E>(
-        &self,
-        mut map: impl FnMut(&super::ExecutionCondition) -> Result<super::ExecutionCondition, E>,
-    ) -> Result<Self, E> {
-        let mut mapped = Self {
-            implementation_witnesses: std::sync::Arc::clone(&self.implementation_witnesses),
-            owned_inputs: std::sync::Arc::clone(&self.owned_inputs),
-            anonymous_target: self.anonymous_target.clone(),
-            trusted_boundary: self.trusted_boundary,
-            pending_execution: self.pending_execution,
-            ..Self::default()
-        };
-
-        mapped.arguments = self
-            .arguments
-            .iter()
-            .map(|(place, condition)| Ok((place.clone(), map(condition)?)))
-            .collect::<Result<_, E>>()?;
-
-        mapped.copy_sources = self
-            .copy_sources
-            .iter()
-            .map(|(place, condition)| Ok((place.clone(), map(condition)?)))
-            .collect::<Result<_, E>>()?;
-
-        mapped.witness_inputs = self
-            .witness_inputs
-            .iter()
-            .map(&mut map)
-            .collect::<Result<_, E>>()?;
-
-        // Proof queries retain the physical dependencies of each independently mapped address.
-        for (place, addresses) in &self.addresses {
-            let mapped_addresses = mapped.addresses.entry(place.clone()).or_default();
-
-            for (address, owners) in addresses {
-                mapped_addresses
-                    .entry(map(address)?)
-                    .or_default()
-                    .extend(owners.iter().cloned());
-            }
-        }
-
-        mapped.assumptions = self
-            .assumptions
-            .iter()
-            .map(|(condition, value)| Ok((map(condition)?, *value)))
-            .collect::<Result<_, E>>()?;
-
-        mapped.trusted_assumptions = self
-            .trusted_assumptions
-            .iter()
-            .map(|(condition, value)| Ok((map(condition)?, *value)))
-            .collect::<Result<_, E>>()?;
-
-        Ok(mapped)
-    }
-
-    /// Exact local callable body established by the entry value flow, if known.
-    pub fn anonymous_target(&self) -> Option<&bray_bound_tree::BoundUnitKey> {
-        self.anonymous_target.as_ref()
-    }
-
-    pub(crate) fn intersect(&mut self, other: &Self) -> bool {
-        assert_eq!(
-            self.implementation_witnesses, other.implementation_witnesses,
-            "a selected invocation retains its implementation choices across control flow"
-        );
-
-        assert_eq!(
-            self.owned_inputs, other.owned_inputs,
-            "one checked invocation retains its input ownership modes"
-        );
-
-        let before = (
-            self.anonymous_target.is_some(),
-            self.trusted_boundary,
-            self.pending_execution,
-            self.assumptions.len(),
-            self.trusted_assumptions.len(),
-            self.arguments.len(),
-            self.copy_sources.len(),
-            self.witness_inputs.len(),
-        );
-
-        let mut addresses_changed = false;
-
-        for (input, addresses) in &other.addresses {
-            let retained = self.addresses.entry(input.clone()).or_default();
-
-            for (address, owners) in addresses {
-                addresses_changed |= !retained.contains_key(address);
-
-                let retained = retained.entry(address.clone()).or_default();
-                let before = retained.len();
-
-                retained.extend(owners.iter().cloned());
-                addresses_changed |= retained.len() != before;
-            }
-        }
-
-        if self.anonymous_target != other.anonymous_target {
-            self.anonymous_target = None;
-        }
-
-        self.trusted_boundary &= other.trusted_boundary;
-        self.pending_execution |= other.pending_execution;
-
-        self.assumptions
-            .retain(|condition| other.assumptions.contains(condition));
-
-        self.trusted_assumptions
-            .retain(|condition| other.trusted_assumptions.contains(condition));
-
-        self.arguments
-            .retain(|place, value| other.arguments.get(place) == Some(value));
-
-        self.copy_sources
-            .retain(|place, value| other.copy_sources.get(place) == Some(value));
-
-        self.witness_inputs
-            .retain(|owner| other.witness_inputs.contains(owner));
-
-        addresses_changed
-            || before
-                != (
-                    self.anonymous_target.is_some(),
-                    self.trusted_boundary,
-                    self.pending_execution,
-                    self.assumptions.len(),
-                    self.trusted_assumptions.len(),
-                    self.arguments.len(),
-                    self.copy_sources.len(),
-                    self.witness_inputs.len(),
-                )
-    }
-
-    /// Whether every callee-entry condition follows from the captured argument values.
-    pub fn proves<'a>(
-        &self,
-        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
-    ) -> bool {
-        self.proves_from(conditions, &self.assumptions, &[])
-    }
-
-    /// Whether live trusted evidence supplies every selected caller obligation.
-    pub fn proves_trusted(&self, conditions: &[super::ExecutionCondition]) -> bool {
-        self.proves_from(conditions, &self.trusted_assumptions, &[])
-    }
-
-    /// Checks a declaration's own inputs against captured receiver-first arguments.
-    pub fn proves_trusted_with_inputs(
-        &self,
-        conditions: &[super::ExecutionCondition],
-        inputs: &[bray_bound_tree::BoundReferenceTarget],
-    ) -> bool {
-        self.proves_from(conditions, &self.trusted_assumptions, inputs)
-    }
-
-    fn proves_from<'a>(
-        &self,
-        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
-        assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-        inputs: &[bray_bound_tree::BoundReferenceTarget],
-    ) -> bool {
-        let mut conditions = conditions.into_iter().peekable();
-
-        if conditions.peek().is_none() {
-            return true;
-        }
-
-        let equalities = super::ExecutionCondition::equalities(&self.assumptions, None);
-
-        let known = self
-            .proof_facts(assumptions)
-            .map(|(condition, value)| (condition.with_equalities(&equalities), value))
-            .collect();
-
-        let known = super::trusted_condition_closure(known, &self.assumptions);
-
-        conditions.all(|condition| {
-            let condition = condition.substitute(
-                &|input| {
-                    input
-                        .value_in(&self.arguments)
-                        .or_else(|| {
-                            let ordinal = inputs
-                                .iter()
-                                .position(|reference| Some(*reference) == input.reference())?;
-
-                            let mut argument =
-                                super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
-                                    u32::try_from(ordinal)
-                                        .expect("callable parameter ordinal fits"),
-                                ));
-
-                            // The captured argument retains this immutable component path.
-                            argument.projections = std::sync::Arc::clone(&input.projections);
-
-                            argument.value_in(&self.arguments)
-                        })
-                        .or_else(|| {
-                            input
-                                .constant_term()
-                                .map(|_| super::ExecutionCondition::Input(input.clone()))
-                        })
-                        .or_else(|| match input.reference() {
-                            Some(bray_bound_tree::BoundReferenceTarget::Surface(
-                                bray_symbols::AnySymbolId::GenericConstParameter(_),
-                            )) => {
-                                // Generic substitution has already mapped this immutable compile-time input into the caller.
-                                Some(super::ExecutionCondition::Input(input.clone()))
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or(super::ExecutionCondition::Unknown)
-                },
-                &super::ExecutionCondition::Unknown,
-                &mut { crate::ExecutionCondition::WORK_LIMIT },
-            );
-
-            let condition = condition.with_equalities(&equalities);
-
-            condition.prove_mixed(&known, &self.assumptions, &mut {
-                super::ExecutionCondition::WORK_LIMIT
-            }) == Some(true)
-        })
-    }
-}
-
 /// Local execution candidates keyed by property and guarded declaration, when present.
 pub type ExecutionCandidates =
     std::collections::BTreeMap<ExecutionObligation, std::sync::Arc<ExecutionCandidate>>;
@@ -697,4 +351,49 @@ pub struct ExecutionCompletionDependency {
     pub source: super::ExecutionClauseId,
     /// The calling expression.
     pub node: AnyBoundNodeId,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExecutionCallEvidence;
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_bound_tree::StorageProjection;
+    use bray_symbols::SymbolOrdinal;
+    use std::sync::Arc;
+
+    #[test]
+    fn input_join_loses_contents_without_losing_the_common_owner() {
+        let ordinal = SymbolOrdinal::new(0);
+        let input = ExecutionPlace::argument(ordinal);
+        let owner = ExecutionCondition::Input(input.clone());
+        let field = StorageProjection::TupleElement(ordinal);
+
+        let snapshot = |value| ExecutionCondition::constructed(owner.clone(), [(field, ExecutionCondition::Boolean(value))].into(),
+        );
+
+        for borrowed in [false, true] {
+            let value = |value| if borrowed { snapshot(value).borrowed() } else { snapshot(value) };
+
+            let mut entry = ExecutionCallEvidence {
+                arguments: [(input.clone(), value(true))].into(),
+                owned_inputs: if borrowed { Arc::from([]) } else { Arc::from([ordinal]) },
+                ..ExecutionCallEvidence::default()
+            };
+
+            let incoming = ExecutionCallEvidence {
+                arguments: [(input.clone(), value(false))].into(),
+                owned_inputs: Arc::clone(&entry.owned_inputs),
+                ..ExecutionCallEvidence::default()
+            };
+
+            assert!(entry.intersect(&incoming));
+            assert_eq!(entry.arguments[&input].owner_identity(), value(true).owner_identity());
+
+            let component = entry.arguments[&input].clone().into_referent().project(field);
+
+            assert_eq!(component.prove(&entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT }), None);
+            assert_eq!(entry.owned_arguments().count(), usize::from(!borrowed));
+            assert!(!entry.intersect(&incoming));
+        }
+    }
 }

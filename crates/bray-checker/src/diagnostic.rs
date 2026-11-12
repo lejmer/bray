@@ -103,7 +103,7 @@ fn diagnostic_type_at_depth<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if depth >= 256 {
+    if depth >= DiagnosticType::NESTING_LIMIT {
         return Ok(DiagnosticType::Unknown);
     }
 
@@ -136,13 +136,37 @@ where
         TypeData::Slice(_) => DiagnosticType::Slice,
         TypeData::Generator(_) => DiagnosticType::Generator,
         TypeData::Nullable(_) => DiagnosticType::Nullable,
-        TypeData::Borrow { .. } => DiagnosticType::Borrow,
+        TypeData::Borrow { kind, target } => DiagnosticType::Borrow {
+            kind: diagnostic_borrow_kind(*kind),
+            target: Box::new(diagnostic_type_at_depth(context, *target, depth + 1)?),
+        },
         TypeData::TraitView(_) => DiagnosticType::TraitView,
         TypeData::OwnedIndirection { .. } => DiagnosticType::OwnedIndirection,
-        TypeData::Callable(_) => DiagnosticType::Callable,
+        TypeData::Callable(callable) => DiagnosticType::Callable {
+            parameters: callable.parameters().iter().map(|parameter| {
+                Ok(bray_symbols::diagnostic_callable_parameter(
+                    parameter.name(), parameter.position(), parameter.mode(),
+                    diagnostic_type_at_depth(context, parameter.ty(), depth + 1)?,
+                ))
+            }).collect::<Result<_, CheckerQueryError<C::UpstreamError>>>()?,
+            variadic: callable.is_variadic(),
+            result: Box::new(diagnostic_type_at_depth(context, callable.result(), depth + 1)?),
+            constness: bray_symbols::diagnostic_callable_constness(callable.constness()),
+            execution: bray_symbols::diagnostic_callable_execution(callable.execution()),
+            trust: bray_symbols::diagnostic_callable_trust(callable.trust()),
+            abi: bray_symbols::diagnostic_callable_abi(callable.abi()),
+        },
     };
 
     Ok(diagnostic)
+}
+
+/// Preserves a checked borrow capability in structured diagnostics.
+pub const fn diagnostic_borrow_kind(kind: bray_symbols::BorrowKind) -> bray_diagnostics::DiagnosticBorrowKind {
+    match kind {
+        bray_symbols::BorrowKind::Shared => bray_diagnostics::DiagnosticBorrowKind::Shared,
+        bray_symbols::BorrowKind::Mutable => bray_diagnostics::DiagnosticBorrowKind::Mutable,
+    }
 }
 
 pub(crate) fn expression_span<C>(
@@ -160,6 +184,26 @@ where
     };
 
     source_span(request, expression.origin())
+}
+
+/// Returns the source expression, including children whose origins precede a postfix operation.
+pub(crate) fn expression_text<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>, expression: BoundExpressionId,
+) -> String {
+    let mut span = expression_span(request, expression);
+    let mut pending = vec![expression];
+
+    while let Some(expression) = pending.pop() {
+        let child_span = expression_span(request, expression);
+        assert_eq!(span.source_id(), child_span.source_id(), "a source expression and its children belong to one snapshot");
+        span = SourceSpan::new(span.source_id(), span.range().cover(child_span.range()));
+        pending.extend(request.view().expression(expression)
+            .expect("diagnostic expression belongs to the checked unit").child_expressions());
+    }
+
+    request.source(request.unit().key().source()).text_for_range(span.range())
+        .expect("a diagnostic expression lies within its checked source unit")
+        .trim().to_owned()
 }
 
 pub(crate) fn bound_node_origin<C>(
@@ -259,7 +303,7 @@ where
     )))
 }
 
-fn diagnostic_symbol_path(key: &SymbolKey, name: &str) -> Vec<String> {
+pub(crate) fn diagnostic_symbol_path(key: &SymbolKey, name: &str) -> Vec<String> {
     let mut path = Vec::new();
 
     if let SymbolKeyData::External(key) = key.data() {

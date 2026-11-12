@@ -22,6 +22,8 @@ pub enum StorageStateTarget {
     Assignment(BoundExpressionId),
     /// The destination of a checked scalar or aggregate memory write.
     MemoryWrite(BoundExpressionId),
+    /// The source of a checked move from initialized raw storage.
+    MemoryRead(BoundExpressionId),
     /// The referent of an actual mutable formal input.
     Input {
         /// The exact selected invocation.
@@ -35,7 +37,7 @@ impl StorageStateTarget {
     /// Returns the operation that established this destination.
     pub fn occurrence(self) -> crate::BoundExecutionSite {
         match self {
-            Self::Assignment(expression) | Self::MemoryWrite(expression) => expression.into(),
+            Self::Assignment(expression) | Self::MemoryWrite(expression) | Self::MemoryRead(expression) => expression.into(),
             Self::Access { occurrence, .. } => occurrence,
             Self::Input { invocation, .. } => invocation,
         }
@@ -780,6 +782,11 @@ impl StorageFlow {
             .get(&StorageStateTarget::MemoryWrite(expression))
     }
 
+    /// Returns a moving read's source agreed across all reachable evaluations.
+    pub fn memory_read_target(&self, expression: BoundExpressionId) -> Option<&crate::StorageTarget> {
+        self.state_targets.get(&StorageStateTarget::MemoryRead(expression))
+    }
+
     /// Returns an access's actual storage origin agreed across all reachable evaluations.
     pub fn access_target(&self, plan: crate::StorageAccessPlan) -> Option<&crate::StorageTarget> {
         self.state_targets.get(&StorageStateTarget::Access {
@@ -1110,7 +1117,8 @@ mod tests {
                         BoundExpressionId::from_slot(selector_unit, 0),
                     )]
                     .into(),
-                },
+                kind: bray_symbols::DependencyReferenceKind::Address,
+},
             };
 
             let flow =

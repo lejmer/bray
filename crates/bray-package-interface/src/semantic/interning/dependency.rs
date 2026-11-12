@@ -55,7 +55,7 @@ impl InternState {
             let mut borrows = Vec::with_capacity(input.borrows.len());
 
             for relation in input.borrows.iter() {
-                let entry = match relation.entry() {
+                let entry = match relation.source_subject() {
                     Some(entry) => {
                         let Some(entry) = self.convert_dependency_subject(entry, symbols)? else {
                             break;
@@ -77,10 +77,7 @@ impl InternState {
                 };
 
                 borrows.push(
-                    bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
-                        .with_dereferences(relation.dereferences())
-                        .with_provenance(relation.provenance())
-                        .with_target_projections(projections),
+                    relation.remap(entry, exit, projections),
                 );
             }
 
@@ -136,6 +133,11 @@ impl InternState {
 
                     Ok(bray_symbols::DependencyOwnedResult::Transfer(
                         bray_symbols::DependencyOwnedTransfer::new(term, output)
+                            .with_preservation(transfer.preservation().try_map_projections(&mut |projection| {
+                                self.convert_constant_projection(projection, symbols)
+                                    .map_err(Some)?
+                                    .ok_or(None)
+                            })?)
                             .with_condition(condition),
                     ))
                 },
@@ -469,18 +471,16 @@ impl InternState {
 
         for effect in input {
             effects.push(match effect {
+                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
+                    kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) { Ok(kind) => kind, Err(()) => return Ok(None) },
+                    access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() { Ok(ty) => ty, Err(()) => return Ok(None) },
+                    ambient: *ambient,
+                },
                 DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                 DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                 DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                 DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                DependencyStorageEffect::Cleanup(ty) => {
-                    let Some(ty) = self.type_id(*ty) else {
-                        return Ok(None);
-                    };
-
-                    DependencyStorageEffect::Cleanup(ty)
-                }
-                DependencyStorageEffect::Direct { subject, kind } => {
+                DependencyStorageEffect::Direct { subject, kind, access_type } => {
                     let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
                         return Ok(None);
                     };
@@ -491,12 +491,17 @@ impl InternState {
                             Ok(kind) => kind,
                             Err(()) => return Ok(None),
                         },
+                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
+                            Ok(ty) => ty,
+                            Err(()) => return Ok(None),
+                        },
                     }
                 }
                 DependencyStorageEffect::Indirect {
                     reference,
                     projections,
                     kind,
+                    access_type,
                 } => {
                     let (Some(reference), Some(projections)) = (
                         self.convert_dependency_subject(reference, symbols)?,
@@ -510,6 +515,10 @@ impl InternState {
                         projections: projections.into(),
                         kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
                             Ok(kind) => kind,
+                            Err(()) => return Ok(None),
+                        },
+                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
+                            Ok(ty) => ty,
                             Err(()) => return Ok(None),
                         },
                     }

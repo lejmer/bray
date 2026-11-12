@@ -1,0 +1,196 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.callback;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.memory.function;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap.scheduler;
+using internal bray.runtime.bootstrap.host.product;
+
+trusted internal predicate producer_returned(output: DataPointer<bray.runtime.bootstrap.activation.Progress>);
+
+trusted internal predicate producer_callback<F>(owner: &Invocation, pointer: DataPointer<u8>);
+
+internal callable ProgressAction = @abi(c) trusted func(
+    pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos context: usize
+)
+    requires(trusted bray.runtime.bootstrap.entry.native_entry())
+    ensures(trusted producer_returned(output = output));
+
+internal callable ResolveAction = @abi(c) trusted func(
+    pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos context: usize,
+    pos cleanup_exit: u32
+)
+    requires(trusted bray.runtime.bootstrap.entry.native_entry())
+    ensures(trusted producer_returned(output = output));
+
+internal callable CompletionAction = @abi(c) trusted func(pos context: usize, pos destination: usize)
+    requires(trusted bray.runtime.bootstrap.entry.native_entry());
+
+internal callable DestructionAction = @abi(c) trusted func(pos context: usize)
+    requires(trusted bray.runtime.bootstrap.entry.native_entry());
+
+trusted internal func producer_address<F>(pos owner: &Invocation, pos pointer: DataPointer<u8>) -> FunctionPointer<F>
+    requires(trusted producer_callback<F>(owner = owner, pointer = pointer))
+    ensures(trusted core.memory.callable_address_valid<F>(pointer = result))
+    executes(pure, total)
+    uses(layout_reinterpret)
+{
+    return trusted std.memory.function.from_data<F>(pointer);
+}
+
+// Source callbacks contain abnormal outcomes in Progress. Providers that unwind
+// use the installed native invocation adapter for the same call scope.
+@abi(c)
+trusted internal func invoke_producer(pos mut owner: Invocation) -> Invocation
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted authorized(owner = &owner.acquisition),
+        trusted outputs_owned(owner = &owner.acquisition)
+    )
+    ensures(trusted returned(owner = &result.acquisition))
+{
+    trusted execute_producer(&mut owner);
+    return owner;
+}
+
+// The caller can retain a scoped view of this actual invocation while the
+// producer runs. The invocation record itself remains live and immovable.
+trusted internal func execute_producer(pos owner: &mut Invocation)
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted authorized(owner = &owner.acquisition),
+        trusted outputs_owned(owner = &owner.acquisition)
+    )
+    ensures(trusted returned(owner = &owner.acquisition))
+    uses(layout_reinterpret, foreign_call)
+{
+    let description = trusted prepare_producer(&owner);
+
+    match owner.operation
+    {
+        case Resume
+        {
+            let callback = trusted std.memory.callable_from_pointer<ProgressAction>(
+                trusted producer_address<ProgressAction>(&owner, description.resume)
+            );
+
+            trusted callback(owner.progress, owner.context);
+        }
+        case Cancel
+        {
+            let callback = trusted std.memory.callable_from_pointer<ProgressAction>(
+                trusted producer_address<ProgressAction>(&owner, description.cancel)
+            );
+
+            trusted callback(owner.progress, owner.context);
+        }
+        case Broadcast
+        {
+            let callback = trusted std.memory.callable_from_pointer<ProgressAction>(
+                trusted producer_address<ProgressAction>(&owner, description.broadcast)
+            );
+
+            trusted callback(owner.progress, owner.context);
+        }
+        case Resolve(cleanup_exit)
+        {
+            let callback = trusted std.memory.callable_from_pointer<ResolveAction>(
+                trusted producer_address<ResolveAction>(&owner, description.resolve)
+            );
+
+            trusted callback(owner.progress, owner.context, exit_code(cleanup_exit));
+        }
+        case Move(destination)
+        {
+            let callback = trusted std.memory.callable_from_pointer<CompletionAction>(
+                trusted producer_address<CompletionAction>(&owner, description.move_completion)
+            );
+
+            trusted callback(owner.context, destination);
+        }
+        case Destroy
+        {
+            let callback = trusted std.memory.callable_from_pointer<DestructionAction>(
+                trusted producer_address<DestructionAction>(&owner, description.destroy)
+            );
+
+            trusted callback(owner.context);
+        }
+    }
+}
+
+trusted internal func prepare_producer(pos owner: &Invocation) -> bray.runtime.bootstrap.activation.Descriptor
+    requires(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
+    ensures(
+        trusted authorized(owner = &owner.acquisition),
+        trusted outputs_owned(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted producer_callback<ProgressAction>(owner = owner, pointer = result.resume),
+        trusted producer_callback<ProgressAction>(owner = owner, pointer = result.cancel),
+        trusted producer_callback<ProgressAction>(owner = owner, pointer = result.broadcast),
+        trusted producer_callback<ResolveAction>(owner = owner, pointer = result.resolve),
+        trusted producer_callback<CompletionAction>(owner = owner, pointer = result.move_completion),
+        trusted producer_callback<DestructionAction>(owner = owner, pointer = result.destroy),
+    )
+    uses(raw_memory)
+{
+    let slots = trusted lambda(pos call: &Invocation)
+        requires(trusted authorized(owner = &call.acquisition))
+        ensures(
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Descriptor>(
+                pointer = call.descriptor,
+                count = 1
+            ),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Descriptor>(pointer = call.descriptor),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Descriptor>(pointer = call.descriptor),
+        )
+        executes(pure, total) {};
+
+    trusted slots(owner);
+
+    let descriptor = trusted std.memory.read<bray.runtime.bootstrap.activation.Descriptor>(owner.descriptor);
+    let mut initial = completed_producer_progress();
+
+    if owner.operation matches Operation.Resume | Operation.Cancel
+    {
+        initial.kind = 4;
+    }
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(
+        owner.progress,
+        initial
+    );
+
+    return descriptor;
+}
+
+internal func completed_producer_progress() -> bray.runtime.bootstrap.activation.Progress
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+{
+    let mut progress = bray.runtime.bootstrap.activation.empty_progress();
+
+    progress.kind = 1;
+    return progress;
+}
+
+// The invocation remains owned here through the foreign call. Native code
+// borrows its complete packet and returns the producer's exclusive outputs.
+trusted internal func execute_native(
+    pos owner: &mut Invocation,
+    pos callback: NativeInvoke,
+    pos metadata: usize,
+    pos lane: bray.runtime.bootstrap.scheduler.Lane
+)
+    requires(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
+    ensures(trusted returned(owner = &owner.acquisition))
+    uses(foreign_call)
+{
+    trusted callback(trusted native_pointer(owner), metadata, lane);
+}

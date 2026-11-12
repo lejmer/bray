@@ -15,7 +15,17 @@ pub(super) fn validate_host_operation(
 
     match host_operation {
         MirHostOperation::InitializeRuntime { runtime } => {
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::RuntimeInitialization)
+            if !matches!(
+                runtime.role(),
+                RuntimeAbiRole::RuntimeInitialization
+                    | RuntimeAbiRole::MainThreadLaneStartup
+                    | RuntimeAbiRole::ExecutionWorkersStartup
+                    | RuntimeAbiRole::ExecutionDeadlinesStartup
+            ) {
+                return None;
+            }
+
+            validate_runtime_role(unit, *runtime, runtime.role())
         }
         MirHostOperation::MaterializeStatic { place } => {
             if !matches!(

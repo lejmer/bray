@@ -305,6 +305,7 @@ where
         request,
         root,
         ty,
+        result.map(|access| storage.access(access).expect("implicit result retains its checked access").reached_type()),
         source_site,
         occurrence,
         instantiated,
@@ -580,10 +581,14 @@ mod tests {
 
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
 
-        let (identity, argument_access) = push_direct_storage(
+        let (_, source_access) = push_direct_storage(
             &mut storage,
             StorageIdentity::Temporary(argument),
             unit.key().source(),
+        );
+
+        let (identity, argument_access) = push_staged_input(
+            &mut storage, call_expression, 0, argument, source_access, error_type(), unit.key().source(), None,
         );
 
         let nullable_value_access = storage
@@ -627,7 +632,7 @@ mod tests {
 
         let call = selected_indirect_call(
             callable_type,
-            argument,
+            [argument],
             BoundCallResult::Immediate(error_type()),
             error_type(),
             None,
@@ -733,21 +738,6 @@ mod tests {
 
         let (unit, argument, call_expression) = expression_pair(unit_id);
 
-        let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
-
-        let (_, argument_access) = push_direct_storage(
-            &mut storage,
-            StorageIdentity::Temporary(argument),
-            unit.key().source(),
-        );
-
-        let (_, future_access) = push_direct_storage(
-            &mut storage,
-            StorageIdentity::Temporary(call_expression),
-            unit.key().source(),
-        );
-
-        let storage = storage.finish();
         let values = semantic_values();
 
         let empty = values
@@ -772,17 +762,43 @@ mod tests {
             })
             .unwrap_or_else(|error| panic!("borrowed test type must intern: {error:?}"));
 
-        for (target_type, reborrow, expected_access) in [
-            (error_type(), None, future_access),
-            (borrowed_type, Some(BorrowKind::Shared), argument_access),
-            (borrowed_type, None, future_access),
+        for (target_type, reborrow) in [
+            (error_type(), None),
+            (borrowed_type, Some(BorrowKind::Shared)),
+            (borrowed_type, None),
         ] {
+            let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
+
+            let (_, argument_access) = push_direct_storage(
+                &mut storage, StorageIdentity::Temporary(argument), unit.key().source(),
+            );
+
+            let (_, future_access) = push_direct_storage(
+                &mut storage, StorageIdentity::Temporary(call_expression), unit.key().source(),
+            );
+
+            let capability = reborrow.map(|kind| {
+                let capability = storage.push_borrow_capability(PlannedBorrowCapability::new(
+                    BorrowCapabilityOrigin::Operation(argument.into()), kind, argument_access, None,
+                    unit.key().source(), false,
+                )).expect("fixture deferred reborrow retains its actual caller-owned source");
+
+                (capability, kind)
+            });
+
+            let (_, staged_access) = push_staged_input(
+                &mut storage, call_expression, 0, argument, argument_access, target_type, unit.key().source(), capability,
+            );
+
+            let storage = storage.finish();
+            let expected_access = if reborrow.is_some() { staged_access } else { future_access };
+
             let callable_type =
                 indirect_callable_type(CallableDependencyContracts::asynchronous(empty, deferred));
 
             let call = selected_indirect_call(
                 callable_type,
-                argument,
+                [argument],
                 BoundCallResult::LazyFuture(BoundFutureConstruction::new(
                     error_type(),
                     error_type(),
@@ -810,7 +826,15 @@ mod tests {
     fn assert_result_source_dependency(implementation: ImplementationHook) {
         let unit_id = BoundUnitId::new(31);
 
-        let (unit, argument, call_expression) = expression_pair(unit_id);
+        let (unit, expressions) = expression_unit(unit_id, |tree, origin| {
+            (0..3).map(|_| push_expression(tree,
+                BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))).collect()
+        });
+        let [argument, pointer, call_expression] = expressions.as_slice() else {
+            panic!("raw-view fixture has an owner, pointer and call");
+        };
+        let (argument, pointer, call_expression) = (*argument, *pointer, *call_expression);
+        let raw_view = matches!(implementation, ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom);
 
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
 
@@ -859,8 +883,6 @@ mod tests {
             (id, kind)
         });
 
-        let storage = storage.finish();
-
         let empty = semantic_values()
             .empty_dependency_contract_template()
             .unwrap_or_else(|error| panic!("empty dependency template must intern: {error:?}"));
@@ -869,19 +891,32 @@ mod tests {
 
         let call = selected_indirect_call(
             callable_type,
-            argument,
+            std::iter::once(argument).chain(raw_view.then_some(pointer)),
             BoundCallResult::Immediate(error_type()),
             error_type(),
             None,
         )
         .with_implementation_hook(Some(implementation));
 
+        let (_, staged_access) = push_staged_input(
+            &mut storage, call_expression, 0, argument, argument_access, error_type(), unit.key().source(), capability,
+        );
+
+        if raw_view {
+            let (_, pointer_access) = push_direct_storage(&mut storage,
+                StorageIdentity::Temporary(pointer), unit.key().source());
+            push_staged_input(&mut storage, call_expression, 1, pointer, pointer_access,
+                error_type(), unit.key().source(), None);
+        }
+
+        let storage = storage.finish();
+
         let contracts = selected_contracts(&unit, &storage, call_expression, &call);
         let contract = contracts.invocation();
 
         assert_storage_requirement(
             contract,
-            argument_access,
+            staged_access,
             BoundDependencyRequirementKind::StorageAlive,
         );
 
@@ -892,7 +927,7 @@ mod tests {
                     BoundDependencyRequirement::Direct {
                         subject: BoundDependencySubject::StorageAccess(access),
                         kind: BoundDependencyRequirementKind::StorageInitialized,
-                    } if *access == argument_access
+                    } if *access == staged_access
                 )
             }));
 
@@ -900,11 +935,16 @@ mod tests {
                 matches!(
                     requirement,
                     BoundDependencyRequirement::Direct {
-                        subject: BoundDependencySubject::BorrowCapability(actual),
+                        subject: BoundDependencySubject::StorageAccess(actual),
                         kind: BoundDependencyRequirementKind::BorrowCapabilityActive(kind),
-                    } if *actual == capability && *kind == expected
+                    } if *actual == staged_access && *kind == expected
                 )
             }));
+
+            assert!(storage.occurrence_plans(bray_bound_tree::BoundExecutionSite::CallInput {
+                expression: call_expression, ordinal: SymbolOrdinal::new(0),
+            }).any(|plan| storage.access(plan.access()).and_then(|access| access.root().borrow_capability()) == Some(capability)),
+                "staging must retain the original source loan, not manufacture private authority");
         }
 
         if capability_kind == Some(BorrowKind::Mutable) {
@@ -914,7 +954,7 @@ mod tests {
                     BoundDependencyRequirement::Direct {
                         subject: BoundDependencySubject::StorageAccess(access),
                         kind: BoundDependencyRequirementKind::ExclusiveMutationAuthority,
-                    } if *access == argument_access
+                    } if *access == staged_access
                 )
             }));
         }
@@ -1008,6 +1048,10 @@ mod tests {
                     subject: BoundDependencySubject::StorageAccess(access),
                     kind,
                 } if *access == expected_access && *kind == expected_kind
+            ) || matches!(requirement,
+                BoundDependencyRequirement::Value { source, path, .. }
+                    if *source == expected_access && path.projections().is_empty()
+                        && expected_kind == BoundDependencyRequirementKind::ValueDependencies
             )
         }));
     }
@@ -1052,7 +1096,7 @@ mod tests {
 
     fn selected_indirect_call(
         callable_type: TypeId,
-        argument: bray_bound_tree::BoundExpressionId,
+        arguments: impl IntoIterator<Item = bray_bound_tree::BoundExpressionId>,
         result: BoundCallResult,
         target_type: TypeId,
         reborrow: Option<BorrowKind>,
@@ -1063,17 +1107,17 @@ mod tests {
             CallableAbi::Bray,
             empty_callable_phase_behaviors(),
             None,
-            [SelectedArgument::Explicit {
-                expression: argument,
+            arguments.into_iter().enumerate().map(|(ordinal, expression)| SelectedArgument::Explicit {
+                expression,
                 parameter: None,
-                ordinal: 0,
+                ordinal: u32::try_from(ordinal).expect("fixture argument ordinal fits"),
                 reborrow,
                 conversion: bray_bound_tree::SelectedConversion::new(
                     error_type(),
                     target_type,
                     bray_bound_tree::ConversionTarget::Identity,
                 ),
-            }],
+            }),
             [],
         )
     }
@@ -1105,9 +1149,20 @@ mod tests {
         identity: StorageIdentity,
         source: bray_bound_tree::BoundSourceAnchor,
     ) -> (StorageIdentityId, StorageAccessId) {
+        let produced = match identity {
+            StorageIdentity::Temporary(expression) => Some(expression),
+            _ => None,
+        };
+
         let identity = storage
             .push_identity(identity)
             .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
+
+        storage.set_identity_type(identity, error_type()).expect("fixture source retains its checked type");
+
+        if let Some(expression) = produced {
+            storage.set_value_slot(expression, identity).expect("fixture source declares its actual evaluated slot");
+        }
 
         let access = storage
             .push_access(StorageAccess::new(
@@ -1118,6 +1173,65 @@ mod tests {
                 false,
             ))
             .unwrap_or_else(|error| panic!("test storage access must build: {error:?}"));
+
+        (identity, access)
+    }
+
+    fn push_staged_input(
+        storage: &mut StoragePlanBuilder,
+        call: bray_bound_tree::BoundExpressionId,
+        ordinal: u32,
+        expression: bray_bound_tree::BoundExpressionId,
+        source_access: StorageAccessId,
+        ty: TypeId,
+        source: bray_bound_tree::BoundSourceAnchor,
+        capability: Option<(bray_bound_tree::BorrowCapabilityId, BorrowKind)>,
+    ) -> (StorageIdentityId, StorageAccessId) {
+        let ordinal = SymbolOrdinal::new(ordinal);
+        let input = bray_bound_tree::BoundExecutionSite::CallInput { expression: call, ordinal };
+
+        let identity = storage.push_identity(StorageIdentity::InvocationInput { expression: call, ordinal })
+            .expect("fixture invocation input identity is local");
+
+        storage.set_identity_type(identity, ty).expect("fixture input retains its target type");
+
+        storage.bind(bray_bound_tree::StorageBindingTarget::InvocationInput { expression: call, ordinal },
+            bray_bound_tree::StorageBinding::Identity(identity)).expect("fixture binds its actual private input");
+
+        let access = storage.push_access(StorageAccess::new(StorageAccessRoot::Storage(identity), [], ty, source, false))
+            .expect("fixture private input access is local");
+
+        let (purpose, captured) = if let Some((capability, kind)) = capability {
+            let reached = storage.access(source_access).expect("fixture loan retains its source access").reached_type();
+
+            let loan = storage.push_access(StorageAccess::new(StorageAccessRoot::Borrow(capability), [], reached, source, false))
+                .expect("fixture source loan names its actual capability");
+
+            storage.plan_occurrence_access(expression.into(), expression,
+                bray_bound_tree::StorageAccessPurpose::Borrow(kind), loan).expect("fixture source establishes its checked loan");
+
+            (bray_bound_tree::StorageAccessPurpose::Read, loan)
+        } else {
+            (bray_bound_tree::StorageAccessPurpose::ValueTransfer, source_access)
+        };
+
+        storage.plan_occurrence_access(input, expression, purpose, captured).expect("fixture captures its actual source");
+
+        storage.plan_occurrence_access(input, call, bray_bound_tree::StorageAccessPurpose::Initialize, access)
+            .expect("fixture input completion initializes its private destination");
+
+        storage.plan_occurrence_access(call.into(), call, bray_bound_tree::StorageAccessPurpose::ValueTransfer, access)
+            .expect("fixture admission transfers the private input");
+
+        storage.consume_value(call.into(), bray_bound_tree::StorageValueConsumptionPhase::Admission,
+            bray_bound_tree::StoragePath::root(identity)).expect("fixture admission consumes its produced private handle");
+
+        if capability.is_none()
+            && let Some(value) = storage.value_slot(expression)
+        {
+            storage.consume_value(input, bray_bound_tree::StorageValueConsumptionPhase::Completion,
+                bray_bound_tree::StoragePath::root(value)).expect("fixture stage consumes its captured evaluated source");
+        }
 
         (identity, access)
     }

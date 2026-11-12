@@ -37,37 +37,16 @@ impl Lowerer<'_> {
             self.input.target().machine().pointer_width_bits().get(),
         );
 
-        let mut operand = match selection.arguments() {
+        let operand = match selection.arguments() {
             [] => None,
-            [
-                SelectedArgument::Explicit {
-                    expression,
-                    conversion,
-                    reborrow,
-                    ..
-                },
-            ] => {
-                let lowered = self.lower_call_argument(*expression, *reborrow, current)?;
+            [argument @ SelectedArgument::Explicit { .. }] => {
+                let lowered = self.lower_selected_argument_input(id, argument, current, &source)?;
 
-                let Some(block) = lowered.block else {
-                    return Ok(Some(lowered));
-                };
-
-                let operand = lowered
-                    .value
-                    .expect("checked numeric input produces its scalar value");
-
-                let (block, operand) = self.convert_operand(
-                    id,
-                    block,
-                    Self::retained_source(&source),
-                    operand,
-                    conversion,
-                )?;
+                let Some(block) = lowered.block else { return Ok(Some(lowered)); };
 
                 current = block;
 
-                Some(operand)
+                Some(lowered.value.expect("checked numeric input retains its staged scalar value"))
             }
             _ => panic!("recognized numeric policy retains zero or one explicit scalar input"),
         };
@@ -77,7 +56,7 @@ impl Lowerer<'_> {
             current,
             &source,
             selection,
-            operand.as_mut_slice(),
+            operand.as_slice(),
         )?;
 
         let result_type = self.expression_type(id);

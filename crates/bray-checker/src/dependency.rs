@@ -3,7 +3,9 @@ mod call;
 mod check;
 mod cleanup;
 mod completion;
+mod conditions;
 mod defaults;
+mod copying;
 mod equations;
 mod implementation;
 mod operation;
@@ -22,7 +24,7 @@ pub(crate) use implementation::implementation_dependency_source;
 pub(crate) use result::{ReportDependencies, State as ResultState, Transfer as ResultTransfer};
 pub(crate) use returned::{
     callee_result_template, invocation_result_template, opaque_result, parameter_root,
-    resolved_result_template, result_argument, result_inputs,
+    resolved_result_template, result_input, result_inputs,
 };
 pub(crate) use value::{ValueInputs, transfer_targets};
 

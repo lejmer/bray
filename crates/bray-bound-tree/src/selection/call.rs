@@ -185,11 +185,15 @@ impl SelectedCall {
         }
     }
 
-    /// Returns whether invocation evaluates any omitted parameter defaults.
+    /// Whether invocation evaluates any omitted declaration-owned parameter defaults.
     pub fn evaluates_defaults(&self) -> bool {
-        self.arguments
-            .iter()
-            .any(|argument| matches!(argument, SelectedArgument::Default { .. }))
+        self.arguments.iter().any(|argument| matches!(argument, SelectedArgument::Default { .. }))
+    }
+
+    /// Whether runtime invocation captures its actual inputs in private slots.
+    /// Predicate observations do not transfer values into an executing callee.
+    pub fn stages_inputs(&self) -> bool {
+        !matches!(self.target(), BoundCallableTarget::Predicate(_))
     }
 
     /// Returns the exact selected callable target and result behavior.
@@ -292,7 +296,7 @@ impl SelectedCall {
         expression: BoundExpressionId,
         root: bray_symbols::DependencySubjectRoot,
     ) -> Option<crate::BoundExecutionSite> {
-        if self.evaluates_defaults() {
+        if self.stages_inputs() {
             return self
                 .input_ordinal(root)
                 .map(|ordinal| crate::BoundExecutionSite::CallInput {

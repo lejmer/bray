@@ -38,17 +38,12 @@ impl<'a> SemanticExporter<'a> {
             })?
             .into_iter()
             .map(|relation| {
-                Ok(bray_symbols::DependencyBorrowRelation::new(
+                Ok(relation.remap(
                     relation
-                        .entry()
+                        .source_subject()
                         .map(|entry| self.dependency_subject(entry))
                         .transpose()?,
                     self.dependency_subject(relation.exit())?,
-                    relation.kind(),
-                )
-                .with_dereferences(relation.dereferences())
-                .with_provenance(relation.provenance())
-                .with_target_projections(
                     relation
                         .target_projections()
                         .iter()
@@ -84,23 +79,27 @@ impl<'a> SemanticExporter<'a> {
                 use bray_symbols::DependencyStorageEffect;
 
                 Ok(match effect {
+                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
+                        kind: kind.try_map_type(|ty| self.type_id(ty))?,
+                        access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
+                        ambient: *ambient,
+                    },
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                     DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                     DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                    DependencyStorageEffect::Cleanup(ty) => {
-                        DependencyStorageEffect::Cleanup(self.type_id(*ty)?)
-                    }
-                    DependencyStorageEffect::Direct { subject, kind } => {
+                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
                         DependencyStorageEffect::Direct {
                             subject: self.dependency_subject(subject)?,
                             kind: kind.try_map_type(|ty| self.type_id(ty))?,
+                            access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
                         }
                     }
                     DependencyStorageEffect::Indirect {
                         reference,
                         projections,
                         kind,
+                        access_type,
                     } => DependencyStorageEffect::Indirect {
                         reference: self.dependency_subject(reference)?,
                         projections: projections
@@ -108,6 +107,7 @@ impl<'a> SemanticExporter<'a> {
                             .map(|projection| self.dependency_projection(projection))
                             .collect::<Result<_, PackageInterfaceExportError>>()?,
                         kind: kind.try_map_type(|ty| self.type_id(ty))?,
+                        access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
                     },
                 })
             })
@@ -181,7 +181,10 @@ impl<'a> SemanticExporter<'a> {
                         .condition()
                         .map(|condition| self.constant_term_id(condition))
                         .transpose()?,
-                ),
+                )
+                .with_preservation(transfer.preservation().try_map_projections(
+                    &mut |projection| self.constant_projection_kind(*projection),
+                )?),
             )),
             DependencyOwnedResult::All(values) | DependencyOwnedResult::Choice(values) => {
                 let values = self
@@ -646,7 +649,7 @@ mod tests {
                     ));
 
                     carriers.push(DependencyWitnessCarrier::new(index, []));
-                    effects.push(DependencyStorageEffect::Cleanup(ty));
+                    effects.push(DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(ty), access_type: None, ambient: false });
                 }
 
                 let data = match category {
@@ -732,7 +735,7 @@ mod tests {
         let outer = values
             .intern_dependency_contract_template(
                 DependencyContractTemplateData::new([])
-                    .with_effects([DependencyStorageEffect::Cleanup(callable)])
+                    .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(callable), access_type: None, ambient: false }])
                     .with_normal_completion(false),
             )
             .expect("fixture dependency contract must be interned");
@@ -757,7 +760,7 @@ mod tests {
                 vec![
                     InterfaceDependencyContract::new([]),
                     InterfaceDependencyContract::new([])
-                        .with_effects([DependencyStorageEffect::Cleanup(callable_id)])
+                        .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(callable_id), access_type: None, ambient: false }])
                         .with_normal_completion(false),
                 ],
             )

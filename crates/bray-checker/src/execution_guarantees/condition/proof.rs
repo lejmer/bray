@@ -26,6 +26,16 @@ impl ExecutionCondition {
         ordinary: &BTreeSet<(Self, bool)>,
         budget: &mut usize,
     ) -> Option<bool> {
+        self.prove_mixed_with_implications(trusted, ordinary, budget, true)
+    }
+
+    fn prove_mixed_with_implications(
+        &self,
+        trusted: &BTreeSet<(Self, bool)>,
+        ordinary: &BTreeSet<(Self, bool)>,
+        budget: &mut usize,
+        use_implications: bool,
+    ) -> Option<bool> {
         *budget = budget.checked_sub(1)?;
 
         if self.is_unknown() {
@@ -47,25 +57,29 @@ impl ExecutionCondition {
             }
         }
 
-        if let Self::Entry { condition, .. } = self {
-            return condition.prove_mixed(trusted, ordinary, budget);
+        if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
+            return value.prove_mixed_with_implications(trusted, ordinary, budget, use_implications);
         }
 
-        match self {
+        if let Self::Entry { condition, .. } = self {
+            return condition.prove_mixed_with_implications(trusted, ordinary, budget, use_implications);
+        }
+
+        let proven = match self {
             Self::Trusted(_) => None,
             Self::Operation(BoundOperator::LogicalNot, operands)
                 if let [operand] = operands.as_ref() =>
             {
                 operand
-                    .prove_mixed(trusted, ordinary, budget)
+                    .prove_mixed_with_implications(trusted, ordinary, budget, use_implications)
                     .map(|value| !value)
             }
             Self::Operation(BoundOperator::LogicalAnd, operands)
                 if let [left, right] = operands.as_ref() =>
             {
                 match (
-                    left.prove_mixed(trusted, ordinary, budget),
-                    right.prove_mixed(trusted, ordinary, budget),
+                    left.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
+                    right.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
                 ) {
                     (Some(false), _) | (_, Some(false)) => Some(false),
                     (Some(true), Some(true)) => Some(true),
@@ -76,8 +90,8 @@ impl ExecutionCondition {
                 if let [left, right] = operands.as_ref() =>
             {
                 match (
-                    left.prove_mixed(trusted, ordinary, budget),
-                    right.prove_mixed(trusted, ordinary, budget),
+                    left.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
+                    right.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
                 ) {
                     (Some(true), _) | (_, Some(true)) => Some(true),
                     (Some(false), Some(false)) => Some(false),
@@ -87,7 +101,25 @@ impl ExecutionCondition {
             _ => self
                 .prove(trusted, budget)
                 .or_else(|| self.prove(ordinary, budget)),
+        };
+
+        if proven.is_some() {
+            return proven;
         }
+
+        if use_implications && matches!(self, Self::Operation(BoundOperator::LogicalOr, _)) {
+            for (premise, holds) in trusted.iter().chain(ordinary.iter().filter(|(condition, _)| !condition.contains_trusted())) {
+                if *holds && matches!(premise, Self::Operation(BoundOperator::LogicalOr, _))
+                    // Each implication has its own bounded proof. Unrelated clauses cannot
+                    // exhaust the budget for an already established Boolean operand.
+                    && premise.implies(self)
+                {
+                    return Some(true);
+                }
+            }
+        }
+
+        None
     }
 
     pub(crate) fn prove(
@@ -114,6 +146,10 @@ impl ExecutionCondition {
             return Some(false);
         }
 
+        if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
+            return value.prove(assumptions, budget);
+        }
+
         if let Self::Entry { condition, .. } = self {
             return condition.prove(assumptions, budget);
         }
@@ -137,13 +173,7 @@ impl ExecutionCondition {
             return Some(value);
         }
 
-        let inverse = match operator {
-            BoundOperator::Equal => Some(BoundOperator::NotEqual),
-            BoundOperator::NotEqual => Some(BoundOperator::Equal),
-            _ => None,
-        };
-
-        if let Some(inverse) = inverse {
+        if let Some(inverse) = operator.equality_complement() {
             let inverse = Self::Operation(inverse, operands.clone());
 
             for value in [true, false] {
@@ -177,6 +207,65 @@ impl ExecutionCondition {
         }
     }
 
+    /// Checks a branch against both direct evidence and retained Boolean alternatives.
+    pub(crate) fn can_assume(&self, value: bool, assumptions: &BTreeSet<(Self, bool)>) -> bool {
+        if let Some(known) = self.prove(assumptions, &mut { Self::WORK_LIMIT }) {
+            return known == value;
+        }
+
+        let contrary = if value {
+            Self::operation(BoundOperator::LogicalNot, vec![self.clone()])
+        } else {
+            self.clone()
+        };
+
+        // assume_proof decomposes true conjunctions and false disjunctions.
+        // Their opposite outcomes retain the complete clause without choosing
+        // an alternative, which can still exclude an incompatible branch.
+        !assumptions.iter().any(|(condition, holds)| match condition {
+            Self::Operation(BoundOperator::LogicalOr, _) if *holds => condition.implies(&contrary),
+            Self::Operation(BoundOperator::LogicalAnd, _) if !*holds =>
+                Self::operation(BoundOperator::LogicalNot, vec![condition.clone()]).implies(&contrary),
+            _ => false,
+        })
+    }
+
+    /// Compare carrier promises without turning ordinary truth into trusted evidence.
+    pub(crate) fn implies(&self, consequence: &Self) -> bool {
+        if self.is_unknown() || consequence.is_unknown() {
+            return false;
+        }
+
+        if self == consequence {
+            return !self.contains_unknown();
+        }
+
+        let mut evidence = BTreeSet::new();
+
+        self.clone().assume(true, &mut evidence);
+
+        let ordinary = BTreeSet::new();
+        let known = super::super::trusted_condition_closure(evidence.clone(), &ordinary);
+
+        // Implication uses Boolean consequences directly, so premise checking cannot call itself.
+        if consequence.prove_mixed_with_implications(&known, &ordinary, &mut { Self::WORK_LIMIT }, false) == Some(true) {
+            return true;
+        }
+
+        evidence.clear();
+
+        // Negating the requested clause exposes its Boolean path conditions.
+        // Keep a negated trusted occurrence opaque: lack of that evidence must
+        // never become an assumption that the ordinary predicate is false.
+        consequence
+            .clone()
+            .assume_proof(false, false, &mut |condition, holds| {
+                evidence.insert((condition, holds));
+            });
+
+        self.prove(&evidence, &mut { Self::WORK_LIMIT }) == Some(false)
+    }
+
     pub(crate) fn assume(self, value: bool, assumptions: &mut BTreeSet<(Self, bool)>) {
         self.assume_with(value, &mut |condition, value| {
             assumptions.insert((condition, value));
@@ -184,12 +273,30 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn assume_with(self, value: bool, insert: &mut impl FnMut(Self, bool)) {
+        self.assume_proof(value, true, insert);
+    }
+
+    fn assume_proof(
+        self,
+        value: bool,
+        expose_trusted_truth: bool,
+        insert: &mut impl FnMut(Self, bool),
+    ) {
         if self.is_unknown() {
             return;
         }
 
         match self {
             Self::Unknown => {}
+            condition @ Self::Observation { kind: crate::execution_guarantees::ExecutionObservationKind::Scalar, .. } => {
+                let contents = condition.computed_value().clone();
+
+                if !condition.contains_unknown() {
+                    insert(condition, value);
+                }
+
+                contents.assume_proof(value, expose_trusted_truth, insert);
+            }
             Self::Entry {
                 condition,
                 captured: true,
@@ -197,7 +304,10 @@ impl ExecutionCondition {
                 // Instantiation has already frozen these ordinary input values.
                 // Use the same value evidence that proof reads, without promoting
                 // historical authority or observations of live borrowed storage.
-                condition.as_ref().clone().assume_with(value, insert);
+                condition
+                    .as_ref()
+                    .clone()
+                    .assume_proof(value, expose_trusted_truth, insert);
             }
             Self::Trusted(condition) => {
                 // Keep the occurrence qualifier for contract implication and authority-bearing values.
@@ -205,11 +315,15 @@ impl ExecutionCondition {
                     insert(Self::Trusted(condition.clone()), value);
                 }
 
-                condition.as_ref().clone().assume_with(value, insert);
+                if expose_trusted_truth {
+                    condition.as_ref().clone().assume_proof(value, true, insert);
+                }
             }
             Self::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 => {
                 // The immutable operand is retained independently by the condition set.
-                operands[0].clone().assume_with(!value, insert);
+                operands[0]
+                    .clone()
+                    .assume_proof(!value, expose_trusted_truth, insert);
             }
             Self::Operation(operator, operands)
                 if (operator == BoundOperator::LogicalAnd && value)
@@ -217,7 +331,9 @@ impl ExecutionCondition {
             {
                 for operand in operands.iter() {
                     // The immutable operand is retained independently by the condition set.
-                    operand.clone().assume_with(value, insert);
+                    operand
+                        .clone()
+                        .assume_proof(value, expose_trusted_truth, insert);
                 }
             }
             condition if !condition.contains_unknown() => {

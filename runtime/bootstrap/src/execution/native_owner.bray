@@ -1,0 +1,297 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+// Native storage contains the complete move-only Owner. A borrowed slot keeps
+// that actual owner live and stable for the call. Only release consumes it.
+trusted internal predicate native_owner_slot(owner: &DataPointer<Owner>);
+
+trusted internal predicate native_owner_output(pointer: DataPointer<Owner>);
+
+trusted internal func borrow_native_owner(pos input: &DataPointer<Owner>) -> &Owner
+    requires(trusted native_owner_slot(owner = input))
+    ensures(
+        trusted native_owner_slot(owner = input),
+        trusted service_owner(owner = result),
+        trusted retained(owner = &result.execution),
+        trusted pinned(owner = &result.execution)
+    )
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted std.memory.read<DataPointer<Owner>>(std.memory.address_of<DataPointer<Owner>>(input));
+
+    let permit = trusted lambda(pos input: &DataPointer<Owner>, pos pointer: DataPointer<Owner>)
+        requires(trusted native_owner_slot(owner = input))
+        ensures(
+            trusted core.memory.valid_read<Owner>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Owner>(pointer = pointer),
+            trusted core.memory.aligned_for<Owner>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Owner>(pointer = pointer),
+            trusted core.memory.epoch_current<Owner>(pointer = pointer),
+            trusted core.memory.synchronized_access<Owner>(pointer = pointer),
+            trusted core.memory.movement_stable<Owner>(pointer = pointer),
+            trusted core.memory.finalization_pending<Owner>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(input, pointer);
+
+    let owner = trusted std.memory.borrow_from<Owner, DataPointer<Owner>>(input, pointer);
+
+    let owned = trusted lambda(pos input: &DataPointer<Owner>, pos owner: &Owner)
+        requires(trusted native_owner_slot(owner = input))
+        ensures(
+            trusted service_owner(owner = owner),
+            trusted retained(owner = &owner.execution),
+            trusted pinned(owner = &owner.execution)
+        )
+        executes(pure, total) {};
+
+    trusted owned(input, owner);
+    return owner;
+}
+
+trusted internal func borrow_native_owner_output(
+    pos input: &mut DataPointer<Owner>,
+    pos pointer: DataPointer<Owner>
+) -> &mut Uninit<Owner>
+    requires(trusted native_owner_output(pointer = pointer))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias, layout_reinterpret)
+{
+    let storage = trusted std.memory.reinterpret<Uninit<Owner>, Owner>(pointer);
+
+    let permit = trusted lambda(pos pointer: DataPointer<Owner>, pos storage: DataPointer<Uninit<Owner>>)
+        requires(trusted native_owner_output(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_write<Uninit<Owner>>(pointer = storage, count = 1),
+            trusted core.memory.aligned_for<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.initialized_as<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.exclusive_alias_valid<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.epoch_current<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.synchronized_access<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.movement_stable<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.finalization_pending<Uninit<Owner>>(pointer = storage)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer, storage);
+    return trusted std.memory.borrow_mut_from<Uninit<Owner>, DataPointer<Owner>>(input, storage);
+}
+
+@abi(c)
+trusted internal func native_owner_current(pos mut output: DataPointer<Owner>) -> u32
+    requires(trusted native_owner_output(pointer = output))
+    ensures(result != 0 || trusted native_owner_slot(owner = &output))
+{
+    let address = output;
+    let storage = trusted borrow_native_owner_output(&mut output, address);
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    if !has_execution(&selected)
+    {
+        return 1;
+    }
+
+    match consume trusted try_retain_owner(bound_execution(&selected))
+    {
+        case ?acquired
+        {
+            _ = std.memory.uninit_write<Owner>(storage, acquired);
+
+            return 0;
+        }
+        case none { return 4; }
+    }
+}
+
+@abi(c)
+trusted internal func native_owner_clone(pos input: DataPointer<Owner>, pos mut output: DataPointer<Owner>)
+    requires(trusted native_owner_slot(owner = &input), trusted native_owner_output(pointer = output))
+    ensures(trusted native_owner_slot(owner = &input), trusted native_owner_slot(owner = &output))
+{
+    let owner = trusted borrow_native_owner(&input);
+    let address = output;
+    let storage = trusted borrow_native_owner_output(&mut output, address);
+
+    _ = std.memory.uninit_write<Owner>(storage, trusted retain_owner(owner));
+}
+
+@abi(c)
+trusted internal func native_owner_worker(pos input: DataPointer<Owner>) -> u32
+    requires(trusted native_owner_slot(owner = &input))
+    ensures(trusted native_owner_slot(owner = &input))
+    uses(intrinsic)
+{
+    let owner = trusted borrow_native_owner(&input);
+    let selected = trusted current();
+
+    if selected.status != 0 || !has_execution(&selected)
+    {
+        return 0;
+    }
+
+    return if trusted core.target.address_equal<Domain>(bound_execution(&selected).pointer, owner.execution.pointer) &&
+        !std.memory.is_null<u8>((trusted context(&selected)).worker)
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+}
+
+@abi(c)
+trusted internal func native_owner_detach(pos input: DataPointer<Owner>)
+    requires(trusted native_owner_slot(owner = &input))
+    ensures(trusted native_owner_slot(owner = &input))
+{
+    let owner = trusted borrow_native_owner(&input);
+    let pool = trusted workers(&owner.execution);
+
+    if let ?service = pool
+    {
+        bray.runtime.bootstrap.worker.detach(service);
+    }
+}
+
+@abi(c)
+trusted internal func native_owner_release(pos input: DataPointer<Owner>, pos scope: DataPointer<u8>) -> u32
+    requires(
+        blocking_execution(),
+        trusted native_owner_slot(owner = &input),
+        trusted native_scope_initialized(owner = &scope),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted native_scope_initialized(owner = &scope))
+{
+    let take = trusted lambda(pos input: &DataPointer<Owner>) -> Owner
+        requires(trusted native_owner_slot(owner = input))
+        ensures(
+            trusted service_owner(owner = &result),
+            trusted retained(owner = &result.execution),
+            trusted pinned(owner = &result.execution)
+        )
+        uses(raw_memory, intrinsic)
+    {
+        let pointer = trusted std.memory.read<DataPointer<Owner>>(std.memory.address_of<DataPointer<Owner>>(input));
+
+        let permit = trusted lambda(pos input: &DataPointer<Owner>, pos pointer: DataPointer<Owner>)
+            requires(trusted native_owner_slot(owner = input))
+            ensures(
+                trusted core.memory.valid_read<Owner>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<Owner>(pointer = pointer),
+                trusted core.memory.initialized_as<Owner>(pointer = pointer)
+            )
+            executes(pure, total) {};
+
+        trusted permit(input, pointer);
+        return trusted std.memory.read<Owner>(pointer);
+    };
+
+    let entered = trusted borrow_native_scope(&scope);
+
+    // Closing can defer worker joins on work held by the initiating caller,
+    // even while cleanup is bound to another execution. Keep both contexts.
+    let owner = trusted take(&input);
+
+    return trusted release_owned_pin(trusted close_owner(&entered.current, owner));
+}
+
+// The same-domain case borrows the actual installed context, including its
+// established Main role. A different execution gets only an Origin driver.
+trusted internal func owner_entry_scope(pos owner: &Owner) -> EntryScope
+    requires(
+        trusted service_owner(owner = owner),
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution),
+        trusted bray.runtime.bootstrap.entry.native_entry()
+    )
+    ensures(
+        trusted service_owner(owner = owner),
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution),
+        trusted entry_scope_owned(owner = &result)
+    )
+    uses(intrinsic)
+{
+    let same =
+    {
+        let selected = trusted current();
+
+        yield selected.status == 0 && has_execution(&selected) && trusted core.target.address_equal<Domain>(
+            bound_execution(&selected).pointer,
+            owner.execution.pointer
+        );
+    };
+
+    let mut scope = trusted entry_scope(!same);
+
+    if same || scope.status != 0
+    {
+        return scope;
+    }
+
+    let status = trusted origin_driver_startup();
+
+    if status != 0 && status != 2
+    {
+        scope.status = status;
+        return scope;
+    }
+
+    let selected = trusted current();
+
+    if selected.status != 0 || has_execution(&selected)
+    {
+        trusted core.target.abort();
+    }
+
+    let provider = match consume trusted create_native_provider(&(trusted domain(&owner.execution)).configuration)
+    {
+        case Ok(value) { yield value; }
+        case Error(provider_status)
+        {
+            scope.status = provider_status;
+            return scope;
+        }
+    };
+
+    trusted install_binding(&selected, trusted pin_binding(pin(&owner.execution)));
+    trusted install_native_provider(&selected, provider);
+    return scope;
+}
+
+@abi(c)
+trusted internal func native_owner_scope_enter(
+    pos mut storage: DataPointer<u8>,
+    pos bytes: usize,
+    pos align: usize,
+    pos owner: DataPointer<Owner>
+) -> u64
+    requires(
+        trusted native_scope_storage(owner = &storage, bytes = bytes, align = align),
+        trusted native_owner_slot(owner = &owner),
+        trusted bray.runtime.bootstrap.entry.native_entry()
+    )
+    ensures(trusted native_scope_initialized(owner = &storage), trusted native_owner_slot(owner = &owner))
+{
+    trusted validate_native_scope(bytes, align);
+
+    let output = trusted borrow_native_scope_output(&mut storage, bytes, align);
+
+    return trusted publish_native_scope(output, trusted owner_entry_scope(borrow_native_owner(&owner)));
+}

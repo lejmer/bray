@@ -18,7 +18,6 @@ pub(super) fn pop_ready(
     scheduler: &Arc<SchedulerData>,
     thread: RuntimeThreadId,
     lanes: u32,
-    worker: Option<&bray_runtime_abi::NativeWorkerScope>,
 ) -> Result<Option<ReadyTask>, SchedulerError> {
     let state = scheduler
         .state
@@ -27,16 +26,12 @@ pub(super) fn pop_ready(
 
     let mut selected = NativeSchedulerObservation::default();
 
-    let status = if let Some(worker) = worker {
-        crate::native::workers::acquisition(worker, lanes, &mut selected)
-    } else {
-        native::bray_runtime_scheduler_acquisition(
-            &scheduler.source.reference,
-            thread.raw(),
-            lanes,
-            &mut selected,
-        )
-    };
+    let status = native::bray_runtime_scheduler_acquisition(
+        &scheduler.source.reference,
+        thread.raw(),
+        lanes,
+        &mut selected,
+    );
 
     if status == 0 {
         return Ok(None);
@@ -71,7 +66,6 @@ pub(super) fn pop_ready(
         queue_latency: queue_age(scheduler, selected.queued_at),
         scheduler: Arc::clone(scheduler),
         released: false,
-        native: binding.native.as_ref().map(Arc::clone),
     }))
 }
 
@@ -99,9 +93,7 @@ pub(super) fn scheduler_snapshot(
         }
 
         for (&task, binding) in &state.tasks {
-            let Some(cancellation) = binding.cancellation.as_ref() else {
-                continue;
-            };
+            let cancellation = &binding.cancellation;
 
             let mut observation = NativeSchedulerObservation::default();
 
@@ -165,18 +157,9 @@ pub struct ReadyTask {
     queue_latency: Option<Duration>,
     scheduler: Arc<SchedulerData>,
     released: bool,
-    native: Option<Arc<crate::native::NativeTaskServices>>,
 }
 
 impl ReadyTask {
-    pub(crate) fn take_native_task(&mut self) -> Option<Arc<crate::native::NativeTaskServices>> {
-        self.native.take()
-    }
-
-    pub(crate) fn record_worker_failure(&self, failure: bray_runtime_abi::NativeWorkerFailure, scope: &bray_runtime_abi::NativeWorkerScope) {
-        self.native.as_ref().expect("a native worker dispatch retains its task services")
-            .record_worker_failure(failure, Some(scope));
-    }
     /// Returns the independent run identity.
     pub const fn task(&self) -> TaskId {
         self.task
@@ -239,12 +222,8 @@ impl ReadyTask {
             execution.origin().unwrap_or(binding.origin),
         )?;
 
-        let cancellation = u32::from(
-            binding
-                .cancellation
-                .as_ref()
-                .is_some_and(crate::CancellationContext::recheck_dispatch),
-        ) * native::cause(TaskWakeCause::Cancellation);
+        let cancellation = u32::from(binding.cancellation.recheck_dispatch())
+            * native::cause(TaskWakeCause::Cancellation);
 
         let previous = std::mem::replace(&mut binding.execution, execution);
 

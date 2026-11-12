@@ -112,13 +112,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }))
     }
 
-    pub(in crate::analysis::guarantee) fn trusted_requirements_proven(
+    pub(in crate::analysis::guarantee) fn prove_trusted_requirements(
         &self,
         entry: &crate::ExecutionCallEvidence,
         requirements: &[ExecutionCondition],
-    ) -> bool {
+    ) -> Result<(), crate::UnprovenExecutionCondition> {
         if requirements.is_empty() {
-            return true;
+            return Ok(());
         }
 
         let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
@@ -128,9 +128,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .proof_facts(conditions)
                 .map(|(condition, value)| {
                     (
-                        condition
-                            .with_equalities(&equalities)
-                            .spatial_observations(&self.spatial_predicates),
+                        condition.with_equalities(&equalities).with_reference_origins(
+                            self.request.semantic_values(), self.dependencies, &entry.assumptions)
+                            .pointer_observations(&self.pointer_predicates),
                         value,
                     )
                 })
@@ -146,10 +146,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut ranges = None;
 
-        let requirements = requirements
+        let instantiated = requirements
             .iter()
             .map(|requirement| {
-                requirement
+                let condition = requirement
                     .substitute(
                         &|place| {
                             place
@@ -159,12 +159,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &ExecutionCondition::Unknown,
                         &mut { ExecutionCondition::WORK_LIMIT },
                     )
-                    .with_equalities(&equalities)
-                    .spatial_observations(&self.spatial_predicates)
+                    .with_equalities(&equalities);
+
+                condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
+                    .pointer_observations(&self.pointer_predicates)
             })
             .collect::<Vec<_>>();
 
-        let mut prove_leaf = |condition: &ExecutionCondition| {
+        let mut prove_condition = |condition: &ExecutionCondition| {
             if condition.prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT })
                 == Some(true)
             {
@@ -198,9 +200,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 return false;
             };
 
-            if !self.spatial_predicates.contains(predicate)
-                && Some(*predicate) != self.initialized_range
-            {
+            if !self.pointer_predicates.contains_key(predicate) {
                 return false;
             }
 
@@ -244,44 +244,98 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 })
         };
 
-        requirements.iter().all(|condition| {
-            requirement_follows(condition, &known, &mut prove_leaf, &mut {
+        for (required, actual) in requirements.iter().zip(instantiated) {
+            if let Err(failed) = prove_requirement(&actual, &known, &mut prove_condition, &mut {
                 ExecutionCondition::WORK_LIMIT
-            })
-        })
+            }) {
+                return Err(crate::UnprovenExecutionCondition::new(required.clone(), failed.clone()));
+            }
+        }
+
+        Ok(())
     }
+
 }
 
 // Share one lazy range index across every Boolean clause in the caller's contract.
-fn requirement_follows(
-    condition: &ExecutionCondition,
+fn prove_requirement<'a>(
+    condition: &'a ExecutionCondition,
     known: &BTreeSet<(ExecutionCondition, bool)>,
-    prove_leaf: &mut impl FnMut(&ExecutionCondition) -> bool,
+    prove_condition: &mut impl FnMut(&ExecutionCondition) -> bool,
     budget: &mut usize,
-) -> bool {
+) -> Result<(), &'a ExecutionCondition> {
     let Some(remaining) = budget.checked_sub(1) else {
-        return false;
+        return Err(condition);
     };
 
     *budget = remaining;
 
     // Preserve conditional evidence as a whole without proving each subtree again.
     if known.contains(&(condition.clone(), true)) {
-        return true;
+        return Ok(());
     }
 
     match condition {
         ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalAnd, operands) => {
-            operands
-                .iter()
-                .all(|condition| requirement_follows(condition, known, prove_leaf, budget))
+            for operand in operands.iter() {
+                prove_requirement(operand, known, prove_condition, budget)?;
+            }
+
+            Ok(())
         }
         ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, operands) => {
-            operands
-                .iter()
-                .any(|condition| requirement_follows(condition, known, prove_leaf, budget))
+            if prove_condition(condition)
+                || operands.iter().any(|operand| prove_requirement(operand, known, prove_condition, budget).is_ok()) {
+                Ok(())
+            } else { Err(condition) }
         }
-        condition => prove_leaf(condition),
+        condition => prove_condition(condition).then_some(()).ok_or(condition),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prove_requirement;
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_bound_tree::BoundOperator;
+    use bray_symbols::SymbolOrdinal;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn disjunction_requirements_use_whole_clause_proof_before_selecting_alternatives() {
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let promised = ExecutionCondition::Trusted(std::sync::Arc::new(input(2)));
+        let extra = ExecutionCondition::Trusted(std::sync::Arc::new(input(1)));
+        let established = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(0), promised]);
+        let required = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![established.clone(), extra]);
+        let known = BTreeSet::from([(established, true)]);
+        let mut prove = |condition: &ExecutionCondition| condition.prove_mixed(&known, &BTreeSet::new(),
+            &mut { ExecutionCondition::WORK_LIMIT }) == Some(true);
+
+        assert_eq!(prove_requirement(&required, &known, &mut prove,
+            &mut { ExecutionCondition::WORK_LIMIT }), Ok(()));
+    }
+
+    #[test]
+    fn failed_conjunction_reports_the_unproven_leaf() {
+        let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let known = BTreeSet::from([(first.clone(), true)]);
+        let condition = ExecutionCondition::operation(BoundOperator::LogicalAnd,
+            vec![first, second.clone()]);
+
+        assert_eq!(prove_requirement(&condition, &known, &mut |_| false,
+            &mut { ExecutionCondition::WORK_LIMIT }), Err(&second));
+    }
+
+    #[test]
+    fn failed_disjunction_retains_all_alternatives() {
+        let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let condition = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![first, second]);
+
+        assert_eq!(prove_requirement(&condition, &BTreeSet::new(), &mut |_| false,
+            &mut { ExecutionCondition::WORK_LIMIT }), Err(&condition));
     }
 }
 

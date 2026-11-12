@@ -46,6 +46,8 @@ impl DiagnosticRelatedLocation {
 /// Stable relationship between a diagnostic and another source location.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticRelatedLocationKind {
+    /// A prior operation after which an argument's current contents were observed.
+    ValueChanged,
     /// The location that established a declaration or contract first.
     FirstDeclaration,
     /// The directive that selected a value before a duplicate directive.
@@ -84,6 +86,7 @@ impl DiagnosticRelatedLocationKind {
     /// Returns the stable machine key for this relationship.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::ValueChanged => "value_changed",
             Self::FirstDeclaration => "first_declaration",
             Self::FirstDirective => "first_directive",
             Self::ConflictingDeclaration => "conflicting_declaration",

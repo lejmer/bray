@@ -1272,6 +1272,574 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_boolean_requirements_survive_forwarding_but_not_mutation_or_owner_changes() {
+        for asynchronous in ["", "async "] {
+            for (body, valid) in [
+                ("checked(lease); authorize(lease);", true),
+                ("lease.active = false; checked(lease);", false),
+                ("authorize(other);", false),
+            ] {
+                let source = format!(r#"
+                    module app;
+
+                    struct Lease
+                    {{
+                        mut active: bool;
+                    }}
+
+                    func checked(pos lease: &mut Lease)
+                        requires(lease.active)
+                        executes(pure, total)
+                    {{
+                    }}
+
+                    {asynchronous}func forward(pos lease: &mut Lease, pos other: &mut Lease)
+                        requires(lease.active)
+                        executes(total)
+                    {{
+                        let authorize = lambda(pos lease: &mut Lease)
+                            requires(lease.active)
+                            executes(pure, total)
+                        {{
+                        }};
+
+                        {body}
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn loop_progress_reads_current_scalar_contents_and_requires_every_back_edge_to_advance() {
+        for asynchronous in ["", "async "] {
+            for (initial, guard, step, valid) in [
+                (0, "index < 32", "index += 1;", true),
+                (0, "index < 32 && flag", "index += 1;", true),
+                (32, "index > 0", "index -= 1;", true),
+                (0, "index <= 255", "index += 1;", false),
+                (0, "index < 32", r#"if flag
+                        {
+                            continue;
+                        }
+
+                        index += 1;"#, false),
+                (0, "index < 32", "index = 0;", false),
+            ] {
+                let source = format!(r#"
+                    module app;
+
+                    {asynchronous}func progress(pos flag: bool) -> u8
+                        executes(pure, total)
+                    {{
+                        let mut index: u8 = {initial};
+
+                        while {guard}
+                        {{
+                            {step}
+                        }}
+
+                        return index;
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn produced_copyable_components_transfer_witnesses_without_permitting_stored_copies() {
+        use bray_diagnostics::DiagnosticKind;
+
+        for (asynchronous, call) in [("", "produce(context)"), ("async ", "await produce(context)")] {
+            for (body, failure) in [
+                (format!("let (value, outgoing) = {call};\n                        initialize(&value, context, outgoing);"), None),
+                (format!("let pair = {call};\n                        initialize(&pair.0, context, pair.1);"), None),
+                (format!("let pair = {call};\n                        let (value, outgoing) = pair;\n                        initialize(&value, context, outgoing);"),
+                    Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven)),
+                (format!("let (value, outgoing) = {call};\n                        initialize(&value, context + 1, outgoing);"),
+                    Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
+            ] {
+                let source = format!(r#"
+                    trusted module app;
+
+                    @copy
+                    struct Owner
+                    {{
+                        value: u32;
+                    }}
+
+                    struct Outgoing
+                    {{
+                        value: u32;
+                    }}
+
+                    trusted predicate constructing(owner: &Owner, context: usize);
+
+                    trusted {asynchronous}func produce(pos context: usize) -> (Owner, Outgoing)
+                        ensures(trusted constructing(owner = &result.0, context = context))
+                    {{
+                        return (
+                            Owner
+                            {{
+                                value = 1
+                            }},
+                            Outgoing
+                            {{
+                                value = 2
+                            }}
+                        );
+                    }}
+
+                    func initialize(pos owner: &Owner, pos context: usize, pos outgoing: Outgoing)
+                        requires(trusted constructing(owner = owner, context = context))
+                    {{
+                    }}
+
+                    {asynchronous}func forward(pos context: usize)
+                    {{
+                        {body}
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(diagnostics.has_errors(), failure.is_some(), "{source}: {diagnostics:#?}");
+                if let Some(kind) = failure {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind() == kind), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn const_reference_results_keep_computed_data_without_equating_other_or_mutated_inputs() {
+        for asynchronous in ["", "async "] {
+            for (body, valid) in [
+                ("assert(selected(container, &fallback).active);", true),
+                ("assert(selected(container, other).active);", false),
+                ("fallback.active = false;\n                        assert(selected(container, &fallback).active);", false),
+            ] {
+                let source = format!(r#"
+                    module app;
+
+                    struct Owner
+                    {{
+                        mut active: bool;
+                    }}
+
+                    union Container
+                    {{
+                        Left(pos owner: Owner);
+                        Right(pos owner: Owner);
+                    }}
+
+                    const func selected(pos container: &Container, pos fallback: &Owner) -> &Owner
+                        executes(pure, total)
+                    {{
+                        return match container
+                        {{
+                            case Container.Left(value) {{ yield &value; }}
+                            case Container.Right(_) {{ yield fallback; }}
+                        }};
+                    }}
+
+                    {asynchronous}func caller(pos container: &Container, pos fallback: &mut Owner, pos other: &Owner)
+                        requires(selected(container, &fallback).active)
+                        executes(total)
+                    {{
+                        {body}
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn guarded_reference_accessors_preserve_their_predicate_meaning() {
+        let mut failures = Vec::new();
+
+        for (asynchronous, outside_origin) in [("", false), ("async ", false), ("", true), ("async ", true)] {
+            for (body, valid) in [
+                ("observe(selected(container, other, bypass));", true),
+                (r#"match container
+                        {
+                            case Container.Left(value) { observe(&value); }
+                            case Container.Right(value) { observe(&value); }
+                        }"#, !outside_origin),
+                ("observe(other);", false),
+                (r#"match container
+                        {
+                            case Container.Left(_) { observe(other); }
+                            case Container.Right(_) { observe(other); }
+                        }"#, false),
+            ] {
+                let source = format!(r#"
+                    trusted module app;
+
+                    struct Marker
+                    {{
+                    }}
+
+                    struct Owner
+                    {{
+                        marker: Marker;
+                    }}
+
+                    union Container
+                    {{
+                        Left(pos owner: Owner);
+                        Right(pos owner: Owner);
+                    }}
+
+                    trusted predicate live(marker: &Marker);
+
+                    const func selected(pos container: &Container, pos other: &Owner, pos bypass: bool) -> &Owner
+                        executes(pure, total)
+                    {{
+                        {outside}
+                        return match container
+                        {{
+                            case Container.Left(value) {{ yield &value; }}
+                            case Container.Right(value) {{ yield &value; }}
+                        }};
+                    }}
+
+                    func observe(pos owner: &Owner)
+                        requires(trusted live(marker = &owner.marker))
+                    {{
+                    }}
+
+                    {asynchronous}func caller(pos container: &Container, pos other: &Owner, pos bypass: bool)
+                        requires(trusted live(marker = &selected(container, other, bypass).marker))
+                    {{
+                        {body}
+                    }}
+                "#, outside = if outside_origin { "if bypass\n                        {\n                            return other;\n                        }" } else { "" });
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+
+                if !diagnostics.has_errors() != valid {
+                    failures.push(format!("{source}: {diagnostics:#?}"));
+                }
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn guarded_union_carriers_move_with_their_complete_payloads() {
+        for asynchronous in [false, true] {
+            let mut source = include_str!("fixtures/guarded-union-carrier.bray").to_owned();
+
+            if asynchronous {
+                source = source.replace("callable Close = trusted func", "callable Close = trusted async func")
+                    .replace("func close_binding", "async func close_binding")
+                    .replace("yield close(value);", "yield await close(value);");
+            }
+
+            let missing_entry = source.replacen("    requires(trusted valid(owner = &owner))\n", "", 1);
+            let fabricated = source.replace("ownership = Ownership.Cleanup(execution_pin),",
+                "ownership = Ownership.Cleanup(\n            {\n                marker = {},\n            }\n        ),");
+
+            for (variant, valid) in [(&source, true), (&missing_entry, false), (&fabricated, false)] {
+                let application = compilation(variant);
+                let diagnostics = application.check_diagnostics();
+
+                assert_eq!(!diagnostics.has_errors(), valid, "async={asynchronous}, {variant}: {diagnostics:#?}");
+
+                if valid {
+                    for name in ["reference", "open_owner", "close_binding", "release_binding"] {
+                        let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, name))
+                            .expect("guarded carrier fixture body lowers");
+
+                        assert!(!lowered.diagnostics().has_errors(), "async={asynchronous}, {name}: {:?}", lowered.diagnostics());
+                    }
+                } else {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn initialized_sibling_authority_survives_partial_input_consumption() {
+        for asynchronous in [false, true] {
+            let mut source = include_str!("fixtures/retired-components.bray").to_owned();
+
+            if asynchronous {
+                source = source.replace("trusted func release_pin", "trusted async func release_pin")
+                    .replace("func dispose", "async func dispose")
+                    .replace("func produced", "async func produced")
+                    .replace("let status = release_pin", "let status = await release_pin");
+            }
+
+            let missing_arena = source.replace(" && live(marker = &owner.arena.marker)", "");
+
+            for (variant, valid) in [(&source, true), (&missing_arena, false)] {
+                let application = compilation(variant);
+                let diagnostics = application.check_diagnostics();
+
+                assert_eq!(!diagnostics.has_errors(), valid, "async={asynchronous}, {variant}: {diagnostics:#?}");
+
+                if valid {
+                    for name in ["dispose", "produced"] {
+                        let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, name))
+                            .expect("partial aggregate consumption lowers");
+
+                        assert!(!lowered.diagnostics().has_errors(), "async={asynchronous}, {name}: {:?}", lowered.diagnostics());
+                    }
+                } else {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn returned_allocations_keep_their_producer_freshness() {
+        for asynchronous in [false, true] {
+            let mut source = include_str!("fixtures/fresh-allocation-returns.bray").to_owned();
+
+            if asynchronous {
+                source = source.replace("trusted func", "trusted async func")
+                    .replace("return trusted fresh();", "return await trusted fresh();")
+                    .replace("let pointer = trusted forward();", "let pointer = await trusted forward();");
+            }
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert!(!diagnostics.has_errors(), "async={asynchronous}: {diagnostics:#?}");
+
+            let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, "caller"))
+                .expect("returned fresh allocation lowers");
+
+            assert!(!lowered.diagnostics().has_errors(), "async={asynchronous}: {:?}", lowered.diagnostics());
+        }
+
+        let independent = include_str!("fixtures/fresh-allocation-returns.bray")
+            .replace("return trusted core.memory.allocate(bytes = 8, align = 8);", "let temporary = trusted core.memory.allocate(bytes = 8, align = 8);\n    trusted core.memory.deallocate(temporary, bytes = 8, align = 8);\n    return trusted existing();")
+            + "\nextern trusted func existing() -> DataPointer<u8>\n    ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 8, align = 8));\n";
+        let application = compilation(&independent);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+            == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "independent return is not fresh: {diagnostics:#?}");
+    }
+
+    #[test]
+    fn produced_owner_receivers_use_the_same_value_as_explicit_borrows() {
+        for call in ["owner.access();", "observe(&owner);", "let anchor_value = &owner;\n                            anchor_value.access();"] {
+            let source = format!(r#"
+                trusted module app;
+
+                struct Marker
+                {{
+                }}
+
+                trusted predicate live(marker: &Marker);
+
+                struct Prepared
+                {{
+                    instance: Marker;
+                }}
+
+                struct Lock
+                {{
+                    prepared: Prepared;
+
+                    func access()
+                        requires(trusted live(marker = &self.prepared.instance))
+                    {{
+                    }}
+
+                    trusted destruct()
+                        requires(trusted live(marker = &self.prepared.instance))
+                    {{
+                    }}
+                }}
+
+                struct Outgoing
+                {{
+                }}
+
+                func observe(pos owner: &Lock)
+                    requires(trusted live(marker = &owner.prepared.instance))
+                {{
+                }}
+
+                func forward()
+                {{
+                    let take = trusted lambda() -> (Outgoing, Lock, Outgoing)
+                        ensures(trusted live(marker = &result.1.prepared.instance))
+                    {{
+                        return (
+                            Outgoing
+                            {{
+                            }},
+                            Lock
+                            {{
+                                prepared = Prepared
+                                {{
+                                    instance = Marker
+                                    {{
+                                    }}
+                                }}
+                            }},
+                            Outgoing
+                            {{
+                            }}
+                        );
+                    }};
+
+                    let (first, owner, last) = take();
+
+                    {{
+                        {call}
+                    }}
+
+                    _ = owner;
+                    _ = first;
+                    _ = last;
+                }}
+            "#);
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+        }
+    }
+
+    #[test]
+    fn whole_owner_guarantees_follow_mutating_calls_and_loop_carried_results() {
+        for (asynchronous, wait) in [("", ""), ("async ", "await ")] {
+            for (body, valid) in [
+                (format!("{wait}owner.advance();\n                        observe(&owner);"), true),
+                (format!("{wait}owner.advance();\n                        {wait}owner.advance();\n                        observe(&owner);"), true),
+                (format!(r#"let mut index: u32 = 0;
+
+                        while index != 2
+                        {{
+                            {wait}owner.advance();
+                            observe(&owner);
+                            index += 1;
+                        }}"#), true),
+                ("owner.visits += 1;\n                        observe(&owner);".to_owned(), false),
+            ] {
+                let source = format!(r#"
+                    trusted module app;
+
+                    trusted predicate coherent(owner: &Owner);
+
+                    struct Owner
+                    {{
+                        mut visits: u32;
+
+                        trusted mut {asynchronous}func advance()
+                            requires(trusted coherent(owner = &self))
+                            ensures(trusted coherent(owner = &self))
+                        {{
+                            self.visits += 1;
+                        }}
+                    }}
+
+                    func observe(pos owner: &Owner)
+                        requires(trusted coherent(owner = owner))
+                    {{
+                    }}
+
+                    {asynchronous}func transport(pos mut owner: Owner) -> Owner
+                        requires(trusted coherent(owner = &owner))
+                        ensures(trusted coherent(owner = &result))
+                    {{
+                        {body}
+
+                        return owner;
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn guarded_trusted_requirements_accept_weaker_clauses_but_not_changed_storage_or_authority() {
+        let weaker = "operation < 4 || (operation == 4 && trusted destination(cursor.pointer, argument)) || (operation == 5 && trusted retiring(cursor.pointer))";
+        for asynchronous in ["", "async "] {
+            for (requirement, body, valid) in [
+                (weaker, "invoke(cursor, operation, argument);", true),
+                ("operation < 4 || (operation == 5 && trusted retiring(cursor.pointer))",
+                    "invoke(cursor, operation, argument);", false),
+                (weaker, "cursor.pointer = 1;\n                        invoke(cursor, operation, argument);", false),
+            ] {
+                let source = format!(r#"
+                    trusted module app;
+
+                    struct Cursor
+                    {{
+                        mut pointer: usize;
+                    }}
+
+                    trusted predicate destination(pointer: usize, address: usize);
+                    trusted predicate retiring(pointer: usize);
+
+                    func invoke(pos cursor: &mut Cursor, pos operation: u32, pos argument: usize)
+                        requires({requirement})
+                    {{
+                    }}
+
+                    {asynchronous}func forward(pos cursor: &mut Cursor, pos operation: u32, pos argument: usize)
+                        requires(operation < 4 || (operation == 4 && trusted destination(cursor.pointer, argument)))
+                    {{
+                        {body}
+                    }}
+                "#);
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+                if !valid {
+                    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn methods_constructors_and_lambda_bodies_establish_their_own_evidence() {
         let compilation = compilation(
             r#"

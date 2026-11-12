@@ -21,3 +21,6 @@ mod sync;
 
 #[cfg(test)]
 mod addresses;
+
+#[cfg(test)]
+mod diagnostics;

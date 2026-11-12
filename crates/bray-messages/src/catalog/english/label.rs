@@ -216,6 +216,14 @@ pub(crate) const fn style(style: DiagnosticLabelStyle) -> &'static str {
 
 pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
     match kind {
+        DiagnosticLabelKind::ContractConditionNotPortable => MessageTemplate::new(&[MessageTemplatePart::Text("this condition has no portable contract representation")]),
+        DiagnosticLabelKind::ContractNotVerified => MessageTemplate::new(&[MessageTemplatePart::Text("this contract is not verified")]),
+        DiagnosticLabelKind::ExecutionProofFailure => MessageTemplate::new(&[MessageTemplatePart::Arg(DiagnosticArgName::ExecutionProofFailure)]),
+        DiagnosticLabelKind::UnprovenContractCondition => MessageTemplate::new(&[
+            MessageTemplatePart::Arg(DiagnosticArgName::ExecutionProofFailure),
+            MessageTemplatePart::Text(": "), MessageTemplatePart::Arg(DiagnosticArgName::ContractObligation),
+        ]),
+
         DiagnosticLabelKind::InvalidCharacter => MessageTemplate::new(INVALID_CHARACTER),
         DiagnosticLabelKind::MisplacedBom => MessageTemplate::new(MISPLACED_BOM),
         DiagnosticLabelKind::LoneCarriageReturn => MessageTemplate::new(LONE_CARRIAGE_RETURN),
@@ -305,7 +313,7 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         }
         DiagnosticLabelKind::TrustedObligationFailure => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
-                "live trusted evidence is required here",
+                "the required condition is not established here",
             )])
         }
         DiagnosticLabelKind::TrustedCallable => MessageTemplate::new(&[
@@ -328,6 +336,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
                 "the caller must establish this execution-context condition",
             )])
         }
+        DiagnosticLabelKind::ForbiddenPredicateBlock => MessageTemplate::new(&[
+            MessageTemplatePart::Text("this expression introduces a block in a predicate context"),
+        ]),
         DiagnosticLabelKind::ExecutionGuaranteeFailure => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
                 "this operation or its cleanup cannot establish the required execution guarantee",

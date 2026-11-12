@@ -173,16 +173,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                     crate::ExecutionProperty::Pure,
                                 )
                             })
-                        && evidence.proves(
+                        && evidence.prove_requirements(
                             contract
                                 .preconditions
                                 .iter()
                                 .map(|(condition, _)| condition),
-                        )
+                        ).is_ok()
                         && (evidence.trusted_boundary
                             || self
                                 .domain
-                                .trusted_requirements_proven(&evidence, &contract.requirements))
+                                .prove_trusted_requirements(&evidence, &contract.requirements).is_ok())
                     {
                         super::operation::collect_invocation_dependency(
                             self.domain.semantics.selections(),
@@ -196,20 +196,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 }
             }
 
-            dependencies.extend(state.completion_dependencies);
-
             if normal_exit_blocks.contains(&block.id()) {
-                let mut result = &state.result;
-
-                while let ExecutionCondition::Constructed(base, _) = result {
-                    result = base;
-                }
-
-                results.insert(match result {
-                    ExecutionCondition::Tagged(variant, _) => Some(*variant),
-                    _ => None,
-                });
+                results.insert(self.domain.returned_value(&state).known_variant());
             }
+
+            dependencies.extend(state.completion_dependencies);
         }
 
         candidate.completion_dependencies = dependencies.into_iter().collect();
@@ -256,7 +247,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // Await and start consume a source future before driving it. An
                 // inactive frame with inert captures cannot execute user cleanup.
                 matches!(value, Some(ExecutionCondition::Expression(source))
-                    if self.disposal.plan.future_cleanup.get(&source).is_some_and(|(captures, _)| captures.is_empty()))
+                    if self.disposal.plan.future_capture_cleanup.get(&source).is_some_and(|captures| captures.is_empty()))
             }
             Some(bray_compiler_known::RepresentationRole::String) => {
                 // Materialized string constants have static backing and no reference-counted owner.
@@ -279,7 +270,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .cloned()
             .unwrap_or_else(|| self.value(state, expression));
 
-        converted_argument(value, conversion)
+        converted_argument(self.request.semantic_values(), value, conversion)
     }
 
     fn implicit_call_entry(
@@ -313,6 +304,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let input = ExecutionPlace::from(*input);
             let ordinal = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
             let value = self.current_input(state, *source);
+
+            let value = self.copied_access_value(ExecutionCondition::post_state(
+                bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::Input(ordinal.clone()),
+            ), value, plan);
 
             if consumes {
                 transferred.extend([input.clone(), ordinal.clone()]);
@@ -419,7 +414,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<crate::ExecutionCallEvidence> {
         let mut entry = self.invocation_entry(state, invocation)?;
 
-        entry.witness_inputs = state.owned_witnesses(entry.owned_arguments())
+        entry.witness_inputs = state
+            .owned_witnesses(entry.owned_arguments())
             .filter(|(_, witness)| witness.available)
             .map(|(owner, _)| owner.clone())
             .collect();
@@ -517,7 +513,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return self.operation_call_entry(state, expression, selection);
         };
 
-        let staged = call.evaluates_defaults();
+        let staged = call.stages_inputs();
 
         let mut arguments = if staged {
             self.staged_arguments(state, expression, selection, None)
@@ -708,7 +704,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             },
                             &ExecutionCondition::Unknown,
                             &mut { ExecutionCondition::WORK_LIMIT },
-                        );
+                        ).pointer_observations(&self.pointer_predicates);
 
                         condition.assume(true, &mut evidence.trusted_assumptions);
                     }
@@ -723,16 +719,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
-        observations: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
+        observations: &bray_bound_tree::StorageCompletion,
     ) {
         let result = self.invocation_value(state, expression.into());
 
-        let result = self.complete_trusted_call(state, expression.into(), result, observations);
+        let (result, post_state) = self.complete_trusted_call(state, expression.into(), result, observations);
 
         state.expressions.insert(expression, result);
+
+        let Some(post_state) = post_state else { return; };
 
         let Some(entry) = state.entries.get(&expression.into()) else {
             return;
@@ -761,14 +756,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&expression)
             .into_iter()
             .flatten()
-            .filter(|contract| entry.proves(&contract.entry))
+            .filter(|contract| entry.prove_requirements(&contract.entry).is_ok())
             .collect::<Vec<_>>();
 
         if contracts.is_empty() {
             return;
         }
-
-        let post_state = self.call_post_state(state, expression, call);
 
         for contract in contracts {
             for (postcondition, source) in &contract.postconditions {
@@ -803,13 +796,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 }
 
 pub(super) fn converted_argument(
+    values: &bray_symbols::SemanticValueStore,
     value: ExecutionCondition,
     conversion: &bray_bound_tree::SelectedConversion,
 ) -> ExecutionCondition {
     match conversion.target() {
         bray_bound_tree::ConversionTarget::Identity
-        | bray_bound_tree::ConversionTarget::CallableContract => value,
-        bray_bound_tree::ConversionTarget::NullablePresent => value.present(),
+        | bray_bound_tree::ConversionTarget::CallableContract
+        | bray_bound_tree::ConversionTarget::NullablePresent => value.coerce(
+            values, conversion.source_type(), conversion.target_type()),
         _ => ExecutionCondition::Unknown,
     }
 }

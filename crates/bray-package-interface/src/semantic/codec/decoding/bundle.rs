@@ -829,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn selective_decoding_retains_and_remaps_replacement_types() {
+    fn selective_decoding_retains_and_remaps_mutation_types() {
         use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 
         let bundle = package_interface_export_bundle();
@@ -848,20 +848,31 @@ mod tests {
             [InterfaceTypeId::new(0), InterfaceTypeId::new(0)].into(),
         ));
 
+        let access = InterfaceTypeId::new(u32::try_from(types.len()).expect("fixture type count fits u32"));
+
+        types.push(InterfaceType::Tuple([InterfaceTypeId::new(0); 3].into()));
+
         let subject = InterfaceDependencySubject::new(
             InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
             [],
         );
 
         let contract = InterfaceDependencyContract::new([]).with_effects([
+            DependencyStorageEffect::UnboundedMutation {
+                kind: DependencyMutationKind::Consume,
+                access_type: Some(access),
+                ambient: true,
+            },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(replacement),
+                access_type: Some(access),
             },
             DependencyStorageEffect::Indirect {
                 reference: subject,
                 projections: [].into(),
                 kind: DependencyMutationKind::Replace(replacement),
+                access_type: Some(access),
             },
         ]);
 
@@ -890,17 +901,17 @@ mod tests {
         .expect("fixture `decode_semantic_graph` call must succeed");
 
         for effect in &*decoded.dependency_contracts[0].effects {
-            let (DependencyStorageEffect::Direct {
-                kind: DependencyMutationKind::Replace(ty),
-                ..
-            }
-            | DependencyStorageEffect::Indirect {
-                kind: DependencyMutationKind::Replace(ty),
-                ..
-            }) = effect
-            else {
-                panic!("test contract must retain both replacement effects");
+            let (ty, original) = match effect {
+                DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), access_type: Some(original), .. }
+                | DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Replace(ty), access_type: Some(original), .. } => (Some(ty), original),
+                DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Consume, access_type: Some(original), ambient: true } => (None, original),
+                _ => panic!("test contract must retain each known mutation"),
             };
+
+            assert_ne!(*original, access, "unselected intervening type must be removed");
+            assert!(matches!(&decoded.types()[original.raw() as usize], InterfaceType::Tuple(elements) if elements.len() == 3));
+
+            let Some(ty) = ty else { continue; };
 
             assert_ne!(
                 *ty, replacement,

@@ -15,8 +15,9 @@ pub fn execution_conditions(
     semantics: &CheckedExpressionSemantics,
     patterns: &bray_bound_tree::CheckedPatterns,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
 ) -> Result<Vec<ExecutionCondition>, bray_symbols::SemanticValueStoreError> {
-    Ok(predicate_conditions(unit, semantics, patterns, values)?
+    Ok(predicate_conditions(unit, semantics, patterns, values, known)?
         .into_iter()
         .map(|(_, condition, _)| condition)
         .collect())
@@ -28,6 +29,7 @@ pub fn predicate_conditions(
     semantics: &CheckedExpressionSemantics,
     patterns: &bray_bound_tree::CheckedPatterns,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
 ) -> Result<
     Vec<(
         BoundExpressionId,
@@ -41,6 +43,7 @@ pub fn predicate_conditions(
         semantics,
         patterns,
         values,
+        known,
         &BTreeMap::new(),
         None,
         None,
@@ -53,6 +56,7 @@ pub fn predicate_conditions_with_inputs(
     semantics: &CheckedExpressionSemantics,
     patterns: &bray_bound_tree::CheckedPatterns,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
     inputs: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     storage: Option<(&bray_bound_tree::StoragePlan, &bray_bound_tree::StorageFlow)>,
     predicates: Option<
@@ -124,10 +128,12 @@ pub fn predicate_conditions_with_inputs(
             unit,
             semantics,
             values,
+            known,
+            storage.map(|(plan, _)| plan),
             &literals,
             &patterns,
             inputs,
-            &references,
+            &|expression| references.get(&expression).cloned(),
             root,
             &mut { crate::ExecutionCondition::WORK_LIMIT },
             predicates,
@@ -228,7 +234,7 @@ fn predicate_domain(
 fn reference_conditions(
     storage: &bray_bound_tree::StoragePlan,
     flow: &bray_bound_tree::StorageFlow,
-) -> BTreeMap<BoundExpressionId, ExecutionCondition> {
+ ) -> BTreeMap<BoundExpressionId, ExecutionCondition> {
     let mut references = BTreeMap::new();
 
     for (identity, kind) in storage.identity_entries() {
@@ -251,7 +257,28 @@ fn reference_conditions(
             continue;
         };
 
-        let Some(place) = crate::ExecutionPlace::storage_path(storage, target) else {
+        // Clauses are observations. A returned borrow can reach a contained input
+        // reference even when that reference has no direct invocation-local slot.
+        // Clause entry values are supplied by the enclosing evaluation frame.
+        // Nested borrowed inputs name that frame, while raw pointees stay distinct.
+        let place = match &target.origin {
+            bray_bound_tree::StorageOrigin::Entry {
+                reference,
+                projections,
+                layer: 1,
+                kind: bray_symbols::DependencyReferenceKind::Borrow,
+            }
+            |
+            bray_bound_tree::StorageOrigin::Returned {
+                reference,
+                projections,
+            } => crate::ExecutionPlace::storage_path(storage, reference)
+                .and_then(|place| place.project(projections)),
+            _ => (target).value_observation_path()
+                .and_then(|path| crate::ExecutionPlace::storage_path(storage, &path)),
+        };
+
+        let Some(place) = place else {
             continue;
         };
 

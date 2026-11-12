@@ -17,25 +17,17 @@ unsafe extern "C" {
         destination: *mut u8,
         layout: *const bray_runtime_abi::NativeRunResultLayout,
     ) -> bray_runtime_abi::NativeRuntimeStatus;
-    pub(crate) safe fn bray_runtime_task_control_creation() -> u64;
-    pub(crate) safe fn bray_runtime_task_control_admission(runtime: u64) -> u64;
-    pub(crate) safe fn bray_runtime_task_control_retention(
-        runtime: u64,
-        handle: u64,
-        output: &mut bray_runtime_abi::NativeTaskReference,
-    ) -> bray_runtime_abi::NativeRuntimeStatus;
     pub(crate) safe fn bray_runtime_task_control_cancellation(
         reference: &bray_runtime_abi::NativeTaskReference,
         operation: u32,
     ) -> u32;
+    pub(crate) safe fn bray_runtime_execution_task_wake(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        cause: u32,
+    ) -> u32;
     pub(crate) safe fn bray_runtime_task_control_snapshot(
         reference: &bray_runtime_abi::NativeTaskReference,
         output: &mut bray_runtime_abi::NativeTaskSnapshot,
-    ) -> bray_runtime_abi::NativeRuntimeStatus;
-    pub(crate) safe fn bray_runtime_task_control_publication(
-        reference: &bray_runtime_abi::NativeTaskReference,
-        root: usize,
-        execution: &bray_runtime_abi::NativeActivationExecution,
     ) -> bray_runtime_abi::NativeRuntimeStatus;
 
     pub(crate) safe fn bray_runtime_task_control_dispatch(
@@ -49,34 +41,19 @@ unsafe extern "C" {
         reference: &bray_runtime_abi::NativeTaskReference,
         outcome: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> bray_runtime_abi::NativeRuntimeStatus;
-    pub(crate) safe fn bray_runtime_task_control_destruction(
-        reference: &bray_runtime_abi::NativeTaskReference,
-    ) -> bray_runtime_abi::NativeRuntimeStatus;
     pub(crate) safe fn bray_runtime_task_control_reference_release(
         reference: &bray_runtime_abi::NativeTaskReference,
     ) -> bray_runtime_abi::NativeRuntimeStatus;
 
-    pub(crate) safe fn bray_runtime_task_control_callback_entry(
-        reference: &bray_runtime_abi::NativeTaskReference,
-        execution: &bray_runtime_abi::NativeActivationExecution,
-        resumable: u8,
-        previous_resumable: &mut u8,
-    ) -> usize;
-    pub(crate) safe fn bray_runtime_task_control_callback_exit(
-        reference: &bray_runtime_abi::NativeTaskReference,
-        previous: usize,
-        previous_resumable: u8,
-    );
     pub(crate) safe fn bray_runtime_task_control_wait(
         reference: &bray_runtime_abi::NativeTaskReference,
         parent: &bray_runtime_abi::NativeTaskReference,
         retirement: u8,
     ) -> bray_runtime_abi::NativeRuntimeStatus;
-    pub(crate) safe fn bray_runtime_task_control_retirement(
+    pub(crate) safe fn bray_runtime_task_native_context_publication(
         reference: &bray_runtime_abi::NativeTaskReference,
-    ) -> bray_runtime_abi::NativeRuntimeStatus;
-    pub(crate) safe fn bray_runtime_task_control_runtime_retirement(context: &crate::native::RuntimeRetirement<'_>)
-        -> bray_runtime_abi::NativeRuntimeStatus;
+        context: usize,
+    );
     pub(crate) safe fn bray_runtime_task_control_composition(
         reference: &bray_runtime_abi::NativeTaskReference,
         token: &bray_runtime_abi::NativeInactiveFrame,
@@ -84,7 +61,7 @@ unsafe extern "C" {
         origin: u64,
         destination: usize,
         disposition: u8,
-        ready: extern "C" fn(&bray_runtime_abi::NativeActivationExecution) -> u32,
+        ready: for<'a> extern "C" fn(&mut bray_runtime_abi::NativeActivationInvocation<'a>),
     ) -> bray_runtime_abi::NativeRuntimeStatus;
 
     #[cfg(test)]
@@ -100,10 +77,6 @@ unsafe extern "C" {
         argument: usize,
         output: &mut bray_runtime_abi::NativeActivationExecution,
     ) -> u32;
-    pub(crate) safe fn bray_runtime_activation_entry(
-        token: &bray_runtime_abi::NativeInactiveFrame,
-        origin: u64,
-    ) -> usize;
 
     pub(crate) safe fn bray_runtime_activation_header_layout(
         bytes: &mut usize,
@@ -175,11 +148,6 @@ unsafe extern "C" {
     pub(crate) safe fn bray_runtime_report_sink_finish(
         state: &mut crate::shutdown::CleanupReportState,
     );
-
-    pub(crate) safe fn bray_runtime_report_segment_consumer(
-        metadata: &NativeReportSegment,
-        report: &mut NativePanicReport,
-    ) -> bray_runtime_abi::NativeRuntimeStatus;
 
     pub(crate) safe fn bray_runtime_cleanup_incident_consumer(
         incident: &mut bray_runtime_abi::NativeCleanupIncident,

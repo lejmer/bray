@@ -223,6 +223,7 @@ impl InspectionStorageProvenance {
                 node: node.ordinal(),
             }),
             StorageIdentity::Temporary(expression)
+            | StorageIdentity::Evaluated(expression)
             | StorageIdentity::CustomIndexBorrow(expression)
             | StorageIdentity::ScopedCapability { expression, .. }
             | StorageIdentity::Allocation(expression) => Ok(Self::Expression {

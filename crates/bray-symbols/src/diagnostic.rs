@@ -1,5 +1,7 @@
 use bray_diagnostics::{
-    DiagnosticCallableAbi, DiagnosticCallableExecution, DiagnosticInterfaceDeclarationIdentity,
+    DiagnosticCallableAbi, DiagnosticCallableExecution, DiagnosticCallableConstness,
+    DiagnosticCallableTrust, DiagnosticCallablePosition, DiagnosticCallableParameterMode,
+    DiagnosticCallableParameter, DiagnosticType, DiagnosticInterfaceDeclarationIdentity,
     DiagnosticInterfaceRelationshipKind, DiagnosticInterfaceSymbolIdentity,
     DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity,
 };
@@ -51,6 +53,63 @@ pub const fn diagnostic_callable_execution(
     match execution {
         CallableExecution::Synchronous => DiagnosticCallableExecution::Synchronous,
         CallableExecution::Asynchronous => DiagnosticCallableExecution::Asynchronous,
+    }
+}
+
+/// Describes one parameter after its type has been converted at the owning boundary.
+pub fn diagnostic_callable_parameter(
+    name: &crate::CallableParameterName,
+    position: crate::CallablePosition,
+    mode: crate::CallableParameterMode,
+    ty: DiagnosticType,
+) -> DiagnosticCallableParameter {
+    DiagnosticCallableParameter {
+        name: name.as_str().to_owned(),
+        position: diagnostic_callable_position(position),
+        mode: diagnostic_callable_parameter_mode(mode),
+        ty,
+    }
+}
+
+/// Converts constant evaluation eligibility into its diagnostic category.
+pub const fn diagnostic_callable_constness(
+    value: crate::CallableConstness,
+) -> DiagnosticCallableConstness {
+    match value {
+        crate::CallableConstness::Runtime => DiagnosticCallableConstness::Runtime,
+        crate::CallableConstness::Constant => DiagnosticCallableConstness::Constant,
+    }
+}
+
+/// Converts a callable trust boundary into its diagnostic category.
+pub const fn diagnostic_callable_trust(value: crate::CallableTrust) -> DiagnosticCallableTrust {
+    match value {
+        crate::CallableTrust::Safe => DiagnosticCallableTrust::Safe,
+        crate::CallableTrust::Trusted => DiagnosticCallableTrust::Trusted,
+    }
+}
+
+/// Converts positional argument permission into its diagnostic category.
+pub const fn diagnostic_callable_position(
+    value: crate::CallablePosition,
+) -> DiagnosticCallablePosition {
+    match value {
+        crate::CallablePosition::NamedOnly => DiagnosticCallablePosition::NamedOnly,
+        crate::CallablePosition::PositionalOrNamed => {
+            DiagnosticCallablePosition::PositionalOrNamed
+        }
+    }
+}
+
+/// Converts owned parameter mutation authority into its diagnostic category.
+pub const fn diagnostic_callable_parameter_mode(
+    value: crate::CallableParameterMode,
+) -> DiagnosticCallableParameterMode {
+    match value {
+        crate::CallableParameterMode::Immutable => {
+            DiagnosticCallableParameterMode::Immutable
+        }
+        crate::CallableParameterMode::Mutable => DiagnosticCallableParameterMode::Mutable,
     }
 }
 

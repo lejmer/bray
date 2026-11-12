@@ -68,12 +68,12 @@ pub use context::{
     CheckerSource, GenericConstraintScope, ImplementationHookResolution,
 };
 pub use dependency::generator_result_dependencies;
-pub use diagnostic::diagnostic_type;
+pub use diagnostic::{diagnostic_borrow_kind, diagnostic_type};
 pub use execution_guarantees::{
-    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
+    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates, UnprovenExecutionCondition,
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
-    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionPlace,
+    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionVerificationFailure, ExecutionPlace,
     ExecutionProperty, declared_execution_properties, execution_condition_from_term,
     execution_condition_from_type_term, execution_condition_is_implied, execution_condition_term,
     execution_conditions, map_execution_condition_references, predicate_conditions,

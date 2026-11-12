@@ -29,7 +29,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 .and_then(|access| storage.access(access).map(|access| access.reached_type()))
         };
 
-        self.complete_reference_types.get(&ty?).copied()
+        self.footprint.complete_reference_types.get(&ty?).copied()
     }
 
     pub(in crate::analysis::storage_flow) fn inline_regions(
@@ -125,8 +125,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             }
 
-            let mut types = std::collections::BTreeMap::new();
-
             for subject in
                 dependencies.lifecycle_dependencies()[&lifecycle.call.callable].reference_subjects()
             {
@@ -155,8 +153,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                         .or_default()
                         .insert((std::sync::Arc::from(path.projections()), ty));
 
-                    types.insert(subject.clone(), ty);
-                    self.lifecycle_paths.insert(key, path);
+                    self.lifecycle_paths.insert(key, (ty, path));
                 }
             }
 
@@ -174,10 +171,12 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     relation.entry().unwrap_or_else(|| relation.exit())
                 };
 
-                if relation
-                    .entry()
-                    .is_none_or(|entry| types.contains_key(entry))
-                    && let Some(ty) = types.get(subject)
+                if relation.entry().is_none_or(|entry| {
+                    self.lifecycle_paths
+                        .contains_key(&(lifecycle.call.callable, entry.clone()))
+                }) && let Some((ty, _)) = self
+                    .lifecycle_paths
+                    .get(&(lifecycle.call.callable, subject.clone()))
                     && let Some(reference) =
                         crate::dependency::prepare_reference(request, relation, *ty)?
                 {
@@ -198,6 +197,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
     pub(in crate::analysis::storage_flow) fn reference_target(
         &self,
+        values: &bray_symbols::SemanticValueStore,
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
@@ -216,10 +216,11 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     .is_some_and(|borrow| borrow.entry_binding().is_some())
             });
 
-        Self::reference_location(memory, logical.root, path, entry)
+        Self::reference_location(values, memory, logical.root, path, entry)
     }
 
     pub(in crate::analysis::storage_flow) fn reference_location(
+        values: &bray_symbols::SemanticValueStore,
         memory: &crate::analysis::storage_flow::memory::State,
         root: bray_bound_tree::StorageIdentityId,
         path: &bray_bound_tree::StorageReferencePath,
@@ -231,6 +232,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         };
 
         memory.reference_location(
+            values,
             crate::analysis::storage_flow::memory::Target::storage(Place::root(root)),
             path,
             root_borrow,
@@ -292,6 +294,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
         values: &crate::dependency::ValueInputs,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        types: &bray_bound_tree::CheckedExpressionTypes,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         for (identity, source) in storage.identity_entries() {
             let bray_bound_tree::StorageIdentity::Temporary(expression) = source else {
@@ -324,8 +328,44 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     self.reference_constructions
                         .entry(expression)
                         .or_default()
-                        .push((*operand, path, *element));
+                        .push(((*operand).into(), types.expression(*operand).expect("array operand has its checked type").ty(), path, *element));
                 }
+            }
+
+            if let Some(selection @ bray_bound_tree::SemanticSelection::Operation(
+                bray_bound_tree::SelectedOperation::Construction(construction),
+            )) = selections.expression(expression)
+            {
+                for input in construction.inputs() {
+                    let (field, ordinal) = match input {
+                        bray_bound_tree::SelectedConstructionInput::Explicit { input, ordinal, .. }
+                        | bray_bound_tree::SelectedConstructionInput::Default { input, ordinal, .. } => (input, *ordinal),
+                    };
+
+                    let projection = match field {
+                        bray_bound_tree::ConstructionInputId::StructField(field) => bray_symbols::DependencyProjection::ProductField(*field),
+                        bray_bound_tree::ConstructionInputId::UnionPayloadField(field) => bray_symbols::DependencyProjection::UnionPayloadField(*field),
+                        bray_bound_tree::ConstructionInputId::CallableParameter(_) => continue,
+                    };
+
+                    let Some(path) = project(request, Place::root(identity), &[projection])? else { continue; };
+
+                    let (source, source_type) = if selection.stages_inputs() {
+                        (bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal: bray_symbols::SymbolOrdinal::new(ordinal) }, input.ty())
+                    } else {
+                        let bray_bound_tree::SelectedConstructionInput::Explicit { expression: operand, .. } = input else {
+                            unreachable!("unstaged construction has explicit inputs");
+                        };
+
+                        ((*operand).into(), types.expression(*operand).expect("construction input has its checked type").ty())
+                    };
+
+                    self.reference_constructions.entry(expression).or_default().push((source, source_type, path, input.ty()));
+                }
+
+                // Selected inputs own conversion and default placement. Dependency
+                // projection suffixes describe their original, unconverted sources.
+                continue;
             }
 
             for (projection, operand, suffix) in values.constructed_fields(expression) {
@@ -352,7 +392,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 self.reference_constructions
                     .entry(expression)
                     .or_default()
-                    .push((operand, path, ty));
+                    .push((operand.into(), types.expression(operand).expect("aggregate operand has its checked type").ty(), path, ty));
             }
         }
 
@@ -376,7 +416,7 @@ pub(super) fn project<C: CheckerRequestContext + ?Sized>(
 
 impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn observe_call_reference_inputs(
-        &self,
+        &mut self,
         state: &mut crate::analysis::storage_flow::model::StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
     ) {
@@ -404,21 +444,10 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
                 continue;
             };
 
-            let Some(mut logical) = self.invocation_place(occurrence, subject.subject_root())
+            let Some(logical) = self.invocation_logical_path(occurrence, subject)
             else {
                 continue;
             };
-
-            let path = contracts
-                .reference_path(subject)
-                .expect("checked reference input retains its prepared path");
-
-            logical.projections = logical
-                .projections
-                .iter()
-                .chain(path.projections())
-                .copied()
-                .collect();
 
             let Some(sources) = self.invocation_sources(state, occurrence, subject) else {
                 continue;
@@ -428,7 +457,10 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
                 continue;
             };
 
-            self.observe_stored_reference(&mut state.memory, location.clone(), logical, pointee);
+            if let Err(error) = self.observe_stored_reference(&mut state.memory, location.clone(), logical, pointee) {
+                self.query_failure = Some(error);
+                return;
+            }
         }
     }
 
@@ -438,22 +470,23 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
         location: crate::analysis::storage_flow::memory::Target,
         logical: Place,
         pointee: bray_symbols::TypeId,
-    ) {
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         use crate::analysis::storage_flow::memory::Origin;
 
         if !location.is_exact() || memory.referenced_regions(&location).is_some() {
-            return;
+            return Ok(());
         }
 
         let container = location.allocation_region().unwrap_or_else(|| {
             let mut container = location.clone();
 
             match &mut container.origin {
-                Origin::Entry { projections, .. } | Origin::Returned { projections, .. }
-                | Origin::Static { projections, .. } => {
+                Origin::Entry { projections, .. }
+                | Origin::Returned { projections, .. }
+                | Origin::Static { projections, .. } | Origin::Allocation { projections, .. } => {
                     *projections = std::sync::Arc::from([]);
                 }
-                Origin::Storage(place) | Origin::Allocation(place) => {
+                Origin::Storage(place) => {
                     place.projections = std::sync::Arc::from([]);
                 }
             }
@@ -463,9 +496,10 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
 
         let inputs = memory
             .effect_origins(&container)
+            .0
             .cloned()
             .collect::<Vec<_>>();
 
-        memory.observe_reference(location, logical, pointee, inputs);
+        memory.observe_reference(self.request, location, logical, pointee, inputs)
     }
 }

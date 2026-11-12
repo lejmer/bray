@@ -21,6 +21,12 @@ pub(super) struct OwnedReturn {
     transfers: DependencyOwnedResult<StorageProjection>,
 }
 
+impl OwnedReturn {
+    pub(super) fn excludes(&self, path: &[StorageProjection]) -> bool {
+        activity(&self.value, path, &self.assumptions).0 == Some(false)
+    }
+}
+
 impl super::check::TrustedChecks {
     pub(super) fn collect_owned_return<C: CheckerRequestContext + ?Sized>(
         &mut self,
@@ -35,6 +41,18 @@ impl super::check::TrustedChecks {
         {
             return;
         }
+
+        let result_type = domain.semantics.types().callable_result_type().unwrap_or_else(|| {
+            let crate::CheckerUnitRoot::Expression(root) = domain.request.root() else {
+                unreachable!("a non-callable value producer retains its expression root");
+            };
+
+            domain.semantics.types().expression(root)
+                .expect("checked default or constant producer retains its result type").ty()
+        });
+
+        let result = result.clone().coerce(domain.request.semantic_values(), result_type, result_type);
+        let result = &result;
 
         let mut returned = OwnedReturn {
             value: result.clone(),
@@ -59,14 +77,9 @@ impl super::check::TrustedChecks {
                         unreachable!("owned input lineage retains its formal place");
                     };
 
-                    let input = (!domain
-                        .borrowed_inputs
-                        .iter()
-                        .any(|borrow| borrow.contains(&place)))
-                    .then(|| {
-                        super::carriers::portable(domain.request, &ExecutionCondition::Input(place))
-                    })
-                    .flatten();
+                    let source = ExecutionCondition::Input(place);
+
+                    let input = super::carriers::portable(domain.request, &source);
 
                     Ok::<_, std::convert::Infallible>(
                         input
@@ -74,7 +87,7 @@ impl super::check::TrustedChecks {
                                 DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
                                     input,
                                     transfer.output().iter().copied(),
-                                ))
+                                ).with_preservation(transfer.preservation().clone()))
                             })
                             .unwrap_or_default(),
                     )
@@ -126,12 +139,17 @@ impl super::check::TrustedChecks {
         StorageProjection,
         (bray_symbols::ConstantTermId, OwnedReturnCondition),
     > {
-        let candidates = self
-            .owned_returns
-            .iter()
-            .flat_map(|returned| returned.transfers.transfers())
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let mut candidates: Vec<DependencyOwnedTransfer<StorageProjection>> = Vec::new();
+
+        for transfer in self.owned_returns.iter().flat_map(|returned| returned.transfers.transfers()) {
+            if let Some(previous) = candidates.iter_mut().find(|previous| previous.same_identity(transfer)) {
+                *previous = previous.clone().with_preservation(
+                    previous.preservation().intersection(transfer.preservation()),
+                );
+            } else {
+                candidates.push(transfer.clone());
+            }
+        }
 
         let mut shared = BTreeMap::new();
         let mut shapes = BTreeMap::new();
@@ -149,7 +167,7 @@ impl super::check::TrustedChecks {
                 let contains = returned
                     .transfers
                     .transfers()
-                    .any(|candidate| candidate == &transfer);
+                    .any(|candidate| candidate.same_identity(&transfer));
 
                 if active == Some(false) {
                     conditional = true;
@@ -176,7 +194,12 @@ impl super::check::TrustedChecks {
 
             shapes.insert(transfer.clone(), shape);
 
-            if valid {
+            let uniform = self.owned_returns.iter()
+                .flat_map(|returned| returned.transfers.transfers())
+                .filter(|candidate| candidate.same_identity(&transfer))
+                .all(|candidate| candidate.preservation() == transfer.preservation());
+
+            if valid && uniform {
                 shared.insert(transfer, shape);
             }
         }
@@ -188,17 +211,21 @@ impl super::check::TrustedChecks {
                 .transfers
                 .try_map(
                     &mut |transfer| {
-                        if shared.contains_key(transfer) {
+                        if shared.keys().any(|candidate| candidate.same_identity(transfer)) {
                             return Ok(DependencyOwnedResult::default());
                         }
 
-                        let shape = shapes[transfer];
+                        let (_, shape) = shapes.iter()
+                            .find(|(candidate, _)| candidate.same_identity(transfer))
+                            .expect("normal ownership layout retains its inferred shape");
+
+                        let shape = *shape;
 
                         Ok::<_, std::convert::Infallible>(DependencyOwnedResult::Transfer(
                             DependencyOwnedTransfer::new(
                                 (transfer.input(), shape),
                                 transfer.output().iter().copied(),
-                            ),
+                            ).with_preservation(transfer.preservation().clone()),
                         ))
                     },
                     &mut |condition| Ok(Some((*condition, OwnedReturnCondition::Unconditional))),
@@ -210,7 +237,7 @@ impl super::check::TrustedChecks {
                     DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
                         (transfer.input(), *shape),
                         transfer.output().iter().copied(),
-                    ))
+                    ).with_preservation(transfer.preservation().clone()))
                 },
             )))
         }))
@@ -218,7 +245,7 @@ impl super::check::TrustedChecks {
 }
 
 /// An inactive alternative owns no payload and imposes no input-identity requirement.
-fn activity(
+pub(super) fn activity(
     result: &ExecutionCondition,
     path: &[StorageProjection],
     assumptions: &BTreeSet<(ExecutionCondition, bool)>,
@@ -229,11 +256,8 @@ fn activity(
     for projection in path {
         let known = match projection {
             StorageProjection::NullableValue => {
-                if matches!(value, ExecutionCondition::Present(_)) {
-                    Some(true)
-                } else if matches!(&value, ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
-                {
-                    Some(false)
+                if let Some(present) = value.known_presence() {
+                    Some(present)
                 } else {
                     assumptions.iter().find_map(|(condition, holds)| {
                         condition
@@ -269,7 +293,7 @@ fn activity(
         value = value.project(*projection);
     }
 
-    if matches!(&value, ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
+    if value.known_presence() == Some(false)
         || assumptions.iter().any(|(condition, holds)| {
             condition
                 .nullable_absence(*holds)
@@ -293,7 +317,7 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
     }
 
     match result {
-        DependencyOwnedResult::Transfer(candidate) => candidate == transfer,
+        DependencyOwnedResult::Transfer(candidate) => candidate.same_identity(transfer),
         DependencyOwnedResult::All(values) => values
             .iter()
             .any(|value| every_active_layout_transfers(domain, value, transfer, assumptions)),
@@ -352,7 +376,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         };
 
-        feasible_layout(contract.owned_result(), assumptions, &instantiate)
+        let mut assumptions = assumptions.clone();
+
+        assumptions.extend(entry.assumptions.iter().cloned());
+
+        feasible_layout(contract.owned_result(), &assumptions, &instantiate)
     }
 }
 

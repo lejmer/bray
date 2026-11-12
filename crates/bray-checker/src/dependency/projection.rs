@@ -10,6 +10,59 @@ use bray_symbols::{AnyLocalSymbolId, DependencyProjection, LocalBindingSymbolId,
 use super::ValueInputs;
 
 impl ValueInputs {
+    /// Selects carried dependencies without retaining a loan used only to read copied contents.
+    pub(crate) fn copied_value_source<C: crate::CheckerRequestContext + ?Sized>(
+        &self,
+        request: crate::CheckerUnitView<'_, C>,
+        storage: &bray_bound_tree::StoragePlan,
+        selections: &CheckedSemanticSelections,
+        source: bray_bound_tree::StorageAccessId,
+        path: &bray_bound_tree::StorageReferencePath,
+        ty: bray_symbols::TypeId,
+    ) -> Option<BoundExpressionId> {
+        let root = storage.root_identity(source)?;
+        let producer = storage.identity(root)?.definition_occurrence()?;
+        let projections = storage.resolved_projections(source)?.iter()
+            .chain(path.projections().iter()).copied().collect::<Vec<_>>();
+        let projections = crate::storage::dependency_projections(&projections)?;
+
+        let (source, remaining) =
+            self.projected_input_value(request.semantic_values(), selections, producer, &projections)?;
+
+        // Borrowed components retain their containing value's carried loans.
+        // Borrow-free contents do not retain the loan used to read their container.
+        (remaining.is_empty() || !self.value_carries_no_borrows(ty))
+            .then_some(source)
+    }
+
+    /// Selects the evaluated dependency source of a copied input component.
+    /// This selects carried data and never reconstructs an owner or physical referent.
+    pub(crate) fn projected_input_value<'p>(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        selections: &CheckedSemanticSelections,
+        site: bray_bound_tree::BoundExecutionSite,
+        path: &'p [DependencyProjection],
+    ) -> Option<(BoundExpressionId, &'p [DependencyProjection])> {
+        let (source, path) = match site {
+            bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(source)) => (source, path),
+            bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } => {
+                let input = selections.expression(expression)
+                    .expect("evaluated input retains its checked invocation")
+                    .input(ordinal)
+                    .expect("evaluated input retains its checked selection");
+
+                let source = input.expression()?;
+                let path = crate::storage::unadapted_projections(values, input.conversion(), path)?;
+
+                (source, path)
+            }
+            _ => return None,
+        };
+
+        Some(self.project(source, path))
+    }
+
     pub(super) fn collect_projections(
         &mut self,
         unit: &BoundUnit,
@@ -383,7 +436,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         for reference in call.references() {
             let relation = reference.relation();
 
-            if let Some(entry) = relation.entry() {
+            if let Some(entry) = relation.source_subject() {
                 retain(entry.projections());
             }
 
@@ -399,10 +452,26 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             .effects()
             .iter()
             .chain(call.deferred_effects().into_iter().flatten())
+            .chain(call.deferred_capture_cleanup().into_iter().flatten())
+            .chain(call.deferred_result_cleanup().into_iter().flatten())
         {
+            if let Some(subject) = effect.subject() {
+                retain(subject.projections());
+            }
             if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
                 retain(projections);
             }
+        }
+    }
+
+    for (_, relations) in contracts.condition_references().values() {
+        for relation in relations.iter() {
+            if let Some(entry) = relation.source_subject() {
+                retain(entry.projections());
+            }
+
+            retain(relation.exit().projections());
+            retain(relation.target_projections());
         }
     }
 
@@ -416,6 +485,9 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
 
         for effect in contract.effects() {
+            if let Some(subject) = effect.subject() {
+                retain(subject.projections());
+            }
             if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
                 retain(projections);
             }

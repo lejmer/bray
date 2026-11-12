@@ -33,14 +33,10 @@ trusted internal func enter_attachment_locked(
     pos lease: &HostLease,
     pos prepared: &mut(std.memory.RawBuffer<Attachment>?)
 ) -> Result<(u32, u64), usize>
-    requires(
-        lease.active,
-        trusted host_access_idle(owner = lease),
-        trusted host_access_live(owner = &lease.acquisition)
-    )
-    ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
+    requires(lease.active, trusted host_access_live(owner = &lease.acquisition))
+    ensures(trusted host_access_live(owner = &lease.acquisition))
     executes(total)
-    uses(intrinsic)
+    uses(intrinsic, foreign_call)
 {
     let no_identity: u64 = 0;
     let unavailable = (bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE, no_identity);

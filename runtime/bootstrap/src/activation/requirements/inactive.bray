@@ -21,8 +21,9 @@ trusted internal func read(
     pos token: &bray.runtime.bootstrap.activation.Inactive,
     pos state: u32,
     pos operation: u32,
-    pos argument: usize
-) -> State?
+    pos argument: usize,
+    pos origin: u64
+) -> Execution?
     requires(
         trusted bray.runtime.bootstrap.activation.producer(token = token),
         trusted inactive_owner(token = token),
@@ -130,9 +131,15 @@ trusted internal func read(
         return none;
     }
 
-    let mut result: State? = none;
+    let result: Execution =
+    {
+        address = address,
+        identity = descriptor.storage.identity,
+        state = state,
+        requirements = requirements,
+        origin = origin
+    };
 
-    result = requirements;
     return result;
 }
 
@@ -198,26 +205,15 @@ trusted internal func inspect(
 
         let token = trusted read_owned(pointer, output);
 
-        let requirements = match consume trusted read(&token, state, operation, argument)
+        let requirements = match consume trusted read(&token, state, operation, argument, 0)
         {
             case ?requirements { yield requirements; }
             case none { return none; }
         };
 
-        let descriptor = trusted bray.runtime.bootstrap.activation.description(&token);
-
-        let execution: Execution =
-        {
-            address = token.lease.address + descriptor.header,
-            identity = descriptor.storage.identity,
-            state = state,
-            requirements = requirements,
-            origin = 0,
-        };
-
         let mut result: Execution? = none;
 
-        result = execution;
+        result = requirements;
         return result;
     };
 

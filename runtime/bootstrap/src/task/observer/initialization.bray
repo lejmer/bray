@@ -34,7 +34,11 @@ trusted internal func initialize(
         )
     };
 
-    let records = owner.records;
+    let records = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
+        &mut owner.records,
+        bray.runtime.bootstrap.empty_records()
+    );
+
     let protocol = trusted form_state(owner, reference, header, completion, cancellation);
 
     trusted place_state(protocol, description);
@@ -62,7 +66,12 @@ trusted internal func initialize(
 
 trusted internal func take_state(pos owner: Invocation) -> State
     requires(trusted invoked(owner = &owner.acquisition.claim), owner.acquisition.operation == 5)
-    ensures(trusted owned_state(owner = &result))
+    ensures(
+        trusted owned_state(owner = &result),
+        trusted bray.runtime.bootstrap.task.retained(owner = &result.reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &result.reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = &result.reference)
+    )
     uses(raw_memory)
 {
     return trusted std.memory.read<State>(trusted state_pointer(&owner.acquisition));
@@ -90,6 +99,9 @@ trusted internal func form_state(
 
     return
     {
+        acquisition = Marker
+        {
+        },
         lease = owner.lease,
         layout = owner.input.layout,
         glue = owner.input.glue,
@@ -144,6 +156,10 @@ trusted internal func take_state_reference(pos owner: &mut State) -> bray.runtim
         trusted bray.runtime.bootstrap.task.retained(owner = &result),
         trusted bray.runtime.bootstrap.task.owned_reference(owner = &result)
     )
+    when(trusted bray.runtime.bootstrap.task.resolution_owner(owner = &owner.reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = &result))
+    }
     uses(intrinsic)
 {
     if owner.reference.handle == 0
@@ -154,6 +170,9 @@ trusted internal func take_state_reference(pos owner: &mut State) -> bray.runtim
     return trusted std.memory.replace_value<bray.runtime.bootstrap.task.Reference>(
         &mut owner.reference,
         {
+            acquisition = bray.runtime.bootstrap.task.Marker
+            {
+            },
             pointer = std.memory.null<bray.runtime.bootstrap.task.Slot>(),
             runtime = 0,
             handle = 0
@@ -167,9 +186,25 @@ trusted internal func take_state_provider(pos owner: &mut State) -> bray.runtime
         trusted owned_state(owner = &owner),
         trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &result)
     )
+    when(trusted bray.runtime.bootstrap.task.resolution_owner(owner = &owner.reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = &owner.reference))
+    }
 {
     return trusted std.memory.replace_value<bray.runtime.bootstrap.provider.Reference>(
         &mut owner.provider,
         trusted bray.runtime.bootstrap.provider.resident_reference()
     );
+}
+
+trusted internal func release_state(pos owner: State)
+    requires(trusted owned_state(owner = &owner), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(intrinsic)
+{
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    if !trusted bray.runtime.bootstrap.storage.release_value(guard.get(), &owner.lease)
+    {
+        trusted core.target.abort();
+    }
 }

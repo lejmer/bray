@@ -50,11 +50,21 @@ trusted internal func close_cancellation(pos owner: &Reference)
 // Bit zero reports a request/change; bit one requests an eligible wake.
 @abi(c)
 trusted internal func cancellation_control(pos pointer: DataPointer<Reference>, pos operation: u32) -> u32
-    requires(trusted reference_slot(pointer = pointer))
+    requires(trusted reference_slot(owner = &pointer))
+{
+    return trusted cancellation_change(trusted borrow_reference(&pointer), operation);
+}
+
+trusted internal func cancellation_change(pos reference: &Reference, pos operation: u32) -> u32
+    requires(trusted retained(owner = reference))
+    ensures(trusted retained(owner = reference))
+    when(trusted owned_reference(owner = reference))
+    {
+        ensures(trusted owned_reference(owner = reference))
+    }
     uses(intrinsic)
 {
-    let reference = trusted read_reference(pointer);
-    let value = trusted cell(&reference);
+    let value = trusted cell(reference);
     let mut state = core.atomic.load<usize, 1>(&value.cancellation);
 
     if operation == 0

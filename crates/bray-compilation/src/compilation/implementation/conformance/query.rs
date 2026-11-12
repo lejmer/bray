@@ -6,10 +6,10 @@ use std::sync::Arc;
 use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticCallableBehaviorComponent,
-    DiagnosticCallableBehaviorPhase, DiagnosticCallableConstness,
+    DiagnosticCallableBehaviorPhase, 
     DiagnosticCallableContractClauseCategory, DiagnosticCallableContractMismatch,
-    DiagnosticCallableContractSurface, DiagnosticCallableParameterMode, DiagnosticCallablePosition,
-    DiagnosticCallableTrust, DiagnosticConstraintCategory, DiagnosticGenericConstraintMismatch,
+    DiagnosticCallableContractSurface,  
+     DiagnosticConstraintCategory, DiagnosticGenericConstraintMismatch,
     DiagnosticGenericParameterCategory, DiagnosticId, DiagnosticKind, DiagnosticLabel,
     DiagnosticLabelKind, DiagnosticReceiverMode, DiagnosticRelatedLocation,
     DiagnosticRelatedLocationKind, DiagnosticResult, DiagnosticTraitFulfillmentMismatch,
@@ -23,7 +23,7 @@ use bray_symbols::{
     TraitImplementationConformanceQuery, TraitMemberFulfillmentId, TraitMemberRequirementId,
     TraitPredicateMemberDefinitionQuery, TraitRequirementConformance, TraitRequirementResolution,
     TraitTypeFulfillmentValueQuery, TypeExpressionTemplate, diagnostic_callable_abi,
-    diagnostic_callable_execution,
+    diagnostic_callable_execution, diagnostic_callable_constness, diagnostic_callable_trust, diagnostic_callable_position, diagnostic_callable_parameter_mode,
 };
 
 use super::compatibility::{
@@ -817,44 +817,6 @@ const fn diagnostic_receiver_mode(mode: bray_symbols::ReceiverMode) -> Diagnosti
         bray_symbols::ReceiverMode::Mutable => DiagnosticReceiverMode::Mutable,
         bray_symbols::ReceiverMode::Consuming => DiagnosticReceiverMode::Consuming,
         bray_symbols::ReceiverMode::ConsumingMutable => DiagnosticReceiverMode::ConsumingMutable,
-    }
-}
-
-const fn diagnostic_callable_constness(
-    value: bray_symbols::CallableConstness,
-) -> DiagnosticCallableConstness {
-    match value {
-        bray_symbols::CallableConstness::Runtime => DiagnosticCallableConstness::Runtime,
-        bray_symbols::CallableConstness::Constant => DiagnosticCallableConstness::Constant,
-    }
-}
-
-const fn diagnostic_callable_trust(value: bray_symbols::CallableTrust) -> DiagnosticCallableTrust {
-    match value {
-        bray_symbols::CallableTrust::Safe => DiagnosticCallableTrust::Safe,
-        bray_symbols::CallableTrust::Trusted => DiagnosticCallableTrust::Trusted,
-    }
-}
-
-const fn diagnostic_callable_position(
-    value: bray_symbols::CallablePosition,
-) -> DiagnosticCallablePosition {
-    match value {
-        bray_symbols::CallablePosition::NamedOnly => DiagnosticCallablePosition::NamedOnly,
-        bray_symbols::CallablePosition::PositionalOrNamed => {
-            DiagnosticCallablePosition::PositionalOrNamed
-        }
-    }
-}
-
-const fn diagnostic_callable_parameter_mode(
-    value: bray_symbols::CallableParameterMode,
-) -> DiagnosticCallableParameterMode {
-    match value {
-        bray_symbols::CallableParameterMode::Immutable => {
-            DiagnosticCallableParameterMode::Immutable
-        }
-        bray_symbols::CallableParameterMode::Mutable => DiagnosticCallableParameterMode::Mutable,
     }
 }
 

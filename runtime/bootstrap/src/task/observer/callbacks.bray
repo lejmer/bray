@@ -239,7 +239,12 @@ trusted internal func destroy(pos context: usize)
     trusted discharge_helper(&mut invocation, true);
     trusted discharge_helper(&mut invocation, false);
 
-    trusted destroy_child(&invocation);
+    let selected = trusted bray.runtime.bootstrap.execution.current();
+
+    if selected.status != 0
+    {
+        trusted core.target.abort();
+    }
 
     let mut owner = trusted take_state(invocation);
 
@@ -248,22 +253,52 @@ trusted internal func destroy(pos context: usize)
         trusted core.target.abort();
     }
 
-    let lease = owner.lease;
-
-    trusted release_state_reference(&mut owner);
-
     let provider = trusted take_state_provider(&mut owner);
+    let reference = trusted take_state_reference(&mut owner);
 
-    trusted bray.runtime.bootstrap.provider.release_owned(provider);
+    trusted destroy_captures(&owner, &selected, reference, provider);
 
-    // All captures and provider callbacks have returned. No context projection
-    // remains when this final operation returns its backing to the pool.
-    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+    // All captures and provider callbacks have returned. Consume the actual
+    // state owner when returning its final backing to the pool.
+    trusted release_state(owner);
+}
 
-    if !trusted bray.runtime.bootstrap.storage.release_value(guard.get(), &lease)
+// The state backing and current execution remain borrowed until all captured
+// task and provider callbacks have returned. Only then can release_state consume it.
+trusted internal func destroy_captures(
+    pos owner: &State,
+    pos selected: &bray.runtime.bootstrap.execution.Current,
+    pos reference: bray.runtime.bootstrap.task.Reference,
+    pos provider: bray.runtime.bootstrap.provider.Reference
+)
+    requires(
+        trusted owned_state(owner = owner),
+        trusted bray.runtime.bootstrap.execution.view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.task.retained(owner = &reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = &reference),
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &provider),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted owned_state(owner = owner),
+        trusted bray.runtime.bootstrap.execution.view_owned(owner = &selected.acquisition)
+    )
+    uses(intrinsic)
+{
+    if trusted bray.runtime.bootstrap.execution.destroy_reference(selected, &reference) != 0
     {
         trusted core.target.abort();
     }
+
+    if trusted bray.runtime.bootstrap.task.dispose_reference(reference) != 0
+    {
+        trusted core.target.abort();
+    }
+
+    trusted bray.runtime.bootstrap.provider.release_owned(provider);
 }
 
 trusted internal func body_progress(
@@ -285,32 +320,4 @@ trusted internal func body_progress(
     returned.kind = kind;
 
     return returned;
-}
-
-trusted internal func destroy_child(pos owner: &Invocation)
-    requires(
-        trusted invoked(owner = &owner.acquisition.claim),
-        owner.acquisition.operation == 5,
-        trusted bray.runtime.bootstrap.host.product.native_host()
-    )
-    ensures(trusted invoked(owner = &owner.acquisition.claim))
-    uses(foreign_call, intrinsic)
-{
-    if trusted native_destroy((trusted read_state(owner)).reference.handle) != 0
-    {
-        trusted core.target.abort();
-    }
-}
-
-trusted internal func release_state_reference(pos owner: &mut State)
-    requires(trusted owned_state(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
-    ensures(trusted owned_state(owner = &owner))
-    uses(intrinsic)
-{
-    let reference = trusted take_state_reference(owner);
-
-    if trusted bray.runtime.bootstrap.task.dispose_reference(reference) != 0
-    {
-        trusted core.target.abort();
-    }
 }

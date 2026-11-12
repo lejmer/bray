@@ -12,6 +12,7 @@ internal struct Synchronization
     key: core.atomic.Atomic<u64>;
     cleanup_key: core.atomic.Atomic<u64>;
     control_key: core.atomic.Atomic<u64>;
+    execution_key: core.atomic.Atomic<u64>;
     control_readers: core.atomic.Atomic<u64>;
     control_used: core.atomic.Atomic<u64>;
     main: core.atomic.Atomic<u64>;
@@ -24,6 +25,7 @@ internal static SYNCHRONIZATION: Uninit<Synchronization> = core.memory.uninit_fr
         key = core.atomic.initialize<u64>(0),
         cleanup_key = core.atomic.initialize<u64>(0),
         control_key = core.atomic.initialize<u64>(0),
+        execution_key = core.atomic.initialize<u64>(0),
         control_readers = core.atomic.initialize<u64>(0),
         control_used = core.atomic.initialize<u64>(0),
         main = core.atomic.initialize<u64>(0)

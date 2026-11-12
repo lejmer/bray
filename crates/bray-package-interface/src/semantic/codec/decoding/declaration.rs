@@ -125,7 +125,7 @@ pub(super) fn decode_declared_type(
     Ok(InterfaceDeclaredType::new(owner, ty))
 }
 
-fn decode_type_representation(
+pub(super) fn decode_type_representation(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,

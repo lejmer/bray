@@ -4,6 +4,25 @@ use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundExpressionId, StoragePlan};
 use std::collections::BTreeSet;
 
+pub(super) struct WitnessTransferFailure {
+    pub(super) kind: bray_diagnostics::DiagnosticWitnessTransferKind,
+    pub(super) carrier: crate::ExecutionCondition,
+    pub(super) guarantee: crate::ExecutionCondition,
+}
+
+pub(super) fn copied_witness(state: &ExecutionState, value: crate::ExecutionCondition) -> WitnessTransferFailure {
+    let (carrier, witness) = state.owned_witnesses([value]).find(|(carrier, _)|
+        state.directly_carries_witness(carrier))
+        .expect("a rejected copy retains its live owning carrier");
+    let guarantee = witness.owning_condition(&state.trusted_assumptions, &state.assumptions)
+        .expect("a rejected copy retains its live owning condition").clone();
+
+    WitnessTransferFailure {
+        kind: bray_diagnostics::DiagnosticWitnessTransferKind::Copy,
+        carrier: carrier.clone(), guarantee,
+    }
+}
+
 /// Capture potential partial extractions before consumption retires their carrier evidence.
 pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
@@ -12,6 +31,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
     transfers: &mut Vec<(
         bray_bound_tree::BoundExecutionSite,
         Option<crate::ExecutionCondition>,
+        WitnessTransferFailure,
     )>,
 ) {
     use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
@@ -39,9 +59,23 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
     if matches!(domain.semantics.selections().expression(expression), Some(bray_bound_tree::SemanticSelection::Call(call)) if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::FutureStart))
     {
         // Starting a task activates its body even when the task is later cancelled or disposed.
+        let frame = match operation {
+            AnalysisOperationKind::Bound(_) => {
+                let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+                    domain.semantics.selections().expression(expression) else {
+                    unreachable!("selected FutureStart retains its call");
+                };
+
+                // Before production the existing receiver owns this frame. At
+                // Completion the actual Task result owns the rebound frame.
+                domain.receiver_value(state, expression, call)
+            }
+            _ => domain.value(state, expression),
+        };
+
         deferred.extend(
             state
-                .deferred_entries(&domain.value(state, expression))
+                .deferred_entries(&frame)
                 .into_iter()
                 .flat_map(|value| value.producers.iter())
                 .filter(|(_, candidate)| {
@@ -96,16 +130,18 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                 .unwrap_or(crate::ExecutionCondition::Unknown);
 
             for (index, projection) in input.projections.iter().enumerate() {
-                if (state.directly_carries_witness(&value)
-                    || state
-                        .witnesses
-                        .get(value.owner_identity())
-                        .is_some_and(|witness| {
-                            witness.is_owning(&entry.trusted_assumptions, &entry.assumptions)
-                        }))
+                let container = reached_container(&value);
+                let witness = state.witnesses.get(container.owner_identity());
+
+                if witness.is_some_and(|witness| {
+                        state.directly_carries_witness(&container)
+                            || witness.owning_condition(&entry.trusted_assumptions, &entry.assumptions).is_some()
+                    })
                     && input.projections[index..].iter().any(|projection| {
                         *projection != bray_symbols::ConstantProjectionKind::NullableValue
                     })
+                    && !independent_result_owner(domain, invocation, entry, transfer,
+                        &input, witness.expect("a partial witness retains its owning contract"))
                 {
                     let condition =
                         cases
@@ -136,7 +172,16 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                                 )
                             });
 
-                    transfers.push((occurrence, condition));
+                    let witness = witness.expect("a rejected extraction retains its carrier contract");
+                    let guarantee = witness.owning_condition(&entry.trusted_assumptions, &entry.assumptions)
+                        .or_else(|| witness.owning_condition(&state.trusted_assumptions, &state.assumptions))
+                        .expect("a rejected extraction retains its live owning condition").clone();
+
+                    transfers.push((occurrence, condition, WitnessTransferFailure {
+                        kind: bray_diagnostics::DiagnosticWitnessTransferKind::Separation,
+                        carrier: container,
+                        guarantee,
+                    }));
 
                     break;
                 }
@@ -147,15 +192,75 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
     }
 }
 
+pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>,
+    invocation: bray_bound_tree::BoundExecutionSite,
+    entry: &crate::ExecutionCallEvidence,
+    transfer: &bray_symbols::DependencyOwnedTransfer,
+    input: &crate::ExecutionPlace,
+    parent: &crate::execution_guarantees::ExecutionWitness,
+) -> bool {
+    let capture = |condition: &crate::ExecutionCondition| condition.capture_entry(
+        &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::Unknown),
+        &entry.trusted_assumptions, &entry.assumptions,
+        &mut { crate::ExecutionCondition::WORK_LIMIT },
+    );
+
+    let ordinary = crate::TrustedCallContract::default();
+
+    let declared = domain.request.trusted_contracts()
+        .and_then(|contracts| contracts.calls.get(&invocation)).unwrap_or(&ordinary);
+
+    // Use the same checked carrier selection as completion. An independently
+    // introduced result owner may receive a component, but cannot transport the
+    // parent's authority through that component.
+    let (_, subjects) = domain.completion_guarantees(invocation, declared, &capture);
+
+    let path = crate::storage::owned_storage_projections(domain.dependencies, transfer.output());
+    let output = path.iter().copied().fold(crate::ExecutionCondition::Result, |value, projection| value.project(projection));
+
+    if !subjects.iter().any(|(_, subject)| subject.observes_completion_result()
+        && output.is_owned_projection_of(subject)) {
+        return false;
+    }
+
+    let Some(source) = input.value_in(&entry.arguments) else { return false; };
+
+    let result = crate::ExecutionCondition::Result.with_component(transfer.output(), source, Some(&path));
+    let mut potential = BTreeSet::new();
+
+    for (guarantee, subject) in &subjects {
+        if !subject.observes_completion_result() { continue; }
+
+        let guarantee = guarantee.substitute(
+            &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::Unknown),
+            &result, &mut { crate::ExecutionCondition::WORK_LIMIT },
+        );
+
+        // Ignore ordinary guards when checking which trusted authority could
+        // escape. A later branch can establish a guard after this transfer.
+        for claim in guarantee.observations().filter(|claim| matches!(claim, crate::ExecutionCondition::Trusted(_))) {
+            claim.clone().assume(true, &mut potential);
+        }
+    }
+
+    !potential.is_empty() && !parent.conditions.iter().any(|(condition, guarantee)| {
+        guarantee.witness
+            && condition.prove(&entry.assumptions, &mut { crate::ExecutionCondition::WORK_LIMIT }) != Some(true)
+            && condition.prove_trusted(&potential, &entry.assumptions) == Some(true)
+    })
+}
+
 pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
     state: &ExecutionState,
-    occurrence: bray_bound_tree::BoundExecutionSite,
-    transfers: &mut BTreeSet<BoundExpressionId>,
+    plans: impl Iterator<Item = bray_bound_tree::StorageAccessPlan>,
+    current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
+    transfers: &mut std::collections::BTreeMap<BoundExpressionId, WitnessTransferFailure>,
 ) {
-    for plan in storage.occurrence_plans(occurrence).filter(|plan| {
+    for plan in plans.filter(|plan| {
         matches!(
             plan.purpose(),
             bray_bound_tree::StorageAccessPurpose::Copy
@@ -163,27 +268,20 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
                 | bray_bound_tree::StorageAccessPurpose::Move
         )
     }) {
-        let value = domain.storage_value(state, plan.expression(), plan.access());
+        let path = current_access(plan);
 
-        let fresh = plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer
-            && storage
-                .root_identity(plan.access())
-                .and_then(|identity| storage.identity(identity))
-                .is_some_and(|identity| {
-                    matches!(
-                        identity,
-                        bray_bound_tree::StorageIdentity::Temporary(_)
-                            | bray_bound_tree::StorageIdentity::InvocationInput { .. }
-                            | bray_bound_tree::StorageIdentity::Result(_)
-                            | bray_bound_tree::StorageIdentity::Allocation(_)
-                    )
-                });
+        let materializes = storage.access_plan_role(plan) == bray_bound_tree::StorageAccessPlanRole::SourceMaterialization;
+        let value = if materializes {
+            path.as_ref().map(|path| domain.current_access_value(state, path))
+                .unwrap_or(crate::ExecutionCondition::Unknown)
+        } else {
+            domain.storage_value(state, plan.expression(), plan.access())
+        };
 
-        let (is_witness, mut partial_witness) = state.witness_projection(&value);
+        let is_witness = state.owns_witness(&value);
+        let partial_witness = path.as_ref().and_then(|path| separated_carrier(domain, state, path));
 
-        partial_witness |= separates_carrier(domain, state, plan.access());
-
-        if !is_witness && !partial_witness {
+        if !is_witness && partial_witness.is_none() {
             continue;
         }
 
@@ -201,45 +299,53 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
 
         let copies = storage.effective_purpose(plan) == bray_bound_tree::StorageAccessPurpose::Copy;
 
-        if (is_witness && copies && !fresh) || (partial_witness && !copies) {
-            transfers.insert(plan.expression());
-        }
+        let failure = if is_witness && copies && materializes {
+            copied_witness(state, value)
+        } else if !copies && let Some(carrier) = partial_witness {
+            let guarantee = state.witnesses.get(carrier.owner_identity())
+                .and_then(|witness| witness.owning_condition(&state.trusted_assumptions, &state.assumptions))
+                .expect("a rejected transfer retains its live owning condition").clone();
+
+            WitnessTransferFailure { kind: bray_diagnostics::DiagnosticWitnessTransferKind::Separation,
+                carrier, guarantee }
+        } else {
+            continue;
+        };
+
+        transfers.entry(plan.expression()).or_insert(failure);
     }
 }
 
-fn separates_carrier<C: CheckerRequestContext + ?Sized>(
+fn separated_carrier<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
     state: &ExecutionState,
-    access: bray_bound_tree::StorageAccessId,
-) -> bool {
-    let Some(path) = domain.storage.resolved_projections(access) else {
-        return false;
-    };
+    path: &bray_bound_tree::StoragePath,
+) -> Option<crate::ExecutionCondition> {
+    for index in 0..path.projections.len() {
+        let container = bray_bound_tree::StoragePath {
+            root: path.root,
+            projections: path.projections[..index].into(),
+        };
 
-    if path.is_empty() {
-        return false;
-    }
+        let value = domain.current_access_value(state, &container);
 
-    let root = domain
-        .storage
-        .root_identity(access)
-        .expect("resolved access retains its root");
+        // Presence extraction retains the complete carrier. Other selectors
+        // cross its checked current storage boundary, including through loans.
+        let carrier = reached_container(&value);
 
-    let mut value = domain.storage_identity_value(state, root);
-
-    for (index, projection) in path.iter().enumerate() {
-        // Unwrapping presence moves the complete contained carrier. Other ownership
-        // projections must not detach any component of a directly carrying value.
-        if state.directly_carries_witness(&value)
-            && path[index..]
-                .iter()
-                .any(|projection| *projection != bray_bound_tree::StorageProjection::NullableValue)
+        if state.directly_carries_witness(&carrier)
+            && path.projections[index..].iter().any(|projection|
+                *projection != bray_bound_tree::StorageProjection::NullableValue)
         {
-            return true;
+            return Some(carrier);
         }
-
-        value = value.project(*projection);
     }
 
-    false
+    None
+}
+
+// A field projection crosses borrow layers into reached storage. The loan's
+// own contract does not make that loan the owner of the reached aggregate.
+fn reached_container(value: &crate::ExecutionCondition) -> crate::ExecutionCondition {
+    value.clone().into_referent()
 }

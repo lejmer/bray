@@ -22,7 +22,7 @@ pub(crate) fn selected_input_contracts<C: CheckerRequestContext + ?Sized>(
     )>,
     C::UpstreamError,
 > {
-    if !selection.evaluates_defaults() {
+    if !selection.stages_inputs() {
         return Ok(Vec::new());
     }
 
@@ -68,8 +68,9 @@ pub(crate) fn selected_input_contracts<C: CheckerRequestContext + ?Sized>(
         };
 
         let contract = if let Some(source) = input.expression() {
-            let access = expression_access(storage, source)
-                .expect("evaluated input retains its source access");
+            let access = storage.value_slot(source).and_then(|slot| storage.root_access(slot))
+                .or_else(|| expression_access(storage, source))
+                .expect("evaluated input retains its actual output or checked access");
 
             let inputs = [(DependencySubjectRoot::Receiver, access, Some(source))];
 

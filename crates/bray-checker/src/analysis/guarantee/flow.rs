@@ -8,12 +8,13 @@ mod model;
 mod numeric;
 mod operation;
 mod prepare;
+mod preservation;
 mod refinement;
 mod value;
 mod witnesses;
 
 pub(super) use joins::{merge_returned, returned_condition};
-pub(in crate::analysis) use merge::merge as merge_execution;
+pub(in crate::analysis) use merge::{ExecutionJoin, merge as merge_execution};
 pub(super) use model::ExecutionFlow;
 pub(crate) use model::ExecutionFlowDomain;
 pub(super) use prepare::analyze_execution_flow;

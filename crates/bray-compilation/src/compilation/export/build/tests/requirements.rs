@@ -1,6 +1,66 @@
 use super::fixtures::{compilation, execution_consumer, export, implementation_dependency};
 
 #[test]
+fn imported_requirement_diagnostics_retain_actual_fields_and_arguments() {
+    let provider = compilation(r#"
+        trusted module api;
+
+        struct Token
+        {
+        }
+
+        struct Owner
+        {
+            token: Token;
+        }
+
+        trusted predicate live(owner: &Token, count: usize);
+
+        func inspect_owner(pos owner: &Owner, pos count: usize)
+            requires(trusted live(owner = &owner.token, count = count))
+        {
+        }
+    "#);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    let consumer = execution_consumer(&provider, r#"
+        module app;
+
+        using example.package.api;
+
+        func caller(pos actual_owner: example.package.api.Owner)
+        {
+            example.package.api.inspect_owner(&actual_owner, 42);
+        }
+    "#);
+    let diagnostics = consumer.check_diagnostics();
+    let failure = diagnostics.iter().find(|diagnostic| diagnostic.kind()
+        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+        .unwrap_or_else(|| panic!("{diagnostics:#?}"));
+    let obligation = failure.args().iter().find_map(|argument| match argument.value() {
+        bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+        _ => None,
+    }).expect("imported proof failure retains its condition");
+
+    assert!(failure.labels().iter().flat_map(|label| label.args()).any(|argument|
+        matches!(argument.value(), bray_diagnostics::DiagnosticArgValue::DeclarationName(name) if name == "inspect_owner")),
+        "the imported selected callable must retain its name: {failure:#?}");
+
+    assert_eq!(obligation.kind, bray_diagnostics::DiagnosticContractObligationKind::CallRequirement);
+    let bray_diagnostics::DiagnosticCondition::Application { path, arguments, .. } = &obligation.actual else {
+        panic!("{obligation:#?}");
+    };
+    assert_eq!(path.last().map(String::as_str), Some("live"));
+    assert_eq!(arguments, &[
+        bray_diagnostics::DiagnosticCondition::Projection {
+            value: Box::new(bray_diagnostics::DiagnosticCondition::Source("actual_owner".to_owned())),
+            projection: bray_diagnostics::DiagnosticConditionProjection::Field("token".to_owned()),
+        },
+        bray_diagnostics::DiagnosticCondition::Literal("42".to_owned()),
+    ]);
+}
+
+#[test]
 fn imported_unproved_requirements_reach_concrete_predicate_helpers() {
     let provider = compilation(
         r#"
@@ -1469,7 +1529,7 @@ fn machine_overflow_does_not_certify_an_exact_postcondition() {
 
     bray_testing::assert_goal_state_diagnostic_kind(
         invalid.check_diagnostics(),
-        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+        bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven,
     );
 
     let valid = compilation(
@@ -1695,7 +1755,7 @@ fn joined_result_bounds_and_checked_arithmetic_compose_across_interfaces() {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1749,7 +1809,7 @@ fn exact_memory_writes_establish_nullable_contents_across_interfaces() {
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
                 provider.check_diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven,
             );
 
             continue;

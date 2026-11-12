@@ -79,6 +79,72 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     disposal: &'a super::super::cleanup::Cleanup<'a>,
     dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
 ) -> ExecutionFlowDomain<'a, 'view, C> {
+    const POINTER_PREDICATES: &[(&str, bool, &[usize])] = &[
+        ("ValidRead", true, &[0]),
+        ("ValidWrite", true, &[0]),
+        ("AlignedFor", true, &[0]),
+        ("CallableAddressValid", true, &[0]),
+        ("NonOverlapping", true, &[0, 2]),
+        ("DeviceValidRead", true, &[0]),
+        ("DeviceValidWrite", true, &[0]),
+        ("DeviceAlignedFor", true, &[0]),
+        ("InitializedAs", false, &[0]),
+        ("InitializedRangeAs", false, &[0]),
+        ("DeviceInitializedAs", false, &[0]),
+        ("SharedAliasValid", false, &[0]),
+        ("ExclusiveAliasValid", false, &[0]),
+        ("EpochCurrent", false, &[0]),
+        ("SynchronizedAccess", false, &[0]),
+        ("MovementStable", false, &[0]),
+        ("FinalizationPending", false, &[0]),
+    ];
+    let (pointer_predicates, mut content_predicates): (BTreeMap<_, _>, BTreeSet<_>) = request
+        .trusted_contracts()
+        .into_iter()
+        .flat_map(|_| POINTER_PREDICATES.iter().copied())
+        .filter_map(|(name, preserves_contents, pointers)| {
+            let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
+                .expect("closed pointer predicate key must be valid");
+
+            request
+                .context()
+                .available_compiler_known_symbols()
+                .provider()
+                .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
+                .map(|predicate| (predicate.into(), preserves_contents, pointers))
+        })
+        .fold((BTreeMap::new(), BTreeSet::new()), |(mut pointers, mut contents), (predicate, preserves_contents, arguments)| {
+            pointers.insert(predicate, arguments);
+
+            // Initialization observes pointer values too, but writes must still
+            // invalidate it independently of spatial permissions.
+            if preserves_contents { contents.insert(predicate); }
+
+            (pointers, contents)
+        });
+
+    let owned_allocation = request
+        .context()
+        .available_compiler_known_symbols()
+        .provider()
+        .declaration_symbol::<bray_symbols::PredicateSymbolId>(
+            &bray_compiler_known::CompilerKnownDeclarationKey::try_new("OwnedAllocation")
+                .expect("closed allocation predicate key must be valid"),
+        )
+        .map(Into::into);
+
+    let initialized_range = request
+        .context()
+        .available_compiler_known_symbols()
+        .provider()
+        .declaration_symbol::<bray_symbols::PredicateSymbolId>(
+            &bray_compiler_known::CompilerKnownDeclarationKey::try_new("InitializedRangeAs")
+                .expect("closed initialized range predicate key must be valid"),
+        )
+        .map(Into::into);
+
+    content_predicates.extend(owned_allocation);
+
     ExecutionFlowDomain {
         dependencies,
         sequence_length: request
@@ -105,6 +171,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         semantics,
         assumptions,
         input_invariants: &prepared.input_invariants,
+        union_variants: &prepared.union_variants,
         literals: &prepared.literals,
         storage,
         contracts,
@@ -112,49 +179,9 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         refinements,
         memory,
         checked_body: None,
-        spatial_predicates: request
-            .trusted_contracts()
-            .filter(|contracts| !contracts.requirements.is_empty() || !contracts.calls.is_empty())
-            .into_iter()
-            .flat_map(|_| {
-                [
-                    "ValidRead",
-                    "ValidWrite",
-                    "AlignedFor",
-                    "DeviceValidRead",
-                    "DeviceValidWrite",
-                    "DeviceAlignedFor",
-                ]
-            })
-            .filter_map(|name| {
-                let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
-                    .expect("closed spatial predicate key must be valid");
-
-                request
-                    .context()
-                    .available_compiler_known_symbols()
-                    .provider()
-                    .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
-                    .map(Into::into)
-            })
-            .collect(),
-        owned_allocation: request
-            .context()
-            .available_compiler_known_symbols()
-            .provider()
-            .declaration_symbol::<bray_symbols::PredicateSymbolId>(
-                &bray_compiler_known::CompilerKnownDeclarationKey::try_new("OwnedAllocation")
-                    .expect("closed allocation predicate key must be valid"),
-            )
-            .map(Into::into),
-        initialized_range: request
-            .context()
-            .available_compiler_known_symbols()
-            .provider()
-            .declaration_symbol::<bray_symbols::PredicateSymbolId>(
-                &bray_compiler_known::CompilerKnownDeclarationKey::try_new("InitializedRangeAs")
-                    .expect("closed initialized range predicate key must be valid"),
-            )
-            .map(Into::into),
+        pointer_predicates,
+        content_predicates,
+        owned_allocation,
+        initialized_range,
     }
 }

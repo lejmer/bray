@@ -3,7 +3,10 @@ use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::{dependency_projection, dependency_projections};
-use bray_symbols::{DependencySubjectRoot, TypeData};
+use bray_symbols::{
+    ConstantBinaryOperation, ConstantTermData, ConstantUnaryOperation, DependencySubjectRoot,
+    TypeData,
+};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn collect_exit_references(
@@ -32,6 +35,50 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateData, C::UpstreamError>
     {
         let carriers = self.trusted.result_carriers(self.request);
+        let mut guards = std::collections::BTreeMap::new();
+        let mut published = Vec::with_capacity(carriers.len());
+
+        for carrier in carriers {
+            let guard = if let Some(guard) = guards.get(carrier.path()) {
+                *guard
+            } else {
+                // Payload steps own their activity guards. A complete nullable
+                // carrier can establish a protocol even when its value is absent.
+                let guard = self.result_path_condition(carrier.path(), false)?;
+
+                guards.insert(carrier.path().to_vec(), guard);
+
+                guard
+            };
+
+            let condition = if let Some(guard) = guard {
+                // Both terms already retain their checked portable subjects.
+                // Compose them directly rather than reconstructing local places.
+                let values = self.request.semantic_values();
+
+                let inactive = values
+                    .intern_constant_term(ConstantTermData::Unary {
+                        operation: ConstantUnaryOperation::LogicalNot,
+                        operand: guard,
+                    })
+                    .expect("a checked result guard belongs to this semantic store");
+
+                values
+                    .intern_constant_term(ConstantTermData::Binary {
+                        operation: ConstantBinaryOperation::LogicalOr,
+                        left: inactive,
+                        right: carrier.guarantee(),
+                    })
+                    .expect("checked returned witness terms belong to this semantic store")
+            } else {
+                carrier.guarantee()
+            };
+
+            published.push(bray_symbols::DependencyWitnessCarrier::new(
+                condition,
+                crate::analysis::guarantee::portable_carrier_path(self.request, carrier.path()),
+            ));
+        }
 
         let observed_result = self.trusted.observed_result.flatten();
 
@@ -39,7 +86,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let owned_result = self.owned_result(owned_result)?;
 
         self.diagnostics
-            .add_range(std::mem::take(&mut self.trusted).finish(self.execution));
+            .add_range(std::mem::take(&mut self.trusted).finish(self.execution)?);
 
         if let Some(error) = self.query_failure.take() {
             return Err(error);
@@ -47,6 +94,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut relations = Vec::new();
         let mut unbounded = std::collections::BTreeSet::new();
+        let mut allocations = std::collections::BTreeMap::new();
         let summary = std::mem::take(&mut self.results).summary();
 
         for (slot, target, exact, bounds) in self
@@ -62,7 +110,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            if let Some(relation) = self.result_reference(slot, target, ty, exact)? {
+            let allocation_relation = if let Origin::Allocation { allocation, projections } = target
+                && bounds != ReferenceBounds::InputRegions && bounds != ReferenceBounds::Unknown
+                && !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+                && self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Address)
+                && let Some(exit) = dependency_projections(&slot.projections)
+                && let Some(target_projections) = dependency_projections(projections)
+            {
+                let exit = bray_symbols::DependencySubject::new(
+                    self.formal_root(slot.root).expect("allocation output has a formal root"), exit);
+                let anchor = allocations.entry(allocation.clone()).or_insert_with(|| exit.clone());
+
+                Some(bray_symbols::DependencyBorrowRelation::new_allocation(
+                    anchor.clone(), exit, bray_symbols::DependencyReferenceKind::Address)
+                    .with_target_projections(target_projections))
+            } else { None };
+
+            let relation = if allocation_relation.is_some() { allocation_relation }
+                else { self.result_reference(slot, target, ty, exact)? };
+
+            if let Some(relation) = relation {
                 let bounded = match bounds {
                     ReferenceBounds::Known => true,
                     ReferenceBounds::InputRegions => true,
@@ -92,6 +159,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             } else {
                 unbounded.insert(slot.clone());
             }
+        }
+
+        for slot in self.references.iter().flat_map(|references| references.empty_slots()) {
+            let Some(root) = self.formal_root(slot.root) else { continue; };
+            let ty = self.storage.identity_type(slot.root).expect("published reference has its storage type");
+            let Some(kind) = self.reference_kind(slot, ty)? else { continue; };
+            let Some(projections) = dependency_projections(&slot.projections) else { continue; };
+
+            relations.push((slot.clone(), bray_symbols::DependencyBorrowRelation::new_empty(
+                bray_symbols::DependencySubject::new(root, projections), kind,
+            )));
         }
 
         let relations = relations
@@ -128,7 +206,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_requirements(requirements)
             .with_borrows(relations)
             .with_normal_completion(self.references.is_some())
-            .with_carriers(carriers)
+            .with_carriers(published)
             .with_owned_result(owned_result)
             .with_observed_result(observed_result)
             .with_normal_storage_preservation(!self.has_normal_effects))
@@ -212,7 +290,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             {
                 Some((path, false))
             }
-            Origin::Storage(_) | Origin::Allocation(_) | Origin::Returned { .. }
+            Origin::Storage(_)
+            | Origin::Allocation { .. }
+            | Origin::Returned { .. }
             | Origin::Static { .. } => None,
         };
 
@@ -228,7 +308,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return Ok(kind
                 .filter(|kind| {
                     *kind == bray_symbols::DependencyReferenceKind::Address
-                        || !matches!(origin, Origin::Allocation(_))
+                        || !matches!(origin, Origin::Allocation { .. })
                 })
                 .map(|kind| {
                     bray_symbols::DependencyBorrowRelation::new(

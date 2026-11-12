@@ -26,7 +26,7 @@ impl Compilation {
             &Ok,
             &|place| Ok(ExecutionCondition::Input(place.clone())),
             &|value| Ok(Arc::clone(value)),
-            &mut |callable, dispatch, witnesses, operands| {
+            &mut |callable, dispatch, witnesses, operands, reference_type| {
                 let values = self.semantic_value_store()?;
 
                 let captured = witnesses
@@ -73,6 +73,7 @@ impl Compilation {
                         .collect::<Vec<_>>()
                         .into(),
                     operands.into(),
+                    reference_type.map(|ty| normalizer.normalize_type(ty)).transpose()?,
                 ))
             },
         )

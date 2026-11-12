@@ -734,38 +734,71 @@ mod tests {
         );
 
         let effects = [
+            DependencyStorageEffect::UnboundedMutation {
+                kind: DependencyMutationKind::Consume,
+                access_type: Some(crate::InterfaceTypeId::new(0)),
+                ambient: true,
+            },
+            DependencyStorageEffect::UnboundedMutation {
+                kind: DependencyMutationKind::Replace(crate::InterfaceTypeId::new(0)),
+                access_type: Some(crate::InterfaceTypeId::new(0)),
+                ambient: false,
+            },
             DependencyStorageEffect::Ambient,
             DependencyStorageEffect::Unknown,
-            DependencyStorageEffect::Cleanup(crate::InterfaceTypeId::new(0)),
+            DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)), access_type: None, ambient: false },
             DependencyStorageEffect::Escape,
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
+                kind: DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(0)),
+                access_type: None,
+            },
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
+                kind: DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)),
+                access_type: Some(crate::InterfaceTypeId::new(0)),
+            },
+            DependencyStorageEffect::Indirect {
+                reference: subject.clone(),
+                projections: [InterfaceDependencyProjection::OwnedTarget].into(),
+                kind: DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)),
+                access_type: None,
+            },
+            DependencyStorageEffect::Direct {
+                subject: subject.clone(),
                 kind: DependencyMutationKind::Escape,
+                access_type: None,
             },
             DependencyStorageEffect::Indirect {
                 reference: subject.clone(),
                 projections: [].into(),
                 kind: DependencyMutationKind::Escape,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Write,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Clear,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Consume,
+                access_type: Some(crate::InterfaceTypeId::new(0)),
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Atomic,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(crate::InterfaceTypeId::new(0)),
+                access_type: Some(crate::InterfaceTypeId::new(0)),
             },
             DependencyStorageEffect::Indirect {
                 reference: subject.clone(),
@@ -774,6 +807,7 @@ mod tests {
                 )]
                 .into(),
                 kind: DependencyMutationKind::Retire,
+                access_type: None,
             },
         ];
 
@@ -822,7 +856,11 @@ mod tests {
 
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
-        assert_eq!(template.effects().len(), 12);
+        assert_eq!(template.effects().len(), 17);
+
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Consume, access_type: Some(ty), ambient: true }
+                if *ty == imported.types()[0])));
 
         assert_eq!(
             template.synchronous_cleanup(),
@@ -864,10 +902,20 @@ mod tests {
             }
         )));
 
-        assert_eq!(
-            template.effects()[0],
-            DependencyStorageEffect::Cleanup(imported.types()[0])
-        );
+        assert!(template.effects().contains(
+            &DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Dispose(imported.types()[0]), access_type: None, ambient: false }
+        ));
+
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::Direct { kind: DependencyMutationKind::Cleanup(ty), access_type: None, .. }
+                if *ty == imported.types()[0])));
+
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::Direct { kind: DependencyMutationKind::Dispose(ty), access_type: Some(access), .. }
+                if *ty == imported.types()[0] && *access == imported.types()[0])));
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Dispose(ty), projections, .. }
+                if *ty == imported.types()[0] && projections.as_ref() == [bray_symbols::DependencyProjection::OwnedTarget])));
 
         assert!(template.effects().iter().any(|effect| matches!(effect,
             DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), .. }
@@ -1434,7 +1482,7 @@ mod tests {
     }
 
     #[test]
-    fn independent_reference_origins_round_trip_with_input_alternatives() {
+    fn reference_origins_round_trip_with_input_alternatives_and_allocations() {
         let surface = interface_surface(package_identity(), [], []);
 
         let result = crate::InterfaceDependencySubject::new(
@@ -1455,10 +1503,14 @@ mod tests {
                     ),
                     [],
                 )),
-                result,
+                result.clone(),
                 bray_symbols::DependencyReferenceKind::Address,
             )
             .with_exactness(false),
+            bray_symbols::DependencyBorrowRelation::new_empty(
+                result.clone(), bray_symbols::DependencyReferenceKind::Address),
+            bray_symbols::DependencyBorrowRelation::new_allocation(
+                result.clone(), result, bray_symbols::DependencyReferenceKind::Address),
         ]);
 
         let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);

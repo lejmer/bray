@@ -13,6 +13,8 @@ pub(crate) struct ValueInputs {
     pub(super) deferred_sources:
         BTreeMap<BoundExpressionId, std::collections::BTreeSet<BoundExpressionId>>,
     independent: std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
+    pub(super) copies_without_borrows: std::collections::BTreeSet<BoundExpressionId>,
+    pub(super) borrow_free_types: BTreeMap<bray_symbols::TypeId, bool>,
     pub(super) source_inputs: std::collections::BTreeSet<BoundExpressionId>,
     pub(super) pattern_subjects:
         BTreeMap<bray_bound_tree::BoundPatternId, bray_bound_tree::BoundExecutionSite>,
@@ -131,6 +133,8 @@ impl ValueInputs {
                 })
                 .collect(),
             independent: Default::default(),
+            copies_without_borrows: Default::default(),
+            borrow_free_types: Default::default(),
             source_inputs: Default::default(),
             projections: BTreeMap::new(),
             initializers: BTreeMap::new(),
@@ -183,6 +187,7 @@ impl ValueInputs {
 
         inputs.collect_deferred_sources(request, types, selections);
         inputs.filter_independent(request, types, selections)?;
+        inputs.collect_copied_reads(request, types, selections)?;
         inputs.collect_propagation(request, selections)?;
         inputs.collect_source_inputs(request.unit(), selections, patterns);
 
@@ -381,7 +386,7 @@ impl ValueInputs {
         let inputs = selections
             .entries()
             .iter()
-            .filter(|entry| entry.selection().evaluates_defaults())
+            .filter(|entry| entry.selection().stages_inputs())
             .flat_map(|entry| {
                 entry.selection().inputs().map(move |input| {
                     let ordinal = entry
@@ -533,6 +538,17 @@ pub(crate) fn independent_value_type<C: CheckerRequestContext + ?Sized>(
         }
 
         if role.is_some() {
+            return Ok(false);
+        }
+
+        // Logical clauses observe their enclosing context. Keep aggregate
+        // observations correlated with it instead of classifying escaping
+        // owned values, which would demand unrelated member contracts.
+        if matches!(
+            request.view().kind(),
+            bray_bound_tree::BoundUnitKind::ContractClause
+                | bray_bound_tree::BoundUnitKind::PredicateDefinition
+        ) {
             return Ok(false);
         }
 

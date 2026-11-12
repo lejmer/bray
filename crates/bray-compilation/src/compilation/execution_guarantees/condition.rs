@@ -507,6 +507,7 @@ impl Compilation {
                 semantics.result().value(),
                 patterns.result().value(),
                 self.semantic_value_store()?,
+                self.available_compiler_known_symbols(),
                 &constants,
                 Some((
                     storage.result().value(),
@@ -577,7 +578,7 @@ impl Compilation {
         let inputs = self.execution_unit_inputs(body, cancellation)?;
 
         let proves = |conditions: &[ExecutionCondition]| {
-            evidence.proves_trusted_with_inputs(conditions, &inputs)
+            evidence.prove_trusted_with_inputs(conditions, &inputs).is_ok()
         };
 
         let requirements = requirements
@@ -832,8 +833,131 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::compilation;
+    use crate::test_support::{compilation, source_function_body_key};
     use bray_diagnostics::DiagnosticKind;
+
+    #[test]
+    fn nullable_borrow_contracts_keep_the_actual_contained_owner() {
+        for (body, valid) in [
+            ("return owner;", true),
+            ("let result: (&Owner)? = owner; return result;", true),
+            ("let result: (&Owner)? = lend(owner); return result;", true),
+            ("return trusted project(owner, other);", true),
+            (
+                "let stored: (&Owner)? = other; if let ?value = stored { return trusted project(owner, value); } return none;",
+                true,
+            ),
+            (
+                "if let ?value = fetch(owner) { return trusted project(owner, value); } return none;",
+                true,
+            ),
+            (
+                "let issue = trusted lambda(pos owner: &Owner, pos stored: &Owner) -> &Owner requires(trusted held(owner = &owner.acquisition)) ensures(trusted held(owner = &result.acquisition)) executes(pure, total) { return stored; }; return trusted issue(owner, other);",
+                true,
+            ),
+            ("return other;", false),
+            (
+                "let fabricated: Owner = { acquisition = Marker {}, pointer = owner.pointer }; return &fabricated;",
+                false,
+            ),
+        ] {
+            let source = format!(
+                r#"
+                trusted module app;
+                using core.memory;
+                struct Marker {{}}
+                struct Owner {{ acquisition: Marker; pointer: DataPointer<u32>; }}
+                trusted predicate held(owner: &Marker);
+                extern func lend(pos owner: &Owner) -> &Owner
+                    requires(trusted held(owner = &owner.acquisition))
+                    ensures(trusted held(owner = &result.acquisition));
+                extern func fetch(pos owner: &Owner) -> (&Owner)?
+                    requires(trusted held(owner = &owner.acquisition))
+                    ensures(trusted held(owner = &owner.acquisition));
+                trusted func project(pos owner: &Owner, pos stored: &Owner) -> &Owner
+                    requires(trusted held(owner = &owner.acquisition))
+                    ensures(trusted held(owner = &result.acquisition))
+                    executes(pure, total)
+                {{
+                    return stored;
+                }}
+                const func marker(pos owner: &((&Owner)?)) -> &Marker
+                    requires(owner matches ?_)
+                    executes(pure, total)
+                {{
+                    return match owner {{
+                        case ?value {{ yield &value.acquisition; }}
+                        case none {{ panic("missing owner"); }}
+                    }};
+                }}
+                const func contained(pos owner: &((&Owner)?)) -> &Owner
+                    requires(owner matches ?_)
+                    executes(pure, total)
+                {{
+                    return match owner {{
+                        case ?value {{ yield value; }}
+                        case none {{ panic("missing owner"); }}
+                    }};
+                }}
+                func forward(pos owner: &Owner, pos other: &Owner) -> (&Owner)?
+                    requires(trusted held(owner = &owner.acquisition))
+                    ensures(result matches none || trusted held(owner = marker(&result)))
+                    ensures(result matches none || trusted held(owner = &contained(&result).acquisition))
+                {{ {body} }}
+            "#
+            );
+
+            let app = compilation(&source);
+
+            let checked = app
+                .lowered_unit(source_function_body_key(&app, "forward"))
+                .expect("borrowed owner forwarding has a checked body");
+
+            assert_eq!(
+                !checked.diagnostics().has_errors(),
+                valid,
+                "{body}: {checked:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn forwarded_shared_scalars_remain_protected_after_exposure() {
+        for (operation, valid) in [
+            ("change();", true),
+            ("replace(core.memory.address_of<u64>(owner));", true),
+        ] {
+            let source = format!(
+                r#"
+                trusted module app;
+                using core.memory;
+                trusted predicate held(owner: &u64);
+                extern func change();
+                extern func replace(pos pointer: DataPointer<u64>);
+                extern trusted func observe(pos owner: &u64)
+                    requires(trusted held(owner = owner));
+                trusted func forward(pos owner: &u64)
+                    requires(trusted held(owner = owner))
+                {{
+                    {operation}
+                    trusted observe(owner);
+                }}
+            "#
+            );
+
+            let app = compilation(&source);
+
+            let checked = app
+                .lowered_unit(source_function_body_key(&app, "forward"))
+                .expect("shared-slot forwarding has a checked body");
+
+            assert_eq!(
+                !checked.diagnostics().has_errors(),
+                valid,
+                "{operation}: {checked:#?}"
+            );
+        }
+    }
 
     #[test]
     fn completion_observation_publishes_its_checked_result_meaning() {
@@ -998,7 +1122,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1166,7 +1290,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1211,7 +1335,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1224,13 +1348,13 @@ mod tests {
                 "mut",
                 "true",
                 true,
-                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                DiagnosticKind::CheckingPostconditionNotProven,
             ),
             (
                 "mut",
                 "false",
                 false,
-                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                DiagnosticKind::CheckingPostconditionNotProven,
             ),
             (
                 "",
@@ -1396,7 +1520,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1566,6 +1690,8 @@ mod tests {
                 "{source}: {:?}",
                 compilation.check_diagnostics()
             );
+
+
         }
     }
 
@@ -1718,7 +1844,7 @@ mod tests {
 
         bray_testing::assert_goal_state_diagnostic_kind(
             compilation.check_diagnostics(),
-            DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            DiagnosticKind::CheckingPostconditionNotProven,
         );
     }
 
@@ -1758,6 +1884,20 @@ mod tests {
                 "{source}: {:?}",
                 compilation.check_diagnostics()
             );
+            if !valid {
+                let failure = compilation.check_diagnostics().iter().find(|diagnostic|
+                    diagnostic.kind() == DiagnosticKind::CheckingExecutionGuaranteeNotProven)
+                    .expect("the caller's guarantee cannot select the guarded callee");
+                let label = failure.labels().iter().find(|label|
+                    label.kind() == bray_diagnostics::DiagnosticLabelKind::ExecutionProofFailure)
+                    .expect("the failed dependency retains its invocation");
+                assert!(label.args().iter().any(|argument| matches!(argument.value(),
+                    bray_diagnostics::DiagnosticArgValue::ExecutionProofFailure(
+                        bray_diagnostics::DiagnosticExecutionProofFailure::MissingEvidence))));
+                let span = label.span();
+                assert_eq!(&source[usize::try_from(span.start().bytes()).unwrap()
+                    ..usize::try_from(span.end().bytes()).unwrap()], format!("({argument})"));
+            }
         }
     }
 
@@ -1912,7 +2052,7 @@ mod tests {
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
                     compilation.check_diagnostics(),
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    DiagnosticKind::CheckingPostconditionNotProven,
                 );
             }
         }
@@ -1934,7 +2074,41 @@ mod tests {
 
         bray_testing::assert_goal_state_diagnostic_kind(
             compilation.check_diagnostics(),
-            DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            DiagnosticKind::CheckingPostconditionNotProven,
         );
+    }
+
+    #[test]
+    fn short_circuit_results_preserve_returned_predicate_meaning() {
+        for (condition, returned, valid) in [
+            ("!state.open && state.input == 0 && state.output == 0", "!state.open && state.input == 0 && state.output == 0", true),
+            ("state.open || state.input != 0 || state.output != 0", "state.open || state.input != 0 || state.output != 0", true),
+            ("!state.open && state.input == 0 && state.output == 0", "!state.open && state.input == 0", false),
+        ] {
+            let compilation = compilation(&format!(r#"
+                module app;
+
+                struct State
+                {{
+                    mut open: bool;
+                    mut input: u64;
+                    mut output: u64;
+                }}
+
+                predicate complete(state: &State) = {condition};
+
+                func inspect(pos state: &State) -> bool
+                    executes(pure, total)
+                    ensures(result == complete(state = state))
+                {{
+                    return {returned};
+                }}
+            "#));
+            let diagnostics = compilation.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "{condition}: {diagnostics:?}");
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingPostconditionNotProven);
+            }
+        }
     }
 }

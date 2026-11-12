@@ -14,6 +14,84 @@ static FRAMES: LazyLock<Mutex<BTreeMap<usize, Arc<Frame>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 thread_local! { static CURRENT: Cell<Option<usize>> = const { Cell::new(None) }; }
 
+pub(super) fn startup(
+    configuration: bray_runtime_abi::NativeRuntimeConfiguration,
+) -> bray_runtime_abi::NativeRuntimeStatus {
+    super::export::bray_runtime_main_thread_lane_startup(super::state::native_configuration(
+        configuration,
+    ))
+}
+
+pub(super) fn task(task: bray_runtime_abi::NativeTaskHandle) -> Arc<crate::event::Resources> {
+    crate::event::NativeCallback::task_owner(task)
+        .expect("Source admission retains the actual native task owner")
+}
+
+pub(super) fn snapshot(owner: &crate::event::Resources) -> bray_runtime_abi::NativeTaskSnapshot {
+    let mut snapshot = bray_runtime_abi::NativeTaskSnapshot::default();
+
+    let status = crate::report_provider::bray_runtime_task_control_snapshot(
+        owner.reference(),
+        &mut snapshot,
+    );
+
+    assert!(
+        status.is_success(),
+        "the actual task owner retains its Source snapshot"
+    );
+
+    snapshot
+}
+
+pub(super) fn wait_ready(owner: &crate::event::Resources) -> bool {
+    #[expect(
+        unsafe_code,
+        reason = "the actual retained Source task owns its event wait slot"
+    )]
+    unsafe extern "C" {
+        safe fn bray_runtime_event_readiness(owner: &bray_runtime_abi::NativeTaskReference) -> u32;
+    }
+
+    bray_runtime_event_readiness(owner.reference()) != 0
+}
+
+pub(super) fn observe(
+    task: bray_runtime_abi::NativeTaskHandle,
+) -> bray_runtime_abi::NativeRunOutcome {
+    let root = bray_runtime_abi::NativeRootHandle::new(task.raw())
+        .expect("an admitted task has a nonzero source claim");
+
+    super::export::bray_runtime_root_terminal_observation(root)
+}
+
+pub(super) fn poll(owner: &crate::event::Resources) -> bray_runtime_abi::NativeRunOutcome {
+    let mut outcome =
+        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::PENDING, 0);
+
+    let status = crate::report_provider::bray_runtime_task_control_observation(
+        owner.reference(),
+        &mut outcome,
+    );
+
+    if status.is_success() || status == bray_runtime_abi::NativeRuntimeStatus::PENDING {
+        outcome
+    } else {
+        bray_runtime_abi::NativeRunOutcome::new(
+            bray_runtime_abi::NativeRunState::RUNTIME_FAILURE,
+            status.code() as usize,
+        )
+    }
+}
+
+pub(super) fn complete(
+    task: bray_runtime_abi::NativeTaskHandle,
+) -> bray_runtime_abi::NativeRuntimeStatus {
+    let root = bray_runtime_abi::NativeRootHandle::new(task.raw())
+        .expect("an admitted task has a nonzero source claim");
+
+    super::export::bray_runtime_root_completion_resolution(root)
+}
+
 struct Frame {
     backing: crate::backing::Backing,
     descriptor: NativeActivationDescriptor,
@@ -214,8 +292,7 @@ mod tests {
     use bray_runtime_abi::{
         NativeActivationDescriptor, NativeActivationExecution, NativeCleanupStorageShape,
         NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-        NativeFrameState, NativeInactiveFrameTransfer, NativeLaneRequirements,
-        NativeRuntimeConfiguration,
+        NativeFrameState, NativeLaneRequirements, NativeRuntimeConfiguration,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -308,8 +385,11 @@ mod tests {
         assert_eq!(QUERIES.load(Ordering::Relaxed), 2);
 
         let root = super::super::export::bray_runtime_root_execution(
-            NativeInactiveFrameTransfer::new(&token),
-            NativeRuntimeConfiguration::new(1, 1),
+            {
+                assert!(super::startup(NativeRuntimeConfiguration::new(1, 1)).is_success());
+
+                std::ptr::from_ref(&token).addr()
+            },
             &mut bray_runtime_abi::NativeRunOutcome::new(
                 bray_runtime_abi::NativeRunState::COMPLETED,
                 0,

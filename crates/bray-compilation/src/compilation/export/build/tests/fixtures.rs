@@ -14,6 +14,18 @@ use crate::{
     DependencyInterfaceInput, PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
 };
 
+/// Keep case failures readable while preserving their rendered condition and labels.
+pub(super) fn diagnostic_messages(diagnostics: &bray_diagnostics::DiagnosticBag) -> String {
+    let mut messages = Vec::new();
+
+    for diagnostic in bray_messages::DiagnosticRenderer::english().render_bag(diagnostics) {
+        messages.push(format!("{:?}: {}", diagnostic.code(), diagnostic.message()));
+        messages.extend(diagnostic.labels().iter().map(|label| format!("  {}", label.message())));
+    }
+
+    messages.join("\n")
+}
+
 pub(super) fn execution_consumer(provider: &Compilation, source: &str) -> Compilation {
     crate::test_support::compilation_with_dependencies(source, [execution_dependency(provider)])
 }

@@ -1,0 +1,89 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap.execution;
+
+// Coordinates remain arena-local scheduler observations. A protected Source
+// task instead transports the cell's stable address under its actual claim.
+trusted internal func source_claim(pos owner: &Reference) -> u64
+    requires(trusted retained(owner = owner), trusted resolution_owner(owner = owner))
+    ensures(trusted retained(owner = owner), trusted resolution_owner(owner = owner))
+    uses(intrinsic)
+{
+    return std.numeric.truncate_to<u64, usize>(trusted core.target.expose_address<Slot>(owner.pointer));
+}
+
+// Wake borrows storage only. It does not acquire the source resolution right.
+trusted internal func retain_wake_claim(pos source: &u64) -> Reference
+    requires(trusted bray.runtime.bootstrap.execution.wake_input(owner = source))
+    ensures(
+        trusted bray.runtime.bootstrap.execution.wake_input(owner = source),
+        trusted retained(owner = &result),
+        trusted owned_reference(owner = &result)
+    )
+    uses(raw_memory, unchecked_alias, intrinsic)
+{
+    let address = std.numeric.truncate_to<usize, u64>(trusted std.memory.read<u64>(std.memory.address_of<u64>(source)));
+    let pointer = trusted core.target.from_exposed_address<Slot>(address = address);
+
+    let permit = trusted lambda(pos source: &u64, pos pointer: DataPointer<Slot>)
+        requires(trusted bray.runtime.bootstrap.execution.wake_input(owner = source))
+        ensures(
+            trusted core.memory.valid_read<Slot>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Slot>(pointer = pointer),
+            trusted core.memory.aligned_for<Slot>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Slot>(pointer = pointer),
+            trusted core.memory.epoch_current<Slot>(pointer = pointer),
+            trusted core.memory.synchronized_access<Slot>(pointer = pointer),
+            trusted core.memory.movement_stable<Slot>(pointer = pointer),
+            trusted core.memory.finalization_pending<Slot>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(source, pointer);
+
+    let slot = trusted std.memory.borrow_from<Slot, u64>(source, pointer);
+
+    let borrow = trusted lambda(pos source: &u64, pos slot: &Slot) -> Reference
+        requires(trusted bray.runtime.bootstrap.execution.wake_input(owner = source))
+        ensures(trusted retained(owner = &result))
+    {
+        return
+        {
+            acquisition = Marker
+            {
+            },
+            pointer = std.memory.address_of<Slot>(slot),
+            runtime = slot.runtime,
+            handle = (std.numeric.truncate_to<u64, u32>(slot.generation) << 32) | std.numeric.truncate_to<u64, usize>(
+                slot.index
+            )
+        };
+    };
+
+    let borrowed = trusted borrow(source, slot);
+
+    return trusted duplicate_reference(&borrowed);
+}
+
+trusted internal func retain_source_claim(pos source: &u64) -> Reference
+    requires(trusted bray.runtime.bootstrap.execution.resolution_input(owner = source))
+    ensures(
+        trusted bray.runtime.bootstrap.execution.resolution_input(owner = source),
+        trusted retained(owner = &result),
+        trusted owned_reference(owner = &result),
+        trusted resolution_owner(owner = &result)
+    )
+{
+    let permit = trusted lambda(pos source: &u64)
+        requires(trusted bray.runtime.bootstrap.execution.resolution_input(owner = source))
+        ensures(trusted bray.runtime.bootstrap.execution.wake_input(owner = source))
+        executes(pure, total) {};
+
+    trusted permit(source);
+    return trusted retain_wake_claim(source);
+}

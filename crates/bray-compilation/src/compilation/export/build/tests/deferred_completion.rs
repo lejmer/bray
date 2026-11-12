@@ -81,6 +81,18 @@ const API: &str = r"
         return none;
     }
 
+    async func maybe_fresh(pos value: Permit, pos keep: bool) -> Permit?
+    {
+        if keep
+        {
+            return value;
+        }
+
+        let fresh: Permit = { id = 2 };
+
+        return fresh;
+    }
+
     trusted predicate held(owner: &Marker);
 
     trusted func make() -> Marker
@@ -956,6 +968,26 @@ const CASES: &[(&str, &str, bool)] = &[
         true,
     ),
     (
+        "nullable_fresh_permission",
+        r"
+            let permit = api.permission();
+            let id = permit.id;
+            let value = await api.maybe_fresh(permit, choice);
+
+            match consume value
+            {
+                case ?owner
+                {
+                    api.inspect_permission(id);
+                }
+                case none
+                {
+                }
+            }
+        ",
+        false,
+    ),
+    (
         "nullable_dropped_permission",
         r"let id = { let permit = api.permission(); let id = permit.id; let value = await api.maybe<api.Permit>(permit, choice); match consume value { case ?owner { api.inspect_permission(id); } case none {} } yield id; }; api.inspect_permission(id);",
         false,
@@ -1164,7 +1196,8 @@ const CASES: &[(&str, &str, bool)] = &[
 fn check_deferred_completion(imported: bool) {
     let provider = compilation(API);
 
-    assert!(!provider.check_diagnostics().has_errors());
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}",
+        bray_messages::DiagnosticRenderer::default().render_bag(provider.check_diagnostics()));
 
     let mut failures = Vec::new();
 
@@ -1197,7 +1230,7 @@ fn check_deferred_completion(imported: bool) {
 
         if diagnostics.has_errors() == *valid {
             failures.push(format!(
-                "{name}, imported={imported}, valid={valid}: {diagnostics:#?}"
+                "{name}, imported={imported}, valid={valid}: {}", super::fixtures::diagnostic_messages(diagnostics)
             ));
         } else if !valid
             && !diagnostics.iter().all(|diagnostic| {
@@ -1210,11 +1243,11 @@ fn check_deferred_completion(imported: bool) {
                 )
             })
         {
-            failures.push(format!("unexpected rejection for {name}: {diagnostics:#?}"));
+            failures.push(format!("unexpected rejection for {name}: {}", super::fixtures::diagnostic_messages(diagnostics)));
         }
     }
 
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(failures.is_empty(), "deferred cases completed: imported={imported}, count={}\n{}", CASES.len(), failures.join("\n"));
 }
 
 #[test]

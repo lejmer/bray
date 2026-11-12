@@ -19,6 +19,9 @@ pub struct StoragePlan {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
+    temporaries: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
+    value_slots: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
+    value_consumptions: BTreeMap<(crate::BoundExecutionSite, crate::StorageValueConsumptionPhase), BTreeSet<StoragePath>>,
     identity_types: BTreeMap<StorageIdentityId, TypeId>,
     copyable_types: BTreeSet<TypeId>,
     owned_borrows: BTreeMap<(TypeId, BorrowKind), crate::StorageProtocolCall>,
@@ -59,6 +62,9 @@ impl StoragePlan {
             unit,
             kind,
             identities,
+            temporaries,
+            value_slots,
+            value_consumptions,
             identity_types,
             owned_borrows,
             accesses,
@@ -130,6 +136,9 @@ impl StoragePlan {
             kind,
             copyable_types: BTreeSet::new(),
             identities: identities.into(),
+            temporaries,
+            value_slots,
+            value_consumptions,
             identity_types,
             owned_borrows,
             accesses: accesses.into(),
@@ -185,6 +194,55 @@ impl StoragePlan {
 
                 Some((id, identity))
             })
+    }
+
+    /// Returns the first temporary slot introduced for one explicit expression result.
+    pub fn temporary(&self, expression: crate::BoundExpressionId) -> Option<StorageIdentityId> {
+        self.temporaries.get(&expression).copied()
+    }
+
+    /// Returns actual evaluated slot paths consumed at one checked boundary.
+    pub fn value_consumptions(
+        &self,
+        occurrence: crate::BoundExecutionSite,
+        phase: crate::StorageValueConsumptionPhase,
+    ) -> impl Iterator<Item = &StoragePath> {
+        self.value_consumptions.get(&(occurrence, phase)).into_iter().flatten()
+    }
+
+    /// Admitted private inputs retain current observations until the callee completes.
+    /// Admission transfers authority, while completion ends those input slots.
+    pub fn value_retirements(
+        &self,
+        occurrence: crate::BoundExecutionSite,
+        phase: crate::StorageValueConsumptionPhase,
+    ) -> impl Iterator<Item = &StoragePath> {
+        use crate::StorageValueConsumptionPhase::{Admission, Completion};
+
+        let private_input = move |path: &&StoragePath| matches!(self.identity(path.root),
+            Some(StorageIdentity::InvocationInput { expression, .. }) if occurrence == expression.into());
+
+        self.value_consumptions(occurrence, phase)
+            .filter(move |path| phase != Admission || !private_input(path))
+            .chain(self.value_consumptions(occurrence, Admission)
+                .filter(move |path| phase == Completion && private_input(path)))
+    }
+
+    /// Enumerates evaluated-value destination commits for lifetime analysis.
+    pub fn value_consumption_entries(&self) -> impl Iterator<Item = (crate::BoundExecutionSite, crate::StorageValueConsumptionPhase, &StoragePath)> {
+        self.value_consumptions.iter().flat_map(|((site, phase), paths)| {
+            paths.iter().map(move |path| (*site, *phase, path))
+        })
+    }
+
+    /// Returns the actual materialized result slot, independently of its source access.
+    pub fn value_slot(&self, expression: crate::BoundExpressionId) -> Option<StorageIdentityId> {
+        self.value_slots.get(&expression).copied()
+    }
+
+    /// Enumerates checked expression outputs without scanning storage identities.
+    pub fn value_slots(&self) -> impl Iterator<Item = (crate::BoundExpressionId, StorageIdentityId)> + '_ {
+        self.value_slots.iter().map(|(expression, identity)| (*expression, *identity))
     }
 
     /// Returns the checked type stored by one persistent storage origin, when recorded.
@@ -336,6 +394,49 @@ impl StoragePlan {
 
                 Some((id, capability))
             })
+    }
+
+    /// Classifies transport independently of copyability and the expression naming its input.
+    pub fn access_plan_role(&self, plan: StorageAccessPlan) -> crate::StorageAccessPlanRole {
+        use crate::{StorageAccessPlanRole as Role, BoundExecutionSite as Site};
+
+        let root = self.root_identity(plan.access());
+
+        if let Some(StorageIdentity::InvocationInput { expression, ordinal }) = root.and_then(|root| self.identity(root)) {
+            if plan.occurrence() == (Site::CallInput { expression, ordinal })
+                && plan.purpose() == StorageAccessPurpose::Initialize
+            {
+                return Role::PrivateInputInitialization;
+            }
+
+            if plan.occurrence() == Site::Node(expression.into()) {
+                return Role::PrivateInputAdmission;
+            }
+        }
+
+        if matches!(plan.purpose(), StorageAccessPurpose::Read | StorageAccessPurpose::Copy | StorageAccessPurpose::Move | StorageAccessPurpose::ValueTransfer) {
+            let complete_root = self.resolved_projections(plan.access()).is_some_and(<[_]>::is_empty);
+
+            if complete_root && self.access_is_produced_at(plan.access(), plan.occurrence())
+                && self.access(plan.access()).is_some_and(|access| matches!(access.root(), crate::StorageAccessRoot::Storage(_)))
+            {
+                return Role::OutputDefinition;
+            }
+
+            if root.is_some() && root == self.value_slot(plan.expression())
+                && plan.purpose() == StorageAccessPurpose::ValueTransfer
+            {
+                return Role::EvaluatedValueTransfer;
+            }
+
+            return if plan.purpose() == StorageAccessPurpose::Read {
+                Role::Observation
+            } else {
+                Role::SourceMaterialization
+            };
+        }
+
+        Role::Observation
     }
 
     /// Resolves an implicit value transfer to its checked copy or move operation.
@@ -662,6 +763,35 @@ mod tests {
     };
 
     #[test]
+    fn admitted_inputs_keep_observations_until_completion_without_retaining_source_slots() {
+        use crate::StorageValueConsumptionPhase::{Admission, Completion};
+
+        let unit = crate::BoundUnitId::new(8);
+        let call = crate::BoundExpressionId::from_slot(unit, 0);
+        let source = crate::BoundExpressionId::from_slot(unit, 1);
+        let mut builder = crate::StoragePlanBuilder::new(unit, crate::BoundUnitKind::CallableBody);
+        let input = builder.push_identity(StorageIdentity::InvocationInput {
+            expression: call, ordinal: bray_symbols::SymbolOrdinal::new(0),
+        }).expect("fixture input has its own storage");
+        let source = builder.push_identity(StorageIdentity::InvocationResult(source.into()))
+            .expect("fixture source has its own storage");
+        let input = crate::StoragePath::root(input);
+        let source = crate::StoragePath::root(source);
+
+        for path in [&input, &source] {
+            builder.consume_value(call.into(), Admission, path.clone())
+                .expect("fixture consumes its produced operands");
+        }
+
+        let plan = builder.finish();
+
+        assert_eq!(plan.value_consumptions(call.into(), Admission).count(), 2);
+        assert_eq!(plan.value_retirements(call.into(), Admission).collect::<Vec<_>>(), [&source]);
+        assert_eq!(plan.value_retirements(call.into(), Completion).collect::<Vec<_>>(), [&input]);
+        assert_eq!(plan.value_retirements(crate::BoundExpressionId::from_slot(unit, 2).into(), Completion).count(), 0);
+    }
+
+    #[test]
     fn access_plan_queries_preserve_occurrence_identity_and_evaluation_order() {
         let unit = crate::BoundUnitId::new(8);
         let expressions = [0, 1, 2].map(|slot| crate::BoundExpressionId::from_slot(unit, slot));
@@ -772,6 +902,37 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<StoragePlan>();
+    }
+
+    #[test]
+    fn produced_components_transfer_while_existing_storage_and_explicit_copies_materialize() {
+        let unit = BoundUnitId::new(8);
+        let produced = BoundExpressionId::from_slot(unit, 0);
+        let existing = BoundExpressionId::from_slot(unit, 1);
+        let pattern = crate::BoundPatternId::from_slot(unit, 0);
+        let mut builder = crate::StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+        let fresh = builder.push_identity(StorageIdentity::Temporary(produced)).expect("produced value has storage");
+        let stored = builder.push_identity(StorageIdentity::Temporary(existing)).expect("existing value has storage");
+        builder.set_value_slot(produced, fresh).expect("producer owns its slot");
+
+        for (root, purpose) in [(fresh, StorageAccessPurpose::ValueTransfer),
+            (fresh, StorageAccessPurpose::Copy), (stored, StorageAccessPurpose::ValueTransfer)] {
+            let access = builder.push_access(StorageAccess::new(StorageAccessRoot::Storage(root),
+                [StorageProjection::TupleElement(SymbolOrdinal::new(0))], crate::test_support::error_type(),
+                crate::test_support::source_anchor(), false)).expect("component has storage access");
+            builder.plan_access(pattern.into(), produced, purpose, access).expect("component transfer has a plan");
+        }
+        let consumer = crate::BoundExecutionSite::Node(pattern.into());
+        builder.consume_value(consumer, crate::StorageValueConsumptionPhase::Completion,
+            crate::StoragePath::root(fresh)).expect("consumer retires the produced source after publication");
+        let storage = builder.finish();
+        let plans = storage.node_plans(pattern.into()).collect::<Vec<_>>();
+
+        assert_eq!(plans.iter().map(|plan| storage.access_plan_role(*plan)).collect::<Vec<_>>(),
+            [crate::StorageAccessPlanRole::EvaluatedValueTransfer,
+                crate::StorageAccessPlanRole::SourceMaterialization, crate::StorageAccessPlanRole::SourceMaterialization]);
+        assert_eq!(storage.value_retirements(consumer, crate::StorageValueConsumptionPhase::Completion)
+            .collect::<Vec<_>>(), [&crate::StoragePath::root(fresh)]);
     }
 
     #[test]

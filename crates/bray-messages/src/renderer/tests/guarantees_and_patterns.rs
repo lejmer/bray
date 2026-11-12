@@ -8,6 +8,32 @@ use crate::RenderedDiagnosticNoteKind;
 use crate::renderer::DiagnosticRenderer;
 
 #[test]
+fn witness_transfer_failures_name_the_operation_and_owning_guarantee() {
+    use bray_diagnostics::{DiagnosticCondition, DiagnosticWitnessTransfer, DiagnosticWitnessTransferKind};
+
+    for (kind, expected) in [
+        (DiagnosticWitnessTransferKind::Copy,
+            "cannot copy `owner`: it carries trusted guarantee `app.live(owner.token)`"),
+        (DiagnosticWitnessTransferKind::Separation,
+            "cannot separate this value from `owner`: the complete owner carries trusted guarantee `app.live(owner.token)`"),
+    ] {
+        let failure = DiagnosticWitnessTransfer {
+            kind,
+            carrier: DiagnosticCondition::Source("owner".to_owned()),
+            guarantee: DiagnosticCondition::Application {
+                path: vec!["app".to_owned(), "live".to_owned()], types: vec![],
+                arguments: vec![DiagnosticCondition::Source("owner.token".to_owned())],
+            },
+        };
+        let diagnostic = Diagnostic::new(DiagnosticId::new(0),
+            DiagnosticKind::CheckingTrustedWitnessTransferNotProven, SeverityKind::Error)
+            .with_arg(DiagnosticArg::witness_transfer(failure));
+
+        assert_eq!(DiagnosticRenderer::english().render(&diagnostic).message(), expected);
+    }
+}
+
+#[test]
 fn execution_proof_failures_identify_the_promised_behavior_and_cause() {
     let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
 
@@ -25,7 +51,17 @@ fn execution_proof_failures_identify_the_promised_behavior_and_cause() {
         (
             DiagnosticKind::CheckingCircularExecutionGuarantee,
             None,
-            "this callable's total execution guarantee depends on a recursive call or cleanup cycle",
+            "this callable's execution guarantee depends on a recursive call or cleanup cycle",
+        ),
+        (
+            DiagnosticKind::CheckingPostconditionNotProven,
+            None,
+            "cannot verify this postcondition",
+        ),
+        (
+            DiagnosticKind::CheckingCircularPostcondition,
+            None,
+            "this postcondition depends on its own unverified completion",
         ),
     ] {
         let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
@@ -48,6 +84,26 @@ fn execution_proof_failures_identify_the_promised_behavior_and_cause() {
             "this operation or its cleanup cannot establish the required execution guarantee"
         );
     }
+}
+
+#[test]
+fn proof_budget_failures_report_the_limit_and_observed_depth() {
+    let diagnostic = Diagnostic::new(DiagnosticId::new(0), DiagnosticKind::CheckingExecutionProofDepthExceeded, SeverityKind::Error)
+        .with_arg(DiagnosticArg::execution_proof_failure(bray_diagnostics::DiagnosticExecutionProofFailure::DepthLimit { depth: 129, limit: 128 }));
+
+    assert_eq!(DiagnosticRenderer::english().render(&diagnostic).message(),
+        "cannot verify this contract: proof depth 129 exceeds the configured limit of 128");
+}
+
+#[test]
+fn execution_failure_labels_render_the_retained_termination_cause() {
+    let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+    let diagnostic = Diagnostic::new(DiagnosticId::new(0), DiagnosticKind::CheckingExecutionGuaranteeNotProven, SeverityKind::Error)
+        .with_arg(DiagnosticArg::referenced_name("total"))
+        .with_label(DiagnosticLabel::secondary(DiagnosticLabelKind::ExecutionProofFailure, span)
+            .with_arg(DiagnosticArg::execution_proof_failure(bray_diagnostics::DiagnosticExecutionProofFailure::UnboundedLoop)));
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+    assert_eq!(rendered.labels()[0].message(), "cannot prove this loop terminates");
 }
 
 #[test]
@@ -180,4 +236,50 @@ fn repeated_array_copy_failure_names_the_element_type_and_alternative() {
     assert_eq!(rendered.labels()[0].message(), "this repeated array requires a copy contract even for zero or one element");
     assert_eq!(rendered.notes()[0].rendered_kind(), RenderedDiagnosticNoteKind::Help);
     assert_eq!(rendered.notes()[0].message(), "use an element-list array or an array generator to construct each non-copyable element separately");
+}
+
+#[test]
+fn forbidden_predicate_blocks_name_the_syntax_and_const_helper_remedy() {
+    let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+
+    for (kind, expected) in [
+        (bray_syntax::SyntaxKind::BlockExpression, "predicate expressions cannot contain a block expression"),
+        (bray_syntax::SyntaxKind::MatchExpression, "predicate expressions cannot contain a match expression"),
+    ] {
+        let diagnostic = Diagnostic::new(DiagnosticId::new(0), DiagnosticKind::CheckingPredicateBlockNotAllowed, SeverityKind::Error)
+            .with_primary_span(span)
+            .with_arg(DiagnosticArg::actual_syntax_kind(kind))
+            .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::ForbiddenPredicateBlock, span))
+            .with_note(DiagnosticNote::new(DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper));
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(rendered.message(), expected);
+        assert_eq!(rendered.labels()[0].message(), "this expression introduces a block in a predicate context");
+        assert_eq!(rendered.notes()[0].message(), "move this control flow into a const function and call it from the predicate");
+    }
+}
+
+#[test]
+fn unproven_contract_labels_name_the_actual_condition() {
+    use bray_diagnostics::{DiagnosticCondition, DiagnosticConstantOperation,
+        DiagnosticContractObligation, DiagnosticContractObligationKind};
+
+    let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+    let obligation = DiagnosticContractObligation {
+        kind: DiagnosticContractObligationKind::Postcondition,
+        required: DiagnosticCondition::Result,
+        actual: DiagnosticCondition::Operation {
+            operation: DiagnosticConstantOperation::Greater,
+            operands: vec![DiagnosticCondition::Source("value".to_owned()),
+                DiagnosticCondition::Literal("1".to_owned())],
+        },
+    };
+    let diagnostic = Diagnostic::new(DiagnosticId::new(0),
+        DiagnosticKind::CheckingPostconditionNotProven, SeverityKind::Error)
+        .with_label(DiagnosticLabel::secondary(DiagnosticLabelKind::UnprovenContractCondition, span)
+            .with_arg(DiagnosticArg::contract_obligation(obligation))
+            .with_arg(DiagnosticArg::execution_proof_failure(bray_diagnostics::DiagnosticExecutionProofFailure::Unproven)));
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+    assert_eq!(rendered.labels()[0].message(), "this operation or its cleanup does not establish the required contract: postcondition `(value > 1)`");
 }

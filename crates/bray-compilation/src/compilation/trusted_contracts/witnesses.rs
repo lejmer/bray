@@ -11,7 +11,7 @@ impl Compilation {
         requirements: &[ExecutionCondition],
         cancellation: &CancellationToken,
     ) -> Result<
-        DiagnosticResult<Vec<(ExecutionCondition, bray_checker::ExecutionPlace)>>,
+        DiagnosticResult<Vec<(ExecutionCondition, ExecutionCondition, bool)>>,
         FactQueryError,
     > {
         let context = self.binding_context(cancellation)?;
@@ -20,6 +20,7 @@ impl Compilation {
 
         let mut pending = requirements
             .iter()
+            .flat_map(ExecutionCondition::conjuncts)
             .map(|condition| (condition, condition))
             .collect::<Vec<_>>();
 
@@ -120,12 +121,11 @@ impl Compilation {
                 };
 
                 if owns_authority {
-                    witnesses.extend(
-                        argument
-                            .inputs()
-                            .into_iter()
-                            .map(|place| (requirement.clone(), place.clone())),
-                    );
+                    let containing_value = self.trusted_subject_needs_owner(
+                        ty?, cancellation, &mut diagnostics,
+                    )?;
+
+                    witnesses.push((requirement.clone(), argument.clone(), containing_value));
                 }
             }
         }
@@ -136,7 +136,6 @@ impl Compilation {
     pub(super) fn trusted_predicate_subjects(
         &self,
         conditions: &[ExecutionCondition],
-        result: Option<bray_symbols::TypeId>,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<
@@ -151,6 +150,7 @@ impl Compilation {
 
         let mut pending = conditions
             .iter()
+            .flat_map(ExecutionCondition::conjuncts)
             .map(|condition| (condition, condition))
             .collect::<Vec<_>>();
 
@@ -221,13 +221,14 @@ impl Compilation {
                             }
 
                             let subject = if argument.observes_completion_result() {
-                                if let Some(result) = result {
-                                    let (carrier, ty) = argument
-                                        .witness_carrier(self.semantic_value_store()?, result)
-                                        .unwrap_or((ExecutionCondition::Result, result));
+                                    let subject = argument.witness_carrier(self.trusted_subject_needs_owner(
+                                        ty, cancellation, diagnostics,
+                                    )?);
 
-                                    if !self.trusted_result_is_witness(
-                                        ty,
+                                    // A named container carries its field guarantees. A standalone
+                                    // address retains its copyable storage facts, including in tuples.
+                                    if subject == argument.witness_carrier(false) && !self.trusted_result_is_witness(
+                                        values.unborrowed_type(ty),
                                         std::slice::from_ref(guarantee),
                                         cancellation,
                                         diagnostics,
@@ -235,12 +236,11 @@ impl Compilation {
                                         continue;
                                     }
 
-                                    carrier
-                                } else {
-                                    ExecutionCondition::Result
-                                }
+                                    subject
                             } else {
-                                argument.clone()
+                                argument.witness_carrier(self.trusted_subject_needs_owner(
+                                    ty, cancellation, diagnostics,
+                                )?)
                             };
 
                             subjects.push((guarantee.clone(), subject));
@@ -255,6 +255,40 @@ impl Compilation {
         }
 
         Ok((subjects, addresses))
+    }
+
+    fn trusted_subject_needs_owner(
+        &self,
+        ty: bray_symbols::TypeId,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<bool, FactQueryError> {
+        let values = self.semantic_value_store()?;
+        let ty = values.unborrowed_type(ty);
+        let data = values.type_data(ty);
+
+        let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
+            return Ok(false);
+        };
+
+        if let Some(role) =
+            crate::compilation::foreign::compiler_known_representation(self, *definition)
+        {
+            return Ok(role.numeric_kind().is_some() || matches!(role,
+                bray_compiler_known::RepresentationRole::ScalarBool
+                    | bray_compiler_known::RepresentationRole::ScalarChar
+                    | bray_compiler_known::RepresentationRole::RawPointer
+                    | bray_compiler_known::RepresentationRole::FunctionPointer
+                    | bray_compiler_known::RepresentationRole::DevicePointer));
+        }
+
+        let representation =
+            self.declared_type_representation_with_cancellation(*definition, cancellation)?;
+
+        diagnostics.add_range(representation.diagnostics().iter().cloned());
+
+        Ok(matches!(representation.value().storage(),
+            bray_symbols::DeclaredStorageShape::Structure(fields) if fields.is_empty()))
     }
 
     fn copyable_storage_predicates(

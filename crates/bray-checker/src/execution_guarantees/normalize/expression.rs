@@ -19,13 +19,15 @@ pub(crate) fn expression_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    storage: Option<&bray_bound_tree::StoragePlan>,
     literals: &BTreeMap<BoundExpressionId, ExecutionCondition>,
     patterns: &BTreeMap<
         bray_bound_tree::BoundPatternId,
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
-    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-    evaluated: &BTreeMap<BoundExpressionId, ExecutionCondition>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
+    evaluated: &impl Fn(BoundExpressionId) -> Option<ExecutionCondition>,
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
@@ -46,10 +48,11 @@ pub(crate) fn expression_condition(
         return ExecutionCondition::Unknown;
     };
 
-    if let Some(literal) = evaluated
-        .get(&expression)
-        .or_else(|| literals.get(&expression))
-    {
+    if let Some(value) = evaluated(expression) {
+        return value;
+    }
+
+    if let Some(literal) = literals.get(&expression) {
         // Literal payloads are immutable and shared by the expression and flow state.
         return literal.clone();
     }
@@ -61,13 +64,13 @@ pub(crate) fn expression_condition(
         let place = crate::ExecutionPlace::constant_reference(term);
 
         return current
-            .get(&place)
+            .get_value(&place)
             .cloned()
             .unwrap_or(ExecutionCondition::Input(place));
     }
 
     if let Some(condition) = selected_condition(
-        unit, semantics, values, literals, patterns, current, evaluated, expression, budget,
+        unit, semantics, values, known, storage, literals, patterns, current, evaluated, expression, budget,
         predicates,
     ) {
         return condition;
@@ -76,7 +79,7 @@ pub(crate) fn expression_condition(
     if let Some(constructed) =
         constructed_condition(expression, bound, semantics, values, &mut |source| {
             expression_condition(
-                unit, semantics, values, literals, patterns, current, evaluated, source, budget,
+                unit, semantics, values, known, storage, literals, patterns, current, evaluated, source, budget,
                 predicates,
             )
         })
@@ -92,7 +95,7 @@ pub(crate) fn expression_condition(
         bound,
         &mut |source| {
             expression_condition(
-                unit, semantics, values, literals, patterns, current, evaluated, source, budget,
+                unit, semantics, values, known, storage, literals, patterns, current, evaluated, source, budget,
                 predicates,
             )
         },
@@ -100,12 +103,14 @@ pub(crate) fn expression_condition(
         return condition;
     }
 
-    if let Some(condition) = conversion_condition(expression, bound, semantics, &mut |source| {
-        expression_condition(
-            unit, semantics, values, literals, patterns, current, evaluated, source, budget,
-            predicates,
-        )
-    }) {
+    if let Some(condition) =
+        conversion_condition(expression, bound, semantics, values, &mut |source| {
+            expression_condition(
+                unit, semantics, values, known, storage, literals, patterns, current, evaluated, source, budget,
+                predicates,
+            )
+        })
+    {
         return condition;
     }
 
@@ -124,7 +129,7 @@ pub(crate) fn expression_condition(
             current,
         ),
         BoundExpression::PatternReference(reference) => current
-            .get(&BoundReferenceTarget::Local(reference.binding().into()).into())
+            .get_value(&BoundReferenceTarget::Local(reference.binding().into()).into())
             .cloned()
             .unwrap_or(ExecutionCondition::Unknown),
         BoundExpression::MemberAccess(member) => {
@@ -135,6 +140,8 @@ pub(crate) fn expression_condition(
                     unit,
                     semantics,
                     values,
+                    known,
+                    storage,
                     literals,
                     patterns,
                     current,
@@ -154,23 +161,30 @@ pub(crate) fn expression_condition(
                 return ExecutionCondition::Unknown;
             };
 
-            if let Some(value) = current.get(&BoundReferenceTarget::Surface(target.member()).into())
+            if let Some(value) = current.get_value(&BoundReferenceTarget::Surface(target.member()).into())
             {
                 return value.clone();
             }
 
-            let Some(place) = expression_place(unit, semantics, values, expression) else {
-                return ExecutionCondition::Unknown;
-            };
-
-            if let Some(value) = current.get(&place) {
+            if let Some(value) = expression_place(unit, semantics, values, expression)
+                .and_then(|place| current.get_value(&place))
+            {
                 return value.clone();
+            }
+
+            if !matches!(
+                target.member(),
+                AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_)
+            ) {
+                return ExecutionCondition::Unknown;
             }
 
             let receiver = expression_condition(
                 unit,
                 semantics,
                 values,
+                known,
+                storage,
                 literals,
                 patterns,
                 current,
@@ -217,7 +231,7 @@ pub(crate) fn expression_condition(
                 .iter()
                 .map(|operand| {
                     expression_condition(
-                        unit, semantics, values, literals, patterns, current, evaluated, *operand,
+                        unit, semantics, values, known, storage, literals, patterns, current, evaluated, *operand,
                         budget, predicates,
                     )
                 })
@@ -229,11 +243,14 @@ pub(crate) fn expression_condition(
             unit,
             semantics,
             values,
+            known,
+            storage,
+            current,
             expression,
             operation,
             &mut |source| {
                 expression_condition(
-                    unit, semantics, values, literals, patterns, current, evaluated, source,
+                    unit, semantics, values, known, storage, literals, patterns, current, evaluated, source,
                     budget, predicates,
                 )
             },
@@ -383,7 +400,7 @@ pub(crate) fn expression_place(
 fn name_condition(
     target: BoundReferenceTarget,
     selection: Option<&SemanticSelection>,
-    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
 ) -> ExecutionCondition {
     let place = match selection {
         Some(SemanticSelection::StaticReference(selection)) => {
@@ -392,7 +409,7 @@ fn name_condition(
         _ => target.into(),
     };
 
-    if let Some(value) = current.get(&place) {
+    if let Some(value) = current.get_value(&place) {
         // The current state and expression retain the same immutable term independently.
         return value.clone();
     }
@@ -405,7 +422,11 @@ fn name_condition(
             | AnySymbolId::GenericConstParameter(_),
         )
         | BoundReferenceTarget::Local(AnyLocalSymbolId::AnonymousCallableParameter(_)) => {
-            ExecutionCondition::Input(target.into())
+            if matches!(target, BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(_))) {
+                ExecutionCondition::Input(target.into())
+            } else {
+                current.formal_input(&place).unwrap_or(ExecutionCondition::Unknown)
+            }
         }
         BoundReferenceTarget::Local(AnyLocalSymbolId::PostconditionResult(_)) => {
             ExecutionCondition::Result

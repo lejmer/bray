@@ -2,6 +2,25 @@ use std::sync::Arc;
 
 use super::super::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue};
 
+/// Access retained by a borrow type or implementation-family subject.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticBorrowKind {
+    /// Shared observation of the target.
+    Shared,
+    /// Mutable access to the target.
+    Mutable,
+}
+
+impl DiagnosticBorrowKind {
+    /// Returns the stable machine-readable capability name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Shared => "shared",
+            Self::Mutable => "mutable",
+        }
+    }
+}
+
 impl DiagnosticArg {
     /// Creates an expected semantic-type argument.
     pub const fn expected_type(ty: DiagnosticType) -> Self {
@@ -132,11 +151,36 @@ pub enum DiagnosticType {
     /// A nullable type.
     Nullable,
     /// A borrowed type.
-    Borrow,
+    Borrow {
+        /// Shared or mutable access to the target.
+        kind: DiagnosticBorrowKind,
+        /// The type reached by this borrow.
+        target: Box<Self>,
+    },
     /// A dynamically dispatched trait view.
     TraitView,
     /// An owned indirection type.
     OwnedIndirection,
     /// A callable type.
-    Callable,
+    Callable {
+        /// Parameters in declaration order.
+        parameters: Vec<super::callable::DiagnosticCallableParameter>,
+        /// Whether promoted trailing arguments are accepted.
+        variadic: bool,
+        /// The completed result type.
+        result: Box<Self>,
+        /// Constant evaluation eligibility.
+        constness: crate::DiagnosticCallableConstness,
+        /// Synchronous invocation or deferred async execution.
+        execution: crate::DiagnosticCallableExecution,
+        /// The callable's trust boundary.
+        trust: crate::DiagnosticCallableTrust,
+        /// The callable's native or Bray calling convention.
+        abi: super::callable::DiagnosticCallableAbi,
+    },
+}
+
+impl DiagnosticType {
+    /// Maximum nested type expansion retained by diagnostic converters.
+    pub const NESTING_LIMIT: usize = 256;
 }

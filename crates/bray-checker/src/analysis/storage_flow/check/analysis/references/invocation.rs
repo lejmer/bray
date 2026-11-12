@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::core::StorageFlowCollector;
@@ -46,6 +47,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             )
         });
 
+        if memory.is_some_and(|operation| match operation.kind() {
+            bray_bound_tree::CheckedMemoryOperationKind::Copy { pointee, .. } =>
+                self.input.footprint.complete_reference_types.get(pointee) == Some(&true),
+            bray_bound_tree::CheckedMemoryOperationKind::ByteBufferFill => true,
+            _ => false,
+        }) {
+            // Storing reference-free data publishes neither the source nor the
+            // destination pointer. Its destination mutation is modeled separately.
+            return BTreeSet::new();
+        }
+
         if memory.is_some_and(|operation| matches!(operation.kind(),
             bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelocate { .. }
                 | bray_bound_tree::CheckedMemoryOperationKind::RawBufferReplace { .. }
@@ -85,8 +97,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.append_reference_roots(
                 state,
                 value.into(),
-                self.argument_storage(value),
-                self.expression_reference(state, value),
+                self.memory_argument_target(state, operation, value).and_then(|target| target.storage_path().cloned()),
+                self.memory_argument_reference(state, operation, value),
                 &mut stored,
             );
 
@@ -124,35 +136,39 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .into_iter()
             .flatten()
             .filter_map(|effect| match effect {
-                Effect::Mutation(target, DependencyMutationKind::Escape) => Some(target),
+                Effect::Mutation(target, DependencyMutationKind::Escape, _) => Some(target),
                 _ => None,
             })
             .chain(roots.iter().filter(|_| all_inputs))
             .cloned()
             .collect::<Vec<_>>();
 
-        let mut escaped = memory.escaped_regions(targets);
+        // Cleanup can publish references stored in the disposed value. Its own
+        // receiver address remains governed by the terminal receiver contract.
+        let cleanup_references = effects.into_iter().flatten().flat_map(|effect| {
+            match effect {
+                Effect::Mutation(target, kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), _) => {
+                    Some(matches!(kind, DependencyMutationKind::Cleanup(_)).then_some(target).into_iter().chain(memory.contained_regions(target)))
+                }
+                _ => None,
+            }.into_iter().flatten().cloned()
+        });
 
-        for target in &escaped {
+        let roots = targets.into_iter().chain(cleanup_references).collect::<Vec<_>>();
+
+        // A possible alias inside this body is not an unconditional input escape.
+        // Retain the operands so callers resolve aliases using their actual storage.
+        for target in memory.escape_roots(roots.iter().cloned()) {
             self.record_target_effect(
                 memory,
-                target,
+                &target,
                 DependencyMutationKind::Escape,
+                None,
                 normal_effects,
             );
         }
 
-        // Generic cleanup retains its conditional effect in the exported summary.
-        // Only local exposure is conservative before that type is instantiated.
-        if !all_inputs
-            && effects.is_some_and(|effects| {
-                effects.iter().any(|effect| matches!(effect, Effect::Cleanup(_)))
-            })
-        {
-            escaped.extend(memory.escaped_regions(roots.iter().cloned()));
-        }
-
-        escaped
+        memory.escaped_regions(roots)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(
@@ -201,7 +217,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if let Some(expression) = occurrence.expression()
             && let Some(selection) = self.execution.semantics.selections().expression(expression)
-            && selection.evaluates_defaults()
+            && selection.stages_inputs()
         {
             if let BoundExecutionSite::CallInput { ordinal, .. } = occurrence {
                 let input = selection
@@ -544,7 +560,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let expression = occurrence.expression()?;
 
         if let Some(selection) = self.execution.semantics.selections().expression(expression)
-            && selection.evaluates_defaults()
+            && selection.stages_inputs()
             && let Some(BoundExecutionSite::CallInput {
                 expression,
                 ordinal,
@@ -568,6 +584,82 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         None
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_wrapping(
+        &self,
+        occurrence: BoundExecutionSite,
+        root: DependencySubjectRoot,
+    ) -> Vec<bray_bound_tree::StorageProjection> {
+        let Some(selection) = occurrence.expression().and_then(|expression| {
+            self.execution.semantics.selections().expression(expression)
+        }) else {
+            return Vec::new();
+        };
+
+        // Staged inputs already have their formal type, including its nullable wrapper.
+        if selection.stages_inputs() {
+            return Vec::new();
+        }
+
+        let Some(input) = selection
+            .invocation_input_ordinal(occurrence, root)
+            .and_then(|ordinal| selection.input(ordinal))
+        else {
+            return Vec::new();
+        };
+
+        if !input.conversion().is_some_and(|conversion| {
+            matches!(conversion.target(), bray_bound_tree::ConversionTarget::NullablePresent)
+        }) {
+            return Vec::new();
+        }
+
+        self.reference_wrapping(
+            input.expression().expect("an adapted input retains its source"),
+            input.ty(self.request.semantic_values()),
+        )
+        .expect("a checked nullable adaptation retains its complete wrapping")
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_reference_path<'p>(
+        &self,
+        occurrence: BoundExecutionSite,
+        root: DependencySubjectRoot,
+        path: &'p bray_bound_tree::StorageReferencePath,
+    ) -> Option<Cow<'p, bray_bound_tree::StorageReferencePath>> {
+        let wrapping = self.invocation_wrapping(occurrence, root);
+
+        if wrapping.is_empty() {
+            return Some(Cow::Borrowed(path));
+        }
+
+        // These projections belong to the formal value. They do not name cells
+        // in the caller's unwrapped argument, including beneath raw pointers.
+        let projections = path.projections().strip_prefix(wrapping.as_slice())?;
+
+        let borrows = path.borrows().iter().map(|(index, ty)| {
+            Some((index.checked_sub(wrapping.len())?, *ty))
+        }).collect::<Option<Vec<_>>>()?;
+
+        Some(Cow::Owned(bray_bound_tree::StorageReferencePath::new(
+            projections.into(),
+            borrows.into(),
+        )))
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_logical_path(
+        &self,
+        occurrence: BoundExecutionSite,
+        subject: &bray_symbols::DependencySubject,
+    ) -> Option<Place> {
+        let mut base = self.invocation_place(occurrence, subject.subject_root())?;
+        let path = self.dependencies.calls().get(&occurrence)?.reference_path(subject)?;
+        let path = self.invocation_reference_path(occurrence, subject.subject_root(), path)?;
+
+        base.projections = base.projections.iter().chain(path.projections()).copied().collect();
+
+        Some(base)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn record_input_targets(
@@ -765,13 +857,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Source>> {
         let contracts = self.dependencies.calls().get(&occurrence)?;
 
-        if subject.projections().is_empty()
-            && contracts
-                .reference_type(subject)
-                .is_some_and(|ty| crate::representation::reference_kind(self.request, ty).is_some())
+        if contracts
+            .reference_type(subject)
+            .is_some_and(|ty| crate::representation::reference_kind(self.request, ty).is_some())
+            && let Some(path) = contracts.reference_path(subject).and_then(|path| {
+                self.invocation_reference_path(occurrence, subject.subject_root(), path)
+            })
+            && path.projections().is_empty()
+            && path.borrows().is_empty()
         {
-            // A root borrow already denotes its referent, rather than a slot
-            // containing a reference value.
+            // Keep the actual reference source after removing formal wrapping.
+            // In particular, a borrow denotes its referent rather than a slot
+            // containing another reference value.
             return self
                 .invocation_reference(state, occurrence, subject.subject_root())
                 .map(|source| vec![source]);
@@ -797,6 +894,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .get(&occurrence)?
             .reference_path(subject)?;
 
+        let path = self.invocation_reference_path(occurrence, subject.subject_root(), path)?;
+
         let start = self.invocation_place(occurrence, subject.subject_root());
 
         if let Some(place) = &start
@@ -806,8 +905,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             )
         {
             return Some(vec![state.memory.reference_location(
+                self.request.semantic_values(),
                 Target::storage(place.clone()),
-                path,
+                &path,
                 None,
             )?]);
         }
@@ -818,12 +918,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             occurrence,
             subject.subject_root(),
         ) {
-            return self.call_reference_locations(state, argument, path);
+            return self.call_reference_locations(state, argument, &path);
         }
 
         let start = Target::storage(start?);
 
-        Some(vec![state.memory.reference_location(start, path, None)?])
+        Some(vec![state.memory.reference_location(self.request.semantic_values(), start, &path, None)?])
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn static_location(
@@ -867,13 +967,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 self.storage.logical_path(access).cloned()
             }
-            site @ (BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_)) =>
-                self.storage.invocation_result(site).and_then(|access| self.storage.logical_path(access)).cloned(),
-            BoundExecutionSite::ScopedEnter(expression) => self.storage.identity_entries()
-                .find_map(|(id, identity)| matches!(identity, bray_bound_tree::StorageIdentity::ScopedCapability { expression: owner, .. } if owner == expression).then_some(Place::root(id))),
+            site @ (BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_)) => {
+                let access = self.storage.invocation_result(site)
+                    .expect("implicit completion retains its planned result slot");
+
+                Some(self.storage.logical_path(access)
+                    .expect("implicit result slot has its logical path").clone())
+            }
             BoundExecutionSite::ScopedExit(_) => None,
             BoundExecutionSite::Cleanup(_) => panic!("cleanup suspension has no invocation result"),
-            BoundExecutionSite::Node(_) => self.expression_result_storage(occurrence.expression()?),
+            BoundExecutionSite::Node(_) => self.storage.invocation_result(occurrence)
+                .map(|access| self.storage.logical_path(access)
+                    .expect("explicit invocation result retains its complete path").clone())
+                .or_else(|| self.expression_result_storage(occurrence.expression()?)),
         }
     }
 }
@@ -886,7 +992,7 @@ pub(super) fn invocation_argument(
 ) -> Option<BoundExpressionId> {
     let selection = selections.expression(occurrence.expression()?)?;
 
-    if selection.evaluates_defaults() {
+    if selection.stages_inputs() {
         return match selection.invocation_input_site(occurrence, root)? {
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
                 Some(expression)
@@ -897,7 +1003,7 @@ pub(super) fn invocation_argument(
 
     match selection {
         SemanticSelection::Call(call) => {
-            crate::dependency::result_argument(call.arguments(), call.receiver(), root)
+            crate::dependency::result_input(call, root).and_then(bray_bound_tree::SelectedInput::expression)
         }
         SemanticSelection::Operation(operation) => {
             crate::dependency::operation_inputs(view, occurrence.expression()?, operation)

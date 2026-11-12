@@ -157,6 +157,24 @@ where
         }
     }
 
+    pub(super) fn retained_borrow_value(
+        &self,
+        state: &StorageFlowState,
+        access: StorageAccessId,
+    ) -> Option<BorrowCapabilityId> {
+        let access = self.storage.access(access)?;
+
+        if !access.projections().is_empty()
+            || !self.type_is_borrow(access.reached_type())
+        {
+            return None;
+        }
+
+        let borrow = access.root().borrow_capability()?;
+
+        (state.definitely_active_borrows.contains(&borrow) && state.memory.has_borrow(borrow)).then_some(borrow)
+    }
+
     pub(super) fn access_uses_borrow(&self, access: StorageAccessId) -> bool {
         let Some(record) = self.storage.access(access) else {
             return false;
@@ -302,6 +320,7 @@ where
             Some(
                 StorageIdentity::Result(_)
                 | StorageIdentity::Temporary(_)
+                | StorageIdentity::Evaluated(_)
                 | StorageIdentity::InvocationInput { .. }
                 | StorageIdentity::CustomIndexBorrow(_)
                 | StorageIdentity::InvocationResult(_)

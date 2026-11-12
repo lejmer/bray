@@ -23,6 +23,7 @@ const BOOTSTRAP_SMOKE_SOURCE: &str = concat!(
     include_str!("../../fixtures/runtime-event-smoke.c"),
     include_str!("../../fixtures/runtime-deadline-smoke.c"),
     include_str!("../../fixtures/runtime-numeric-smoke.c"),
+    include_str!("../../fixtures/runtime-root-smoke.c"),
 );
 
 pub(super) fn smoke_test(

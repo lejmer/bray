@@ -18,48 +18,22 @@ impl Lowerer<'_> {
             return Ok(None);
         }
 
-        let [
-            SelectedArgument::Explicit {
-                expression: message,
-                conversion,
-                reborrow,
-                ..
-            },
-        ] = selection.arguments()
-        else {
-            panic!(
-                "lowering contract violation: UnsupportedExpression {value:?}",
-                value = expression
-            );
+        let [argument @ SelectedArgument::Explicit { .. }] = selection.arguments() else {
+            panic!("testing failure retains its selected explicit message input");
         };
 
-        let lowered = self.lower_call_argument(*message, *reborrow, current)?;
+        let lowered = self.lower_selected_argument_input(expression, argument, current, &source)?;
 
-        let Some(current) = lowered.block else {
-            return Ok(Some(lowered));
-        };
+        let Some(current) = lowered.block else { return Ok(Some(lowered)); };
 
-        let Some(message) = lowered.value else {
-            panic!(
-                "lowering contract violation: MissingOperationResult {value:?}",
-                value = *message
-            );
-        };
-
-        let (current, mut message) = self.convert_operand(
-            expression,
-            current,
-            Self::retained_source(&source),
-            message,
-            conversion,
-        )?;
+        let message = lowered.value.expect("testing failure retains its staged message value");
 
         let current = self.lower_primitive_requirements(
             expression,
             current,
             &source,
             selection,
-            std::slice::from_mut(&mut message),
+            std::slice::from_ref(&message),
         )?;
 
         let report_type =

@@ -214,17 +214,17 @@ impl ExecutionWitness {
         }
     }
 
-    pub(crate) fn is_owning(
+    pub(crate) fn owning_condition(
         &self,
         trusted: &BTreeSet<(ExecutionCondition, bool)>,
         assumptions: &BTreeSet<(ExecutionCondition, bool)>,
-    ) -> bool {
-        self.conditions.iter().any(|(condition, guarantee)| {
+    ) -> Option<&ExecutionCondition> {
+        self.conditions.iter().find(|(condition, guarantee)| {
             guarantee.witness
                 && condition.prove_trusted(trusted, assumptions) == Some(true)
                 && condition.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT })
                     != Some(true)
-        })
+        }).map(|(condition, _)| condition)
     }
 
     /// Keep each clause on its complete carrier with only the addresses it observes.
@@ -361,7 +361,7 @@ impl super::ExecutionCallEvidence {
         let witness_inputs = self
             .witness_inputs
             .iter()
-            .map(|owner| owner.with_joined_values(identities, identities))
+            .map(|owner| owner.with_joined_owners(replacements, identities))
             .collect();
 
         let rename_facts = |facts: &BTreeSet<(ExecutionCondition, bool)>| {

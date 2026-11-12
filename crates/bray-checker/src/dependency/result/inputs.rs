@@ -9,6 +9,16 @@ use super::core::Transfer;
 use crate::{CheckerQueryError, CheckerRequestContext};
 
 impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
+    pub(super) fn borrowed_input_receiver(&self, input: BoundExecutionSite) -> Option<bray_bound_tree::BoundExpressionId> {
+        let BoundExecutionSite::CallInput { expression, ordinal } = input else { return None; };
+        let bray_bound_tree::SelectedInput::Receiver(receiver) = self.selections.expression(expression)
+            .expect("input dependency transfer retains its invocation")
+            .input(ordinal).expect("input dependency transfer retains its exact input") else { return None; };
+
+        matches!(receiver.mode(), bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable)
+            .then_some(receiver.expression())
+    }
+
     pub(super) fn input_values(
         &self,
         input: BoundExecutionSite,
@@ -32,17 +42,17 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             .expression(expression)
             .expect("input dependency transfer retains its invocation");
 
-        let input = selection
-            .input(ordinal)
-            .expect("input dependency transfer retains its exact input");
+        if let Some(receiver) = self.borrowed_input_receiver(site) {
+            if self.types.expression(receiver).is_some_and(|ty| {
+                matches!(self.request.semantic_values().type_data(ty.ty()).as_ref(),
+                    bray_symbols::TypeData::Borrow { .. })
+            }) {
+                // Implicit receiver borrowing reaches the existing referent. The
+                // temporary slot containing its descriptor is not a lifetime anchor.
+                return Ok(self.projected_values(receiver, &[]));
+            }
 
-        if let bray_bound_tree::SelectedInput::Receiver(receiver) = input
-            && matches!(
-                receiver.mode(),
-                bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable
-            )
-        {
-            return Ok(self.borrowed_values(receiver.expression(), &[]));
+            return Ok(self.borrowed_values(receiver, &[]));
         }
 
         let template =
@@ -75,7 +85,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         argument: BoundExecutionSite,
         path: &[bray_symbols::DependencyProjection],
         kind: DependencyRequirementKind,
-    ) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
+    ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         let ty = match argument {
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
                 return self.mapped_input_values(expression, path, kind);
@@ -83,13 +93,33 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             BoundExecutionSite::CallInput {
                 expression,
                 ordinal,
-            } => self
-                .selections
-                .expression(expression)
-                .expect("staged input retains its invocation")
-                .input(ordinal)
-                .expect("staged input retains its checked type")
-                .ty(self.request.semantic_values()),
+            } => {
+                let input = self.selections.expression(expression)
+                    .expect("staged input retains its invocation")
+                    .input(ordinal)
+                    .expect("staged input retains its checked type");
+
+                if matches!(kind, DependencyRequirementKind::BorrowCapabilityActive(_))
+                    && let Some((source, path)) = self.inputs.projected_input_value(
+                        self.request.semantic_values(), self.selections, argument, path,
+                    )
+                {
+                    return self.mapped_input_values(source, path, kind);
+                }
+
+                if kind == DependencyRequirementKind::ValueDependencies
+                    && !path.is_empty()
+                    && let Some((source, path)) = self.inputs.projected_input_value(
+                        self.request.semantic_values(), self.selections, argument, path,
+                    )
+                {
+                    // The source expression already has its evaluated snapshot. A copied
+                    // component carries that value's dependencies, not the input loan's lifetime.
+                    return Ok(self.copied_values(source, path)?.into_iter().collect());
+                }
+
+                input.ty(self.request.semantic_values())
+            }
             BoundExecutionSite::Iterate(expression) | BoundExecutionSite::Next(expression) => {
                 let Some(bray_bound_tree::SemanticSelection::Iteration(iteration)) =
                     self.selections.expression(expression)
@@ -102,7 +132,8 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 } else {
                     self.request
                         .semantic_values()
-                        .intern_type(bray_symbols::TypeData::Nullable(iteration.element_type()))?
+                        .intern_type(bray_symbols::TypeData::Nullable(iteration.element_type()))
+                        .expect("checked iteration retains its nullable element result type")
                 }
             }
             BoundExecutionSite::ScopedEnter(expression) => {

@@ -7,24 +7,26 @@ mod callback;
 mod entry;
 #[cfg(test)]
 pub(crate) use entry::bray_runtime_foreign_callback_execution;
-mod event;
+#[cfg(test)]
+mod event_tests;
 mod export;
 #[cfg(test)]
 mod fixtures;
 mod host;
+pub(crate) use host::record_cleanup_failure;
 #[doc(hidden)]
 pub mod implementation;
 mod outgoing;
+mod scope;
 mod state;
 #[cfg(test)]
 pub(crate) use state::test_runtime_isolation;
 mod static_finalizer;
 mod task;
-pub(crate) mod workers;
+#[cfg(test)]
+mod workers_tests;
 
 pub(crate) use state::{
-    NativeRuntimeCore, RetainedRuntime, RuntimeRetirement, retain_current_runtime, retain_runtime,
-    retain_timeout_runtime,
+    RetainedRuntime, retain_current_runtime, retain_runtime, with_cleanup_runtime,
 };
 pub(crate) use static_finalizer::{run_static_finalizer, with_static_cleanup_context};
-pub(crate) use task::NativeTaskServices;

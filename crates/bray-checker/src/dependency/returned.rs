@@ -77,13 +77,23 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         .map(|dispatch| request.context().dispatch_requirement(dispatch))
         .transpose()?;
 
+    let relation = call.implementation_hook().and_then(super::implementation::implementation_borrow);
     let template = if let Some((source, authority)) = call
         .implementation_hook()
         .and_then(super::implementation_dependency_source)
     {
+        let data = if matches!(call.implementation_hook(), Some(
+            bray_compiler_known::ImplementationHook::BorrowFrom | bray_compiler_known::ImplementationHook::BorrowMutFrom
+        )) {
+            relation.as_ref().and_then(bray_symbols::DependencyBorrowRelation::entry)
+                .expect("raw views retain the data dependencies of their physical pointer input").subject_root()
+        } else {
+            source
+        };
+
         store
             .intern_dependency_contract_template(DependencyContractTemplateData::new(
-                std::iter::once(value_requirement(source))
+                std::iter::once(value_requirement(data))
                     .chain(authority.map(|kind| DependencyRequirement::direct(
                         DependencySubject::root(source),
                         DependencyRequirementKind::BorrowCapabilityActive(kind),
@@ -118,7 +128,10 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
             .deferred_execution()
             .unwrap_or(call.phase_behaviors().invocation());
 
-        let mut template = DependencyContractTemplateData::new(requirements.iter().cloned());
+        // Callable values have no hidden environment. Only explicit inputs and
+        // externally reachable storage can participate in their body effects.
+        let mut template = DependencyContractTemplateData::new(requirements.iter().cloned())
+            .with_effects(bray_symbols::DependencyStorageEffect::capture_free_call());
 
         if call.invocation() == bray_symbols::CallableInvocation::Bray {
             template = template.with_abnormal_reports(requirements.iter().cloned());
@@ -145,10 +158,7 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         template = template.without_reports();
     }
 
-    if let Some(relation) = call
-        .implementation_hook()
-        .and_then(super::implementation::implementation_borrow)
-    {
+    if let Some(relation) = relation {
         template = template.with_borrows([relation]);
     }
 
@@ -246,9 +256,9 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
     if template
         .effects()
         .iter()
-        .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Cleanup(_)))
+        .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Direct { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. }))
     {
-        result = result.with_effects(resolve_cleanup_effects(request, template.effects())?);
+        result = result.with_effects(super::cleanup::resolve_effects(request, template.effects())?);
     }
 
     if let Some(instance) = cleanup_call {
@@ -265,159 +275,6 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
     }
 
     Ok(result)
-}
-
-fn resolve_cleanup_effects<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    effects: &[bray_symbols::DependencyStorageEffect],
-) -> Result<Vec<bray_symbols::DependencyStorageEffect>, CheckerQueryError<C::UpstreamError>> {
-    use bray_symbols::{DependencyStorageEffect, TypeData};
-
-    let mut cleanup = crate::asynchronous::CleanupShapeResolver::new(request);
-    let mut resolved = Vec::with_capacity(effects.len());
-
-    let mut pending = effects.to_vec();
-    let mut expanded = std::collections::BTreeSet::new();
-
-    while let Some(effect) = pending.pop() {
-        let DependencyStorageEffect::Cleanup(ty) = effect else {
-            resolved.push(effect);
-            continue;
-        };
-
-        if !expanded.insert(ty) {
-            continue;
-        }
-
-        if matches!(
-            cleanup.requirement(ty)?,
-            bray_bound_tree::AsyncStorageCleanupRequirement::None
-        ) {
-            continue;
-        }
-
-        let parts = crate::asynchronous::full_cleanup_parts(
-            &mut cleanup,
-            ty,
-            request.unit().key().source(),
-            false,
-        )?;
-
-        if parts.value().is_empty() {
-            resolved.extend(DependencyStorageEffect::opaque_call());
-            continue;
-        }
-
-        for (ty, part) in parts.value() {
-            if matches!(
-                request.semantic_values().type_data(*ty).as_ref(),
-                TypeData::TypeParameter(_)
-                    | TypeData::ContextualSelf(_)
-                    | TypeData::TypeValuedMemberProjection { .. }
-            ) && part.as_ref().is_some_and(|part| part.release().is_none())
-            {
-                resolved.push(DependencyStorageEffect::Cleanup(*ty));
-            } else {
-                append_cleanup_effects(request, *ty, part.as_ref(), &mut pending)?;
-            }
-        }
-    }
-
-    Ok(resolved)
-}
-
-fn append_cleanup_effects<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    ty: bray_symbols::TypeId,
-    part: Option<&bray_bound_tree::StorageCleanupPart>,
-    effects: &mut Vec<bray_symbols::DependencyStorageEffect>,
-) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-    use bray_symbols::{DependencyStorageEffect, TypeAssociatedLifecycleSlot, TypeData};
-
-    if let TypeData::Named {
-        definition,
-        substitution,
-    } = request.semantic_values().type_data(ty).as_ref()
-        && let Some(element) = request
-            .context()
-            .raw_buffer_element(*definition, *substitution)?
-    {
-        // Buffer disposal releases backing and resolves the initialized elements.
-        // The wrapper address does not escape merely because its backing is freed.
-        effects.push(DependencyStorageEffect::Unknown);
-
-        effects.push(DependencyStorageEffect::Cleanup(element));
-
-        return Ok(());
-    }
-
-    if let Some(release) = part.and_then(|part| part.release()) {
-        return append_cleanup_call_effects(request, release.callable(), effects);
-    }
-
-    if part.is_none_or(|part| !part.phases().includes_lifecycle())
-        || !matches!(
-            request.semantic_values().type_data(ty).as_ref(),
-            TypeData::Named { .. }
-        )
-    {
-        effects.extend(bray_symbols::DependencyStorageEffect::opaque_call());
-
-        return Ok(());
-    }
-
-    for slot in [
-        TypeAssociatedLifecycleSlot::Finalizer,
-        TypeAssociatedLifecycleSlot::Destructor,
-    ] {
-        let selected = request.context().lifecycle_callable(ty, slot)?;
-
-        if selected.diagnostics().has_errors() {
-            effects.extend(bray_symbols::DependencyStorageEffect::opaque_call());
-
-            return Ok(());
-        }
-
-        if let Some((callable, _)) = selected.value() {
-            append_cleanup_call_effects(request, *callable, effects)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn append_cleanup_call_effects<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    callable: bray_symbols::CallableInstanceData,
-    effects: &mut Vec<bray_symbols::DependencyStorageEffect>,
-) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-    use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
-
-    let template = request.callable_result_dependencies(callable.definition().callable_symbol())?;
-
-    let template = request
-        .semantic_values()
-        .substitute_dependency_contract(template, callable.substitution())
-        .expect("selected lifecycle substitution retains its checked dependency contract");
-
-    let template = request
-        .semantic_values()
-        .dependency_contract_template_data(template);
-
-    // The cleanup receiver is not an invocation input at this summary boundary.
-    // Keep conditional payload cleanup and capture separate from unknown mutation.
-    effects.extend(template.effects().iter().map(|effect| match effect {
-        DependencyStorageEffect::Direct { kind, .. }
-        | DependencyStorageEffect::Indirect { kind, .. } => match kind {
-            DependencyMutationKind::Escape => DependencyStorageEffect::Escape,
-            DependencyMutationKind::Atomic => DependencyStorageEffect::Atomic,
-            _ => DependencyStorageEffect::Unknown,
-        },
-        // The summary owns its effects and shares immutable subject projections.
-        effect => effect.clone(),
-    }));
-
-    Ok(())
 }
 
 pub(super) fn input_requirements(
@@ -444,24 +301,20 @@ fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {
     )
 }
 
-/// Resolves a portable input root to the expression selected at this call site.
-pub(crate) fn result_argument(
-    arguments: &[SelectedArgument],
-    receiver: Option<&bray_bound_tree::SelectedReceiver>,
+/// Resolves a portable input root to its complete checked input adaptation.
+pub(crate) fn result_input(
+    call: &SelectedCall,
     root: DependencySubjectRoot,
-) -> Option<bray_bound_tree::BoundExpressionId> {
+) -> Option<bray_bound_tree::SelectedInput<'_>> {
     match root {
-        DependencySubjectRoot::Parameter(parameter) => {
-            arguments.iter().find_map(|argument| match argument {
-                SelectedArgument::Explicit {
-                    ordinal,
-                    expression,
-                    ..
-                } if *ordinal == parameter.raw() => Some(*expression),
-                _ => None,
-            })
-        }
-        DependencySubjectRoot::Receiver => receiver.map(|receiver| receiver.expression()),
+        DependencySubjectRoot::Parameter(parameter) => call.arguments().iter().find_map(|argument| {
+            let ordinal = match argument {
+                SelectedArgument::Explicit { ordinal, .. } | SelectedArgument::Default { ordinal, .. } => *ordinal,
+            };
+
+            (ordinal == parameter.raw()).then_some(bray_bound_tree::SelectedInput::Argument(argument))
+        }),
+        DependencySubjectRoot::Receiver => call.receiver().map(bray_bound_tree::SelectedInput::Receiver),
         _ => None,
     }
 }
@@ -594,6 +447,10 @@ impl super::ValueInputs {
                 continue;
             };
 
+            if matches!(call.resolution().result(), bray_bound_tree::BoundCallResult::LazyFuture(_)) {
+                continue;
+            }
+
             let template = call_result_template(
                 request,
                 selections
@@ -602,27 +459,70 @@ impl super::ValueInputs {
                 &mut declaration,
             )?;
 
+            let mut sources = std::collections::BTreeSet::new();
+
             for relation in template.template.borrows() {
                 let Some(entry) = relation.entry() else {
-                    continue;
-                };
-
-                let [projection] = relation.exit().projections() else {
                     continue;
                 };
 
                 if !relation.is_exact()
                     || relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
                     || relation.dereferences() != 0
-                    || !relation.target_projections().is_empty()
-                    || !entry.projections().is_empty()
                     || relation.exit().subject_root() != DependencySubjectRoot::Result
                 {
                     continue;
                 }
 
-                // Address equality alone does not identify the value's lifetime source.
-                // Resolve a copied field only when its complete result contract names this input.
+                let Some(input) = result_input(call, entry.subject_root()) else { continue; };
+
+                let Some(argument) = input.expression() else { continue; };
+
+                let Some(projections) = crate::storage::unadapted_projections(
+                    request.semantic_values(), input.conversion(), entry.projections(),
+                ) else { continue; };
+
+                let mut entry_ty = types
+                    .expression(argument)
+                    .expect("returned borrow origin retains its checked argument")
+                    .ty();
+
+                for projection in projections {
+                    entry_ty =
+                        crate::storage::projected_value_type(request, entry_ty, *projection)?
+                            .value()
+                            .expect("returned borrow origin retains its checked projection");
+                }
+
+                // A lifetime anchor need not contain the referent. Only exact
+                // language-borrow origins identify aggregate storage here.
+                if crate::representation::reference_kind(request, entry_ty)
+                    == Some(bray_symbols::DependencyReferenceKind::Address)
+                {
+                    continue;
+                }
+
+                if borrowed_result && relation.exit().projections().is_empty() {
+                    sources.insert((
+                        argument,
+                        projections
+                            .iter()
+                            .chain(relation.target_projections())
+                            .copied()
+                            .collect::<Vec<_>>(),
+                    ));
+                }
+
+                let [projection] = relation.exit().projections() else {
+                    continue;
+                };
+
+                if !relation.target_projections().is_empty() || !entry.projections().is_empty() {
+                    continue;
+                }
+
+                // Resolve a copied borrow field only when its complete value
+                // contract and physical origin both name this input.
                 let expected = DependencyRequirement::direct(
                     DependencySubject::root(entry.subject_root()),
                     DependencyRequirementKind::ValueDependencies,
@@ -634,37 +534,29 @@ impl super::ValueInputs {
                     continue;
                 }
 
-                if let Some(argument) =
-                    result_argument(call.arguments(), call.receiver(), entry.subject_root())
+                let projected =
+                    crate::storage::projected_value_type(request, ty.ty(), *projection)?;
+
+                let field_ty = projected
+                    .value()
+                    .expect("returned borrow field retains its checked projection");
+
+                if request.semantic_values().unborrowed_type(field_ty)
+                    != request.semantic_values().unborrowed_type(entry_ty)
                 {
-                    self.projections
-                        .entry(expression)
-                        .or_default()
-                        .insert(*projection, (argument, None));
+                    continue;
                 }
+
+                self.projections
+                    .entry(expression)
+                    .or_default()
+                    .insert(*projection, (argument, None));
             }
 
-            if !borrowed_result {
-                continue;
+            if !sources.is_empty() {
+                self.borrowed
+                    .insert(expression, sources.into_iter().collect());
             }
-
-            let sources = template
-                .template
-                .requirements()
-                .iter()
-                .filter_map(|requirement| {
-                    let DependencyRequirement::Direct { subject, .. } = requirement else {
-                        return None;
-                    };
-
-                    let argument =
-                        result_argument(call.arguments(), call.receiver(), subject.subject_root())?;
-
-                    Some((argument, subject.projections().to_vec()))
-                })
-                .collect();
-
-            self.borrowed.insert(expression, sources);
         }
 
         Ok(())

@@ -1,3 +1,4 @@
+use bray_diagnostics::DiagnosticExecutionProofFailure as FailureCause;
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
@@ -67,7 +68,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     let graph = &prepared.graph;
     let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
-    let disposal = super::cleanup::Cleanup::new(&prepared.cleanup, body.dependencies())
+    let disposal = super::cleanup::Cleanup::new(&prepared.cleanup, body.dependencies(), request.semantic_values())
         .with_selection(body.asynchronous(), body.storage_flow());
 
     let mut excluded = graph
@@ -117,6 +118,10 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     };
 
     let mut candidate = reachable.candidate(memory, obligation);
+
+    if property == Some(ExecutionProperty::Pure) && !internal {
+        reachable.domain.check_predicate_blocks(body.storage_flow(), &mut diagnostics);
+    }
 
     if internal {
         for occurrence in candidate.calls.keys().copied() {
@@ -201,7 +206,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     let finite_loops =
         super::termination::finite_protocol_loops(&reachable, &cycles, &mut candidate);
 
-    check_completion(
+    match check_completion(
         request,
         graph,
         &reachable,
@@ -211,9 +216,17 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         &cycles,
         &finite_loops,
         &mut candidate,
-    );
+    ) {
+        Ok(()) => {}
+        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(crate::CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+    }
 
-    check_postconditions(&reachable, postconditions, &mut candidate);
+    match check_postconditions(&reachable, postconditions, &mut candidate) {
+        Ok(()) => {}
+        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(crate::CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
+    }
 
     if internal && property == Some(ExecutionProperty::Total) {
         super::termination::finite_step(&reachable, &mut candidate, &bounded_loops);
@@ -454,7 +467,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
             }
 
             if !preserves {
-                record_failure(request, candidate, node);
+                record_failure(request, candidate, node, FailureCause::Unproven);
             }
 
             if let Some(current) = &mut state {
@@ -543,30 +556,46 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
     cycles: &[(&super::super::model::AnalysisEdge, ExecutionState)],
     finite_loops: &BTreeSet<super::super::id::AnalysisBlockId>,
     candidate: &mut ExecutionCandidate,
-) {
+) -> crate::CheckerQueryResult<(), C::UpstreamError> {
     if property == Some(ExecutionProperty::Total) {
         for exit in graph
             .exits()
             .iter()
             .filter(|exit| reachable.is_block_reachable(exit.block()))
         {
-            if matches!(
-                exit.kind(),
-                AnalysisExitKind::Cancellation
-                    | AnalysisExitKind::Divergence
-                    | AnalysisExitKind::Recovery
-            ) || exit.kind() == AnalysisExitKind::Panic && !internal
-            {
-                record_failure(request, candidate, request.unit().root().into());
+            let cause = match exit.kind() {
+                AnalysisExitKind::Cancellation => FailureCause::Cancellation,
+                AnalysisExitKind::Divergence => {
+                    let loop_exit = matches!(exit.node(), AnyBoundNodeId::Expression(expression)
+                        if matches!(request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Structured(value))
+                            if value.kind() == bray_bound_tree::BoundStructuredExpressionKind::Loop));
+                    if loop_exit { FailureCause::UnboundedLoop } else { FailureCause::NonReturningPath }
+                }
+                AnalysisExitKind::Recovery => FailureCause::Recovery,
+                AnalysisExitKind::Panic if !internal => FailureCause::Panic,
+                _ => continue,
+            };
+            if candidate.failure.is_none() && cause == FailureCause::Panic {
+                if let Some(condition) = super::diagnostic::panic_requirement(reachable, exit.node())? {
+                    candidate.failure = Some(crate::ExecutionVerificationFailure {
+                        source: node_span(request, exit.node()), cause,
+                        condition: Some(std::sync::Arc::new(condition)),
+                    });
+                }
             }
+            record_failure(request, candidate, exit.node(), cause);
         }
 
-        if cycles.iter().any(|(edge, _)| {
+        if let Some((edge, _)) = cycles.iter().find(|(edge, _)| {
             !bounded_loops.contains_key(&edge.target()) && !finite_loops.contains(&edge.target())
         }) {
-            record_failure(request, candidate, request.unit().root().into());
+            let expression = graph.loop_expression(edge.target())
+                .expect("a cyclic edge targets its producer-owned loop header");
+            record_failure(request, candidate, expression.into(), FailureCause::UnboundedLoop);
         }
     }
+
+    Ok(())
 }
 
 fn check_expression_eligibility<C: CheckerRequestContext + ?Sized>(
@@ -585,11 +614,12 @@ fn check_expression_eligibility<C: CheckerRequestContext + ?Sized>(
         record_constant_failure(request, candidate, expression.into());
     }
 
-    if eligibility == super::predicate::ExpressionEligibility::Forbidden {
+    if matches!(eligibility, super::predicate::ExpressionEligibility::Forbidden | super::predicate::ExpressionEligibility::ForbiddenBlock(_)) {
         candidate
             .observation_failure
             .get_or_insert(node_span(request, expression.into()));
     }
+
 }
 
 fn classify_mutation<C: CheckerRequestContext + ?Sized>(
@@ -687,49 +717,40 @@ fn record_constant_failure<C: CheckerRequestContext + ?Sized>(
     candidate: &mut ExecutionCandidate,
     node: AnyBoundNodeId,
 ) {
-    let anchor = crate::diagnostic::bound_node_origin(request, node)
-        .map_or(request.unit().key().source().syntax(), |origin| {
-            origin.source_anchor().syntax()
-        });
-
     candidate
         .constant_failure
-        .get_or_insert(bray_source::SourceSpan::new(
-            anchor.source_id(),
-            anchor.full_range(),
-        ));
+        .get_or_insert_with(|| node_span(request, node));
 }
 
 fn record_failure<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     candidate: &mut ExecutionCandidate,
     node: AnyBoundNodeId,
+    cause: FailureCause,
 ) {
     if candidate.failure.is_some() {
         return;
     }
 
-    let anchor = crate::diagnostic::bound_node_origin(request, node)
-        .map_or(request.unit().key().source().syntax(), |origin| {
-            origin.source_anchor().syntax()
-        });
-
-    candidate.failure = Some(bray_source::SourceSpan::new(
-        anchor.source_id(),
-        anchor.full_range(),
-    ));
+    candidate.failure = Some(crate::ExecutionVerificationFailure { condition: None, source: node_span(request, node), cause });
 }
 
 fn check_postconditions<C: CheckerRequestContext + ?Sized>(
     flow: &super::flow::ExecutionFlow<'_, '_, C>,
     postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
     candidate: &mut ExecutionCandidate,
-) {
-    if let Some(source) =
-        super::postcondition::unproven_postconditions(flow, postconditions).first()
+) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+    if candidate.failure.is_none()
+        && let Some((source, failed)) = super::postcondition::unproven_postcondition(flow, postconditions)
     {
-        candidate.failure.get_or_insert(*source);
+        let condition = super::diagnostic::obligation(&flow.domain,
+            bray_diagnostics::DiagnosticContractObligationKind::Postcondition, &failed)?;
+        candidate.failure = Some(crate::ExecutionVerificationFailure {
+            source, cause: FailureCause::Unproven, condition: Some(std::sync::Arc::new(condition)),
+        });
     }
+
+    Ok(())
 }
 
 fn assert_execution_inputs<C: CheckerRequestContext + ?Sized>(

@@ -3,11 +3,40 @@ use std::sync::Arc;
 use bray_bound_tree::BoundReferenceTarget;
 use bray_symbols::{AnySymbolId, ConstantProjectionKind};
 
+/// Value observations used by construction and read-only normalization.
+pub(crate) trait ExecutionValues {
+    fn get_value(&self, place: &ExecutionPlace) -> Option<&super::ExecutionCondition>;
+    fn get_value_mut(&mut self, place: &ExecutionPlace) -> Option<&mut super::ExecutionCondition>;
+
+    /// Declaration normalization may introduce an unbound formal once. An
+    /// execution-state reader must not recover an entry after losing its value.
+    fn formal_input(&self, place: &ExecutionPlace) -> Option<super::ExecutionCondition> {
+        Some(super::ExecutionCondition::Input(place.clone()))
+    }
+}
+
+impl ExecutionValues for std::collections::BTreeMap<ExecutionPlace, super::ExecutionCondition> {
+    fn get_value(&self, place: &ExecutionPlace) -> Option<&super::ExecutionCondition> {
+        self.get(place)
+    }
+
+    fn get_value_mut(&mut self, place: &ExecutionPlace) -> Option<&mut super::ExecutionCondition> {
+        self.get_mut(place)
+    }
+}
+
 /// An observable input or local place, including its selected component path.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionPlace {
     pub(crate) root: ExecutionInput,
     pub(crate) projections: Arc<[ConstantProjectionKind]>,
+}
+
+/// An evaluated inline view is distinct from storage reached through its owner.
+pub(crate) enum ExecutionStorageSelection {
+    Inline(ExecutionPlace),
+    Reached,
+    UnresolvedInline(ExecutionPlace),
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -29,6 +58,56 @@ impl From<BoundReferenceTarget> for ExecutionPlace {
 }
 
 impl ExecutionPlace {
+    /// Selects retained inline data without extending its place into reached storage.
+    /// Unresolved selectors name only the containing view, never a guessed child.
+    pub(crate) fn select_storage_value(
+        storage: &bray_bound_tree::StoragePlan,
+        path: &bray_bound_tree::StoragePath,
+        values: &(impl ExecutionValues + ?Sized),
+        mut index: impl FnMut(&Self, bray_bound_tree::StorageProjection) -> Option<bray_symbols::SymbolOrdinal>,
+    ) -> Option<ExecutionStorageSelection> {
+        use bray_bound_tree::StorageProjection;
+
+        if path.projections.contains(&StorageProjection::OwnedTarget) {
+            return Some(ExecutionStorageSelection::Reached);
+        }
+
+        let mut place = Self::storage_identity(storage, path.root)?;
+
+        for projection in path.projections.iter().copied() {
+            let actual = place.value_in(values);
+
+            if actual.as_ref().and_then(super::ExecutionCondition::ownership_identity)
+                .is_some_and(|(kind, _)| kind == super::ExecutionObservationKind::Reference)
+            {
+                return Some(ExecutionStorageSelection::Reached);
+            }
+
+            let projection = Self::projection_kind(projection).or_else(|| {
+                let ordinal = match projection {
+                    StorageProjection::ElementFromEnd(offset) => actual.as_ref()
+                        .and_then(literal_array_extent)
+                        .and_then(|length| length.checked_sub(usize::try_from(offset.raw()).ok()?.checked_add(1)?))
+                        .and_then(|index| u32::try_from(index).ok())
+                        .map(bray_symbols::SymbolOrdinal::new)
+                        .or_else(|| index(&place, projection)),
+                    StorageProjection::Element(_) => index(&place, projection),
+                    _ => None,
+                }?;
+
+                Some(ConstantProjectionKind::ArrayElementOrdinal(ordinal))
+            });
+
+            let Some(projection) = projection else {
+                return Some(ExecutionStorageSelection::UnresolvedInline(place));
+            };
+
+            place = place.component(projection);
+        }
+
+        Some(ExecutionStorageSelection::Inline(place))
+    }
+
     /// Identifies one associated constant application, including its generic arguments.
     pub fn constant_reference(term: bray_symbols::ConstantTermId) -> Self {
         Self {
@@ -113,7 +192,8 @@ impl ExecutionPlace {
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<Self> {
-        Self::storage_owner(storage, access)?.project(storage.resolved_projections(access)?)
+        Self::storage_identity(storage, storage.root_identity(access)?)?
+            .project(storage.resolved_projections(access)?)
     }
 
     pub(crate) fn storage_path(
@@ -123,13 +203,17 @@ impl ExecutionPlace {
         Self::storage_identity(storage, path.root)?.project(&path.projections)
     }
 
+    /// Selects the containing storage that bounds a checked path's lifetime.
+    /// Dynamic elements and ranges keep their containing owner without naming a scalar value.
     pub(crate) fn storage_owner(
         storage: &bray_bound_tree::StoragePlan,
-        access: bray_bound_tree::StorageAccessId,
+        path: &bray_bound_tree::StoragePath,
     ) -> Option<Self> {
-        let identity = storage.root_identity(access)?;
+        let mut owner = Self::storage_identity(storage, path.root)?;
 
-        Self::storage_identity(storage, identity)
+        owner.projections = path.projections.iter().copied().map_while(Self::projection_kind).collect();
+
+        Some(owner)
     }
 
     pub(crate) fn storage_identity(
@@ -138,6 +222,9 @@ impl ExecutionPlace {
     ) -> Option<Self> {
         let root = match storage.identity(identity)? {
             bray_bound_tree::StorageIdentity::Parameter(parameter) => {
+                BoundReferenceTarget::Surface(parameter.into())
+            }
+            bray_bound_tree::StorageIdentity::PredicateParameter(parameter) => {
                 BoundReferenceTarget::Surface(parameter.into())
             }
             bray_bound_tree::StorageIdentity::Receiver(receiver) => {
@@ -156,13 +243,21 @@ impl ExecutionPlace {
                 if let Some(reference) = storage
                     .binding_targets(bray_bound_tree::StorageBinding::Identity(identity))
                     .find_map(bray_bound_tree::StorageBindingTarget::reference_target)
+                    .or_else(|| storage.root_access(identity).and_then(|access| {
+                        storage.binding_targets(bray_bound_tree::StorageBinding::Access(access))
+                            .find_map(bray_bound_tree::StorageBindingTarget::reference_target)
+                    }))
                 {
                     reference
                 } else if matches!(
                     kind,
                     bray_bound_tree::StorageIdentity::LocalOwned(_)
+                        | bray_bound_tree::StorageIdentity::Temporary(_)
+                        | bray_bound_tree::StorageIdentity::Evaluated(_)
+                        | bray_bound_tree::StorageIdentity::Result(_)
                         | bray_bound_tree::StorageIdentity::InvocationInput { .. }
                         | bray_bound_tree::StorageIdentity::InvocationResult(_)
+                        | bray_bound_tree::StorageIdentity::ScopedCapability { .. }
                 ) {
                     return Some(Self {
                         root: ExecutionInput::Storage(identity),
@@ -228,7 +323,7 @@ impl ExecutionPlace {
 
     pub(crate) fn value_in(
         &self,
-        values: &std::collections::BTreeMap<Self, super::ExecutionCondition>,
+        values: &(impl ExecutionValues + ?Sized),
     ) -> Option<super::ExecutionCondition> {
         for length in (0..=self.projections.len()).rev() {
             let prefix = Self {
@@ -236,7 +331,7 @@ impl ExecutionPlace {
                 projections: self.projections[..length].into(),
             };
 
-            if let Some(value) = values.get(&prefix) {
+            if let Some(value) = values.get_value(&prefix) {
                 // Component projections retain the same immutable snapshot as their containing value.
                 let mut value = value.clone();
 
@@ -291,4 +386,20 @@ impl ExecutionPlace {
     pub(crate) fn overlaps(&self, other: &Self) -> bool {
         self.contains(other) || other.contains(self)
     }
+}
+
+fn literal_array_extent(mut value: &super::ExecutionCondition) -> Option<usize> {
+    for _ in 0..super::ExecutionCondition::WORK_LIMIT {
+        match value {
+            super::ExecutionCondition::Observation { contents, kind: super::ExecutionObservationKind::Owned | super::ExecutionObservationKind::Scalar, .. } => value = contents,
+            super::ExecutionCondition::Constructed(base, _) => value = base,
+            super::ExecutionCondition::Literal(value) => return match value.kind() {
+                bray_symbols::ConstantValueKind::Array(elements) => Some(elements.len()),
+                _ => None,
+            },
+            _ => return None,
+        }
+    }
+
+    None
 }

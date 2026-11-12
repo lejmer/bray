@@ -87,6 +87,9 @@ fn displacement(
 
     *remaining -= 1;
 
+    let value = value.computed_value();
+    let base = base.computed_value();
+
     if value == base {
         return Some(num_bigint::BigInt::from(0));
     }
@@ -129,7 +132,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
         .graph
         .completion_exits()
         .filter_map(|exit| flow.output(exit.block()))
-        .filter(|state| !absent(&state.result, state))
+        .filter(|state| !absent(&flow.domain.returned_value(state), state))
         .collect::<Vec<_>>();
 
     if exits.is_empty() {
@@ -296,9 +299,9 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
                     .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
                     == Some(true);
 
-                let after = ExecutionCondition::PostState(
+                let after = ExecutionCondition::post_state(
                     bray_bound_tree::StorageMutation::Operation(*occurrence),
-                    place.clone(),
+                    ExecutionCondition::Input(place.clone()),
                 );
 
                 present && place.value_in(&state.current).as_ref() == Some(&after)

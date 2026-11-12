@@ -14,24 +14,46 @@ pub(in crate::analysis::storage_flow) enum Effect {
     Ambient,
     Escape,
     Atomic,
-    Mutation(Target, bray_symbols::DependencyMutationKind),
-    Cleanup(TypeId),
+    // The original checked access type belongs to the mutation. An alias bound
+    // supplies its region, never a substitute raw access or transfer type.
+    Mutation(Target, bray_symbols::DependencyMutationKind, Option<TypeId>),
+    UnboundedMutation {
+        kind: bray_symbols::DependencyMutationKind,
+        access_type: Option<TypeId>,
+        ambient: bool,
+    },
 }
 
 impl Effect {
     pub(in crate::analysis::storage_flow) fn is_ambient(&self) -> bool {
-        matches!(self, Self::Ambient)
+        matches!(self, Self::Ambient | Self::UnboundedMutation { ambient: true, .. } | Self::Mutation(_, bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), _))
+    }
+
+    pub(in crate::analysis::storage_flow) fn may_reach_all_inputs(&self) -> bool {
+        matches!(self, Self::Unknown | Self::UnboundedMutation { ambient: false, .. })
+    }
+
+    pub(in crate::analysis::storage_flow) fn unbounded(
+        kind: bray_symbols::DependencyMutationKind,
+        access_type: Option<TypeId>,
+        ambient: bool,
+    ) -> Self {
+        match kind {
+            bray_symbols::DependencyMutationKind::Atomic => Self::Atomic,
+            bray_symbols::DependencyMutationKind::Escape => Self::Escape,
+            _ => Self::UnboundedMutation { kind, access_type, ambient },
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn is_atomic(&self) -> bool {
         matches!(
             self,
-            Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic)
+            Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic, _)
         )
     }
 
     pub(super) fn retire(&mut self, current: &Target) {
-        if let Self::Mutation(target, _) = self
+        if let Self::Mutation(target, _, _) = self
             && current.contains(target)
         {
             target.previous = true;
@@ -42,7 +64,7 @@ impl Effect {
         match self {
             // Writes confined to an invocation-local slot do not publish an address.
             // Stored reference relations still track later publication of that slot.
-            Self::Mutation(target, kind) => {
+            Self::Mutation(target, kind, _) => {
                 kind.is_write()
                     && *kind != bray_symbols::DependencyMutationKind::Clear
                     && target.storage_path().is_none_or(|path| {
@@ -56,7 +78,8 @@ impl Effect {
                                 .is_some_and(|contents| contents.escaped)
                     })
             }
-            Self::Unknown | Self::Escape | Self::Cleanup(_) => true,
+            Self::UnboundedMutation { kind, .. } => kind.is_write() && *kind != bray_symbols::DependencyMutationKind::Clear,
+            Self::Unknown | Self::Escape => true,
             Self::Ambient | Self::Atomic => false,
         }
     }
@@ -65,13 +88,9 @@ impl Effect {
         &self,
     ) -> Option<(&Target, bray_symbols::DependencyMutationKind)> {
         match self {
-            Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape) => None,
-            Self::Mutation(target, kind) => Some((target, *kind)),
-            Self::Unknown
-            | Self::Ambient
-            | Self::Escape
-            | Self::Atomic
-            | Self::Cleanup(_) => None,
+            Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape, _) => None,
+            Self::Mutation(target, kind, _) => Some((target, *kind)),
+            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::UnboundedMutation { .. } => None,
         }
     }
 }
@@ -158,7 +177,7 @@ pub(super) struct Contents {
 }
 
 impl Contents {
-    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
+    pub(super) fn merge(&mut self, incoming: &Self, target: &Target) -> bool {
         let previous_exposure = self.exposed;
         let previous_escape = self.escaped;
 
@@ -170,7 +189,7 @@ impl Contents {
         match (self.storage_type, incoming.storage_type) {
             (Some(left), Some(right)) => assert_eq!(
                 left, right,
-                "one physical storage path has one declared type"
+                "one physical storage path has one declared type: {target:?}"
             ),
             (None, Some(ty)) => self.storage_type = Some(ty),
             _ => {}
@@ -217,7 +236,7 @@ impl CapturedEffects {
     pub(super) fn references(&self, current: &Target) -> bool {
         self.escaped.iter().any(|target| current.contains(target))
             || self.mutations.iter().any(
-                |effect| matches!(effect, Effect::Mutation(target, _) if current.contains(target)),
+                |effect| matches!(effect, Effect::Mutation(target, _, _) if current.contains(target)),
             )
     }
 
@@ -255,17 +274,22 @@ impl CapturedEffects {
 /// A value captured before consumption, with inline protected payload state at its destination.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Transfer {
+    /// Evaluated reference descriptors retained by this deferred frame, separate from published outputs.
+    pub(super) inputs: BTreeMap<Target, References>,
     pub(super) values: BTreeMap<Target, References>,
     pub(super) payloads: BTreeMap<Target, Contents>,
     pub(super) failure_effects: Option<std::sync::Arc<CapturedEffects>>,
     pub(super) deferred_effects: Option<BTreeSet<Effect>>,
+    pub(super) captured_cleanup: Option<BTreeSet<Effect>>,
+    pub(super) result_cleanup: Option<BTreeSet<Effect>>,
     pub(super) deferred: super::references::DeferredTransitions,
     pub(super) returned_inputs: BTreeMap<Place, References>,
 }
 
 impl Transfer {
     pub(super) fn merge(&mut self, incoming: &Self) -> bool {
-        let changed = merge_references(&mut self.values, &incoming.values, |_| false, |_| false);
+        let changed = merge_references(&mut self.inputs, &incoming.inputs, |_| false, |_| false);
+        let changed = merge_references(&mut self.values, &incoming.values, |_| false, |_| false) || changed;
 
         let mut changed = merge_contents(&mut self.payloads, &incoming.payloads) || changed;
 
@@ -279,15 +303,20 @@ impl Transfer {
                 .merge(bounds);
         }
 
-        if let Some(effects) = &mut self.deferred_effects {
-            if let Some(incoming) = &incoming.deferred_effects {
-                let before = effects.len();
-
-                effects.extend(incoming.iter().cloned());
-                changed |= before != effects.len();
-            } else {
-                self.deferred_effects = None;
-                changed = true;
+        for (effects, incoming) in [
+            (&mut self.deferred_effects, &incoming.deferred_effects),
+            (&mut self.captured_cleanup, &incoming.captured_cleanup),
+            (&mut self.result_cleanup, &incoming.result_cleanup),
+        ] {
+            if let Some(current) = effects {
+                if let Some(incoming) = incoming {
+                    let before = current.len();
+                    current.extend(incoming.iter().cloned());
+                    changed |= before != current.len();
+                } else {
+                    *effects = None;
+                    changed = true;
+                }
             }
         }
 
@@ -400,7 +429,7 @@ fn merge_contents(
 
     for (key, contents) in target.iter_mut() {
         match incoming.get(key) {
-            Some(incoming) => changed |= contents.merge(incoming),
+            Some(incoming) => changed |= contents.merge(incoming, key),
             None => {
                 changed |= !contents.initialized.is_empty();
                 contents.initialized.clear();
@@ -490,6 +519,12 @@ pub(in crate::analysis::storage_flow) struct ReferenceExit {
 }
 
 impl ReferenceExit {
+    pub(in crate::analysis::storage_flow) fn empty_slots(&self) -> impl Iterator<Item = &Place> {
+        self.slots.iter().filter_map(|(slot, references)| {
+            (!references.unknown && !references.displaced && references.targets.is_empty()).then_some(slot)
+        })
+    }
+
     pub(in crate::analysis::storage_flow) fn merge(&mut self, incoming: &Self) {
         merge_references(
             &mut self.slots,

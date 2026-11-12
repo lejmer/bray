@@ -1,0 +1,42 @@
+trusted module app;
+
+using core.memory;
+
+struct Marker
+{
+}
+
+struct Owner
+{
+    marker: Marker;
+}
+
+trusted predicate live(owner: &Marker);
+
+func observe(pos owner: &Owner)
+    requires(trusted live(owner = &owner.marker))
+{
+}
+
+trusted func fresh() -> DataPointer<u8>
+    ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 8, align = 8))
+    uses(manual_alloc)
+{
+    return trusted core.memory.allocate(bytes = 8, align = 8);
+}
+
+trusted func forward() -> DataPointer<u8>
+    ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 8, align = 8))
+{
+    return trusted fresh();
+}
+
+trusted func caller(pos owner: &Owner)
+    requires(trusted live(owner = &owner.marker))
+    uses(manual_alloc)
+{
+    let pointer = trusted forward();
+
+    trusted core.memory.deallocate(pointer, bytes = 8, align = 8);
+    observe(owner);
+}

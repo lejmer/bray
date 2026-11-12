@@ -6,6 +6,28 @@ use bray_diagnostics::DiagnosticKind;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn unresolved_async_inputs_retain_name_resolution_diagnostics() {
+    let checked = compilation(r#"
+        module app;
+
+        async func pass<T>(pos value: T) -> T
+        {
+            return value;
+        }
+
+        async func caller(pos input: MissingType<(u32, u32)>) -> u32
+        {
+            let value = await pass<MissingType<(u32, u32)>>(input);
+            return value.value.0;
+        }
+    "#);
+
+    assert!(checked.check_diagnostics().iter().any(|diagnostic|
+        diagnostic.kind() == DiagnosticKind::BindingUnresolvedName),
+        "{:?}", checked.check_diagnostics());
+}
+
+#[test]
 fn async_analysis_reports_awaits_in_synchronous_callables() {
     let compilation = compilation(concat!(
         "module app;\n",
@@ -306,6 +328,70 @@ fn asynchronous_calls_publish_target_specific_future_types() {
         selection.expression(),
         RepresentationRole::Future,
     );
+}
+
+#[test]
+fn await_result_owns_cleanup_until_the_local_binding_commits() {
+    let application = compilation(
+        r#"
+        module app;
+
+        struct Guard
+        {
+            destruct()
+            {
+            }
+        }
+
+        async func child() -> Guard
+        {
+            return Guard
+            {
+            };
+        }
+
+        async func pause()
+        {
+        }
+
+        async func caller()
+        {
+            let guard = await child();
+
+            await pause();
+        }
+        "#,
+    );
+
+    let key = crate::test_support::source_function_body_key(&application, "caller");
+    let bound = application.bound_unit(key.clone()).expect("caller binds");
+    let storage = application.storage_plan(key.clone()).expect("caller has storage");
+    let flow = application.storage_flow(key).expect("caller has checked storage flow");
+    assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+
+    let awaits = bound.value().tree().expressions().filter_map(|(id, expression)| {
+        matches!(expression, bray_bound_tree::BoundExpression::Await(_)).then_some(id)
+    }).collect::<Vec<_>>();
+    assert_eq!(awaits.len(), 2);
+
+    let local = storage.value().identity_entries().find_map(|(id, identity)| {
+        matches!(identity, bray_bound_tree::StorageIdentity::LocalOwned(_)).then_some(id)
+    }).expect("guard has local storage");
+    let result = storage.value().identity_entries().find_map(|(id, identity)| {
+        (identity == bray_bound_tree::StorageIdentity::Temporary(awaits[0])).then_some(id)
+    }).expect("await has result storage");
+
+    let mut completed = false;
+    for exit in flow.value().exits().iter().filter(|exit| exit.exit() == awaits[0].into()) {
+        assert!(!exit.live().contains(&local), "uncommitted local cannot own cleanup: {exit:?}");
+        completed |= exit.live().contains(&result);
+    }
+    assert!(completed, "completed await owns its result before cancellation");
+
+    let continued = flow.value().suspension(awaits[1]).expect("second await suspends");
+    assert!(continued.initialized().contains(&local));
+    assert!(!continued.initialized().contains(&result));
+    assert!(continued.moved().contains(&bray_bound_tree::StoragePath::root(result)));
 }
 
 #[test]

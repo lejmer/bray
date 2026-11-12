@@ -63,6 +63,14 @@ impl DiagnosticLabel {
 /// Stable category for a diagnostic source label.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticLabelKind {
+    /// The checked condition cannot be encoded for an imported consumer.
+    ContractConditionNotPortable,
+    /// A declared contract which has not been certified.
+    ContractNotVerified,
+    /// The exact operation, dependency or resource limit blocking certification.
+    ExecutionProofFailure,
+    /// The specific contract condition that the proof could not establish.
+    UnprovenContractCondition,
     /// Label for a character that the lexer cannot accept.
     InvalidCharacter,
     /// Label for a byte order mark after the start of the source.
@@ -161,6 +169,8 @@ pub enum DiagnosticLabelKind {
     BoxStoragePolicy,
     /// The operation or dependency that prevents an execution guarantee.
     ExecutionGuaranteeFailure,
+    /// A block-shaped expression forbidden in a predicate context.
+    ForbiddenPredicateBlock,
     /// A compound execution-context requirement lacks caller evidence.
     ExecutionRequirementFailure,
     /// A callable body that falls through without its result.
@@ -217,6 +227,10 @@ impl DiagnosticLabelKind {
     /// Returns the stable machine key for this label category.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::ContractConditionNotPortable => "contract_condition_not_portable",
+            Self::ContractNotVerified => "contract_not_verified",
+            Self::ExecutionProofFailure => "execution_proof_failure",
+            Self::UnprovenContractCondition => "unproven_contract_condition",
             Self::InvalidCharacter => "invalid_character",
             Self::MisplacedBom => "misplaced_bom",
             Self::LoneCarriageReturn => "lone_carriage_return",
@@ -266,6 +280,7 @@ impl DiagnosticLabelKind {
             Self::InvalidDeclaration => "invalid_declaration",
             Self::BoxStoragePolicy => "box_storage_policy",
             Self::ExecutionGuaranteeFailure => "execution_guarantee_failure",
+            Self::ForbiddenPredicateBlock => "forbidden_predicate_block",
             Self::ExecutionRequirementFailure => "execution_requirement_failure",
             Self::CallableResultRequired => "callable_result_required",
             Self::InvalidProductEntry => "invalid_product_entry",

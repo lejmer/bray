@@ -11,7 +11,7 @@ impl State {
         source: Place,
         ty: TypeId,
     ) {
-        self.borrow_target_storage(capability, Target::storage(source), ty);
+        self.borrow_target_storage(crate::test_support::semantic_values(), capability, Target::storage(source), ty);
     }
 
     pub(in crate::analysis::storage_flow) fn reborrow_value(
@@ -127,6 +127,27 @@ impl State {
             contents.pending.entry(ty).or_default().insert(origin);
         }
     }
+
+    pub(in crate::analysis::storage_flow) fn borrow_view(&mut self, slot: &Place, ty: TypeId) {
+        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())) else {
+            return;
+        };
+
+        if references.is_exact() {
+            let target = references
+                .targets
+                .first()
+                .expect("exact reference has one target");
+
+            // A checked borrow may interpret a differently typed region. Keep
+            // its provenance without making the view that region's declaration.
+            references.inexact = self
+                .contents
+                .get(target)
+                .and_then(|contents| contents.storage_type)
+                .is_some_and(|declared| declared != ty);
+        }
+    }
     pub(in crate::analysis::storage_flow::memory) fn references(
         &self,
         slot: &Target,
@@ -190,12 +211,20 @@ impl State {
             .chain(self.values.keys())
             .chain(references.targets.iter())
             .filter(|candidate| {
-                regions.as_ref().is_none_or(|regions| {
-                    regions.iter().any(|target| {
-                        self.target_relationship(target, candidate)
-                            != bray_bound_tree::StorageRelationship::Disjoint
-                    })
-                })
+                let reaches = |target: &Target| {
+                    self.target_relationship(target, candidate)
+                        != bray_bound_tree::StorageRelationship::Disjoint
+                };
+
+                match &regions {
+                    Some(regions) => regions.iter().any(reaches),
+                    // An unresolved pointer can still retain explicit possible
+                    // targets. Its unknown part cannot address private inline slots.
+                    None => {
+                        self.unknown_reference_may_reach(candidate)
+                            || references.targets.iter().any(reaches)
+                    }
+                }
             })
             // Targets share immutable paths while each transition owns its affected set.
             .cloned()

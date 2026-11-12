@@ -1,5 +1,6 @@
 mod argument;
 mod checking;
+mod contract;
 mod emission;
 mod foreign;
 mod interface;

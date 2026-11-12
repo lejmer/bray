@@ -4,6 +4,7 @@ trusted internal module bray.runtime.bootstrap.provider;
 using core.memory;
 using std.memory;
 using internal bray.runtime.bootstrap.host.product;
+using internal bray.runtime.bootstrap.host;
 
 trusted internal predicate native_callback(context: usize);
 
@@ -33,8 +34,14 @@ internal struct Callbacks
 // A borrowed native view acquires no ownership. The native supplier keeps its
 // immutable resident table and context alive through every acquisition.
 @layout(c)
+internal struct Acquisition
+{
+}
+
+@layout(c)
 internal struct Reference
 {
+    acquisition: Acquisition;
     context: usize;
     callbacks: DataPointer<Callbacks>;
 
@@ -53,12 +60,17 @@ trusted internal func resident_reference() -> Reference
 {
     return
     {
+        acquisition = Acquisition
+        {
+        },
         context = 0,
         callbacks = std.memory.null<Callbacks>()
     };
 }
 
-trusted internal predicate native_owned_reference(reference: &Reference);
+trusted internal predicate reference_owned(owner: &Acquisition);
+
+internal predicate native_owned_reference(reference: &Reference) = reference_owned(owner = &reference.acquisition);
 
 // Native report/incident headers transfer an already admitted owning reference.
 // Their enclosing noncopyable record owns the disposal protocol and backing. it

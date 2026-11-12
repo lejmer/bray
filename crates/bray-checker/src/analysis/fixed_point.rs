@@ -440,7 +440,9 @@ mod tests {
             [AnalysisExit::new(
                 block(4),
                 AnalysisExitKind::NormalFallthrough,
-            )],
+            exit_source(unit).into(),
+        )],
+            Default::default(),
         );
 
         for direction in [FlowDirection::Forward, FlowDirection::Backward] {
@@ -548,8 +550,17 @@ mod tests {
             [AnalysisExit::new(
                 second,
                 AnalysisExitKind::NormalFallthrough,
-            )],
+            exit_source(unit).into(),
+        )],
+            Default::default(),
         )
+    }
+
+    fn exit_source(unit: BoundUnitId) -> bray_bound_tree::BoundExpressionId {
+        let (_, expressions) = crate::test_support::expression_unit(unit, |tree, origin| vec![
+            crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None)),
+        ]);
+        expressions[0]
     }
 
     fn cyclic_graph() -> ControlFlowGraph {
@@ -569,7 +580,10 @@ mod tests {
                 None,
             )],
             [],
-            [AnalysisExit::new(block, AnalysisExitKind::Divergence)],
+            [AnalysisExit::new(block, AnalysisExitKind::Divergence,
+            exit_source(unit).into(),
+        )],
+            [(block, exit_source(unit))].into(),
         )
     }
 }

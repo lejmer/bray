@@ -1,0 +1,108 @@
+trusted module std.sync;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using internal std.sync.once;
+
+impl Once<T>
+{
+    internal trusted func state() -> &std.sync.once.State<T>
+        requires(trusted std.sync.once.valid(&self.prepared.instance))
+        ensures(trusted std.sync.once.valid(&self.prepared.instance))
+        executes(pure, total)
+        uses(raw_memory, unchecked_alias)
+    {
+        let locate = trusted lambda(pos owner: &std.sync.Once<T>) -> DataPointer<std.sync.once.State<T>>
+            requires(trusted std.sync.once.valid(&owner.prepared.instance))
+            ensures(
+                trusted core.memory.valid_read<std.sync.once.State<T>>(pointer = result, count = 1),
+                trusted core.memory.aligned_for<std.sync.once.State<T>>(pointer = result),
+                trusted core.memory.initialized_as<std.sync.once.State<T>>(pointer = result),
+                trusted core.memory.shared_alias_valid<std.sync.once.State<T>>(pointer = result),
+                trusted core.memory.epoch_current<std.sync.once.State<T>>(pointer = result),
+                trusted core.memory.synchronized_access<std.sync.once.State<T>>(pointer = result),
+                trusted core.memory.movement_stable<std.sync.once.State<T>>(pointer = result),
+                trusted core.memory.finalization_pending<std.sync.once.State<T>>(pointer = result)
+            )
+            executes(pure, total)
+        {
+            return std.memory.uninit_pointer<std.sync.once.State<T>>(&owner.prepared.storage);
+        };
+
+        return trusted std.memory.borrow_from<std.sync.once.State<T>, std.sync.Once<T>>(&self, trusted locate(&self));
+    }
+
+    internal trusted func initialized() -> bool
+        requires(trusted std.sync.once.valid(&self.prepared.instance))
+        ensures(
+            trusted std.sync.once.valid(&self.prepared.instance),
+            !result || trusted std.sync.once.ready(&self.prepared.instance)
+        )
+        executes(total)
+    {
+        return core.atomic.load<u32, 1>(&(trusted self.state()).phase) == std.sync.once.INITIALIZED;
+    }
+
+    internal func try_get() -> (&T)?
+        requires(trusted std.sync.once.valid(&self.prepared.instance))
+        ensures(trusted std.sync.once.valid(&self.prepared.instance))
+        executes(total)
+    {
+        if !trusted self.initialized()
+        {
+            return none;
+        }
+
+        return trusted self.value();
+    }
+
+    internal trusted consume mut func into_inner() -> T?
+        requires(trusted std.sync.once.valid(&self.prepared.instance))
+        uses(intrinsic)
+    {
+        if !trusted self.initialized()
+        {
+            if core.atomic.load<u32, 1>(&(trusted self.state()).phase) != std.sync.once.EMPTY
+            {
+                // Unique ownership excludes a live initialization attempt.
+                trusted core.target.abort();
+            }
+
+            return none;
+        }
+
+        let state = trusted self.state();
+
+        let take = trusted lambda(pos owner: &std.sync.Once<T>) -> T
+            requires(
+                trusted std.sync.once.valid(&owner.prepared.instance),
+                trusted std.sync.once.ready(&owner.prepared.instance)
+            )
+            uses(raw_memory)
+        {
+            let pointer = std.memory.uninit_pointer<T>(&(trusted owner.state()).value);
+
+            let permit = trusted lambda(pos owner: &std.sync.Once<T>, pos pointer: DataPointer<T>)
+                requires(
+                    trusted std.sync.once.valid(&owner.prepared.instance),
+                    trusted std.sync.once.ready(&owner.prepared.instance)
+                )
+                ensures(
+                    trusted core.memory.valid_read<T>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer)
+                )
+                executes(pure, total) {};
+
+            trusted permit(owner, pointer);
+            return trusted std.memory.read<T>(pointer);
+        };
+
+        let value = trusted take(&self);
+
+        core.atomic.store<u32, 0>(&state.phase, std.sync.once.EMPTY);
+        return value;
+    }
+}

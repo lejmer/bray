@@ -11,7 +11,7 @@ pub use contract::{
 };
 pub use overload::{
     DiagnosticCallableOverloadArm, DiagnosticCallableOverloadContext,
-    DiagnosticCallableOverloadProblem, DiagnosticImplementationBorrowKind,
+    DiagnosticCallableOverloadProblem, 
     DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
     DiagnosticImplementationOverloadProblem,
 };

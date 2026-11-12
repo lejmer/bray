@@ -16,7 +16,7 @@ pub(in crate::analysis) type Observer<'a> = dyn FnMut(
         &Lifecycle,
         bool,
         &ExecutionCallEvidence,
-        bool,
+        &Result<(), crate::UnprovenExecutionCondition>,
     ) + 'a;
 
 pub(in crate::analysis) struct LifecycleInvocation<'a> {
@@ -322,6 +322,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             false,
             false,
         );
+
+        if let Some(completion) = flow.completion(mutation) {
+            self.observe_references(state, completion.references());
+        }
     }
 
     #[expect(
@@ -361,13 +365,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let absent = definitely_absent.collect::<Vec<_>>();
 
-        for (part, step) in steps.iter().enumerate() {
-            let path = match step {
-                Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
+        'parts: for (part, step) in steps.iter().enumerate() {
+            let (path, guards) = match step {
+                Step::Opaque { path, guards, .. } | Step::Lifecycle { path, guards, .. } => (path.as_ref(), guards),
             };
 
             if path.is_some_and(|path| absent.iter().any(|absent| absent.contains(path))) {
                 continue;
+            }
+
+            let mut present = true;
+
+            for (path, operator, expected) in guards {
+                let condition = crate::ExecutionCondition::pattern(
+                    self.storage_path_value(state, path), *operator, expected.clone());
+
+                match condition.prove(&state.assumptions, &mut { crate::ExecutionCondition::WORK_LIMIT }) {
+                    Some(false) => continue 'parts,
+                    Some(true) => {}
+                    None => present = false,
+                }
             }
 
             let Step::Lifecycle {
@@ -375,11 +392,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 place,
                 path,
                 whole,
-                conditional,
                 guards,
             } = step
             else {
-                let Step::Opaque { ty, path } = step else {
+                let Step::Opaque { ty, path, .. } = step else {
                     unreachable!("non-lifecycle step is opaque cleanup");
                 };
 
@@ -400,7 +416,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 };
 
                 if let Some(mutate) = mutate {
-                    let Step::Opaque { ty, path } = step else {
+                    let Step::Opaque { ty, path, .. } = step else {
                         unreachable!("lifecycle handled below")
                     };
 
@@ -430,13 +446,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .as_ref()
                         .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
                     {
-                        state.assign(place, crate::ExecutionCondition::Unknown);
+                        state.current.retire(&place);
                     }
 
-                    let retained = std::iter::once(&state.result)
-                        .chain(state.current.values())
-                        .chain(state.pending_results.values())
-                        .flat_map(|value| state.owned_values(value))
+                    let retained = state.current.live_values()
+                        .chain(state.pending_results.values().cloned())
+                        .flat_map(|value| state.owned_values(&value))
                         .collect();
 
                     state.retire_trusted_values([disposed], &retained);
@@ -446,7 +461,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             let always = initialized
-                && !conditional
+                && present
                 && path.as_ref().is_some_and(|path| {
                     !moved.iter().any(|moved| {
                         moved.relationship(path) != bray_bound_tree::StorageRelationship::Disjoint
@@ -493,15 +508,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .assume(true, &mut evidence.assumptions);
                 }
 
-                let established = self
-                    .trusted_requirements_proven(&evidence, &lifecycle.contract.requirements)
-                    && evidence.proves(
-                        lifecycle
-                            .contract
-                            .preconditions
-                            .iter()
-                            .map(|(condition, _)| condition),
-                    );
+                let requirements = self.prove_trusted_requirements(&evidence, &lifecycle.contract.requirements)
+                    .and_then(|()| evidence.prove_requirements(lifecycle.contract.preconditions.iter()
+                        .map(|(condition, _)| condition)));
+                let established = requirements.is_ok();
 
                 if let Some(observe) = observe {
                     observe(
@@ -511,7 +521,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         lifecycle,
                         *whole,
                         &evidence,
-                        established,
+                        &requirements,
                     );
                 }
 
@@ -553,25 +563,20 @@ impl Lifecycle {
         place: Option<&ExecutionPlace>,
         value: Option<crate::ExecutionCondition>,
     ) -> ExecutionCallEvidence {
-        let mut arguments = BTreeMap::new();
+        // Capture one actual receiver snapshot. Its components are projections
+        // of this value, including when the receiver itself is a component.
+        let arguments = value
+            .map(|value| BTreeMap::from([(self.receiver.into(), value)]))
+            .unwrap_or_default();
 
-        for (observed, value) in &state.current {
-            if let Some(place) = place
-                && place.contains(observed)
-            {
-                let mut input = ExecutionPlace::from(self.receiver);
+        let mut assumptions = state.assumptions.clone();
 
-                for field in observed.projections.iter().skip(place.projections.len()) {
-                    input = input.component(*field);
-                }
-
-                // Cleanup can overwrite the receiver, so entry evidence owns its observations.
-                arguments.insert(input, value.clone());
-            }
-        }
-
-        if let Some(value) = value {
-            arguments.entry(self.receiver.into()).or_insert(value);
+        // Conditional cleanup executes only for the initialized receiver. This
+        // selects a previously proved guarded clause, and creates no authority.
+        if let Some(place) = place
+            && let super::super::current::ValueAvailability::Guarded(guard) = state.current.availability(place)
+        {
+            guard.assume(true, &mut assumptions);
         }
 
         // Entry assumptions must survive the mutations made by this lifecycle invocation.
@@ -585,7 +590,7 @@ impl Lifecycle {
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,
             arguments,
-            assumptions: state.assumptions.clone(),
+            assumptions,
             trusted_assumptions: state.trusted_assumptions.clone(),
         }
     }

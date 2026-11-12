@@ -1091,6 +1091,19 @@ fn raw_addresses_cannot_bypass_custom_witness_copy_contracts() {
         compilation.check_diagnostics(),
         DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
     );
+
+    let diagnostics = compilation.check_diagnostics();
+    let failure = diagnostics.iter().flat_map(|diagnostic| diagnostic.args())
+        .find_map(|argument| match argument.value() {
+            bray_diagnostics::DiagnosticArgValue::WitnessTransfer(failure) => Some(failure),
+            _ => None,
+        }).expect("rejected copy retains its transfer cause");
+
+    assert_eq!(failure.kind, bray_diagnostics::DiagnosticWitnessTransferKind::Copy);
+    assert!(matches!(&failure.guarantee,
+        bray_diagnostics::DiagnosticCondition::Application { path, arguments, .. }
+            if path.last().is_some_and(|name| name == "live") && arguments.len() == 1),
+        "{:?}", failure.guarantee);
 }
 
 #[test]
@@ -2335,6 +2348,49 @@ fn raw_read_uses_declared_storage_obligations() {
 }
 
 #[test]
+fn moving_raw_contents_preserves_allocation_ownership_until_deallocation() {
+    for (completion, valid) in [
+        ("return value;", true),
+        (
+            "trusted core.memory.deallocate(address, bytes = 1, align = 1); return value;",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+
+            using core.memory;
+            struct Payload {{ value: u8; }}
+            trusted func take(pos pointer: DataPointer<Payload>) -> Payload
+                requires(
+                    trusted core.memory.owned_allocation(pointer = core.memory.byte_address<Payload>(pointer), bytes = 1, align = 1),
+                    trusted core.memory.valid_read<Payload>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<Payload>(pointer = pointer),
+                    trusted core.memory.initialized_as<Payload>(pointer = pointer),
+                )
+                uses(raw_memory, manual_alloc)
+            {{
+                let value = trusted core.memory.read<Payload>(pointer);
+                let address = core.memory.byte_address<Payload>(pointer);
+                trusted core.memory.deallocate(address, bytes = 1, align = 1);
+                {completion}
+            }}
+            "#,
+        );
+
+        let compilation = compilation(&source);
+
+        assert_eq!(
+            !compilation.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            compilation.check_diagnostics()
+        );
+    }
+}
+
+#[test]
 fn ordinary_field_copy_does_not_outlive_its_witness() {
     let compilation = compilation(
         r#"
@@ -2660,21 +2716,42 @@ fn deferred_producers_require_live_entry_evidence_when_their_body_begins() {
         ("if flag { unchanged(); }", true),
         ("opaque();", false),
         ("if flag { opaque(); }", false),
-        ("epoch = 2;", false),
+        ("epoch = 2;", true),
+        ("epoch = 2; _ = await owner(epoch);", false),
     ] {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Owner {{ epoch: u64; }}
+
+            struct Owner
+            {{
+                epoch: u64;
+            }}
+
             trusted predicate admitted(epoch: u64);
             trusted predicate live(value: &Owner);
+
             trusted async func owner(pos epoch: u64) -> Owner
-                requires(trusted admitted(epoch)) ensures(trusted live(&result))
-                {{ return {{ epoch = epoch }}; }}
-            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            func unchanged() {{}}
+                requires(trusted admitted(epoch))
+                ensures(trusted live(&result))
+            {{
+                return {{ epoch = epoch }};
+            }}
+
+            func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {{
+            }}
+
+            func unchanged()
+            {{
+            }}
+
             extern func opaque();
-            async func caller(pos mut epoch: u64, flag: bool) requires(trusted admitted(epoch)) {{
+
+            async func caller(pos mut epoch: u64, flag: bool)
+                requires(trusted admitted(epoch))
+            {{
                 let future = owner(epoch);
                 {intervening}
                 let value = await future;
@@ -2689,6 +2766,12 @@ fn deferred_producers_require_live_entry_evidence_when_their_body_begins() {
             "{intervening}: {:?}",
             compilation.check_diagnostics()
         );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
     }
 }
 
@@ -2762,7 +2845,7 @@ fn spare_capacity_bounds_prove_unsigned_sums_without_wrapping_subtraction() {
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
                 compilation.check_diagnostics(),
-                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                DiagnosticKind::CheckingPostconditionNotProven,
             );
         }
     }
@@ -2790,8 +2873,77 @@ fn spare_capacity_bounds_prove_unsigned_sums_without_wrapping_subtraction() {
 
     bray_testing::assert_goal_state_diagnostic_kind(
         compilation.check_diagnostics(),
-        DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+        DiagnosticKind::CheckingPostconditionNotProven,
     );
+}
+
+#[test]
+fn machine_products_retain_proven_bounds_across_boolean_joins() {
+    let compound = r"
+        if stride != 0 && capacity > maximum / stride
+        {
+            return;
+        }
+    ";
+    let split = r"
+        if stride != 0
+        {
+            if capacity > maximum / stride
+            {
+                return;
+            }
+        }
+    ";
+
+    for (source_value, guard, valid) in [
+        ("supplied", "", false),
+        ("supplied", compound, true),
+        ("supplied", split, true),
+        ("trusted opaque_stride()", compound, true),
+    ] {
+        let source = format!(r"
+            trusted module app;
+
+            struct Owner {{}}
+
+            trusted predicate extent(owner: &Owner, bytes: usize);
+
+            trusted func allocate(pos bytes: usize) -> Owner
+                ensures(trusted extent(owner = &result, bytes = bytes))
+            {{
+                return Owner {{}};
+            }}
+
+            extern const func opaque_stride() -> usize;
+
+            func inspect(pos owner: &Owner, pos stride: usize, pos capacity: usize)
+                requires(
+                    stride * capacity <= 18446744073709551615,
+                    trusted extent(owner = owner, bytes = stride * capacity)
+                )
+            {{
+            }}
+
+            trusted func caller(pos supplied: usize, pos capacity: usize)
+            {{
+                let stride: usize = {source_value};
+                let maximum: usize = 18446744073709551615;
+
+                {guard}
+
+                let bytes: usize = stride * capacity;
+                let owner = allocate(bytes);
+
+                inspect(&owner, stride, capacity);
+            }}
+        ");
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "source={source_value}, guard={guard}: {diagnostics:#?}");
+        assert!(diagnostics.iter().all(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven),
+            "the negative must reach its ownership requirement: {diagnostics:#?}");
+    }
 }
 
 #[test]
@@ -4425,7 +4577,12 @@ fn default_mutation_retires_authority_before_the_selected_call_entry() {
 
 #[test]
 fn repeated_array_witness_copies_use_the_checked_extent() {
-    for (count, extent, valid) in [("ONE", 1, true), ("one()", 1, true), ("TWO", 2, false), ("two()", 2, false)] {
+    for (count, extent, valid) in [
+        ("ONE", 1, true),
+        ("one()", 1, true),
+        ("TWO", 2, false),
+        ("two()", 2, false),
+    ] {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
@@ -4468,11 +4625,17 @@ fn repeated_array_witness_copies_use_the_checked_extent() {
             "#
         ));
 
-        assert_eq!(!compilation.check_diagnostics().has_errors(), valid, "{count}: {:#?}", compilation.check_diagnostics());
+        assert_eq!(
+            !compilation.check_diagnostics().has_errors(),
+            valid,
+            "{count}: {:#?}",
+            compilation.check_diagnostics()
+        );
 
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
-                compilation.check_diagnostics(), DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
             );
         }
     }

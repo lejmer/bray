@@ -2,6 +2,17 @@ use bray_bound_tree::BoundOperator;
 use bray_symbols::ConstantValueData;
 use std::sync::Arc;
 
+/// How a current observation relates to the storage or value that retains it.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutionObservationKind {
+    /// Current contents belong to this complete owned value.
+    Owned,
+    /// Current reached data is observed through a retained reference value.
+    Reference,
+    /// Copied scalar data is observed at an independently identified storage place.
+    Scalar,
+}
+
 /// A bounded, source-independent value used to compare entry and completion conditions.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ExecutionCondition {
@@ -13,6 +24,8 @@ pub enum ExecutionCondition {
     Tagged(bray_symbols::UnionVariantSymbolId, Arc<ExecutionCondition>),
     /// A test of a union tag, independent of its payload.
     VariantTest(bray_symbols::UnionVariantSymbolId, Arc<ExecutionCondition>),
+    /// An immutable nullable presence or union tag, without payload data or authority.
+    Discriminant(Arc<ExecutionCondition>),
     /// A checked literal value.
     Literal(Arc<ConstantValueData>),
     /// The value of a supplied input before execution begins.
@@ -37,16 +50,36 @@ pub enum ExecutionCondition {
         Arc<ExecutionCondition>,
         Arc<[(bray_bound_tree::StorageProjection, ExecutionCondition)]>,
     ),
-    /// Fresh contents observed after a checked mutation. This establishes no guarantee.
+    /// Current data retains its identity independently of its observation role.
+    /// Reference contents never transfer ownership of the reached storage.
+    Observation {
+        owner: Arc<ExecutionCondition>,
+        contents: Arc<ExecutionCondition>,
+        kind: ExecutionObservationKind,
+    },
+    /// Fresh contents of one value identity after a checked mutation.
+    /// The identity carries no previous contents or new guarantee.
     PostState(
         bray_bound_tree::StorageMutation,
-        crate::execution_guarantees::ExecutionPlace,
+        Arc<ExecutionCondition>,
     ),
     /// The current value of storage where control-flow predecessors meet.
     Joined(
         bray_bound_tree::BoundUnitId,
         u32,
         crate::execution_guarantees::ExecutionPlace,
+    ),
+    /// A produced opaque scalar datum with an immutable execution identity and no owner authority.
+    ScalarValue(Arc<ExecutionCondition>),
+    /// A proof-only correspondence between the same immutable data observations.
+    /// This is not numeric equality and carries no ownership or trusted evidence.
+    ValueAlias(Arc<ExecutionCondition>, Arc<ExecutionCondition>),
+    /// Immutable initialized-state observation at an ownership join. The value
+    /// identity distinguishes incarnations without becoming access authority.
+    InitializedSnapshot(
+        crate::execution_guarantees::ExecutionPlace,
+        Arc<ExecutionCondition>,
+        Arc<ExecutionCondition>,
     ),
     /// A selected built-in operation on other known values.
     Operation(BoundOperator, Arc<[ExecutionCondition]>),
@@ -62,6 +95,8 @@ pub enum ExecutionCondition {
         Option<bray_symbols::ImplementationInstanceData>,
         Arc<[bray_symbols::ImplementationInstanceData]>,
         Arc<[ExecutionCondition]>,
+        // A checked borrowed result type identifies a reference computation without granting ownership.
+        Option<bray_symbols::TypeId>,
     ),
     /// One component of an observed immutable value.
     Projection(
@@ -85,7 +120,7 @@ impl ExecutionCondition {
     // Bound recursive normalization and implication work, including adversarial source depth.
     pub(crate) const WORK_LIMIT: usize = bray_symbols::EXECUTION_CONDITION_WORK_LIMIT;
 
-    pub(super) fn is_unknown(&self) -> bool {
+    pub(crate) fn is_unknown(&self) -> bool {
         let mut condition = self;
 
         loop {
@@ -93,7 +128,8 @@ impl ExecutionCondition {
                 Self::Unknown => return true,
                 Self::Trusted(value)
                 | Self::Borrowed(value)
-                | Self::Present(value)
+                | Self::Discriminant(value)
+            | Self::Present(value)
                 | Self::Projection(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Entry {
@@ -106,12 +142,14 @@ impl ExecutionCondition {
     }
     pub(crate) fn contains_trusted(&self) -> bool {
         match self {
+            Self::ValueAlias(left, right) => left.contains_trusted() || right.contains_trusted(),
             Self::Trusted(_) => true,
             Self::Operation(_, operands)
             | Self::Predicate(_, _, operands)
-            | Self::Call(_, _, _, operands) => operands.iter().any(Self::contains_trusted),
+            | Self::Call(_, _, _, operands, _) => operands.iter().any(Self::contains_trusted),
             Self::Tagged(_, value)
             | Self::VariantTest(_, value)
+            | Self::Discriminant(value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::Borrowed(value)
@@ -119,6 +157,7 @@ impl ExecutionCondition {
                 condition: value, ..
             }
             | Self::CapturedInput { owner: value, .. } => value.contains_trusted(),
+            Self::Observation { owner, contents: value, .. } => owner.contains_trusted() || value.contains_trusted(),
             Self::Constructed(base, fields) => {
                 base.contains_trusted() || fields.iter().any(|(_, value)| value.contains_trusted())
             }
@@ -131,15 +170,20 @@ impl ExecutionCondition {
             | Self::ScopedCapability(_)
             | Self::PostState(_, _)
             | Self::Joined(_, _, _)
+            | Self::ScalarValue(_)
+            | Self::InitializedSnapshot(_, _, _)
             | Self::Unknown => false,
         }
     }
 
-    pub(super) fn contains_unknown(&self) -> bool {
+    pub(crate) fn contains_unknown(&self) -> bool {
         match self {
+            Self::ValueAlias(left, right) => left.contains_unknown() || right.contains_unknown(),
             Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),
+            Self::Observation { owner, contents: value, .. } => owner.contains_unknown() || value.contains_unknown(),
             Self::Trusted(value)
             | Self::Borrowed(value)
+            | Self::Discriminant(value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::VariantTest(_, value)

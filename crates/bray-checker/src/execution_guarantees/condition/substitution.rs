@@ -1,4 +1,5 @@
 use super::ExecutionCondition;
+use crate::execution_guarantees::ExecutionObservationKind;
 use bray_bound_tree::BoundOperator;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -24,30 +25,18 @@ impl ExecutionCondition {
     /// surviving owner, so recursively resolving it as an equality would cycle.
     pub(crate) fn with_snapshots(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
         self.substitute_values(
-            &|condition| {
-                if let Some(value) = snapshots.get(condition) {
-                    return Some(value.clone());
-                }
+            &|condition| snapshot_value(condition, snapshots),
+            &mut { Self::WORK_LIMIT },
+        )
+    }
 
-                let Self::Input(place) = condition else {
-                    return None;
-                };
-
-                for length in (0..place.projections.len()).rev() {
-                    let mut prefix = place.clone();
-
-                    prefix.projections = place.projections[..length].into();
-
-                    if let Some(value) = snapshots.get(&Self::Input(prefix)) {
-                        return Some(
-                            place.projections[length..]
-                                .iter()
-                                .fold(value.clone(), |value, field| value.component(*field)),
-                        );
-                    }
-                }
-
-                None
+    /// Copy correlations apply to values. They cannot relocate borrowed observations.
+    pub(crate) fn with_copy_origins(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
+        self.substitute_values(
+            &|condition| match condition {
+                Self::Borrowed(_) | Self::Observation { kind: ExecutionObservationKind::Reference, .. } =>
+                    Some(condition.clone()),
+                _ => snapshot_value(condition, snapshots),
             },
             &mut { Self::WORK_LIMIT },
         )
@@ -80,7 +69,11 @@ impl ExecutionCondition {
         }
 
         match self {
-            Self::Call(callable, implementation, witnesses, operands) => Self::call(
+            Self::Discriminant(value) => value.substitute_values(replace, budget).discriminant(),
+            Self::ValueAlias(left, right) => Self::value_alias(
+                left.substitute_values(replace, budget), right.substitute_values(replace, budget),
+            ),
+            Self::Call(callable, implementation, witnesses, operands, reference_type) => Self::call(
                 *callable,
                 *implementation,
                 witnesses.iter().copied(),
@@ -88,20 +81,21 @@ impl ExecutionCondition {
                     .iter()
                     .map(|operand| operand.substitute_values(replace, budget))
                     .collect(),
+                *reference_type,
             ),
             Self::Predicate(predicate, substitution, operands) => Self::predicate(
                 *predicate,
                 *substitution,
                 operands
                     .iter()
-                    .map(|operand| operand.substitute_values(replace, budget))
+                    .map(|operand| operand.substitute_values(replace, budget).argument_value(operand.is_reference()))
                     .collect(),
             ),
             Self::Trusted(value) => {
                 Self::Trusted(Arc::new(value.substitute_values(replace, budget)))
             }
             Self::Borrowed(value) => value.substitute_values(replace, budget).borrowed(),
-            Self::Present(value) => value.substitute_values(replace, budget).present(),
+            Self::Present(value) => Self::Present(Arc::new(value.substitute_values(replace, budget))),
             Self::Tagged(variant, value) => {
                 Self::Tagged(*variant, Arc::new(value.substitute_values(replace, budget)))
             }
@@ -127,8 +121,12 @@ impl ExecutionCondition {
                 invocation: *invocation,
                 ordinal: *ordinal,
             },
-            Self::Constructed(base, fields) => Self::Constructed(
-                Arc::new(base.substitute_values(replace, budget)),
+            Self::Observation { owner, contents, kind } => Self::observation(
+                owner.substitute_values(replace, budget),
+                contents.substitute_values(replace, budget),
+                *kind,
+            ),
+            Self::Constructed(base, fields) => Self::constructed(base.substitute_values(replace, budget),
                 fields
                     .iter()
                     .map(|(field, value)| (*field, value.substitute_values(replace, budget)))
@@ -195,20 +193,22 @@ impl ExecutionCondition {
         let mut replacements = BTreeMap::new();
         let mut budget = Self::WORK_LIMIT;
 
-        for (condition, value) in assumptions.iter().take(Self::WORK_LIMIT) {
-            let Self::Operation(operator, operands) = condition else {
-                continue;
-            };
+        let derived = assumptions.iter().any(|(condition, _)| matches!(condition, Self::Operation(
+            BoundOperator::LogicalAnd | BoundOperator::LogicalOr | BoundOperator::LogicalNot, _)) && condition.contains_equivalence())
+            .then(|| crate::execution_guarantees::trusted_condition_closure(BTreeSet::new(), assumptions));
 
-            if !matches!(
-                (operator, value),
-                (BoundOperator::Equal, true) | (BoundOperator::NotEqual, false)
-            ) {
-                continue;
-            }
+        for (condition, value) in assumptions.iter().chain(derived.iter().flatten()
+            .filter(|(condition, _)| matches!(condition, Self::ValueAlias(_, _)
+                | Self::Operation(BoundOperator::Equal | BoundOperator::NotEqual, _)))).take(Self::WORK_LIMIT) {
+            let (left, right) = match condition {
+                Self::ValueAlias(left, right) if *value => (left.as_ref(), right.as_ref()),
+                Self::Operation(operator, operands) if matches!((operator, value),
+                    (BoundOperator::Equal, true) | (BoundOperator::NotEqual, false)) => {
+                    let [left, right] = operands.as_ref() else { continue; };
 
-            let [left, right] = operands.as_ref() else {
-                continue;
+                    (left, right)
+                }
+                _ => continue,
             };
 
             if left == &Self::Unknown || right == &Self::Unknown {
@@ -248,6 +248,22 @@ impl ExecutionCondition {
         rewrite_equalities(self, replacements, None, &mut { Self::WORK_LIMIT })
     }
 
+    /// Rename a carrier through a join. Component owners follow the current
+    /// containing value; complete roots and retained loans follow owner transfers.
+    pub(crate) fn with_joined_owners(
+        &self,
+        values: &BTreeMap<Self, Self>,
+        identities: &BTreeMap<Self, Self>,
+    ) -> Self {
+        let owner = self.owner_identity();
+
+        let components = matches!(owner, Self::Projection(_, _))
+            || matches!(owner, Self::Input(place) if !place.projections.is_empty());
+
+        owner.with_joined_values(if components { values } else { identities }, identities)
+            .owner_identity().clone()
+    }
+
     pub(crate) fn with_joined_values(
         &self,
         replacements: &BTreeMap<Self, Self>,
@@ -257,6 +273,30 @@ impl ExecutionCondition {
             Self::WORK_LIMIT
         })
     }
+}
+
+fn snapshot_value(
+    condition: &ExecutionCondition,
+    snapshots: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+) -> Option<ExecutionCondition> {
+    if let Some(value) = snapshots.get(condition) {
+        return Some(value.clone());
+    }
+
+    let ExecutionCondition::Input(place) = condition else { return None; };
+
+    for length in (0..place.projections.len()).rev() {
+        let mut prefix = place.clone();
+
+        prefix.projections = place.projections[..length].into();
+
+        if let Some(value) = snapshots.get(&ExecutionCondition::Input(prefix)) {
+            return Some(place.projections[length..].iter()
+                .fold(value.clone(), |value, field| value.component(*field)));
+        }
+    }
+
+    None
 }
 
 fn resolve_equality(
@@ -302,6 +342,11 @@ fn rewrite_equalities(
     let value = resolve_equality(value, replacements, budget);
 
     let value = match value {
+        ExecutionCondition::Discriminant(value) => rewrite_equalities(&value, replacements, identities, budget).discriminant(),
+        ExecutionCondition::ValueAlias(left, right) => ExecutionCondition::value_alias(
+            rewrite_equalities(&left, replacements, identities, budget),
+            rewrite_equalities(&right, replacements, identities, budget),
+        ),
         ExecutionCondition::Trusted(value) if identities.is_some() => ExecutionCondition::Trusted(
             Arc::new(rewrite_equalities(&value, replacements, identities, budget)),
         ),
@@ -333,10 +378,10 @@ fn rewrite_equalities(
             rewrite_equalities(&value, replacements, identities, budget).matches_variant(variant)
         }
         ExecutionCondition::Present(value) => {
-            rewrite_equalities(&value, replacements, identities, budget).present()
+            ExecutionCondition::Present(Arc::new(rewrite_equalities(&value, replacements, identities, budget)))
         }
         ExecutionCondition::Borrowed(value) if let Some(identities) = identities => {
-            rewrite_equalities(&value, identities, Some(identities), budget).borrowed()
+            rewrite_equalities(&value, replacements, Some(identities), budget).borrowed()
         }
         ExecutionCondition::Entry { captured: true, .. } if identities.is_some() => value,
         ExecutionCondition::Borrowed(value) => {
@@ -399,8 +444,14 @@ fn rewrite_equalities(
             invocation,
             ordinal,
         },
-        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
-            Arc::new(rewrite_equalities(&base, replacements, identities, budget)),
+        ExecutionCondition::Observation { owner, contents, kind } => ExecutionCondition::observation(
+            identities.map_or_else(|| owner.as_ref().clone(), |identities| {
+                rewrite_equalities(&owner, identities, Some(identities), budget)
+            }),
+            rewrite_equalities(&contents, replacements, identities, budget),
+            kind,
+        ),
+        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::constructed(rewrite_equalities(&base, replacements, identities, budget),
             fields
                 .iter()
                 .map(|(field, value)| {
@@ -429,7 +480,7 @@ fn rewrite_equalities(
                     .collect(),
             )
         }
-        ExecutionCondition::Call(callable, implementation, witnesses, operands) => {
+        ExecutionCondition::Call(callable, implementation, witnesses, operands, reference_type) => {
             ExecutionCondition::call(
                 callable,
                 implementation,
@@ -438,6 +489,7 @@ fn rewrite_equalities(
                     .iter()
                     .map(|operand| rewrite_equalities(operand, replacements, identities, budget))
                     .collect(),
+                reference_type,
             )
         }
         value => value,

@@ -15,6 +15,10 @@ pub enum DependencyMutationKind<Type = super::TypeId> {
     Replace(Type),
     /// Install an absent payload while retaining initialized containing storage.
     Clear,
+    /// Dispose a value at this location, whose layout is the stated type.
+    Dispose(Type),
+    /// Conditional effects of disposing this type on a region with no corresponding layout claim.
+    Cleanup(Type),
     /// Remove initialized contents without retiring the storage.
     Consume,
     /// End the storage lifetime and revoke dependencies on that lifetime.
@@ -28,8 +32,6 @@ pub enum DependencyStorageEffect<
     Projection = DependencyProjection,
     Type = super::TypeId,
 > {
-    /// Opaque effects of disposing this type. No effects occur when the type needs no cleanup.
-    Cleanup(Type),
     /// Protected atomic payloads may change through unresolved aliases.
     Atomic,
     /// Mutate externally reachable storage without exposing invocation-local inputs.
@@ -38,10 +40,22 @@ pub enum DependencyStorageEffect<
     Unknown,
     /// Addresses reachable through any invocation input may be retained externally.
     Escape,
+    /// A known transition whose affected region has no finite entry-relative description.
+    UnboundedMutation {
+        /// Possible transition.
+        kind: DependencyMutationKind<Type>,
+        /// Original checked access type, independent of the unknown region.
+        access_type: Option<Type>,
+        /// Only externally reachable storage can be affected.
+        ambient: bool,
+    },
     /// Mutate the value slot named by the formal subject.
     Direct {
         /// Entry value slot.
         subject: Subject,
+        /// Original checked access type, independent of the region that bounds aliases.
+        /// Forwarding a raw access through a borrowed owner preserves this type.
+        access_type: Option<Type>,
         /// Possible transition.
         kind: DependencyMutationKind<Type>,
     },
@@ -51,12 +65,40 @@ pub enum DependencyStorageEffect<
         reference: Subject,
         /// Checked projections after dereferencing the entry reference.
         projections: Arc<[Projection]>,
+        /// Original checked access type, independent of the region that bounds aliases.
+        /// Forwarding a raw access through a borrowed owner preserves this type.
+        access_type: Option<Type>,
         /// Possible transition.
         kind: DependencyMutationKind<Type>,
     },
 }
 
 impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
+    /// Entry slot whose value or reference bounds this effect.
+    pub fn subject(&self) -> Option<&Subject> {
+        match self {
+            Self::Direct { subject, .. } => Some(subject),
+            Self::Indirect { reference, .. } => Some(reference),
+            _ => None,
+        }
+    }
+
+    /// Types required to retain and interpret this effect across semantic boundaries.
+    pub fn referenced_types(&self) -> impl Iterator<Item = &Type> {
+        match self {
+            Self::Direct { access_type, kind, .. }
+            | Self::Indirect { access_type, kind, .. }
+            | Self::UnboundedMutation { access_type, kind, .. } => [
+                access_type.as_ref(),
+                match kind {
+                    DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) => Some(ty),
+                    _ => None,
+                },
+            ],
+            Self::Atomic | Self::Ambient | Self::Unknown | Self::Escape => [None, None],
+        }.into_iter().flatten()
+    }
+
     /// Conservative effects when the callable can have an unknown captured environment.
     pub const fn opaque_call() -> [Self; 2] {
         [Self::Unknown, Self::Escape]
@@ -69,15 +111,17 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
 
     /// Describes a transition whose particular storage target is unresolved.
     /// Atomic updates and address escape retain their distinct meanings.
-    pub fn unresolved(kind: DependencyMutationKind<Type>) -> Self {
+    pub fn unresolved(kind: DependencyMutationKind<Type>, access_type: Option<Type>) -> Self {
         match kind {
             DependencyMutationKind::Atomic => Self::Atomic,
             DependencyMutationKind::Escape => Self::Escape,
             DependencyMutationKind::Write
             | DependencyMutationKind::Replace(_)
+            | DependencyMutationKind::Dispose(_)
+            | DependencyMutationKind::Cleanup(_)
             | DependencyMutationKind::Clear
             | DependencyMutationKind::Consume
-            | DependencyMutationKind::Retire => Self::Unknown,
+            | DependencyMutationKind::Retire => Self::UnboundedMutation { kind, access_type, ambient: false },
         }
     }
 }
@@ -88,7 +132,7 @@ impl<Type> DependencyMutationKind<Type> {
         matches!(self, Self::Write | Self::Replace(_) | Self::Clear)
     }
 
-    /// Translates the installed type while preserving the storage transition.
+    /// Translates the payload type while preserving the storage transition.
     pub fn try_map_type<Other, Error>(
         self,
         map: impl FnOnce(Type) -> Result<Other, Error>,
@@ -99,6 +143,8 @@ impl<Type> DependencyMutationKind<Type> {
             Self::Write => DependencyMutationKind::Write,
             Self::Clear => DependencyMutationKind::Clear,
             Self::Replace(ty) => DependencyMutationKind::Replace(map(ty)?),
+            Self::Dispose(ty) => DependencyMutationKind::Dispose(map(ty)?),
+            Self::Cleanup(ty) => DependencyMutationKind::Cleanup(map(ty)?),
             Self::Consume => DependencyMutationKind::Consume,
             Self::Retire => DependencyMutationKind::Retire,
         })
@@ -139,11 +185,13 @@ mod tests {
         let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
             subject: subject.clone(),
             kind: DependencyMutationKind::Write,
+            access_type: None,
         };
 
         let atomic = DependencyStorageEffect::Direct {
             subject,
             kind: DependencyMutationKind::Atomic,
+            access_type: None,
         };
 
         assert_eq!(
@@ -172,6 +220,7 @@ mod tests {
         let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
             subject: DependencySubject::root(super::super::DependencySubjectRoot::Receiver),
             kind: DependencyMutationKind::Write,
+            access_type: None,
         };
 
         assert_eq!(
@@ -186,19 +235,27 @@ mod tests {
         );
     }
     #[test]
-    fn unresolved_targets_preserve_atomic_and_escape_effects() {
+    fn unresolved_targets_preserve_known_transitions() {
         type Effect = DependencyStorageEffect<(), (), ()>;
 
-        for (kind, expected) in [
-            (DependencyMutationKind::Atomic, Effect::Atomic),
-            (DependencyMutationKind::Escape, Effect::Escape),
-            (DependencyMutationKind::Write, Effect::Unknown),
-            (DependencyMutationKind::Replace(()), Effect::Unknown),
-            (DependencyMutationKind::Clear, Effect::Unknown),
-            (DependencyMutationKind::Consume, Effect::Unknown),
-            (DependencyMutationKind::Retire, Effect::Unknown),
+        for kind in [
+            DependencyMutationKind::Atomic,
+            DependencyMutationKind::Escape,
+            DependencyMutationKind::Write,
+            DependencyMutationKind::Replace(()),
+            DependencyMutationKind::Dispose(()),
+            DependencyMutationKind::Cleanup(()),
+            DependencyMutationKind::Clear,
+            DependencyMutationKind::Consume,
+            DependencyMutationKind::Retire,
         ] {
-            assert_eq!(Effect::unresolved(kind), expected);
+            let expected = match kind {
+                DependencyMutationKind::Atomic => Effect::Atomic,
+                DependencyMutationKind::Escape => Effect::Escape,
+                _ => Effect::UnboundedMutation { kind, access_type: Some(()), ambient: false },
+            };
+
+            assert_eq!(Effect::unresolved(kind, Some(())), expected);
         }
     }
 }

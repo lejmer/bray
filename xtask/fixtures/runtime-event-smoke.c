@@ -19,8 +19,11 @@ extern void bray_runtime_event_clear(uint64_t);
 static int check_event_cold_shutdown(void)
 {
     EventReference event = {0};
-    uint64_t runtime = bray_runtime_task_control_creation();
+    TaskArenaReference arena = {0};
+    uint64_t runtime = bray_runtime_task_control_creation(&arena);
     uintptr_t identity = bray_runtime_event_creation(runtime, &event);
+
+    bray_runtime_task_control_arena_release(&arena);
 
     if (
         !identity ||
@@ -167,16 +170,16 @@ static void join_event_signal(EventThread thread)
 #endif
 }
 
-static int prepare_event(EventContext* context, uint64_t runtime)
+static int prepare_event(EventContext* context, uint64_t runtime, const TaskArenaReference* arena)
 {
     *context = (EventContext){ .runtime = runtime };
-    uint64_t task = bray_runtime_task_control_admission(runtime);
+    uint64_t task = bray_runtime_task_control_admission(arena);
 
     context->identity = bray_runtime_event_creation(runtime, &context->event);
 
     return !task ||
         !context->identity ||
-        bray_runtime_task_control_retention(runtime, task, &context->target) != 0;
+        bray_runtime_task_control_retention(arena, task, &context->target) != 0;
 }
 
 static void release_event_context(EventContext* context, int destroyed)
@@ -196,10 +199,11 @@ static void release_event_context(EventContext* context, int destroyed)
 
 static int check_event_runtime(void)
 {
-    uint64_t runtime = bray_runtime_task_control_creation();
+    TaskArenaReference arena = {0};
+    uint64_t runtime = bray_runtime_task_control_creation(&arena);
     EventContext context;
 
-    if (!runtime || prepare_event(&context, runtime))
+    if (!runtime || prepare_event(&context, runtime, &arena))
         return 201;
 
     size_t event_bytes = 0;
@@ -296,7 +300,7 @@ static int check_event_runtime(void)
     // Registration and an unattached external signal have exactly one outcome.
     for (unsigned index = 0; index < 64; ++index)
     {
-        if (prepare_event(&context, runtime))
+        if (prepare_event(&context, runtime, &arena))
             return 207;
 
         EventSignal signal = { .identity = context.identity };
@@ -340,7 +344,7 @@ static int check_event_runtime(void)
         EventState state;
     } EventStorage;
 
-    if (prepare_event(&context, runtime))
+    if (prepare_event(&context, runtime, &arena))
         return 217;
 
     ((EventStorage*)context.event.address)->state.generation = UINT64_MAX;
@@ -384,7 +388,7 @@ static int check_event_runtime(void)
     // A callback failure must still drain every committed descriptor.
     EventContext second;
 
-    if (prepare_event(&context, runtime) || prepare_event(&second, runtime))
+    if (prepare_event(&context, runtime, &arena) || prepare_event(&second, runtime, &arena))
         return 215;
 
     context.failure = 4;
@@ -418,7 +422,7 @@ static int check_event_runtime(void)
     release_event_context(&second, 0);
 
     // Once callback entry commits, withdrawal cannot revoke its retained owners.
-    if (prepare_event(&context, runtime) || prepare_event(&second, runtime))
+    if (prepare_event(&context, runtime, &arena) || prepare_event(&second, runtime, &arena))
         return 210;
 
     context.block = 1;
@@ -490,7 +494,7 @@ static int check_event_runtime(void)
     release_event_context(&context, 1);
     release_event_context(&second, 0);
     // Source alone retains the event through reentrant close and final disposal.
-    if (prepare_event(&context, runtime))
+    if (prepare_event(&context, runtime, &arena))
         return 222;
 
     context.destroy = 1;
@@ -519,6 +523,7 @@ static int check_event_runtime(void)
 
     release_event_context(&context, 1);
     bray_runtime_event_clear(runtime);
+    bray_runtime_task_control_arena_release(&arena);
 
     puts("event delivery: stale/register/withdraw/commit/unattached/close/denied-allocation passed");
 

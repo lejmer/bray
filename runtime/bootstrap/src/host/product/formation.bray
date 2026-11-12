@@ -40,14 +40,13 @@ trusted internal func commit_formation_locked(
 ) -> Observation
     requires(
         lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     uses(intrinsic)
 {
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);

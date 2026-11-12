@@ -1,0 +1,183 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using core.atomic;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+trusted internal func binding_storage(pos owner: &Current) -> &(Binding?)
+    requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
+    ensures(trusted view_owned(owner = &owner.acquisition))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let value = trusted context(owner);
+    let pointer = std.memory.uninit_pointer<(Binding?)>(&value.binding);
+
+    let permit = trusted lambda(pos owner: &Current, pos pointer: DataPointer<(Binding?)>)
+        requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
+        ensures(
+            trusted core.memory.valid_read<(Binding?)>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<(Binding?)>(pointer = pointer),
+            trusted core.memory.aligned_for<(Binding?)>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<(Binding?)>(pointer = pointer),
+            trusted core.memory.epoch_current<(Binding?)>(pointer = pointer),
+            trusted core.memory.synchronized_access<(Binding?)>(pointer = pointer),
+            trusted core.memory.movement_stable<(Binding?)>(pointer = pointer),
+            trusted core.memory.finalization_pending<(Binding?)>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+    return trusted std.memory.borrow_from<(Binding?), Current>(owner, pointer);
+}
+
+trusted internal func install_binding(pos owner: &Current, pos binding: Binding)
+    requires(
+        trusted view_owned(owner = &owner.acquisition),
+        owner.status == 0,
+        trusted kernel_binding(owner = &binding)
+    )
+    ensures(trusted view_owned(owner = &owner.acquisition))
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let value = trusted context(owner);
+    let pointer = std.memory.uninit_pointer<(Binding?)>(&value.binding);
+
+    if !(trusted binding_storage(owner) matches none)
+    {
+        trusted core.target.abort();
+    }
+
+    let permit = trusted lambda(pos owner: &Current, pos pointer: DataPointer<(Binding?)>)
+        requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
+        ensures(
+            trusted core.memory.valid_write<(Binding?)>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<(Binding?)>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+
+    let installed: Binding? = binding;
+
+    trusted std.memory.write<(Binding?)>(pointer, installed);
+}
+
+// The provider can dispose reports and code owners on this genuine driver.
+// Keep the binding published through its final callback, then clear it before
+// any further operation can observe its consumed kernel pin.
+// A closing context transfers its real optional binding out of storage. No
+// borrowed execution view can retire that binding's independent pin.
+trusted internal func take_retiring_binding(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> Binding?
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted owned_binding_option(owner = &result)
+    )
+    uses(intrinsic)
+{
+    let selected = trusted borrow_execution(owner);
+    let value = trusted context(&selected);
+
+    if core.atomic.load<u32, 0>(&value.phase) != 2
+    {
+        trusted core.target.abort();
+    }
+
+    let pointer = std.memory.uninit_pointer<(Binding?)>(&value.binding);
+
+    let transfer = trusted lambda(
+        pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
+        pos pointer: DataPointer<(Binding?)>
+    ) -> Binding?
+        requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+        ensures(trusted owned_binding_option(owner = &result))
+        uses(raw_memory, unchecked_init, intrinsic)
+    {
+        let permit = trusted lambda(
+            pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
+            pos pointer: DataPointer<(Binding?)>
+        )
+            requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+            ensures(
+                trusted core.memory.valid_read<(Binding?)>(pointer = pointer, count = 1),
+                trusted core.memory.valid_write<(Binding?)>(pointer = pointer, count = 1),
+                trusted core.memory.initialized_as<(Binding?)>(pointer = pointer),
+                trusted core.memory.aligned_for<(Binding?)>(pointer = pointer)
+            )
+            executes(pure, total) {};
+
+        trusted permit(owner, pointer);
+
+        let previous = trusted std.memory.read<(Binding?)>(pointer);
+
+        trusted std.memory.write<(Binding?)>(pointer, none);
+        return previous;
+    };
+
+    return trusted transfer(owner, pointer);
+}
+
+trusted internal func take_owned_binding(pos owner: Binding?) -> Binding
+    requires(owner matches ?_, trusted owned_binding_option(owner = &owner))
+    ensures(trusted kernel_binding(owner = &result))
+    uses(intrinsic)
+{
+    return match consume owner
+    {
+        case ?binding { yield binding; }
+        case none { yield trusted core.target.abort(); }
+    };
+}
+
+const internal func present_binding(pos owner: &(Binding?)) -> &Binding
+    requires(owner matches ?_)
+    executes(pure, total)
+{
+    return match owner
+    {
+        case ?binding { yield &binding; }
+        case none { panic("missing execution binding"); }
+    };
+}
+
+trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> u32
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+    uses(foreign_call, intrinsic)
+{
+    let previous = match consume trusted bray.runtime.bootstrap.host.execution_context(owner.resource)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { yield trusted core.target.abort(); }
+    };
+
+    let binding = trusted take_retiring_binding(owner);
+
+    let incidents = if binding matches ?_
+    {
+        let selected = trusted take_owned_binding(binding);
+        let release = selected.release;
+
+        yield match consume selected.ownership
+        {
+            case BindingOwnership.Open(_, _) { yield trusted core.target.abort(); }
+            case BindingOwnership.Cleanup(execution_pin) { yield trusted release(execution_pin); }
+        };
+    }
+    else
+    {
+        yield 0;
+    };
+
+    match consume trusted bray.runtime.bootstrap.host.execution_context(previous)
+    {
+        case Ok(_) {}
+        case Error(_) { trusted core.target.abort(); }
+    }
+
+    return incidents;
+}

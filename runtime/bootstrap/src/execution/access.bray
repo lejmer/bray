@@ -1,0 +1,28 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.target;
+
+// The counted context retains the actual optional binding. A successful
+// projection borrows its execution owner without issuing another pin or claim.
+trusted internal func bound_execution(pos selected: &Current) -> &Reference
+    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
+    ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = result))
+    uses(intrinsic)
+{
+    let stored = trusted binding_storage(selected);
+
+    return match stored
+    {
+        case ?binding { yield binding_reference(&binding.ownership); }
+        case none { yield trusted core.target.abort(); }
+    };
+}
+
+internal func has_execution(pos selected: &Current) -> bool
+    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
+    ensures(trusted view_owned(owner = &selected.acquisition))
+    executes(pure, total)
+{
+    return trusted binding_storage(selected) matches ?_;
+}

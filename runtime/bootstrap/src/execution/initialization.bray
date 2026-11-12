@@ -1,0 +1,164 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using core.atomic;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap.scheduler;
+
+@abi(c)
+trusted internal func main_startup(pos configuration: Configuration) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.native_main_entry(),
+        trusted native_configuration(owner = &configuration)
+    )
+{
+    let driver = trusted driver_startup();
+
+    if driver != 0 && driver != 2
+    {
+        return driver;
+    }
+
+    let status = trusted startup(configuration);
+
+    if status != 0 && status != 2 && driver == 0
+    {
+        _ = trusted driver_shutdown();
+    }
+
+    return status;
+}
+
+@abi(c)
+trusted internal func startup(pos configuration: Configuration) -> u32
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted native_configuration(owner = &configuration))
+    uses(intrinsic)
+{
+    if configuration.tasks == 0 || configuration.timers == 0
+    {
+        return 3;
+    }
+
+    let driver = trusted origin_driver_startup();
+
+    if driver != 0 && driver != 2
+    {
+        return driver;
+    }
+
+    {
+        let existing = trusted current();
+
+        if existing.status == 0
+        {
+            if has_execution(&existing)
+            {
+                return 2;
+            }
+        }
+        else if existing.status != 1
+        {
+            return existing.status;
+        }
+    }
+
+    let status =
+    {
+        let selected = trusted current();
+
+        if selected.status != 0
+        {
+            trusted core.target.abort();
+        }
+
+        yield trusted create_execution(&selected, configuration);
+    };
+
+    if status != 0 && driver == 0
+    {
+        _ = trusted driver_shutdown();
+    }
+
+    return status;
+}
+
+trusted internal func create_execution(pos selected: &Current, pos configuration: Configuration) -> u32
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted native_configuration(owner = &configuration),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted view_owned(owner = &selected.acquisition))
+{
+    let provider = match consume trusted create_native_provider(&configuration)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
+        std.memory.stride_of<Domain>(),
+        align = std.memory.align_of<Domain>()
+    )
+    {
+        case ?owner { yield owner; }
+        case none
+        {
+            trusted finish_native_provider_option(provider);
+            return 4;
+        }
+    };
+
+    let active = trusted context(selected);
+
+    let scheduler = match consume bray.runtime.bootstrap.scheduler.create(
+        configuration.capabilities,
+        if active.driver.placement == 3
+        {
+            yield active.thread;
+        }
+        else
+        {
+            yield 0;
+        },
+        configuration.tasks
+    )
+    {
+        case ?value { yield value; }
+        case none
+        {
+            _ = allocation;
+
+            trusted finish_native_provider_option(provider);
+            return 4;
+        }
+    };
+
+    let storage = trusted bray.runtime.bootstrap.task.create_arena();
+
+    if storage matches none
+    {
+        trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
+
+        _ = allocation;
+
+        trusted finish_native_provider_option(provider);
+        return 4;
+    }
+
+    let arena = trusted bray.runtime.bootstrap.task.take_arena(storage);
+
+    let execution = trusted initialize_domain(allocation, scheduler, arena, configuration);
+
+    trusted install_binding(selected, trusted own_binding(selected, execution));
+    trusted install_native_provider(selected, provider);
+    return 0;
+}

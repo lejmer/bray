@@ -220,9 +220,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
         }
 
-        let receiver = self.evaluated_index_input(state, receiver);
+        let receiver = self.evaluated_index_input(state, receiver).into_referent();
+        let receiver = receiver.owner_identity();
 
-        if referent(&receiver) == &ExecutionCondition::Unknown {
+        if receiver == &ExecutionCondition::Unknown {
             return false;
         }
 
@@ -231,7 +232,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .iter()
             .flat_map(|(condition, _)| condition.observations())
             .any(|length| {
-                let ExecutionCondition::Call(instance, _, _, arguments) = length else {
+                let ExecutionCondition::Call(instance, _, _, arguments, _) = length else {
                     return false;
                 };
 
@@ -243,16 +244,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     return false;
                 };
 
-                referent(&receiver) == referent(observed)
+                receiver == observed.clone().into_referent().owner_identity()
                     && proves(operator, index.clone(), length.clone())
             })
     }
-}
-
-fn referent(mut condition: &ExecutionCondition) -> &ExecutionCondition {
-    while let ExecutionCondition::Borrowed(value) = condition {
-        condition = value;
-    }
-
-    condition.owner_identity()
 }

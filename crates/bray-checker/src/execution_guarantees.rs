@@ -2,26 +2,32 @@ mod clause;
 mod condition;
 mod declaration;
 mod implication;
+mod evidence;
 mod model;
 mod normalize;
 mod place;
 mod portable;
+mod references;
+mod snapshot;
 mod trusted_implication;
 mod witness;
 
+pub(crate) use snapshot::{common_components, owned_snapshot};
+
 pub use bray_symbols::ExecutionProperty;
-pub use condition::ExecutionCondition;
+pub use condition::{ExecutionCondition, ExecutionObservationKind};
 pub(crate) use condition::ObservationSet;
 pub use declaration::declared_execution_properties;
 pub use implication::{
     execution_condition_is_implied, map_execution_condition_references,
     remap_execution_condition_inputs, substitute_execution_condition,
 };
+pub use evidence::{ExecutionCallEvidence, UnprovenExecutionCondition};
 pub use model::{
-    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
+    DeclaredExecutionProperty, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionDeclaration, ExecutionDependency,
-    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation,
+    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionVerificationFailure,
 };
 pub(crate) use normalize::{
     condition_literals, construction_condition, expression_condition, expression_place,
@@ -29,6 +35,8 @@ pub(crate) use normalize::{
 };
 pub use normalize::{execution_conditions, predicate_conditions, predicate_conditions_with_inputs};
 pub(crate) use place::ExecutionInput;
+pub(crate) use place::ExecutionValues;
+pub(crate) use place::ExecutionStorageSelection;
 pub use place::ExecutionPlace;
 
 pub use portable::{

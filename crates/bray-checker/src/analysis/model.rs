@@ -29,6 +29,56 @@ pub(crate) enum AnalysisOperationKind {
 }
 
 impl AnalysisOperationKind {
+    /// Selects physical accesses at their checked phase. Output definitions are
+    /// successful publications, never reads that consume their own result slot.
+    pub(crate) fn storage_plans(self, storage: &bray_bound_tree::StoragePlan) -> impl Iterator<Item = bray_bound_tree::StorageAccessPlan> + '_ {
+        use bray_bound_tree::{StorageAccessPlanRole as Role, StorageAccessPurpose as Purpose};
+
+        storage.occurrence_plans(self.occurrence()).filter(move |plan| {
+            let role = storage.access_plan_role(*plan);
+
+            if role == Role::OutputDefinition { return false; }
+
+            let produced = storage.access_is_produced_at(plan.access(), self.occurrence());
+
+            match self {
+                Self::Call { phase: AnalysisCallPhase::Input, .. } => matches!(plan.purpose(), Purpose::Borrow(_))
+                    && !produced,
+                Self::Call { phase: AnalysisCallPhase::Attempt, .. } => !produced
+                    && !matches!(plan.purpose(), Purpose::Borrow(_) | Purpose::Initialize),
+                Self::Call { phase: AnalysisCallPhase::Completion, .. } => {
+                    produced
+                        || role == Role::PrivateInputInitialization
+                        || role == Role::Observation && !matches!(plan.purpose(), Purpose::Borrow(_))
+                }
+                Self::Bound(_) | Self::Recovery(_) => role != Role::PrivateInputInitialization,
+                Self::Result { .. } | Self::PatternObservation(_) | Self::ScopeExit { .. } => false,
+                Self::Suspension { kind: AnalysisSuspensionKind::Await | AnalysisSuspensionKind::Yield, .. } =>
+                    !matches!(plan.purpose(), Purpose::Borrow(_) | Purpose::Initialize),
+                Self::Suspension { kind: AnalysisSuspensionKind::ScopedCall, .. } => false,
+            }
+        })
+    }
+
+    /// The checked value-transport boundary executed by this operation.
+    pub(crate) const fn value_consumption_phase(self) -> Option<bray_bound_tree::StorageValueConsumptionPhase> {
+        use bray_bound_tree::StorageValueConsumptionPhase;
+
+        match self {
+            Self::Call { phase: AnalysisCallPhase::Attempt, .. }
+                | Self::Suspension { kind: AnalysisSuspensionKind::Await, .. } => Some(StorageValueConsumptionPhase::Admission),
+            Self::Bound(_)
+                | Self::Call { phase: AnalysisCallPhase::Completion, .. }
+                | Self::Result { phase: AnalysisResultPhase::Completion, .. } => Some(StorageValueConsumptionPhase::Completion),
+            Self::Call { phase: AnalysisCallPhase::Input, .. }
+                | Self::Result { phase: AnalysisResultPhase::Begin | AnalysisResultPhase::Production, .. }
+                | Self::PatternObservation(_)
+                | Self::Suspension { kind: AnalysisSuspensionKind::Yield | AnalysisSuspensionKind::ScopedCall, .. }
+                | Self::ScopeExit { .. }
+                | Self::Recovery(_) => None,
+        }
+    }
+
     pub(crate) const fn is_normal_cleanup(self) -> bool {
         matches!(
             self,
@@ -64,9 +114,7 @@ impl AnalysisOperationKind {
             Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
             Self::Call { invocation, .. } => invocation.node(),
             Self::Suspension { occurrence, .. } => occurrence.node(),
-            Self::Result { expression, .. } => {
-                AnyBoundNodeId::Expression(expression)
-            }
+            Self::Result { expression, .. } => AnyBoundNodeId::Expression(expression),
             Self::ScopeExit { scope, .. } => scope.node(),
         }
     }
@@ -75,6 +123,8 @@ impl AnalysisOperationKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum AnalysisResultPhase {
     Begin,
+    /// Form the selected private value from its evaluated operands.
+    Production,
     Completion,
 }
 
@@ -238,6 +288,10 @@ pub(crate) enum AnalysisRefinement {
         expression: BoundExpressionId,
         succeeded: bool,
     },
+    CaughtResult {
+        expression: BoundExpressionId,
+        succeeded: bool,
+    },
     PatternOutcome {
         subject: BoundExpressionId,
         pattern: BoundPatternId,
@@ -383,11 +437,16 @@ pub(crate) enum AnalysisExitKind {
 pub(crate) struct AnalysisExit {
     block: AnalysisBlockId,
     kind: AnalysisExitKind,
+    node: AnyBoundNodeId,
 }
 
 impl AnalysisExit {
-    pub(crate) const fn new(block: AnalysisBlockId, kind: AnalysisExitKind) -> Self {
-        Self { block, kind }
+    pub(crate) const fn new(block: AnalysisBlockId, kind: AnalysisExitKind, node: AnyBoundNodeId) -> Self {
+        Self { block, kind, node }
+    }
+
+    pub(crate) const fn node(self) -> AnyBoundNodeId {
+        self.node
     }
 
     pub(crate) const fn block(self) -> AnalysisBlockId {
@@ -409,9 +468,14 @@ pub(crate) struct ControlFlowGraph {
     exits: Box<[AnalysisExit]>,
     component_order: Box<[usize]>,
     report_parents: std::collections::BTreeMap<BoundExpressionId, Option<BoundExpressionId>>,
+    loop_expressions: std::collections::BTreeMap<AnalysisBlockId, BoundExpressionId>,
 }
 
 impl ControlFlowGraph {
+    pub(crate) fn loop_expression(&self, header: AnalysisBlockId) -> Option<BoundExpressionId> {
+        self.loop_expressions.get(&header).copied()
+    }
+
     pub(crate) fn select_cleanup_suspensions(
         &mut self,
         scopes: &std::collections::BTreeSet<bray_bound_tree::StorageScope>,
@@ -455,6 +519,7 @@ impl ControlFlowGraph {
         edges: impl Into<Box<[AnalysisEdge]>>,
         operations: impl Into<Box<[AnalysisOperation]>>,
         exits: impl Into<Box<[AnalysisExit]>>,
+        loop_expressions: std::collections::BTreeMap<AnalysisBlockId, BoundExpressionId>,
     ) -> Self {
         let mut graph = Self {
             unit,
@@ -465,6 +530,7 @@ impl ControlFlowGraph {
             exits: exits.into(),
             component_order: Box::new([]),
             report_parents: std::collections::BTreeMap::new(),
+            loop_expressions,
         };
 
         assert!(
@@ -662,6 +728,8 @@ impl ControlFlowGraph {
                 && self.block(edge.source()).is_some()
                 && self.block(edge.target()).is_some()
                 && (edge.source() != edge.target() || edge.kind() == AnalysisEdgeKind::LoopBack)
+                && (!matches!(edge.kind(), AnalysisEdgeKind::LoopBack | AnalysisEdgeKind::LoopContinue)
+                    || self.loop_expression(edge.target()).is_some())
         });
 
         let refinements_are_valid = self.edges().iter().all(|edge| match edge.refinement() {
@@ -679,6 +747,7 @@ impl ControlFlowGraph {
             Some(
                 AnalysisRefinement::Condition { expression, .. }
                 | AnalysisRefinement::PropagationOutcome { expression, .. }
+                | AnalysisRefinement::CaughtResult { expression, .. }
                 | AnalysisRefinement::GeneratorStorageFailure(expression)
                 | AnalysisRefinement::TrustBoundary(expression),
             ) => expression.unit() == self.unit,
@@ -688,25 +757,18 @@ impl ControlFlowGraph {
             None => true,
         });
 
+        let loops_are_valid = self.loop_expressions.iter().all(|(header, expression)| {
+            self.block(*header).is_some() && expression.unit() == self.unit
+        });
         let exits_are_valid = self.exits.iter().all(|exit| {
-            self.block(exit.block()).is_some()
-                && matches!(
-                    exit.kind(),
-                    AnalysisExitKind::NormalFallthrough
-                        | AnalysisExitKind::Return
-                        | AnalysisExitKind::ResultErrorPropagation
-                        | AnalysisExitKind::Divergence
-                        | AnalysisExitKind::Panic
-                        | AnalysisExitKind::Cancellation
-                        | AnalysisExitKind::Yield
-                        | AnalysisExitKind::Recovery
-                )
+            exit.node().unit() == self.unit && self.block(exit.block()).is_some()
         });
 
         blocks_are_valid
             && operations_are_valid
             && edges_are_valid
             && refinements_are_valid
+            && loops_are_valid
             && exits_are_valid
     }
 }

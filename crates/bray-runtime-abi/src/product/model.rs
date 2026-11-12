@@ -1,7 +1,7 @@
 use crate::{NativeProductHostDescriptor, NativeRuntimeStatus, NativeSourceAnchor};
 
-/// Version of the native product-host descriptor and static-entry records.
-pub const PRODUCT_HOST_ABI_VERSION: u32 = 2;
+/// Version of native product-host records and execution callbacks.
+pub const PRODUCT_HOST_ABI_VERSION: u32 = 3;
 
 /// Stable identity of one loaded product instance.
 #[repr(transparent)]

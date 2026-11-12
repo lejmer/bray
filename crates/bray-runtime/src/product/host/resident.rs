@@ -75,7 +75,3 @@ mod tests {
         }
     }
 }
-
-pub(crate) fn drain_product_thread_statics(product: usize) -> NativeProductHostObservation {
-    observe(product, NativeProductHostOperation::DRAIN_THREAD_STATICS)
-}

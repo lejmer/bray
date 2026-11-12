@@ -1897,6 +1897,24 @@ fn imported_scoped_calls_enforce_requirements_on_the_entered_capability() {
                 diagnostics,
                 bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
             );
+            let expected = if exit_contract.is_empty() {
+                bray_diagnostics::DiagnosticContractObligationKind::CallRequirement
+            } else {
+                bray_diagnostics::DiagnosticContractObligationKind::CleanupRequirement
+            };
+            let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
+                bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+                _ => None,
+            }).expect("scoped calls retain the failed condition");
+            assert_eq!(obligation.kind, expected);
+
+            if !exit_contract.is_empty() {
+                let bray_diagnostics::DiagnosticCondition::Application { arguments, .. } = &obligation.required else {
+                    panic!("{obligation:#?}");
+                };
+                assert_eq!(arguments, &[bray_diagnostics::DiagnosticCondition::Argument(0)]);
+            }
+
         }
     }
 }
@@ -2410,6 +2428,23 @@ fn static_formation_defers_retained_cleanup_but_rejects_temporary_cleanup() {
             true,
         ),
         (
+            "Uninit<Wrapper>",
+            r#"
+            {
+                let prepared = Resource
+                {
+                };
+
+                yield core.memory.uninit_from<Wrapper>(
+                    {
+                        value = prepared
+                    }
+                );
+            }
+        "#,
+            true,
+        ),
+        (
             "u32",
             r#"
             {
@@ -2425,8 +2460,15 @@ fn static_formation_defers_retained_cleanup_but_rejects_temporary_cleanup() {
             r#"
             module api;
 
+            using core.memory;
+
             struct Resource
             {{
+            }}
+
+            struct Wrapper
+            {{
+                value: Resource;
             }}
 
             impl Resource

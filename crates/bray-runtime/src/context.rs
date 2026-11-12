@@ -50,12 +50,20 @@ impl NativeThreadCancellation {
 /// Task-local runtime context installed while one task is resumed.
 #[derive(Clone, Debug)]
 pub struct TaskExecutionContext {
-    task: TaskId,
+    owner: TaskOwner,
     state: ProtectedFrameStateId,
-    cancellation: CancellationContext,
-    output: TaskOutput,
     lane: ExecutionLane,
-    wake: TaskWakeHandle,
+}
+
+#[derive(Clone, Debug)]
+enum TaskOwner {
+    Scheduled {
+        task: TaskId,
+        cancellation: CancellationContext,
+        output: TaskOutput,
+        wake: TaskWakeHandle,
+    },
+    Source(std::sync::Arc<crate::event::Resources>),
 }
 
 impl TaskExecutionContext {
@@ -69,21 +77,45 @@ impl TaskExecutionContext {
         wake: TaskWakeHandle,
     ) -> Self {
         Self {
-            task,
+            owner: TaskOwner::Scheduled {
+                task,
+                cancellation,
+                #[cfg(feature = "test-output")]
+                output: output.clone(),
+                #[cfg(not(feature = "test-output"))]
+                output: *output,
+                wake,
+            },
             state,
-            cancellation,
-            #[cfg(feature = "test-output")]
-            output: output.clone(),
-            #[cfg(not(feature = "test-output"))]
-            output: *output,
             lane,
-            wake,
+        }
+    }
+
+    pub(crate) fn source(
+        owner: std::sync::Arc<crate::event::Resources>,
+        state: ProtectedFrameStateId,
+        lane: ExecutionLane,
+    ) -> Self {
+        Self {
+            owner: TaskOwner::Source(owner),
+            state,
+            lane,
+        }
+    }
+
+    pub(crate) fn native_owner(&self) -> Option<&std::sync::Arc<crate::event::Resources>> {
+        match &self.owner {
+            TaskOwner::Source(owner) => Some(owner),
+            TaskOwner::Scheduled { .. } => None,
         }
     }
 
     /// Returns the currently executing task identity.
-    pub const fn task(&self) -> TaskId {
-        self.task
+    pub fn task(&self) -> TaskId {
+        match &self.owner {
+            TaskOwner::Scheduled { task, .. } => *task,
+            TaskOwner::Source(owner) => TaskId::from_bray_handle(owner.reference().task()),
+        }
     }
 
     /// Returns the protected-frame state active for this resume.
@@ -92,8 +124,11 @@ impl TaskExecutionContext {
     }
 
     /// Returns this task's structured cancellation context.
-    pub const fn cancellation(&self) -> &CancellationContext {
-        &self.cancellation
+    pub fn cancellation(&self) -> &CancellationContext {
+        match &self.owner {
+            TaskOwner::Scheduled { cancellation, .. } => cancellation,
+            TaskOwner::Source(owner) => owner.cancellation(),
+        }
     }
 
     /// Returns the lane selected for this resume.
@@ -102,8 +137,18 @@ impl TaskExecutionContext {
     }
 
     /// Returns authority to wake the current suspended continuation.
-    pub const fn wake_handle(&self) -> &TaskWakeHandle {
-        &self.wake
+    pub fn wake_handle(&self) -> &TaskWakeHandle {
+        match &self.owner {
+            TaskOwner::Scheduled { wake, .. } => wake,
+            TaskOwner::Source(owner) => owner.wake(),
+        }
+    }
+
+    fn output(&self) -> &TaskOutput {
+        match &self.owner {
+            TaskOwner::Scheduled { output, .. } => output,
+            TaskOwner::Source(owner) => owner.output(),
+        }
     }
 }
 
@@ -118,7 +163,7 @@ pub(crate) fn current_task_start_site() -> Option<TaskStartSite> {
 
         context
             .as_ref()
-            .map(|context| TaskStartSite::new(context.task, context.state))
+            .map(|context| TaskStartSite::new(context.task(), context.state))
     })
 }
 
@@ -214,13 +259,13 @@ pub(crate) fn with_task_execution_context<T>(
     context: TaskExecutionContext,
     callback: impl FnOnce() -> T,
 ) -> T {
-    let cancellation = context.cancellation.clone();
+    let cancellation = context.cancellation().clone();
 
     #[cfg(feature = "test-output")]
-    let output = context.output.clone();
+    let output = context.output().clone();
 
     #[cfg(not(feature = "test-output"))]
-    let () = context.output;
+    let () = *context.output();
 
     let previous = CURRENT_CONTEXT.with(|cell| cell.replace(Some(context)));
 

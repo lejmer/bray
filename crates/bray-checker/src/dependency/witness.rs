@@ -457,7 +457,7 @@ fn map_call_inputs(
     inputs: &[DependencyCallInput],
 ) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
     // Unmapped subjects retain the input contract's immutable projection snapshot.
-    map_requirements(requirements, &mut |subject, kind| {
+    map_requirements(requirements, &mut |subject, kind, _| {
         let Some(input) = inputs
             .iter()
             .find(|input| input.root() == subject.subject_root())
@@ -475,20 +475,54 @@ fn map_call_inputs(
     })
 }
 
-pub(crate) fn map_requirements(
+/// The meaning of a subject while substituting a symbolic result call.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum RequirementMappingRole {
+    /// An ordinary requirement, including storage keeping a supplied value alive.
+    Requirement,
+    /// Data carried by a supplied value, independently of its implicit receiver loan.
+    InputValue,
+}
+
+pub(crate) fn map_requirements<E>(
     requirements: &[DependencyRequirement],
     map: &mut impl FnMut(
         &DependencySubject,
         DependencyRequirementKind,
+        RequirementMappingRole,
     )
-        -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError>,
-) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
-    super::equations::map_requirements(requirements, 0, &mut |requirement, depth| {
+        -> Result<Vec<DependencyRequirement>, E>,
+) -> Result<Vec<DependencyRequirement>, E> {
+    map_requirements_at_depth(requirements, 0, RequirementMappingRole::Requirement, map)
+}
+
+fn map_requirements_at_depth<E>(
+    requirements: &[DependencyRequirement],
+    depth: u32,
+    role: RequirementMappingRole,
+    map: &mut impl FnMut(&DependencySubject, DependencyRequirementKind, RequirementMappingRole)
+        -> Result<Vec<DependencyRequirement>, E>,
+) -> Result<Vec<DependencyRequirement>, E> {
+    super::equations::map_requirements(requirements, depth, &mut |requirement, depth| {
         if let DependencyRequirement::Guarded(guarded) = requirement {
             // Value dependencies do not prove that the caller's current storage
             // has the callee's entry discriminant. Retain the possible dependency
             // without exporting that unproved condition into the caller's roots.
-            return Some(map_requirements(guarded.requirements(), map));
+            return Some(map_requirements_at_depth(guarded.requirements(), depth, role, map));
+        }
+
+        if let DependencyRequirement::ResultCall { output, callable, requirement, inputs } = requirement {
+            let mapped = inputs.iter().map(|input| {
+                Ok(DependencyCallInput::new(
+                    input.root(),
+                    map_requirements_at_depth(input.values(), depth, RequirementMappingRole::InputValue, map)?,
+                    map_requirements_at_depth(input.storage(), depth, RequirementMappingRole::Requirement, map)?,
+                ))
+            }).collect::<Result<Vec<_>, E>>();
+
+            return Some(mapped.map(|inputs| vec![DependencyRequirement::result_call(
+                *callable, *requirement, inputs, *output,
+            )]));
         }
 
         let DependencyRequirement::Direct { subject, kind } = requirement else {
@@ -496,8 +530,9 @@ pub(crate) fn map_requirements(
         };
 
         Some(
-            map(subject, *kind)
-                .and_then(|mapped| super::equations::shift_variables(&mapped, i64::from(depth))),
+            map(subject, *kind, role)
+                .map(|mapped| super::equations::shift_variables(&mapped, i64::from(depth))
+                    .expect("mapped dependency variables retain their checked enclosing equation depth")),
         )
     })
 }
@@ -506,7 +541,7 @@ fn project_requirements(
     requirements: &[DependencyRequirement],
     projections: &[bray_symbols::DependencyProjection],
 ) -> Result<Vec<DependencyRequirement>, bray_symbols::SemanticValueStoreError> {
-    map_requirements(requirements, &mut |subject, kind| {
+    map_requirements(requirements, &mut |subject, kind, _| {
         Ok(vec![DependencyRequirement::direct(
             super::result::normalized_subject(
                 subject.subject_root(),
@@ -515,4 +550,29 @@ fn project_requirements(
             kind,
         )])
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::map_requirements;
+    use bray_symbols::{
+        DependencyGuard, DependencyRequirement, DependencyRequirementKind, DependencySubject,
+        DependencySubjectRoot, SymbolOrdinal,
+    };
+
+    #[test]
+    fn mapped_guards_keep_the_enclosing_equation_depth() {
+        let receiver = DependencySubject::root(DependencySubjectRoot::Receiver);
+        let input = DependencyRequirement::direct(receiver.clone(), DependencyRequirementKind::ValueDependencies);
+        let equation = DependencyRequirement::fixed_point(
+            [vec![input.clone()]],
+            [DependencyRequirement::guarded(DependencyGuard::NullablePresent(receiver), [input])],
+        );
+        let mapped = map_requirements(&[equation], &mut |_, _, _| {
+            Ok::<_, std::convert::Infallible>(vec![DependencyRequirement::variable(0, SymbolOrdinal::new(0))])
+        }).expect("mapping preserves the caller's outer variable binding");
+        let outer = DependencyRequirement::variable(1, SymbolOrdinal::new(0));
+
+        assert_eq!(mapped, vec![DependencyRequirement::fixed_point([vec![outer.clone()]], [outer])]);
+    }
 }

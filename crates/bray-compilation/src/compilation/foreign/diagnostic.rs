@@ -1,9 +1,9 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticCallableAbi, DiagnosticKind, DiagnosticLabelKind,
+    Diagnostic, DiagnosticArg,  DiagnosticKind, DiagnosticLabelKind,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticType,
 };
 use bray_source::SourceSpan;
-use bray_symbols::{CallableAbi, TypeExpressionTemplate};
+use bray_symbols::TypeExpressionTemplate;
 use bray_syntax::SyntaxKind;
 
 use super::super::Compilation;
@@ -49,19 +49,22 @@ pub(super) fn duplicate_native_symbol(
     diagnostic
 }
 
-pub(super) fn diagnostic_abi(abi: CallableAbi) -> DiagnosticCallableAbi {
-    match abi {
-        CallableAbi::C => DiagnosticCallableAbi::C,
-        CallableAbi::System => DiagnosticCallableAbi::System,
-        CallableAbi::Bray => unreachable!("Bray ABI is not a foreign boundary"),
-    }
-}
-
 pub(in crate::compilation) fn template_diagnostic_type(
     compilation: &Compilation,
     template: &TypeExpressionTemplate,
     cancellation: &crate::fact::CancellationToken,
 ) -> Result<DiagnosticType, FactQueryError> {
+    template_diagnostic_type_at_depth(compilation, template, cancellation, 0)
+}
+
+fn template_diagnostic_type_at_depth(
+    compilation: &Compilation, template: &TypeExpressionTemplate,
+    cancellation: &crate::fact::CancellationToken, depth: usize,
+) -> Result<DiagnosticType, FactQueryError> {
+    if depth >= DiagnosticType::NESTING_LIMIT {
+        return Ok(DiagnosticType::Unknown);
+    }
+
     let diagnostic = match template {
         TypeExpressionTemplate::Resolved(ty) => {
             let context = compilation.checker_context(cancellation)?;
@@ -69,7 +72,9 @@ pub(in crate::compilation) fn template_diagnostic_type(
             bray_checker::diagnostic_type(&context, *ty).map_err(FactQueryError::from)?
         }
         TypeExpressionTemplate::Named { .. } => DiagnosticType::Unknown,
-        TypeExpressionTemplate::CallableContract { .. } => DiagnosticType::Callable,
+        TypeExpressionTemplate::CallableContract { target, .. } => {
+            template_diagnostic_type_at_depth(compilation, target, cancellation, depth + 1)?
+        }
         TypeExpressionTemplate::TypeValuedMemberProjection { .. } => {
             DiagnosticType::TypeValuedMember
         }
@@ -81,10 +86,26 @@ pub(in crate::compilation) fn template_diagnostic_type(
         }
         TypeExpressionTemplate::Slice(_) => DiagnosticType::Slice,
         TypeExpressionTemplate::Nullable(_) => DiagnosticType::Nullable,
-        TypeExpressionTemplate::Borrow { .. } => DiagnosticType::Borrow,
+        TypeExpressionTemplate::Borrow { kind, target } => DiagnosticType::Borrow {
+            kind: bray_checker::diagnostic_borrow_kind(*kind),
+            target: Box::new(template_diagnostic_type_at_depth(compilation, target, cancellation, depth + 1)?),
+        },
         TypeExpressionTemplate::TraitView(_) => DiagnosticType::TraitView,
         TypeExpressionTemplate::OwnedIndirection { .. } => DiagnosticType::OwnedIndirection,
-        TypeExpressionTemplate::Callable(_) => DiagnosticType::Callable,
+        TypeExpressionTemplate::Callable(callable) => DiagnosticType::Callable {
+            parameters: callable.parameters().iter().map(|parameter| {
+                Ok(bray_symbols::diagnostic_callable_parameter(
+                    parameter.name(), parameter.position(), parameter.mode(),
+                    template_diagnostic_type_at_depth(compilation, parameter.ty(), cancellation, depth + 1)?,
+                ))
+            }).collect::<Result<_, FactQueryError>>()?,
+            variadic: callable.is_variadic(),
+            result: Box::new(template_diagnostic_type_at_depth(compilation, callable.result(), cancellation, depth + 1)?),
+            constness: bray_symbols::diagnostic_callable_constness(callable.constness()),
+            execution: bray_symbols::diagnostic_callable_execution(callable.execution()),
+            trust: bray_symbols::diagnostic_callable_trust(callable.trust()),
+            abi: bray_symbols::diagnostic_callable_abi(callable.abi()),
+        },
     };
 
     Ok(diagnostic)

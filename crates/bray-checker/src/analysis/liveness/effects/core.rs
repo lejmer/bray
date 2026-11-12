@@ -23,6 +23,7 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct OperationEffects {
+    pub(super) boundary_uses: BTreeMap<(bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageValueConsumptionPhase), BTreeSet<BoundDependencySubject>>,
     pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
     operation_result_definitions:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
@@ -30,8 +31,10 @@ pub(crate) struct OperationEffects {
     pub(in crate::analysis::liveness) owner_dependencies:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
     exit_dependencies: BTreeMap<AnyBoundNodeId, BTreeSet<BoundDependencySubject>>,
-    pub(super) report_owner_inputs:
-        BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<bray_bound_tree::StorageIdentityId>>,
+    pub(super) value_requirements: BTreeMap<
+        bray_bound_tree::BoundExecutionSite,
+        BTreeSet<bray_bound_tree::BoundDependencyRequirement>,
+    >,
     pub(super) value_inputs: ValueInputs,
     pub(in crate::analysis::liveness) recovered_nodes: BTreeSet<AnyBoundNodeId>,
 }
@@ -62,7 +65,7 @@ impl OperationEffects {
         let selections = semantics.selections();
 
         effects.value_inputs = value_inputs;
-        effects.add_selected_call_dependencies(selections, storage, dependencies);
+        effects.add_selected_call_dependencies(request, selections, storage, dependencies);
 
         for (expression, source) in effects.value_inputs.deferred_sources() {
             let completed = dependencies
@@ -72,10 +75,22 @@ impl OperationEffects {
                 .expect("known lazy producer has its checked completion contract");
 
             effects
+                .value_requirements
+                .entry(expression.into())
+                .or_default()
+                .extend(completed.requirements().iter().cloned());
+
+            effects
                 .owner_dependencies
                 .entry(expression.into())
                 .or_default()
-                .extend(dependency_subjects(completed.requirements(), storage));
+                .extend(dependency_subjects(
+                    request,
+                    completed.requirements(),
+                    storage,
+                    &effects.value_inputs,
+                    selections,
+                ));
         }
 
         effects.retain_report_dependencies(
@@ -159,7 +174,7 @@ impl OperationEffects {
             }
         }
 
-        effects.retain_owned_call_dependencies(request, storage);
+        effects.retain_owned_call_dependencies(request, storage, selections);
         effects.retain_input_dependencies(request.unit(), dependencies);
 
         if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
@@ -192,6 +207,14 @@ impl OperationEffects {
 
             effects.universe.insert(subject);
 
+            if let bray_bound_tree::StorageIdentity::InvocationInput { expression, .. } = provenance {
+                // The admitted private value is read by completion, including protected
+                // memory primitives and deferred-input capture after callee effects.
+                effects.boundary_uses.entry((expression.into(),
+                    bray_bound_tree::StorageValueConsumptionPhase::Completion))
+                    .or_default().insert(subject);
+            }
+
             let Some(occurrence) = provenance.definition_occurrence() else {
                 continue;
             };
@@ -210,6 +233,14 @@ impl OperationEffects {
                     .or_default()
                     .insert(subject);
             }
+        }
+
+        for (occurrence, phase, path) in storage.value_consumption_entries() {
+            let subject = BoundDependencySubject::Storage(path.root);
+
+            effects.universe.insert(subject);
+            effects.by_occurrence.entry(occurrence).or_default();
+            effects.boundary_uses.entry((occurrence, phase)).or_default().insert(subject);
         }
 
         for plan in storage.access_plans() {
@@ -238,7 +269,15 @@ impl OperationEffects {
             }
 
             for subject in access_root_subjects(storage, access.root()) {
-                effect.uses.insert(subject);
+                if plan.purpose() == bray_bound_tree::StorageAccessPurpose::Initialize
+                    && access.projections().is_empty()
+                    && matches!(access.root(), bray_bound_tree::StorageAccessRoot::Storage(identity)
+                        if subject == BoundDependencySubject::Storage(identity))
+                {
+                    effect.definitions.insert(subject);
+                } else {
+                    effect.uses.insert(subject);
+                }
                 effects.universe.insert(subject);
             }
         }
@@ -373,17 +412,24 @@ impl OperationEffects {
         }
     }
 
-    fn add_selected_call_dependencies(
+    fn add_selected_call_dependencies<C: CheckerRequestContext + ?Sized>(
         &mut self,
+        request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
     ) {
         for (occurrence, contracts) in dependencies.calls() {
-            let mut invocation =
-                dependency_subjects(contracts.invocation().requirements(), storage);
+            self.value_requirements
+                .entry(*occurrence)
+                .or_default()
+                .extend(contracts.result().requirements().iter().cloned());
 
-            let mut returned = dependency_subjects(contracts.result().requirements(), storage);
+            let mut invocation =
+                dependency_subjects(request, contracts.invocation().requirements(), storage, &self.value_inputs, selections);
+
+            let mut returned =
+                dependency_subjects(request, contracts.result().requirements(), storage, &self.value_inputs, selections);
 
             if let Some(SemanticSelection::Call(call)) = occurrence
                 .expression()
@@ -419,7 +465,14 @@ impl OperationEffects {
                 .extend(returned);
 
             if let Some(deferred) = contracts.deferred() {
-                collect_dependency_subjects(deferred.requirements(), storage, &mut invocation);
+                collect_dependency_subjects(
+                    request,
+                    deferred.requirements(),
+                    storage,
+                    &self.value_inputs,
+                    selections,
+                    &mut invocation,
+                );
             }
 
             self.universe.extend(invocation.iter().copied());
@@ -542,6 +595,10 @@ impl OperationEffects {
             } => Some(AnalysisCallPhase::Attempt),
             AnalysisOperationKind::Call { phase, .. } => Some(phase),
             AnalysisOperationKind::Result {
+                phase: crate::analysis::model::AnalysisResultPhase::Production,
+                ..
+            } => Some(AnalysisCallPhase::Attempt),
+            AnalysisOperationKind::Result {
                 phase: crate::analysis::model::AnalysisResultPhase::Completion,
                 ..
             } => Some(AnalysisCallPhase::Completion),
@@ -557,8 +614,12 @@ impl OperationEffects {
             .operation_result_definitions
             .get(&operation.kind().occurrence());
 
+        let boundary_uses = operation.kind().value_consumption_phase()
+            .and_then(|phase| self.boundary_uses.get(&(operation.kind().occurrence(), phase)));
+
         Some(OperationEffectView {
             effect,
+            boundary_uses,
             phase,
             result_definitions,
             recovered: self.recovered_nodes.contains(&operation.kind().node()),
@@ -582,6 +643,7 @@ impl OperationEffects {
 #[derive(Clone, Copy)]
 pub(in crate::analysis::liveness) struct OperationEffectView<'a> {
     effect: &'a OperationEffect,
+    boundary_uses: Option<&'a BTreeSet<BoundDependencySubject>>,
     phase: Option<AnalysisCallPhase>,
     result_definitions: Option<&'a BTreeSet<BoundDependencySubject>>,
     recovered: bool,
@@ -595,7 +657,7 @@ impl<'a> OperationEffectView<'a> {
         self.effect.uses.iter().filter(move |subject| {
             self.phase != Some(AnalysisCallPhase::Completion)
                 && (self.recovered || !self.effect.definitions.contains(subject))
-        })
+        }).chain(self.boundary_uses.into_iter().flatten())
     }
 
     pub(in crate::analysis::liveness) fn definitions(
@@ -620,6 +682,7 @@ impl<'a> OperationEffectView<'a> {
             .uses
             .iter()
             .chain(&self.effect.definitions)
+            .chain(self.boundary_uses.into_iter().flatten())
             .filter(|subject| {
                 matches!(
                     subject,

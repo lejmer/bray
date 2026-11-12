@@ -56,7 +56,7 @@ pub(crate) fn construction_condition(
         _ => base,
     };
 
-    ExecutionCondition::Constructed(std::sync::Arc::new(base), fields.into())
+    ExecutionCondition::constructed(base, fields.into())
 }
 
 pub(super) fn constructed_condition(
@@ -132,12 +132,14 @@ pub(super) fn constructed_condition(
                         bray_bound_tree::StorageProjection::ElementFromStart(index)
                     };
 
-                    (projection, value(*operand))
+                    let ty = semantics.types().expression(*operand)
+                        .expect("checked aggregate element retains its value type").ty();
+
+                    (projection, value(*operand).coerce(values, ty, ty))
                 })
                 .collect::<Vec<_>>();
 
-            Some(ExecutionCondition::Constructed(
-                std::sync::Arc::new(ExecutionCondition::Expression(expression)),
+            Some(ExecutionCondition::constructed(ExecutionCondition::Expression(expression),
                 fields.into(),
             ))
         }
@@ -145,14 +147,19 @@ pub(super) fn constructed_condition(
             if operation.kind()
                 == bray_bound_tree::BoundStructuredExpressionKind::RepeatedArray =>
         {
-            let [operand] = operation.runtime_operands() else { return None; };
+            let [operand] = operation.runtime_operands() else {
+                return None;
+            };
 
             let ty = semantics.types().expression(expression)?.ty();
 
             let count = crate::constant::known_array_length(values, ty)?
                 .min(ExecutionCondition::WORK_LIMIT);
 
-            let value = value(*operand);
+            let element = semantics.types().expression(*operand)
+                .expect("checked repeated element retains its value type").ty();
+
+            let value = value(*operand).coerce(values, element, element);
 
             let fields = (0..count)
                 .map(|index| {
@@ -167,8 +174,7 @@ pub(super) fn constructed_condition(
                 })
                 .collect::<Vec<_>>();
 
-            Some(ExecutionCondition::Constructed(
-                std::sync::Arc::new(ExecutionCondition::Expression(expression)),
+            Some(ExecutionCondition::constructed(ExecutionCondition::Expression(expression),
                 fields.into(),
             ))
         }
@@ -313,6 +319,7 @@ pub(super) fn conversion_condition(
     expression: BoundExpressionId,
     bound: &BoundExpression,
     semantics: &CheckedExpressionSemantics,
+    values: &SemanticValueStore,
     resolve: &mut impl FnMut(BoundExpressionId) -> ExecutionCondition,
 ) -> Option<ExecutionCondition> {
     use bray_bound_tree::{
@@ -333,7 +340,11 @@ pub(super) fn conversion_condition(
         ConversionTarget::Identity
         | ConversionTarget::CallableContract
         | ConversionTarget::BuiltInScalar => Some(resolve(conversion.operand())),
-        ConversionTarget::NullablePresent => Some(resolve(conversion.operand()).present()),
+        ConversionTarget::NullablePresent => Some(resolve(conversion.operand()).coerce(
+            values,
+            selected.source_type(),
+            selected.target_type(),
+        )),
         _ => None,
     }
 }
@@ -342,37 +353,88 @@ pub(super) fn borrowed_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    storage: Option<&bray_bound_tree::StoragePlan>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
+    expression: BoundExpressionId,
     operand: BoundExpressionId,
     value: ExecutionCondition,
 ) -> ExecutionCondition {
-    if !matches!(
-        value,
-        ExecutionCondition::Literal(_)
-            | ExecutionCondition::Boolean(_)
-            | ExecutionCondition::Unknown
-    ) {
-        return value;
+    let scalar = semantics.types().expression(operand)
+        .and_then(|entry| known.type_representation(values, entry.ty()))
+        .is_some_and(crate::representation::is_scalar_value);
+
+    if !scalar && (value.ownership_identity().is_some() || value.is_reference()) {
+        return value.borrowed();
     }
 
     // Equal scalar contents can prove ordinary tests without equating storage authority.
-    let identity = super::expression::expression_place(unit, semantics, values, operand)
-        .map(ExecutionCondition::Input)
-        .unwrap_or(ExecutionCondition::Expression(operand));
+    let identity = storage.and_then(|storage| {
+        let plan = storage.occurrence_plans(expression.into())
+            .find(|plan| matches!(plan.purpose(), bray_bound_tree::StorageAccessPurpose::Borrow(_)))?;
 
-    if value == ExecutionCondition::Unknown {
+        let path = storage.logical_path(plan.access())?;
+        let root = crate::ExecutionPlace::storage_identity(storage, path.root)?;
+
+        let mut identity = if matches!(storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::PostconditionResult(_))) {
+            ExecutionCondition::Result
+        } else {
+            ExecutionCondition::Input(root.clone())
+        };
+
+        // Follow the checked reference boundaries in this existing access path.
+        // A stored view observes its referent, not the slot storing the view.
+        for index in 0..path.projections.len() {
+            let ty = if index == 0 {
+                storage.storage_type(path.root)
+            } else {
+                storage.access_at(path.root, &path.projections[..index])
+                    .and_then(|access| storage.access(access)).map(|access| access.reached_type())
+            };
+
+            if ty.is_some_and(|ty| matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })) {
+                let prefix = root.clone().project(&path.projections[..index])?;
+
+                if let Some(value) = prefix.value_in(current) {
+                    identity = value.owner_identity().clone().into_referent().owner_identity().clone();
+                }
+            }
+
+            identity = identity.project(path.projections[index]);
+        }
+
+        Some(identity)
+    }).or_else(|| super::expression::expression_place(unit, semantics, values, operand).map(|place| {
+        let result = matches!(place.reference(), Some(bray_bound_tree::BoundReferenceTarget::Local(
+            bray_symbols::AnyLocalSymbolId::PostconditionResult(_))));
+
+        if result {
+            place.projections.iter().fold(ExecutionCondition::Result, |value, projection| value.component(*projection))
+        } else {
+            ExecutionCondition::Input(place)
+        }
+    })).unwrap_or(ExecutionCondition::Expression(operand));
+
+    if !scalar {
+        return ExecutionCondition::reference_value(identity.borrowed(), value);
+    }
+
+    let value = if identity == value || value == ExecutionCondition::Unknown {
         identity
     } else {
-        ExecutionCondition::Constructed(
-            std::sync::Arc::new(identity),
-            [(bray_bound_tree::StorageProjection::OwnedTarget, value)].into(),
-        )
-    }
+        ExecutionCondition::scalar_observation(identity, value)
+    };
+
+    value.borrowed()
 }
 
 pub(super) fn structured_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    storage: Option<&bray_bound_tree::StoragePlan>,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
     expression: BoundExpressionId,
     operation: &bray_bound_tree::BoundStructuredExpression,
     evaluate: &mut impl FnMut(BoundExpressionId) -> ExecutionCondition,
@@ -512,7 +574,7 @@ pub(super) fn structured_condition(
                     value.requiring_trusted_predicates()
                 }
                 bray_bound_tree::BoundStructuredExpressionKind::Borrow => {
-                    borrowed_condition(unit, semantics, values, *operand, value)
+                    borrowed_condition(unit, semantics, values, known, storage, current, expression, *operand, value)
                 }
                 _ => value,
             }

@@ -77,13 +77,8 @@ impl Compilation {
                 if !permitted {
                     let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-                    let span = site
-                        .expression()
-                        .and_then(|expression| bound.result().value().view().expression(expression))
-                        .map(|expression| expression.origin().source_anchor().syntax())
-                        .unwrap_or(key.source().syntax());
-
-                    failure.get_or_insert(SourceSpan::new(span.source_id(), span.full_range()));
+                    failure.get_or_insert(super::failure::execution_site_span(
+                        bound.result().value(), key, site));
                 }
             }
         }
@@ -100,8 +95,8 @@ impl Compilation {
                 cancellation,
             )?;
 
-            if let Some((source, _)) = rejected {
-                failure.get_or_insert(source);
+            if let Some(rejected) = rejected {
+                failure.get_or_insert(rejected.source);
             }
         }
 
@@ -144,9 +139,9 @@ impl Compilation {
                 cancellation,
             )?;
 
-            if let Some((cause, circular)) = failure {
-                diagnostics.add(super::proof::guarantee_diagnostic(
-                    obligation, source, cause, circular,
+            if let Some(failure) = failure {
+                diagnostics.add(super::failure::guarantee_diagnostic(
+                    obligation, source, failure,
                 ));
             }
         }
@@ -283,7 +278,7 @@ mod tests {
 
         bray_testing::assert_goal_state_diagnostic_kind(
             checked.check_diagnostics(),
-            DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            DiagnosticKind::CheckingPostconditionNotProven,
         );
     }
 
@@ -501,6 +496,8 @@ mod tests {
             ("if ready { yield true; } else { yield false; }", true),
             ("{ yield ready; }", false),
             ("{ let observed = ready; yield observed; }", false),
+            ("match ready { case true { yield true; } case false { yield false; } }", false),
+            ("if false { yield { yield ready; }; } else { yield true; }", false),
         ] {
             let source = format!(
                 r#"
@@ -522,6 +519,13 @@ mod tests {
                 "{source}: {:#?}",
                 checked.check_diagnostics()
             );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    checked.check_diagnostics(),
+                    DiagnosticKind::CheckingPredicateBlockNotAllowed,
+                );
+            }
         }
     }
 
@@ -602,6 +606,48 @@ mod tests {
                 "{source}: {:#?}",
                 checked.check_diagnostics()
             );
+        }
+    }
+
+    #[test]
+    fn closed_union_guards_use_all_variants_of_the_same_input()
+    {
+        for (third, guard, valid) in [
+            ("", "value matches .Second", true),
+            ("Third;", "value matches .Second", false),
+            ("Third;", "value matches .Second || value matches .Third", true),
+            ("", "other matches .Second", false),
+        ]
+        {
+            let source = format!(r#"
+                module app;
+
+                union Choice
+                {{
+                    First;
+                    Second;
+                    {third}
+                }}
+
+                const func first(pos value: &Choice) -> bool
+                    requires(value matches .First)
+                    executes(pure, total)
+                {{
+                    return true;
+                }}
+
+                predicate selected(value: &Choice, other: &Choice) = {guard} || first(value);
+            "#);
+            let checked = compilation(&source);
+
+            assert_eq!(!checked.check_diagnostics().has_errors(), valid,
+                "{source}: {:#?}", checked.check_diagnostics());
+
+            if !valid
+            {
+                bray_testing::assert_goal_state_diagnostic_kind(checked.check_diagnostics(),
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven);
+            }
         }
     }
 
