@@ -3759,8 +3759,12 @@ fn borrowed_choices_read_existing_pointer_values_before_publication() {
         let read = state.value_targets(&location).expect("pointer read retains its current value");
         if mode == "complete" {
             assert_eq!(read.into_iter().collect::<BTreeSet<_>>(), BTreeSet::from(pointers));
+            assert_eq!(state.unexposed_storage(std::slice::from_ref(&owner), []).collect::<Vec<_>>(), vec![&owner], "reading through a private borrowed choice does not make its container an external root");
             state.escape_targets(state.referenced_regions(&location).expect("known pointer alternatives"));
-            assert!(!state.raw_exposed_regions().contains(&Target::storage(owner)), "publishing nested pointers cannot publish their borrowed container");
+            assert!(!state.raw_exposed_regions().contains(&Target::storage(owner.clone())), "publishing nested pointers cannot publish their borrowed container");
+            assert_eq!(state.unexposed_storage(std::slice::from_ref(&owner), []).collect::<Vec<_>>(), vec![&owner]);
+            state.escape_targets([Target::storage(owner.clone())]);
+            assert!(state.unexposed_storage(std::slice::from_ref(&owner), []).next().is_none(), "publishing the actual owner ends its private backing");
         } else {
             assert!(read.iter().any(|target| matches!(target.origin, super::model::Origin::Returned { .. })), "{mode} retains conservative pointer provenance");
         }
