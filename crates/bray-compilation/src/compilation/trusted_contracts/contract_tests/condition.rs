@@ -372,12 +372,12 @@ fn ordinary_predicate_guards_select_trusted_conditional_guarantees() {
             trusted predicate ready(value: u64);
             trusted func make(pos value: u64) -> u64
                 when(ready(value))
-                {{
-                    ensures(trusted live(result))
-                }}
-                {{
-                    return value;
-                }}
+            {{
+                ensures(trusted live(result))
+            }}
+            {{
+                return value;
+            }}
             func observe(pos value: u64)
                 requires(trusted live(value))
             {{

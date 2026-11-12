@@ -261,15 +261,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                 survives(&target.project(&value.projections[path.projections.len()..]), observation, ty, false)
                             }) {
                             observation.record_preservation(value.clone(), stable_values);
-                            stable_descriptors.extend(owner_paths(value, path));
                         }
                     }
 
                     if !exposed_referent {
-                    stable_descriptors.extend(self.input.footprint.discriminants.get(&path.root).into_iter().flatten().filter(|descriptor| {
-                        descriptor.contains(path)
-                            && matches!(path.projections.get(descriptor.projections.len()), Some(bray_bound_tree::StorageProjection::NullableValue | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
-                    }).cloned());
+                        for descriptor in self.input.footprint.discriminants.get(&path.root).into_iter().flatten().filter(|descriptor| {
+                            descriptor.contains(path)
+                                && matches!(path.projections.get(descriptor.projections.len()), Some(bray_bound_tree::StorageProjection::NullableValue | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
+                        }) {
+                            bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_values);
+                        }
                     }
 
                     continue;
@@ -295,8 +296,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // Pointer descriptors belong to the shared owner, separately
                     // from the mutable storage they reach.
                     if observation == bray_bound_tree::StorageObservationKind::Address {
-                        references.extend(targets.iter().map(|target| (value.clone(), target.project(&value.projections[path.projections.len()..]))));
-                        observed = true;
+                        if targets.iter().all(|target| survives(
+                            &target.project(&value.projections[path.projections.len()..]), observation, ty, true,
+                        )) {
+                            references.extend(targets.iter().map(|target| (value.clone(), target.project(&value.projections[path.projections.len()..]))));
+                            observed = true;
+                        }
+
                         continue;
                     }
 
@@ -306,10 +312,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                     if survives && (!exposed_referent || opaque && observation.is_immutable_inline()) {
                         observation.record_preservation(value.clone(), stable_values);
-
-                        if matches!(observation, bray_bound_tree::StorageObservationKind::Marker(_)) {
-                            stable_descriptors.extend(owner_paths(value, path));
-                        }
 
                         observed = true;
                     }
@@ -321,13 +323,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 // referent still retains the complete owner for this shared loan.
                 stable_descriptors.insert(path.clone());
 
-                stable_descriptors.extend(
-                    discriminants
+                for descriptor in discriminants
                         .into_iter()
                         .flatten()
-                        .filter(|descriptor| path.contains(descriptor))
-                        .cloned(),
-                );
+                        .filter(|descriptor| path.contains(descriptor)) {
+                    bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_values);
+                }
 
             }
         }
@@ -344,13 +345,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         invalidation: &mut StorageInvalidation,
     ) {
         let mut references = Vec::new();
-        let (stable_descriptors, stable_values, changed) = match invalidation {
-            StorageInvalidation::All { stable_descriptors, stable_values, .. } => (stable_descriptors, stable_values, None),
-            StorageInvalidation::Observed { stable_descriptors, stable_values, accesses, .. } => {
-                (stable_descriptors, stable_values, Some(accesses))
-            }
-            StorageInvalidation::Paths(_) => return,
-        };
 
         let exposed = memory.raw_exposed_regions();
 
@@ -368,7 +362,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // its value use different accesses and do not replace the descriptor.
             if access.is_some_and(|access| {
                 self.input.reference_paths.get(&access).is_none_or(|(_, path)| path.borrows().is_empty())
-                    && changed.as_ref().is_some_and(|paths| paths.contains_key(&access))
+                    && matches!(&*invalidation, StorageInvalidation::Observed { accesses, .. } if accesses.contains_key(&access))
             }) {
                 continue;
             }
@@ -396,6 +390,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // is unnecessary, but unknown or retired backing supplies no protection.
             let Some(location) = location else {
                 continue;
+            };
+
+            // A live old pointee cannot preserve a descriptor that this operation
+            // can replace. Use the same slot frame as physical effect retirement.
+            if !crate::analysis::storage_flow::memory::State::stable_reference_slot(&location, invalidation) {
+                continue;
+            }
+
+            let (stable_descriptors, stable_values) = match invalidation {
+                StorageInvalidation::All { stable_descriptors, stable_values, .. }
+                | StorageInvalidation::Observed { stable_descriptors, stable_values, .. } => (stable_descriptors, stable_values),
+                StorageInvalidation::Paths(_) => return,
             };
 
             let source = Source::Value(location);
@@ -455,10 +461,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         }
                     } else {
                         observation.record_preservation(path.clone(), stable_values);
-
-                        if matches!(observation, bray_bound_tree::StorageObservationKind::Marker(_)) {
-                            stable_descriptors.extend(owner_paths(path, reference));
-                        }
                     }
                 }
             }
@@ -476,18 +478,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         tags: bool,
         contents: bool,
     ) {
-        let (StorageInvalidation::All {
-            stable_descriptors,
-            stable_values,
-            ..
-        }
-        | StorageInvalidation::Observed {
-            stable_descriptors,
-            stable_values,
-            ..
-        }) = invalidation
-        else {
-            return;
+        let stable_values = match invalidation {
+            StorageInvalidation::All { stable_values, .. }
+            | StorageInvalidation::Observed { stable_values, .. } => stable_values,
+            StorageInvalidation::Paths(_) => return,
         };
 
         let exposed = memory.raw_exposed_regions();
@@ -495,8 +489,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if tags {
             // Tag-free stores run no replacement cleanup. Inexact aliasing
             // cannot turn one into a variant replacement.
-            stable_descriptors.extend(
-                self.input
+            for descriptor in self.input
                     .footprint
                     .discriminants
                     .iter()
@@ -514,8 +507,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                 != StorageRelationship::Disjoint
                         })
                     })
-                    .flat_map(|(_, paths)| paths.iter().cloned()),
-            );
+                    .flat_map(|(_, paths)| paths) {
+                bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_values);
+            }
         }
 
         if contents {
@@ -1056,6 +1050,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.opaque_observations(memory, mutations.cloned())
         }
     }
+
     fn stable_descriptors<'target>(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
@@ -1103,18 +1098,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
     }
-}
-
-/// Preserve containing identities without claiming that their contents are unchanged.
-/// Stop at the actual loan boundary rather than following its lifetime anchor.
-fn owner_paths<'a>(
-    value: &'a StoragePath,
-    boundary: &'a StoragePath,
-) -> impl Iterator<Item = StoragePath> + 'a {
-    (boundary.projections.len()..value.projections.len()).map(|length| StoragePath {
-        root: value.root,
-        projections: value.projections[..length].into(),
-    })
 }
 
 fn observable_path(

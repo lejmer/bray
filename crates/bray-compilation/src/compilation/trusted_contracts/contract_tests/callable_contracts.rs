@@ -240,15 +240,15 @@ fn conditional_callable_types_preserve_trusted_guarantees() {
             when(ready) { ensures(trusted live(&result)) };
         trusted func owner(pos ready: bool) -> Owner
             when(ready)
+        {
+            ensures(trusted live(&result))
+        }
+        {
+            return
             {
-                ensures(trusted live(&result))
-            }
-            {
-                return
-                {
-                    byte = 1
-                };
-            }
+                byte = 1
+            };
+        }
         func observe(pos value: &Owner)
             requires(trusted live(value))
         {

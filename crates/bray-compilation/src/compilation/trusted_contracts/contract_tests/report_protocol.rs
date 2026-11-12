@@ -306,9 +306,9 @@ fn production_report_pool_mutation_requires_protocol_authority() {
             using internal bray.runtime.bootstrap;
             using internal bray.runtime.bootstrap.pool;
             func production_probe()
-            {{
-                {operation}
-            }}"#,
+{{
+    {operation}
+}}"#,
         );
 
         let compilation = production_host_compilation(&source);

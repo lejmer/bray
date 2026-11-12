@@ -21,7 +21,7 @@ fn copied_addresses_keep_value_dependencies_without_the_container_loan() {
             trusted predicate acquired(owner: &Marker);
             trusted func fresh(pos pointer: DataPointer<u32>) -> Reference
                 ensures(trusted acquired(owner = &result.acquisition))
-                {{
+            {{
                 return
                 {{
                     acquisition = Marker {{}}, pointer = pointer
@@ -35,7 +35,7 @@ fn copied_addresses_keep_value_dependencies_without_the_container_loan() {
             trusted func retain(pos owner: &Reference) -> Reference
                 requires(trusted acquired(owner = &owner.acquisition))
                 ensures(trusted acquired(owner = &result.acquisition))
-                {{
+            {{
                 return
                 {{
                     acquisition = Marker {{}}, pointer = owner.pointer
@@ -86,7 +86,7 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
         using std.memory;
         trusted func exact(pos owner: &bool, pos payload: &bool) -> &bool
             uses(raw_memory, unchecked_alias)
-            {
+        {
             let pointer = std.memory.address_of<bool>(payload);
             return trusted std.memory.borrow_from<bool, bool>(owner, pointer);
         }
@@ -323,7 +323,7 @@ fn raw_writes_invalidate_only_the_reached_witness_observations() {
             }}
             trusted func acquire() -> Access
                 ensures(trusted live(&result.lease))
-                {{
+            {{
                 return
                 {{
                     payload = 0, lease =

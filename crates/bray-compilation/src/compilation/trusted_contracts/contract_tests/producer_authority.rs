@@ -199,13 +199,13 @@ fn changing_a_guard_does_not_erase_a_safe_producers_entry_obligation() {
         trusted predicate live(value: u64);
         func make(pos mut flag: bool) -> u64
             when(flag)
-            {
-                ensures(trusted live(result))
-            }
-            {
-                flag = false;
-                return 0;
-            }
+        {
+            ensures(trusted live(result))
+        }
+        {
+            flag = false;
+            return 0;
+        }
     "#,
     );
 
@@ -227,7 +227,7 @@ fn a_vacuous_entry_obligation_does_not_make_the_owner_a_witness() {
         trusted predicate live(value: &Owner);
         func caller(pos value: Owner, flag: bool)
             requires(flag || trusted live(&value))
-            {
+        {
             if flag { let copied = value; }
         }
     "#,
@@ -377,12 +377,12 @@ fn an_acknowledged_producer_establishes_guarantees_when_its_obligation_is_expose
         trusted predicate live(value: &Owner);
         trusted func owner(pos epoch: u64) -> Owner
             requires(trusted admitted(epoch)) ensures(trusted live(&result))
+        {
+            return
             {
-                return
-                {
-                    epoch = epoch
-                };
-            }
+                epoch = epoch
+            };
+        }
         func observe(pos value: &Owner)
             requires(trusted live(value))
         {
@@ -422,9 +422,9 @@ fn safe_forwarders_preserve_existing_witnesses() {
         }
         func forward(pos value: Owner) -> Owner
             requires(trusted live(&value)) ensures(trusted live(&result))
-            {
-                return value;
-            }
+        {
+            return value;
+        }
         trusted func observe(pos value: &Owner)
             requires(trusted live(value))
         {
@@ -458,12 +458,12 @@ fn ordinary_producer_requirements_guard_trusted_guarantees() {
             trusted func owner(pos epoch: u64) -> Owner
                 requires(epoch == 1)
                 ensures(trusted live(&result))
+            {{
+                return
                 {{
-                    return
-                    {{
-                        epoch = epoch
-                    }};
-                }}
+                    epoch = epoch
+                }};
+            }}
             trusted func observe(pos value: &Owner)
                 requires(trusted live(value))
             {{

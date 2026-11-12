@@ -536,7 +536,7 @@ fn production_guard_cleanup_survives_loop_payload_transitions() {
             extern trusted async func suspend();
             async func production_probe<T>(pos lock: &std.sync.SpinLock<Payload<T>>, pos mut pending: Pending<T>)
                 requires(trusted std.sync.spin_lock.valid(&lock.prepared.instance))
-                {{
+            {{
                 while true
                 {{
                     let generation: u32 =

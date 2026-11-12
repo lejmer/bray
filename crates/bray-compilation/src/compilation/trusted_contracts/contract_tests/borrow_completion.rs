@@ -44,7 +44,7 @@ fn owned_postconditions_follow_a_scoped_mutable_alias() {
             {{
                 let action = lambda(pos mut value: Flags, pos condition: bool) -> Flags
                     ensures(result.ready) executes(total)
-                    {{
+                {{
                     {body}
                     return value;
                 }};

@@ -3,20 +3,20 @@ use bray_bound_tree::StorageInvalidation;
 use bray_symbols::DependencyMutationKind;
 
 impl State {
-    pub(in crate::analysis::storage_flow::memory) fn stable_reference_slot(
+    pub(in crate::analysis::storage_flow) fn stable_reference_slot(
         target: &Target,
-        invalidation: &bray_bound_tree::StorageInvalidation,
+        invalidation: &StorageInvalidation,
     ) -> bool {
         if invalidation.preserves_reference_slot(target) { return true; }
 
         let descriptors = match invalidation {
-            bray_bound_tree::StorageInvalidation::All {
+            StorageInvalidation::All {
                 stable_descriptors, ..
             }
-            | bray_bound_tree::StorageInvalidation::Observed {
+            | StorageInvalidation::Observed {
                 stable_descriptors, ..
             } => stable_descriptors,
-            bray_bound_tree::StorageInvalidation::Paths(_) => return false,
+            StorageInvalidation::Paths(_) => return false,
         };
 
         // A retained whole descriptor protects its inline reference values. It does
@@ -127,8 +127,8 @@ impl State {
     fn invalidate_target(
         &mut self,
         target: &Target,
-        kind: bray_symbols::DependencyMutationKind,
-        invalidation: &bray_bound_tree::StorageInvalidation,
+        kind: DependencyMutationKind,
+        invalidation: &StorageInvalidation,
         complete_cell: bool,
     ) {
         let references = References::one(target.clone());
@@ -136,7 +136,7 @@ impl State {
         for affected in self.affected_targets(&references) {
             // Atomic effects change protected payload observations, not ordinary
             // reference slots that merely may alias the atomic's address.
-            if kind != bray_symbols::DependencyMutationKind::Atomic
+            if kind != DependencyMutationKind::Atomic
                 && !Self::stable_reference_slot(&affected, invalidation)
             {
                 self.values.remove(&affected);
@@ -161,9 +161,9 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn invalidate(
         &mut self,
-        invalidation: &bray_bound_tree::StorageInvalidation,
+        invalidation: &StorageInvalidation,
         storage: &bray_bound_tree::StoragePlan,
-        kind: bray_symbols::DependencyMutationKind,
+        kind: DependencyMutationKind,
     ) {
         // An opaque operation can change the referent without replacing a reference
         // stored in an unexposed owner or reached through a protected shared entry borrow.
@@ -172,18 +172,18 @@ impl State {
 
         let unknown = matches!(
             invalidation,
-            bray_bound_tree::StorageInvalidation::All { .. }
+            StorageInvalidation::All { .. }
         );
 
         self.values.retain(|target, _| {
-            kind == bray_symbols::DependencyMutationKind::Atomic
+            kind == DependencyMutationKind::Atomic
                 || unknown && Self::unaddressed_inline_slot(unaddressed, target)
                 || Self::stable_reference_slot(target, invalidation)
                 || match target.observation_path() {
                     Some(slot) => !invalidation.invalidates_path(&slot, storage),
                     None => !matches!(
                         invalidation,
-                        bray_bound_tree::StorageInvalidation::All { .. }
+                        StorageInvalidation::All { .. }
                     ),
                 }
         });
@@ -201,7 +201,7 @@ impl State {
                 | Origin::Static { .. } => {
                     matches!(
                         invalidation,
-                        bray_bound_tree::StorageInvalidation::All { .. }
+                        StorageInvalidation::All { .. }
                     )
                 }
             };

@@ -37,7 +37,7 @@ fn nullable_acquisition_contract_follows_the_present_owner() {
             trusted predicate held(value: Guard?);
             trusted func acquire() -> Guard?
                 ensures(trusted held(result))
-                {{
+            {{
                 let guard: Guard = {{ active = true }};
                 return guard;
             }}
@@ -696,8 +696,8 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
 
         if !valid {
             assert!(diagnostics.iter().any(|diagnostic| matches!(diagnostic.kind(),
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
-                    | bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven
+                DiagnosticKind::CheckingTrustedObligationNotProven
+                    | DiagnosticKind::CheckingTrustedWitnessTransferNotProven
             )), "{diagnostics:#?}");
         }
     }

@@ -97,7 +97,7 @@ fn loop_cleanup_keeps_independent_complete_carriers() {
             trusted func lock(pos owner: &Owner) -> Guard
                 requires(trusted live(&owner.instance))
                 ensures(trusted live(&owner.instance), trusted live(&result.instance))
-                {{
+            {{
                 return
                 {{
                     instance = Marker {{}}, owner = owner

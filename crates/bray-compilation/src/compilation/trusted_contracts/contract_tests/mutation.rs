@@ -23,7 +23,7 @@ fn sibling_mutation_preserves_a_returned_component_witness() {
             }}
             trusted func acquire() -> Access
                 ensures(trusted live(&result.lease))
-                {{
+            {{
                 return
                 {{
                     payload = 0, lease =
@@ -407,7 +407,7 @@ fn input_referent_mutations_preserve_only_proven_disjoint_component_witnesses() 
                 requires(trusted held(value)) executes(pure, total) {{}}
             func caller(pos left: &mut Pair, pos right: {right_type})
                 requires(trusted held(&left.second))
-                {{
+            {{
                 {mutated}.{field}.value = false;
                 observe(&left.second);
             }}

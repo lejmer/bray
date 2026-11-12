@@ -9,8 +9,7 @@ fn copied_pointer_components_keep_storage_facts_without_owning_the_tuple() {
         using core.memory;
         struct BorrowedHolder
         {
-            items: &[u8;
-            1];
+            items: &[u8; 1];
         }
         func read_borrowed(pos value: BorrowedHolder) -> u8
         {
@@ -18,10 +17,12 @@ fn copied_pointer_components_keep_storage_facts_without_owning_the_tuple() {
         }
         func read_holder(pos items: &[u8; 1]) -> u8
         {
-            return read_borrowed(BorrowedHolder
-            {
-                items = items
-            });
+            return read_borrowed(
+                BorrowedHolder
+                {
+                    items = items
+                }
+            );
         }
         struct Marker
         {
@@ -332,14 +333,18 @@ fn output_authority_copy_checks_follow_current_completion_guards() {
         trusted predicate live(value: &mut Owner);
         trusted func initialize(pos value: &mut Owner) -> u32
             ensures(result != 0 || trusted live(value))
-            {
-                return 0;
-            }
+        {
+            return 0;
+        }
         func caller()
         {
-            let mut value: Owner = { epoch = 0 };
+            let mut value: Owner = {
+                epoch = 0
+            };
             let status = initialize(&mut value);
-            if status != 0 { let copy = value; }
+            if status != 0 {
+                let copy = value;
+            }
         }
     "#,
     );
@@ -500,20 +505,20 @@ fn negative_trusted_guarantees_retain_witness_copy_obligations() {
             trusted predicate dangerous(value: &Owner);
             trusted func direct_owner() -> Owner
                 ensures(!(trusted dangerous(&result)))
+            {{
+                return
                 {{
-                    return
-                    {{
-                        epoch = 1
-                    }};
-                }}
+                    epoch = 1
+                }};
+            }}
             trusted func owner(pos flag: bool) -> Owner
                 ensures(flag || !(trusted dangerous(&result)))
+            {{
+                return
                 {{
-                    return
-                    {{
-                        epoch = 1
-                    }};
-                }}
+                    epoch = 1
+                }};
+            }}
             func caller()
             {{
                 {body}
@@ -550,19 +555,23 @@ fn a_completion_status_can_be_copied_without_copying_the_output_authority() {
         trusted predicate live(value: &mut Owner);
         trusted func initialize(pos value: &mut Owner) -> u32
             ensures(result != 0 || trusted live(value))
-            {
-                return 0;
-            }
+        {
+            return 0;
+        }
         func observe(pos value: &mut Owner)
             requires(trusted live(value))
         {
         }
         func caller()
         {
-            let mut value: Owner = { epoch = 1 };
+            let mut value: Owner = {
+                epoch = 1
+            };
             let status = initialize(&mut value);
             let copied_status = status;
-            if copied_status == 0 { observe(&mut value); }
+            if copied_status == 0 {
+                observe(&mut value);
+            }
         }
     "#,
     );

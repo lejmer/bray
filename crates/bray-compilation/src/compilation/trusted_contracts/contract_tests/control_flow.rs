@@ -263,10 +263,13 @@ fn yielded_owners_preserve_only_common_witnesses() {
             trusted func produce(pos value: u32) -> (Owner, u32)
                 ensures(trusted live(owner = &result.0))
             {{
-                return (Owner
-                {{
-                    value = value
-                }}, 0);
+                return (
+                    Owner
+                    {{
+                        value = value
+                    }},
+                    0
+                );
             }}
             func observe(pos owner: &Owner)
                 requires(trusted live(owner = owner))
@@ -319,13 +322,15 @@ fn yielded_pairs_do_not_combine_unrelated_owner_authority() {
             trusted func produce(pos value: u32) -> (Owner, Owner)
                 ensures(trusted paired(left = &result.0, right = &result.1))
             {{
-                return (Owner
-                {{
-                    value = value
-                }}, Owner
-                {{
-                    value = value
-                }});
+                return (
+                    Owner
+                    {{
+                        value = value
+                    }}, Owner
+                    {{
+                        value = value
+                    }}
+                );
             }}
             func observe(pos left: &Owner, pos right: &Owner)
                 requires(trusted paired(left = left, right = right)) {{}}
@@ -421,13 +426,15 @@ fn construction_inputs_preserve_authority_without_forgery_or_repairing_pairs() {
             trusted func produce() -> (Owner, Owner)
                 ensures(trusted paired(left = &result.0, right = &result.1))
             {{
-                return (Owner
-                {{
-                    value = 1
-                }}, Owner
-                {{
-                    value = 2
-                }});
+                return (
+                    Owner
+                    {{
+                        value = 1
+                    }}, Owner
+                    {{
+                        value = 2
+                    }}
+                );
             }}
             func observe(pos left: &Owner, pos right: &Owner)
                 requires(trusted paired(left = left, right = right)) {{}}

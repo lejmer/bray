@@ -36,7 +36,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Fixed evidence
 
-Pushed107ad2495 test reorganization. Last accepted semantics b4b5a76f5. Current verified batch has consuming-copyable receiver moves and nullable argument inference.
+Checkpoint commits are on the PR branch. Last accepted semantics b4b5a76f5. Current verified batch has consuming-copyable receiver moves and nullable argument inference.
 Fixed920:791 pass/30 fail/99 ignored. Original907 identities/SHA remain frozen with16 explained repairs and13 added
 controls. Owned248/deferred148 on source/import and witness matrices unchanged. Checker511/bound136 pass.
 Symbols221/interface216/messages92 and proof9 remain valid. Cleanup57/4 and predicates26/2/2 retain outcomes.
@@ -67,7 +67,7 @@ identities or expected outcomes are added by the current repair. Unexplained cha
 Preservation repair contract: a live marker retains itself and containing owner identity, never sibling pointer values.
 Whole inline descriptors survive only when their actual storage is unexposed, their shared owner excludes writes, or
 an exact descriptor slot is disjoint. The shared-view consumer must first retain its physical descriptor. Nullable tags
-use Discriminant claims, never descriptor-identity claims. Opaque/ambient effects still consider exposed raw aliases.
+use Discriminant claims, never descriptor-identity claims. Actual raw effects retain their alias scope. Ordinary opaque effects cannot grant mutation through a retained shared loan.
 
 Producer inventory: opaque_observations filters whole descriptors against invocation reachability. target_observations
 checks stored-loan/slice descriptor slots against actual writes. Active shared loans retain whole descriptors only while
@@ -84,7 +84,9 @@ necessary work, identify its actual claimed boundary before restoring any preser
 
 The test layout is one contract_tests module with topic files, maximum832 lines after readable inline Bray formatting.
 All372 test names including2 nested fixture tests and380 top-level source items are retained. Includes resolve to the same files. verification.json maps relocated module names to the immutable
-comparison identities, with unchanged expected outcomes. Fixture edits preserve code tokens apart from whitespace. One keyword module was renamed static_owners.
+comparison identities, with unchanged expected outcomes. Fixture edits preserve code tokens apart from whitespace. User corrections and path simplifications must be preserved.
+The indentation rewrite was faulty. Whole-fixture brace alignment now passes1676 pairs and template-clause indentation
+is retained. Check current working edits before any further fixture changes. One keyword module was renamed static_owners.
 No separate tests or ownership_tests directories remain. Host/diagnostic/address tests share the same topic hierarchy
 and fixture module. No style pass yet.
 
@@ -92,8 +94,8 @@ Pending preservation candidate: fixed920=786/35/99, checker511/bound136 pass. No
 (overwritten reference), six regressions: forwarded_shared_scalars_remain_protected_after_exposure,
 escape_summaries_preserve_input_roots_before_alias_expansion, production_observer_keeps_authority_through_conditional_protocol_changes,
 field_projection_preserves_the_evidence_of_a_borrowed_call_result, nullable_input_adaptation_preserves_physical_owners_and_rejected_values,
-raw_entry_addresses_do_not_replace_borrowed_owners_at_completion. The removed roots also carried necessary owner/loan
-identity. Restore no blanket pointer preservation. Deduce a representation that keeps identity separate from actual
+raw_entry_addresses_do_not_replace_borrowed_owners_at_completion. The six failures have not yet been assigned individually. Ordinary opaque effects do not grant mutation
+through retained shared loans, so their original protection has been restored. That revision is not yet rebuilt. Restore no blanket pointer preservation. Deduce a representation that keeps identity separate from actual
 reference-slot contents and trace producers through physical memory and proof framing before editing again.
 Runtime source/native have not run for this candidate. Further fixture expansion is stopped.
 

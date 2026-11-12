@@ -122,9 +122,9 @@ fn borrowed_completion_preserves_the_reached_owner_for_cleanup() {
                 requires(trusted live(value)) ensures(trusted live(value)) executes(total) {{}}
             trusted func may_fail(pos value: &Owner)
                 requires(trusted live(value)) ensures(trusted live(value))
-                {{
-                    if value.epoch == 2 {{ panic("stopped"); }}
-                }}
+            {{
+                if value.epoch == 2 {{ panic("stopped"); }}
+            }}
             trusted func observe_mut(pos value: &mut Owner)
                 requires(trusted live(&value)) ensures(trusted live(&value)) executes(total) {{}}
             func forget(pos value: &Owner)

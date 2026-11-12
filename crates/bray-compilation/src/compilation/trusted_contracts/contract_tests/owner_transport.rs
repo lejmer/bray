@@ -215,7 +215,7 @@ fn transparent_predicate_getters_preserve_the_contained_owner() {
             trusted predicate acquired(owner: &Marker);
             const func present_owner(pos owner: &(Owner?)) -> &Owner
                 requires(owner matches ?_) executes(pure, total)
-                {{
+            {{
                 return match owner
                 {{
                     case ?value
@@ -278,7 +278,7 @@ fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
             }}
             trusted func anchored(pos owner: &Anchor, pos payload: &u32) -> &u32
                 uses(raw_memory, unchecked_alias)
-                {{
+            {{
                 return trusted std.memory.borrow_from<u32, Anchor>(owner, std.memory.address_of<u32>(payload));
             }}
             trusted func address_view(pos owner: &u32) -> DataPointer<u32>
@@ -529,9 +529,9 @@ fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
             ensures(trusted live(&result.1))
         {
             return (1, Owner
-            {
-                first = 2, second = 3, third = 0, fourth = 0, pointer = std.memory.null<u8>()
-            });
+                {
+                    first = 2, second = 3, third = 0, fourth = 0, pointer = std.memory.null<u8>()
+                });
         }
         func consume_owner(pos owner: Owner)
             requires(trusted live(&owner))
@@ -780,12 +780,12 @@ fn destructured_storage_preserves_whole_owner_guarantees() {
             trusted func owner() -> Owner
                 executes(pure, total)
                 ensures(trusted live(&result))
+            {{
+                return
                 {{
-                    return
-                    {{
-                        epoch = 1
-                    }};
-                }}
+                    epoch = 1
+                }};
+            }}
             func observe(pos value: &Owner)
                 executes(pure, total)
                 requires(trusted live(value))

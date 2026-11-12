@@ -69,12 +69,12 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
         }
         func expose_protocol(pos sender: &std.channel.Sender<u32>)
             requires(trusted std.channel.owner.live(&sender.owner.instance), trusted std.channel.owner.sender(&sender.owner.instance))
-            {
+        {
             let shared = internal std.channel.channel_core<u32>(&sender.owner);
         }
         func change_kind(pos sender: std.channel.Sender<u32>)
             requires(trusted std.channel.owner.live(&sender.owner.instance), trusted std.channel.owner.sender(&sender.owner.instance))
-            {
+        {
             let receiver: std.channel.Receiver<u32> = { owner = sender.owner };
             _ = receiver.try_receive();
         }
