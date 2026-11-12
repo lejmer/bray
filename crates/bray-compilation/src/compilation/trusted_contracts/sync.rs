@@ -678,6 +678,157 @@ fn extracted_fields_survive_sibling_extraction_and_parent_replacement() {
 }
 
 #[test]
+fn extracted_owned_fields_outlive_their_replaced_storage() {
+    let mut failures = Vec::new();
+
+    for deferred in [false, true] {
+        for route in ["known", "unknown", "overwrite", "loop", "mutated"] {
+            let asynchronous = if deferred { "async " } else { "" };
+            let take = |name: &str, choice: &str| {
+                let call = format!("trusted take_owned_report(&mut reports, {choice})");
+                if deferred { format!("let pending_{name} = {call};\nlet mut {name} = await pending_{name};") }
+                else { format!("let mut {name} = {call};") }
+            };
+            let first = take("previous", "false");
+            let body = match route {
+                "known" | "unknown" => {
+                    let incoming = take("incoming", if route == "known" { "true" } else { "choice" });
+                    format!("{first}\n{incoming}\nconsume_report(incoming);\nconsume_report(previous);")
+                }
+                "overwrite" => format!("{first}\nreports.left = replacement;\nconsume_report(previous);"),
+                "mutated" => format!("{first}\ntrusted change_report(&mut previous);\nconsume_report(previous);"),
+                "loop" => {
+                    let current = take("current", "choice");
+                    format!(r#"
+                        let mut previous: ScalarReport? = none;
+                        let mut turn: u32 = 0;
+
+                        while turn < 2
+                        {{
+                            {current}
+                            match consume previous
+                            {{
+                                case ?retained
+                                {{
+                                    consume_report(retained);
+                                }}
+                                case none
+                                {{
+                                }}
+                            }}
+
+                            previous = current;
+                            turn += 1;
+                        }}
+
+                        match consume previous
+                        {{
+                            case ?retained
+                            {{
+                                consume_report(retained);
+                            }}
+                            case none
+                            {{
+                            }}
+                        }}
+                    "#)
+                }
+                _ => unreachable!(),
+            };
+            let source = format!(r#"
+                trusted module app;
+
+                using std.memory;
+
+                struct Marker
+                {{
+                }}
+
+                trusted predicate live(owner: &Marker);
+
+                struct ScalarReport
+                {{
+                    mut value: usize;
+                }}
+
+                struct ReportProgress
+                {{
+                    mut state: u32;
+                    mut report: ScalarReport;
+                }}
+
+                struct ScalarReports
+                {{
+                    anchor: Marker;
+                    mut left: ReportProgress;
+                    mut right: ReportProgress;
+                }}
+
+                trusted predicate report_valid(owner: &ScalarReport);
+
+                trusted func fresh_report() -> ScalarReport
+                    ensures(trusted report_valid(owner = &result))
+                    executes(pure, total)
+                {{
+                    return
+                    {{
+                        value = 0
+                    }};
+                }}
+
+                func consume_report(pos report: ScalarReport)
+                    requires(trusted report_valid(owner = &report))
+                {{
+                }}
+
+                predicate reports_owned(owner: &ScalarReports) = live(owner = &owner.anchor);
+
+                trusted {asynchronous}func take_owned_report(pos reports: &mut ScalarReports, pos right: bool) -> ScalarReport
+                    requires(trusted reports_owned(owner = &reports))
+                    ensures(trusted reports_owned(owner = &reports), trusted report_valid(owner = &result))
+                {{
+                    if right
+                    {{
+                        return std.memory.replace_value<ScalarReport>(&mut reports.right.report, trusted fresh_report());
+                    }}
+
+                    return std.memory.replace_value<ScalarReport>(&mut reports.left.report, trusted fresh_report());
+                }}
+
+                extern trusted func make_reports() -> ScalarReports
+                    ensures(trusted reports_owned(owner = &result));
+
+
+                extern trusted func change_report(pos report: &mut ScalarReport);
+
+                trusted {asynchronous}func caller(pos marker: &Marker, pos choice: bool, pos replacement: ReportProgress)
+                    requires(trusted live(owner = marker))
+                    ensures(trusted live(owner = marker))
+                {{
+                    let mut reports = trusted make_reports();
+                    {body}
+                }}
+            "#);
+            let application = crate::test_support::production_standard_library_compilation(
+                crate::SelectedTarget::baseline(), &source);
+            let published = source_function_dependencies(&application, "take_owned_report");
+            assert!(!published.owned_result().is_empty(), "the fixture must publish checked extraction lineage: {published:?}");
+            let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
+                .expect("field extraction caller reaches lowering");
+            let valid = route != "mutated";
+            if !checked.diagnostics().has_errors() != valid {
+                failures.push(format!("deferred={deferred} route={route}: {:#?}", checked.diagnostics()));
+            }
+            if !valid && checked.diagnostics().has_errors() {
+                bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn transparent_predicate_getters_preserve_the_contained_owner() {
     for (body, valid) in [
         (

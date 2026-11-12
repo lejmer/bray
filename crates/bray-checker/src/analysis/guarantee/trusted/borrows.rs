@@ -48,13 +48,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        assumptions: &BTreeSet<(ExecutionCondition, bool)>,
     ) -> BTreeSet<ExecutionCondition> {
         let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
             return BTreeSet::new();
         };
 
-        dependencies.owned_result().transfers()
-            .filter(|transfer| transfer.preservation().preserves_value())
+        dependencies.owned_result().guarded_transfers()
+            .filter(|(transfer, cases)| cases.iter().copied().copied().chain(transfer.condition())
+                .all(|term| crate::execution_condition_from_type_term(
+                    self.request.semantic_values(), term, dependencies.input_count(),
+                ).expect("checked extraction guard decodes in the same semantic store")
+                    .substitute(&|place| place.value_in(arguments).unwrap_or(ExecutionCondition::Unknown),
+                        &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT })
+                    .prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }) != Some(false)))
+            .map(|(transfer, _)| transfer)
             .filter(|transfer| !self.returned_value_is_borrowed(dependencies,
                 &crate::storage::owned_storage_projections(self.dependencies, transfer.output())))
             .filter_map(|transfer| {

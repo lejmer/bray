@@ -118,19 +118,26 @@ impl DeferredValue {
         &mut self,
         replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
         identities: &BTreeMap<ExecutionCondition, ExecutionCondition>,
-        context: Option<(&Selection, &super::current::CurrentValues)>,
+        current: &super::current::CurrentValues,
+        context: Option<&Selection>,
     ) {
+        let current_fact = |condition: &ExecutionCondition| {
+            !condition.observations().any(|observed| matches!(observed, ExecutionCondition::ScalarValue(_))
+                && observed.selector_place().is_some_and(|place| current.live_value(place)
+                    .is_none_or(|value| value.copied_value() != observed)))
+        };
+        let context = context.map(|facts| facts.iter().filter(|(condition, _)| current_fact(condition))
+            .cloned().collect::<Selection>());
+
         for guard in self.unknown.iter_mut().map(|candidate| &mut candidate.selection).chain(
             self.producers
                 .values_mut()
                 .map(|candidate| &mut candidate.selection),
         ) {
-            if let Some((context, current)) = context {
-                guard.extend(selection(context).into_iter().filter(|(condition, _)| {
-                    !condition.observations().any(|observed| matches!(observed, ExecutionCondition::ScalarValue(_))
-                        && observed.selector_place().is_some_and(|place| place.value_in(current)
-                            .is_none_or(|value| value.copied_value() != observed)))
-                }));
+            guard.retain(|(condition, _)| current_fact(condition));
+
+            if let Some(context) = &context {
+                guard.extend(selection(context));
             }
 
             *guard = guard
@@ -148,12 +155,18 @@ impl DeferredValue {
         }
 
         for candidate in self.producers.values_mut() {
-            if let Some((context, _)) = context {
-                let captured = candidate.entry.captured_facts(context);
+            let captured = context.as_ref().map(|context| candidate.entry.captured_facts(context)).unwrap_or_default();
+            let stale = candidate.entry.copy_sources.values().any(|source| !current_fact(source))
+                || candidate.entry.assumptions.iter().chain(&candidate.entry.trusted_assumptions)
+                    .any(|(condition, _)| !current_fact(condition));
 
-                if !captured.is_subset(&candidate.entry.assumptions) {
-                    Arc::make_mut(&mut candidate.entry).assumptions.extend(captured);
-                }
+            if stale || !captured.is_subset(&candidate.entry.assumptions) {
+                let entry = Arc::make_mut(&mut candidate.entry);
+
+                entry.copy_sources.retain(|_, source| current_fact(source));
+                entry.assumptions.retain(|(condition, _)| current_fact(condition));
+                entry.trusted_assumptions.retain(|(condition, _)| current_fact(condition));
+                entry.assumptions.extend(captured);
             }
 
             if let Some(entry) = candidate.entry.joined_values(replacements, identities) {
@@ -202,16 +215,17 @@ mod tests {
             producers: [(expressions[0].into(), DeferredInvocation {
                 entry: Arc::new(ExecutionCallEvidence {
                     arguments: [(place.clone(), captured(owner.clone()))].into(),
-                    copy_sources: [(place.clone(), source.clone())].into(), ..Default::default()
+                    copy_sources: [(place.clone(), source.clone())].into(), pending_execution: true, ..Default::default()
                 }), reports: Default::default(), selection: Default::default(),
-            })].into(), ..Default::default()
+            })].into(),
+            unknown: Some(DeferredInvocation { entry: (), reports: Default::default(), selection: [(source.clone(), true)].into() }),
         });
         let middle = ExecutionCondition::Result;
 
         state.join_values(&[(owner.clone(), middle.clone())].into(), &[(owner, middle.clone())].into());
         assert!(state.deferred_invocations[&middle].producers[&expressions[0].into()].entry.assumptions.contains(&(captured(middle.clone()), true)));
+        assert!(state.deferred_invocations[&middle].producers[&expressions[0].into()].selection.contains(&(source.clone(), true)));
 
-        state.invalidate_contents(&[place.clone()].into(), [], &Default::default(), &Default::default(), None);
         state.current.insert(place, ExecutionCondition::Boolean(false));
 
         let target = ExecutionCondition::Expression(expressions[1]);
@@ -220,7 +234,9 @@ mod tests {
 
         let moved = &state.deferred_invocations[&target].producers[&expressions[0].into()];
 
-        assert!(!moved.selection.contains(&(source, true)));
+        assert!(!moved.selection.contains(&(source.clone(), true)));
+        assert!(!moved.entry.assumptions.contains(&(source, true)));
+        assert!(state.deferred_invocations[&target].unknown.as_ref().expect("opaque predecessor remains possible").selection.is_empty());
         assert!(moved.entry.copy_sources.is_empty());
         assert!(moved.entry.assumptions.contains(&(captured(target), true)));
     }

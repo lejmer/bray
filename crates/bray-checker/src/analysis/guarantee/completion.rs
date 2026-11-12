@@ -417,7 +417,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut entry = self.awaited_entry(state, invocation)
             .or_else(|| self.invocation_entry(state, invocation))?;
 
-        entry.extracted_values = self.extracted_input_values(invocation, &entry.arguments);
+        entry.extracted_values.extend(self.extracted_input_values(invocation, &entry.arguments, &entry.assumptions));
+        let captured_extractions = entry.owned_arguments()
+            .flat_map(|value| state.owned_values(&value))
+            .filter_map(|value| state.deferred_entries(&value))
+            .flat_map(|deferred| deferred.producers.values())
+            .filter(|producer| super::deferred::possible(&producer.selection, &entry.assumptions))
+            .flat_map(|producer| producer.entry.extracted_values.iter().cloned())
+            .collect::<BTreeSet<_>>();
+
+        entry.extracted_values.extend(captured_extractions);
 
         entry.witness_inputs = state
             .owned_witnesses(entry.witness_sources())

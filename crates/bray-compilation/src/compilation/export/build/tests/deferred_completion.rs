@@ -1228,6 +1228,11 @@ fn check_deferred_completion(imported: bool) {
 
         let diagnostics = consumer.check_diagnostics();
 
+        if *name == "same_site_loop" && !diagnostics.has_errors() {
+            assert!(crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller")
+                .normal_completion(), "valid deferred loop must retain its continuation, imported={imported}");
+        }
+
         if diagnostics.has_errors() == *valid {
             failures.push(format!(
                 "{name}, imported={imported}, valid={valid}: {}", super::fixtures::diagnostic_messages(diagnostics)

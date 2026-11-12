@@ -72,6 +72,21 @@ impl CurrentValues {
         })
     }
 
+    /// A retained terminal snapshot is readable, but cannot preserve live data.
+    pub(super) fn live_value(&self, place: &ExecutionPlace) -> Option<ExecutionCondition> {
+        let root = self.roots.get(&root_place(place))?;
+
+        if root.availability == ValueAvailability::Absent
+            || !matches!(self.availability(place), ValueAvailability::Present | ValueAvailability::Guarded(_))
+            || root.components.range(place.clone()..)
+                .take_while(|(component, _)| place.contains(component))
+                .any(|(_, availability)| *availability == ValueAvailability::Absent) {
+            return None;
+        }
+
+        place.value_in(self)
+    }
+
     pub(super) fn availability(&self, place: &ExecutionPlace) -> ValueAvailability {
         let Some(root) = self.roots.get(&root_place(place)) else {
             return ValueAvailability::Unknown;
@@ -188,8 +203,8 @@ impl CurrentValues {
                 (*availability == ValueAvailability::Absent).then_some(place)
             }).collect::<Vec<_>>();
 
-            if absent.is_empty() {
-                return vec![(place.clone(), root.value.clone())];
+            if absent.is_empty() && let Some(value) = self.live_value(place) {
+                return vec![(place.clone(), value)];
             }
 
             let mut candidates = root.components.keys().cloned().collect::<std::collections::BTreeSet<_>>();
@@ -207,7 +222,7 @@ impl CurrentValues {
                     continue;
                 }
 
-                if !matches!(self.availability(&candidate), ValueAvailability::Present | ValueAvailability::Guarded(_)) {
+                if self.live_value(&candidate).is_none() {
                     continue;
                 }
 
@@ -341,12 +356,17 @@ mod tests {
 
         assert_eq!(values.availability(&first), ValueAvailability::Absent);
         assert_eq!(values.availability(&second), ValueAvailability::Present);
+        assert!(first.value_in(&values).is_some(), "terminal data remains readable for postconditions");
+        assert!(values.live_value(&first).is_none());
+        assert!(values.live_value(&root).is_none(), "a partial owner cannot preserve the retired child");
+        assert_eq!(values.live_value(&second), Some(ExecutionCondition::Input(second.clone())));
         assert_eq!(values.live_entries().collect::<Vec<_>>(),
-            vec![(second.clone(), ExecutionCondition::Input(second))]);
+            vec![(second.clone(), ExecutionCondition::Input(second.clone()))]);
 
         values.retire(&root);
 
         assert!(values.live_values().next().is_none());
+        assert!(values.live_value(&second).is_none());
     }
 
     #[test]
@@ -360,6 +380,14 @@ mod tests {
         ])));
 
         assert!(values.live_values().next().is_none());
+
+        values.set_slot(first.clone(), super::CurrentValue {
+            value: ExecutionCondition::Input(source.clone()), availability: ValueAvailability::Present,
+        });
+
+        assert!(values.live_value(&root).is_none(), "initializing one field does not initialize the whole owner");
+        assert_eq!(values.live_entries().collect::<Vec<_>>(),
+            vec![(first.clone(), ExecutionCondition::Input(source.clone()))]);
 
         values.insert(root.clone(), ExecutionCondition::Input(source.clone()));
 

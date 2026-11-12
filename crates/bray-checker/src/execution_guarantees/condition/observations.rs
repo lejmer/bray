@@ -683,8 +683,8 @@ impl Set {
     /// Retained scalar data preserves value facts independently of its former storage.
     /// A retained tag supports only presence and variant observations.
     pub(crate) fn preserves(&self, value: &ExecutionCondition) -> bool {
-        if self.contains(value)
-            || matches!(value, ExecutionCondition::Borrowed(referent) if self.contains(referent))
+        if Self::retains_contents(&self.values, value)
+            || matches!(value, ExecutionCondition::Borrowed(referent) if Self::retains_contents(&self.values, referent))
             || self.copies.contains(value)
             || Self::retained_snapshot(&self.copies, value, false,
                 |selected| Self::same_snapshot_contents(selected, value))
