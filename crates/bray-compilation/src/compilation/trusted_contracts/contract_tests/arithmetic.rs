@@ -44,7 +44,10 @@ fn spare_capacity_bounds_prove_unsigned_sums_without_wrapping_subtraction() {
         trusted module app;
 
         using core.memory;
-        struct Header { capacity: usize; }
+        struct Header
+        {
+            capacity: usize;
+        }
         trusted func write_unknown_storage(pos header: &mut Header, pos destination: DataPointer<u8>) -> usize
             requires(
                 trusted core.memory.valid_write<u8>(pointer = destination, count = 1),
@@ -93,14 +96,18 @@ fn machine_products_retain_proven_bounds_across_boolean_joins() {
         let source = format!(r"
             trusted module app;
 
-            struct Owner {{}}
+            struct Owner
+            {{
+            }}
 
             trusted predicate extent(owner: &Owner, bytes: usize);
 
             trusted func allocate(pos bytes: usize) -> Owner
                 ensures(trusted extent(owner = &result, bytes = bytes))
             {{
-                return Owner {{}};
+                return Owner
+                {{
+                }};
             }}
 
             extern const func opaque_stride() -> usize;
@@ -152,8 +159,11 @@ fn machine_arithmetic_totality_distinguishes_wrapping_from_trapping_operations()
             let source = format!(
                 r#"
             module app;
-            func arithmetic(left: u64, right: u64) -> u64 executes(total)
-            {{ {body} }}
+            func arithmetic(left: u64, right: u64) -> u64
+                executes(total)
+            {{
+                {body}
+            }}
         "#
             );
 

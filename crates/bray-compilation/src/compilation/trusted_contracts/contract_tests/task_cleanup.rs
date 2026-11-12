@@ -10,10 +10,25 @@ fn task_cleanup_revokes_preceding_guarantees() {
 
             using core.atomic;
             trusted predicate ready(state: &core.atomic.Atomic<u64>);
-            async func work() {{}}
-            trusted func establish(pos state: &core.atomic.Atomic<u64>) ensures(trusted ready(state)) executes(total) {{}}
-            func observe(pos state: &core.atomic.Atomic<u64>) requires(trusted ready(state)) executes(pure, total) {{}}
-            async func caller(pos state: &core.atomic.Atomic<u64>) {{ {{ {pending} establish(state); }} observe(state); }}
+            async func work()
+            {{
+            }}
+            trusted func establish(pos state: &core.atomic.Atomic<u64>)
+                ensures(trusted ready(state))
+                executes(total)
+            {{
+            }}
+            func observe(pos state: &core.atomic.Atomic<u64>)
+                requires(trusted ready(state))
+                executes(pure, total)
+            {{
+            }}
+            async func caller(pos state: &core.atomic.Atomic<u64>)
+            {{
+                {{
+                    {pending} establish(state);
+                }} observe(state);
+            }}
         "#
         );
 
@@ -45,35 +60,69 @@ fn loop_cleanup_keeps_independent_complete_carriers() {
         let application = compilation(&format!(
             r#"
             trusted module app;
-            struct Marker {{}}
+            struct Marker
+            {{
+            }}
             trusted predicate live(marker: &Marker);
-            struct Owner {{ instance: Marker; }}
-            struct Anchor {{}}
-            extern trusted func borrow(pos anchor: &Anchor) -> &Owner ensures(trusted live(&result.instance)) executes(pure, total);
-            struct Pending<T> {{ mut value: T?; }}
-            struct Guard {{
+            struct Owner
+            {{
+                instance: Marker;
+            }}
+            struct Anchor
+            {{
+            }}
+            extern trusted func borrow(pos anchor: &Anchor) -> &Owner
+                ensures(trusted live(&result.instance))
+                executes(pure, total);
+            struct Pending<T>
+            {{
+                mut value: T?;
+            }}
+            struct Guard
+            {{
                 instance: Marker;
                 owner: &Owner;
-                trusted destruct() requires(trusted live(&self.instance)) {{}}
+                trusted destruct() requires(trusted live(&self.instance))
+                {{
+                }}
             }}
-            trusted func make() -> Owner ensures(trusted live(&result.instance)) {{ return {{ instance = Marker {{}} }}; }}
+            trusted func make() -> Owner
+                ensures(trusted live(&result.instance))
+            {{
+                return
+                {{
+                    instance = Marker {{}}
+                }};
+            }}
             trusted func lock(pos owner: &Owner) -> Guard
                 requires(trusted live(&owner.instance))
-                ensures(trusted live(&owner.instance), trusted live(&result.instance)) {{
-                return {{ instance = Marker {{}}, owner = owner }};
+                ensures(trusted live(&owner.instance), trusted live(&result.instance))
+                {{
+                return
+                {{
+                    instance = Marker {{}}, owner = owner
+                }};
             }}
-            struct Registration {{
+            struct Registration
+            {{
                 instance: Marker;
                 owner: &Owner;
                 mut active: bool;
                 trusted destruct() requires(!self.active || (trusted live(&self.instance) && trusted live(&self.owner.instance)))
                     when(!self.active) {{ executes(pure, total) }} {{ if self.active {{ opaque(); }} }}
-                consume mut func complete() {{ self.active = false; }}
+                consume mut func complete()
+                {{
+                    self.active = false;
+                }}
             }}
             trusted func register(pos owner: &Owner) -> Registration
                 requires(trusted live(&owner.instance))
-                ensures(trusted live(&result.instance), trusted live(&result.owner.instance)) {{
-                return {{ instance = Marker {{}}, owner = owner, active = true }};
+                ensures(trusted live(&result.instance), trusted live(&result.owner.instance))
+            {{
+                return
+                {{
+                    instance = Marker {{}}, owner = owner, active = true
+                }};
             }}
             extern trusted func stop() -> bool;
             extern trusted func opaque();
@@ -82,14 +131,21 @@ fn loop_cleanup_keeps_independent_complete_carriers() {
             extern trusted func get<T>(pos guard: &mut Guard) -> &mut T
                 requires(trusted live(&guard.instance)) ensures(trusted live(&guard.instance)) executes(pure, total);
             extern trusted async func suspend();
-            async func caller<T>(pos anchor: &Anchor, pos mut pending: Pending<T>) {{
+            async func caller<T>(pos anchor: &Anchor, pos mut pending: Pending<T>)
+            {{
                 let owner = borrow(anchor);
                 let mut registration = register(owner);
-                while true {{
-                    let generation: u32 = {{
+                while true
+                {{
+                    let generation: u32 =
+                    {{
                         let mut guard = lock(owner);
                         let payload: &mut T = get<T>(&mut guard);
-                        if stop() {{ registration.complete(); return unit; }}
+                        if stop()
+                        {{
+                            registration.complete();
+                            return unit;
+                        }}
                         {operation}
                         yield 0;
                     }};
@@ -131,17 +187,39 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
         let application = compilation(&format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            struct Owner {{ mut marker: Marker; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                mut marker: Marker;
+            }}
             trusted predicate live(marker: &Marker);
-            trusted func make() -> Owner ensures(trusted live(&result.marker)) {{ return {{ marker = Marker {{}} }}; }}
+            trusted func make() -> Owner
+                ensures(trusted live(&result.marker))
+            {{
+                return
+                {{
+                    marker = Marker {{}}
+                }};
+            }}
             extern func replace(pos owner: &mut Owner);
-            async func work(pos owner: &mut Owner) {{ replace(owner); }}
+            async func work(pos owner: &mut Owner)
+            {{
+                replace(owner);
+            }}
             extern func drive(pos pending: {parameter});
-            func observe(pos owner: &Owner) requires(trusted live(&owner.marker)) {{}}
-            async func caller() {{
+            func observe(pos owner: &Owner)
+                requires(trusted live(&owner.marker))
+            {{
+            }}
+            async func caller()
+            {{
                 let mut owner = make();
-                {{ let mut pending = {initialize}; drive({argument}); }}
+                {{
+                    let mut pending = {initialize};
+                    drive({argument});
+                }}
                 observe(&owner);
             }}
         "#
@@ -286,8 +364,12 @@ fn task_cleanup_retains_loans_until_the_task_is_consumed() {
             module app;
             extern async func work(pos value: &u32);
             extern func opaque();
-            struct Holder {{ task: Task<unit>; }}
-            async func caller(pos flag: bool) {{
+            struct Holder
+            {{
+                task: Task<unit>;
+            }}
+            async func caller(pos flag: bool)
+            {{
                 let mut value: u32 = 0;
                 {body}
             }}

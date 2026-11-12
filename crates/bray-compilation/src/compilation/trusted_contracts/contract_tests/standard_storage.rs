@@ -450,7 +450,8 @@ fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
             trusted internal module bray.runtime.bootstrap.heap;
 
             using std.memory;
-            func probe() {{
+            func probe()
+            {{
                 let pointer = trusted allocate(64, align = 32);
                 if !std.memory.is_null<u8>(pointer) {{ {body} }}
             }}
@@ -475,7 +476,7 @@ fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
                 lowered.diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
     }

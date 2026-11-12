@@ -36,10 +36,15 @@ fn owned_postconditions_follow_a_scoped_mutable_alias() {
         let source = format!(
             r#"
             module app;
-            struct Flags {{ mut ready: bool; }}
-            func root() {{
+            struct Flags
+            {{
+                mut ready: bool;
+            }}
+            func root()
+            {{
                 let action = lambda(pos mut value: Flags, pos condition: bool) -> Flags
-                    ensures(result.ready) executes(total) {{
+                    ensures(result.ready) executes(total)
+                    {{
                     {body}
                     return value;
                 }};
@@ -181,10 +186,18 @@ fn borrowed_scalar_authority_tracks_storage_independently_of_copied_values() {
             r#"
             trusted module app;
             trusted predicate live(value: &u8);
-            trusted func establish(pos value: &u8) executes(pure, total)
+            trusted func establish(pos value: &u8)
+                executes(pure, total)
                 ensures(trusted live(value)) {{}}
-            func observe(pos value: &u8) requires(trusted live(value)) {{}}
-            func caller({parameter}) {{ {initial} establish(&value); {action} }}
+            func observe(pos value: &u8)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller({parameter})
+            {{
+                {initial} establish(&value);
+                {action}
+            }}
         "#
         );
 
@@ -358,7 +371,10 @@ fn scoped_borrow_postconditions_survive_capability_retirement() {
                 trusted consume enter() -> Lease
                     ensures(trusted live(&result.slot))
                 {{
-                    return {{ slot = self.slot }};
+                    return
+                    {{
+                        slot = self.slot
+                    }};
                 }}
 
                 trusted {asynchronous} exit(pos lease: Lease)
@@ -434,13 +450,24 @@ fn completion_observes_the_evaluated_borrow_after_its_source_slot_changes() {
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{ epoch: u64; }}
-            struct Holder {{ mut slot: &Owner; other: &Owner; }}
+            struct Owner
+            {{
+                epoch: u64;
+            }}
+            struct Holder
+            {{
+                mut slot: &Owner;
+                other: &Owner;
+            }}
             trusted predicate live(value: &Owner);
             trusted func redirect(pos original: &Owner, pos holder: &mut Holder)
                 ensures(trusted live(original)) {{ holder.slot = holder.other; }}
-            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            func caller() {{
+            func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller()
+            {{
                 let first: Owner = {{ epoch = 0 }};
                 let second: Owner = {{ epoch = 1 }};
                 let mut holder: Holder = {{ slot = &first, other = &second }};
@@ -474,23 +501,42 @@ fn field_projection_preserves_the_evidence_of_a_borrowed_call_result() {
         let source = format!(
             r#"
             trusted module app;
-            struct Token {{}}
-            struct Owner {{ token: Token; }}
-            struct Holder {{ current: Owner; label: u32; }}
+            struct Token
+            {{
+            }}
+            struct Owner
+            {{
+                token: Token;
+            }}
+            struct Holder
+            {{
+                current: Owner;
+                label: u32;
+            }}
             extern func opaque();
-            impl Owner {{ func check() executes(pure, total) {{}} }}
+            impl Owner
+            {{
+                func check()
+                    executes(pure, total)
+                {{
+                }}
+            }}
             trusted predicate live(owner: &Token);
             func project(pos owner: &Owner) -> &Owner
                 requires(trusted live(&owner.token))
                 ensures(trusted live(&result.token))
                 executes(pure, total)
-            {{ return owner; }}
+            {{
+                return owner;
+            }}
             func observe(pos token: &Token)
                 requires(trusted live(token)) executes(pure, total) {{}}
             trusted func nested(pos owner: &Holder) -> &Holder
                 ensures(trusted live(&result.current.token))
                 executes(pure, total)
-            {{ return owner; }}
+            {{
+                return owner;
+            }}
             extern trusted func introduced(pos owner: &Holder) -> &Holder
                 ensures(trusted live(&result.current.token));
             func nested_caller(pos owner: &Holder)
@@ -525,15 +571,25 @@ fn field_projection_preserves_the_evidence_of_a_borrowed_call_result() {
 fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
     let source = r#"
         trusted module app;
-        struct Marker {}
+        struct Marker
+        {
+        }
         struct Owner
         {
             marker: Marker;
-            const func token() -> &Marker executes(pure, total) { return &self.marker; }
+            const func token() -> &Marker
+                executes(pure, total)
+            {
+                return &self.marker;
+            }
             func inspect_after_argument(pos sequence: u32)
                 requires(trusted live(&self.marker)) executes(pure, total) {}
         }
-        union Backing { Empty; Owned(pos owner: Owner); }
+        union Backing
+        {
+            Empty;
+            Owned(pos owner: Owner);
+        }
         trusted predicate live(owner: &Marker);
         const func owner(pos backing: &Backing) -> &Owner
             requires(backing matches Backing.Owned(_))
@@ -541,14 +597,29 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
         {
             return match backing
             {
-                case Backing.Owned(value) { yield &value; }
-                case Backing.Empty { panic("missing owner"); }
+                case Backing.Owned(value)
+                {
+                    yield &value;
+                }
+                case Backing.Empty
+                {
+                    panic("missing owner");
+                }
             };
         }
         predicate retained(backing: &Backing) = backing matches Backing.Owned(_) && live(owner(backing).token());
-        func observe(pos marker: &Marker) requires(trusted live(marker)) executes(pure, total) {}
-        func argument_value() -> u32 executes(pure, total) { return 0; }
-        func caller(pos backing: &Backing) requires(trusted retained(backing))
+        func observe(pos marker: &Marker)
+            requires(trusted live(marker))
+            executes(pure, total)
+        {
+        }
+        func argument_value() -> u32
+            executes(pure, total)
+        {
+            return 0;
+        }
+        func caller(pos backing: &Backing)
+            requires(trusted retained(backing))
         {
             if backing matches Backing.Owned(_)
             {
@@ -574,25 +645,54 @@ fn mutable_union_completion_observes_the_updated_owner() {
     for (preserved, valid) in [("trusted held(value = &value),", true), ("", false)] {
         let source = r#"trusted module app;
 using std.memory;
-struct Marker {}
-struct Reference { marker: Marker; }
-struct Row { mut provider: Reference; }
-union Value { First(pos mut row: Row); Second(pos mut row: Row); }
+struct Marker
+{
+}
+struct Reference
+{
+    marker: Marker;
+}
+struct Row
+{
+    mut provider: Reference;
+}
+union Value
+{
+    First(pos mut row: Row);
+    Second(pos mut row: Row);
+}
 trusted predicate held(value: &Value);
 trusted predicate reference_held(value: &Marker);
-trusted func fresh() -> Reference ensures(trusted reference_held(value = &result.marker)) executes(pure,total) { return { marker = Marker{}};}
+trusted func fresh() -> Reference
+    ensures(trusted reference_held(value = &result.marker))
+    executes(pure,total)
+{
+    return
+    {
+        marker = Marker {}
+    };
+}
 trusted func take(pos value: &mut Value) -> Reference
     requires(trusted held(value = &value))
     ensures( $PRESERVED trusted reference_held(value = &result.marker))
 {
-    return match value {
-        case Value.First(row) {yield trusted std.memory.replace_value<Reference>(&mut row.provider, fresh());}
-        case Value.Second(row) {yield trusted std.memory.replace_value<Reference>(&mut row.provider, fresh());}
+    return match value
+    {
+        case Value.First(row)
+        {
+            yield trusted std.memory.replace_value<Reference>(&mut row.provider, fresh());
+        }
+        case Value.Second(row)
+        {
+            yield trusted std.memory.replace_value<Reference>(&mut row.provider, fresh());
+        }
     };
 }
 func observe(pos value: &mut Value, pos provider: &Reference)
     requires(trusted held(value = &value), trusted reference_held(value = &provider.marker)) executes(pure,total) {}
-func caller(pos mut value: Value) requires(trusted held(value = &value)) {
+func caller(pos mut value: Value)
+    requires(trusted held(value = &value))
+{
     let provider = trusted take(&mut value);
     observe(&mut value, &provider);
 }

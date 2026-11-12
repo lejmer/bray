@@ -25,18 +25,27 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
             let source = format!(
                 r#"
                 trusted module app;
-                struct Token {{}}
+                struct Token
+                {{
+                }}
                 {predicate}
                 callable Bind = trusted func(pos owner: &Owner)
                     requires(trusted held(owner = {subject}))
                     ensures(trusted held(owner = {subject}));
                 callable Retire = trusted func(pos owner: Owner)
                     requires(trusted held(owner = {retirement_subject}));
-                struct Owner {{ token: Token; bind: Bind; retire: Retire; }}
+                struct Owner
+                {{
+                    token: Token;
+                    bind: Bind;
+                    retire: Retire;
+                }}
                 trusted func caller(pos owner: &Owner)
                     requires(trusted held(owner = {subject}))
                     ensures(trusted held(owner = {subject}))
-                {{ {body} }}
+                {{
+                    {body}
+                }}
             "#
             );
 
@@ -71,10 +80,15 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
             trusted predicate held(owner: &Owner);
             callable Retire = trusted func(pos owner: Owner)
                 requires(trusted held(owner = &owner));
-            struct Owner {{ retire: Retire; }}
+            struct Owner
+            {{
+                retire: Retire;
+            }}
             trusted func caller(pos owner: Owner)
                 requires(trusted held(owner = &owner))
-            {{ {body} }}
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -156,22 +170,41 @@ fn callable_fields_do_not_expose_their_containing_owner() {
             let application = compilation(&format!(
                 r#"
                 trusted module app;
-                struct Marker {{}}
+                struct Marker
+                {{
+                }}
                 trusted predicate live(marker: &Marker);
                 callable Callback = {abi} func();
-                struct Owner {{
+                struct Owner
+                {{
                     marker: Marker;
                     callback: Callback;
-                    trusted destruct() requires(trusted live(&self.marker)) {{}}
+                    trusted destruct() requires(trusted live(&self.marker))
+                    {{
+                    }}
                 }}
-                {abi} func inert() {{}}
-                trusted func make() -> Owner ensures(trusted live(&result.marker)) {{
-                    return {{ marker = Marker {{}}, callback = inert }};
+                {abi} func inert()
+                {{
+                }}
+                trusted func make() -> Owner
+                    ensures(trusted live(&result.marker))
+                {{
+                    return
+                    {{
+                        marker = Marker {{}}, callback = inert
+                    }};
                 }}
                 extern func publish(pos callback: Callback);
                 extern func mutate(pos owner: &mut Owner);
-                func touch(pos owner: &Owner) {{ publish(owner.callback); }}
-                func caller() {{ let mut owner = make(); {operation} }}
+                func touch(pos owner: &Owner)
+                {{
+                    publish(owner.callback);
+                }}
+                func caller()
+                {{
+                    let mut owner = make();
+                    {operation}
+                }}
             "#
             ));
 
@@ -198,14 +231,34 @@ fn conditional_callable_types_preserve_trusted_guarantees() {
     let compilation = compilation(
         r#"
         trusted module app;
-        struct Owner { byte: u8; }
+        struct Owner
+        {
+            byte: u8;
+        }
         trusted predicate live(value: &Owner);
         callable Producer = trusted func(pos ready: bool) -> Owner
             when(ready) { ensures(trusted live(&result)) };
         trusted func owner(pos ready: bool) -> Owner
-            when(ready) { ensures(trusted live(&result)) } { return { byte = 1 }; }
-        func observe(pos value: &Owner) requires(trusted live(value)) {}
-        func caller() { let produce: Producer = owner; let value = produce(true); observe(&value); }
+            when(ready)
+            {
+                ensures(trusted live(&result))
+            }
+            {
+                return
+                {
+                    byte = 1
+                };
+            }
+        func observe(pos value: &Owner)
+            requires(trusted live(value))
+        {
+        }
+        func caller()
+        {
+            let produce: Producer = owner;
+            let value = produce(true);
+            observe(&value);
+        }
     "#,
     );
 
@@ -222,8 +275,15 @@ fn callable_conversion_cannot_erase_predicate_requirements() {
         r#"
         trusted module app;
         trusted predicate live(value: u64);
-        func use_owner(pos value: u64) requires(trusted live(value)) {}
-        func caller() { let erased: func(pos value: u64) = use_owner; erased(1); }
+        func use_owner(pos value: u64)
+            requires(trusted live(value))
+        {
+        }
+        func caller()
+        {
+            let erased: func(pos value: u64) = use_owner;
+            erased(1);
+        }
     "#,
     );
 
@@ -237,8 +297,14 @@ fn callable_conversion_preserves_trusted_predicate_authority() {
         trusted module app;
         trusted predicate live(value: u64);
         callable Ordinary = func(pos value: u64) requires(live(value));
-        func obligated(pos value: u64) requires(trusted live(value)) {}
-        func caller() { let erased: Ordinary = obligated; }
+        func obligated(pos value: u64)
+            requires(trusted live(value))
+        {
+        }
+        func caller()
+        {
+            let erased: Ordinary = obligated;
+        }
     "#,
     );
 
@@ -253,9 +319,18 @@ fn named_callable_contracts_preserve_and_enforce_obligations() {
             trusted module app;
             trusted predicate live(value: u64);
             callable Action = func(pos value: u64) requires(trusted live(value));
-            func observe(pos value: u64) requires(trusted live(value)) {{}}
-            func caller(pos action: Action, pos value: u64) {enclosing} {{ action(value); }}
-            func convert() -> Action {{ return observe; }}
+            func observe(pos value: u64)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller(pos action: Action, pos value: u64) {enclosing}
+            {{
+                action(value);
+            }}
+            func convert() -> Action
+            {{
+                return observe;
+            }}
         "#
         );
 
@@ -276,10 +351,17 @@ fn a_trust_boundary_does_not_hide_wrapper_requirements() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Owner {{ epoch: u64; }}
+            struct Owner
+            {{
+                epoch: u64;
+            }}
             trusted predicate live(value: &Owner);
-            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            func caller() {{
+            func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller()
+            {{
                 let value: Owner = {{ epoch = 1 }};
                 trusted {{ observe(&value); observe(&value); }};
                 {tail}
@@ -303,7 +385,8 @@ fn anonymous_calls_preserve_trusted_requirements() {
 
             trusted predicate live(value: u64);
 
-            func caller(pos value: u64) {requirement} {{
+            func caller(pos value: u64) {requirement}
+            {{
                 let action = lambda (pos value: u64)
                     requires(trusted live(value))
                 {{}};
@@ -332,10 +415,16 @@ fn anonymous_bodies_receive_their_declared_trusted_requirements() {
 
         trusted predicate live(value: u64);
 
-        trusted func observe(pos value: u64) requires(trusted live(value)) {}
+        trusted func observe(pos value: u64)
+            requires(trusted live(value))
+        {
+        }
 
-        func caller(pos entry: u64) requires(trusted live(entry)) {
-            let action = lambda (pos value: u64) requires(trusted live(value)) {
+        func caller(pos entry: u64)
+            requires(trusted live(entry))
+        {
+            let action = lambda (pos value: u64) requires(trusted live(value))
+            {
                 observe(value);
             };
 
@@ -357,7 +446,8 @@ fn anonymous_contracts_resolve_qualified_constants() {
         r#"
         module app;
         const SUCCESS: u32 = 0;
-        func run() {
+        func run()
+        {
             let inspect = lambda(pos status: u32)
                 requires(status == app.SUCCESS)
                 executes(pure, total)
@@ -387,7 +477,10 @@ fn default_mutation_retires_authority_before_the_selected_call_entry() {
             trusted func acquire() -> Owner
                 ensures(trusted live(&result.epoch))
             {
-                return Owner { epoch = 0 };
+                return Owner
+                {
+                    epoch = 0
+                };
             }
 
             func invalidate(pos value: &mut Owner) -> u8

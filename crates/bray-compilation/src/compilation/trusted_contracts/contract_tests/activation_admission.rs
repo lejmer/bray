@@ -34,7 +34,9 @@ fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Header>,
             )
                 requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &original))
-            {{ {body} }}
+            {{
+                {body}
+            }}
             "#
         ));
 
@@ -209,7 +211,9 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
                 )
                 {requirements}
-            {{ return trusted bray.runtime.bootstrap.activation.activate(pointer, origin); }}
+            {{
+                return trusted bray.runtime.bootstrap.activation.activate(pointer, origin);
+            }}
         "#
         );
 

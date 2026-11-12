@@ -23,8 +23,12 @@ fn production_spin_lock_rejects_fabricated_guard_authority() {
             r#"
             trusted module app;
             using internal std.sync;
-            struct Payload {{ mut value: u32; }}
-            func production_probe() {{
+            struct Payload
+            {{
+                mut value: u32;
+            }}
+            func production_probe()
+            {{
                 let lock = std.sync.SpinLock<Payload>({{ value = 7 }});
                 {body}
             }}
@@ -60,15 +64,20 @@ fn production_spin_lock_nullable_acquisition_retains_storage() {
         r#"
         module app;
         using std.sync;
-        func production_probe() {
+        func production_probe()
+        {
             let lock = std.sync.SpinLock<u32>(7);
             let candidate = lock.try_lock();
-            match consume candidate {
-                case ?guard {
+            match consume candidate
+            {
+                case ?guard
+                {
                     let mut held = guard;
                     let value = held.get();
                 }
-                case none {}
+                case none
+                {
+                }
             }
         }
     "#,
@@ -108,7 +117,9 @@ fn production_rw_lock_requires_distinct_acquisition_authority() {
 
             let source = format!(
                 r#"trusted module app; using internal std.sync;
-                func production_probe() requires(blocking_execution()) {{
+                func production_probe()
+                    requires(blocking_execution())
+                {{
                     let lock = std.sync.RwLock<u32>(7);
                     let candidate: std.sync.RwLock{kind}Guard<u32>{suffix} = {guard};
                     {use_guard}
@@ -247,11 +258,14 @@ fn independent_production_guards_keep_their_authority() {
         r#"
         module app;
         using std.sync;
-        func production_probe() {
+        func production_probe()
+        {
             let first = std.sync.SpinLock<u32>(0);
             let second = std.sync.SpinLock<u32>(0);
             let mut guard = first.lock();
-            { let other = second.lock(); }
+            {
+                let other = second.lock();
+            }
             let value = guard.get();
         }
     "#,
@@ -300,7 +314,9 @@ fn production_condition_variable_releases_and_reacquires_authority() {
         r#"
         module app;
         using std.sync;
-        func production_probe() requires(blocking_execution()) {
+        func production_probe()
+            requires(blocking_execution())
+        {
             let mutex = std.sync.Mutex<u32>(7);
             let condition = std.sync.ConditionVariable();
             let mut guard = condition.wait(mutex.lock());
@@ -428,7 +444,8 @@ fn production_spin_lock_rejects_detached_authority() {
             using internal std.sync;
             using std.memory;
             using core.atomic;
-            func production_probe() {{
+            func production_probe()
+            {{
                 let lock = std.sync.SpinLock<u32>(7);
                 {body}
             }}
@@ -494,11 +511,23 @@ fn production_guard_cleanup_survives_loop_payload_transitions() {
             trusted module app;
 
             using std.sync;
-            struct Pending<T> {{ mut value: T?; }}
-            struct Payload<T> {{ mut inner: Inner; mut value: T?; }}
-            struct Inner {{
+            struct Pending<T>
+            {{
+                mut value: T?;
+            }}
+            struct Payload<T>
+            {{
+                mut inner: Inner;
+                mut value: T?;
+            }}
+            struct Inner
+            {{
                 mut value: u32;
-                mut func change() {{ opaque(); self.value += 1; }}
+                mut func change()
+                {{
+                    opaque();
+                    self.value += 1;
+                }}
             }}
             extern trusted func opaque();
             extern trusted func touch<T>(pos value: &mut T);
@@ -506,12 +535,18 @@ fn production_guard_cleanup_survives_loop_payload_transitions() {
             extern trusted func take<T>(pos pending: &mut Pending<T>) -> T;
             extern trusted async func suspend();
             async func production_probe<T>(pos lock: &std.sync.SpinLock<Payload<T>>, pos mut pending: Pending<T>)
-                requires(trusted std.sync.spin_lock.valid(&lock.prepared.instance)) {{
-                while true {{
-                    let generation: u32 = {{
+                requires(trusted std.sync.spin_lock.valid(&lock.prepared.instance))
+                {{
+                while true
+                {{
+                    let generation: u32 =
+                    {{
                         let mut guard = lock.lock();
                         let payload: &mut Payload<T> = guard.get();
-                        if stop() && stop() {{ return unit; }}
+                        if stop() && stop()
+                        {{
+                            return unit;
+                        }}
                         {operation}
                         yield 0;
                     }};
@@ -540,17 +575,34 @@ fn independent_witness_survives_a_released_production_guard_in_a_loop() {
         trusted module app;
         using core.memory;
         using std.sync;
-        struct Marker {}
-        struct Receipt { marker: Marker; pointer: DataPointer<u32>; }
+        struct Marker
+        {
+        }
+        struct Receipt
+        {
+            marker: Marker;
+            pointer: DataPointer<u32>;
+        }
         trusted predicate held(owner: &Marker);
         trusted func produce(pos payload: &u32) -> Receipt
             ensures(trusted held(owner = &result.marker))
-        { return { marker = Marker {}, pointer = core.memory.address_of<u32>(payload) }; }
-        func observe(pos receipt: Receipt) requires(trusted held(owner = &receipt.marker)) {}
-        func production_probe() {
+        {
+            return
+            {
+                marker = Marker {}, pointer = core.memory.address_of<u32>(payload)
+            };
+        }
+        func observe(pos receipt: Receipt)
+            requires(trusted held(owner = &receipt.marker))
+        {
+        }
+        func production_probe()
+        {
             let lock = std.sync.SpinLock<u32>(7);
-            loop {
-                let receipt = {
+            loop
+            {
+                let receipt =
+                {
                     let mut guard = lock.lock();
                     let payload = guard.get();
                     yield produce(&payload);

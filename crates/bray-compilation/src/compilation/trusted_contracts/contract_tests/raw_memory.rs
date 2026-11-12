@@ -10,21 +10,43 @@ fn copied_addresses_keep_value_dependencies_without_the_container_loan() {
             r#"
             trusted module app;
             using core.memory;
-            struct Marker {{}}
-            struct Reference {{ acquisition: Marker; pointer: DataPointer<u32>; }}
+            struct Marker
+            {{
+            }}
+            struct Reference
+            {{
+                acquisition: Marker;
+                pointer: DataPointer<u32>;
+            }}
             trusted predicate acquired(owner: &Marker);
             trusted func fresh(pos pointer: DataPointer<u32>) -> Reference
-                ensures(trusted acquired(owner = &result.acquisition)) {{
-                return {{ acquisition = Marker {{}}, pointer = pointer }};
+                ensures(trusted acquired(owner = &result.acquisition))
+                {{
+                return
+                {{
+                    acquisition = Marker {{}}, pointer = pointer
+                }};
             }}
-            const func borrow_reference(pos owner: &Reference) -> &Reference executes(pure, total) {{ return owner; }}
+            const func borrow_reference(pos owner: &Reference) -> &Reference
+                executes(pure, total)
+            {{
+                return owner;
+            }}
             trusted func retain(pos owner: &Reference) -> Reference
                 requires(trusted acquired(owner = &owner.acquisition))
-                ensures(trusted acquired(owner = &result.acquisition)) {{
-                return {{ acquisition = Marker {{}}, pointer = owner.pointer }};
+                ensures(trusted acquired(owner = &result.acquisition))
+                {{
+                return
+                {{
+                    acquisition = Marker {{}}, pointer = owner.pointer
+                }};
             }}
-            func release_reference(pos owner: Reference) requires(trusted acquired(owner = &owner.acquisition)) {{}}
-            func caller() {{
+            func release_reference(pos owner: Reference)
+                requires(trusted acquired(owner = &owner.acquisition))
+            {{
+            }}
+            func caller()
+            {{
                 let mut source: u32 = 0;
                 let first = fresh(core.memory.address_of<u32>(&source));
                 let second = retain(borrow_reference(&first));
@@ -63,7 +85,8 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
 
         using std.memory;
         trusted func exact(pos owner: &bool, pos payload: &bool) -> &bool
-            uses(raw_memory, unchecked_alias) {
+            uses(raw_memory, unchecked_alias)
+            {
             let pointer = std.memory.address_of<bool>(payload);
             return trusted std.memory.borrow_from<bool, bool>(owner, pointer);
         }
@@ -134,8 +157,15 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
             r#"
             trusted module app;
             using core.memory;
-            struct Marker {{}}
-            struct Owner {{ marker: Marker; backing: DataPointer<u8>; mut slot: u32?; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                marker: Marker;
+                backing: DataPointer<u8>;
+                mut slot: u32?;
+            }}
             callable Callback = @abi(c) trusted func();
             trusted predicate slot(pointer: DataPointer<Owner>);
             trusted predicate borrowed_slot(input: &DataPointer<Owner>);
@@ -224,9 +254,18 @@ fn typed_raw_transfers_preserve_only_unmoved_marker_free_owners() {
         ] {
         let source = r#"trusted module app;
 using core.memory;
-struct Owner { address: $FIELD; }
-struct Other { value: u64; }
-struct Containing { owner: Owner; }
+struct Owner
+{
+    address: $FIELD;
+}
+struct Other
+{
+    value: u64;
+}
+struct Containing
+{
+    owner: Owner;
+}
 trusted predicate live(owner: &Owner);
 extern trusted func pointer(pos owner: &Owner) -> DataPointer<$POINTEE>
     requires(trusted live(owner))
@@ -238,7 +277,11 @@ extern trusted func pointer(pos owner: &Owner) -> DataPointer<$POINTEE>
         trusted core.memory.aligned_for<$POINTEE>(pointer = result)
     )
     executes(pure, total);
-func observe(pos owner: &Owner) requires(trusted live(owner)) executes(pure, total) {}
+func observe(pos owner: &Owner)
+    requires(trusted live(owner))
+    executes(pure, total)
+{
+}
 trusted func caller(pos owner: &Owner)
     requires(trusted live(owner))
     uses(raw_memory, unchecked_init)
@@ -269,16 +312,32 @@ fn raw_writes_invalidate_only_the_reached_witness_observations() {
 
             using core.memory;
             trusted predicate live(value: &Lease);
-            struct Lease {{ mut active: bool; }}
-            struct Access {{ mut payload: u64; mut lease: Lease; }}
+            struct Lease
+            {{
+                mut active: bool;
+            }}
+            struct Access
+            {{
+                mut payload: u64;
+                mut lease: Lease;
+            }}
             trusted func acquire() -> Access
-                ensures(trusted live(&result.lease)) {{
-                return {{ payload = 0, lease = {{ active = true }} }};
+                ensures(trusted live(&result.lease))
+                {{
+                return
+                {{
+                    payload = 0, lease =
+                    {{
+                        active = true
+                    }}
+                }};
             }}
             func observe(pos lease: &Lease)
                 requires(trusted live(lease))
                 ensures(trusted live(lease)) executes(pure, total) {{}}
-            trusted func caller() uses(raw_memory, unchecked_init) {{
+            trusted func caller()
+                uses(raw_memory, unchecked_init)
+            {{
                 let mut access = acquire();
                 observe(&access.lease);
                 let pointer = core.memory.address_of_mut<{ty}>(&mut access.{field});
@@ -380,12 +439,23 @@ fn raw_extraction_transfers_a_complete_nullable_witness() {
             r#"
             trusted module app;
             using core.memory;
-            struct Owner {{ epoch: u64; }}
-            trusted predicate live(owner: &Owner);
-            trusted func acquire() -> Owner ensures(trusted live(owner = &result)) {{
-                return {{ epoch = 1 }};
+            struct Owner
+            {{
+                epoch: u64;
             }}
-            func observe(pos owner: &Owner) requires(trusted live(owner = owner)) {{}}
+            trusted predicate live(owner: &Owner);
+            trusted func acquire() -> Owner
+                ensures(trusted live(owner = &result))
+            {{
+                return
+                {{
+                    epoch = 1
+                }};
+            }}
+            func observe(pos owner: &Owner)
+                requires(trusted live(owner = owner))
+            {{
+            }}
             trusted func exchange<T>(pos storage: &mut T, pos value: T) -> T
                 uses(raw_memory, unchecked_init)
             {{
@@ -395,7 +465,8 @@ fn raw_extraction_transfers_a_complete_nullable_witness() {
                 trusted core.memory.write<T>(pointer, value);
                 return previous;
             }}
-            func caller(pos present: bool) {{
+            func caller(pos present: bool)
+            {{
                 let mut owner: Owner? = if present {{ yield acquire(); }} else {{ yield none; }};
                 let moved = exchange<(Owner?)>(&mut owner, none);
                 if let ?complete = moved {{ {use_owner} }}
@@ -424,7 +495,9 @@ fn raw_read_uses_declared_storage_obligations() {
                 trusted core.memory.initialized_as<u8>(pointer = pointer),
             )
             uses(raw_memory)
-        { return trusted core.memory.read<u8>(pointer); }
+        {
+            return trusted core.memory.read<u8>(pointer);
+        }
     "#,
     );
 
@@ -454,7 +527,9 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
             using core.memory;
             trusted func read_byte(pos pointer: DataPointer<u8>) -> u8
                 requires({requirements}) executes(pure, total) uses(raw_memory)
-            {{ return trusted core.memory.read<u8>(pointer); }}
+            {{
+                return trusted core.memory.read<u8>(pointer);
+            }}
         "#
         );
 
@@ -487,7 +562,10 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
             trusted module app;
 
             using core.memory;
-            struct Owner {{ value: u8; }}
+            struct Owner
+            {{
+                value: u8;
+            }}
             trusted func mutate(pos pointer: DataPointer<{pointee}>) -> {result}
                 requires(
                     trusted core.memory.valid_{access}<{pointee}>(pointer = pointer, count = 1),
@@ -495,7 +573,9 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
                     trusted core.memory.initialized_as<{pointee}>(pointer = pointer),
                 )
                 executes(pure, total) uses(raw_memory, unchecked_init)
-            {{ {body} }}
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -512,8 +592,12 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
         trusted module app;
 
         using core.memory;
-        trusted func allocate() -> DataPointer<u8> executes(total) uses(manual_alloc)
-        { return trusted core.memory.allocate(bytes = 1, align = 1); }
+        trusted func allocate() -> DataPointer<u8>
+            executes(total)
+            uses(manual_alloc)
+        {
+            return trusted core.memory.allocate(bytes = 1, align = 1);
+        }
     "#,
     );
 

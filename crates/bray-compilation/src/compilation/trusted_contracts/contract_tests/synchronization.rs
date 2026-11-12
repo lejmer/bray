@@ -1,5 +1,4 @@
 use bray_diagnostics::{DiagnosticKind};
-use crate::compilation::result_dependencies::{source_function_dependencies};
 use crate::test_support::{source_function_body_key};
 use super::fixtures::{body_belongs_to, production_sync_compilation};
 
@@ -24,7 +23,9 @@ fn production_mutex_requires_acquisition_authority() {
             r#"
             trusted module app;
             using internal std.sync;
-            func production_probe() requires(blocking_execution()) {{
+            func production_probe()
+                requires(blocking_execution())
+            {{
                 let lock = std.sync.Mutex<u32>(7);
                 {body}
             }}
@@ -124,10 +125,18 @@ fn barrier_preserves_its_nested_mutex_authority() {
         module app;
 
         using std.sync;
-        func caller() requires(blocking_execution()) {
-            match consume std.sync.Barrier(participants = 1) {
-                case Ok(barrier) { _ = barrier.wait(); }
-                case Error(_) {}
+        func caller()
+            requires(blocking_execution())
+        {
+            match consume std.sync.Barrier(participants = 1)
+            {
+                case Ok(barrier)
+                {
+                    _ = barrier.wait();
+                }
+                case Error(_)
+                {
+                }
             }
         }
     "#,
@@ -198,35 +207,47 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         using std.sync;
         using std.testing;
         static ONCE: std.sync.Once<u32> = { prepared = std.sync.Once<u32>.prepare() };
-        func initialized_value() -> u32 { return 37; }
-        func static_once_case() requires(blocking_execution()) {
+        func initialized_value() -> u32
+        {
+            return 37;
+        }
+        func static_once_case()
+            requires(blocking_execution())
+        {
             _ = catch { _ = ONCE.get_or_init(initialized_value); };
             _ = ONCE.get_or_init(initialized_value);
         }
-        func pair() {
+        func pair()
+        {
             let (sender, receiver) = std.testing.assert_ok<
                 (std.channel.Sender<u32>, std.channel.Receiver<u32>), std.channel.ChannelError
             >(std.channel.bounded<u32>(capacity = 1));
             sender.close();
             receiver.close();
         }
-        func barrier_case() requires(blocking_execution()) {
+        func barrier_case()
+            requires(blocking_execution())
+        {
             let barrier = std.testing.assert_ok<std.sync.Barrier, std.sync.BarrierError>(
                 std.sync.Barrier(participants = 1));
             _ = barrier.wait();
         }
-        func once_case(pos callback: func() -> u32) requires(blocking_execution()) {
+        func once_case(pos callback: func() -> u32)
+            requires(blocking_execution())
+        {
             let once = std.sync.Once<u32>.empty();
             _ = once.get_or_init(callback);
         }
-        async func channel_wait_case() {
+        async func channel_wait_case()
+        {
             let (sender, receiver) = std.testing.assert_ok<
                 (std.channel.Sender<u32>, std.channel.Receiver<u32>), std.channel.ChannelError
             >(std.channel.bounded<u32>(capacity = 1));
             _ = catch { _ = await sender.send(1); };
         }
         func completed_file_case(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
-            requires(blocking_execution()) {
+            requires(blocking_execution())
+        {
             let options = std.fs.OpenOptions(access = std.fs.FileAccess.ReadWrite,
                 creation = std.fs.FileCreation.CreateNew);
             let mut file = std.testing.assert_ok<std.fs.File, std.io.IoError>(
@@ -240,7 +261,8 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
             return Ok(unit);
         }
         func completed_directory_case(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
-            requires(blocking_execution()) {
+            requires(blocking_execution())
+        {
             let mut directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
                 std.fs.Directory.open(path));
             let first = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
@@ -251,10 +273,13 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
         }
         async func worker(pos lock: &std.sync.Mutex<u32>)
             requires(blocking_execution(), trusted std.sync.mutex.valid(&lock.instance))
-            ensures(trusted std.sync.mutex.valid(&lock.instance)) {
+            ensures(trusted std.sync.mutex.valid(&lock.instance))
+        {
             let guard = lock.lock();
         }
-        async func task_case() requires(blocking_execution()) {
+        async func task_case()
+            requires(blocking_execution())
+        {
             let lock = std.sync.Mutex<u32>(0);
             let task = worker(&lock).start();
             try await task.join();

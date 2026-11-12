@@ -20,7 +20,10 @@ fn borrowed_invariants_survive_loops_only_when_every_back_edge_preserves_them() 
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Owner {{ mut value: usize; }}
+            struct Owner
+            {{
+                mut value: usize;
+            }}
             trusted predicate valid(owner: &Owner);
             extern trusted func observe(pos owner: &Owner)
                 requires(trusted valid(owner = owner))
@@ -31,7 +34,8 @@ fn borrowed_invariants_survive_loops_only_when_every_back_edge_preserves_them() 
             trusted func caller(pos mut owner: Owner, pos choose: bool)
                 requires(trusted valid(owner = &owner))
             {{
-                loop {{
+                loop
+                {{
                     trusted observe(&owner);
                     {body}
                 }}
@@ -150,7 +154,16 @@ fn cursor_witness_survives_observation_and_independent_loop_counters() {
 fn terminating_branches_do_not_invalidate_authority_on_returning_paths() {
     for (helper, valid) in [
         (
-            "trusted func boundary(pos stop: bool) uses(intrinsic) { if stop { trusted core.target.abort(); } }",
+            r#"
+                trusted func boundary(pos stop: bool)
+                    uses(intrinsic)
+                {
+                    if stop
+                    {
+                        trusted core.target.abort();
+                    }
+                }
+            "#,
             true,
         ),
         ("extern trusted func boundary(pos stop: bool);", false),
@@ -166,7 +179,10 @@ fn terminating_branches_do_not_invalidate_authority_on_returning_paths() {
             }}
             trusted predicate live(owner: &Owner);
             {helper}
-            func observe(pos owner: &Owner) requires(trusted live(owner)) {{}}
+            func observe(pos owner: &Owner)
+                requires(trusted live(owner))
+            {{
+            }}
             func caller(pos owner: &Owner, pos stop: bool)
                 requires(trusted live(owner))
             {{
@@ -239,15 +255,25 @@ fn yielded_owners_preserve_only_common_witnesses() {
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{ mut value: u32; }}
+            struct Owner
+            {{
+                mut value: u32;
+            }}
             trusted predicate live(owner: &Owner);
             trusted func produce(pos value: u32) -> (Owner, u32)
                 ensures(trusted live(owner = &result.0))
             {{
-                return (Owner {{ value = value }}, 0);
+                return (Owner
+                {{
+                    value = value
+                }}, 0);
             }}
-            func observe(pos owner: &Owner) requires(trusted live(owner = owner)) {{}}
-            func caller(pos flag: bool) {{
+            func observe(pos owner: &Owner)
+                requires(trusted live(owner = owner))
+            {{
+            }}
+            func caller(pos flag: bool)
+            {{
                 let (mut owner, _) = {expression};
                 {intervening}
                 observe(&owner);
@@ -285,16 +311,26 @@ fn yielded_pairs_do_not_combine_unrelated_owner_authority() {
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{ value: u32; }}
+            struct Owner
+            {{
+                value: u32;
+            }}
             trusted predicate paired(left: &Owner, right: &Owner);
             trusted func produce(pos value: u32) -> (Owner, Owner)
                 ensures(trusted paired(left = &result.0, right = &result.1))
             {{
-                return (Owner {{ value = value }}, Owner {{ value = value }});
+                return (Owner
+                {{
+                    value = value
+                }}, Owner
+                {{
+                    value = value
+                }});
             }}
             func observe(pos left: &Owner, pos right: &Owner)
                 requires(trusted paired(left = left, right = right)) {{}}
-            func caller(pos flag: bool) {{
+            func caller(pos flag: bool)
+            {{
                 let (left, right) = if flag {{ yield produce(1); }} else {{ {alternative} }};
                 observe(&left, &right);
             }}
@@ -324,15 +360,29 @@ fn yielded_generic_ownership_does_not_destroy_the_returned_value() {
     let compilation = compilation(
         r#"
         trusted module app;
-        struct Owner { mut value: u32; }
+        struct Owner
+        {
+            mut value: u32;
+        }
         trusted predicate live(owner: &Owner);
-        func take<T>(pos pending: T?) -> T {
-            return match consume pending {
-                case ?value { yield value; }
-                case none { panic("empty pending value"); }
+        func take<T>(pos pending: T?) -> T
+        {
+            return match consume pending
+            {
+                case ?value
+                {
+                    yield value;
+                }
+                case none
+                {
+                    panic("empty pending value");
+                }
             };
         }
-        func observe(pos owner: &Owner) requires(trusted live(owner = owner)) {}
+        func observe(pos owner: &Owner)
+            requires(trusted live(owner = owner))
+        {
+        }
         func caller<T>(pos pending: T?, pos owner: &Owner) -> T
             requires(trusted live(owner = owner))
         {
@@ -358,25 +408,55 @@ fn construction_inputs_preserve_authority_without_forgery_or_repairing_pairs() {
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{ value: u32; }}
-            struct Pending {{ left: Owner?; right: Owner?; }}
+            struct Owner
+            {{
+                value: u32;
+            }}
+            struct Pending
+            {{
+                left: Owner?;
+                right: Owner?;
+            }}
             trusted predicate paired(left: &Owner, right: &Owner);
             trusted func produce() -> (Owner, Owner)
                 ensures(trusted paired(left = &result.0, right = &result.1))
-            {{ return (Owner {{ value = 1 }}, Owner {{ value = 2 }}); }}
+            {{
+                return (Owner
+                {{
+                    value = 1
+                }}, Owner
+                {{
+                    value = 2
+                }});
+            }}
             func observe(pos left: &Owner, pos right: &Owner)
                 requires(trusted paired(left = left, right = right)) {{}}
-            func caller() {{
+            func caller()
+            {{
                 let (left, right) = produce();
                 let (_, other_right) = produce();
                 let pending = Pending {{ left = {left}, right = {right} }};
-                let held_left = match consume pending.left {{
-                    case ?value {{ yield value; }}
-                    case none {{ panic("missing left"); }}
+                let held_left = match consume pending.left
+                {{
+                    case ?value
+                    {{
+                        yield value;
+                    }}
+                    case none
+                    {{
+                        panic("missing left");
+                    }}
                 }};
-                let held_right = match consume pending.right {{
-                    case ?value {{ yield value; }}
-                    case none {{ panic("missing right"); }}
+                let held_right = match consume pending.right
+                {{
+                    case ?value
+                    {{
+                        yield value;
+                    }}
+                    case none
+                    {{
+                        panic("missing right");
+                    }}
                 }};
                 observe(&held_left, &held_right);
             }}

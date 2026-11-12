@@ -119,13 +119,27 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
             using core.atomic;
             using core.memory;
             using std.memory;
-            struct Marker {{}}
+            struct Marker
+            {{
+            }}
             trusted predicate held(value: &Marker);
             trusted predicate ready(value: &core.atomic.Atomic<u32>);
             trusted predicate unchanged(value: &u32);
-            func observe_marker(pos value: &Marker) requires(trusted held(value)) executes(pure, total) {{}}
-            func observe_word(pos value: &core.atomic.Atomic<u32>) requires(trusted ready(value)) executes(pure, total) {{}}
-            func observe_scalar(pos value: &u32) requires(trusted unchanged(value)) executes(pure, total) {{}}
+            func observe_marker(pos value: &Marker)
+                requires(trusted held(value))
+                executes(pure, total)
+            {{
+            }}
+            func observe_word(pos value: &core.atomic.Atomic<u32>)
+                requires(trusted ready(value))
+                executes(pure, total)
+            {{
+            }}
+            func observe_scalar(pos value: &u32)
+                requires(trusted unchanged(value))
+                executes(pure, total)
+            {{
+            }}
             trusted func production_probe(pos pointer: DataPointer<core.atomic.Atomic<u32>>, pos marker: &Marker,
                 pos word: &core.atomic.Atomic<u32>, pos scalar: &u32)
                 requires(trusted held(marker), trusted ready(word), trusted unchanged(scalar),

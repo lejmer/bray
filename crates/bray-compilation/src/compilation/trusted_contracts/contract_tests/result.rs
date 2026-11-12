@@ -35,13 +35,31 @@ fn caught_results_preserve_only_the_successful_owner() {
         let source = format!(
             r#"
             trusted module app;
-            struct Guard {{ active: bool; }}
+            struct Guard
+            {{
+                active: bool;
+            }}
             trusted predicate held(owner: &(Guard?));
             trusted func acquire(pos fail: bool) -> Guard?
                 ensures(trusted held(owner = &result))
-            {{ if fail {{ panic("acquisition failed"); }} let owner: Guard = {{ active = true }}; return owner; }}
-            func forward(pos owner: Guard?) requires(trusted held(owner = &owner)) {{}}
-            func caller(pos fail: bool) {{ {body} }}
+            {{
+                if fail
+                {{
+                    panic("acquisition failed");
+                }} let owner: Guard =
+                {{
+                    active = true
+                }};
+                return owner;
+            }}
+            func forward(pos owner: Guard?)
+                requires(trusted held(owner = &owner))
+            {{
+            }}
+            func caller(pos fail: bool)
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -60,31 +78,67 @@ fn caught_results_preserve_only_the_successful_owner() {
 fn fallible_pair_factory_keeps_each_complete_owner() {
     let source = r#"
         trusted module app;
-        struct Marker {}
-        struct Owner { instance: Marker; }
+        struct Marker
+        {
+        }
+        struct Owner
+        {
+            instance: Marker;
+        }
         trusted predicate live(marker: &Marker);
-        trusted func make() -> Owner ensures(trusted live(&result.instance)) { return { instance = Marker {} }; }
+        trusted func make() -> Owner
+            ensures(trusted live(&result.instance))
+        {
+            return
+            {
+                instance = Marker {}
+            };
+        }
         const func first(pos value: &Result<(Owner, Owner), u32>) -> &Marker
-            requires(value matches Ok(_)) executes(pure, total) {
-            match value {
-                case Ok((owner, _)) { return &owner.instance; }
-                case Error(_) { panic("absent owner"); }
+            requires(value matches Ok(_)) executes(pure, total)
+            {
+            match value
+            {
+                case Ok((owner, _))
+                {
+                    return &owner.instance;
+                }
+                case Error(_)
+                {
+                    panic("absent owner");
+                }
             }
         }
         const func second(pos value: &Result<(Owner, Owner), u32>) -> &Marker
-            requires(value matches Ok(_)) executes(pure, total) {
-            match value {
-                case Ok((_, owner)) { return &owner.instance; }
-                case Error(_) { panic("absent owner"); }
+            requires(value matches Ok(_)) executes(pure, total)
+            {
+            match value
+            {
+                case Ok((_, owner))
+                {
+                    return &owner.instance;
+                }
+                case Error(_)
+                {
+                    panic("absent owner");
+                }
             }
         }
         func pair(pos fail: bool) -> Result<(Owner, Owner), u32>
-            ensures(!(result matches Ok(_)) || trusted live(first(&result)), !(result matches Ok(_)) || trusted live(second(&result))) {
-            if fail { return Error(1); }
+            ensures(!(result matches Ok(_)) || trusted live(first(&result)), !(result matches Ok(_)) || trusted live(second(&result)))
+            {
+            if fail
+            {
+                return Error(1);
+            }
             return Ok((make(), make()));
         }
-        func observe(pos owner: &Owner) requires(trusted live(&owner.instance)) {}
-        func caller(pos fail: bool) -> Result<unit, u32> {
+        func observe(pos owner: &Owner)
+            requires(trusted live(&owner.instance))
+        {
+        }
+        func caller(pos fail: bool) -> Result<unit, u32>
+        {
             let (left, right) = try pair(fail);
             observe(&left);
             observe(&right);
@@ -129,9 +183,19 @@ fn forwarding_a_union_owner_preserves_the_checked_payload_projection() {
             trusted module app;
             using core.memory;
 
-            struct Marker {{}}
-            struct Owner {{ marker: Marker; pointer: DataPointer<u8>; }}
-            union Backing {{ Empty; Owned(pos owner: Owner); }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                marker: Marker;
+                pointer: DataPointer<u8>;
+            }}
+            union Backing
+            {{
+                Empty;
+                Owned(pos owner: Owner);
+            }}
             trusted predicate live(owner: &Marker);
             const func backing_owner(pos backing: &Backing) -> &Owner
                 requires(backing matches Backing.Owned(_))
@@ -139,8 +203,14 @@ fn forwarding_a_union_owner_preserves_the_checked_payload_projection() {
             {{
                 return match backing
                 {{
-                    case Backing.Owned(value) {{ yield &value; }}
-                    case Backing.Empty {{ panic("empty backing has no owner"); }}
+                    case Backing.Owned(value)
+                    {{
+                        yield &value;
+                    }}
+                    case Backing.Empty
+                    {{
+                        panic("empty backing has no owner");
+                    }}
                 }};
             }}
             predicate retained(owner: &Backing) = owner matches Backing.Owned(_) && live(&backing_owner(owner).marker);
@@ -153,8 +223,13 @@ fn forwarding_a_union_owner_preserves_the_checked_payload_projection() {
                 return trusted native_allocate();
             }}
             extern func replace(pos owner: &mut Backing);
-            func consume_owner(pos owner: Backing) requires(trusted retained(&owner)) {{}}
-            trusted func caller(pos mut owner: Backing) requires(trusted retained(&owner)) uses(manual_alloc)
+            func consume_owner(pos owner: Backing)
+                requires(trusted retained(&owner))
+            {{
+            }}
+            trusted func caller(pos mut owner: Backing)
+                requires(trusted retained(&owner))
+                uses(manual_alloc)
             {{
                 let allocation = trusted allocate(&owner);
                 {operation}
@@ -182,7 +257,11 @@ fn returned_owner_facts_follow_only_the_active_result_payload() {
             r#"
             trusted module app;
             using core.memory;
-            struct Owner {{ mut active: bool; pointer: DataPointer<u8>; }}
+            struct Owner
+            {{
+                mut active: bool;
+                pointer: DataPointer<u8>;
+            }}
             trusted predicate held(owner: &Owner);
             extern trusted func opaque(pos owner: &Owner) -> DataPointer<u8>
                 requires(trusted held(owner))
@@ -200,14 +279,22 @@ fn returned_owner_facts_follow_only_the_active_result_payload() {
 
                 return Ok(0);
             }}
-            func use_owner(pos owner: Owner) requires(trusted held(&owner)) {{}}
+            func use_owner(pos owner: Owner)
+                requires(trusted held(&owner))
+            {{
+            }}
             func caller(pos owner: Owner, pos reject: bool, pos change: bool)
                 requires(trusted held(&owner))
             {{
                 match consume forward(owner, reject, change)
                 {{
-                    case Ok(_) {{}}
-                    case Error(rejected) {{ use_owner(rejected); }}
+                    case Ok(_)
+                    {{
+                    }}
+                    case Error(rejected)
+                    {{
+                        use_owner(rejected);
+                    }}
                 }}
             }}
             "#,

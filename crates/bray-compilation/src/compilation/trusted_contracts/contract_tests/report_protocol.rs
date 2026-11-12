@@ -221,7 +221,8 @@ fn incident_outcome_destinations_require_distinct_exclusive_borrows() {
         trusted internal module bray.runtime.bootstrap;
 
         using internal bray.runtime.bootstrap.report.incident;
-        trusted func production_probe(pos outcome: &mut ReportOutcome) {
+        trusted func production_probe(pos outcome: &mut ReportOutcome)
+        {
             let pair = trusted bray.runtime.bootstrap.report.incident.destinations(outcome, outcome);
         }
     "#,
@@ -263,7 +264,10 @@ fn source_report_chain_requires_unchanged_exclusive_ownership() {
             r#"
             trusted internal module bray.runtime.bootstrap.report.chain;
             using internal bray.runtime.bootstrap;
-            func production_probe() {{ {body} }}
+            func production_probe()
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -301,7 +305,10 @@ fn production_report_pool_mutation_requires_protocol_authority() {
             using std.memory;
             using internal bray.runtime.bootstrap;
             using internal bray.runtime.bootstrap.pool;
-            func production_probe() {{ {operation} }}"#,
+            func production_probe()
+            {{
+                {operation}
+            }}"#,
         );
 
         let compilation = production_host_compilation(&source);

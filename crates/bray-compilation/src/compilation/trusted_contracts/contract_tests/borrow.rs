@@ -46,15 +46,33 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             trusted module app;
             using core.memory;
             using core.target;
-            struct Marker {{}}
-            struct OtherMarker {{}}
-            struct Data {{ value: u32; }}
-            struct Payload {{ marker: Marker; value: u32; }}
-            struct OtherPayload {{ marker: OtherMarker; value: u32; }}
-            struct Owner {{
+            struct Marker
+            {{
+            }}
+            struct OtherMarker
+            {{
+            }}
+            struct Data
+            {{
+                value: u32;
+            }}
+            struct Payload
+            {{
+                marker: Marker;
+                value: u32;
+            }}
+            struct OtherPayload
+            {{
+                marker: OtherMarker;
+                value: u32;
+            }}
+            struct Owner
+            {{
                 marker: Marker;
                 {mutable}data: u64;
-                trusted destruct() requires(trusted held(&self.marker)) executes(total) {{}}
+                trusted destruct() requires(trusted held(&self.marker)) executes(total)
+                {{
+                }}
             }}
             trusted predicate held(marker: &Marker);
             extern trusted func pointer(pos owner: &Owner) -> DataPointer<{pointee}>
@@ -75,7 +93,8 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                     trusted core.memory.initialized_as<{pointee}>(pointer = result),
                     trusted core.memory.aligned_for<{pointee}>(pointer = result)
                 ) executes(pure, total);
-            trusted func transfer_external() uses({capabilities})
+            trusted func transfer_external()
+                uses({capabilities})
             {{
                 let destination = external_pointer();
                 {operation}
@@ -117,7 +136,10 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             }}
             func forward(pos owner: &Owner) -> &Owner
                 requires(trusted held(&owner.marker))
-                ensures(trusted held(&result.marker)) executes(pure, total) {{ return owner; }}
+                ensures(trusted held(&result.marker)) executes(pure, total)
+                {{
+                    return owner;
+                }}
             func observe(pos owner: &Owner)
                 requires(trusted held(&owner.marker)) executes(pure, total) {{}}
             trusted func caller(pos owner: &Owner, pos address: usize)
@@ -168,17 +190,34 @@ fn borrowed_payload_writes_preserve_marker_evidence_without_retiring_the_carrier
             let source = format!(
                 r#"
                 trusted module app;
-                struct Marker {{}}
-                struct Payload {{ mut value: bool; mut counts: [u32; 2]; }}
-                struct Guard {{ marker: Marker; payload: &mut Payload; }}
+                struct Marker
+                {{
+                }}
+                struct Payload
+                {{
+                    mut value: bool;
+                    mut counts: [u32;
+                    2];
+                }}
+                struct Guard
+                {{
+                    marker: Marker;
+                    payload: &mut Payload;
+                }}
                 trusted predicate held(value: &{ty});
                 trusted func acquire(pos payload: &mut Payload) -> Guard
                     ensures(trusted held({result})) executes(pure, total)
-                {{ return {{ marker = Marker {{}}, payload = payload }}; }}
+                {{
+                    return
+                    {{
+                        marker = Marker {{}}, payload = payload
+                    }};
+                }}
                 func observe(pos guard: &Guard)
                     requires(trusted held({argument})) executes(pure, total) {{}}
                 extern func opaque();
-                func caller(pos flag: bool) {{
+                func caller(pos flag: bool)
+                {{
                     let zero: u32 = 0;
                     let mut payload: Payload = {{ value = false, counts = [zero, zero] }};
                     let mut guard = acquire(&mut payload);
@@ -212,12 +251,20 @@ fn consuming_wrapper_transfers_a_forwarded_stored_borrow() {
     let application = compilation(
         r#"
         module app;
-        func forward(pos value: &u32) -> &u32 { return value; }
-        struct Wrapper {
-            value: &u32;
-            consume func get() -> &u32 { return forward(self.value); }
+        func forward(pos value: &u32) -> &u32
+        {
+            return value;
         }
-        func caller() {
+        struct Wrapper
+        {
+            value: &u32;
+            consume func get() -> &u32
+            {
+                return forward(self.value);
+            }
+        }
+        func caller()
+        {
             let value: u32 = 7;
             let wrapper: Wrapper = { value = &value };
             let borrowed = wrapper.get();

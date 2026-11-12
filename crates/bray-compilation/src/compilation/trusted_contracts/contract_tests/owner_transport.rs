@@ -205,19 +205,39 @@ fn transparent_predicate_getters_preserve_the_contained_owner() {
         let source = format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            struct Owner {{ acquisition: Marker; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                acquisition: Marker;
+            }}
             trusted predicate acquired(owner: &Marker);
             const func present_owner(pos owner: &(Owner?)) -> &Owner
-                requires(owner matches ?_) executes(pure, total) {{
-                return match owner {{
-                    case ?value {{ yield &value; }}
-                    case none {{ panic("missing owner"); }}
+                requires(owner matches ?_) executes(pure, total)
+                {{
+                return match owner
+                {{
+                    case ?value
+                    {{
+                        yield &value;
+                    }}
+                    case none
+                    {{
+                        panic("missing owner");
+                    }}
                 }};
             }}
             predicate optional_owner(owner: &(Owner?)) = owner matches none || acquired(owner = &present_owner(owner).acquisition);
-            func release_owner(pos owner: Owner) requires(trusted acquired(owner = &owner.acquisition)) {{}}
-            func forward(pos owner: Owner?) requires(trusted optional_owner(owner = &owner)) {{ {body} }}
+            func release_owner(pos owner: Owner)
+                requires(trusted acquired(owner = &owner.acquisition))
+            {{
+            }}
+            func forward(pos owner: Owner?)
+                requires(trusted optional_owner(owner = &owner))
+            {{
+                {body}
+            }}
             "#
         );
 
@@ -253,18 +273,25 @@ fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
 
             using core.memory;
             using std.memory;
-            struct Anchor {{}}
+            struct Anchor
+            {{
+            }}
             trusted func anchored(pos owner: &Anchor, pos payload: &u32) -> &u32
-                uses(raw_memory, unchecked_alias) {{
+                uses(raw_memory, unchecked_alias)
+                {{
                 return trusted std.memory.borrow_from<u32, Anchor>(owner, std.memory.address_of<u32>(payload));
             }}
             trusted func address_view(pos owner: &u32) -> DataPointer<u32>
                 ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
-                executes(pure, total) {{ return std.memory.address_of<u32>(owner); }}
+                executes(pure, total)
+                {{
+                    return std.memory.address_of<u32>(owner);
+                }}
             func observe(pos pointer: DataPointer<u32>)
                 requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
                 executes(pure, total) {{}}
-            func production_probe(pos payload: &u32) {{
+            func production_probe(pos payload: &u32)
+            {{
                 let mut pointer = std.memory.null<u32>();
                 {{
                     let anchor: Anchor = Anchor {{}};
@@ -317,10 +344,17 @@ fn mutable_slice_foreign_output_keeps_its_extent_authority() {
                 trusted core.memory.valid_write<u64>(pointer = transferred, count = 1),
                 trusted core.memory.aligned_for<u64>(pointer = transferred),
             ) { release(); }
-        struct Lock { trusted destruct() { release(); } }
+        struct Lock
+        {
+            trusted destruct()
+            {
+                release();
+            }
+        }
         extern trusted func acquire() -> Result<Lock, u32>;
         extern trusted func release();
-        trusted func caller(pos destination: &mut [u8]) -> Result<unit, u32> {
+        trusted func caller(pos destination: &mut [u8]) -> Result<unit, u32>
+        {
             let lock = try acquire();
             let capacity: usize = destination.length();
             let pointer = internal std.memory.slice_pointer_mut(destination, count = capacity);
@@ -348,13 +382,35 @@ fn trusted_implementation_does_not_export_undeclared_authority() {
     let application = compilation(
         r#"
         trusted module app;
-        struct Marker {}
-        struct Owner { marker: Marker; }
+        struct Marker
+        {
+        }
+        struct Owner
+        {
+            marker: Marker;
+        }
         trusted predicate held(marker: &Marker);
-        trusted func acquire() -> Owner ensures(trusted held(&result.marker)) { return { marker = Marker {} }; }
-        trusted func hidden() -> Owner { return acquire(); }
-        func observe(pos value: &Owner) requires(trusted held(&value.marker)) {}
-        func caller() { let value = hidden(); observe(&value); }
+        trusted func acquire() -> Owner
+            ensures(trusted held(&result.marker))
+        {
+            return
+            {
+                marker = Marker {}
+            };
+        }
+        trusted func hidden() -> Owner
+        {
+            return acquire();
+        }
+        func observe(pos value: &Owner)
+            requires(trusted held(&value.marker))
+        {
+        }
+        func caller()
+        {
+            let value = hidden();
+            observe(&value);
+        }
     "#,
     );
 
@@ -469,17 +525,31 @@ fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
             mut pointer: DataPointer<u8>;
         }
         trusted predicate live(owner: &Owner);
-        trusted func make() -> (u32, Owner) ensures(trusted live(&result.1)) {
-            return (1, Owner { first = 2, second = 3, third = 0, fourth = 0, pointer = std.memory.null<u8>() });
+        trusted func make() -> (u32, Owner)
+            ensures(trusted live(&result.1))
+        {
+            return (1, Owner
+            {
+                first = 2, second = 3, third = 0, fourth = 0, pointer = std.memory.null<u8>()
+            });
         }
-        func consume_owner(pos owner: Owner) requires(trusted live(&owner)) {}
-        func caller() {
-            loop {
+        func consume_owner(pos owner: Owner)
+            requires(trusted live(&owner))
+        {
+        }
+        func caller()
+        {
+            loop
+            {
                 let (state, owner) = make();
-                if state == 1 {
+                if state == 1
+                {
                     let fields = (owner.first, owner.second, owner.third, owner.fourth);
                     consume_owner(owner);
-                } else { return; }
+                } else
+                {
+                    return;
+                }
             }
         }
     "#,
@@ -502,12 +572,19 @@ fn owned_return_does_not_preserve_changed_boolean_contents() {
         let source = format!(
             r#"
             module app;
-            struct Flags {{ mut ready: bool; }}
-            func clear_flags(pos mut flags: Flags) -> Flags executes(total) {{
+            struct Flags
+            {{
+                mut ready: bool;
+            }}
+            func clear_flags(pos mut flags: Flags) -> Flags
+                executes(total)
+            {{
                 {mutation}
                 return flags;
             }}
-            func require_old_ready() executes(total) {{
+            func require_old_ready()
+                executes(total)
+            {{
                 let flags: Flags = {{ ready = true }};
                 let changed_flags = clear_flags(flags);
                 assert(changed_flags.ready);
@@ -540,15 +617,35 @@ fn consuming_transitions_introduce_child_owners_without_detaching_parent_authori
             r#"
             trusted module app;
             using core.memory;
-            struct Marker {{}}
-            struct ChildMarker {{}}
-            struct Child {{ marker: ChildMarker; value: u32; }}
-            struct Parent {{ marker: Marker; mut child: Child; }}
+            struct Marker
+            {{
+            }}
+            struct ChildMarker
+            {{
+            }}
+            struct Child
+            {{
+                marker: ChildMarker;
+                value: u32;
+            }}
+            struct Parent
+            {{
+                marker: Marker;
+                mut child: Child;
+            }}
             trusted predicate parent_owned(marker: &Marker);
             trusted predicate child_owned(marker: &ChildMarker);
             trusted func make() -> Parent
                 ensures(trusted parent_owned(&result.marker)) executes(pure, total)
-            {{ return {{ marker = Marker {{}}, child = {{ marker = ChildMarker {{}}, value = 1 }} }}; }}
+            {{
+                return
+                {{
+                    marker = Marker {{}}, child =
+                    {{
+                        marker = ChildMarker {{}}, value = 1
+                    }}
+                }};
+            }}
             trusted func extract(pos owner: &mut Parent) -> Child
                 requires(trusted parent_owned(&owner.marker))
                 ensures(trusted parent_owned(&owner.marker), trusted child_owned(&result.marker))
@@ -578,7 +675,9 @@ fn consuming_transitions_introduce_child_owners_without_detaching_parent_authori
             }}
             func caller(pos owner: Parent, pos flag: bool) -> {result}
                 requires(trusted parent_owned(&owner.marker))
-            {{ return take(owner, flag); }}
+            {{
+                return take(owner, flag);
+            }}
             "#
         );
 
@@ -610,13 +709,35 @@ fn structural_storage_preserves_whole_moved_and_fresh_owner_guarantees() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Owner {{ epoch: u64; }}
-            struct Holder {{ mut owner: Owner; }}
-            struct Nested {{ holder: Holder; }}
+            struct Owner
+            {{
+                epoch: u64;
+            }}
+            struct Holder
+            {{
+                mut owner: Owner;
+            }}
+            struct Nested
+            {{
+                holder: Holder;
+            }}
             trusted predicate live(value: &Owner);
-            trusted func owner() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = 1 }}; }}
-            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            func caller() {{ {body} }}
+            trusted func owner() -> Owner
+                ensures(trusted live(&result))
+            {{
+                return
+                {{
+                    epoch = 1
+                }};
+            }}
+            func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         ));
 
@@ -647,13 +768,33 @@ fn destructured_storage_preserves_whole_owner_guarantees() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Owner {{ epoch: u64; }}
-            union Holder {{ Owned(pos value: Owner); }}
+            struct Owner
+            {{
+                epoch: u64;
+            }}
+            union Holder
+            {{
+                Owned(pos value: Owner);
+            }}
             trusted predicate live(value: &Owner);
-            trusted func owner() -> Owner executes(pure, total)
-                ensures(trusted live(&result)) {{ return {{ epoch = 1 }}; }}
-            func observe(pos value: &Owner) executes(pure, total) requires(trusted live(value)) {{}}
-            func caller() {{ {body} }}
+            trusted func owner() -> Owner
+                executes(pure, total)
+                ensures(trusted live(&result))
+                {{
+                    return
+                    {{
+                        epoch = 1
+                    }};
+                }}
+            func observe(pos value: &Owner)
+                executes(pure, total)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         ));
 

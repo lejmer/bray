@@ -17,7 +17,10 @@ fn ordinary_consequences_of_mixed_guarantees_do_not_restore_revoked_authority() 
             trusted func acquire() -> Owner
                 ensures(result.ready || trusted valid(owner = &result))
             {{
-                return {{ ready = false }};
+                return
+                {{
+                    ready = false
+                }};
             }}
 
             extern func opaque(pos owner: &mut Owner);
@@ -87,13 +90,28 @@ fn conditional_trusted_guarantees_require_the_selected_entry_guard() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Owner {{ byte: u8; }}
+            struct Owner
+            {{
+                byte: u8;
+            }}
             trusted predicate live(value: &Owner);
             trusted func owner(pos flag: bool) -> Owner
                 when(flag) {{ ensures(trusted live(&result)) }}
-            {{ return {{ byte = 1 }}; }}
-            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            func caller() {{ let value = owner({flag}); observe(&value); }}
+            {{
+                return
+                {{
+                    byte = 1
+                }};
+            }}
+            func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller()
+            {{
+                let value = owner({flag});
+                observe(&value);
+            }}
         "#
         ));
 
@@ -130,15 +148,31 @@ fn scoped_guarantees_and_requirements_use_the_actual_capability() {
             let compilation = compilation(&format!(
                 r#"
             trusted module app;
-            struct Resource {{}}
-            struct Lease {{ tag: bool; }}
+            struct Resource
+            {{
+            }}
+            struct Lease
+            {{
+                tag: bool;
+            }}
             trusted predicate live(value: &Lease);
             impl Resource
             {{
-                trusted {enter_mode}enter() -> Lease {enter_contract} {{ return {{ tag = true }}; }}
-                {exit_mode}exit(pos lease: Lease) {exit_contract} {{}}
+                trusted {enter_mode}enter() -> Lease {enter_contract}
+                {{
+                    return
+                    {{
+                        tag = true
+                    }};
+                }}
+                {exit_mode}exit(pos lease: Lease) {exit_contract}
+                {{
+                }}
             }}
-            func observe(pos value: &Lease) requires(trusted live(value)) {{}}
+            func observe(pos value: &Lease)
+                requires(trusted live(value))
+            {{
+            }}
             {caller_mode}func caller(pos resource: Resource)
             {{
                 with lease = resource {{ {body} }};
@@ -170,8 +204,15 @@ fn ordinary_predicate_assumptions_cannot_discharge_trusted_disjunctions() {
         r#"
         trusted module app;
         trusted predicate live(value: u64);
-        func observe(pos value: u64, pos flag: bool) requires((trusted live(value)) || flag) {}
-        func caller(pos value: u64, pos flag: bool) requires(live(value)) { observe(value, flag); }
+        func observe(pos value: u64, pos flag: bool)
+            requires((trusted live(value)) || flag)
+        {
+        }
+        func caller(pos value: u64, pos flag: bool)
+            requires(live(value))
+        {
+            observe(value, flag);
+        }
     "#,
     );
 
@@ -203,8 +244,15 @@ fn mixed_boolean_requirements_preserve_trusted_occurrences_and_ordinary_guards()
             trusted module app;
             trusted predicate live(value: u64);
             trusted predicate ready(value: u64);
-            func observe(pos value: u64, pos flag: bool) requires({requirement}) {{}}
-            func caller(pos value: u64, pos flag: bool) requires({precondition}) {{ observe(value, flag); }}
+            func observe(pos value: u64, pos flag: bool)
+                requires({requirement})
+            {{
+            }}
+            func caller(pos value: u64, pos flag: bool)
+                requires({precondition})
+            {{
+                observe(value, flag);
+            }}
         "#
         );
 
@@ -236,8 +284,15 @@ fn selecting_an_ordinary_disjunct_does_not_grant_its_trusted_qualification() {
             trusted module app;
             trusted predicate live(value: u64);
             trusted predicate ready(value: u64);
-            func observe(pos value: u64) requires(trusted live(value)) {{}}
-            func caller(pos value: u64) requires({requirement}, !(trusted ready(value))) {{ observe(value); }}
+            func observe(pos value: u64)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller(pos value: u64)
+                requires({requirement}, !(trusted ready(value)))
+            {{
+                observe(value);
+            }}
         "#
         );
 
@@ -260,8 +315,15 @@ fn trusted_disjunctions_retain_evidence_on_either_side() {
             r#"
             trusted module app;
             trusted predicate live(value: u64);
-            func observe(pos value: u64) requires(trusted live(value)) {{}}
-            func caller(pos value: u64, pos flag: bool) requires({requirement}, !flag) {{ observe(value); }}
+            func observe(pos value: u64)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller(pos value: u64, pos flag: bool)
+                requires({requirement}, !flag)
+            {{
+                observe(value);
+            }}
         "#
         );
 
@@ -282,8 +344,13 @@ fn ordinary_predicate_equalities_cannot_rename_trusted_authority() {
         trusted module app;
         trusted predicate live(value: u64);
         trusted predicate other(value: u64);
-        func observe(pos value: u64) requires(trusted other(value)) {}
-        func caller(pos value: u64) requires(trusted live(value), other(value) == live(value)) {
+        func observe(pos value: u64)
+            requires(trusted other(value))
+        {
+        }
+        func caller(pos value: u64)
+            requires(trusted live(value), other(value) == live(value))
+        {
             observe(value);
         }
     "#,
@@ -304,9 +371,21 @@ fn ordinary_predicate_guards_select_trusted_conditional_guarantees() {
             trusted predicate live(value: u64);
             trusted predicate ready(value: u64);
             trusted func make(pos value: u64) -> u64
-                when(ready(value)) {{ ensures(trusted live(result)) }} {{ return value; }}
-            func observe(pos value: u64) requires(trusted live(value)) {{}}
-            func caller(pos value: u64) {precondition} {{ observe(make(value)); }}
+                when(ready(value))
+                {{
+                    ensures(trusted live(result))
+                }}
+                {{
+                    return value;
+                }}
+            func observe(pos value: u64)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller(pos value: u64) {precondition}
+            {{
+                observe(make(value));
+            }}
         "#
         );
 
@@ -335,12 +414,18 @@ fn generic_trait_fulfillments_preserve_exact_trusted_predicates() {
             trusted module app;
             trusted predicate live<T>(value: &T);
             trusted predicate other<T>(value: &T);
-            trait Observer<T> {{
+            trait Observer<T>
+            {{
                 static func observe(pos value: &T) requires(trusted live<T>(value));
             }}
-            struct Watcher {{}}
-            impl Watcher(Observer<u64>) {{
-                static func observe(pos value: &u64) requires(trusted {predicate}<u64>(value)) {{}}
+            struct Watcher
+            {{
+            }}
+            impl Watcher(Observer<u64>)
+            {{
+                static func observe(pos value: &u64) requires(trusted {predicate}<u64>(value))
+                {{
+                }}
             }}
         "#
         ));
@@ -403,9 +488,19 @@ fn safe_guarantees_cannot_fabricate_trusted_authority() {
         r#"
         trusted module app;
         trusted predicate live(value: u64);
-        func fabricated() -> u64 ensures(trusted live(result)) { return 1; }
-        trusted func use_owner(pos value: u64) requires(trusted live(value)) {}
-        func caller() { use_owner(fabricated()); }
+        func fabricated() -> u64
+            ensures(trusted live(result))
+        {
+            return 1;
+        }
+        trusted func use_owner(pos value: u64)
+            requires(trusted live(value))
+        {
+        }
+        func caller()
+        {
+            use_owner(fabricated());
+        }
     "#,
     );
 
@@ -420,11 +515,16 @@ fn unknown_observations_do_not_merge_unrelated_value_authority() {
     let compilation = compilation(
         r#"
         trusted module app;
-        @copy struct Owner { epoch: u64; }
+        @copy struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &Owner);
-        trusted func establish(pos value: &Owner) executes(pure, total)
+        trusted func establish(pos value: &Owner)
+            executes(pure, total)
             ensures(trusted live(value)) {}
-        func caller() {
+        func caller()
+        {
             let value: Owner = { epoch = 1 };
             let unrelated: Owner = { epoch = 2 };
             establish(&value);
@@ -446,9 +546,19 @@ fn ordinary_conditions_do_not_create_trusted_authority() {
         r#"
         trusted module app;
         trusted predicate live(value: u64);
-        func ordinary(pos value: u64) requires(live(value)) {}
-        trusted func observe(pos value: u64) requires(trusted live(value)) {}
-        func caller(pos value: u64) requires(live(value)) { observe(value); }
+        func ordinary(pos value: u64)
+            requires(live(value))
+        {
+        }
+        trusted func observe(pos value: u64)
+            requires(trusted live(value))
+        {
+        }
+        func caller(pos value: u64)
+            requires(live(value))
+        {
+            observe(value);
+        }
     "#,
     );
 
@@ -463,14 +573,29 @@ fn runtime_checked_ordinary_requirements_establish_completion_guards() {
     let compilation = compilation(
         r#"
         trusted module app;
-        struct Owner { epoch: u64; }
+        struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &Owner);
         trusted func owner(pos epoch: u64) -> Owner
             requires(epoch == 1)
             when(epoch == 1) { ensures(trusted live(&result)) }
-        { return { epoch = epoch }; }
-        func observe(pos value: &Owner) requires(trusted live(value)) {}
-        func caller(pos epoch: u64) { let value = owner(epoch); observe(&value); }
+        {
+            return
+            {
+                epoch = epoch
+            };
+        }
+        func observe(pos value: &Owner)
+            requires(trusted live(value))
+        {
+        }
+        func caller(pos epoch: u64)
+        {
+            let value = owner(epoch);
+            observe(&value);
+        }
     "#,
     );
 
@@ -487,7 +612,10 @@ fn ordinary_equalities_match_existing_trusted_conditions() {
         r#"
         trusted module app;
         trusted predicate live(value: u64);
-        trusted func observe(pos value: u64) requires(trusted live(value)) {}
+        trusted func observe(pos value: u64)
+            requires(trusted live(value))
+        {
+        }
         func caller(pos left: u64, pos right: u64)
             requires(left == right, trusted live(left)) { observe(right); }
     "#,
@@ -506,8 +634,14 @@ fn nested_trust_in_requirements_cannot_hide_obligations() {
         r#"
         trusted module app;
         trusted predicate live(value: u64);
-        func observe(pos value: u64) requires((trusted live(value)) && true) {}
-        func caller() { observe(1); }
+        func observe(pos value: u64)
+            requires((trusted live(value)) && true)
+        {
+        }
+        func caller()
+        {
+            observe(1);
+        }
     "#,
     );
 
@@ -524,7 +658,10 @@ fn trusted_predicate_guarantees_preserve_execution_property_proofs() {
             r#"
             trusted module app;
 
-            struct Owner {{ epoch: u64; }}
+            struct Owner
+            {{
+                epoch: u64;
+            }}
 
             trusted predicate live(value: &Owner);
 
@@ -563,8 +700,13 @@ fn established_observation_free_predicates_survive_opaque_execution() {
                 trusted module app;
                 trusted predicate permitted({arguments});
                 extern func opaque();
-                func restricted() requires(trusted permitted({values})) executes(pure, total) {{}}
-                func run() {requirement} {{
+                func restricted()
+                    requires(trusted permitted({values}))
+                    executes(pure, total)
+                {{
+                }}
+                func run() {requirement}
+                {{
                     opaque();
                     restricted();
                 }}

@@ -10,7 +10,10 @@ fn rewritten_raw_pointer_fields_publish_opaque_output_identities() {
         trusted module app;
         using core.memory;
         using core.target;
-        struct Cursor { mut pointer: DataPointer<u8>; }
+        struct Cursor
+        {
+            mut pointer: DataPointer<u8>;
+        }
         trusted func replace_pointer(pos cursor: &mut Cursor, pos address: usize)
             uses(intrinsic)
         {
@@ -58,16 +61,27 @@ fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
         let source = format!(
             r#"
             trusted module app;
-            struct Payload {{ mut value: u8; }}
-            struct Carrier {{ payload: &mut Payload; }}
+            struct Payload
+            {{
+                mut value: u8;
+            }}
+            struct Carrier
+            {{
+                payload: &mut Payload;
+            }}
             trusted predicate live(carrier: &Carrier);
             trusted func make(pos payload: &mut Payload) -> Carrier
-                ensures(trusted live(&result)) executes(pure, total) {{
-                return {{ payload = payload }};
+                ensures(trusted live(&result)) executes(pure, total)
+                {{
+                return
+                {{
+                    payload = payload
+                }};
             }}
             func observe(pos carrier: &Carrier)
                 requires(trusted live(carrier)) executes(pure, total) {{}}
-            func caller() {{
+            func caller()
+            {{
                 let mut payload: Payload = {{ value = 0 }};
                 let mut carrier = make(&mut payload);
                 {mutation}
@@ -116,16 +130,31 @@ fn opaque_callback_preserves_only_unexposed_complete_marker_carriers() {
         let source = format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            struct Payload {{ mut value: bool; }}
-            struct Guard {{ marker: Marker; payload: &mut Payload; }}
+            struct Marker
+            {{
+            }}
+            struct Payload
+            {{
+                mut value: bool;
+            }}
+            struct Guard
+            {{
+                marker: Marker;
+                payload: &mut Payload;
+            }}
             trusted predicate held(value: &{ty});
             trusted func acquire(pos payload: &mut Payload) -> Guard
                 ensures(trusted held({observation})) executes(pure, total)
-            {{ return {{ marker = Marker {{}}, payload = payload }}; }}
+            {{
+                return
+                {{
+                    marker = Marker {{}}, payload = payload
+                }};
+            }}
             func observe(pos guard: &Guard)
                 requires(trusted held({argument})) executes(pure, total) {{}}
-            func caller(pos callback: func() -> unit) {{
+            func caller(pos callback: func() -> unit)
+            {{
                 let mut payload: Payload = {{ value = false }};
                 let guard = acquire(&mut payload);
                 callback();
@@ -153,17 +182,36 @@ fn opaque_callback_preserves_only_unexposed_complete_marker_carriers() {
 fn opaque_callback_does_not_reuse_a_carriers_borrowed_payload_snapshot() {
     let source = r#"
         trusted module app;
-        struct Marker {}
-        struct Payload { mut value: bool; }
-        struct Guard { marker: Marker; payload: &mut Payload; }
+        struct Marker
+        {
+        }
+        struct Payload
+        {
+            mut value: bool;
+        }
+        struct Guard
+        {
+            marker: Marker;
+            payload: &mut Payload;
+        }
         trusted predicate held(value: &Marker);
         trusted predicate recorded(value: bool);
         trusted func acquire(pos payload: &mut Payload) -> Guard
             ensures(trusted held(&result.marker), trusted recorded(result.payload.value))
             executes(pure, total)
-        { return { marker = Marker {}, payload = payload }; }
-        func observe(pos value: bool) requires(trusted recorded(value)) executes(pure, total) {}
-        func caller(pos payload: &mut Payload, pos callback: func() -> unit) {
+        {
+            return
+            {
+                marker = Marker {}, payload = payload
+            };
+        }
+        func observe(pos value: bool)
+            requires(trusted recorded(value))
+            executes(pure, total)
+        {
+        }
+        func caller(pos payload: &mut Payload, pos callback: func() -> unit)
+        {
             let guard = acquire(payload);
             callback();
             observe(guard.payload.value);
@@ -219,7 +267,9 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
             trusted module app;
 
             using core.memory;
-            struct Marker {{}}
+            struct Marker
+            {{
+            }}
 
             struct Owner
             {{
@@ -231,7 +281,10 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
             trusted func make() -> Owner
                 ensures(trusted live(&result.instance))
             {{
-                return {{ instance = Marker {{}} }};
+                return
+                {{
+                    instance = Marker {{}}
+                }};
             }}
 
             func borrow(pos owner: &Owner) -> &Owner
@@ -253,7 +306,8 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
 
             extern trusted func replace_holder(pos holder: Holder);
 
-            trusted func caller() uses(raw_memory)
+            trusted func caller()
+                uses(raw_memory)
             {{
                 {body}
             }}
@@ -297,10 +351,16 @@ fn opaque_calls_preserve_unexposed_scalar_values_only() {
             using core.atomic;
             extern trusted func opaque();
             static WORD: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
-            func signal() {{ core.atomic.store<u32, 2>(&WORD, 1); }}
+            func signal()
+            {{
+                core.atomic.store<u32, 2>(&WORD, 1);
+            }}
             extern trusted func replace(pos value: &mut u32);
             extern trusted func publish(pos pointer: DataPointer<u32>);
-            trusted func caller(pos initial: u32) -> u32 ensures(result == initial) uses(raw_memory) {{
+            trusted func caller(pos initial: u32) -> u32
+                ensures(result == initial)
+                uses(raw_memory)
+            {{
                 let mut value = initial;
                 {effect}
                 return value;
@@ -329,18 +389,37 @@ fn opaque_returned_borrows_revoke_possible_inputs_but_not_unpassed_owners() {
         let application = compilation(&format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            struct Owner {{ marker: Marker; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                marker: Marker;
+            }}
             trusted predicate live(marker: &Marker);
-            trusted func make() -> Owner ensures(trusted live(&result.marker)) {{ return {{ marker = Marker {{}} }}; }}
+            trusted func make() -> Owner
+                ensures(trusted live(&result.marker))
+            {{
+                return
+                {{
+                    marker = Marker {{}}
+                }};
+            }}
             extern trusted func choose(pos first: &mut Owner, pos second: &mut Owner) -> &mut Owner;
             extern trusted func replace(pos owner: &mut Owner);
-            func observe(pos owner: &Owner) requires(trusted live(&owner.marker)) {{}}
-            func caller() {{
+            func observe(pos owner: &Owner)
+                requires(trusted live(&owner.marker))
+            {{
+            }}
+            func caller()
+            {{
                 let mut first = make();
                 let mut second = make();
                 let third = make();
-                {{ let selected = choose(&mut first, &mut second); replace(selected); }}
+                {{
+                    let selected = choose(&mut first, &mut second);
+                    replace(selected);
+                }}
                 observe(&{observed});
             }}
         "#
@@ -373,24 +452,64 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
             trusted module app;
             using core.memory;
             callable Native = @abi(c) func();
-            @abi(c) func finish() {{}}
-            struct Owner {{ storage: Uninit<[u64; 16]>; finish: Native; }}
+            @abi(c) func finish()
+            {{
+            }}
+            struct Owner
+            {{
+                storage: Uninit<[u64;
+                16]>;
+                finish: Native;
+            }}
             trusted predicate held(owner: &Owner);
             extern func fill(pos storage: &mut Uninit<[u64; 16]>);
-            trusted func mark(pos owner: &Owner) ensures(trusted held(owner)) executes(pure, total) {{}}
+            trusted func mark(pos owner: &Owner)
+                ensures(trusted held(owner))
+                executes(pure, total)
+            {{
+            }}
             const func present(pos owner: &(Owner?)) -> &Owner
-                requires(owner matches ?_) executes(pure, total) {{
-                return match owner {{ case ?value {{ yield &value; }} case none {{ panic("missing owner"); }} }};
+                requires(owner matches ?_) executes(pure, total)
+                {{
+                return match owner
+                {{
+                    case ?value
+                    {{
+                        yield &value;
+                    }}
+                    case none
+                    {{
+                        panic("missing owner");
+                    }}
+                }};
             }}
             predicate optional_held(owner: &(Owner?)) = owner matches none || held(present(owner));
             const func successful(pos owner: &Result<(Owner?), u32>) -> &(Owner?)
-                requires(owner matches Ok(_)) executes(pure, total) {{
-                return match owner {{ case Ok(value) {{ yield &value; }} case Error(_) {{ panic("missing success"); }} }};
+                requires(owner matches Ok(_)) executes(pure, total)
+                {{
+                return match owner
+                {{
+                    case Ok(value)
+                    {{
+                        yield &value;
+                    }}
+                    case Error(_)
+                    {{
+                        panic("missing success");
+                    }}
+                }};
             }}
             trusted func create(pos mode: u8) -> Result<(Owner?), u32>
-                ensures(!(result matches Ok(_)) || trusted optional_held(successful(&result))) {{
-                if mode == 1 {{ return Ok(none); }}
-                if mode == 2 {{ return Error(1); }}
+                ensures(!(result matches Ok(_)) || trusted optional_held(successful(&result)))
+                {{
+                if mode == 1
+                {{
+                    return Ok(none);
+                }}
+                if mode == 2
+                {{
+                    return Error(1);
+                }}
                 let native: Native = finish;
                 let mut storage = core.memory.uninit<[u64; 16]>();
                 fill(&mut storage);
@@ -398,13 +517,30 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
                 mark(&owner);
                 return Ok(owner);
             }}
-            func release(pos owner: Owner) requires(trusted held(&owner)) {{}}
-            func caller(pos mode: u8) {{
-                match consume create(mode) {{
-                    case Ok(optional) {{
-                        match consume optional {{ case ?owner {{ {body} }} case none {{}} }}
+            func release(pos owner: Owner)
+                requires(trusted held(&owner))
+            {{
+            }}
+            func caller(pos mode: u8)
+            {{
+                match consume create(mode)
+                {{
+                    case Ok(optional)
+                    {{
+                        match consume optional
+                        {{
+                            case ?owner
+                            {{
+                                {body}
+                            }}
+                            case none
+                            {{
+                            }}
+                        }}
                     }}
-                    case Error(_) {{}}
+                    case Error(_)
+                    {{
+                    }}
                 }}
             }}
         "#
@@ -447,15 +583,23 @@ fn returned_shared_views_do_not_freeze_mutable_referents() {
             r#"
             trusted module app;
             using core.atomic;
-            struct Owner {{ value: core.atomic.Atomic<u32>; }}
-            struct Holder {{ current: Owner; label: u32; }}
+            struct Owner
+            {{
+                value: core.atomic.Atomic<u32>;
+            }}
+            struct Holder
+            {{
+                current: Owner;
+                label: u32;
+            }}
             trusted predicate observed(owner: &Owner);
             extern trusted func selected(pos owner: &{input}) -> &{input}
                 ensures(trusted observed({observed})) executes(pure, total);
             extern func change();
             func observe(pos owner: &Owner)
                 requires(trusted observed(owner)) executes(pure, total) {{}}
-            func caller(pos owner: &{input}) {{
+            func caller(pos owner: &{input})
+            {{
                 let borrowed = selected(owner);
                 change();
                 observe({subject});
@@ -498,13 +642,22 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
             using core.atomic;
 
             using core.memory;
-            struct Owner {{ mut value: {field}; }}
+            struct Owner
+            {{
+                mut value: {field};
+            }}
             trusted predicate acquired(owner: &Owner);
-            trusted extern func acquire() -> Owner ensures(trusted acquired(&result));
+            trusted extern func acquire() -> Owner
+                ensures(trusted acquired(&result));
             extern func opaque({parameter});
             extern func publish(pos pointer: DataPointer<Owner>);
-            func inspect(pos owner: &Owner) requires(trusted acquired(owner)) executes(pure, total) {{}}
-            trusted func run() {{
+            func inspect(pos owner: &Owner)
+                requires(trusted acquired(owner))
+                executes(pure, total)
+            {{
+            }}
+            trusted func run()
+            {{
                 let mut owner = trusted acquire();
                 {exposure}
                 opaque({argument});

@@ -85,11 +85,28 @@ fn equal_aggregate_elements_cannot_share_borrowed_authority() {
             trusted module app;
             trusted predicate live(value: &u8);
             trusted predicate live_bool(value: &bool);
-            trusted func establish(pos value: &u8) executes(pure, total) ensures(trusted live(value)) {{}}
-            trusted func establish_bool(pos value: &bool) executes(pure, total) ensures(trusted live_bool(value)) {{}}
-            func observe(pos value: &u8) requires(trusted live(value)) {{}}
-            func observe_bool(pos value: &bool) requires(trusted live_bool(value)) {{}}
-            func caller() {{ {body} }}
+            trusted func establish(pos value: &u8)
+                executes(pure, total)
+                ensures(trusted live(value))
+            {{
+            }}
+            trusted func establish_bool(pos value: &bool)
+                executes(pure, total)
+                ensures(trusted live_bool(value))
+            {{
+            }}
+            func observe(pos value: &u8)
+                requires(trusted live(value))
+            {{
+            }}
+            func observe_bool(pos value: &bool)
+                requires(trusted live_bool(value))
+            {{
+            }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         ));
 
@@ -113,11 +130,28 @@ fn repeated_borrows_of_one_scalar_component_preserve_authority() {
             trusted module app;
             trusted predicate live(value: &u8);
             trusted predicate live_bool(value: &bool);
-            trusted func establish(pos value: &u8) executes(pure, total) ensures(trusted live(value)) {{}}
-            trusted func establish_bool(pos value: &bool) executes(pure, total) ensures(trusted live_bool(value)) {{}}
-            func observe(pos value: &u8) requires(trusted live(value)) {{}}
-            func observe_bool(pos value: &bool) requires(trusted live_bool(value)) {{}}
-            func caller() {{ {body} }}
+            trusted func establish(pos value: &u8)
+                executes(pure, total)
+                ensures(trusted live(value))
+            {{
+            }}
+            trusted func establish_bool(pos value: &bool)
+                executes(pure, total)
+                ensures(trusted live_bool(value))
+            {{
+            }}
+            func observe(pos value: &u8)
+                requires(trusted live(value))
+            {{
+            }}
+            func observe_bool(pos value: &bool)
+                requires(trusted live_bool(value))
+            {{
+            }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         ));
 
@@ -135,9 +169,17 @@ fn unknown_array_selectors_cannot_borrow_another_components_authority() {
         r#"
         trusted module app;
         trusted predicate live(value: &u8);
-        trusted func establish(pos value: &u8) executes(pure, total) ensures(trusted live(value)) {}
-        func observe(pos value: &u8) requires(trusted live(value)) {}
-        func caller(pos index: usize) {
+        trusted func establish(pos value: &u8)
+            executes(pure, total)
+            ensures(trusted live(value))
+        {
+        }
+        func observe(pos value: &u8)
+            requires(trusted live(value))
+        {
+        }
+        func caller(pos index: usize)
+        {
             let values: [u8; 2] = [0, 0];
             establish(&values[0]);
             observe(&values[index]);
@@ -159,12 +201,27 @@ fn equal_scalar_contents_do_not_identify_borrowed_predicate_subjects() {
             trusted module app;
             trusted predicate live(value: &u8);
             trusted predicate ready(value: &u8);
-            func observe(pos value: &u8) requires(trusted live(value)) {{}}
-            trusted func make(pos value: &u8) -> u64 executes(pure, total)
-                when(ready(value)) {{ ensures(trusted result_live(result)) }} {{ return 0; }}
+            func observe(pos value: &u8)
+                requires(trusted live(value))
+            {{
+            }}
+            trusted func make(pos value: &u8) -> u64
+                executes(pure, total)
+                when(ready(value))
+                {{
+                    ensures(trusted result_live(result))
+                }}
+                {{
+                    return 0;
+                }}
             trusted predicate result_live(value: u64);
-            func observe_result(pos value: u64) requires(trusted result_live(value)) {{}}
-            func caller(pos first: u8, pos second: u8) requires(first == second, {requirement}) {{
+            func observe_result(pos value: u64)
+                requires(trusted result_live(value))
+            {{
+            }}
+            func caller(pos first: u8, pos second: u8)
+                requires(first == second, {requirement})
+            {{
                 {body}
             }}
         "#,
@@ -191,10 +248,22 @@ fn mutation_cannot_reuse_an_ordinary_borrowed_guard_to_establish_authority() {
         trusted module app;
         trusted predicate ready(value: &u8);
         trusted predicate live(value: u64);
-        trusted func make(pos value: &u8) -> u64 executes(pure, total)
-            when(ready(value)) { ensures(trusted live(result)) } { return 0; }
-        func observe(pos value: u64) requires(trusted live(value)) {}
-        func caller(pos mut value: u8) requires(ready(&value)) {
+        trusted func make(pos value: &u8) -> u64
+            executes(pure, total)
+            when(ready(value))
+            {
+                ensures(trusted live(result))
+            }
+            {
+                return 0;
+            }
+        func observe(pos value: u64)
+            requires(trusted live(value))
+        {
+        }
+        func caller(pos mut value: u8)
+            requires(ready(&value))
+        {
             value = 1;
             observe(make(&value));
         }
@@ -215,9 +284,22 @@ fn ordinary_borrowed_guards_select_the_producers_entry_domain() {
         trusted predicate ready(value: &u8);
         trusted predicate live(value: u64);
         trusted func make(pos value: &u8) -> u64
-            when(ready(value)) { ensures(trusted live(result)) } { return 0; }
-        func observe(pos value: u64) requires(trusted live(value)) {}
-        func caller(pos value: u8) requires(ready(&value)) { observe(make(&value)); }
+            when(ready(value))
+            {
+                ensures(trusted live(result))
+            }
+            {
+                return 0;
+            }
+        func observe(pos value: u64)
+            requires(trusted live(value))
+        {
+        }
+        func caller(pos value: u8)
+            requires(ready(&value))
+        {
+            observe(make(&value));
+        }
     "#,
     );
 
@@ -273,16 +355,40 @@ fn scalar_component_mutation_revokes_only_overlapping_authority() {
             trusted module app;
             trusted predicate live(value: &u8);
             trusted predicate live_bool(value: &bool);
-            struct Indexed {{ mut value: u8; }}
-            impl Indexed(MutableElementIndex<usize>) {{
-                type Output = u8;
-                mut func index(pos selector: &usize) -> &mut u8 {{ return &mut self.value; }}
+            struct Indexed
+            {{
+                mut value: u8;
             }}
-            trusted func establish(pos value: &u8) executes(pure, total) ensures(trusted live(value)) {{}}
-            trusted func establish_bool(pos value: &bool) executes(pure, total) ensures(trusted live_bool(value)) {{}}
-            func observe(pos value: &u8) requires(trusted live(value)) {{}}
-            func observe_bool(pos value: &bool) requires(trusted live_bool(value)) {{}}
-            func caller(pos index: usize) {{ {body} }}
+            impl Indexed(MutableElementIndex<usize>)
+            {{
+                type Output = u8;
+                mut func index(pos selector: &usize) -> &mut u8
+                {{
+                    return &mut self.value;
+                }}
+            }}
+            trusted func establish(pos value: &u8)
+                executes(pure, total)
+                ensures(trusted live(value))
+            {{
+            }}
+            trusted func establish_bool(pos value: &bool)
+                executes(pure, total)
+                ensures(trusted live_bool(value))
+            {{
+            }}
+            func observe(pos value: &u8)
+                requires(trusted live(value))
+            {{
+            }}
+            func observe_bool(pos value: &bool)
+                requires(trusted live_bool(value))
+            {{
+            }}
+            func caller(pos index: usize)
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -308,15 +414,25 @@ fn mutation_invalidates_owner_witnesses() {
     let source = r#"
         trusted module app;
 
-        struct Owner { mut epoch: u64; }
+        struct Owner
+        {
+            mut epoch: u64;
+        }
         trusted predicate live(owner: &Owner);
 
-        trusted func owner() -> Owner ensures(trusted live(&result))
+        trusted func owner() -> Owner
+            ensures(trusted live(&result))
         {
-            return { epoch = 1 };
+            return
+            {
+                epoch = 1
+            };
         }
 
-        trusted func observe(pos value: &Owner) requires(trusted live(value)) {}
+        trusted func observe(pos value: &Owner)
+            requires(trusted live(value))
+        {
+        }
 
         func caller()
         {
@@ -341,10 +457,15 @@ fn equal_scalar_values_do_not_share_borrowed_authority() {
             r#"
         trusted module app;
         trusted predicate live(value: &u8);
-        trusted func establish(pos value: &u8) executes(pure, total)
+        trusted func establish(pos value: &u8)
+            executes(pure, total)
             ensures(trusted live(value)) {{}}
-        func observe(pos value: &u8) requires(trusted live(value)) {{}}
-        func caller() {{
+        func observe(pos value: &u8)
+            requires(trusted live(value))
+        {{
+        }}
+        func caller()
+        {{
             let value: u8 = 1;
             let unrelated: u8 = 1;
             establish(&value);
@@ -395,16 +516,29 @@ fn borrowed_results_do_not_invalidate_their_input_observations() {
                     let source = format!(
                         r#"
                     trusted module app;
-                    struct Marker {{ {marker_fields} }}
+                    struct Marker
+                    {{
+                        {marker_fields}
+                    }}
                     trusted predicate valid(owner: &Marker);
-                    struct Cell<T> {{ marker: Marker; value: T; }}
-                    struct Lazy<T> {{ cell: Cell<T>; initializer: func() -> T; }}
+                    struct Cell<T>
+                    {{
+                        marker: Marker;
+                        value: T;
+                    }}
+                    struct Lazy<T>
+                    {{
+                        cell: Cell<T>;
+                        initializer: func() -> T;
+                    }}
                     {declaration} obtain<T>(pos cell: &Cell<T>, pos initializer: func() -> T) -> &T
                         requires(trusted valid(&cell.marker)) {completion} {implementation}
                     func caller<T>(pos lazy: &Lazy<T>) -> &T
                         requires(trusted valid(&lazy.cell.marker))
                         ensures(trusted valid(&lazy.cell.marker))
-                    {{ {body} }}
+                    {{
+                        {body}
+                    }}
                     "#
                     );
 
@@ -445,11 +579,18 @@ fn consuming_reference_carriers_preserves_referent_evidence() {
             let source = format!(
                 r#"
                 trusted module app;
-                struct Marker {{}}
+                struct Marker
+                {{
+                }}
                 trusted predicate valid(owner: &Marker);
                 trusted predicate acquired(owner: &Marker);
-                struct Cell<T> {{ marker: Marker; value: T; }}
-                struct Guard<T> {{
+                struct Cell<T>
+                {{
+                    marker: Marker;
+                    value: T;
+                }}
+                struct Guard<T>
+                {{
                     cell: &Cell<T>;
                     acquisition: Marker;
                     trusted destruct()
@@ -458,17 +599,28 @@ fn consuming_reference_carriers_preserves_referent_evidence() {
                     trusted func owner() -> &Cell<T>
                         requires(trusted acquired(&self.acquisition))
                         ensures(trusted valid(&result.marker)) executes(pure, total)
-                    {{ return self.cell; }}
+                    {{
+                        return self.cell;
+                    }}
                     consume func unlock()
                         requires(trusted acquired(&self.acquisition)) executes(total) {{}}
                 }}
                 trusted func make<T>(pos cell: &Cell<T>) -> Guard<T>
                     ensures(trusted acquired(&result.acquisition))
-                {{ return {{ cell = cell, acquisition = Marker {{}} }}; }}
+                {{
+                    return
+                    {{
+                        cell = cell, acquisition = Marker {{}}
+                    }};
+                }}
                 func dispose<T>(pos guard: Guard<T>)
                     requires(trusted acquired(&guard.acquisition)) {{}}
-                func observe<T>(pos cell: &Cell<T>) requires(trusted valid(&cell.marker)) {{}}
-                func caller<T>({parameters}) {requirement} {{
+                func observe<T>(pos cell: &Cell<T>)
+                    requires(trusted valid(&cell.marker))
+                {{
+                }}
+                func caller<T>({parameters}) {requirement}
+                {{
                     {initialization}
                     let cell = guard.owner();
                     {dispose}
@@ -503,8 +655,13 @@ fn nullable_borrow_descriptor_survives_unrelated_opaque_write() {
                 trusted core.memory.aligned_for<u8>(pointer = result)
             )
             executes(pure, total)
-        { return pointer; }
-        struct Payload { mut value: u32; }
+        {
+            return pointer;
+        }
+        struct Payload
+        {
+            mut value: u32;
+        }
         func selected(pos value: &mut Payload) -> (&mut Payload)?
             executes(total)
         {

@@ -13,16 +13,29 @@ fn scoped_exit_must_explicitly_transfer_trusted_authority() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Resource {{ tag: bool; }}
-            struct Lease {{ tag: bool; }}
+            struct Resource
+            {{
+                tag: bool;
+            }}
+            struct Lease
+            {{
+                tag: bool;
+            }}
             trusted predicate live(value: {observation}bool);
             impl Resource
             {{
                 trusted enter() -> Lease
                     ensures(result.tag == self.tag, trusted live({observation}result.tag))
                     executes(pure)
-                {{ return {{ tag = self.tag }}; }}
-                trusted exit(pos lease: Lease) {exit_contract} executes(pure) {{}}
+                {{
+                    return
+                    {{
+                        tag = self.tag
+                    }};
+                }}
+                trusted exit(pos lease: Lease) {exit_contract} executes(pure)
+                {{
+                }}
             }}
             func observe(pos value: {observation}bool)
                 requires(trusted live(value)) executes(pure) {{}}
@@ -82,23 +95,46 @@ fn borrowed_completion_preserves_the_reached_owner_for_cleanup() {
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{
+            struct Owner
+            {{
                 epoch: u64;
-                trusted destruct() requires(trusted live(&self)) {{}}
+                trusted destruct() requires(trusted live(&self))
+                {{
+                }}
             }}
             trusted predicate live(value: &Owner);
-            struct Cleanup {{ tag: u8; destruct() {{}} }}
-            trusted func make() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = 1 }}; }}
+            struct Cleanup
+            {{
+                tag: u8;
+                destruct()
+                {{
+                }}
+            }}
+            trusted func make() -> Owner
+                ensures(trusted live(&result))
+            {{
+                return
+                {{
+                    epoch = 1
+                }};
+            }}
             trusted func observe(pos value: &Owner)
                 requires(trusted live(value)) ensures(trusted live(value)) executes(total) {{}}
             trusted func may_fail(pos value: &Owner)
-                requires(trusted live(value)) ensures(trusted live(value)) {{
+                requires(trusted live(value)) ensures(trusted live(value))
+                {{
                     if value.epoch == 2 {{ panic("stopped"); }}
                 }}
             trusted func observe_mut(pos value: &mut Owner)
                 requires(trusted live(&value)) ensures(trusted live(&value)) executes(total) {{}}
-            func forget(pos value: &Owner) {{}}
-            func caller() {{ let mut owner = make(); {body} }}
+            func forget(pos value: &Owner)
+            {{
+            }}
+            func caller()
+            {{
+                let mut owner = make();
+                {body}
+            }}
         "#
         );
 
@@ -137,15 +173,19 @@ fn cleanup_checks_destructor_against_finalizer_completion() {
 
             trusted predicate finished(value: &Owner);
 
-            struct Owner {{
+            struct Owner
+            {{
                 epoch: u64;
 
                 trusted finalize() {execution} {guarantee} {{ {body} }}
 
-                trusted destruct() requires(trusted finished(&self)) {{}}
+                trusted destruct() requires(trusted finished(&self))
+                {{
+                }}
             }}
 
-            func caller() {{
+            func caller()
+            {{
                 let value: Owner = {{ epoch = 1 }};
             }}
         "#
@@ -168,12 +208,27 @@ fn represented_child_cleanup_checks_its_trusted_requirements() {
         r#"
         trusted module app;
         trusted predicate live(value: &Child);
-        struct Child {
+        struct Child
+        {
             byte: u8;
-            trusted destruct() requires(trusted live(&self)) {}
+            trusted destruct() requires(trusted live(&self))
+            {
+            }
         }
-        struct Parent { child: Child; }
-        func caller() { let parent: Parent = { child = { byte = 1 } }; }
+        struct Parent
+        {
+            child: Child;
+        }
+        func caller()
+        {
+            let parent: Parent =
+            {
+                child =
+                {
+                    byte = 1
+                }
+            };
+        }
     "#,
     );
 
@@ -188,8 +243,13 @@ fn recursive_owned_cleanup_does_not_require_infinite_type_expansion() {
     let compilation = compilation(
         r#"
         module app;
-        struct Node { next: box[Heap] Node; }
-        func dispose(pos node: Node) {}
+        struct Node
+        {
+            next: box[Heap] Node;
+        }
+        func dispose(pos node: Node)
+        {
+        }
     "#,
     );
 
@@ -207,15 +267,26 @@ fn finalizer_effects_determine_destructor_evidence() {
             r#"
             trusted module app;
             trusted predicate live(value: &Owner);
-            struct Owner {{
+            struct Owner
+            {{
                 mut epoch: u64;
                 finalize() {{ {body} }}
-                trusted destruct() requires(trusted live(&self)) {{}}
+                trusted destruct() requires(trusted live(&self))
+                {{
+                }}
             }}
-            trusted func owner() -> Owner ensures(trusted live(&result)) {{
-                return {{ epoch = 1 }};
+            trusted func owner() -> Owner
+                ensures(trusted live(&result))
+            {{
+                return
+                {{
+                    epoch = 1
+                }};
             }}
-            func caller() {{ let value = owner(); }}
+            func caller()
+            {{
+                let value = owner();
+            }}
         "#
         );
 

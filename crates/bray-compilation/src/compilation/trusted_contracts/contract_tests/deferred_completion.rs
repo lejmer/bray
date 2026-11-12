@@ -28,7 +28,10 @@ fn deferred_producers_require_live_entry_evidence_when_their_body_begins() {
                 requires(trusted admitted(epoch))
                 ensures(trusted live(&result))
             {{
-                return {{ epoch = epoch }};
+                return
+                {{
+                    epoch = epoch
+                }};
             }}
 
             func observe(pos value: &Owner)
@@ -73,11 +76,29 @@ fn deferred_producers_publish_witnesses_after_await() {
     let compilation = compilation(
         r#"
         trusted module app;
-        struct Owner { epoch: u64; }
+        struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &Owner);
-        trusted async func owner() -> Owner ensures(trusted live(&result)) { return { epoch = 1 }; }
-        trusted func observe(pos value: &Owner) requires(trusted live(value)) {}
-        async func caller() { let future = owner(); let value = await future; observe(&value); }
+        trusted async func owner() -> Owner
+            ensures(trusted live(&result))
+        {
+            return
+            {
+                epoch = 1
+            };
+        }
+        trusted func observe(pos value: &Owner)
+            requires(trusted live(value))
+        {
+        }
+        async func caller()
+        {
+            let future = owner();
+            let value = await future;
+            observe(&value);
+        }
     "#,
     );
 
@@ -100,13 +121,30 @@ fn deferred_body_effects_apply_when_driven_and_harmless_await_preserves_evidence
             trusted module app;
 
             using core.atomic;
-            struct Owner {{ epoch: core.atomic.Atomic<u64>; }}
+            struct Owner
+            {{
+                epoch: core.atomic.Atomic<u64>;
+            }}
             trusted predicate live(value: &Owner);
-            trusted func owner() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = core.atomic.initialize<u64>(1) }}; }}
-            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
+            trusted func owner() -> Owner
+                ensures(trusted live(&result))
+            {{
+                return
+                {{
+                    epoch = core.atomic.initialize<u64>(1)
+                }};
+            }}
+            func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {{
+            }}
             extern func opaque();
-            async func work() {{ {body} }}
-            async func caller() {{
+            async func work()
+            {{
+                {body}
+            }}
+            async func caller()
+            {{
                 let value = owner();
                 let future = work();
                 {observation}
@@ -141,12 +179,23 @@ fn deferred_completion_guarantees_do_not_escape_a_caught_panic() {
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{ tag: bool; }}
+            struct Owner
+            {{
+                tag: bool;
+            }}
             trusted predicate live(value: &Owner);
             extern func opaque();
-            trusted async func produce(pos value: &Owner) ensures(trusted live(value)) {{ opaque(); }}
-            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            async func caller() {{
+            trusted async func produce(pos value: &Owner)
+                ensures(trusted live(value))
+            {{
+                opaque();
+            }}
+            func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {{
+            }}
+            async func caller()
+            {{
                 let value = Owner {{ tag = true }};
                 {body}
                 observe(&value);
@@ -183,9 +232,21 @@ fn failing_cleanup_does_not_publish_normal_completion_guarantees_to_a_catch() {
             trusted module app;
             trusted predicate ready();
             extern func opaque();
-            struct Producer {{ trusted destruct() ensures(trusted ready()) {{ opaque(); }} }}
-            func observe() requires(trusted ready()) {{}}
-            func caller() {{ {body} observe(); }}
+            struct Producer
+            {{
+                trusted destruct() ensures(trusted ready())
+                {{
+                    opaque();
+                }}
+            }}
+            func observe()
+                requires(trusted ready())
+            {{
+            }}
+            func caller()
+            {{
+                {body} observe();
+            }}
         "#
         );
 
@@ -218,14 +279,33 @@ fn failing_scoped_exit_does_not_publish_guarantees_to_a_catch() {
             trusted module app;
             trusted predicate ready();
             extern func opaque();
-            struct Resource {{}}
-            struct Lease {{}}
-            impl Resource {{
-                enter() -> Lease {{ return Lease {{}}; }}
-                trusted exit(pos lease: Lease) ensures(trusted ready()) {{ opaque(); }}
+            struct Resource
+            {{
             }}
-            func observe() requires(trusted ready()) {{}}
-            func caller(pos resource: &Resource) {{ {body} observe(); }}
+            struct Lease
+            {{
+            }}
+            impl Resource
+            {{
+                enter() -> Lease
+                {{
+                    return Lease
+                    {{
+                    }};
+                }}
+                trusted exit(pos lease: Lease) ensures(trusted ready())
+                {{
+                    opaque();
+                }}
+            }}
+            func observe()
+                requires(trusted ready())
+            {{
+            }}
+            func caller(pos resource: &Resource)
+            {{
+                {body} observe();
+            }}
         "#
         );
 

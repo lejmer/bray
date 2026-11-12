@@ -48,7 +48,8 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
         module app;
 
         using std.channel;
-        func genuine() -> Result<unit, std.channel.ChannelError> {
+        func genuine() -> Result<unit, std.channel.ChannelError>
+        {
             let (sender, receiver) = try std.channel.bounded<u32>(capacity = 2);
             let duplicate = sender.duplicate();
             _ = duplicate.try_send(7);
@@ -58,18 +59,22 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
             sender.close();
             return Ok(unit);
         }
-        func fabricated(pos pointer: DataPointer<std.channel.ChannelCore<u32>>) {
-            let sender: std.channel.Sender<u32> = {
+        func fabricated(pos pointer: DataPointer<std.channel.ChannelCore<u32>>)
+        {
+            let sender: std.channel.Sender<u32> =
+            {
                 owner = { instance = std.channel.owner.Marker {}, core = pointer },
             };
             _ = sender.try_send(1);
         }
         func expose_protocol(pos sender: &std.channel.Sender<u32>)
-            requires(trusted std.channel.owner.live(&sender.owner.instance), trusted std.channel.owner.sender(&sender.owner.instance)) {
+            requires(trusted std.channel.owner.live(&sender.owner.instance), trusted std.channel.owner.sender(&sender.owner.instance))
+            {
             let shared = internal std.channel.channel_core<u32>(&sender.owner);
         }
         func change_kind(pos sender: std.channel.Sender<u32>)
-            requires(trusted std.channel.owner.live(&sender.owner.instance), trusted std.channel.owner.sender(&sender.owner.instance)) {
+            requires(trusted std.channel.owner.live(&sender.owner.instance), trusted std.channel.owner.sender(&sender.owner.instance))
+            {
             let receiver: std.channel.Receiver<u32> = { owner = sender.owner };
             _ = receiver.try_receive();
         }

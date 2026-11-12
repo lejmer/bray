@@ -30,18 +30,39 @@ fn nullable_acquisition_contract_follows_the_present_owner() {
         let source = format!(
             r#"
             trusted module app;
-            struct Guard {{ mut active: bool; }}
+            struct Guard
+            {{
+                mut active: bool;
+            }}
             trusted predicate held(value: Guard?);
             trusted func acquire() -> Guard?
-                ensures(trusted held(result)) {{
+                ensures(trusted held(result))
+                {{
                 let guard: Guard = {{ active = true }};
                 return guard;
             }}
-            func observe(pos guard: Guard) requires(trusted held(guard)) {{}}
-            func forward(pos value: Guard?) requires(trusted held(value)) {{
-                match consume value {{ case ?guard {{ observe(guard); }} case none {{}} }}
+            func observe(pos guard: Guard)
+                requires(trusted held(guard))
+            {{
             }}
-            func caller() {{ {body} }}
+            func forward(pos value: Guard?)
+                requires(trusted held(value))
+            {{
+                match consume value
+                {{
+                    case ?guard
+                    {{
+                        observe(guard);
+                    }}
+                    case none
+                    {{
+                    }}
+                }}
+            }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -67,8 +88,13 @@ fn nullable_borrowed_witnesses_preserve_their_portable_guards() {
         let source = format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            struct Owner {{ acquisition: Marker; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                acquisition: Marker;
+            }}
             trusted predicate held(owner: &Marker);
             extern func lend(pos owner: &Owner) -> &Owner
                 requires(trusted held(owner = &owner.acquisition))
@@ -77,15 +103,24 @@ fn nullable_borrowed_witnesses_preserve_their_portable_guards() {
                 requires(owner matches ?_)
                 executes(pure, total)
             {{
-                return match owner {{
-                    case ?value {{ yield &value.acquisition; }}
-                    case none {{ panic("missing owner"); }}
+                return match owner
+                {{
+                    case ?value
+                    {{
+                        yield &value.acquisition;
+                    }}
+                    case none
+                    {{
+                        panic("missing owner");
+                    }}
                 }};
             }}
             func forward(pos owner: &Owner, pos other: &Owner) -> (&Owner)?
                 requires(trusted held(owner = &owner.acquisition))
                 ensures(result matches none || trusted held(owner = marker(&result)))
-            {{ {body} }}
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -161,8 +196,14 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
             {{
                 return match owner
                 {{
-                    case ?value {{ yield &value; }}
-                    case none {{ panic("missing owner"); }}
+                    case ?value
+                    {{
+                        yield &value;
+                    }}
+                    case none
+                    {{
+                        panic("missing owner");
+                    }}
                 }};
             }}
 
@@ -218,8 +259,14 @@ fn nested_nullable_absence_does_not_satisfy_outer_absence() {
         let source = format!(
             r#"
             module app;
-            func absent(pos value: (u32?)?) requires(value matches none) executes(total) {{}}
-            func caller() executes(total) {{
+            func absent(pos value: (u32?)?)
+                requires(value matches none)
+                executes(total)
+            {{
+            }}
+            func caller()
+                executes(total)
+            {{
                 let inner: u32? = none;
                 let outer: (u32?)? = {value};
                 absent(outer);
@@ -251,8 +298,14 @@ fn nullable_call_coercions_preserve_presence() {
         let source = format!(
             r#"
             module app;
-            func absent(pos value: (u32?)?) requires(value matches none) executes(total) {{}}
-            func caller() executes(total) {{
+            func absent(pos value: (u32?)?)
+                requires(value matches none)
+                executes(total)
+            {{
+            }}
+            func caller()
+                executes(total)
+            {{
                 let inner: u32? = none;
                 absent({argument});
             }}
@@ -291,7 +344,9 @@ fn nullable_aggregate_elements_keep_their_outer_discriminant() {
             let source = format!(
                 r#"
                 module app;
-                func caller() -> (u32?)? ensures({condition}) {{
+                func caller() -> (u32?)?
+                    ensures({condition})
+                {{
                     let inner: u32? = none;
                     let outer: (u32?)? = inner;
                     let marker: u32 = 0;
@@ -327,15 +382,29 @@ fn union_variant_contracts_share_checked_branch_evidence() {
             requires(value matches Ok(_))
             executes(pure, total)
         {
-            match value {
-                case Ok(_) { return 7; }
-                case Error(_) { panic("unreachable"); }
+            match value
+            {
+                case Ok(_)
+                {
+                    return 7;
+                }
+                case Error(_)
+                {
+                    panic("unreachable");
+                }
             }
         }
-        func caller(pos value: Result<u32, u32>) {
-            match value {
-                case Ok(_) { let result = unwrap(&value); }
-                case Error(_) {}
+        func caller(pos value: Result<u32, u32>)
+        {
+            match value
+            {
+                case Ok(_)
+                {
+                    let result = unwrap(&value);
+                }
+                case Error(_)
+                {
+                }
             }
         }
     "#,
@@ -374,10 +443,25 @@ fn union_variant_contracts_do_not_survive_replacement_or_prove_payload_tests() {
         let source = format!(
             r#"
             module app;
-            struct Holder {{ mut value: Result<u32, u32>; }}
-            func need(pos value: &Result<u32, u32>) requires(value matches {pattern}) executes(total) {{}}
-            func change(pos holder: &mut Holder) executes(total) {{ let replacement: Result<u32, u32> = Error(9); holder.value = replacement; }}
-            func caller(pos holder: &mut Holder) requires(holder.value matches Ok(_)) executes(total) {{
+            struct Holder
+            {{
+                mut value: Result<u32, u32>;
+            }}
+            func need(pos value: &Result<u32, u32>)
+                requires(value matches {pattern})
+                executes(total)
+            {{
+            }}
+            func change(pos holder: &mut Holder)
+                executes(total)
+            {{
+                let replacement: Result<u32, u32> = Error(9);
+                holder.value = replacement;
+            }}
+            func caller(pos holder: &mut Holder)
+                requires(holder.value matches Ok(_))
+                executes(total)
+            {{
                 {action}
                 need(&holder.value);
             }}
@@ -405,7 +489,9 @@ fn constructed_union_variants_establish_only_their_actual_tag() {
         let source = format!(
             r#"
             module app;
-            func create() -> Result<u32, u32> ensures(result matches Ok(_)) {{
+            func create() -> Result<u32, u32>
+                ensures(result matches Ok(_))
+            {{
                 return {constructed};
             }}
         "#
@@ -431,19 +517,53 @@ fn nullable_propagation_keeps_only_the_successful_carriers_authority() {
     let application = compilation(
         r#"
         trusted module app;
-        struct Marker {}
-        struct Owner { instance: Marker; }
-        trusted predicate live(marker: &Marker);
-        trusted func make() -> Owner ensures(trusted live(&result.instance)) { return { instance = Marker {} }; }
-        const func marker(pos value: &(Owner?)) -> &Marker requires(!(value matches none)) executes(pure, total) {
-            match value { case ?owner { return &owner.instance; } case none { panic("absent owner"); } }
+        struct Marker
+        {
         }
-        func maybe(pos fail: bool) -> Owner? ensures(result matches none || trusted live(marker(&result))) {
-            if fail { return none; }
+        struct Owner
+        {
+            instance: Marker;
+        }
+        trusted predicate live(marker: &Marker);
+        trusted func make() -> Owner
+            ensures(trusted live(&result.instance))
+        {
+            return
+            {
+                instance = Marker {}
+            };
+        }
+        const func marker(pos value: &(Owner?)) -> &Marker
+            requires(!(value matches none))
+            executes(pure, total)
+        {
+            match value
+            {
+                case ?owner
+                {
+                    return &owner.instance;
+                }
+                case none
+                {
+                    panic("absent owner");
+                }
+            }
+        }
+        func maybe(pos fail: bool) -> Owner?
+            ensures(result matches none || trusted live(marker(&result)))
+        {
+            if fail
+            {
+                return none;
+            }
             return make();
         }
-        func observe(pos owner: &Owner) requires(trusted live(&owner.instance)) {}
-        func caller(pos fail: bool) -> unit? {
+        func observe(pos owner: &Owner)
+            requires(trusted live(&owner.instance))
+        {
+        }
+        func caller(pos fail: bool) -> unit?
+        {
             let owner: Owner = maybe(fail)?;
             observe(&owner);
             return unit;
@@ -464,21 +584,40 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
             trusted module app;
             using core.memory;
 
-            struct Marker {{}}
-            struct Owner {{ marker: Marker; pointer: DataPointer<u8>; }}
-            struct Holder {{ value: Owner; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                marker: Marker;
+                pointer: DataPointer<u8>;
+            }}
+            struct Holder
+            {{
+                value: Owner;
+            }}
             trusted predicate live(owner: &Marker);
             trusted func make(pos pointer: DataPointer<u8>) -> Owner
                 ensures(trusted live(&result.marker))
             {{
-                return {{ marker = Marker {{}}, pointer = pointer }};
+                return
+                {{
+                    marker = Marker {{}}, pointer = pointer
+                }};
             }}
             const func present(pos owner: &(Owner?)) -> &Owner
                 requires(owner matches ?_) executes(pure, total)
             {{
-                return match owner {{
-                    case ?value {{ yield &value; }}
-                    case none {{ panic("missing owner"); }}
+                return match owner
+                {{
+                    case ?value
+                    {{
+                        yield &value;
+                    }}
+                    case none
+                    {{
+                        panic("missing owner");
+                    }}
                 }};
             }}
             predicate optional_live(owner: &(Owner?)) =
@@ -487,7 +626,10 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
             extern func exchange(pos pointer: DataPointer<u8>?) -> DataPointer<u8>;
             extern func replace(pos owner: (&mut Owner)?);
             extern func activity();
-            func observe(pos owner: &Owner) requires(trusted live(&owner.marker)) {{}}
+            func observe(pos owner: &Owner)
+                requires(trusted live(&owner.marker))
+            {{
+            }}
             func shared_view(pos owner: &mut Holder)
                 requires(trusted live(&owner.value.marker))
                 ensures(trusted live(&owner.value.marker))
@@ -497,12 +639,16 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
                 activity();
                 observe(selected);
             }}
-            func release(pos owner: Owner) requires(trusted live(&owner.marker)) {{}}
+            func release(pos owner: Owner)
+                requires(trusted live(&owner.marker))
+            {{
+            }}
             func forward(pos owner: Owner?, pos reject: bool) -> Result<unit, (Owner?, u32)>
                 requires(trusted optional_live(&owner))
             {{
                 activity();
-                if reject {{
+                if reject
+                {{
                     let rejected: (Owner?, u32) = (owner, 4);
                     return Error(rejected);
                 }}
@@ -513,17 +659,28 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
             {{
                 _ = exchange(owner.pointer);
                 {operation}
-                match consume forward(owner, reject) {{
-                    case Ok(_) {{}}
-                    case Error((rejected, _)) {{
-                        match consume rejected {{
-                            case ?value {{ release(value); }}
-                            case none {{}}
+                match consume forward(owner, reject)
+                {{
+                    case Ok(_)
+                    {{
+                    }}
+                    case Error((rejected, _))
+                    {{
+                        match consume rejected
+                        {{
+                            case ?value
+                            {{
+                                release(value);
+                            }}
+                            case none
+                            {{
+                            }}
                         }}
                     }}
                 }}
             }}
-            func caller(pos pointer: DataPointer<u8>, pos reject: bool) {{
+            func caller(pos pointer: DataPointer<u8>, pos reject: bool)
+            {{
                 caller_existing(make(pointer), reject);
             }}
             "#

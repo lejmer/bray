@@ -7,13 +7,31 @@ fn copied_pointer_components_keep_storage_facts_without_owning_the_tuple() {
         r#"
         trusted module app;
         using core.memory;
-        struct BorrowedHolder { items: &[u8; 1]; }
-        func read_borrowed(pos value: BorrowedHolder) -> u8 { return value.items[0]; }
-        func read_holder(pos items: &[u8; 1]) -> u8 {
-            return read_borrowed(BorrowedHolder { items = items });
+        struct BorrowedHolder
+        {
+            items: &[u8;
+            1];
         }
-        struct Marker {}
-        struct Access { marker: Marker; context: usize; pointer: DataPointer<u8>; }
+        func read_borrowed(pos value: BorrowedHolder) -> u8
+        {
+            return value.items[0];
+        }
+        func read_holder(pos items: &[u8; 1]) -> u8
+        {
+            return read_borrowed(BorrowedHolder
+            {
+                items = items
+            });
+        }
+        struct Marker
+        {
+        }
+        struct Access
+        {
+            marker: Marker;
+            context: usize;
+            pointer: DataPointer<u8>;
+        }
         trusted predicate held(owner: &Marker);
         trusted predicate native_callback(context: usize);
         func invoke(pos context: usize)
@@ -54,7 +72,9 @@ fn copied_pointer_components_keep_storage_facts_without_owning_the_tuple() {
                 trusted core.memory.valid_read<u8>(pointer = result.0, count = 1),
                 trusted core.memory.valid_read<u8>(pointer = result.1, count = 1)
             )
-        { return (left, right); }
+        {
+            return (left, right);
+        }
         func observe(pos pointer: DataPointer<u8>)
             requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1))
             executes(pure, total) {}
@@ -239,10 +259,23 @@ fn vacuous_conditional_guarantees_do_not_restrict_ordinary_copies() {
             let compilation = compilation(&format!(
                 r#"
                 trusted module app;
-                @copy struct Owner {{ epoch: u64; }}
+                @copy struct Owner
+                {{
+                    epoch: u64;
+                }}
                 trusted predicate live(value: &Owner);
-                trusted func owner(pos flag: bool) -> Owner {guarantee} {{ return {{ epoch = 1 }}; }}
-                func caller(pos flag: bool) {{ let value = owner({argument}); {copy} }}
+                trusted func owner(pos flag: bool) -> Owner {guarantee}
+                {{
+                    return
+                    {{
+                        epoch = 1
+                    }};
+                }}
+                func caller(pos flag: bool)
+                {{
+                    let value = owner({argument});
+                    {copy}
+                }}
             "#
             ));
 
@@ -265,10 +298,16 @@ fn output_authority_copy_checks_follow_current_completion_guards() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            @copy struct Owner {{ epoch: u64; }}
+            @copy struct Owner
+            {{
+                epoch: u64;
+            }}
             trusted predicate live(value: &mut Owner);
-            trusted func initialize(pos flag: bool, pos value: &mut Owner) {guarantee} {{}}
-            func caller(pos flag: bool) {{
+            trusted func initialize(pos flag: bool, pos value: &mut Owner) {guarantee}
+            {{
+            }}
+            func caller(pos flag: bool)
+            {{
                 let mut value: Owner = {{ epoch = 0 }};
                 initialize(flag, &mut value);
                 if !flag {{ let copy = value; }}
@@ -286,11 +325,18 @@ fn output_authority_copy_checks_follow_current_completion_guards() {
     let compilation = compilation(
         r#"
         trusted module app;
-        @copy struct Owner { epoch: u64; }
+        @copy struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &mut Owner);
         trusted func initialize(pos value: &mut Owner) -> u32
-            ensures(result != 0 || trusted live(value)) { return 0; }
-        func caller() {
+            ensures(result != 0 || trusted live(value))
+            {
+                return 0;
+            }
+        func caller()
+        {
             let mut value: Owner = { epoch = 0 };
             let status = initialize(&mut value);
             if status != 0 { let copy = value; }
@@ -310,11 +356,31 @@ fn copying_a_structural_owner_cannot_duplicate_nested_authority() {
     let compilation = compilation(
         r#"
         trusted module app;
-        @copy struct Owner { epoch: u64; }
-        @copy struct Holder { owner: Owner; }
+        @copy struct Owner
+        {
+            epoch: u64;
+        }
+        @copy struct Holder
+        {
+            owner: Owner;
+        }
         trusted predicate live(value: &Owner);
-        trusted func owner() -> Owner ensures(trusted live(&result)) { return { epoch = 1 }; }
-        func caller() { let holder: Holder = { owner = owner() }; let copy = holder; }
+        trusted func owner() -> Owner
+            ensures(trusted live(&result))
+        {
+            return
+            {
+                epoch = 1
+            };
+        }
+        func caller()
+        {
+            let holder: Holder =
+            {
+                owner = owner()
+            };
+            let copy = holder;
+        }
     "#,
     );
 
@@ -357,10 +423,23 @@ fn aggregate_copy_checks_apply_to_the_transferred_component() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            @copy struct Owner {{ epoch: u64; }}
+            @copy struct Owner
+            {{
+                epoch: u64;
+            }}
             trusted predicate live(value: &Owner);
-            trusted func owner() -> Owner ensures(trusted live(&result)) {{ return {{ epoch = 1 }}; }}
-            func caller() {{ {body} }}
+            trusted func owner() -> Owner
+                ensures(trusted live(&result))
+            {{
+                return
+                {{
+                    epoch = 1
+                }};
+            }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         ));
 
@@ -385,9 +464,14 @@ fn negative_entry_evidence_retains_witness_copy_obligations() {
     let compilation = compilation(
         r#"
         trusted module app;
-        @copy struct Owner { epoch: u64; }
+        @copy struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate dangerous(value: &Owner);
-        func duplicate(pos value: Owner) requires(!(trusted dangerous(&value))) {
+        func duplicate(pos value: Owner)
+            requires(!(trusted dangerous(&value)))
+        {
             let copied = value;
         }
     "#,
@@ -409,13 +493,31 @@ fn negative_trusted_guarantees_retain_witness_copy_obligations() {
         let source = format!(
             r#"
             trusted module app;
-            @copy struct Owner {{ epoch: u64; }}
+            @copy struct Owner
+            {{
+                epoch: u64;
+            }}
             trusted predicate dangerous(value: &Owner);
             trusted func direct_owner() -> Owner
-                ensures(!(trusted dangerous(&result))) {{ return {{ epoch = 1 }}; }}
+                ensures(!(trusted dangerous(&result)))
+                {{
+                    return
+                    {{
+                        epoch = 1
+                    }};
+                }}
             trusted func owner(pos flag: bool) -> Owner
-                ensures(flag || !(trusted dangerous(&result))) {{ return {{ epoch = 1 }}; }}
-            func caller() {{ {body} }}
+                ensures(flag || !(trusted dangerous(&result)))
+                {{
+                    return
+                    {{
+                        epoch = 1
+                    }};
+                }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -441,12 +543,22 @@ fn a_completion_status_can_be_copied_without_copying_the_output_authority() {
     let compilation = compilation(
         r#"
         trusted module app;
-        struct Owner { epoch: u64; }
+        struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &mut Owner);
         trusted func initialize(pos value: &mut Owner) -> u32
-            ensures(result != 0 || trusted live(value)) { return 0; }
-        func observe(pos value: &mut Owner) requires(trusted live(value)) {}
-        func caller() {
+            ensures(result != 0 || trusted live(value))
+            {
+                return 0;
+            }
+        func observe(pos value: &mut Owner)
+            requires(trusted live(value))
+        {
+        }
+        func caller()
+        {
             let mut value: Owner = { epoch = 1 };
             let status = initialize(&mut value);
             let copied_status = status;
@@ -467,11 +579,25 @@ fn ordinary_field_copy_does_not_outlive_its_witness() {
     let compilation = compilation(
         r#"
         trusted module app;
-        struct Owner { pointer: u64; }
+        struct Owner
+        {
+            pointer: u64;
+        }
         trusted predicate live(value: u64);
-        trusted func owner() -> Owner ensures(trusted live(result.pointer)) { return { pointer = 1 }; }
-        trusted func observe(pos value: u64) requires(trusted live(value)) {}
-        func caller() {
+        trusted func owner() -> Owner
+            ensures(trusted live(result.pointer))
+        {
+            return
+            {
+                pointer = 1
+            };
+        }
+        trusted func observe(pos value: u64)
+            requires(trusted live(value))
+        {
+        }
+        func caller()
+        {
             let mut pointer: u64 = 0;
             {
                 let value = owner();
@@ -493,10 +619,24 @@ fn implicit_copy_cannot_duplicate_a_live_witness() {
     let compilation = compilation(
         r#"
         trusted module app;
-        @copy struct Owner { epoch: u64; }
+        @copy struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &Owner);
-        trusted func owner() -> Owner ensures(trusted live(&result)) { return { epoch = 1 }; }
-        func caller() { let value = owner(); let copied = value; }
+        trusted func owner() -> Owner
+            ensures(trusted live(&result))
+        {
+            return
+            {
+                epoch = 1
+            };
+        }
+        func caller()
+        {
+            let value = owner();
+            let copied = value;
+        }
     "#,
     );
 
@@ -511,10 +651,18 @@ fn enclosing_owner_authority_cannot_be_duplicated_by_copying() {
     let compilation = compilation(
         r#"
         trusted module app;
-        @copy struct Owner { epoch: u64; }
+        @copy struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &Owner);
-        func observe(pos value: &Owner) requires(trusted live(value)) {}
-        func caller(pos value: Owner) requires(trusted live(&value)) {
+        func observe(pos value: &Owner)
+            requires(trusted live(value))
+        {
+        }
+        func caller(pos value: Owner)
+            requires(trusted live(&value))
+        {
             let copied = value;
             observe(&copied);
         }

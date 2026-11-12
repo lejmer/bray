@@ -184,7 +184,9 @@ fn total_record_scans_require_a_bounded_unaliased_counter() {
     ] {
         let caller = format!(
             r#"module app;
-            func production_probe(pos limit: usize) -> usize executes(total) {{
+            func production_probe(pos limit: usize) -> usize
+                executes(total)
+            {{
                 let mut count: usize = limit;
                 let mut index: usize = 0;
                 while {guard} {{ {body} {increment} }}

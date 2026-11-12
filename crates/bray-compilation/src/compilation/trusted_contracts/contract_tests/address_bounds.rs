@@ -24,8 +24,16 @@ fn copied_pointer_bounds_survive_contents_writes() {
                 r#"
                 trusted module app;
                 using core.memory;
-                struct Record {{ value: usize; }}
-                struct Owner {{ record: DataPointer<Record>; active: DataPointer<usize>; counter: usize; }}
+                struct Record
+                {{
+                    value: usize;
+                }}
+                struct Owner
+                {{
+                    record: DataPointer<Record>;
+                    active: DataPointer<usize>;
+                    counter: usize;
+                }}
                 trusted predicate owns(owner: &Owner);
                 trusted func record_pointer(pos owner: &Owner) -> DataPointer<Record>
                     requires(trusted owns(owner))
@@ -35,7 +43,9 @@ fn copied_pointer_bounds_survive_contents_writes() {
                         trusted core.memory.aligned_for<Record>(pointer = result)
                     )
                     executes(pure, total)
-                {{ return owner.record; }}
+                {{
+                    return owner.record;
+                }}
                 trusted func active_pointer(pos owner: &Owner) -> DataPointer<usize>
                     requires(trusted owns(owner))
                     ensures(
@@ -44,7 +54,9 @@ fn copied_pointer_bounds_survive_contents_writes() {
                         trusted core.memory.aligned_for<usize>(pointer = result)
                     )
                     executes(pure, total)
-                {{ return owner.active; }}
+                {{
+                    return owner.active;
+                }}
                 trusted func caller(pos owner: {parameter})
                     requires(trusted owns({reference}))
                     uses(raw_memory, unchecked_init)
@@ -71,18 +83,29 @@ fn returned_address_components_retain_their_distinct_storage_owners() {
             r#"
             trusted module app;
             using core.memory;
-            struct Addresses {{ left: DataPointer<u32>; right: DataPointer<u32>; }}
+            struct Addresses
+            {{
+                left: DataPointer<u32>;
+                right: DataPointer<u32>;
+            }}
             trusted func produce(pos left: &u32, pos right: &u32) -> Addresses
                 ensures(
                     trusted core.memory.valid_read<u32>(pointer = result.left, count = 1),
                     trusted core.memory.valid_read<u32>(pointer = result.right, count = 1)
                 )
-            {{ return {{ left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right) }}; }}
+            {{
+                return
+                {{
+                    left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right)
+                }};
+            }}
             func observe(pos address: DataPointer<u32>)
                 requires(trusted core.memory.valid_read<u32>(pointer = address, count = 1)) {{}}
-            func caller() {{
+            func caller()
+            {{
                 let retained: u32 = 1;
-                let addresses = {{
+                let addresses =
+                {{
                     let expired: u32 = 0;
                     yield produce(&expired, &retained);
                 }};
@@ -118,11 +141,15 @@ fn independent_returned_address_does_not_inherit_unused_input_bounds() {
         trusted func separate(pos pointer: DataPointer<u32>) -> DataPointer<u32>
             requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
             ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
-        { return core.memory.address_of<u32>(&backing); }
+        {
+            return core.memory.address_of<u32>(&backing);
+        }
         func observe(pos pointer: DataPointer<u32>)
             requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
-        func caller() {
-            let pointer = {
+        func caller()
+        {
+            let pointer =
+            {
                 let payload: u32 = 0;
                 yield separate(core.memory.address_of<u32>(&payload));
             };
@@ -142,32 +169,75 @@ fn independent_returned_address_does_not_inherit_unused_input_bounds() {
 fn address_bounds_survive_owned_inputs_forwarders_and_runtime_defaults() {
     for (helper, expression, observed) in [
         (
-            "trusted func adapt(pos receipt: Receipt) -> DataPointer<u32> requires(trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1)) ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1)) { return core.memory.offset<u32>(receipt.pointer, elements = 0); }",
+            r#"
+                trusted func adapt(pos receipt: Receipt) -> DataPointer<u32>
+                    requires(trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+                    ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
+                {
+                    return core.memory.offset<u32>(receipt.pointer, elements = 0);
+                }
+            "#,
             "adapt(produce(&payload))",
             "returned",
         ),
         (
-            "trusted func adapt(pos pair: (Receipt, bool)) -> DataPointer<u32> requires(trusted core.memory.valid_read<u32>(pointer = pair.0.pointer, count = 1)) ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1)) { return core.memory.offset<u32>(pair.0.pointer, elements = 0); }",
+            r#"
+                trusted func adapt(pos pair: (Receipt, bool)) -> DataPointer<u32>
+                    requires(trusted core.memory.valid_read<u32>(pointer = pair.0.pointer, count = 1))
+                    ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
+                {
+                    return core.memory.offset<u32>(pair.0.pointer, elements = 0);
+                }
+            "#,
             "adapt((produce(&payload), true))",
             "returned",
         ),
         (
-            "func adapt(pos pointer: DataPointer<u32>) -> Receipt requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) { return shifted(pointer); }",
+            r#"
+                func adapt(pos pointer: DataPointer<u32>) -> Receipt
+                    requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+                {
+                    return shifted(pointer);
+                }
+            "#,
             "adapt(core.memory.address_of<u32>(&payload))",
             "returned.pointer",
         ),
         (
-            "func adapt(pos pointer: DataPointer<u32>) -> Receipt requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1)) { return shifted(pointer); }",
+            r#"
+                func adapt(pos pointer: DataPointer<u32>) -> Receipt
+                    requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+                    ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+                {
+                    return shifted(pointer);
+                }
+            "#,
             "adapt(core.memory.address_of<u32>(&payload))",
             "returned.pointer",
         ),
         (
-            "impl Receipt { trusted consume func derived() -> DataPointer<u32> requires(trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1)) ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1)) { return core.memory.offset<u32>(self.pointer, elements = 0); } }",
+            r#"
+                impl Receipt
+                {
+                    trusted consume func derived() -> DataPointer<u32>
+                        requires(trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1))
+                        ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
+                    {
+                        return core.memory.offset<u32>(self.pointer, elements = 0);
+                    }
+                }
+            "#,
             "produce(&payload).derived()",
             "returned",
         ),
         (
-            "func adapt(pos payload: &u32, pos receipt: Receipt = produce(payload)) -> Receipt requires(trusted held(owner = &receipt.marker), trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1)) { return receipt; }",
+            r#"
+                func adapt(pos payload: &u32, pos receipt: Receipt = produce(payload)) -> Receipt
+                    requires(trusted held(owner = &receipt.marker), trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+                {
+                    return receipt;
+                }
+            "#,
             "adapt(&payload)",
             "returned.pointer",
         ),
@@ -185,19 +255,41 @@ fn address_bounds_survive_owned_inputs_forwarders_and_runtime_defaults() {
                 r#"
                 trusted module app;
                 using core.memory;
-                struct Marker {{}}
-                struct Receipt {{ marker: Marker; pointer: DataPointer<u32>; }}
+                struct Marker
+                {{
+                }}
+                struct Receipt
+                {{
+                    marker: Marker;
+                    pointer: DataPointer<u32>;
+                }}
                 trusted predicate held(owner: &Marker);
                 trusted func produce(pos payload: &u32) -> Receipt
                     ensures(trusted held(owner = &result.marker), trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
-                {{ return {{ marker = Marker {{}}, pointer = core.memory.address_of<u32>(payload) }}; }}
+                {{
+                    return
+                    {{
+                        marker = Marker {{}}, pointer = core.memory.address_of<u32>(payload)
+                    }};
+                }}
                 trusted func shifted(pos pointer: DataPointer<u32>) -> Receipt
                     requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
                     ensures(trusted held(owner = &result.marker), trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
-                {{ return {{ marker = Marker {{}}, pointer = core.memory.offset<u32>(pointer, elements = 0) }}; }}
-                func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {{}}
+                {{
+                    return
+                    {{
+                        marker = Marker {{}}, pointer = core.memory.offset<u32>(pointer, elements = 0)
+                    }};
+                }}
+                func observe(pos pointer: DataPointer<u32>)
+                    requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+                {{
+                }}
                 {helper}
-                func caller() {{ {body} }}
+                func caller()
+                {{
+                    {body}
+                }}
             "#
             ));
 
@@ -239,16 +331,36 @@ fn awaited_address_guarantees_keep_their_original_storage_bounds() {
             r#"
             trusted module app;
             using core.memory;
-            struct Marker {{}}
-            struct Receipt {{ marker: Marker; pointer: DataPointer<u32>; }}
+            struct Marker
+            {{
+            }}
+            struct Receipt
+            {{
+                marker: Marker;
+                pointer: DataPointer<u32>;
+            }}
             trusted predicate held(owner: &Marker);
             trusted async func shifted(pos pointer: DataPointer<u32>) -> Receipt
                 requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
                 ensures(trusted held(owner = &result.marker), trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
-            {{ return {{ marker = Marker {{}}, pointer = core.memory.offset<u32>(pointer, elements = 0) }}; }}
-            func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {{}}
-            func observe_marker(pos receipt: &Receipt) requires(trusted held(owner = &receipt.marker)) {{}}
-            async func caller() {{ {body} }}
+            {{
+                return
+                {{
+                    marker = Marker {{}}, pointer = core.memory.offset<u32>(pointer, elements = 0)
+                }};
+            }}
+            func observe(pos pointer: DataPointer<u32>)
+                requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+            {{
+            }}
+            func observe_marker(pos receipt: &Receipt)
+                requires(trusted held(owner = &receipt.marker))
+            {{
+            }}
+            async func caller()
+            {{
+                {body}
+            }}
         "#
         ));
 
@@ -281,16 +393,30 @@ fn indirect_owned_inputs_keep_address_bounds_through_callable_values() {
             r#"
             trusted module app;
             using core.memory;
-            struct Receipt {{ pointer: DataPointer<u32>; }}
+            struct Receipt
+            {{
+                pointer: DataPointer<u32>;
+            }}
             trusted func produce(pos payload: &u32) -> Receipt
                 ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
-            {{ return {{ pointer = core.memory.address_of<u32>(payload) }}; }}
-            func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {{}}
-            func caller() {{
+            {{
+                return
+                {{
+                    pointer = core.memory.address_of<u32>(payload)
+                }};
+            }}
+            func observe(pos pointer: DataPointer<u32>)
+                requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+            {{
+            }}
+            func caller()
+            {{
                 let derive = trusted lambda(pos receipt: Receipt) -> DataPointer<u32>
                     requires(trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
                     ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
-                {{ return core.memory.offset<u32>(receipt.pointer, elements = 0); }};
+                {{
+                    return core.memory.offset<u32>(receipt.pointer, elements = 0);
+                }};
                 {body}
             }}
         "#
@@ -320,16 +446,31 @@ fn forwarding_keeps_sibling_address_lifetimes_distinct() {
                 r#"
                 trusted module app;
                 using core.memory;
-                struct Addresses {{ left: DataPointer<u32>; right: DataPointer<u32>; }}
+                struct Addresses
+                {{
+                    left: DataPointer<u32>;
+                    right: DataPointer<u32>;
+                }}
                 trusted func produce(pos left: &u32, pos right: &u32) -> Addresses
                     ensures(trusted core.memory.valid_read<u32>(pointer = result.left, count = 1), trusted core.memory.valid_read<u32>(pointer = result.right, count = 1))
-                {{ return {{ left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right) }}; }}
+                {{
+                    return
+                    {{
+                        left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right)
+                    }};
+                }}
                 trusted func forward(pos values: Addresses) -> Addresses
                     requires(trusted core.memory.valid_read<u32>(pointer = values.left, count = 1), trusted core.memory.valid_read<u32>(pointer = values.right, count = 1))
                     ensures(trusted core.memory.valid_read<u32>(pointer = result.left, count = 1), trusted core.memory.valid_read<u32>(pointer = result.right, count = 1))
-                {{ {forwarding} }}
-                func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {{}}
-                func caller() {{
+                {{
+                    {forwarding}
+                }}
+                func observe(pos pointer: DataPointer<u32>)
+                    requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+                {{
+                }}
+                func caller()
+                {{
                     let retained: u32 = 1;
                     let values = {{ let expired: u32 = 0; yield forward(produce(&expired, &retained)); }};
                     observe(values.{field});
@@ -359,8 +500,18 @@ fn forwarding_keeps_sibling_address_lifetimes_distinct() {
 fn input_address_postconditions_preserve_independent_field_origins() {
     let provider = r#"trusted module app;
 using core.memory;
-struct Addresses { mut left: DataPointer<u32>; mut right: DataPointer<u32>; }
-func empty() -> Addresses { return { left = core.memory.null<u32>(), right = core.memory.null<u32>() }; }
+struct Addresses
+{
+    mut left: DataPointer<u32>;
+    mut right: DataPointer<u32>;
+}
+func empty() -> Addresses
+{
+    return
+    {
+        left = core.memory.null<u32>(), right = core.memory.null<u32>()
+    };
+}
 trusted func set(pos values: &mut Addresses, pos left: &u32, pos right: &u32)
     ensures(
         trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
@@ -370,21 +521,32 @@ trusted func set(pos values: &mut Addresses, pos left: &u32, pos right: &u32)
     values.left = core.memory.address_of<u32>(left);
     values.right = core.memory.address_of<u32>(right);
 }
-func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
-impl Addresses {
+func observe(pos pointer: DataPointer<u32>)
+    requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+{
+}
+impl Addresses
+{
     trusted mut func set(pos left: &u32, pos right: &u32)
         ensures(
             trusted core.memory.valid_read<u32>(pointer = self.left, count = 1),
             trusted core.memory.valid_read<u32>(pointer = self.right, count = 1)
         )
-    { set(&mut self, left, right); }
+    {
+        set(&mut self, left, right);
+    }
 }
 trusted func produce(pos left: &u32, pos right: &u32) -> Addresses
     ensures(
         trusted core.memory.valid_read<u32>(pointer = result.left, count = 1),
         trusted core.memory.valid_read<u32>(pointer = result.right, count = 1)
     )
-{ return { left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right) }; }
+{
+    return
+    {
+        left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right)
+    };
+}
 trusted func copy_owned(pos values: &mut Addresses, pos sources: Addresses)
     requires(
         trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
@@ -394,7 +556,10 @@ trusted func copy_owned(pos values: &mut Addresses, pos sources: Addresses)
         trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
         trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
     )
-{ values.left = sources.left; values.right = sources.right; }
+{
+    values.left = sources.left;
+    values.right = sources.right;
+}
 trusted func copy_borrowed(pos values: &mut Addresses, pos sources: &Addresses)
     requires(
         trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
@@ -404,7 +569,10 @@ trusted func copy_borrowed(pos values: &mut Addresses, pos sources: &Addresses)
         trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
         trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
     )
-{ values.left = sources.left; values.right = sources.right; }
+{
+    values.left = sources.left;
+    values.right = sources.right;
+}
 trusted func copy_from(pos sources: &Addresses) -> Addresses
     requires(
         trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
@@ -414,7 +582,12 @@ trusted func copy_from(pos sources: &Addresses) -> Addresses
         trusted core.memory.valid_read<u32>(pointer = result.left, count = 1),
         trusted core.memory.valid_read<u32>(pointer = result.right, count = 1)
     )
-{ return { left = sources.left, right = sources.right }; }
+{
+    return
+    {
+        left = sources.left, right = sources.right
+    };
+}
 
 trusted func derive_owned(pos values: &mut Addresses, pos sources: Addresses)
     requires(
@@ -425,7 +598,10 @@ trusted func derive_owned(pos values: &mut Addresses, pos sources: Addresses)
         trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
         trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
     )
-{ values.left = core.memory.offset<u32>(sources.left, elements = 0); values.right = core.memory.offset<u32>(sources.right, elements = 0); }
+{
+    values.left = core.memory.offset<u32>(sources.left, elements = 0);
+    values.right = core.memory.offset<u32>(sources.right, elements = 0);
+}
 
 trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses)
     requires(
@@ -436,7 +612,10 @@ trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses
         trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
         trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
     )
-{ values.left = core.memory.offset<u32>(sources.left, elements = 0); values.right = core.memory.offset<u32>(sources.right, elements = 0); }
+{
+    values.left = core.memory.offset<u32>(sources.left, elements = 0);
+    values.right = core.memory.offset<u32>(sources.right, elements = 0);
+}
 "#;
 
     for (call, returned) in [
@@ -474,7 +653,12 @@ trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses
                 )
             };
 
-            let application = compilation(&format!("{provider} func caller() {{ {body} }}"));
+            let application = compilation(&format!(r#"
+                {provider} func caller()
+                {{
+                    {body}
+                }}
+            "#));
             let diagnostics = application.check_diagnostics();
 
             assert_eq!(
@@ -497,11 +681,25 @@ trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses
 fn mutated_address_sources_preserve_their_entry_bounds() {
     let provider = r#"trusted module app;
 using core.memory;
-struct Addresses { mut pointer: DataPointer<u32>; }
-func empty() -> Addresses { return { pointer = core.memory.null<u32>() }; }
+struct Addresses
+{
+    mut pointer: DataPointer<u32>;
+}
+func empty() -> Addresses
+{
+    return
+    {
+        pointer = core.memory.null<u32>()
+    };
+}
 trusted func produce(pos payload: &u32) -> Addresses
     ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
-{ return { pointer = core.memory.address_of<u32>(payload) }; }
+{
+    return
+    {
+        pointer = core.memory.address_of<u32>(payload)
+    };
+}
 trusted func transfer(pos destination: &mut Addresses, pos source: &mut Addresses)
     requires(trusted core.memory.valid_read<u32>(pointer = source.pointer, count = 1))
     ensures(trusted core.memory.valid_read<u32>(pointer = destination.pointer, count = 1))
@@ -515,18 +713,29 @@ trusted func take(pos source: &mut Addresses) -> Addresses
 {
     let pointer = source.pointer;
     source.pointer = core.memory.null<u32>();
-    return { pointer = pointer };
+    return
+    {
+        pointer = pointer
+    };
 }
-func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
-impl Addresses {
+func observe(pos pointer: DataPointer<u32>)
+    requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+{
+}
+impl Addresses
+{
     trusted mut func take() -> Addresses
         requires(trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1))
         ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
-    { return take(&mut self); }
+    {
+        return take(&mut self);
+    }
     trusted mut func receive(pos source: &mut Addresses)
         requires(trusted core.memory.valid_read<u32>(pointer = source.pointer, count = 1))
         ensures(trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1))
-    { transfer(&mut self, source); }
+    {
+        transfer(&mut self, source);
+    }
 }
 "#;
 
@@ -550,7 +759,12 @@ impl Addresses {
                     "let retained: u32 = 1; let mut source = produce(&retained); let mut destination = empty(); {{ let expired: u32 = 0; source = produce(&{payload}); {operation} }} observe(destination.pointer);"
                 );
 
-                let application = compilation(&format!("{provider} func caller() {{ {body} }}"));
+                let application = compilation(&format!(r#"
+                    {provider} func caller()
+                    {{
+                        {body}
+                    }}
+                "#));
                 let diagnostics = application.check_diagnostics();
 
                 assert_eq!(

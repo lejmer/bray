@@ -53,21 +53,34 @@ fn immutable_guard_fields_keep_acquisition_permits_paired() {
         let source = format!(
             r#"
             trusted module app;
-            struct Lock {{ tag: u32; }}
-            struct Permit {{}}
+            struct Lock
+            {{
+                tag: u32;
+            }}
+            struct Permit
+            {{
+            }}
             trusted predicate held(permit: &Permit);
-            struct Guard {{
+            struct Guard
+            {{
                 owner: &Lock;
                 permit: Permit;
-                destruct() requires(trusted held(&self.permit)) executes(pure, total) {{}}
+                destruct() requires(trusted held(&self.permit)) executes(pure, total)
+                {{
+                }}
             }}
             trusted func acquire(pos owner: &Lock) -> Guard
-                ensures(trusted held(&result.permit)) {{
-                return {{ owner = owner, permit = Permit {{}} }};
+                ensures(trusted held(&result.permit))
+                {{
+                return
+                {{
+                    owner = owner, permit = Permit {{}}
+                }};
             }}
             func observe(pos guard: &Guard)
                 requires(trusted held(&guard.permit)) executes(pure, total) {{}}
-            func caller() {{
+            func caller()
+            {{
                 let first: Lock = {{ tag = 1 }};
                 let second: Lock = {{ tag = 2 }};
                 {body}
@@ -142,16 +155,31 @@ fn acquisition_authority_belongs_to_the_complete_produced_carrier() {
         let source = format!(
             r#"
             trusted module app;
-            struct Lock {{ tag: u32; }}
-            struct Marker {{}}
-            struct Guard {{ owner: &Lock; marker: Marker; }}
+            struct Lock
+            {{
+                tag: u32;
+            }}
+            struct Marker
+            {{
+            }}
+            struct Guard
+            {{
+                owner: &Lock;
+                marker: Marker;
+            }}
             trusted predicate held(marker: &Marker);
             trusted func acquire(pos owner: &Lock) -> Guard
                 ensures(trusted held(&result.marker)) executes(pure, total)
-                {{ return {{ owner = owner, marker = Marker {{}} }}; }}
+                {{
+                    return
+                    {{
+                        owner = owner, marker = Marker {{}}
+                    }};
+                }}
             func observe(pos guard: &Guard)
                 requires(trusted held(&guard.marker)) executes(pure, total) {{}}
-            func caller() {{
+            func caller()
+            {{
                 let first: Lock = {{ tag = 1 }};
                 let second: Lock = {{ tag = 2 }};
                 {body}
@@ -201,22 +229,48 @@ fn independent_tuple_carriers_remain_whole_after_destructuring() {
         let source = format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            struct Guard {{ marker: Marker; }}
-            @copy struct Stamp {{ epoch: u32; }}
+            struct Marker
+            {{
+            }}
+            struct Guard
+            {{
+                marker: Marker;
+            }}
+            @copy struct Stamp
+            {{
+                epoch: u32;
+            }}
             trusted predicate held(marker: &Marker);
             trusted predicate stamped(owner: &Stamp);
             trusted func make_stamp() -> Stamp
                 ensures(trusted stamped(&result)) executes(pure, total)
-            {{ return {{ epoch = 1 }}; }}
-            func discard_stamp(pos value: Stamp) {{}}
+            {{
+                return
+                {{
+                    epoch = 1
+                }};
+            }}
+            func discard_stamp(pos value: Stamp)
+            {{
+            }}
             trusted func pair() -> (Guard, Guard)
                 ensures(trusted held(&result.0.marker), trusted held(&result.1.marker))
                 executes(pure, total)
-            {{ return ({{ marker = Marker {{}} }}, {{ marker = Marker {{}} }}); }}
+            {{
+                return (
+                {{
+                    marker = Marker {{}}
+                }},
+                {{
+                    marker = Marker {{}}
+                }});
+            }}
             func observe(pos guard: &Guard)
                 requires(trusted held(&guard.marker)) executes(pure, total) {{}}
-            func caller() {{ {body} }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -257,10 +311,23 @@ fn input_authority_uses_the_same_complete_carrier_as_the_producer() {
             let source = format!(
                 r#"
                 trusted module app;
-                struct Lock {{ tag: u32; }}
-                struct Marker {{}}
-                struct Guard {{ owner: &Lock; marker: Marker; }}
-                struct Envelope {{ inner: Guard; label: u32; }}
+                struct Lock
+                {{
+                    tag: u32;
+                }}
+                struct Marker
+                {{
+                }}
+                struct Guard
+                {{
+                    owner: &Lock;
+                    marker: Marker;
+                }}
+                struct Envelope
+                {{
+                    inner: Guard;
+                    label: u32;
+                }}
                 trusted predicate held(marker: &Marker);
                 func preserve(pos whole: &{input})
                     requires(trusted held(&{borrowed_subject}.marker))
@@ -306,19 +373,40 @@ fn forwarded_nested_carrier_keeps_its_original_authority_boundary() {
         let source = format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            struct Guard {{ marker: Marker; }}
-            struct Wrapper {{ guard: Guard; }}
+            struct Marker
+            {{
+            }}
+            struct Guard
+            {{
+                marker: Marker;
+            }}
+            struct Wrapper
+            {{
+                guard: Guard;
+            }}
             trusted predicate held(marker: &Marker);
             trusted func acquire() -> Guard
                 ensures(trusted held(&result.marker)) executes(pure, total)
-            {{ return {{ marker = Marker {{}} }}; }}
+            {{
+                return
+                {{
+                    marker = Marker {{}}
+                }};
+            }}
             func wrap() -> Wrapper
                 ensures(trusted held(&result.guard.marker)) executes(pure, total)
-            {{ return {{ guard = acquire() }}; }}
+            {{
+                return
+                {{
+                    guard = acquire()
+                }};
+            }}
             func observe(pos guard: &Guard)
                 requires(trusted held(&guard.marker)) executes(pure, total) {{}}
-            func caller() {{ {body} }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         );
 

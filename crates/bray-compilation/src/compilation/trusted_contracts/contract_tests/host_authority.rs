@@ -164,7 +164,12 @@ fn production_host_partial_lifecycle_cannot_escape_the_complete_operation() {
         "let finish = finish_host_shutdown_locked;",
     ] {
         let caller = format!(
-            "trusted internal module bray.runtime.bootstrap.host; func production_probe() {{ {operation} }}"
+            r#"
+                trusted internal module bray.runtime.bootstrap.host; func production_probe()
+                {{
+                    {operation}
+                }}
+            "#
         );
 
         let compilation = production_host_compilation(&caller);
@@ -194,11 +199,27 @@ fn a_live_payload_borrow_preserves_only_its_enclosing_projection() {
     ] {
         let caller = format!(
             r#"module app;
-            struct Inner {{ mut value: u64; }}
-            struct State {{ mut first: u64; mut second: u64; mut inner: Inner?; }}
-            struct Owner {{ mut state: State?; }}
-            func poke(pos state: &mut State) {{ state.first = 2; state.inner = none; }}
-            func production_probe(pos owner: &mut Owner) {{
+            struct Inner
+            {{
+                mut value: u64;
+            }}
+            struct State
+            {{
+                mut first: u64;
+                mut second: u64;
+                mut inner: Inner?;
+            }}
+            struct Owner
+            {{
+                mut state: State?;
+            }}
+            func poke(pos state: &mut State)
+            {{
+                state.first = 2;
+                state.inner = none;
+            }}
+            func production_probe(pos owner: &mut Owner)
+            {{
                 if let ?state = owner.state {{ let payload: &mut State = &mut state; {body} }}
             }}"#
         );
