@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, StorageProjection};
 use bray_symbols::{
@@ -44,6 +44,46 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
+    pub(in crate::analysis::guarantee) fn extracted_input_values(
+        &self,
+        invocation: BoundExecutionSite,
+        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+    ) -> BTreeSet<ExecutionCondition> {
+        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
+            return BTreeSet::new();
+        };
+
+        dependencies.owned_result().transfers()
+            .filter(|transfer| transfer.preservation().preserves_value())
+            .filter(|transfer| !self.returned_value_is_borrowed(dependencies,
+                &crate::storage::owned_storage_projections(self.dependencies, transfer.output())))
+            .filter_map(|transfer| {
+                let ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+                    self.request.semantic_values(), transfer.input(), dependencies.input_count(),
+                ).expect("checked extraction source names its formal input") else {
+                    unreachable!("checked extraction source contains only input projections");
+                };
+
+                let source = input.value_in(arguments)?;
+                if !source.is_reference() { return None; }
+                let value = source.into_referent();
+
+                value.ownership_identity().is_some_and(|(role, _)|
+                    role == crate::execution_guarantees::ExecutionObservationKind::Owned).then_some(value)
+            }).collect()
+    }
+
+    fn returned_value_is_borrowed(
+        &self,
+        dependencies: &bray_bound_tree::BoundCallDependencyContracts,
+        path: &[StorageProjection],
+    ) -> bool {
+        crate::storage::dependency_projections(path)
+            .and_then(|path| dependencies.reference_type(&DependencySubject::new(
+                DependencySubjectRoot::Result, path)))
+            .is_some_and(|ty| matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }))
+    }
+
     pub(in crate::analysis::guarantee) fn returned_owned_values<'a>(
         &self,
         invocation: BoundExecutionSite,
@@ -80,10 +120,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let path = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
-            let borrowed_result = crate::storage::dependency_projections(&path)
-                .and_then(|path| dependencies.reference_type(&DependencySubject::new(
-                    DependencySubjectRoot::Result, path)))
-                .is_some_and(|ty| matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }));
+            let borrowed_result = self.returned_value_is_borrowed(dependencies, &path);
 
             // A checked ownership transfer can extract the value from a borrowed
             // slot. Returning a borrow instead retains its original loan identity.
@@ -237,7 +274,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &super::super::state::ExecutionState,
         invocation: BoundExecutionSite,
     ) -> std::collections::BTreeSet<ExecutionCondition> {
-        if state.entries[&invocation].owned_inputs.is_empty() {
+        if state.entries[&invocation].owned_inputs.is_empty()
+            && state.entries[&invocation].extracted_values.is_empty() {
             return Default::default();
         }
 
@@ -263,7 +301,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 !self.is_invocation_input_place(invocation, place)
             })
             .map(|(_, value)| value)
-            .flat_map(|value| state.owned_values(&value))
+            .flat_map(|value| state.witness_values(&value))
             .collect()
     }
 
@@ -291,11 +329,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&invocation)
             .expect("completed invocation retains its captured ownership");
 
-        let consumed = entry
-            .owned_inputs
-            .iter()
-            .filter_map(|ordinal| ExecutionPlace::argument(*ordinal).value_in(arguments))
-            .collect::<Vec<_>>();
+        let consumed = entry.retiring_witness_values().collect::<Vec<_>>();
 
         let retained = self
             .dependencies
@@ -310,8 +344,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .unwrap_or_default()
             .iter()
-            .flat_map(|(_, value)| state.owned_values(value))
-            .chain(state.owned_values(result))
+            .flat_map(|(_, value)| state.witness_values(value))
+            .chain(state.witness_values(result))
             .chain(outside.iter().cloned())
             .chain(self.preserved_borrowed_inputs(invocation, arguments))
             .collect();
@@ -328,9 +362,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        // Admission transfers these actual values to execution even when no
-        // normal result is produced. Caller-owned borrows are not owned inputs.
-        let consumed = entry.owned_arguments().collect::<Vec<_>>();
+        // Retire private input evidence when execution produces no normal result.
+        // Retained caller values remain distinct from the callee's owned inputs.
+        let consumed = entry.retiring_witness_values().collect::<Vec<_>>();
         let retained = self.surviving_call_values(state, invocation);
 
         let private = state.current.iter()
@@ -357,17 +391,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         result: &ExecutionCondition,
         outside: &std::collections::BTreeSet<ExecutionCondition>,
     ) {
-        let consumed = state
-            .entries
-            .get(&invocation)
-            .expect("normal return retains its captured entry")
-            .owned_inputs
-            .iter()
-            .filter_map(|ordinal| ExecutionPlace::argument(*ordinal).value_in(arguments))
-            .collect::<Vec<_>>();
+        let consumed = state.entries.get(&invocation)
+            .expect("normal return retains its captured entry").retiring_witness_values().collect::<Vec<_>>();
 
         let retained = state
-            .owned_values(result)
+            .witness_values(result)
             .chain(outside.iter().cloned())
             .chain(self.preserved_borrowed_inputs(invocation, arguments))
             .collect();
@@ -495,7 +523,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }).expect("checked owned data projection mapping is infallible");
 
                 let ownership = input.value_in(arguments)
-                    .map(|value| state.owned_result(&value.into_referent()))
+                    .map(|value| {
+                        let extraction = value.is_reference() && !self.returned_value_is_borrowed(
+                            dependencies, &crate::storage::owned_storage_projections(self.dependencies, transfer.output()));
+                        let value = value.into_referent();
+
+                        if extraction { state.extracted_result(&value) } else { state.owned_result(&value) }
+                    })
                     .unwrap_or_default()
                     .root_layout()
                     .try_map(
@@ -540,7 +574,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     sibling.transfers(),
                                 )
                             })
-                            .flat_map(|(_, value)| state.owned_values(&value).collect::<Vec<_>>()),
+                            .flat_map(|(_, value)| state.witness_values(&value).collect::<Vec<_>>()),
                     );
 
                     result = self.complete_owned_result(

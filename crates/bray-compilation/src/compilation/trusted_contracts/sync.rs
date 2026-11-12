@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use bray_diagnostics::{DiagnosticArgValue, DiagnosticContractObligationKind, DiagnosticKind};
 use bray_symbols::PackageIdentity;
 
-use crate::compilation::result_dependencies::callable_dependencies;
+use crate::compilation::result_dependencies::{callable_dependencies, source_function_dependencies};
 use crate::test_support::{
     ProductionFixtureCache, compilation, production_fixture, source_function_body_key, source_input,
 };
@@ -473,6 +473,206 @@ fn compound_borrow_postconditions_agree_with_the_next_owner_read() {
         assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
+fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
+    for (deferred, promise, source_owner, route, valid) in [
+        (false, true, "owner", "direct", true), (false, false, "owner", "direct", false),
+        (false, true, "other", "direct", false), (true, true, "owner", "direct", true),
+        (true, false, "owner", "direct", false), (true, true, "other", "direct", false),
+        (false, true, "owner", "await", true), (false, false, "owner", "await", false),
+        (false, true, "other", "await", false), (false, true, "owner", "cancel", true),
+        (false, false, "owner", "cancel", false),
+    ] {
+        let asynchronous = if deferred { "async " } else { "" };
+        let caller_async = if deferred || route != "direct" { "async " } else { "" };
+        let execute = if deferred { "let mutation = trusted mutate(owner);\n                await mutation;" }
+            else { "trusted mutate(owner);" };
+        let extraction = match route {
+            "direct" => format!("let outgoing = std.memory.replace_value<(Owner?)>({source_owner}, none);\n                consume_optional(outgoing);"),
+            "await" => format!("let extraction = trusted forward_owner({source_owner});\n                let outgoing = await extraction;\n                consume_optional(outgoing);"),
+            "cancel" => r#"
+                {
+                    let extraction = trusted forward_owner(owner);
+                    _ = extraction;
+                }
+
+                observe_optional(&owner);
+            "#.to_owned(),
+            _ => unreachable!(),
+        };
+        let postcondition = if promise {
+            "ensures(owner matches none || trusted optional_owner(owner = &owner))"
+        } else { "" };
+        let source = format!(r#"
+            trusted module app;
+            using std.memory;
+
+            @layout(c)
+            struct Marker
+            {{
+            }}
+
+            @layout(c)
+            struct Owner
+            {{
+                marker: Marker;
+                bind: Enter;
+            }}
+
+            callable Enter = @abi(c) trusted func(pos owner: Owner) -> Owner
+                requires(trusted acquired(owner = &owner.marker))
+                ensures(trusted acquired(owner = &result.marker));
+
+            trusted predicate acquired(owner: &Marker);
+
+            const func present_owner(pos owner: &(Owner?)) -> &Owner
+                requires(owner matches ?_)
+                executes(pure, total)
+            {{
+                return match owner
+                {{
+                    case ?value {{ yield &value; }}
+                    case none {{ panic("missing owner"); }}
+                }};
+            }}
+
+            predicate optional_owner(owner: &(Owner?)) = owner matches none || acquired(owner = &present_owner(owner).marker);
+
+            extern trusted {asynchronous}func mutate(pos owner: &mut(Owner?))
+                requires(owner matches none || trusted optional_owner(owner = &owner))
+                {postcondition};
+
+            func consume_optional(pos owner: Owner?)
+                requires(owner matches none || trusted optional_owner(owner = &owner))
+            {{
+            }}
+
+            func observe_optional(pos owner: &(Owner?))
+                requires(owner matches none || trusted optional_owner(owner = &owner))
+            {{
+            }}
+
+            trusted async func forward_owner(pos owner: &mut(Owner?)) -> Owner?
+            {{
+                return std.memory.replace_value<(Owner?)>(owner, none);
+            }}
+
+            trusted {caller_async}func caller(pos owner: &mut(Owner?), pos other: &mut(Owner?))
+                requires(owner matches none || trusted optional_owner(owner = &owner))
+            {{
+                {execute}
+                {extraction}
+            }}
+        "#);
+        let application = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::baseline(), &source);
+        if route == "await" {
+            let published = source_function_dependencies(&application, "forward_owner");
+            assert!(!published.owned_result().is_empty(),
+                "checked extraction must publish the source-to-result ownership transfer: {published:?}");
+        }
+        let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
+            .expect("nullable extraction caller reaches lowering");
+        let diagnostics = checked.diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "deferred={deferred} promise={promise} source={source_owner} route={route}: {diagnostics:#?}");
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
+fn extracted_fields_survive_sibling_extraction_and_parent_replacement() {
+    for (continuation, valid) in [
+        ("let right = trusted take_marker(pair, true); consume_marker(right);", true),
+        ("pair = replacement;", true),
+        ("trusted change_owner(&mut left);", false),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+            using std.memory;
+
+            @layout(c)
+            struct Marker
+            {{
+            }}
+
+            callable Enter = @abi(c) trusted func(pos owner: Owner) -> Owner
+                requires(trusted acquired(owner = &owner.marker))
+                ensures(trusted acquired(owner = &result.marker));
+
+            @layout(c)
+            struct Owner
+            {{
+                marker: Marker;
+                bind: Enter;
+            }}
+
+            struct Pair
+            {{
+                mut left: Owner?;
+                mut right: Owner?;
+            }}
+
+            trusted predicate acquired(owner: &Marker);
+
+            const func present_owner(pos owner: &(Owner?)) -> &Owner
+                requires(owner matches ?_)
+                executes(pure, total)
+            {{
+                return match owner
+                {{
+                    case ?value {{ yield &value; }}
+                    case none {{ panic("missing owner"); }}
+                }};
+            }}
+
+            predicate optional_owner(owner: &(Owner?)) = owner matches none || acquired(owner = &present_owner(owner).marker);
+
+            extern trusted func change_owner(pos owner: &mut(Owner?));
+
+            func consume_marker(pos marker: Owner?)
+                requires(trusted optional_owner(owner = &marker))
+            {{
+            }}
+
+            trusted func take_marker(pos pair: &mut Pair, pos right: bool) -> Owner?
+                requires(trusted optional_owner(owner = &pair.left), trusted optional_owner(owner = &pair.right))
+                ensures(
+                    trusted optional_owner(owner = &result),
+                    trusted optional_owner(owner = &pair.left),
+                    trusted optional_owner(owner = &pair.right)
+                )
+            {{
+                if right
+                {{
+                    return std.memory.replace_value<(Owner?)>(&mut pair.right, none);
+                }}
+
+                return std.memory.replace_value<(Owner?)>(&mut pair.left, none);
+            }}
+
+            trusted func caller(pos pair: &mut Pair, pos replacement: Pair)
+                requires(trusted optional_owner(owner = &pair.left), trusted optional_owner(owner = &pair.right))
+            {{
+                let mut left = trusted take_marker(pair, false);
+                {continuation}
+                consume_marker(left);
+            }}
+        "#);
+        let application = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::baseline(), &source);
+        let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
+            .expect("extracted field caller reaches lowering");
+
+        assert_eq!(!checked.diagnostics().has_errors(), valid, "{continuation}: {:#?}", checked.diagnostics());
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
         }
     }
 }

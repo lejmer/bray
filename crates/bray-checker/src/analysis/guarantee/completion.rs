@@ -327,6 +327,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),
+            extracted_values: Default::default(),
             copy_sources: Default::default(),
             owned_inputs: if self.storage.effective_purpose(plan)
                 == bray_bound_tree::StorageAccessPurpose::Move
@@ -395,6 +396,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),
+            extracted_values: Default::default(),
             copy_sources: Default::default(),
             owned_inputs: Default::default(),
             addresses: Default::default(),
@@ -412,10 +414,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
     ) -> Option<crate::ExecutionCallEvidence> {
-        let mut entry = self.invocation_entry(state, invocation)?;
+        let mut entry = self.awaited_entry(state, invocation)
+            .or_else(|| self.invocation_entry(state, invocation))?;
+
+        entry.extracted_values = self.extracted_input_values(invocation, &entry.arguments);
 
         entry.witness_inputs = state
-            .owned_witnesses(entry.owned_arguments())
+            .owned_witnesses(entry.witness_sources())
             .filter(|(_, witness)| witness.available)
             .map(|(owner, _)| owner.clone())
             .collect();
@@ -638,6 +643,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut evidence = crate::ExecutionCallEvidence {
             implementation_witnesses: call.resolution().implementation_witnesses().into(),
             witness_inputs: Default::default(),
+            extracted_values: Default::default(),
             copy_sources: Default::default(),
             owned_inputs,
             addresses: Default::default(),

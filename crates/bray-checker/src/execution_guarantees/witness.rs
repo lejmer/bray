@@ -364,6 +364,8 @@ impl super::ExecutionCallEvidence {
             .map(|owner| owner.with_joined_owners(replacements, identities))
             .collect();
 
+        let extracted_values = self.extracted_values.iter().map(rename).collect();
+
         let rename_facts = |facts: &BTreeSet<(ExecutionCondition, bool)>| {
             facts
                 .iter()
@@ -397,6 +399,7 @@ impl super::ExecutionCallEvidence {
         if arguments == self.arguments
             && copy_sources == self.copy_sources
             && witness_inputs == self.witness_inputs
+            && extracted_values == self.extracted_values
             && assumptions == self.assumptions
             && trusted_assumptions == self.trusted_assumptions
             && addresses == self.addresses
@@ -410,6 +413,7 @@ impl super::ExecutionCallEvidence {
             arguments,
             copy_sources,
             witness_inputs,
+            extracted_values,
             assumptions,
             trusted_assumptions,
             addresses,

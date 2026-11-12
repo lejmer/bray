@@ -271,6 +271,7 @@ mod tests {
         let entry = Arc::new(ExecutionCallEvidence {
             arguments: [(argument.clone(), value.clone())].into(),
             witness_inputs: [value.clone()].into(),
+            extracted_values: [value.clone()].into(),
             ..ExecutionCallEvidence::default()
         });
 
@@ -307,6 +308,11 @@ mod tests {
 
         let renamed = ExecutionCondition::Boolean(false);
 
+        assert!(!state.owned_values(&owner).any(|owned| owned == value),
+            "capturing extraction evidence does not make the future own its borrowed source");
+        assert!(state.witness_values(&owner).any(|source| source == value),
+            "the future retains the existing source evidence for its checked extraction");
+
         state.join_values(
             &[(value.clone(), renamed.clone())].into(),
             &[(value.clone(), renamed.clone())].into(),
@@ -318,5 +324,7 @@ mod tests {
         assert_eq!(entry.arguments[&argument], value);
         assert_eq!(completed.arguments[&argument], renamed);
         assert!(completed.witness_inputs.contains(&renamed));
+        assert_eq!(entry.extracted_values, [value].into());
+        assert_eq!(completed.extracted_values, [renamed].into());
     }
 }

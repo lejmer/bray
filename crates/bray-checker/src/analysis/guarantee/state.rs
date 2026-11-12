@@ -70,7 +70,8 @@ impl ExecutionState {
     ) -> BTreeSet<ExecutionCondition> {
         let Some(entry) = self.entries.get(&invocation) else { return BTreeSet::new(); };
 
-        let owners = entry.owned_arguments().collect::<BTreeSet<_>>();
+        let owners = entry.witness_sources().flat_map(|value| self.witness_values(&value))
+            .collect::<BTreeSet<_>>();
 
         entry.witness_inputs.iter().filter(|carrier| {
             crate::execution_guarantees::ObservationSet::retains_owner(&owners, carrier)
@@ -95,7 +96,8 @@ impl ExecutionState {
         carriers: &BTreeSet<ExecutionCondition>,
     ) -> BTreeSet<ExecutionCondition> {
         let owners = invocation.and_then(|invocation| self.entries.get(&invocation))
-            .into_iter().flat_map(|entry| entry.owned_arguments()).collect::<BTreeSet<_>>();
+            .into_iter().flat_map(|entry| entry.witness_sources())
+            .flat_map(|value| self.witness_values(&value)).collect::<BTreeSet<_>>();
 
         let conditions = carriers.iter().filter_map(|carrier| self.witnesses.get(carrier))
             .flat_map(|witness| witness.conditions.keys()).collect::<BTreeSet<_>>();
@@ -188,6 +190,22 @@ impl ExecutionState {
         &'a self,
         value: &ExecutionCondition,
     ) -> impl Iterator<Item = ExecutionCondition> + 'a + use<'a> {
+        self.value_contexts(value, false)
+    }
+
+    /// A future retains extraction evidence through its loan without owning the pointee.
+    pub(super) fn witness_values<'a>(
+        &'a self,
+        value: &ExecutionCondition,
+    ) -> impl Iterator<Item = ExecutionCondition> + 'a + use<'a> {
+        self.value_contexts(value, true)
+    }
+
+    fn value_contexts<'a>(
+        &'a self,
+        value: &ExecutionCondition,
+        extraction_evidence: bool,
+    ) -> impl Iterator<Item = ExecutionCondition> + 'a + use<'a> {
         // Snapshots share immutable components. Only the traversal's small worklist is owned.
         let mut pending = vec![value.clone()];
 
@@ -206,6 +224,9 @@ impl ExecutionState {
 
                     if deferred.insert((owner.clone(), *invocation)) {
                         pending.extend(entry.owned_arguments());
+                        if extraction_evidence {
+                            pending.extend(entry.extracted_values.iter().cloned());
+                        }
                     }
                 }
             }
@@ -214,7 +235,7 @@ impl ExecutionState {
         })
     }
 
-    /// Finds actual witness carriers contained by owned values and their deferred captures.
+    /// Finds actual witness carriers retained by values and their captured proof sources.
     pub(super) fn owned_witnesses(
         &self,
         values: impl IntoIterator<Item = ExecutionCondition>,
@@ -228,7 +249,7 @@ impl ExecutionState {
 
         if !self.witnesses.is_empty() {
             for value in values {
-                owned.extend(self.owned_values(&value));
+                owned.extend(self.witness_values(&value));
             }
         }
 
@@ -907,8 +928,12 @@ mod tests {
         let owner = input(0);
         let condition = permission(2);
 
-        for (owned, recorded, own_context) in [(true, true, true), (false, true, true), (true, false, true), (true, true, false)] {
-            let accepted = owned && recorded && own_context;
+        for (owned, recorded, own_context, extracted) in [
+            (true, true, true, false), (false, true, true, false),
+            (true, false, true, false), (true, true, false, false),
+            (false, true, true, true), (false, false, true, true), (false, true, false, true),
+        ] {
+            let accepted = (owned || extracted) && recorded && own_context;
             let mut state = ExecutionState::default();
 
             state.carry_guarantee(owner.clone(), condition.clone());
@@ -919,6 +944,7 @@ mod tests {
                 arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), owner.clone())].into(),
                 owned_inputs: if owned { [SymbolOrdinal::new(0)].into() } else { [].into() },
                 witness_inputs: if recorded { [owner.clone()].into() } else { BTreeSet::new() },
+                extracted_values: if extracted { [owner.clone()].into() } else { BTreeSet::new() },
                 trusted_assumptions: state.trusted_assumptions.clone(),
                 ..crate::ExecutionCallEvidence::default()
             });
@@ -1480,6 +1506,7 @@ mod tests {
             crate::ExecutionCallEvidence {
                 implementation_witnesses: Default::default(),
                 witness_inputs: Default::default(),
+                extracted_values: Default::default(),
                 copy_sources: Default::default(),
                 owned_inputs: Default::default(),
                 addresses: Default::default(),
