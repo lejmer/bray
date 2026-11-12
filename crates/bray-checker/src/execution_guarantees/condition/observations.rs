@@ -325,9 +325,9 @@ impl ExecutionCondition {
 
     /// Component paths explicitly retained by this snapshot.
     pub(crate) fn component_projections(&self) -> std::collections::BTreeSet<bray_bound_tree::StorageProjection> {
-        let mut value = self;
+        let mut value = self.computed_value();
         while let Some(snapshot) = value.nullable_payload_snapshot() {
-            value = snapshot;
+            value = snapshot.computed_value();
         }
 
         match value {

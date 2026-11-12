@@ -771,8 +771,8 @@ pub(super) fn result_replacements(
             result_replacements(source, joined, stable_values, stable_identities, values, identities);
         }
         _ => {
-            let mut projections = value.computed_value().component_projections();
-            projections.extend(joined.computed_value().component_projections());
+            let mut projections = value.component_projections();
+            projections.extend(joined.component_projections());
 
             for field in projections {
                 result_replacements(
