@@ -554,8 +554,9 @@ impl Compilation {
 
                 diagnostics.add_range(candidates.result().diagnostics().iter().cloned());
 
-                if candidates.result().diagnostics().has_errors() {
-                    failure.get_or_insert(ExecutionVerificationFailure { condition: None, source: Some(source_span(anchor)), cause: FailureCause::DependencyErrors });
+                if let Some(error) = candidates.result().diagnostics().iter()
+                    .find(|diagnostic| diagnostic.severity() == bray_diagnostics::SeverityKind::Error) {
+                    failure.get_or_insert_with(|| super::failure::dependency_verification_failure(error, source_span(anchor)));
                     continue;
                 }
 

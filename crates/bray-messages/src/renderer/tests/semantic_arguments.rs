@@ -609,12 +609,13 @@ fn renderer_formats_typed_arguments_for_utf8_diagnostics() {
 }
 
 #[test]
-fn renderer_identifies_the_protected_payload_in_a_storage_path() {
+fn renderer_identifies_indirection_and_protected_payload_in_a_storage_path() {
     let access = DiagnosticStorageAccess::new(
         DiagnosticStorageAccessPurpose::MutableBorrow,
         DiagnosticStorageRoot::Parameter,
         [
             DiagnosticStorageProjection::ProductField(String::from("value")),
+            DiagnosticStorageProjection::AddressTarget,
             DiagnosticStorageProjection::UninitPayload,
         ],
         DiagnosticType::I32,
@@ -629,6 +630,6 @@ fn renderer_identifies_the_protected_payload_in_a_storage_path() {
 
     assert_eq!(
         DiagnosticRenderer::english().render(&diagnostic).message(),
-        "mutable borrow of parameter storage.value.protected payload with type i32 has no mutable access to the reached storage"
+        "mutable borrow of parameter storage.value.pointed value.protected payload with type i32 has no mutable access to the reached storage"
     );
 }

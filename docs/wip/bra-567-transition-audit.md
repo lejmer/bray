@@ -60,7 +60,7 @@ observer/polling105, and withdrawal185/199. E7135 reports include dependent casc
 
 Open contract: slot_at -> retain_locked -> retain_task -> dispatch_ready must carry the complete owned backing
 bound to wait_execution retirement without inventing exact address, authority or independent origins. The final
-Slot pointer is a view, not an allocation extent. The prior checkpoint6081bbe0b is pushed. Retain real aliases and genuinely unknown alternatives.
+Slot pointer is a view, not an allocation extent. Checkpoint a06e18e41 is pushed. Retain real aliases and genuinely unknown alternatives.
 The three source controls pass, but runtime source still has exactly23 accepted identities (6 E7123/17 E7135).
 Actual trace: slot_at and retain_locked now retain both allocation boundaries without independent origins.
 First loss is retain_task E35: staging reduces the source to owner.pointer with unknown=true; publication adds
@@ -91,7 +91,18 @@ and predicates26/2/2 retain aggregate counts. Canonical storage_type handles roo
 retain fixed source/import roots by omitting only derived incoming fields still held in the escaped parent's current
 value graph. Explicit operands, replacement values and captured old pointers survive, protected by the extended memory
 property. Runtime source completes with the same23 exact identities, no additions or removals. Native remains unverified.
-At finalization, extend the existing storage-path renderer test for AddressTarget's source-level wording.
+Actual runtime trace now proves retain_task E35 publishes the full two-allocation InputRegions path with no
+Independent: owner.pointer.AddressTarget.Domain.arena.ArenaReference.pointer -> Arena.entries.Uninit.slabs.Nullable.
+OwnedTarget.AnyElement.slots.OwnedTarget. Dispatch_ready has that field declared at entry but stages it at E9 as
+Returned(S8, full incoming path). First preceding effect is take_ready E3 writing selected.pointer.pending.Uninit
+(Replace T4904, access T8051). Determine whether that write legitimately retires the incoming field or argument staging
+loses a surviving field. Do not preserve real aliases or invent allocation extent from a Slot view. Stage/publication
+and transition probes are removed after these facts were captured. Exact source inventory still23.
+Proof graph omissions without a recorded failure now panic. Specific source failures retain condition, cause and leaf
+location across dependent proofs. Source-level labels replace checked/control-flow terminology. Nine proof tests and92
+message tests pass, including missing-root/child panics, propagated conditions/locations and raw-route wording.
+Fixed918 retains789/30/99 and all matrices, checker511/bound136. Next investigation is a bounded current-field-before/staged-field probe,
+not a semantic patch until retirement versus staging is resolved.
 
 Backing checkpoint76d5f2736: checked complete-buffer borrows declare missing backing without replacing actual or
 unknown pointer records. Private admission carries evaluated dynamic references. AnyElement retains owned suffixes
