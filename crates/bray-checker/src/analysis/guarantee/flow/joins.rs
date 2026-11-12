@@ -55,25 +55,17 @@ pub(super) fn current_content_identities(
             || super::merge::resolved_availability(right, place) != super::super::current::ValueAvailability::Present { continue; }
 
         let (Some(left), Some(right)) = (place.value_in(&left.current), place.value_in(&right.current)) else { continue; };
-        let Some((kind, owner)) = common_current_owner(&left, &right) else { continue; };
-        let entry = owners.entry(owner).or_insert((kind, *place));
-
-        // A loan observes the containing owner's joined contents, independently
-        // of the storage slot that happens to hold the reference value.
-        if entry.0 == crate::execution_guarantees::ExecutionObservationKind::Reference
-            && kind != crate::execution_guarantees::ExecutionObservationKind::Reference {
-            *entry = (kind, *place);
-        }
+        collect_current_content_identities(&left, &right, super::merge::joined_observation(block, place), &mut owners);
     }
 
-    owners.iter().map(|(owner, (_, place))| {
-        let mut identity = super::merge::joined_observation(block, place);
+    owners.iter().map(|(owner, (_, contents))| {
+        let mut identity = contents.clone();
 
         if let Some((root, path)) = owner.observation_path() {
             for length in 0..path.len() {
                 let parent = path[..length].iter().fold(root.clone(), |value, projection| value.component(*projection));
                 if let Some((_, parent)) = owners.get(&parent) {
-                    identity = path[length..].iter().fold(super::merge::joined_observation(block, parent),
+                    identity = path[length..].iter().fold(parent.clone(),
                         |value, projection| value.component(*projection));
                     break;
                 }
@@ -82,6 +74,33 @@ pub(super) fn current_content_identities(
 
         (owner.clone(), identity)
     }).collect()
+}
+
+fn collect_current_content_identities(
+    left: &ExecutionCondition,
+    right: &ExecutionCondition,
+    contents: ExecutionCondition,
+    owners: &mut BTreeMap<ExecutionCondition, (crate::execution_guarantees::ExecutionObservationKind, ExecutionCondition)>,
+) {
+    use crate::execution_guarantees::ExecutionObservationKind;
+
+    let Some((kind, owner)) = common_current_owner(left, right) else { return; };
+    let entry = owners.entry(owner).or_insert_with(|| (kind, contents.clone()));
+
+    // A loan observes its actual owner's contents, including owners moved into
+    // aggregate fields. The reference slot does not create another snapshot.
+    if entry.0 == ExecutionObservationKind::Reference && kind != ExecutionObservationKind::Reference {
+        *entry = (kind, contents.clone());
+    }
+
+    if kind == ExecutionObservationKind::Reference { return; }
+
+    for projection in left.component_projections().intersection(&right.component_projections()) {
+        collect_current_content_identities(
+            &left.clone().project(*projection), &right.clone().project(*projection),
+            contents.clone().project(*projection), owners,
+        );
+    }
 }
 
 pub(in crate::analysis::guarantee) fn returned_condition(

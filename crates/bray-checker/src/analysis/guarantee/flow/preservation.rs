@@ -168,6 +168,86 @@ mod tests {
     use bray_symbols::SymbolOrdinal;
 
     #[test]
+    fn nested_owner_and_shared_alias_join_one_contents_snapshot() {
+        use super::super::super::state::ExecutionState;
+
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            (0..3).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
+        });
+        let scope = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let marker = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let operation = StorageProjection::TupleElement(SymbolOrdinal::new(2));
+        let payload = StorageProjection::NullableValue;
+        let nested = ExecutionCondition::Expression(sites[0]);
+        let retained_marker = nested.clone().project(operation).project(payload).project(marker);
+        let container = ExecutionCondition::Expression(sites[1]);
+        let source = ExecutionCondition::owned_value(container.clone(), ExecutionCondition::constructed(container, [(scope, nested)].into()));
+        assert_eq!(crate::execution_guarantees::owned_snapshot(&source, source.owner_identity().clone(),
+            &mut { ExecutionCondition::WORK_LIMIT }), source, "retaining an owner does not move its existing nested producers");
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let alias_place = ExecutionPlace::argument(SymbolOrdinal::new(1));
+        let mut mask = ValuePreservation { descriptor: true, ..Default::default() };
+        mask.at_mut(&[scope]).descriptor = true;
+        mask.at_mut(&[scope, marker]).value = true;
+        mask.at_mut(&[scope, operation]).discriminant = true;
+        mask.at_mut(&[scope, operation]).descriptor = true;
+        mask.at_mut(&[scope, operation, payload]).descriptor = true;
+        mask.at_mut(&[scope, operation, payload, marker]).value = true;
+        let framed = mask.apply(&source, Some(&place), StorageMutation::Operation(sites[2].into()));
+        let alias = source.clone().project(scope).borrowed();
+        let framed_alias = mask.children[&scope].apply(&alias, Some(&alias_place), StorageMutation::Operation(sites[2].into()));
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let substitution = crate::test_support::empty_substitution(predicate.into());
+        let absent = ExecutionCondition::Literal(std::sync::Arc::new(bray_symbols::ConstantValueData::new(
+            crate::test_support::error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+        let held = |value: ExecutionCondition| {
+            let selected = value.project(operation);
+            ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![
+                ExecutionCondition::operation(bray_bound_tree::BoundOperator::Equal, vec![selected.clone(), absent.clone()]),
+                ExecutionCondition::Trusted(std::sync::Arc::new(ExecutionCondition::predicate(predicate.into(), substitution,
+                    vec![selected.project(payload).project(marker).borrowed()]))),
+            ])
+        };
+        let mut left = ExecutionState::default();
+        let mut right = ExecutionState::default();
+        for (state, value, alias) in [(&mut left, source, alias), (&mut right, framed, framed_alias)] {
+            let guarantee = held(value.clone().project(scope));
+            state.carry_guarantee(value.clone().project(scope).project(operation).project(payload), guarantee.clone());
+            guarantee.assume(true, &mut state.trusted_assumptions);
+            state.assign(place.clone(), value.clone(), None);
+            state.assign(alias_place.clone(), alias, None);
+            state.assign(ExecutionPlace::argument(SymbolOrdinal::new(2)), retained_marker.clone(), None);
+        }
+        for (state, is_absent) in [(&mut left, true), (&mut right, false)] {
+            let selected = place.value_in(&state.current).expect("current predecessor").project(scope).project(operation);
+            ExecutionCondition::operation(bray_bound_tree::BoundOperator::Equal, vec![selected, absent.clone()])
+                .assume(is_absent, &mut state.assumptions);
+        }
+        let untouched = Some(left.clone());
+        let mut joined = Some(left);
+        let boundary = super::super::merge::ExecutionJoin::Block(crate::analysis::id::AnalysisBlockId::from_slot(BoundUnitId::new(0), 1));
+        super::super::merge::merge(&mut joined, &Some(right), boundary);
+        let state = joined.expect("reachable owner join");
+        let owned = place.value_in(&state.current).expect("current owner").project(scope);
+        let borrowed = alias_place.value_in(&state.current).expect("current shared alias").into_referent();
+
+        assert_eq!(owned.clone().project(marker).computed_value(), borrowed.clone().project(marker).computed_value());
+        assert_eq!(owned.computed_value(), borrowed.computed_value(), "the nested object has one joined contents snapshot through both views");
+        assert_eq!(owned.clone().project(operation).project(payload).project(marker).computed_value(),
+            retained_marker.computed_value(), "joining an inactive path does not move the retained active payload");
+        assert_eq!(held(owned).prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true),
+            "joining both views must preserve the complete owner's guarantee");
+        let mut joined = Some(state);
+        let boundary = super::super::merge::ExecutionJoin::Block(crate::analysis::id::AnalysisBlockId::from_slot(BoundUnitId::new(0), 2));
+        super::super::merge::merge(&mut joined, &untouched, boundary);
+        let state = joined.expect("reachable outer join");
+        let required = held(place.value_in(&state.current).expect("current owner").project(scope));
+        assert_eq!(required.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true),
+            "the next join must preserve the same conditional guarantee");
+    }
+
+    #[test]
     fn framing_joined_ownership_keeps_only_retained_actual_components() {
         use bray_symbols::{DependencyOwnedResult as Layout, DependencyOwnedTransfer as Transfer, DependencyValuePreservation as Mask};
 
