@@ -1,6 +1,5 @@
 use bray_diagnostics::{DiagnosticArgValue, DiagnosticCondition, DiagnosticContractObligationKind, DiagnosticKind, DiagnosticRelatedLocationKind};
-
-use crate::test_support::compilation;
+use crate::test_support::{compilation};
 
 #[test]
 fn failed_conjunction_names_the_missing_condition_and_keeps_the_full_requirement() {

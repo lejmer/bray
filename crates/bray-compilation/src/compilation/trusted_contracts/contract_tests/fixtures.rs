@@ -1,0 +1,520 @@
+use bray_symbols::{PackageIdentity};
+use crate::{Compilation, CompilationRequest};
+use crate::test_support::{ProductionFixtureCache, production_fixture, source_input};
+use std::sync::{OnceLock};
+
+pub(super) fn production_sync_compilation(caller: &str) -> Compilation {
+    production_sync_compilation_for_target(caller, crate::SelectedTarget::baseline())
+}
+
+pub(super) fn production_sync_compilation_for_target(
+    caller: &str,
+    target: crate::SelectedTarget,
+) -> Compilation {
+    static FIXTURES: ProductionFixtureCache = OnceLock::new();
+
+    production_fixture(&FIXTURES, caller, target, build_production_sync)
+}
+
+fn build_production_sync(caller: &str, target: crate::SelectedTarget) -> Compilation {
+    let sources = [
+        include_str!("../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/pointer.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/spin_lock.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/tickets.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/mutex.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/mutex/lock.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/mutex/guard.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/mutex/state.bray"),
+        include_str!("../../../../../../standard-library/std/src/atomic.bray"),
+        include_str!("../../../../../../standard-library/std/src/atomic/windows.bray"),
+        include_str!("../../../../../../standard-library/std/src/atomic/linux.bray"),
+        include_str!("../../../../../../standard-library/std/src/atomic/darwin.bray"),
+        include_str!("../../../../../../standard-library/std/src/os.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/windows.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/unix.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/unix/thread.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/unix/linux.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/unix/darwin.bray"),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/x86_64_pc_windows_msvc.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/aarch64_pc_windows_msvc.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/x86_64_unknown_linux_gnu.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/aarch64_unknown_linux_gnu.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/x86_64_apple_darwin.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/aarch64_apple_darwin.bray"
+        ),
+        include_str!("../../../../../../standard-library/std/src/sync/rw_lock.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/rw_lock/lock.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/rw_lock/guard.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/rw_lock/state.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/rw_lock/read.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/rw_lock/write.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/condition.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/atomic.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/atomic/linux.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/atomic/darwin.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/atomic/windows.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/condition/state.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/condition/variable.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/once/state.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/once/cell.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/once/claim.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/once/attempt.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/once/lazy.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/barrier.bray"),
+        caller,
+        include_str!("../../../../../../standard-library/std/src/numeric/policy.bray"),
+    ];
+
+    let request = CompilationRequest::with_options(
+        PackageIdentity::try_new("std").expect("fixture package identity must be valid"),
+        sources
+            .iter()
+            .enumerate()
+            .map(|(index, source)| {
+                source_input(
+                    source,
+                    u32::try_from(index)
+                        .expect("fixture value must fit the requested representation"),
+                )
+            })
+            .collect(),
+        crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            target,
+        )
+        .with_native_link_inputs(["c", "pthread", "dl", "Kernel32"].map(|name| {
+            bray_symbols::NativeLinkRequirement::new(
+                bray_base::NonEmptySharedStr::try_new(name)
+                    .expect("fixture non empty shared str must be valid"),
+                if name == "dl" {
+                    bray_symbols::NativeLinkKind::Dynamic
+                } else {
+                    bray_symbols::NativeLinkKind::System
+                },
+            )
+        })),
+    )
+    .with_standard_library_source_authority();
+
+    let compilation = Compilation::load(request).expect("fixture input must load");
+
+    assert!(
+        !compilation.syntax_tree_result().diagnostics().has_errors(),
+        "{:?}",
+        compilation.syntax_tree_result().diagnostics()
+    );
+
+    compilation
+}
+
+pub(super) fn body_belongs_to(
+    compilation: &Compilation,
+    key: &bray_bound_tree::BoundUnitKey,
+    modules: &[&[&str]],
+    types: &[&str],
+) -> bool {
+    let symbols = compilation
+        .symbol_graph()
+        .expect("fixture compilation must build its symbol graph");
+
+    let mut symbol = symbols
+        .symbol_for_key(key.declared_owner())
+        .expect("declared body retains its symbol");
+
+    let module = symbols
+        .containing_module(symbol)
+        .expect("declared body belongs to its module");
+
+    if modules
+        .iter()
+        .any(|path| module.path().segments().eq(path.iter().copied()))
+    {
+        return true;
+    }
+
+    while let Some(owner) = symbols.containing_symbol(symbol) {
+        if matches!(owner, bray_symbols::AnySymbolId::Struct(_))
+            && symbols
+                .member_name(owner)
+                .is_some_and(|name| types.contains(&name.as_str()))
+        {
+            return true;
+        }
+
+        symbol = owner;
+    }
+
+    false
+}
+
+pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compilation {
+    production_host_compilation_for_target(caller, crate::SelectedTarget::baseline())
+}
+
+pub(in crate::compilation) fn production_host_compilation_for_target(
+    caller: &str,
+    target: crate::SelectedTarget,
+) -> Compilation {
+    static FIXTURES: ProductionFixtureCache = OnceLock::new();
+
+    production_fixture(&FIXTURES, caller, target, build_production_host)
+}
+
+fn build_production_host(caller: &str, target: crate::SelectedTarget) -> Compilation {
+    let compilation = Compilation::load(production_host_request(caller, target))
+        .expect("actual production host declarations must load");
+
+    assert!(
+        !compilation.syntax_tree_result().diagnostics().has_errors(),
+        "actual bootstrap module declarations must parse: {:?}",
+        compilation.syntax_tree_result().diagnostics()
+    );
+
+    compilation
+}
+
+fn production_host_request(caller: &str, target: crate::SelectedTarget) -> CompilationRequest {
+    let sources = [
+        include_str!("../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../standard-library/std/src/numeric/policy.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/pointer.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../../../standard-library/std/src/platform.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/domain.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/provider.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/entry.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/entry/protocol.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/entry/execution.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/entry/bridge.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/entry/bridge/address.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/entry/bridge/control.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/entry/control.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/abi.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/admission.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/cleanup.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/control.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/execution.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/formation.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/operations.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/owner.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/progress.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/provider/model.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/provider/admission.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/provider/entry.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/provider/retirement.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/residency.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/state.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/storage.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/thread_domain.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/thread_cleanup.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/product/thread_registration.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/owner.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/access.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/attachment.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/attachment/entry.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/attachment/acquisition.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/attachment/exit.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/attachment/cleanup.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/bootstrap.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/pool.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/pool/access.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/pool/growth.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/record_pool.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/records.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/panic.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/report/transfer.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/report.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/report/chain.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/report/consumer.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/spin_lock.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/tickets.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
+        include_str!("../../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/thread.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/thread/destruction.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/thread/destruction/common.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/thread/destruction/unix.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/thread/destruction/windows.bray"),
+        include_str!("../../../../../../standard-library/std/src/thread.bray"),
+        include_str!("../../../../../../standard-library/std/src/thread/boundary.bray"),
+        include_str!("../../../../../../standard-library/std/src/thread/windows.bray"),
+        include_str!("../../../../../../standard-library/std/src/thread/unix.bray"),
+        include_str!("../../../../../../standard-library/std/src/thread/linux.bray"),
+        include_str!("../../../../../../standard-library/std/src/thread/darwin.bray"),
+        include_str!("../../../../../../standard-library/std/src/platform/status.bray"),
+        include_str!("../../../../../../standard-library/std/src/platform/representation.bray"),
+        include_str!("../../../../../../standard-library/std/src/time/units.bray"),
+        include_str!("../../../../../../standard-library/std/src/platform/linux.bray"),
+        include_str!("../../../../../../standard-library/std/src/platform/darwin.bray"),
+        include_str!("../../../../../../standard-library/std/src/platform/windows.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/memory/heap.bray"),
+        include_str!("../../../../../../standard-library/std/src/runtime/memory.bray"),
+        include_str!("../../../../../../standard-library/std/src/platform/heap.bray"),
+        include_str!("../../../../../../standard-library/std/src/platform/heap/windows.bray"),
+        include_str!("../../../../../../standard-library/std/src/platform/heap/unix.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/windows.bray"),
+        include_str!("../../../../../../standard-library/std/src/os.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/unix.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/unix/thread.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/unix/linux.bray"),
+        include_str!("../../../../../../standard-library/std/src/os/unix/darwin.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/host/synchronization.bray"),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/x86_64_pc_windows_msvc.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/aarch64_pc_windows_msvc.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/x86_64_unknown_linux_gnu.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/aarch64_unknown_linux_gnu.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/x86_64_apple_darwin.bray"
+        ),
+        include_str!(
+            "../../../../../../standard-library/std/src/os/generated/aarch64_apple_darwin.bray"
+        ),
+        include_str!("../../../../../../runtime/bootstrap/src/report/output.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/report/incident.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/report/sink.bray"),
+        include_str!("../../../../../../standard-library/std/src/io.bray"),
+        include_str!("../../../../../../standard-library/std/src/io/platform.bray"),
+        include_str!("../../../../../../standard-library/std/src/io/windows.bray"),
+        include_str!("../../../../../../standard-library/std/src/io/unix.bray"),
+        caller,
+        include_str!("../../../../../../runtime/bootstrap/src/activation/data.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/completion.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/provider.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/run/abandonment.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/run/access.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/run/advance.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/run/completion.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/run/entry.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/run/retirement.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/run/step.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/storage.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/access.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/inactive.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/transition.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/composition.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/callback.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/execution.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/execution/access.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/execution/invoke.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/execution/outcome.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/requirements.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/requirements/inactive.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/requirements/active.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/activation/requirements/state.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/storage/data.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/storage/admission.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/storage/activation.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/storage/boundary.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/storage/bundle.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/outgoing/admission.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/outgoing/activation.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/callback.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/cancellation.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/composition.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/control.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/data.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/directory.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/dispatch.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/execution.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/failure.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/frame_retirement.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/native.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/access.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/admission.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/callbacks.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/creation.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/data.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/initialization.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/lifecycle.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/metadata.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/polling.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/protocol.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/observer/services.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/ownership.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/reference.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/result.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/retirement.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/runtime_retirement.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/services.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/waiting/access.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/waiting/delivery.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/waiting/entry.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/waiting/registration.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/waiting/withdrawal.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/task/waiting.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/event.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/event/access.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/event/data.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/event/delivery.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/event/directory.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/event/registration.bray"),
+        include_str!("../../../../../../runtime/bootstrap/src/event/storage.bray"),
+    ];
+
+    CompilationRequest::with_options(
+        PackageIdentity::try_new("std").expect("standard library identity must be valid"),
+        sources
+            .iter()
+            .enumerate()
+            .map(|(index, source)| {
+                source_input(
+                    source,
+                    u32::try_from(index).expect("host source index must fit"),
+                )
+            })
+            .collect(),
+        crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            target,
+        )
+        .with_native_link_inputs(["c", "pthread", "Kernel32", "bray_runtime_host"].map(
+            |name| {
+                bray_symbols::NativeLinkRequirement::new(
+                    bray_base::NonEmptySharedStr::try_new(name).expect("native test library name"),
+                    bray_symbols::NativeLinkKind::System,
+                )
+            },
+        )),
+    )
+    .with_standard_library_source_authority()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{production_host_compilation, production_host_request};
+    use crate::test_support::source_function_body_key;
+    use crate::{
+        Compilation, CompilationProfileConfiguration, CompilationProfileMode, SelectedTarget,
+    };
+
+    #[test]
+    #[ignore = "tier:proof"]
+    fn production_fixture_shares_completed_proofs() {
+        let first = production_host_compilation("module app;");
+        let key = source_function_body_key(&first, "host_access");
+
+        let first_proof = first
+            .execution_properties(key.clone())
+            .expect("production proof");
+
+        let second = production_host_compilation("module app;");
+
+        let second_proof = second
+            .execution_properties(key)
+            .expect("reused production proof");
+
+        assert!(Arc::ptr_eq(&first_proof, &second_proof));
+    }
+
+    #[test]
+    #[ignore = "tier:proof"]
+    fn production_fixture_phase_timings() {
+        let request = production_host_request("module app;", SelectedTarget::baseline())
+            .with_profile(CompilationProfileConfiguration::new(
+                CompilationProfileMode::Summary,
+            ));
+
+        let compilation = Compilation::load(request).expect("profiled production fixture");
+
+        assert!(!compilation.syntax_tree_result().diagnostics().has_errors());
+        checkpoint(&compilation, "parse");
+        compilation.symbol_graph().expect("production symbols");
+        checkpoint(&compilation, "bind");
+        compilation.check_diagnostics();
+        checkpoint(&compilation, "check");
+
+        compilation
+            .lowered_unit(source_function_body_key(&compilation, "host_access"))
+            .expect("production lowering");
+
+        checkpoint(&compilation, "lower");
+
+        let before = query_evaluations(&compilation);
+
+        compilation.check_diagnostics();
+
+        compilation
+            .symbol_graph()
+            .expect("cached production symbols");
+
+        compilation
+            .lowered_unit(source_function_body_key(&compilation, "host_access"))
+            .expect("cached production lowering");
+
+        assert_eq!(
+            query_evaluations(&compilation),
+            before,
+            "repeated production demands must perform no additional query evaluations"
+        );
+
+        checkpoint(&compilation, "reuse");
+    }
+
+    fn query_evaluations(compilation: &Compilation) -> u64 {
+        compilation
+            .profile_report()
+            .expect("fixture profiling enabled")
+            .queries
+            .iter()
+            .map(|query| query.evaluations)
+            .sum()
+    }
+
+    fn checkpoint(compilation: &Compilation, phase: &str) {
+        let report = compilation
+            .profile_report()
+            .expect("fixture profiling enabled");
+
+        if let Some(directory) = std::env::var_os("BRAY_TEST_PROFILE_OUTPUT") {
+            let directory = std::path::PathBuf::from(directory);
+
+            std::fs::create_dir_all(&directory).expect("profile report directory");
+
+            std::fs::write(
+                directory.join(format!("production-{phase}.json")),
+                serde_json::to_vec_pretty(&report).expect("profile encodes"),
+            )
+            .expect("profile report writes");
+        }
+    }
+}

@@ -36,7 +36,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Fixed evidence
 
-Pushed ed6548628. Current verified batch has consuming-copyable receiver moves and nullable argument inference.
+Pushed b4b5a76f5. Current verified batch has consuming-copyable receiver moves and nullable argument inference.
 Fixed920:791 pass/30 fail/99 ignored. Original907 identities/SHA remain frozen with16 explained repairs and13 added
 controls. Owned248/deferred148 on source/import and witness matrices unchanged. Checker511/bound136 pass.
 Symbols221/interface216/messages92 and proof9 remain valid. Cleanup57/4 and predicates26/2/2 retain outcomes.
@@ -61,14 +61,21 @@ Inactive is copyable lease data. root_frame reads the complete initialized lease
 frame/provider. start_frame consumes that value and lends self to PreparedStart until rollback/publication. Native ABI
 unchanged. Source23 and fixed920 are verified. Native provenance/composition remains an open gate.
 
-Before another production patch, classify actual fixed30 failures by source contract and trace shared mechanisms.
-Invalid acceptance includes reference-slot replacement, address bounds and undeclared authority. Valid rejection includes
-mutable owner updates, unions, nullable successes, raw transfers and imported cleanup. Summary-count expectations need
-contract inspection, not automatic rebaselining. Current read-only hypothesis: shared-view preservation can confuse a
-replaced reference descriptor with its old referent. Inspect Footprint preparation, active/shared preservation, resolved
-physical effects and condition invalidation together. No fix decided. Pair invalid replace(&mut borrowed) with retained
-old borrow, disjoint descriptor writes, nested references and raw aliases. Also trace reserve_start registration assignment
-through demand_lane and success return. Reconsider the hypothesis if these use different physical/value boundaries.
+Deduction now leads repairs, not additional examples. Existing fixed920 remains the regression oracle. No new test
+identities or expected outcomes are added by the current repair. Unexplained changes block the batch.
+
+Confirmed: shared-view forwarding can restore an overwritten pointer from its old live pointee. The pending guard
+requires memory's slot preservation before forwarding. Deeper contradiction: marker preservation adds containing
+identities to stable_descriptors via owner_paths, while memory and ValuePreservation interpret those roots as retaining
+inline pointer slots. Distinguish weak identity claims from complete descriptor claims at the producers. Trace all
+writers before removing weak claims. Nullable-tag claims also enter stable_descriptors, but the proof mask consumes
+those as Identity rather than Discriminant. These rules must agree before another semantic build.
+
+The test layout is now one contract_tests module with topic files, maximum666 lines. All370 test names and380 source
+items are retained. Includes resolve to the same files. verification.json maps relocated module names to the immutable
+comparison identities, with unchanged expected outcomes. The descriptor fixture only has Bray formatting changes.
+No separate tests or ownership_tests directories remain. Host/diagnostic/address tests share the same topic hierarchy
+and fixture module. No style pass yet.
 
 AddressTarget finite raw-load paths and full retain_task InputRegions are verified. take_ready's possible-alias write
 retires Domain.arena.pointer before call staging. Its location survives but no old regions record does. Current marker
@@ -99,9 +106,8 @@ One CPU-heavy job at a time. Cargo jobs24, tooling profile, same combined target
 Native tools run escalated outside sandbox. Shared target/cargo build dirs, no clean. Selected lowering takes30s.
 Use ABI2 bundle target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
 Use system link inputs bray_runtime_host and bray_runtime_callback for the matching direct source check.
-Remove consumed probes immediately after extracting evidence.
+Remove consumed probes immediately after extracting evidence. Stale incremental caches were pruned, retaining current tooling variants.
 
 Remaining gates: all native errors, native async success/panic/cancel/startup rollback/blocked shutdown,
 result/static disposal, foreign restoration, architecture/test pruning, final style/format, independent review,
 PR and Linear review handoff. Never claim complete composition before these gates.
-
