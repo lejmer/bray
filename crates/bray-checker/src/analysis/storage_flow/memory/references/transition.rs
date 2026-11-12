@@ -205,13 +205,21 @@ impl State {
         self.stage_bounded_reference(call, destination, reference, ty, bounds);
     }
 
-    pub(in crate::analysis::storage_flow) fn observe_reference(
+    pub(in crate::analysis::storage_flow) fn observe_reference<C: crate::CheckerRequestContext + ?Sized>(
         &mut self,
+        request: crate::CheckerUnitView<'_, C>,
         destination: Target,
         reference: Place,
         ty: TypeId,
         inputs: impl IntoIterator<Item = Target>,
-    ) {
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+        // A bounded view reads its existing field values. Its container is not
+        // an origin of the pointers stored in those fields.
+        if let Some(contents) = self.bounded_reference_contents(request, &destination)? {
+            self.values.insert(destination, contents);
+            return Ok(());
+        }
+
         let bounds = self.unbounded_reference_regions(inputs);
 
         let target = self.returned_reference(reference, &bounds);
@@ -225,6 +233,8 @@ impl State {
             .storage_type = Some(ty);
 
         self.values.insert(destination, References::one(target));
+
+        Ok(())
     }
 
     fn returned_reference(&mut self, reference: Place, bounds: &References) -> Target {

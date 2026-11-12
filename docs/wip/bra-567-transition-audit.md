@@ -29,7 +29,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Fixed evidence
 
 Frozen907 identities:778 pass/30 fail/99 ignored, with16 explained repairs. comparison.txt and its SHA stay fixed.
-Five added controls give fixed912 totals783/30/99. Checker504, bound136 and focused18 pass. All248 owned-transfer and148
+Five added controls give fixed912 totals783/30/99. Checker505, bound136 and focused18 pass. All248 owned-transfer and148
 deferred cases pass each source/import surface. Cleanup57/4 and predicates26/2/2 retain their known outcomes.
 Source/MIR async composition and3 invalid variants pass. Native composition has not run. No style pass yet.
 
@@ -44,18 +44,22 @@ fabricated-evidence and escaped-pointer variants. Keep these contracts while tra
 
 ## Current boundary
 
-Physical tags survive joins and owner reanchoring without retaining overwritten payloads. A Discriminant denotes the
-producer's surviving tag, separately from destination ownership. Known Present/Tagged joins use their existing path.
-The extended physical-tag property is red before and green after. Source/import witness matrices, fixed912,
-owned248/deferred148 each surface, checker504/bound136 and adjacent suites retain outcomes. Native27 has no new sites.
-Resolution, root observation and root completion scoped cleanup now pass. Start scoped cleanup still fails.
+Physical tags survive joins and owner reanchoring without retaining overwritten payloads. Known Present/Tagged joins
+retain their existing handling. Fixed912, owned248/deferred148 each surface, witness matrices, checker505/bound136
+and adjacent suites retain accepted outcomes. Native remains27 with no new identities. No trace hooks remain.
 
-Trace the remaining start EntryRestoration path beyond the repaired boundary. The established root_observation trace
-receives optional_current from root_scope E1, transfers through scoped enter E34, calls entry_current E20 and body E24.
-Storage preserves operation's Discriminant and acquisition. Join21 previously dropped the tag while migrating payload
-evidence, leaving an E1 absence guard against Joined21 contents. The repair retains the actual tag in the current tree.
-All trace hooks and consumed trace logs are removed. Next compare start's additional transitions and follow evidence
-into its producer-token and service-owner cleanup consumers. Do not assume these remaining reports are separate bugs.
+Stored-pointer reads now use existing field values through a complete, current, equally typed returned view.
+Incomplete, opaque, retyped and retired backing remains conservative. A red-before memory property and exact source/import
+escape-field checks pass. Ordinary reads and call inputs share this boundary and the canonical projected-type query.
+
+Root_execution's scoped-enter result22 loses contents at start_frame E78 despite live loans and a complete field schema.
+entry_current's returned choice30 has complete current bounds22.scope.current and22.scope.operation.NullableValue.
+The original pointer40 read invented opaque provenance bounded by the container, causing publication to expose22.
+The general read repair passes its properties but native start cleanup still fails. Trace the actual read decision and
+subsequent consumers rather than assuming it repaired this path. Selected inspect-lowered reproduces it in about30s.
+Follow reserve_start E31 as well: start_frame loses token and service-owner proof, and reserve_start fails its registration
+postcondition. Both observed calls carry UnboundedMutation Retire with no access type, which alone establishes no defect.
+Keep the fixed comparison and native27 identities unchanged unless explained.
 
 Use the ABI2 standard-library bundle at target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
 Direct233-source CLI checks add3 missing-native-link cascades and are investigation controls, not the native gate.
