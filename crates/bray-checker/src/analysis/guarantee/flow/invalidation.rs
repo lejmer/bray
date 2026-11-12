@@ -519,7 +519,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for (place, source) in current {
             let mut mask = masks.remove(&place).unwrap_or_default();
 
-            let next = mask.frame(state, &source, Some(&place), mutation);
+            let next = mask.frame(state, &source, &[], Some(&place), mutation);
 
             state.observe(place, next, None);
         }
@@ -738,12 +738,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let Some(source) = root.value_in(&state.current) else { continue; };
 
             let path = changed_paths.get(&place).map_or(&[][..], |path| path.as_ref());
-            let previous = path.iter().copied().fold(source.clone(), ExecutionCondition::project);
             let mut empty = super::preservation::ValuePreservation::default();
-            let mask = masks.get_mut(&root).map(|mask| mask.at_mut(path)).unwrap_or(&mut empty);
+            let mask = masks.get_mut(&root).unwrap_or(&mut empty);
 
             let next = if transfers { ExecutionCondition::Unknown } else {
-                mask.frame(state, &previous, Some(&place), mutation)
+                mask.frame(state, &source, path, Some(&place), mutation)
             };
 
             let updated = updates.entry(root).or_insert(source);

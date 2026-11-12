@@ -33,8 +33,9 @@ Owned248/deferred148 each source/import surface and witness matrices pass. Adjac
 focused18 retain outcomes at checkpoint. Real async source/callable/lifecycle MIR and3 invalid variants pass.
 Native composition has not run. No style pass yet.
 
-Complete native gate26:9 E7123 and17 E7135 reports comprise11 primary failures and15 explicit dependency cascades.
-Retained inline reference descriptors repair attachment exit464. No new identities. verification.json contains accepted identities.
+Complete native gate26:8 E7123 and18 E7135 comprise10 primary failures and16 explicit cascades.
+Attachment exit464 and withdrawal58 are repaired. Withdrawal26 now cites existing unlink_registration failures.
+verification.json contains exact accepted identities.
 Reports are not independent bug counts.
 
 ## Current boundary
@@ -62,11 +63,13 @@ The boundary regression is red before and green after. Direct-slot/whole-owner r
 overwrite rejection, replay and a real conditional compound-lease postcondition pass. Fixed914, checker508,
 bound136, source/import matrices and adjacent suites retain outcomes. Native attachment exit464 is repaired.
 
-Withdrawal unit3158514 still fails: known live_wait_links after wait_committed has reference-wrapped HostLease
-fields2577/2578, while the next read has bare post-state fields. The roles were already absent before this repair
-could preserve them. Trace host_access result call2 through all frames to find the first role loss.
-The full failed-condition probe is in source-candidate.log. Its static host-link probe adds E7061/E7063 and one
-cascade, so only the complete native gate is acceptance evidence. The proof hook has been removed.
+Whole-value and projected updates now frame from the same complete owner and affected projection.
+The descriptor mask is prepared before selecting the child, so partial updates retain producer-owned reference roles.
+The regression covers that path, and fixed914, checker508/bound136, matrices and adjacent outcomes remain unchanged.
+Native withdrawal58 is repaired. Withdrawal26 is an explicit cascade from unlink_registration185/199.
+All trace hooks are removed. Correct system host/callback inputs make direct source checking reproduce every
+native diagnostic identity exactly. Use this cheaper semantic gate while fixing checking failures, then rerun native
+emission/execution. The same ABI2 standard-library root is used by both workflows.
 
 The simple nullable and dynamic-subslice source controls pass. An intervening opaque operation invalidates a
 whole Access predicate containing a nested borrow. Do not assume every lost whole predicate is unsound.
@@ -74,7 +77,7 @@ Panic360 separately fails slice_pointer entry count <= slice.length with actual 
 Consumed controls and broad traces have been deleted.
 
 Remaining E7123 groups: prepared cleanup/start234, driving197, entry_scope422,
-root_scope268, observer/polling105 and withdrawal58/185/199.
+root_scope268, observer/polling105 and withdrawal185/199.
 Primary E7135: reserve_start175 registration postcondition and panic338. The three execution/root reports are cascades.
 Follow reserve_start into start_frame too. UnboundedMutation Retire with no access type alone proves no defect.
 
