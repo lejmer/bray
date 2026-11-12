@@ -571,6 +571,7 @@ impl State {
                 for projection in &target.projections()[ancestor.projections().len()..] {
                     if element_region && !matches!(projection,
                         StorageProjection::Element(_) | StorageProjection::ElementFromStart(_)
+                            | StorageProjection::AnyElement
                             | StorageProjection::ElementFromEnd(_) | StorageProjection::SliceRange { .. }) {
                         ty = Self::owned_element_type(request.semantic_values(), ty);
                     }

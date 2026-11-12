@@ -1232,8 +1232,22 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
         crate::SelectedTarget::baseline(),
         r#"
         trusted module app;
+
+        using core.target;
         using std.memory;
-        struct Row { mut slots: std.memory.RawBuffer<u32>; }
+
+        struct Row
+        {
+            first: usize;
+            mut slots: std.memory.RawBuffer<u32>;
+        }
+
+        struct Directory
+        {
+            mut rows: std.memory.RawBuffer<Row>?;
+            total: usize;
+        }
+
         trusted func inspect_buffer(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> &mut u32
             uses(raw_memory)
         {
@@ -1241,20 +1255,79 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
             let slots = trusted std.memory.initialized_slice_mut<u32>(&mut rows[index].slots);
             return &mut slots[0];
         }
+
+        trusted func inspect_directory(pos directory: &mut Directory, pos index: usize) -> &mut u32
+            requires(index > 0, index <= directory.total)
+            uses(intrinsic, raw_memory)
+        {
+            if let ?backing = directory.rows
+            {
+                let rows = trusted std.memory.initialized_slice_mut<Row>(&mut backing);
+                let mut low: usize = 0;
+                let mut high = rows.length();
+
+                while low < high
+                {
+                    let middle = low + (high - low) / 2;
+
+                    if rows[middle].first <= index
+                    {
+                        low = middle + 1;
+                    }
+                    else
+                    {
+                        high = middle;
+                    }
+                }
+
+                let first = rows[low - 1].first;
+                let slots = trusted std.memory.initialized_slice_mut<u32>(&mut rows[low - 1].slots);
+
+                return &mut slots[index - first];
+            }
+
+            trusted core.target.abort();
+        }
+
+        trusted func inspect_forwarded(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> &mut u32
+            uses(raw_memory)
+        {
+            return trusted inspect_buffer(buffer, index);
+        }
         "#,
     );
 
     assert!(!application.syntax_tree_result().diagnostics().has_errors());
 
-    let key = source_function_body_key(&application, "inspect_buffer");
-    let checked = application.lowered_unit(key.clone()).unwrap();
+    let mut failures = Vec::new();
 
-    assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
+    for name in ["inspect_buffer", "inspect_directory", "inspect_forwarded"] {
+        let key = source_function_body_key(&application, name);
+        let checked = application.lowered_unit(key.clone()).unwrap();
 
-    let flow = application.storage_flow(key).unwrap();
+        if checked.diagnostics().has_errors() {
+            failures.push(format!("{name}: {checked:#?}"));
+            continue;
+        }
 
-    assert!(!flow.value().is_recovered());
-    assert!(flow.value().dependencies().preserves_storage_on_normal_return());
+        let flow = application.storage_flow(key).unwrap();
+
+        assert!(!flow.value().is_recovered());
+        assert!(flow.value().dependencies().preserves_storage_on_normal_return());
+
+        let returned = flow.value().dependencies().borrows().iter().filter(|relation|
+            relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result).collect::<Vec<_>>();
+
+        if returned.is_empty() || returned.iter().any(|relation|
+            relation.entry().is_none()
+                || relation.provenance() != bray_symbols::DependencyReferenceProvenance::InputRegions
+                || relation.target_projections().iter().filter(|projection| **projection == bray_symbols::DependencyProjection::OwnedTarget).count() != 2
+                || !relation.target_projections().contains(&bray_symbols::DependencyProjection::AnyElement)) {
+            failures.push(format!("{name}: nested selection must retain both owned backing boundaries as closed regions without forwarding authority: {returned:#?}"));
+        }
+    }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

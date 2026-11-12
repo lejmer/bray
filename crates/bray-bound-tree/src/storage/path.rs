@@ -62,6 +62,7 @@ impl StoragePath {
                 StorageProjection::ProductField(_)
                     | StorageProjection::TupleElement(_)
                     | StorageProjection::Element(_)
+                    | StorageProjection::AnyElement
                     | StorageProjection::ElementFromStart(_)
                     | StorageProjection::ElementFromEnd(_)
                     | StorageProjection::ActiveUnionPayloadField { .. }

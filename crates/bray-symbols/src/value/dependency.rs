@@ -43,6 +43,8 @@ pub enum DependencyProjection {
     TupleElement(SymbolOrdinal),
     /// An array or slice element selected by a checked constant term.
     Element(ConstantTermId),
+    /// A region in an unspecified array or slice element, without an exact address.
+    AnyElement,
     /// The present value of a nullable subject.
     NullableValue,
     /// A named union payload field.

@@ -205,6 +205,7 @@ impl OrderEncoder<'_, '_> {
                         term("element", [self.constant(*index)?])
                     }
                     DependencyProjection::NullableValue => term("nullable_value", []),
+                    DependencyProjection::AnyElement => term("any_element", []),
                     DependencyProjection::UnionPayloadField(id) => {
                         term("union_payload_field", [self.symbol((*id).into())?])
                     }

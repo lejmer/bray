@@ -251,7 +251,7 @@ impl State {
 
                         let bounds = self.returned_reference_bounds(reference);
 
-                        if bounds.unknown && !bounds.targets.is_empty() {
+                        if (bounds.unknown || bounds.inexact) && !bounds.targets.is_empty() {
                             input_regions.insert(slot.clone());
                         }
 

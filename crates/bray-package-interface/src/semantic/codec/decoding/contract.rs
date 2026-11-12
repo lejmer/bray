@@ -692,6 +692,7 @@ fn decode_dependency_projections(
             )?),
             6 => InterfaceDependencyProjection::OwnedTarget,
             7 => InterfaceDependencyProjection::UninitPayload,
+            8 => InterfaceDependencyProjection::AnyElement,
             _ => {
                 return Err(crate::semantic::codec::invalid_discriminant(
                     crate::InterfaceValidationField::Dependency,

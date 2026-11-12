@@ -114,7 +114,7 @@ impl State {
                     !references.unknown
                         && (references.displaced
                             || references.targets.is_empty()
-                            || references.is_exact())
+                            || !references.inexact)
                 }) {
                     return None;
                 }
@@ -159,8 +159,9 @@ impl State {
 
         for target in regions {
             match &target.origin {
-                Origin::Returned { reference, .. } => {
+                Origin::Returned { reference, projections } => {
                     bounds.merge(self.returned_reference_bounds(reference));
+                    bounds.unknown |= target.previous || projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget);
                 }
                 _ => {
                     bounds.targets.insert(target);
@@ -201,6 +202,22 @@ impl State {
         // Store the established input regions, never another returned identity.
         // Repeated writes can otherwise make an output its own region bound.
         let bounds = self.unbounded_reference_regions(inputs);
+
+        self.stage_bounded_reference(call, destination, reference, ty, bounds);
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_reference_regions(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+        reference: Place,
+        ty: TypeId,
+        inputs: impl IntoIterator<Item = Target>,
+    ) {
+        let mut bounds = self.expand_returned_regions(inputs);
+
+        // Checked regions are closed physical bounds, not forwarded addresses.
+        bounds.inexact = true;
 
         self.stage_bounded_reference(call, destination, reference, ty, bounds);
     }
@@ -496,9 +513,8 @@ impl State {
         pointer: bray_bound_tree::StorageProjection,
     ) -> Option<&References> {
         self.values
-            .get(owner)
-            .filter(|references| !references.unknown)
-            .or_else(|| self.values.get(&owner.project(&[pointer])))
+            .get(&owner.project(&[pointer]))
+            .or_else(|| self.values.get(owner).filter(|references| !references.unknown))
     }
 
     pub(in crate::analysis::storage_flow) fn stage_owned_buffer_reference(
@@ -515,20 +531,29 @@ impl State {
         self.stage_bounded_reference(call, destination, reference, element, References::one(backing));
     }
 
-    pub(in crate::analysis::storage_flow) fn entry_owned_buffer(
+    pub(in crate::analysis::storage_flow) fn declare_owned_buffer(
         &mut self,
         owner: Target,
         pointer: Target,
         element: TypeId,
     ) {
-        // Declared entry ownership supplies a region, not a fresh allocation.
+        if self.values.contains_key(&pointer) { return; }
+
+        if let Some(recorded) = self.values.get(&owner) {
+            self.values.insert(pointer, recorded.clone());
+            return;
+        }
+
+        // A complete owning descriptor supplies a region, not a fresh allocation.
         // Later moves retain this pointer record without deriving another origin.
         let backing = owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]);
 
-        self.contents
+        let declared = self.contents
             .entry(backing.clone())
             .or_default()
-            .storage_type = Some(element);
+            .storage_type.get_or_insert(element);
+
+        assert_eq!(*declared, element, "an owned buffer keeps its declared backing element type");
 
         self.values.insert(pointer, References::one(backing));
     }

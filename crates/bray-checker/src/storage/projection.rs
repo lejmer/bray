@@ -113,7 +113,7 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
                 .expect("generator owns contiguous element storage"),
         ),
         (TypeData::Nullable(target), DependencyProjection::NullableValue) => Some(*target),
-        (TypeData::Array { .. } | TypeData::Slice(_), DependencyProjection::Element(_)) => {
+        (TypeData::Array { .. } | TypeData::Slice(_), DependencyProjection::Element(_) | DependencyProjection::AnyElement) => {
             sequence_element_type(request, owner)
         }
         (TypeData::Tuple(elements), DependencyProjection::TupleElement(index)) => {
@@ -303,6 +303,7 @@ fn convert_projections<E>(
             DependencyProjection::NullableValue => StorageProjection::NullableValue,
             DependencyProjection::OwnedTarget => StorageProjection::OwnedTarget,
             DependencyProjection::UninitPayload => StorageProjection::UninitPayload,
+            DependencyProjection::AnyElement => StorageProjection::AnyElement,
             DependencyProjection::UnionPayloadField(field) => {
                 StorageProjection::ActiveUnionPayloadField {
                     variant: variant(field)?,
@@ -350,6 +351,7 @@ pub fn projected_storage_type<C: CheckerRequestContext + ?Sized>(
             DependencyProjection::UnionPayloadField(field)
         }
         StorageProjection::Element(_)
+        | StorageProjection::AnyElement
         | StorageProjection::ElementFromStart(_)
         | StorageProjection::ElementFromEnd(_) => {
             return Ok(DiagnosticResult::new(

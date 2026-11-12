@@ -592,6 +592,7 @@ impl StructuralValueEncoder<'_, '_> {
                 }
                 DependencyProjection::OwnedTarget => self.tag(5),
                 DependencyProjection::UninitPayload => self.tag(6),
+                DependencyProjection::AnyElement => self.tag(7),
             }
         }
 
