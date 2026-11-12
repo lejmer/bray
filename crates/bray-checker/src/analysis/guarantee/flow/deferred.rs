@@ -8,6 +8,28 @@ use super::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis::guarantee) fn awaited_entry(
+        &self,
+        state: &ExecutionState,
+        invocation: BoundExecutionSite,
+    ) -> Option<crate::ExecutionCallEvidence> {
+        let expression = invocation.expression()?;
+        if invocation != expression.into() { return None; }
+        let Some(bray_bound_tree::BoundExpression::Await(awaited)) = self.request.view().expression(expression) else {
+            return None;
+        };
+        let value = self.value(state, awaited.operand());
+
+        Some(crate::ExecutionCallEvidence {
+            owned_inputs: [bray_symbols::SymbolOrdinal::new(0)].into(),
+            trusted_assumptions: state.call_trusted_assumptions([value.clone()]),
+            assumptions: state.assumptions.clone(),
+            arguments: [(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)), value)].into(),
+            trusted_boundary: !state.trust_boundaries.is_empty(),
+            ..Default::default()
+        })
+    }
+
     pub(in crate::analysis) fn deferred_alternatives(
         &self,
         state: &ExecutionState,

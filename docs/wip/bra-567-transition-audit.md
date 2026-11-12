@@ -13,6 +13,8 @@ Complete [BRA-567](https://linear.app/bray-lang/issue/BRA-567) on [PR710](https:
 Branch feature/bra-567-async-root-orchestration in target/bra-567-audit. Leave original develop untouched.
 Checkpoint pushes authorized. After semantic completion obtain independent review, set PR ready and Linear In Review.
 Never merge or mark Done.
+Questions and corrections steer this work. Before any final response check the remaining gates and continue any
+authorized work. A checkpoint, resolved subproblem or workflow question is not a stopping point.
 
 Inventory actual CFG transitions and their ownership, storage, liveness and lowering consumers.
 Prove native async-ownership-composition.bray and invalid variants. Check production before consumption,
@@ -101,9 +103,58 @@ Existing owned-region transport and independent-alias tests are negative oracles
 the identified producer before any semantic patch. Temporary trace hooks and consumed output are removed.
 
 Remaining groups: prepared cleanup/start234, driving197, entry_scope422, root_scope268, observer/polling105,
-withdrawal185/199, reserve_start175 and panic338. Follow reserve_start into start_frame. Unbounded Retire alone
+withdrawal185/199 and reserve_start175. Follow reserve_start into start_frame. Unbounded Retire alone
 proves no defect. The simple nullable control passes, while an opaque operation invalidates an Access predicate
 containing a nested borrow. Do not assume every lost whole predicate is unsound.
+
+### Open contract: mutable nullable-owner extraction
+
+Real source reproduces entry_scope422: external/callback mutable producers promise nullable marker ownership.
+Immediate shared reborrow can use that promise. replace_value(owner, none) then loses it on the returned whole owner.
+Direct/nested typed-buffer retirement controls pass, so they do not establish a retirement defect.
+Rule: an authorized whole-value extraction transfers the current value's promised evidence and its presence guard.
+It cannot create evidence without a producer or transfer a different owner's evidence. The fixed new test
+mutated_nullable_owners_keep_promised_evidence_through_extraction establishes those three outcomes before a fix.
+Trace producer completion, input witness carriers, captured source snapshots, invalidation and result transfer.
+Producer completion records both loan and contained-value carriers. Its condition exactly matches the later demand.
+replace_value admission captures only its none argument, no witnesses. Invalidation deletes both source carriers
+before result publication. Reuse the existing private ledger protocol for checked complete moves from borrowed slots.
+Keep those proof sources separate from physical by-value ownership. Trace normal/failure, deferred capture/activation,
+joins and cancellation before accepting the experiment. No reconstruction from Boolean facts or new witness ledger.
+Temporary source controls remain active. Production std source has unrelated errors, so the permanent regression
+checks the caller's lowered-unit diagnostics. Native composition remains the full-program gate.
+
+Current experiment admits extracted_values separately from physical by-value inputs. Mapping, joins, intersection,
+normal/failure retirement and deferred proof traversal carry those snapshots. Await admits the actual future before
+body effects. Failure retirement precedes deferred metadata removal. Explicit extraction publishes current formal
+lineage through the existing bounded layout traversal, never borrowing authority at entry or crossing opaque
+PostState/reference/scalar boundaries. Changed-child masks remain enforced. No second lineage map.
+
+Eleven real-source extraction/cancellation outcomes and511 checker tests pass. Fixed916:787/30/99, original907 and
+all source/import matrices unchanged. Real runtime source gate repairs entry_scope422 but adds2 primary failures:
+activation/run/completion77 and task/observer/lifecycle333, plus2 dependent E7135. Batch is not accepted.
+The exact nullable/callable-backed field control reproduces after sibling extraction or parent replacement.
+Immediate observation passes. Trace shows no carrier lifetime dependencies. Marker preservation is true, but the
+nullable guard is unpreserved. Local owned tags are present in footprint.discriminants but preserve_storage_values
+only handles empty owned markers. Descriptor ancestry preserves identity, not the tag. Plain scalar/nested scalar
+fixtures pass and do not reproduce this case. New fixed oracle uses the actual nullable/callable-backed shape.
+
+Rule: an owned local's tag survives only if all actual mutation targets are physically disjoint. Carry that proof as
+Discriminant in the existing stable_values map. Do not infer tag preservation from descriptor/marker identity.
+The producer selects footprint.owned_observations, never the mixed owned/borrowed discriminants index. The fixed
+controls rejected that mixed-index mistake. preserve_storage_values now publishes disjoint owned tags, and its shared
+survival classifier makes raw tag mutation require disjointness. No new representation or tag reconstruction.
+All14 fixed source outcomes pass, including sibling/parent positives and mutation-of-result rejection. Exact temporary
+controls also pass. Whole-marker and plain scalar-record controls pass and do not establish another producer defect.
+Fixed917:788/30/99, original907 and all matrices unchanged. Checker511 and bound136 pass.
+Full runtime source gate remains28: entry_scope422 repaired,2 new primary/2 cascades unchanged. Batch unaccepted.
+A returned-borrow control reproduces input postconditions lost on its second extraction. Formal-reference and plain
+scalar-record controls pass. Trace observed_call_result: a computed borrow gets an expression loan identity but
+its reached contents remain a bare Call with no ownership identity. Published extraction now exposes that distinction.
+Next trace producer-owned reached snapshots, actual call/reference aliases, postcondition registration and field
+transport. Do not invent ownership from a symbolic computation or reconstruct it at the extraction consumer.
+Keep pure getter meaning separate from owning authority. No further semantic edits until this contract closes.
+All trace hooks are removed. Native and actual async execution remain unverified. No style pass.
 
 ## Execution and remaining gates
 

@@ -89,6 +89,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             .zip(ty.and_then(|ty| self.input.footprint.inline_carriers(ty)))
                             .is_none_or(|(owner, transfer)| owner.is_empty() || !owner.is_disjoint(transfer))
                     },
+                    // Tags are actual stored data. A surviving marker or owner
+                    // identity alone cannot preserve an overwritten variant.
+                    Observation::Discriminant => true,
                     _ => false,
                 };
 
@@ -108,6 +111,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         match invalidation {
             StorageInvalidation::All { stable_values, stable_descriptors, .. }
             | StorageInvalidation::Observed { stable_values, stable_descriptors, .. } => {
+                for observations in self.input.footprint.owned_observations.values() {
+                    for (path, observation) in observations {
+                        if *observation != Observation::Discriminant { continue; }
+
+                        if survives(&Target::storage(path.clone()), Observation::Discriminant, None, false) {
+                            Observation::Discriminant.record_preservation(path.clone(), stable_values);
+                        }
+                    }
+                }
+
                 for (path, marker) in &self.input.footprint.empty_markers {
                     if !survives(&Target::storage(path.clone()), Observation::Marker(*marker), None, false) { continue; }
 

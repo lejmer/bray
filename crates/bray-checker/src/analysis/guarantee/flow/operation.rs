@@ -272,6 +272,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.entries.insert(expression.into(), entry);
                     }
 
+                    if awaited.is_some() {
+                        let private = state.entry_witness_inputs(expression.into());
+                        state.suspend_owned_witnesses(&private);
+                    }
+
                     if let Some(observed) = self.observed_call_result(state, expression) {
                         state.pending_results.insert(expression, observed);
                     }
@@ -353,16 +358,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(invocation)) =
             edge.refinement()
         {
-            if let Some(expression) = invocation.expression()
-                && let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
-                    self.request.view().expression(expression)
-            {
-                let value = self.value(state, awaited.operand());
+            let deferred = invocation.expression().and_then(|expression| {
+                let bray_bound_tree::BoundExpression::Await(awaited) = self.request.view().expression(expression)? else {
+                    return None;
+                };
 
-                state.deferred_invocations.remove(value.owner_identity());
-            }
+                Some(self.value(state, awaited.operand()).owner_identity().clone())
+            });
 
             self.retire_failed_call(state, invocation);
+
+            if let Some(owner) = deferred { state.deferred_invocations.remove(&owner); }
 
             if let bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(
                 expression,

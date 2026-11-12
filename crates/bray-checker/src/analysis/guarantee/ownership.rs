@@ -10,7 +10,15 @@ impl ExecutionState {
         &self,
         value: &ExecutionCondition,
     ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
-        self.owned_result_bounded(value, &mut { ExecutionCondition::WORK_LIMIT })
+        self.owned_result_bounded(value, false, &mut { ExecutionCondition::WORK_LIMIT })
+    }
+
+    /// Publishes current formal origins only after a checked move out of a borrowed slot.
+    pub(super) fn extracted_result(
+        &self,
+        value: &ExecutionCondition,
+    ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
+        self.owned_result_bounded(value, true, &mut { ExecutionCondition::WORK_LIMIT })
     }
 
     /// Selects actual descendant mappings independently of the containing owner.
@@ -20,7 +28,7 @@ impl ExecutionState {
     ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
         let mut budget = ExecutionCondition::WORK_LIMIT;
 
-        let children = self.owned_result_bounded(value, &mut budget).try_map(
+        let children = self.owned_result_bounded(value, false, &mut budget).try_map(
             &mut |transfer| Ok::<_, std::convert::Infallible>(
                 if transfer.output().is_empty() { DependencyOwnedResult::default() }
                 else { DependencyOwnedResult::Transfer(transfer.clone()) },
@@ -34,6 +42,7 @@ impl ExecutionState {
     fn owned_result_bounded(
         &self,
         value: &ExecutionCondition,
+        extraction: bool,
         budget: &mut usize,
     ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
         let Some(remaining) = budget.checked_sub(1) else {
@@ -43,7 +52,7 @@ impl ExecutionState {
         *budget = remaining;
 
         if let Some(payload) = value.nullable_payload_snapshot() {
-            return self.owned_result_bounded(payload, budget);
+            return self.owned_result_bounded(payload, extraction, budget);
         }
 
         let role = value.ownership_identity().map(|(kind, _)| kind);
@@ -61,13 +70,13 @@ impl ExecutionState {
         }
 
         let contents = match value {
-            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => self.owned_result_bounded(contents, budget),
+            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => self.owned_result_bounded(contents, extraction, budget),
             ExecutionCondition::Present(value) => {
-                self.prefixed_owned_result(value, StorageProjection::NullableValue, budget)
+                self.prefixed_owned_result(value, StorageProjection::NullableValue, extraction, budget)
             }
-            ExecutionCondition::Tagged(_, contents) => self.owned_result_bounded(contents, budget),
+            ExecutionCondition::Tagged(_, contents) => self.owned_result_bounded(contents, extraction, budget),
             ExecutionCondition::Constructed(base, fields) => {
-                let inherited = self.owned_result_bounded(base, budget).try_map(
+                let inherited = self.owned_result_bounded(base, extraction, budget).try_map(
                     &mut |transfer| {
                         if transfer.output().first().is_some_and(|first| fields.iter().any(|(field, _)| field == first)) {
                             let prior = selected_data(base, transfer.output(), budget);
@@ -119,11 +128,11 @@ impl ExecutionState {
                         return None;
                     }
 
-                    Some(self.prefixed_owned_result(value, *field, budget))
+                    Some(self.prefixed_owned_result(value, *field, extraction, budget))
                 })))
             }
             ExecutionCondition::Projection(field, parent) => self
-                .owned_result_bounded(parent, budget)
+                .owned_result_bounded(parent, extraction, budget)
                 .try_map(
                     &mut |transfer| {
                         let Some((first, rest)) = transfer.output().split_first() else {
@@ -160,6 +169,10 @@ impl ExecutionState {
                     &mut |condition| Ok(Some(condition.clone())),
                 )
                 .expect("ownership projection is infallible"),
+            ExecutionCondition::Input(place) if extraction && place.is_callable_input() => {
+                DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(value.clone(), [])
+                    .with_preservation(DependencyValuePreservation::all()))
+            }
             _ => DependencyOwnedResult::default(),
         };
 
@@ -242,9 +255,10 @@ impl ExecutionState {
         &self,
         value: &ExecutionCondition,
         field: StorageProjection,
+        extraction: bool,
         budget: &mut usize,
     ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
-        self.owned_result_bounded(value, budget)
+        self.owned_result_bounded(value, extraction, budget)
             .try_map(
                 &mut |transfer| {
                     if transfer.output().len() >= ExecutionCondition::WORK_LIMIT {
@@ -352,6 +366,31 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation, SymbolOrdinal};
+
+    #[test]
+    fn checked_extraction_publishes_current_formal_contents_without_borrow_authority() {
+        let original = ExecutionCondition::Input(ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
+            bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0)).into())));
+        let state = ExecutionState::default();
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let current = original.clone().with_storage_component(&[field], ExecutionCondition::Unknown);
+
+        assert!(state.owned_result(&original).is_empty(), "borrowing a formal never grants ownership");
+        assert!(state.extracted_result(&original.clone().borrowed()).is_empty(), "returning a loan cannot extract its referent");
+        assert!(state.extracted_result(&ExecutionCondition::ScalarValue(std::sync::Arc::new(original.clone()))).is_empty(), "copied data cannot carry owner authority");
+        let moved = state.extracted_result(&original);
+        assert!(moved.transfers().any(|transfer| transfer.input() == original && transfer.preservation().preserves_value()));
+        let changed = state.extracted_result(&current);
+        assert!(changed.transfers().any(|transfer| transfer.input() == original && transfer.output().is_empty()));
+        assert!(changed.transfers().all(|transfer| transfer.preservation().children().get(&field)
+            .is_some_and(|child| !child.preserves_value())), "retained identity cannot restore overwritten contents");
+
+        let (_, sites) = crate::test_support::expression_unit(bray_bound_tree::BoundUnitId::new(0), |tree, origin| {
+            vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
+        });
+        let opaque = ExecutionCondition::post_state(bray_bound_tree::StorageMutation::Operation(sites[0].into()), original);
+        assert!(state.extracted_result(&opaque).is_empty(), "opaque replacement cannot resurrect the old formal value");
+    }
 
     #[test]
     fn conditional_predecessor_masks_survive_joined_data_and_untouched_updates() {

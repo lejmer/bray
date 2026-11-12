@@ -426,6 +426,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 _ => Default::default(),
             },
             witness_inputs: Default::default(),
+            extracted_values: Default::default(),
             copy_sources: Default::default(),
             owned_inputs: Default::default(),
             addresses: Default::default(),

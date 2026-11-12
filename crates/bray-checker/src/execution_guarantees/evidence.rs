@@ -30,6 +30,9 @@ pub struct ExecutionCallEvidence {
     /// Exact existing carriers admitted at invocation. Their ledger clauses stay
     /// private until completion uses this entry's captured truth and actual return.
     pub(crate) witness_inputs: std::collections::BTreeSet<super::ExecutionCondition>,
+    /// Existing complete values selected by checked moves out of borrowed slots.
+    /// These retain private proof, without transferring ownership of the borrow.
+    pub(crate) extracted_values: std::collections::BTreeSet<super::ExecutionCondition>,
     /// Copy origins while their observations remain unchanged. These are value
     /// correlations, never language equality predicates or ownership authority.
     pub(crate) copy_sources:
@@ -54,6 +57,16 @@ impl ExecutionCallEvidence {
         self.owned_inputs.iter().filter_map(|ordinal| {
             super::ExecutionPlace::argument(*ordinal).value_in(&self.arguments)
         })
+    }
+
+    /// Values whose existing evidence is admitted independently of result publication.
+    pub(crate) fn witness_sources(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
+        self.owned_arguments().chain(self.extracted_values.iter().cloned())
+    }
+
+    /// Ends admitted proof that no surviving value or result retains.
+    pub(crate) fn retiring_witness_values(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
+        self.witness_sources().chain(self.witness_inputs.iter().cloned())
     }
 
     /// Project current ordinary knowledge into immutable copied input identities.
@@ -195,6 +208,9 @@ impl ExecutionCallEvidence {
             .map(&mut map)
             .collect::<Result<_, E>>()?;
 
+        mapped.extracted_values = self.extracted_values.iter().map(&mut map)
+            .collect::<Result<_, E>>()?;
+
         // Proof queries retain the physical dependencies of each independently mapped address.
         for (place, addresses) in &self.addresses {
             let mapped_addresses = mapped.addresses.entry(place.clone()).or_default();
@@ -247,6 +263,7 @@ impl ExecutionCallEvidence {
             self.arguments.len(),
             self.copy_sources.len(),
             self.witness_inputs.len(),
+            self.extracted_values.len(),
         );
 
         let mut addresses_changed = false;
@@ -313,6 +330,8 @@ impl ExecutionCallEvidence {
         self.witness_inputs
             .retain(|owner| other.witness_inputs.contains(owner));
 
+        self.extracted_values.retain(|value| other.extracted_values.contains(value));
+
         addresses_changed
             || arguments_changed
             || assumptions_changed
@@ -326,6 +345,7 @@ impl ExecutionCallEvidence {
                     self.arguments.len(),
                     self.copy_sources.len(),
                     self.witness_inputs.len(),
+                    self.extracted_values.len(),
                 )
     }
 
