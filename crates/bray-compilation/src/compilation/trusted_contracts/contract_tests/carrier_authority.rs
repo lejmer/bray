@@ -71,7 +71,7 @@ fn immutable_guard_fields_keep_acquisition_permits_paired() {
             }}
             trusted func acquire(pos owner: &Lock) -> Guard
                 ensures(trusted held(&result.permit))
-                {{
+            {{
                 return
                 {{
                     owner = owner, permit = Permit {{}}
@@ -170,12 +170,12 @@ fn acquisition_authority_belongs_to_the_complete_produced_carrier() {
             trusted predicate held(marker: &Marker);
             trusted func acquire(pos owner: &Lock) -> Guard
                 ensures(trusted held(&result.marker)) executes(pure, total)
+            {{
+                return
                 {{
-                    return
-                    {{
-                        owner = owner, marker = Marker {{}}
-                    }};
-                }}
+                    owner = owner, marker = Marker {{}}
+                }};
+            }}
             func observe(pos guard: &Guard)
                 requires(trusted held(&guard.marker)) executes(pure, total) {{}}
             func caller()
@@ -258,12 +258,13 @@ fn independent_tuple_carriers_remain_whole_after_destructuring() {
                 executes(pure, total)
             {{
                 return (
-                {{
-                    marker = Marker {{}}
-                }},
-                {{
-                    marker = Marker {{}}
-                }});
+                    {{
+                        marker = Marker {{}}
+                    }},
+                    {{
+                        marker = Marker {{}}
+                    }}
+                );
             }}
             func observe(pos guard: &Guard)
                 requires(trusted held(&guard.marker)) executes(pure, total) {{}}

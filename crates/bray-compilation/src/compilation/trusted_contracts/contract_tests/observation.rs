@@ -208,12 +208,12 @@ fn equal_scalar_contents_do_not_identify_borrowed_predicate_subjects() {
             trusted func make(pos value: &u8) -> u64
                 executes(pure, total)
                 when(ready(value))
-                {{
-                    ensures(trusted result_live(result))
-                }}
-                {{
-                    return 0;
-                }}
+            {{
+                ensures(trusted result_live(result))
+            }}
+            {{
+                return 0;
+            }}
             trusted predicate result_live(value: u64);
             func observe_result(pos value: u64)
                 requires(trusted result_live(value))
@@ -251,12 +251,12 @@ fn mutation_cannot_reuse_an_ordinary_borrowed_guard_to_establish_authority() {
         trusted func make(pos value: &u8) -> u64
             executes(pure, total)
             when(ready(value))
-            {
-                ensures(trusted live(result))
-            }
-            {
-                return 0;
-            }
+        {
+            ensures(trusted live(result))
+        }
+        {
+            return 0;
+        }
         func observe(pos value: u64)
             requires(trusted live(value))
         {
@@ -285,12 +285,12 @@ fn ordinary_borrowed_guards_select_the_producers_entry_domain() {
         trusted predicate live(value: u64);
         trusted func make(pos value: &u8) -> u64
             when(ready(value))
-            {
-                ensures(trusted live(result))
-            }
-            {
-                return 0;
-            }
+        {
+            ensures(trusted live(result))
+        }
+        {
+            return 0;
+        }
         func observe(pos value: u64)
             requires(trusted live(value))
         {

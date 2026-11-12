@@ -63,9 +63,9 @@ fn slice_bounds_follow_descriptor_identity_through_element_writes_and_replacemen
             module app;
             func caller(pos slice: &mut [u8], pos other: &mut [u8], pos replace: bool)
                     executes(total)
-                {{
-                    {body}
-                }}
+            {{
+                {body}
+            }}
         "#
         );
 

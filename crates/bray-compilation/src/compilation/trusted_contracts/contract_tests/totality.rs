@@ -90,16 +90,16 @@ fn total_indexing_preserves_bounds_across_optional_borrow_initialization() {
             module app;
                         func production_probe(pos values: &mut [u64], pos index: usize) -> (&mut u64)?
                             executes(total)
-                        {{
-                            let count = values.length();
+            {{
+                let count = values.length();
 
-                            if index < count
-                            {{
-                                {body}
-                            }}
+                if index < count
+                {{
+                    {body}
+                }}
 
-                            return none;
-                        }}
+                return none;
+            }}
             "#
         );
 
@@ -186,12 +186,12 @@ fn total_record_scans_require_a_bounded_unaliased_counter() {
             r#"module app;
             func production_probe(pos limit: usize) -> usize
                 executes(total)
-            {{
-                let mut count: usize = limit;
-                let mut index: usize = 0;
-                while {guard} {{ {body} {increment} }}
-                return index;
-            }}"#
+{{
+    let mut count: usize = limit;
+    let mut index: usize = 0;
+    while {guard} {{ {body} {increment} }}
+    return index;
+}}"#
         );
 
         let compilation = production_host_compilation(&caller);

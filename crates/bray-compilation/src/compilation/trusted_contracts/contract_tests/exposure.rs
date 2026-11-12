@@ -72,7 +72,7 @@ fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
             trusted predicate live(carrier: &Carrier);
             trusted func make(pos payload: &mut Payload) -> Carrier
                 ensures(trusted live(&result)) executes(pure, total)
-                {{
+            {{
                 return
                 {{
                     payload = payload
@@ -457,8 +457,7 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
             }}
             struct Owner
             {{
-                storage: Uninit<[u64;
-                16]>;
+                storage: Uninit<[u64; 16]>;
                 finish: Native;
             }}
             trusted predicate held(owner: &Owner);
@@ -470,7 +469,7 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
             }}
             const func present(pos owner: &(Owner?)) -> &Owner
                 requires(owner matches ?_) executes(pure, total)
-                {{
+            {{
                 return match owner
                 {{
                     case ?value
@@ -486,22 +485,16 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
             predicate optional_held(owner: &(Owner?)) = owner matches none || held(present(owner));
             const func successful(pos owner: &Result<(Owner?), u32>) -> &(Owner?)
                 requires(owner matches Ok(_)) executes(pure, total)
-                {{
+            {{
                 return match owner
                 {{
-                    case Ok(value)
-                    {{
-                        yield &value;
-                    }}
-                    case Error(_)
-                    {{
-                        panic("missing success");
-                    }}
+                    case Ok(value) {{ yield &value; }}
+                    case Error(_) {{ panic("missing success"); }}
                 }};
             }}
             trusted func create(pos mode: u8) -> Result<(Owner?), u32>
                 ensures(!(result matches Ok(_)) || trusted optional_held(successful(&result)))
-                {{
+            {{
                 if mode == 1
                 {{
                     return Ok(none);
@@ -529,18 +522,11 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
                     {{
                         match consume optional
                         {{
-                            case ?owner
-                            {{
-                                {body}
-                            }}
-                            case none
-                            {{
-                            }}
+                            case ?owner {{ {body} }}
+                            case none {{}}
                         }}
                     }}
-                    case Error(_)
-                    {{
-                    }}
+                    case Error(_) {{}}
                 }}
             }}
         "#

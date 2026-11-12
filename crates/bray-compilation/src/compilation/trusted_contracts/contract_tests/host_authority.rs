@@ -200,28 +200,28 @@ fn a_live_payload_borrow_preserves_only_its_enclosing_projection() {
         let caller = format!(
             r#"module app;
             struct Inner
-            {{
-                mut value: u64;
-            }}
+{{
+    mut value: u64;
+}}
             struct State
-            {{
-                mut first: u64;
-                mut second: u64;
-                mut inner: Inner?;
-            }}
+{{
+    mut first: u64;
+    mut second: u64;
+    mut inner: Inner?;
+}}
             struct Owner
-            {{
-                mut state: State?;
-            }}
+{{
+    mut state: State?;
+}}
             func poke(pos state: &mut State)
-            {{
-                state.first = 2;
-                state.inner = none;
-            }}
+{{
+    state.first = 2;
+    state.inner = none;
+}}
             func production_probe(pos owner: &mut Owner)
-            {{
-                if let ?state = owner.state {{ let payload: &mut State = &mut state; {body} }}
-            }}"#
+{{
+    if let ?state = owner.state {{ let payload: &mut State = &mut state; {body} }}
+}}"#
         );
 
         let compilation = production_host_compilation(&caller);

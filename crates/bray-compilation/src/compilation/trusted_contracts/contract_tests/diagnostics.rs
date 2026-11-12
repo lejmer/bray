@@ -59,10 +59,12 @@ fn inline_callback_conditions_show_a_snippet_without_the_function_body() {
 
         func caller()
         {
-            inspect(lambda() -> u32
-            {
-                return 12345;
-            });
+            inspect(
+                lambda() -> u32
+                {
+                    return 12345;
+                }
+            );
         }
     "#);
     let diagnostics = application.check_diagnostics();

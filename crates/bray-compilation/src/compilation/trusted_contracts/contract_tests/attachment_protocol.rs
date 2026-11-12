@@ -115,9 +115,9 @@ using core.target;
  func production_probe(pos {parameter}) -> {result}
      executes({property})
      uses(intrinsic)
- {{
-     return {body};
- }}"#
+                {{
+                    return {body};
+                }}"#
             );
 
             let compilation = crate::test_support::compilation(&source);

@@ -91,7 +91,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     },
                     // Tags are actual stored data. A surviving marker or owner
                     // identity alone cannot preserve an overwritten variant.
-                    Observation::Discriminant => true,
+                    Observation::Discriminant | Observation::Address => true,
                     _ => false,
                 };
 
@@ -113,10 +113,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             | StorageInvalidation::Observed { stable_values, stable_descriptors, .. } => {
                 for observations in self.input.footprint.owned_observations.values() {
                     for (path, observation) in observations {
-                        if !matches!(observation, Observation::Value | Observation::Discriminant) { continue; }
+                        if !matches!(observation, Observation::Value | Observation::Discriminant | Observation::Address) { continue; }
 
                         if survives(&Target::storage(path.clone()), *observation, None, false) {
-                            observation.record_preservation(path.clone(), stable_values);
+                            if *observation == Observation::Address {
+                                stable_descriptors.insert(path.clone());
+                            } else {
+                                observation.record_preservation(path.clone(), stable_values);
+                            }
                         }
                     }
                 }
@@ -125,13 +129,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     if !survives(&Target::storage(path.clone()), Observation::Marker(*marker), None, false) { continue; }
 
                     stable_values.insert(path.clone(), bray_bound_tree::StorageObservationKind::Value);
-
-                    // A surviving marker retains its typed carrier identity. Its
-                    // enclosing snapshots may still have different contents.
-                    stable_descriptors.extend((0..path.projections.len()).map(|length| bray_bound_tree::StoragePath {
-                        root: path.root,
-                        projections: path.projections[..length].into(),
-                    }));
                 }
             }
             StorageInvalidation::Paths(_) => return,

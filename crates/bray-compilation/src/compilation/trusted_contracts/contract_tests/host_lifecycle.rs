@@ -104,10 +104,14 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
             r#"module app;
 
 using std.memory;
- using internal bray.runtime.bootstrap.host; using internal bray.runtime.bootstrap.thread.destruction; using internal bray.runtime.bootstrap.host.attachment; using internal bray.runtime.bootstrap.entry.bridge; func production_probe()
- {{
-     {operation}
- }}"#
+            using internal bray.runtime.bootstrap.host;
+            using internal bray.runtime.bootstrap.thread.destruction;
+            using internal bray.runtime.bootstrap.host.attachment;
+            using internal bray.runtime.bootstrap.entry.bridge;
+            func production_probe()
+            {{
+                {operation}
+            }}"#
         );
 
         let compilation = production_host_compilation(&source);

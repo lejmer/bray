@@ -137,9 +137,9 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             func forward(pos owner: &Owner) -> &Owner
                 requires(trusted held(&owner.marker))
                 ensures(trusted held(&result.marker)) executes(pure, total)
-                {{
-                    return owner;
-                }}
+            {{
+                return owner;
+            }}
             func observe(pos owner: &Owner)
                 requires(trusted held(&owner.marker)) executes(pure, total) {{}}
             trusted func caller(pos owner: &Owner, pos address: usize)
@@ -196,8 +196,7 @@ fn borrowed_payload_writes_preserve_marker_evidence_without_retiring_the_carrier
                 struct Payload
                 {{
                     mut value: bool;
-                    mut counts: [u32;
-                    2];
+                    mut counts: [u32; 2];
                 }}
                 struct Guard
                 {{
