@@ -96,7 +96,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             ReceiverMode::Shared => StorageAccessPurpose::Borrow(BorrowKind::Shared),
             ReceiverMode::Mutable => StorageAccessPurpose::Borrow(BorrowKind::Mutable),
             ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => {
-                StorageAccessPurpose::ValueTransfer
+                StorageAccessPurpose::Move
             }
         }
     }
