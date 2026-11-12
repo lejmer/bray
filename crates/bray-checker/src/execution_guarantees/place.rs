@@ -243,6 +243,10 @@ impl ExecutionPlace {
                 if let Some(reference) = storage
                     .binding_targets(bray_bound_tree::StorageBinding::Identity(identity))
                     .find_map(bray_bound_tree::StorageBindingTarget::reference_target)
+                    .or_else(|| storage.root_access(identity).and_then(|access| {
+                        storage.binding_targets(bray_bound_tree::StorageBinding::Access(access))
+                            .find_map(bray_bound_tree::StorageBindingTarget::reference_target)
+                    }))
                 {
                     reference
                 } else if matches!(

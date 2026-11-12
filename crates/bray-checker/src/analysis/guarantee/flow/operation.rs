@@ -84,6 +84,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .and_then(|_| self.refinements.get(&operation.occurrence()));
 
         self.transfer_operation(state, operation, invalidation, assignment.as_ref());
+        self.complete_operation(state, operation, None);
 
         true
     }
@@ -217,9 +218,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         entry.pending_execution = deferred;
                     }
                 }
-                AnalysisCallPhase::Completion => {
-                    self.complete_operation(state, operation, None);
-                }
+                AnalysisCallPhase::Completion => {}
             }
 
             return;
@@ -279,14 +278,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     self.expression(state, expression, invalidation, assignment_place,
                         matches!(operation, super::super::super::model::AnalysisOperationKind::Bound(_)));
-                }
-
-                if self
-                    .checked_body
-                    .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
-                    .is_some()
-                {
-                    self.complete_operation(state, operation, None);
                 }
 
                 state.trust_boundaries.remove(&expression);
