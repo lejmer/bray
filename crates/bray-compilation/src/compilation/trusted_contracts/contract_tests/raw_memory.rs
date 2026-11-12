@@ -423,7 +423,7 @@ fn raw_retirement_distinguishes_private_descriptors_from_borrowed_storage() {
 
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+                DiagnosticKind::CheckingTrustedObligationNotProven);
         }
     }
 }

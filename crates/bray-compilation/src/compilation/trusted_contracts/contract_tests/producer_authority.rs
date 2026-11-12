@@ -44,7 +44,7 @@ fn bootstrap_host_access_requires_owner_bound_acquisition_evidence() {
             }}
             trusted func acquire(pos host: &HostOwner, pos lock: &core.atomic.Atomic<u32>) -> HostAccess
                 ensures(trusted acquired(&result))
-                {{
+            {{
                 let (_, selected) = core.atomic.compare_exchange<u32, 3, 1>(lock, expected = 0, desired = 1);
                 return
                 {{
