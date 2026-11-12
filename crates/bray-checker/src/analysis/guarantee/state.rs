@@ -556,6 +556,34 @@ impl ExecutionState {
         let rename_identity =
             |value: &ExecutionCondition| value.with_joined_owners(replacements, identities);
 
+        let mut computations = DeferredInvocations::new();
+
+        for (owner, mut entries) in std::mem::take(&mut self.deferred_invocations) {
+            let value = rename_identity(&owner);
+
+            if value == ExecutionCondition::Unknown {
+                continue;
+            }
+
+            entries.join_values(
+                replacements,
+                identities,
+                &self.current,
+                (value != owner).then_some(&self.assumptions),
+            );
+
+            match computations.entry(value) {
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(entries);
+                }
+                std::collections::btree_map::Entry::Occupied(mut slot) => {
+                    slot.get_mut().merge(&entries);
+                }
+            }
+        }
+
+        self.deferred_invocations = computations;
+
         for facts in [&mut self.assumptions, &mut self.trusted_assumptions] {
             let mut renamed = BTreeSet::new();
 
@@ -603,33 +631,6 @@ impl ExecutionState {
         }
 
         self.owned_results = ownership;
-
-        let mut computations = DeferredInvocations::new();
-
-        for (owner, mut entries) in std::mem::take(&mut self.deferred_invocations) {
-            let value = rename_identity(&owner);
-
-            if value == ExecutionCondition::Unknown {
-                continue;
-            }
-
-            entries.join_values(
-                replacements,
-                identities,
-                (value != owner).then_some((&self.assumptions, &self.current)),
-            );
-
-            match computations.entry(value) {
-                std::collections::btree_map::Entry::Vacant(slot) => {
-                    slot.insert(entries);
-                }
-                std::collections::btree_map::Entry::Occupied(mut slot) => {
-                    slot.get_mut().merge(&entries);
-                }
-            }
-        }
-
-        self.deferred_invocations = computations;
 
         for value in self.current.values_mut() {
             *value = rename(value);

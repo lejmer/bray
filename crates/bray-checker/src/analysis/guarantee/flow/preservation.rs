@@ -57,7 +57,10 @@ impl ValuePreservation {
         // formal input transfers. Fresh local owners have no input mapping.
         let owned_context = source.ownership_identity()
             .is_some_and(|(role, _)| role == crate::execution_guarantees::ExecutionObservationKind::Owned);
-        let next = mask.apply_bounded(&source, place, mutation, owned_context, &mut { ExecutionCondition::WORK_LIMIT });
+        let empty = Default::default();
+        let moved = state.entries.get(&mutation.occurrence())
+            .map_or(&empty, |entry| &entry.extracted_values);
+        let next = mask.apply_bounded(&source, place, mutation, owned_context, moved, &mut { ExecutionCondition::WORK_LIMIT });
         if source == next || ownership.is_empty() { return next; }
 
         let ownership = ownership.try_map(
@@ -123,7 +126,7 @@ impl ValuePreservation {
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
     ) -> ExecutionCondition {
-        self.apply_bounded(source, place, mutation, false, &mut { ExecutionCondition::WORK_LIMIT })
+        self.apply_bounded(source, place, mutation, false, &Default::default(), &mut { ExecutionCondition::WORK_LIMIT })
     }
 
     fn apply_bounded(
@@ -132,6 +135,7 @@ impl ValuePreservation {
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
         owned_context: bool,
+        moved: &std::collections::BTreeSet<ExecutionCondition>,
         budget: &mut usize,
     ) -> ExecutionCondition {
         let Some(remaining) = budget.checked_sub(1) else {
@@ -140,7 +144,9 @@ impl ValuePreservation {
 
         *budget = remaining;
 
-        if self.value { return source.clone(); }
+        let consumed = crate::execution_guarantees::ObservationSet::retains_owner(moved, source);
+
+        if self.value && !consumed { return source.clone(); }
 
         if self.descriptor
             && let Some(referent) = match source {
@@ -151,7 +157,7 @@ impl ValuePreservation {
         {
             // Frame reached data before retaining the loan descriptor. Its
             // fields keep their actual values rather than projected field loans.
-            return source.with_referent(self.apply_bounded(referent, place, mutation, false, budget));
+            return source.with_referent(self.apply_bounded(referent, place, mutation, false, moved, budget));
         }
 
         if self.descriptor && let Some((context, copied)) = source.storage_contents() {
@@ -159,7 +165,7 @@ impl ValuePreservation {
             // the copied descriptor's reached data without replacing its origin.
             return ExecutionCondition::scalar_observation(
                 context.clone(),
-                self.apply_bounded(copied, place, mutation, false, budget),
+                self.apply_bounded(copied, place, mutation, false, moved, budget),
             );
         }
 
@@ -169,20 +175,22 @@ impl ValuePreservation {
         } else {
             place.cloned().map_or(ExecutionCondition::Unknown, ExecutionCondition::Input)
         };
-        let mut contents = if self.discriminant {
+        let mut contents = if self.discriminant && !consumed {
             source.discriminant()
         } else { ExecutionCondition::post_state(mutation, identity) };
 
         for (projection, preservation) in &self.children {
             let child = source.clone().project(*projection);
             let child_place = place.and_then(|place| place.clone().project(&[*projection]));
-            let next = preservation.apply_bounded(&child, child_place.as_ref(), mutation, false, budget);
+            let next = preservation.apply_bounded(&child, child_place.as_ref(), mutation, false, moved, budget);
 
             contents = contents.with_storage_component(&[*projection], next);
         }
 
         // An in-place contents update retains its existing owned context.
-        if place.is_some() && (self.descriptor || owned_context
+        // The physical slot can survive extraction, but its moved owner cannot
+        // remain the identity of the replacement value.
+        if place.is_some() && !consumed && (self.descriptor || owned_context
             || source.observation_kind() == Some(crate::execution_guarantees::ExecutionObservationKind::Owned)) {
             return source.with_current_contents(contents);
         }
@@ -512,6 +520,21 @@ mod tests {
             assert_ne!(updated.computed_value(), &owner);
             assert_eq!(mask.frame(&mut state, &updated, &[], Some(&place), mutation), updated);
             assert_eq!(state.owned_result(&source), layout, "framing leaves the prior snapshot intact");
+
+            let mut extraction = state.clone();
+            extraction.entries.insert(sites[0].into(), crate::ExecutionCallEvidence {
+                extracted_values: [source.clone()].into(),
+                ..Default::default()
+            });
+            let vacated = mask.frame(&mut extraction, &source, &[], Some(&place), mutation);
+
+            assert_ne!(vacated.ownership_identity(), source.ownership_identity(),
+                "a vacated slot cannot keep the moved owner's authority");
+            assert_eq!(vacated.computed_value(), &ExecutionCondition::post_state(mutation, source.owner_identity().clone()));
+            assert_eq!(mask.frame(&mut extraction, &vacated, &[], Some(&place), mutation), vacated,
+                "replaying extraction must stabilize without restoring the prior owner");
+            assert!(extraction.owned_result(&vacated).is_empty(), "the vacated value cannot inherit the moved formal lineage");
+            assert_eq!(extraction.owned_result(&source), layout, "the returned snapshot keeps its own lineage");
         }
     }
 

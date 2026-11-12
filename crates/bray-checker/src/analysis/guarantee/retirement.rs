@@ -73,7 +73,7 @@ impl ExecutionState {
         );
 
         let retained_data = |value: &ExecutionCondition| retained_snapshots.map_or_else(
-            || retained_observations.contains(value),
+            || retained_observations.preserves(value),
             |snapshots| crate::execution_guarantees::ObservationSet::retains_contents(snapshots, value),
         );
 
@@ -769,9 +769,18 @@ mod tests {
 
             state.carry_guarantee(root.clone(), condition.clone());
             condition.clone().assume(true, &mut state.trusted_assumptions);
-            state.retire_trusted_values([old.clone()], &BTreeSet::from([returned]));
+            state.retire_trusted_values([old.clone()], &BTreeSet::from([returned.clone()]));
 
             assert_eq!(condition.prove_trusted(&state.trusted_assumptions, &state.assumptions) == Some(true), preserved);
+
+            if returned == old || !preserved {
+                let stable = crate::execution_guarantees::ObservationSet::from_iter([
+                    returned.clone(), returned.borrowed(),
+                ]);
+
+                assert!(stable.contains(&old), "retaining identity is independent of retaining data");
+                assert_eq!(stable.preserves(&old), preserved);
+            }
         }
     }
 

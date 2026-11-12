@@ -224,7 +224,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .then(|| self.storage_path_value(state, &path));
 
         places
-            .filter_map(|place| place.value_in(&state.current))
+            .filter_map(|place| state.current.live_value(&place))
             .chain(temporary)
             .chain(self.entry_storage_value(state, &path, mutation))
     }
@@ -237,7 +237,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<ExecutionCondition> {
         let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
 
-        if place.value_in(&state.current).is_some_and(|value| value != ExecutionCondition::Unknown) {
+        if state.current.live_value(&place).is_some_and(|value| value != ExecutionCondition::Unknown) {
             return None;
         }
 
@@ -351,7 +351,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invalidation: Option<&StorageInvalidation>,
     ) {
         // Resolving a destination does not turn an ownership transfer into a write.
-        let changes_contents = self.dependencies.calls().contains_key(&occurrence);
+        let changes_contents = self.dependencies.calls().contains_key(&occurrence)
+            || occurrence.expression().is_some_and(|expression|
+                matches!(self.request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Await(_))));
 
         let Some(invalidation) = invalidation.or_else(|| self.refinements.get(&occurrence)) else {
             return;
@@ -434,9 +436,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .flat_map(|value| {
                 // An unchanged storage value also retains observations through
                 // its existing loans. The loan does not establish ownership.
-                let owner = value.owner_identity().clone();
-
-                [owner.clone(), owner.borrowed(), value.clone(), value.borrowed()]
+                [value.clone(), value.borrowed()]
             })
             .collect::<Vec<_>>();
 
@@ -505,6 +505,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .collect::<BTreeMap<_, _>>();
 
         let mut snapshots = self.preserved_storage_values(state, stable_values, mutation);
+
 
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 

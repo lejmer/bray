@@ -113,10 +113,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             | StorageInvalidation::Observed { stable_values, stable_descriptors, .. } => {
                 for observations in self.input.footprint.owned_observations.values() {
                     for (path, observation) in observations {
-                        if *observation != Observation::Discriminant { continue; }
+                        if !matches!(observation, Observation::Value | Observation::Discriminant) { continue; }
 
-                        if survives(&Target::storage(path.clone()), Observation::Discriminant, None, false) {
-                            Observation::Discriminant.record_preservation(path.clone(), stable_values);
+                        if survives(&Target::storage(path.clone()), *observation, None, false) {
+                            observation.record_preservation(path.clone(), stable_values);
                         }
                     }
                 }
