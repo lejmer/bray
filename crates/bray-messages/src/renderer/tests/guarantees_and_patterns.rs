@@ -96,14 +96,25 @@ fn proof_budget_failures_report_the_limit_and_observed_depth() {
 }
 
 #[test]
-fn execution_failure_labels_render_the_retained_termination_cause() {
+fn execution_failure_labels_render_source_level_causes() {
+    use bray_diagnostics::DiagnosticExecutionProofFailure as Cause;
+
     let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
-    let diagnostic = Diagnostic::new(DiagnosticId::new(0), DiagnosticKind::CheckingExecutionGuaranteeNotProven, SeverityKind::Error)
-        .with_arg(DiagnosticArg::referenced_name("total"))
-        .with_label(DiagnosticLabel::secondary(DiagnosticLabelKind::ExecutionProofFailure, span)
-            .with_arg(DiagnosticArg::execution_proof_failure(bray_diagnostics::DiagnosticExecutionProofFailure::UnboundedLoop)));
-    let rendered = DiagnosticRenderer::english().render(&diagnostic);
-    assert_eq!(rendered.labels()[0].message(), "cannot prove this loop terminates");
+
+    for (cause, expected) in [
+        (Cause::UnboundedLoop, "cannot prove this loop terminates"),
+        (Cause::Recovery, "this source contains errors"),
+        (Cause::DependencyErrors, "this called function has a source error"),
+        (Cause::MissingEvidence, "this function does not provide the required guarantee"),
+    ] {
+        let diagnostic = Diagnostic::new(DiagnosticId::new(0), DiagnosticKind::CheckingExecutionGuaranteeNotProven, SeverityKind::Error)
+            .with_arg(DiagnosticArg::referenced_name("total"))
+            .with_label(DiagnosticLabel::secondary(DiagnosticLabelKind::ExecutionProofFailure, span)
+                .with_arg(DiagnosticArg::execution_proof_failure(cause)));
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(rendered.labels()[0].message(), expected);
+    }
 }
 
 #[test]

@@ -17,14 +17,14 @@ pub(super) fn execution_proof_failure(
             ExecutionProofFailure::CircularCompletion(owner) => ExecutionVerificationFailure { condition: None,
                 source: proof_owner_span(*owner, source), cause: FailureCause::Circular,
             },
-            ExecutionProofFailure::MissingCandidate(owner) => failure.unwrap_or(ExecutionVerificationFailure { condition: None,
-                source: proof_owner_span(*owner, source), cause: FailureCause::MissingEvidence,
+            ExecutionProofFailure::MissingCandidate(missing) => failure.unwrap_or_else(|| {
+                panic!("execution proof for {root_key:?} omits dependency {missing:?} without a recorded failure")
             }),
         });
     }
 
     if !graph.contains_key(&root_key) {
-        failure.get_or_insert(ExecutionVerificationFailure { condition: None, source: proof_owner_span(root_key.0, source), cause: FailureCause::MissingEvidence });
+        assert!(failure.is_some(), "execution proof omits root {root_key:?} without a recorded failure");
     }
 
     failure
@@ -65,6 +65,24 @@ pub(super) fn guarantee_diagnostic(
     diagnostic
 }
 
+pub(super) fn dependency_verification_failure(
+    diagnostic: &Diagnostic, fallback: SourceSpan,
+) -> ExecutionVerificationFailure<Option<SourceSpan>> {
+    let cause = diagnostic.args().iter().find_map(|argument| match argument.value() {
+        bray_diagnostics::DiagnosticArgValue::ExecutionProofFailure(cause) => Some(*cause),
+        _ => None,
+    }).unwrap_or(FailureCause::DependencyErrors);
+    let condition = diagnostic.args().iter().find_map(|argument| match argument.value() {
+        bray_diagnostics::DiagnosticArgValue::ContractObligation(condition) => Some(std::sync::Arc::new(condition.clone())),
+        _ => None,
+    });
+    let source = diagnostic.labels().iter().find(|label| matches!(label.kind(),
+        DiagnosticLabelKind::UnprovenContractCondition | DiagnosticLabelKind::ExecutionProofFailure))
+        .map(DiagnosticLabel::span).or(diagnostic.primary_span()).unwrap_or(fallback);
+
+    ExecutionVerificationFailure { condition, source: Some(source), cause }
+}
+
 pub(super) fn unrepresentable_condition_diagnostic(source: SourceSpan) -> Diagnostic {
     Diagnostic::new(DiagnosticId::new(source.start().bytes()), DiagnosticKind::CheckingContractConditionNotPortable, SeverityKind::Error)
         .with_primary_span(source)
@@ -101,6 +119,23 @@ mod diagnostic_tests {
 
     fn span(start: u32) -> SourceSpan {
         SourceSpan::new(SourceId::new(0), TextRange::new(TextSize::new(start), TextSize::new(start + 1)))
+    }
+
+    fn proof_owners() -> [super::ExecutionProofOwner; 2] {
+        let checked = crate::test_support::compilation(r#"
+            module app;
+
+            func first()
+            {
+            }
+
+            func second()
+            {
+            }
+        "#);
+
+        ["first", "second"].map(|name| super::ExecutionProofOwner::Source(
+            crate::test_support::source_function_body_key(&checked, name).source().syntax(), None))
     }
 
     #[test]
@@ -144,6 +179,15 @@ mod diagnostic_tests {
                         && matches!(obligation.required, bray_diagnostics::DiagnosticCondition::Operation { .. })
                         && matches!(obligation.actual, bray_diagnostics::DiagnosticCondition::Operation { .. })
                         && obligation.required != obligation.actual)), "{failure:#?}");
+            let propagated = super::dependency_verification_failure(failure, span(1));
+            let condition = failure.args().iter().find_map(|argument| match argument.value() {
+                bray_diagnostics::DiagnosticArgValue::ContractObligation(condition) => Some(condition),
+                _ => None,
+            }).unwrap();
+
+            assert_eq!(propagated.condition.as_deref(), Some(condition));
+            assert!(failure.labels().iter().any(|label| Some(label.span()) == propagated.source
+                && label.kind() == bray_diagnostics::DiagnosticLabelKind::UnprovenContractCondition));
         }
     }
 
@@ -178,6 +222,15 @@ mod diagnostic_tests {
 
     #[test]
     fn invalid_dependencies_keep_their_specific_cause() {
+        let [owner, _] = proof_owners();
+        let obligation = ExecutionObligation::Property(bray_checker::ExecutionProperty::Total, None);
+        let failure = super::execution_proof_failure(&Default::default(), owner, None, obligation,
+            Some(ExecutionVerificationFailure { condition: None, source: Some(span(3)), cause: FailureCause::DependencyErrors }))
+            .expect("a rejected source dependency retains its failure");
+
+        assert_eq!(failure.source, Some(span(3)));
+        assert_eq!(failure.cause, FailureCause::DependencyErrors);
+
         let diagnostic = guarantee_diagnostic(
             ExecutionObligation::Property(bray_checker::ExecutionProperty::Total, None), span(1),
             ExecutionVerificationFailure { condition: None, source: span(3), cause: FailureCause::DependencyErrors },
@@ -185,6 +238,25 @@ mod diagnostic_tests {
 
         assert!(diagnostic.args().iter().any(|argument| matches!(argument.value(),
             bray_diagnostics::DiagnosticArgValue::ExecutionProofFailure(FailureCause::DependencyErrors))));
+        let propagated = super::dependency_verification_failure(&diagnostic, span(1));
+
+        assert_eq!(propagated.cause, FailureCause::DependencyErrors);
+        assert_eq!(propagated.source, Some(span(3)));
+    }
+
+    #[test]
+    fn incomplete_execution_graphs_without_a_failure_panic() {
+        let [owner, missing] = proof_owners();
+        let obligation = ExecutionObligation::Property(bray_checker::ExecutionProperty::Pure, None);
+
+        for graph in [Default::default(), [((owner, obligation), [(missing, obligation)].into())].into()] {
+            let panic = std::panic::catch_unwind(|| super::execution_proof_failure(
+                &graph, owner, None, obligation, None)).expect_err("an incomplete graph needs a recorded source failure");
+            let message = panic.downcast_ref::<String>().expect("the invariant panic includes its owner context");
+
+            assert!(message.contains("without a recorded failure"), "{message}");
+            assert!(message.contains("Source"), "{message}");
+        }
     }
 
     #[test]
