@@ -674,7 +674,7 @@ impl Set {
 
     pub(crate) fn insert_classified(&mut self, value: ExecutionCondition, kind: bray_bound_tree::StorageObservationKind) {
         if kind == bray_bound_tree::StorageObservationKind::Discriminant {
-            self.discriminants.insert(value);
+            self.discriminants.insert(value.discriminant());
         } else if kind.is_immutable_inline() {
             self.insert(value);
         }
@@ -697,7 +697,7 @@ impl Set {
             value => value.nullable_absence(true).or_else(|| value.nullable_absence(false)).map(|(subject, _)| subject),
         };
 
-        subject.is_some_and(|subject| self.discriminants.contains(subject))
+        subject.is_some_and(|subject| self.discriminants.contains(&subject.discriminant()))
     }
 
     pub(crate) fn insert(&mut self, value: ExecutionCondition) {

@@ -756,8 +756,16 @@ mod tests {
             crate::test_support::error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
         )));
 
-        let guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual, vec![observed.clone(), absent]);
+        let guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual, vec![observed.clone(), absent.clone()]);
         let payload = observed.clone().component(ConstantProjectionKind::NullableValue).borrowed();
+
+        for (snapshot, preserved) in [
+            (observed, true),
+            (ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::constructed(owner.discriminant(),
+                [(bray_bound_tree::StorageProjection::NullableValue, input(1))].into())), true),
+            (ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::constructed(input(2).discriminant(),
+                [(bray_bound_tree::StorageProjection::NullableValue, input(1))].into())), false),
+        ] {
         let mut state = ExecutionState::default();
 
         state.assumptions.extend([(guard.clone(), true), (payload.clone(), true)]);
@@ -767,12 +775,18 @@ mod tests {
 
         let mut retained = crate::execution_guarantees::ObservationSet::default();
 
-        retained.insert_classified(observed, bray_bound_tree::StorageObservationKind::Discriminant);
+        let current_guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
+            vec![snapshot.clone(), absent.clone()]);
+
+        retained.insert_classified(snapshot, bray_bound_tree::StorageObservationKind::Discriminant);
+        assert_eq!(retained.preserves(&guard), preserved, "owner identity alone cannot preserve a different tag");
         state.invalidate_contents(&BTreeSet::new(), [owner.clone()], &BTreeSet::new(), &retained, None);
-        assert!(state.assumptions.contains(&(guard.clone(), true)));
-        assert_eq!(guard.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
+        if preserved { assert!(state.assumptions.contains(&(guard.clone(), true))); }
+        assert_eq!(current_guard.prove_trusted(&state.trusted_assumptions, &state.assumptions) == Some(true), preserved,
+            "historical tag facts cannot prove a replacement value's current tag");
         assert!(!state.assumptions.contains(&(payload.clone(), true)));
-        assert!(!state.trusted_assumptions.contains(&(payload, true)));
+        assert!(!state.trusted_assumptions.contains(&(payload.clone(), true)));
+        }
     }
 
     #[test]

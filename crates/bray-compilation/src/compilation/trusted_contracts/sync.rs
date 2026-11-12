@@ -6262,21 +6262,44 @@ fn production_synchronization_api_cleanup_checks() {
 
 #[test]
 fn conditional_cleanup_requires_authority_for_the_selected_payload() {
+    for cleanup in ["", "_ = core.atomic.fetch_sub<usize, 0>(&self.count, 1);"] {
     for (construction, valid) in [
         ("make();", true),
         ("let owner = make();", true),
         ("let _: Owner? = make();", true),
         ("let _: Owner? = Owner { marker = Marker {} };", false),
         ("let owner: Owner? = Owner { marker = Marker {} };", false),
+        ("let owner = pair();", true),
+        ("let mut owner = pair(); owner.operation = none;", true),
     ] {
         let application = compilation(&format!(
             r#"
             trusted module app;
-            struct Marker {{}}
+            using core.atomic;
+
+            struct Marker
+            {{
+            }}
+
             trusted predicate live(marker: &Marker);
-            struct Owner {{
+
+            struct Owner
+            {{
                 marker: Marker;
-                trusted destruct() requires(trusted live(&self.marker)) executes(total) {{}}
+                count: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+                trusted destruct()
+                    requires(trusted live(&self.marker))
+                    executes(total)
+                {{
+                    {cleanup}
+                }}
+            }}
+
+            struct Pair
+            {{
+                current: Owner;
+                mut operation: Owner?;
             }}
             const func marker(pos value: &(Owner?)) -> &Marker
                 requires(!(value matches none)) executes(pure, total)
@@ -6288,20 +6311,28 @@ fn conditional_cleanup_requires_authority_for_the_selected_payload() {
             }}
             extern trusted func make() -> Owner?
                 ensures(result matches none || trusted live(marker(&result)));
-            func caller() {{ {construction} }}
+
+            extern trusted func pair() -> Pair
+                ensures(trusted live(&result.current.marker), result.operation matches none || trusted live(marker(&result.operation)));
+
+            func caller()
+            {{
+                {construction}
+            }}
         "#
         ));
 
         let diagnostics = application.check_diagnostics();
 
         if valid {
-            assert!(!diagnostics.has_errors(), "{construction}: {diagnostics:?}");
+            assert!(!diagnostics.has_errors(), "{construction}, cleanup={cleanup}: {diagnostics:?}");
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
                 diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
+    }
     }
 }
 
