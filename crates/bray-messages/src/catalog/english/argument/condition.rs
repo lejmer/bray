@@ -75,7 +75,8 @@ fn format_condition(condition: &DiagnosticCondition) -> String {
             }
         }
         DiagnosticCondition::Present(value) => format!("?{}", format_condition(value)),
-        DiagnosticCondition::CapturedInput { owner, ordinal } => format!("capture({}, {})", format_condition(owner), ordinal),
+        DiagnosticCondition::CapturedInput { owner, ordinal } =>
+            format!("argument {} captured by {}", u64::from(*ordinal) + 1, format_condition(owner)),
         DiagnosticCondition::VariantTest { value, variant } => format!("{} matches {}", format_condition(value), format_code_snippet(variant)),
         DiagnosticCondition::StaticAddress(path) => format!("address_of({})", format_code_snippet(&path.join("."))),
         DiagnosticCondition::Unknown => "unknown value".to_owned(),
