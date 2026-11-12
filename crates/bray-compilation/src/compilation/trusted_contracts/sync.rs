@@ -6344,6 +6344,7 @@ fn conditional_cleanup_requires_authority_for_the_selected_payload() {
         ("let owner: Owner? = Owner { marker = Marker {} };", false),
         ("let owner = pair();", true),
         ("let mut owner = pair(); owner.operation = none;", true),
+        ("let mut owner = pair(); owner.operation = none; owner.code = 0; update(&mut owner);", true),
     ] {
         let application = compilation(&format!(
             r#"
@@ -6373,6 +6374,14 @@ fn conditional_cleanup_requires_authority_for_the_selected_payload() {
             {{
                 current: Owner;
                 mut operation: Owner?;
+                mut code: u32;
+            }}
+            extern func opaque();
+            func update(pos owner: &mut Pair)
+                requires(owner.code == 0)
+            {{
+                opaque();
+                owner.code = 1;
             }}
             const func marker(pos value: &(Owner?)) -> &Marker
                 requires(!(value matches none)) executes(pure, total)
@@ -6399,6 +6408,12 @@ fn conditional_cleanup_requires_authority_for_the_selected_payload() {
 
         if valid {
             assert!(!diagnostics.has_errors(), "{construction}, cleanup={cleanup}: {diagnostics:?}");
+
+            let candidates = application.execution_candidates_with_cancellation(
+                source_function_body_key(&application, "caller"), &crate::CancellationToken::new())
+                .expect("conditional cleanup candidates publish");
+
+            assert!(!candidates.result().diagnostics().has_errors(), "{construction}, cleanup={cleanup}: {candidates:#?}");
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
                 diagnostics,
