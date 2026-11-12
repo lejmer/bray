@@ -108,19 +108,30 @@ impl State {
                     .filter(|target| {
                         // Retired reference slots are history, not external roots. A surviving raw
                         // address can still reach them through the explicit exposure roots above.
-                        !target.previous
-                            && target.storage_path().is_none_or(|path| {
-                                self.owned_storage.binary_search(&path.root).is_err()
-                                    || path
-                                        .projections
-                                        .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                            })
+                        !target.previous && self.reference_slot_is_external(target)
                     })
                     .cloned(),
             )
             .collect::<Vec<_>>();
 
         self.transitive_regions(pending, |_, _| true).0
+    }
+
+    fn reference_slot_is_external(&self, target: &Target) -> bool {
+        match &target.origin {
+            Origin::Storage(path) => !self.is_owned_inline_storage(path),
+            Origin::Returned { reference, projections }
+                if !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget) => {
+                let bounds = self.returned_reference_bounds(reference);
+
+                // A complete view of private inline storage does not publish
+                // its containing owner merely by observing a stored reference.
+                bounds.unknown || bounds.displaced || bounds.inexact || bounds.targets.is_empty()
+                    || bounds.targets.iter().any(|target| target.previous
+                        || target.storage_path().is_none_or(|path| !self.is_owned_inline_storage(path)))
+            }
+            _ => true,
+        }
     }
 
     /// Returns escaped operands and their stored references before caller-side alias resolution.

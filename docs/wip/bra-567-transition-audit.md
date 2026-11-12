@@ -46,17 +46,26 @@ fabricated-evidence and escaped-pointer variants. Keep these contracts while tra
 
 Physical tags survive joins and owner reanchoring without retaining overwritten payloads. Known Present/Tagged joins
 retain their existing handling. Fixed912, owned248/deferred148 each surface, witness matrices, checker505/bound136
-and adjacent suites retain accepted outcomes. Native remains27 with no new identities. No trace hooks remain.
+and adjacent suites retain accepted outcomes. Native remains27 with no new identities. Checkpoint8219aaf71 is pushed.
+No trace hooks remain. The private-backed-view root-rule repair passes fixed912, checker505/bound136,
+owned/deferred/witness matrices and adjacent suites. Complete native remains27 with no new identities.
 
 Stored-pointer reads now use existing field values through a complete, current, equally typed returned view.
 Incomplete, opaque, retyped and retired backing remains conservative. A red-before memory property and exact source/import
 escape-field checks pass. Ordinary reads and call inputs share this boundary and the canonical projected-type query.
 
-Root_execution's scoped-enter result22 loses contents at start_frame E78 despite live loans and a complete field schema.
-entry_current's returned choice30 has complete current bounds22.scope.current and22.scope.operation.NullableValue.
-The original pointer40 read invented opaque provenance bounded by the container, causing publication to expose22.
-The general read repair passes its properties but native start cleanup still fails. Trace the actual read decision and
-subsequent consumers rather than assuming it repaired this path. Selected inspect-lowered reproduces it in about30s.
+Root_execution's entry_current choice30 has complete current bounds22.scope.current and22.scope.operation.NullableValue.
+The repaired pointer read forwards both existing pointer fields. admit_source_task E78 no longer exposes scoped result22,
+and its tags/markers survive. Bound mapping confirms start_frame is E105 and dispose_reference is E135.
+The complete tag trace proves joins331/62 initially preserve it. E135 disposal drops current/operation observations
+although22 is unexposed, then joins62/57 propagate the loss. reachable_targets seeds reference slots with any symbolic
+Returned origin as external storage, including a complete borrow of private inline storage. The only reached region
+overlapping22 at E135 is choice30.pointer with those complete private bounds. The extended fixed property is red before
+repair and checks private backing before/after nested-pointer publication, plus actual owner publication. The root repair
+uses existing producer bounds and preserves explicit roots, escaped regions, unknown backing and heap projections.
+The fixed property and exact source/import escapes pass. Native start cleanup now reports an unknown payload obligation.
+Trace the surviving tag and payload authority through subsequent joins and scoped cleanup. Selected inspect-lowered
+reproduces it in about30s.
 Follow reserve_start E31 as well: start_frame loses token and service-owner proof, and reserve_start fails its registration
 postcondition. Both observed calls carry UnboundedMutation Retire with no access type, which alone establishes no defect.
 Keep the fixed comparison and native27 identities unchanged unless explained.
