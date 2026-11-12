@@ -49,11 +49,12 @@ Whole/projected invalidation frames complete owners before selecting children. R
 reached contents expire, overwritten children lose authority. This repairs attachment exit464 and withdrawal58.
 Correct system host/callback inputs reproduce the native identities in a direct source check. Both use ABI2 std.
 
-Fixed918 and all matrices retain their outcomes after the strengthened loop-continuation and partial-initialization
-properties. Adjacent checks above repeat with the same results. Runtime source25 remains unaccepted:9 E7123/16 E7135.
-Compared to accepted native25, entry_scope422 and root_scope268 are removed, and start64 is replaced. New E7123
-at root_scope89, root_scope29 cleanup and start79 cleanup all concern optional operation-owner evidence. The earlier
-completion77/observer333 primaries and their cascades are repaired. Native emission/execution has not repeated.
+Fixed918 and all matrices retain their outcomes after loop-continuation, partial-initialization and repeated-tag
+properties. Adjacent checks above repeat with the same results. Latest runtime source23 has6 E7123/17 E7135.
+It matches the accepted native25 inventory except repaired entry_scope422 and root_scope268, with no new identities.
+The earlier completion77/observer333 failures and optional-operation cleanup regressions are repaired.
+Native emission/execution has not repeated. Remaining E7123 groups: driving197, start234/prepared cleanup,
+observer/polling105, and withdrawal185/199. E7135 reports include dependent cascades, not independent bug counts.
 
 ## Current boundary
 
@@ -137,6 +138,17 @@ explicit private snapshots. Owner containment remains separate for ownership and
 changed-parent properties protect that distinction. Runtime source25 reveals the optional operation-owner cleanup boundary above. Reopen that contract before another
 semantic patch. Trace entry_scope completion through root_scope status/driver mutations, old-operation replacement,
 return and EntryRestoration exit. Do not assume the three new diagnostics are three independent bugs.
+Closed tag boundary: publish and query classified tags through the existing discriminant selector. Complete
+snapshot equality lost the optional-owner clause after an earlier cleanup reframed the payload under the same tag.
+The selector retains no payload authority or old tag after replacement. No new representation or reconstruction.
+The transferred-tag property covers framed replay and changed-tag rejection. Historical immutable facts may remain,
+but cannot prove a replacement's current tag. The conditional-cleanup source test now pairs pure/atomic effects,
+sibling owners, optional replacement and invalid authority. Fixed918, checker511/bound136 and adjacent checks pass.
+Runtime source23 has no new identities versus accepted native25. Traces and scratch controls are consumed.
+
+Rendering defect found: CapturedInput displays capture(owner, ordinal). Resolve its recorded invocation/input on
+the failure path to display the actual source argument, with a clear description for implicit captured inputs.
+This is diagnostic lookup, not evidence reconstruction. Next semantic work resumes the owned-backing contract above.
 
 ## Execution and remaining gates
 
