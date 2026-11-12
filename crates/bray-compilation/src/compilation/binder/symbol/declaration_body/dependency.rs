@@ -259,6 +259,7 @@ fn portable_projection(projection: StorageProjection) -> Option<DependencyProjec
         StorageProjection::NullableValue => DependencyProjection::NullableValue,
         StorageProjection::OwnedTarget => DependencyProjection::OwnedTarget,
         StorageProjection::UninitPayload => DependencyProjection::UninitPayload,
+        StorageProjection::AddressTarget => DependencyProjection::AddressTarget,
         StorageProjection::ElementFromStart(_)
         | StorageProjection::ElementFromEnd(_)
         | StorageProjection::Element(_)

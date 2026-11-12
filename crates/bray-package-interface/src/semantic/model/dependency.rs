@@ -40,6 +40,8 @@ pub enum InterfaceDependencyProjection {
     Element(InterfaceConstantTermId),
     /// A region in an unspecified array or slice element, without an exact address.
     AnyElement,
+    /// The value reached through a raw data address, without access or ownership.
+    AddressTarget,
     /// Present nullable value.
     NullableValue,
     /// Named union payload field.

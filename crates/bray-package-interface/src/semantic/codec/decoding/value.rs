@@ -1514,13 +1514,18 @@ mod tests {
             bray_symbols::DependencyBorrowRelation::new(
                 Some(crate::InterfaceDependencySubject::new(
                     crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)), [])),
-                result, bray_symbols::DependencyReferenceKind::Borrow)
+                result.clone(), bray_symbols::DependencyReferenceKind::Borrow)
                 .with_target_projections([
                     crate::InterfaceDependencyProjection::OwnedTarget,
                     crate::InterfaceDependencyProjection::AnyElement,
                     crate::InterfaceDependencyProjection::OwnedTarget,
                 ])
                 .with_provenance(bray_symbols::DependencyReferenceProvenance::InputRegions),
+            bray_symbols::DependencyBorrowRelation::new(
+                Some(crate::InterfaceDependencySubject::new(
+                    crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+                    [crate::InterfaceDependencyProjection::AddressTarget])),
+                result, bray_symbols::DependencyReferenceKind::Borrow),
         ]);
 
         let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
@@ -1537,6 +1542,9 @@ mod tests {
         let store = SemanticValueStore::try_new().expect("fixture semantic value store");
         let imported = semantics.intern(&store, &resolver(&surface)).expect("closed regions intern");
         let contract = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
+
+        assert!(contract.borrows().iter().any(|relation| relation.entry().is_some_and(|entry|
+            entry.projections() == [bray_symbols::DependencyProjection::AddressTarget])));
 
         assert!(contract.borrows().iter().any(|relation|
             relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions

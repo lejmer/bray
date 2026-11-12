@@ -76,7 +76,43 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         self.prepare_summary_demands(request, storage, selections, dependencies, &mut demands)?;
         Self::close_entry_demands(request, &mut demands, parents)?;
 
-        self.install_reference_paths(request, storage, &demands)
+        self.install_reference_paths(request, storage, &demands)?;
+        self.prepare_entry_pointee_fields(request, storage, &demands)
+    }
+
+    fn prepare_entry_pointee_fields<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: crate::CheckerUnitView<'_, C>,
+        storage: &bray_bound_tree::StoragePlan,
+        demands: &Demands,
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+        // Prepare demanded fields of the original incoming addresses, not an unbounded
+        // pointer-type closure. Writes retire these records through the ordinary value store.
+        let incoming = self.entry_references.iter().filter_map(|((slot, _), (path, pointee, kind))| {
+            (*kind == bray_symbols::DependencyReferenceKind::Address
+                && self.entry_buffer_pointer(path, *pointee).is_none())
+                .then(|| pointee.map(|pointee| (slot.clone(), pointee))).flatten()
+        }).collect::<Vec<_>>();
+
+        for (slot, pointee) in incoming {
+            let owner = request.semantic_values().unborrowed_type(pointee);
+
+            for (projections, reached) in demands.get(&owner).into_iter().flatten() {
+                if projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+                    || projections.iter().any(|projection| !projection.is_exact()) { continue; }
+
+                let projections = slot.projections.iter().copied()
+                    .chain([bray_bound_tree::StorageProjection::AddressTarget])
+                    .chain(projections.iter().copied()).collect::<Arc<[_]>>();
+                let root = storage.storage_type(slot.root).expect("incoming reference has its checked storage type");
+                let Some((reached, prepared)) = crate::storage::reference_path(request, root,
+                    Arc::clone(&projections), Some(*reached))? else { continue; };
+
+                self.prepare_entry_reference_path(request, storage, Place { root: slot.root, projections }, reached, &prepared);
+            }
+        }
+
+        Ok(())
     }
 
     fn close_entry_demands<C: CheckerRequestContext + ?Sized>(
@@ -337,7 +373,9 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                             prepared.borrows()[..step].into(),
                         ),
                         Some(*target),
-                        bray_symbols::DependencyReferenceKind::Borrow,
+                        if prepared.is_address_load(step) {
+                            bray_symbols::DependencyReferenceKind::Address
+                        } else { bray_symbols::DependencyReferenceKind::Borrow },
                     )
                 });
         }

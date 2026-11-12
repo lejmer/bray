@@ -908,7 +908,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Target>> {
         let start = self.expression_target(state, argument)?;
 
-        let root_borrow = if path.borrows().first().is_some_and(|(index, _)| *index == 0) {
+        let root_borrow = if path.borrows().first().is_some_and(|(index, _)| *index == 0)
+            && !path.is_address_load(0) {
             let borrowed = self.expression_is_borrowed(argument);
 
             Some(if borrowed {

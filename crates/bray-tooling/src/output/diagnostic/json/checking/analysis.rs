@@ -104,6 +104,7 @@ fn storage_projection_json(
         Projection::IndexedElement
         | Projection::NullableValue
         | Projection::OwnedTarget
+        | Projection::AddressTarget
         | Projection::UninitPayload => Vec::new(),
     };
 

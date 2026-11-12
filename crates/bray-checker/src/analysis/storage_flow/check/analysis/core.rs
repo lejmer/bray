@@ -2538,6 +2538,7 @@ where
             }
             StorageProjection::NullableValue => DiagnosticStorageProjection::NullableValue,
             StorageProjection::OwnedTarget => DiagnosticStorageProjection::OwnedTarget,
+            StorageProjection::AddressTarget => DiagnosticStorageProjection::AddressTarget,
             StorageProjection::UninitPayload => DiagnosticStorageProjection::UninitPayload,
         };
 

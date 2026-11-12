@@ -109,6 +109,8 @@ pub enum DiagnosticStorageProjection {
     },
     NullableValue,
     OwnedTarget,
+    /// The value reached through a raw data address.
+    AddressTarget,
     /// The payload held in protected uninitialized storage.
     UninitPayload,
 }
@@ -126,6 +128,7 @@ impl DiagnosticStorageProjection {
             Self::SliceRange { .. } => "slice_range",
             Self::NullableValue => "nullable_value",
             Self::OwnedTarget => "owned_target",
+            Self::AddressTarget => "address_target",
             Self::UninitPayload => "uninit_payload",
         }
     }

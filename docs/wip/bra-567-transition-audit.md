@@ -60,10 +60,38 @@ observer/polling105, and withdrawal185/199. E7135 reports include dependent casc
 
 Open contract: slot_at -> retain_locked -> retain_task -> dispatch_ready must carry the complete owned backing
 bound to wait_execution retirement without inventing exact address, authority or independent origins. The final
-Slot pointer is a view, not an allocation extent. Retain real aliases and genuinely unknown alternatives.
+Slot pointer is a view, not an allocation extent. The prior checkpoint6081bbe0b is pushed. Retain real aliases and genuinely unknown alternatives.
 The three source controls pass, but runtime source still has exactly23 accepted identities (6 E7123/17 E7135).
-Trace the actual published paths and caller staging again before another repair. Probe units: slot_at2689821,
-retain_locked2969685, retain_task1034343, dispatch_ready746973. Source identities are in verification.json.
+Actual trace: slot_at and retain_locked now retain both allocation boundaries without independent origins.
+First loss is retain_task E35: staging reduces the source to owner.pointer with unknown=true; publication adds
+Independent. arena/domain accessors publish exact relations. All probes are removed. Four source paths pass,
+including a lambda-issued pointer record. A new indirect reference-field source path is confirmed red with the
+same reduced owner.pointer + Independent result. The root is a field read through a raw-address referent.
+
+Repair contract before editing: preserve ordered raw-address loads in portable input paths (AddressTarget),
+without ownership, freshness, initialization or authority. Existing paths represent fields, consecutive borrow
+loads and owned targets, but cannot name a field beyond a raw pointer. Reuse StorageReferencePath's typed load
+positions and the existing entry-reference producer. Declare finite demanded pointee fields at entry for already
+prepared incoming raw addresses. Do not reconstruct on a later read or recursively close pointer-type graphs.
+Owned buffer pointers keep their existing allocation declaration. Actual writes/opaque replacement must retire
+entry field records; a replaced LinkOwner negative must retain unknown/independent provenance. Preserve old captured
+pointer values and real aliases. Add no duplicate ledger or wrapper types. Expected growth is route wiring plus
+bounded entry preparation; remove duplicate role classification through one shared buffer-pointer helper.
+
+Trace producer -> lookup -> copy/admission -> publication -> substitution/export/import -> caller evaluation ->
+mutation and cleanup. Positive indirect field/lambda controls and replaced-input negatives are fixed before the
+semantic repair. Keep fixed918 identities/outcomes and current source23 inventory. Reopen on any unexplained
+regression, invented authority, lost genuine unknown, recursive path growth or allocation extent derived from a view.
+Current batch adds AddressTarget through typed path preparation, entry field declaration, publication/import,
+semantic selection and diagnostics. It prepares only finite existing pointee demands for original incoming raw
+addresses, not a pointer-type closure. Buffer pointer roles share entry_buffer_pointer. Same-position language and
+raw loads use StorageReferencePath.is_address_load. AddressTarget batch passes the indirect positive and replaced-input negative plus fixed918 at789/30/99 with
+unchanged matrices. Checker511/bound136, symbols221/interface216/messages92 and focused18 pass. Adjacent cleanup57/4
+and predicates26/2/2 retain aggregate counts. Canonical storage_type handles root-access-owned types. Escape summaries
+retain fixed source/import roots by omitting only derived incoming fields still held in the escaped parent's current
+value graph. Explicit operands, replacement values and captured old pointers survive, protected by the extended memory
+property. Runtime source completes with the same23 exact identities, no additions or removals. Native remains unverified.
+At finalization, extend the existing storage-path renderer test for AddressTarget's source-level wording.
 
 Backing checkpoint76d5f2736: checked complete-buffer borrows declare missing backing without replacing actual or
 unknown pointer records. Private admission carries evaluated dynamic references. AnyElement retains owned suffixes
@@ -80,7 +108,7 @@ precondition, is confirmed red before the fix and green after, and retains autho
 Current repair passes fixed918/matrices789/30/99, checker511/bound136, symbols221/interface216/messages92,
 focused18 and async composition source/MIR plus invalid variants. Adjacent cleanup57/4 and predicates26/2/2 retain
 aggregate counts. Runtime source finishes with the same23 exact identities and no panic. Native execution has not
-repeated. No trace hooks or consumed probes remain. Style/format remain deferred until semantic completion.
+repeated. Current local probes must be removed after use. Style/format remain deferred until semantic completion.
 
 Closed contracts protected by accepted checks:
 - Extracted nullable owners carry recorded extracted_values through sync/async admission, body effects, joins and

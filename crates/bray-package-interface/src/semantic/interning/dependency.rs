@@ -448,6 +448,7 @@ impl InternState {
                 InterfaceDependencyProjection::OwnedTarget => DependencyProjection::OwnedTarget,
                 InterfaceDependencyProjection::UninitPayload => DependencyProjection::UninitPayload,
                 InterfaceDependencyProjection::AnyElement => DependencyProjection::AnyElement,
+                InterfaceDependencyProjection::AddressTarget => DependencyProjection::AddressTarget,
             };
 
             projections.push(projection);

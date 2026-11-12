@@ -436,6 +436,7 @@ impl<'a> SemanticExporter<'a> {
                 .map(InterfaceDependencyProjection::Element),
             DependencyProjection::NullableValue => Ok(InterfaceDependencyProjection::NullableValue),
             DependencyProjection::AnyElement => Ok(InterfaceDependencyProjection::AnyElement),
+            DependencyProjection::AddressTarget => Ok(InterfaceDependencyProjection::AddressTarget),
             DependencyProjection::UnionPayloadField(field) => self
                 .symbol_reference((*field).into())
                 .map(InterfaceDependencyProjection::UnionPayloadField),

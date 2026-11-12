@@ -112,6 +112,9 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
                 .intern_type(TypeData::Slice(*element))
                 .expect("generator owns contiguous element storage"),
         ),
+        (_, DependencyProjection::AddressTarget) =>
+            (crate::representation::reference_kind(request, owner) == Some(bray_symbols::DependencyReferenceKind::Address))
+                .then(|| crate::representation::reference_target_type(request, owner)).flatten(),
         (TypeData::Nullable(target), DependencyProjection::NullableValue) => Some(*target),
         (TypeData::Array { .. } | TypeData::Slice(_), DependencyProjection::Element(_) | DependencyProjection::AnyElement) => {
             sequence_element_type(request, owner)
@@ -220,6 +223,18 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
         }
 
         if let Some(projection) = projections.get(index) {
+            if *projection == StorageProjection::AddressTarget {
+                if crate::representation::reference_kind(request, ty) != Some(bray_symbols::DependencyReferenceKind::Address) {
+                    return Ok(None);
+                }
+
+                let Some(target) = crate::representation::reference_target_type(request, ty) else { return Ok(None); };
+
+                ty = target;
+                borrows.push((index, ty));
+                continue;
+            }
+
             let projected = projected_storage_type(request, ty, *projection)?;
 
             let Some(projected) = *projected.value() else {
@@ -304,6 +319,7 @@ fn convert_projections<E>(
             DependencyProjection::OwnedTarget => StorageProjection::OwnedTarget,
             DependencyProjection::UninitPayload => StorageProjection::UninitPayload,
             DependencyProjection::AnyElement => StorageProjection::AnyElement,
+            DependencyProjection::AddressTarget => StorageProjection::AddressTarget,
             DependencyProjection::UnionPayloadField(field) => {
                 StorageProjection::ActiveUnionPayloadField {
                     variant: variant(field)?,
@@ -347,6 +363,7 @@ pub fn projected_storage_type<C: CheckerRequestContext + ?Sized>(
         StorageProjection::NullableValue => DependencyProjection::NullableValue,
         StorageProjection::OwnedTarget => DependencyProjection::OwnedTarget,
         StorageProjection::UninitPayload => DependencyProjection::UninitPayload,
+        StorageProjection::AddressTarget => DependencyProjection::AddressTarget,
         StorageProjection::ActiveUnionPayloadField { field, .. } => {
             DependencyProjection::UnionPayloadField(field)
         }
@@ -436,6 +453,7 @@ pub(crate) fn dependency_projection(
         }
         StorageProjection::OwnedTarget => Some(DependencyProjection::OwnedTarget),
         StorageProjection::UninitPayload => Some(DependencyProjection::UninitPayload),
+        StorageProjection::AddressTarget => Some(DependencyProjection::AddressTarget),
         _ => None,
     }
 }
