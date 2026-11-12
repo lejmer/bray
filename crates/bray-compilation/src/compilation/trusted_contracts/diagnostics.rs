@@ -433,4 +433,40 @@ fn failed_call_diagnostics_preserve_arguments_before_later_writes() {
         panic!("{obligation:#?}");
     };
     assert_eq!(arguments[1], DiagnosticCondition::Literal("42".to_owned()));
+
+    let application = compilation(r#"
+        trusted module app;
+
+        struct Owner
+        {
+        }
+
+        trusted predicate live(owner: &Owner);
+
+        async func identity(pos owner: Owner) -> Owner
+        {
+            return owner;
+        }
+
+        func inspect_owner(pos owner: &Owner)
+            requires(trusted live(owner = owner))
+        {
+        }
+
+        async func caller(pos source: Owner)
+        {
+            let returned = await identity(source);
+
+            inspect_owner(&returned);
+        }
+    "#);
+    let diagnostics = application.check_diagnostics();
+    let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
+        DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+        _ => None,
+    }).unwrap_or_else(|| panic!("{diagnostics:#?}"));
+    let DiagnosticCondition::Application { arguments, .. } = &obligation.actual else {
+        panic!("{obligation:#?}");
+    };
+    assert_eq!(arguments, &[DiagnosticCondition::Source("source".to_owned())]);
 }

@@ -69,9 +69,8 @@ fn condition<C: CheckerRequestContext + ?Sized>(
             | ExecutionCondition::Joined(_, _, value) => place(domain, value, budget)?,
         ExecutionCondition::Result => Condition::Result,
         ExecutionCondition::Expression(value) | ExecutionCondition::ScopedCapability(value) => expression(domain, *value, budget)?,
-        ExecutionCondition::CapturedInput { owner, ordinal, .. } => Condition::CapturedInput {
-            owner: Box::new(condition(domain, owner, budget)?), ordinal: ordinal.raw(),
-        },
+        ExecutionCondition::CapturedInput { owner, invocation, ordinal } =>
+            captured_input(domain, owner, *invocation, *ordinal, budget)?,
         ExecutionCondition::Present(value) => Condition::Present(Box::new(condition(domain, value, budget)?)),
         ExecutionCondition::Constructed(base, _) | ExecutionCondition::ScalarValue(base) | ExecutionCondition::PostState(_, base)
             | ExecutionCondition::Trusted(base) | ExecutionCondition::Borrowed(base)
@@ -105,6 +104,21 @@ fn condition<C: CheckerRequestContext + ?Sized>(
         ExecutionCondition::Discriminant(value) | ExecutionCondition::Descriptor(value) => condition(domain, value, budget)?,
         ExecutionCondition::ValueAlias(_, _) => panic!("internal data alias reached source diagnostic rendering: {value:?}"),
     })
+}
+
+fn captured_input<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, owner: &ExecutionCondition,
+    invocation: bray_bound_tree::BoundExecutionSite, ordinal: bray_symbols::SymbolOrdinal, budget: &mut usize,
+) -> Outcome<C> {
+    let source = invocation.expression()
+        .and_then(|expression| domain.semantics.selections().expression(expression))
+        .and_then(|selection| selection.input(ordinal))
+        .and_then(|input| input.expression());
+
+    match source {
+        Some(source) => expression(domain, source, budget),
+        None => Ok(Condition::CapturedInput { owner: Box::new(condition(domain, owner, budget)?), ordinal: ordinal.raw() }),
+    }
 }
 
 fn application<C: CheckerRequestContext + ?Sized>(

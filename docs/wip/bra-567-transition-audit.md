@@ -146,9 +146,24 @@ but cannot prove a replacement's current tag. The conditional-cleanup source tes
 sibling owners, optional replacement and invalid authority. Fixed918, checker511/bound136 and adjacent checks pass.
 Runtime source23 has no new identities versus accepted native25. Traces and scratch controls are consumed.
 
-Rendering defect found: CapturedInput displays capture(owner, ordinal). Resolve its recorded invocation/input on
-the failure path to display the actual source argument, with a clear description for implicit captured inputs.
-This is diagnostic lookup, not evidence reconstruction. Next semantic work resumes the owned-backing contract above.
+Captured-input diagnostics now resolve explicit inputs to their recorded source expression. Implicit captures use
+a numbered captured-argument description. The before-write diagnostic test also checks async capture, and it plus
+all92 message tests pass. Rendering only, no semantic evidence reconstruction.
+
+Latest backing trace: slot_at U2689821 returns a region from Entry(entries).slabs(F5035).Nullable.OwnedTarget.
+Its raw exit also has Returned S35.Element(E60); the known input region ends at Element(E51).slots(F5033), the inner
+descriptor rather than its backing. Publication truncates the dynamic suffix and adds Independent/InputRegions.
+retain_locked U2969685 and retain_task U1034343 forward that region plus independent alternative. dispatch_ready
+U746973 wait_execution therefore retires a Returned task pointer with unknown=true and an execution-owner origin.
+No backing semantics changed. Trace hooks and consumed trace are removed.
+
+Owning paths to audit: boundary seeds entry_owned_buffer from prepared entry_references. The slice_projection unit
+test manually seeds the dynamically selected nested buffer, so it does not prove that production creates it.
+apply_buffer_view obtains owners through buffer_argument, then memory.owned_region reads owner/pointer records.
+Follow actual dynamic field/reference production and entry preparation before adding a declaration or fallback.
+Missing association must not be reconstructed from a final pointer view or overwrite an existing allocator relation.
+Establish a real nested-buffer/dynamic-selector source oracle at this producer. Preserve independent aliases and
+unknown mutation negatives. Whether any new representation is needed remains unresolved.
 
 ## Execution and remaining gates
 
