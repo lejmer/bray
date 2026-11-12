@@ -42,20 +42,23 @@ impl ValuePreservation {
         &mut self,
         state: &mut super::super::state::ExecutionState,
         source: &ExecutionCondition,
+        path: &[StorageProjection],
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
     ) -> ExecutionCondition {
         self.retain_inline_descriptors(&source.clone().into_referent(), &mut { ExecutionCondition::WORK_LIMIT });
 
+        let source = path.iter().copied().fold(source.clone(), ExecutionCondition::project);
+        let mask = self.at_mut(path);
+
         // Another alias can still retain the original snapshot and layout.
-        let ownership = state.owned_result(source);
+        let ownership = state.owned_result(&source);
         // Current ownership survives constructor normalization independently of
         // formal input transfers. Fresh local owners have no input mapping.
         let owned_context = source.ownership_identity()
             .is_some_and(|(role, _)| role == crate::execution_guarantees::ExecutionObservationKind::Owned);
-        let next = self.apply_bounded(source, place, mutation, owned_context, &mut { ExecutionCondition::WORK_LIMIT });
-
-        if source == &next || ownership.is_empty() { return next; }
+        let next = mask.apply_bounded(&source, place, mutation, owned_context, &mut { ExecutionCondition::WORK_LIMIT });
+        if source == next || ownership.is_empty() { return next; }
 
         let ownership = ownership.try_map(
             &mut |transfer| {
@@ -68,7 +71,7 @@ impl ValuePreservation {
                     return Ok::<_, std::convert::Infallible>(bray_symbols::DependencyOwnedResult::default());
                 }
 
-                let preservation = self.at(transfer.output()).map_or_else(
+                let preservation = mask.at(transfer.output()).map_or_else(
                     bray_symbols::DependencyValuePreservation::none,
                     Self::contents_preservation,
                 );
@@ -212,11 +215,19 @@ mod tests {
             vec![push_expression(tree, integer_literal_expression(origin, None))]
         });
         let mutation = StorageMutation::Operation(sites[0].into());
+        let mut mask = ValuePreservation { descriptor: true, ..Default::default() };
+        let mut state = super::super::super::state::ExecutionState::default();
+        let child_place = place.clone().project(&[field]).expect("inline reference field");
+        let selected = mask.frame(&mut state, &source, &[field], Some(&child_place), mutation);
+        assert_eq!(selected.ownership_identity(), reference.ownership_identity(),
+            "a projected update inherits the same owner's descriptor before selecting its field");
+        assert_ne!(selected.into_referent(), reference.clone().into_referent());
+
         for whole in [true, false] {
             let mut mask = ValuePreservation { descriptor: whole, ..Default::default() };
             if !whole { mask.at_mut(&[field]).descriptor = true; }
             let mut state = super::super::super::state::ExecutionState::default();
-            let updated = mask.frame(&mut state, &source, Some(&place), mutation);
+            let updated = mask.frame(&mut state, &source, &[], Some(&place), mutation);
             let retained = updated.clone().project(field);
 
             assert_eq!(retained.ownership_identity(), reference.ownership_identity(),
@@ -226,7 +237,7 @@ mod tests {
             assert_ne!(retained.into_referent().project(field).ownership_identity(), other.clone().borrowed().ownership_identity(),
                 "descriptor preservation stops at the stored reference boundary");
             assert_ne!(updated.clone().project(data).computed_value(), &ExecutionCondition::Boolean(true));
-            assert_eq!(mask.frame(&mut state, &updated, Some(&place), mutation), updated,
+            assert_eq!(mask.frame(&mut state, &updated, &[], Some(&place), mutation), updated,
                 "repeated framing must stabilize");
         }
     }
@@ -338,7 +349,7 @@ mod tests {
         });
         let mutation = StorageMutation::Operation(sites[0].into());
         let place = ExecutionPlace::argument(SymbolOrdinal::new(3));
-        let next = mask.frame(&mut state, &source, Some(&place), mutation);
+        let next = mask.frame(&mut state, &source, &[], Some(&place), mutation);
         let retained = state.owned_result(&next);
         assert_eq!(retained.transfers().count(), 2);
         let root = retained.transfers().find(|transfer| transfer.output().is_empty()).expect("retained aggregate identity");
@@ -348,11 +359,11 @@ mod tests {
         assert!(retained.transfers().any(|transfer| transfer.input() == input(1) && transfer.preservation().preserves_value()));
         assert_eq!(state.owned_result(&source), ownership, "framing cannot rewrite a prior snapshot");
 
-        let replay = mask.frame(&mut state, &next, Some(&place), mutation);
+        let replay = mask.frame(&mut state, &next, &[], Some(&place), mutation);
         assert_eq!(state.owned_result(&replay), retained, "repeated physical framing stabilizes");
 
         let mut overwritten = ValuePreservation { descriptor: true, ..Default::default() };
-        let final_value = overwritten.frame(&mut state, &next, Some(&place), mutation);
+        let final_value = overwritten.frame(&mut state, &next, &[], Some(&place), mutation);
         assert_eq!(state.owned_result(&final_value).transfers().count(), 1, "a later overwrite retires the old child authority");
     }
 
@@ -493,13 +504,13 @@ mod tests {
                 )
             };
             state.owned_results.insert(source.clone(), layout.clone());
-            let updated = mask.frame(&mut state, &source, Some(&place), mutation);
+            let updated = mask.frame(&mut state, &source, &[], Some(&place), mutation);
 
             assert_eq!(updated.ownership_identity(), source.ownership_identity());
             assert_eq!(updated.computed_value(), &ExecutionCondition::post_state(mutation, source.owner_identity().clone()));
             assert_ne!(updated.computed_value(), &previous);
             assert_ne!(updated.computed_value(), &owner);
-            assert_eq!(mask.frame(&mut state, &updated, Some(&place), mutation), updated);
+            assert_eq!(mask.frame(&mut state, &updated, &[], Some(&place), mutation), updated);
             assert_eq!(state.owned_result(&source), layout, "framing leaves the prior snapshot intact");
         }
     }
