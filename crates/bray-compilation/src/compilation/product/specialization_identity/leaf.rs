@@ -93,6 +93,7 @@ impl StructuralValueEncoder<'_, '_> {
             ConstantUnaryOperation::PredicateTrust => 4,
             ConstantUnaryOperation::BorrowObservation => 5,
             ConstantUnaryOperation::EntryCondition => 6,
+            ConstantUnaryOperation::DescriptorObservation => 7,
         });
     }
 

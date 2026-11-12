@@ -14,6 +14,20 @@ impl ExecutionCondition {
         }
     }
 
+    /// Retain this descriptor observation through later input substitution.
+    pub(crate) fn descriptor(&self) -> Self {
+        let identity = self.descriptor_identity();
+
+        if identity.contains_unknown() { return Self::Unknown; }
+
+        let identity = identity.clone().into_referent();
+
+        match identity {
+            Self::Descriptor(_) | Self::Unknown => identity,
+            identity => Self::Descriptor(Arc::new(identity)),
+        }
+    }
+
     /// Observes a checked constant value without introducing storage identity or authority.
     pub fn from_constant(
         values: &bray_symbols::SemanticValueStore,
@@ -216,8 +230,9 @@ impl ExecutionCondition {
             return payload.clone().borrowed();
         }
 
-        if self == Self::Unknown || self.is_reference() {
-            return self;
+        if self == Self::Unknown || self.copied_value().is_reference() {
+            // Copying a loan does not create a loan to its private copy context.
+            return self.copied_value().clone();
         }
 
         if self.is_reference_computation() {
@@ -653,7 +668,7 @@ impl ExecutionCondition {
                 .unwrap_or_else(|| {
                     base.as_ref().clone().component(projection)
                 }),
-            Self::Unknown | Self::Discriminant(_) => Self::Unknown,
+            Self::Unknown | Self::Discriminant(_) | Self::Descriptor(_) => Self::Unknown,
             value => Self::Projection(projection, Arc::new(value)),
         }
     }
@@ -932,6 +947,46 @@ mod tests {
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{ConstantProjectionKind, SymbolId, SymbolOrdinal, UnionVariantSymbolId};
     use std::sync::Arc;
+
+    #[test]
+    fn descriptor_selection_survives_substitution_without_observing_reached_contents() {
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let template = input(0).descriptor();
+        let owner = input(1);
+
+        for contents in [input(2), ExecutionCondition::Unknown] {
+            let view = ExecutionCondition::reference_value(owner.clone().borrowed(), contents);
+            let copied = ExecutionCondition::scalar_observation(input(3), view.clone());
+            assert_eq!(copied.clone().borrowed(), view);
+
+            for actual in [view, copied.clone(), copied.borrowed()] {
+                let observed = template.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
+                    &mut { ExecutionCondition::WORK_LIMIT });
+
+                assert_eq!(observed, owner.descriptor());
+                assert_eq!(observed.descriptor(), observed);
+                assert!(!observed.contains_unknown());
+                assert!(!observed.observes_live(None));
+                assert_eq!(observed.ownership_identity(), None);
+            }
+        }
+
+        assert_ne!(owner.descriptor(), input(4).descriptor(), "replacement does not retain the old descriptor");
+        assert_eq!(ExecutionCondition::Unknown.descriptor(), ExecutionCondition::Unknown);
+        assert_eq!(ExecutionCondition::reference_value(ExecutionCondition::Unknown, input(2)).descriptor(),
+            ExecutionCondition::Unknown, "known pointee data cannot supply a missing descriptor identity");
+
+        let observed = owner.descriptor();
+        let contents = [(owner.clone(), input(2))].into();
+        let identities = [(owner.clone(), input(4))].into();
+
+        assert_eq!(observed.with_equalities(&contents), observed,
+            "equal data cannot equate descriptor identities");
+        assert_eq!(observed.with_joined_values(&contents, &Default::default()), observed,
+            "replacing reached contents cannot replace the observed descriptor");
+        assert_eq!(observed.with_joined_values(&contents, &identities), input(4).descriptor(),
+            "a real identity transfer must follow the identity map rather than new contents");
+    }
 
     #[test]
     fn equality_polarity_keeps_guarded_trusted_evidence_composable() {

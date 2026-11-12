@@ -26,6 +26,8 @@ pub enum ExecutionCondition {
     VariantTest(bray_symbols::UnionVariantSymbolId, Arc<ExecutionCondition>),
     /// An immutable nullable presence or union tag, without payload data or authority.
     Discriminant(Arc<ExecutionCondition>),
+    /// Immutable descriptor data, independently of current reached contents.
+    Descriptor(Arc<ExecutionCondition>),
     /// A checked literal value.
     Literal(Arc<ConstantValueData>),
     /// The value of a supplied input before execution begins.
@@ -129,6 +131,7 @@ impl ExecutionCondition {
                 Self::Trusted(value)
                 | Self::Borrowed(value)
                 | Self::Discriminant(value)
+                | Self::Descriptor(value)
             | Self::Present(value)
                 | Self::Projection(_, value)
                 | Self::VariantTest(_, value)
@@ -150,6 +153,7 @@ impl ExecutionCondition {
             Self::Tagged(_, value)
             | Self::VariantTest(_, value)
             | Self::Discriminant(value)
+                | Self::Descriptor(value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::Borrowed(value)
@@ -184,6 +188,7 @@ impl ExecutionCondition {
             Self::Trusted(value)
             | Self::Borrowed(value)
             | Self::Discriminant(value)
+                | Self::Descriptor(value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::VariantTest(_, value)

@@ -188,7 +188,7 @@ pub(crate) fn selected_call_condition(
             Some(Hook::SequenceLength | Hook::SequenceIsEmpty)
         ) {
             for value in &mut arguments {
-                *value = value.owner_identity().clone();
+                *value = value.descriptor();
             }
         }
 

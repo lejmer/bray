@@ -35,12 +35,12 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 ## Fixed evidence
 
 Latest checkpoint is branch HEAD. Frozen907:778 pass/30 fail/99 ignored,16 explained repairs, original SHA unchanged.
-Seven added controls give914:785/30/99. These outcomes, checker508/bound136 and all matrices pass.
+Eight added controls give915:786/30/99. These outcomes, checker510/bound136 and all matrices pass.
 Owned248/deferred148 each source/import surface and witness matrices pass. Adjacent cleanup57/4, predicates26/2/2,
 focused18 retain outcomes at checkpoint. Real async source/callable/lifecycle MIR and3 invalid variants pass.
 Native composition has not run. No style pass yet.
 
-Complete native gate26:8 E7123 and18 E7135 comprise10 primary failures and16 explicit cascades.
+Complete native/source gate25:8 E7123 and17 E7135 comprise9 primary failures and16 explicit cascades.
 Attachment exit464 and withdrawal58 are repaired. Withdrawal26 now cites existing unlink_registration failures.
 verification.json contains exact accepted identities.
 Reports are not independent bug counts.
@@ -55,7 +55,7 @@ No trace hooks remain. Correct system host/callback inputs make direct source ch
 identities exactly. Use this semantic gate while errors remain, then rerun native emission/execution. Both use ABI2
 standard-library root target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
 
-### Open contract: slice descriptor observations
+### Verified contract: slice descriptor observations
 
 Rule: descriptor observations survive reached-content writes and real descriptor copies. They grant no ownership,
 do not follow unrelated descriptors and do not turn unknown reference identity into known identity.
@@ -70,19 +70,22 @@ or parallel descriptor framework. Reconsider if ordinary equality can rename phy
 | Substitution and import | Select descriptor after argument substitution, preserve selector in portable terms. Roundtrip property passes. |
 | Mutation and expiry | Descriptor skips reached contents, unknown owner stays unknown. Property passes. |
 | Bounds and postconditions | Compare descriptor observations consistently, normalize ordinary data equality. Full source positives and unrelated-slice negative pass. |
-| Equality and joins | UNRESOLVED: Descriptor rewriting currently uses ordinary data replacements. Establish whether it can equate unrelated owners or substitute overwritten contents. Trace identity-map callers before patching. |
-| Other consumers | Traversal, mapping, snapshots, constant evaluation, lowering and diagnostics updated. Recheck against the unresolved identity rule. |
+| Equality and joins | Descriptor uses only the identity map, shared with observation owners and captured owners. Data equality/replacement cannot rename it. Actual transfers can. Positive and negative properties pass. |
+| Other consumers | Traversal/mapping retain the selector, snapshot grants no authority, expiry removes expired defining expressions, constants/lowering pass through the qualifier and diagnostics show the source. |
 
 Oracles: descriptor_selection_survives_substitution_without_observing_reached_contents,
 portable_descriptor_calls_keep_their_observation_after_substitution and
 projected_slices_keep_their_descriptor_in_downstream_contracts. The source test uses ordinary callers and full
 check_diagnostics. Trusted definitions and dependent execution_properties alone cannot discharge its negative oracle.
-Add equality/join preservation and rejection checks before changing that behavior.
+Equality/join preservation and rejection assertions precede the repair. result_replacements and
+reference_data_replacements establish the separate identity/data maps. Formal substitution and actual copy snapshots
+remain value substitutions. The traced transitions and fixed checks agree. This verifies descriptor composition,
+not the remaining runtime ownership transitions or native async execution.
 
-Current uncommitted batch: fixed915 gives786/30/99 with all original identities preserved. Checker510/bound136,
+Current descriptor batch: fixed915 gives786/30/99 with all original identities preserved. Checker510/bound136,
 symbols221/interface216/messages92, matrices and adjacent groups pass. Refreshed native gate gives25 reports,
-9 primary/16 cascades. Only removed identity is panic338, no new identities. Do not accept or checkpoint the
-semantic batch until the open identity contract is resolved. Temporary slice probes are deleted, no trace hooks remain.
+9 primary/16 cascades. Only removed identity is panic338, no new identities. The final identity-rule repair gives
+the same25 exact source identities as that native run. Temporary slice probes are deleted, no trace hooks remain.
 
 Remaining raw-retirement group: dispatch_ready source63/unit746973 loses view_owned at wait_execution call53,
 before join76. Active shared loan and marker classification are present. Retire reaches an opaque returned byte
