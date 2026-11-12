@@ -90,13 +90,15 @@ the same25 exact source identities as that native run. Temporary slice probes ar
 ### Open contract: owned backing retirement
 
 dispatch_ready source63/unit746973 loses view_owned at wait_execution call53, before join76. Active loan and marker
-classification are present. Retire reaches an opaque returned byte pointer with an execution-owner bound and an
-independent alternative. Control is a view, not a complete allocation extent. Never use that type to narrow retirement.
-Trace the actual backing producer through reference staging, owner transfers, effect publication, alias resolution and
-marker preservation. Unresolved: whether a declared owning-buffer boundary is lost or no disjointness is established.
+classification are present. Retire reaches retain_task's result.0 nullable task Reference.pointer, produced at E9/S10.
+Its origins include execution owner S2.F2021 and an independent alternative. Reference.pointer points to Slot,
+not a complete allocation extent. Never use its view type to narrow retirement. retain_task calls retain_locked,
+whose issue lambda takes address_of<Slot>(slot) after slot_at. The failing effect is not the buffer cleanup in release_arena.
+Trace that slot's backing through reference staging, owner transfers, effect publication, alias resolution and marker
+preservation. Unresolved: whether an owning boundary is lost or no disjointness is established.
 Retain real aliases and independent alternatives. Do not reconstruct ownership from a final pointer view.
-Existing owned-region transport and independent-alias tests are negative oracles. Add a real source control once the
-producer is identified. Temporary BRAY_AUDIT_BACKING trace resolves the owner and producer identity, no semantic patch.
+Existing owned-region transport and independent-alias tests are negative oracles. Establish a real source control at
+the identified producer before any semantic patch. Temporary trace hooks and consumed output are removed.
 
 Remaining groups: prepared cleanup/start234, driving197, entry_scope422, root_scope268, observer/polling105,
 withdrawal185/199, reserve_start175 and panic338. Follow reserve_start into start_frame. Unbounded Retire alone
