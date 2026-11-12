@@ -87,10 +87,16 @@ symbols221/interface216/messages92, matrices and adjacent groups pass. Refreshed
 9 primary/16 cascades. Only removed identity is panic338, no new identities. The final identity-rule repair gives
 the same25 exact source identities as that native run. Temporary slice probes are deleted, no trace hooks remain.
 
-Remaining raw-retirement group: dispatch_ready source63/unit746973 loses view_owned at wait_execution call53,
-before join76. Active shared loan and marker classification are present. Retire reaches an opaque returned byte
-pointer. Its Control type is a view, not a complete allocation extent. Do not use it to weaken lifetime invalidation.
-Producer bounds include an execution-owner pointer and an independent origin.
+### Open contract: owned backing retirement
+
+dispatch_ready source63/unit746973 loses view_owned at wait_execution call53, before join76. Active loan and marker
+classification are present. Retire reaches an opaque returned byte pointer with an execution-owner bound and an
+independent alternative. Control is a view, not a complete allocation extent. Never use that type to narrow retirement.
+Trace the actual backing producer through reference staging, owner transfers, effect publication, alias resolution and
+marker preservation. Unresolved: whether a declared owning-buffer boundary is lost or no disjointness is established.
+Retain real aliases and independent alternatives. Do not reconstruct ownership from a final pointer view.
+Existing owned-region transport and independent-alias tests are negative oracles. Add a real source control once the
+producer is identified. Temporary BRAY_AUDIT_BACKING trace resolves the owner and producer identity, no semantic patch.
 
 Remaining groups: prepared cleanup/start234, driving197, entry_scope422, root_scope268, observer/polling105,
 withdrawal185/199, reserve_start175 and panic338. Follow reserve_start into start_frame. Unbounded Retire alone
