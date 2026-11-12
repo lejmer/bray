@@ -45,6 +45,8 @@ pub enum DependencyProjection {
     Element(ConstantTermId),
     /// A region in an unspecified array or slice element, without an exact address.
     AnyElement,
+    /// The value reached through a raw data address. Establishes no access or ownership.
+    AddressTarget,
     /// The present value of a nullable subject.
     NullableValue,
     /// A named union payload field.

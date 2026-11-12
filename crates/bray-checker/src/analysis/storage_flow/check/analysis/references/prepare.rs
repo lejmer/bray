@@ -227,7 +227,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         entry: Option<bray_bound_tree::BorrowCapabilityId>,
     ) -> Option<crate::analysis::storage_flow::memory::Target> {
         let root_borrow = match (entry, path.borrows().first()) {
-            (Some(capability), Some((0, ty))) => Some(memory.borrow_target(capability, *ty)?),
+            (Some(capability), Some((0, ty))) if !path.is_address_load(0) => Some(memory.borrow_target(capability, *ty)?),
             _ => None,
         };
 

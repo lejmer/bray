@@ -1606,7 +1606,7 @@ fn entry_borrow_targets_are_not_parameter_slots() {
 
 #[test]
 fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
-    let ([parameter, field_reference, address, copied], _, capability) = borrowed_places();
+    let ([parameter, field_reference, address, copied], origins, capability) = borrowed_places();
 
     let mut state = State::default();
     let ty = error_type();
@@ -1662,6 +1662,55 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
             .located_storage(&Target::storage(copied.clone()))
             .is_none()
     );
+
+    let values = crate::test_support::semantic_values();
+    let stored = values.intern_type(bray_symbols::TypeData::Borrow {
+        kind: bray_symbols::BorrowKind::Shared, target: ty,
+    }).unwrap();
+    let aggregate = values.intern_type(bray_symbols::TypeData::Tuple([stored].into())).unwrap();
+
+    let mut layered = State::default();
+
+    layered.begin_entry_borrow(capability, parameter.clone(), ty);
+
+    let cell = layered.borrow_target(capability, ty).unwrap();
+
+    layered.entry_reference_at(parameter.clone(), 2, cell.clone(), Some(aggregate), bray_symbols::DependencyReferenceKind::Address);
+
+    let route = bray_bound_tree::StorageReferencePath::new(
+        [StorageProjection::AddressTarget, projection].into(), [(0, ty), (0, aggregate)].into());
+    let reached = layered.reference_location(values, Target::storage(parameter.clone()), &route, Some(cell)).unwrap();
+
+    assert_eq!(reached.projections(), &[projection], "a language borrow followed by a raw-address load consumes one route marker");
+
+    let mut state = State { owned_storage: [parameter.root, copied.root].into(), ..State::default() };
+
+    state.entry_reference_at(parameter.clone(), 1, Target::storage(parameter.clone()), Some(aggregate),
+        bray_symbols::DependencyReferenceKind::Address);
+
+    let path = bray_bound_tree::StorageReferencePath::new(
+        [StorageProjection::AddressTarget, projection].into(), [(0, aggregate)].into());
+    let location = state.reference_location(values, Target::storage(parameter.clone()), &path, None).unwrap();
+    let field = Place { root: parameter.root, projections: [StorageProjection::AddressTarget, projection].into() };
+
+    assert!(!field.is_inline(), "a raw-address load cannot be mistaken for inline owner storage");
+    state.entry_reference_at(field.clone(), 1, location.clone(), Some(ty), bray_symbols::DependencyReferenceKind::Borrow);
+
+    let original = state.value_target(&location, ty).unwrap();
+
+    state.transfer_value(&location, copied.clone());
+    state.write_target(location.clone(), stored, origins[0], None);
+
+    assert!(state.referenced_regions(&location).is_none(), "a write retires the entry field record");
+    assert_eq!(state.referenced_regions(&Target::storage(copied.clone())), Some(vec![original.clone()]),
+        "the copied pointer retains its actual old referent");
+    assert!(!state.initialized(&Target::storage(copied), ty), "provenance supplies no initialized authority");
+
+    let other = Target { previous: false, origin: super::model::Origin::entry(field_reference,
+        bray_symbols::DependencyReferenceKind::Address) };
+
+    assert_ne!(state.target_relationship(&original, &other), bray_bound_tree::StorageRelationship::Disjoint,
+        "an incoming field pointer can alias another input");
 }
 
 #[test]
@@ -4690,7 +4739,25 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
     let mut state = State { owned_storage: [local.root].into(), ..State::default() };
     state.values.insert(owner.project(&[field]), super::model::References::one(stored.clone()));
     assert!(state.escaped_regions([pointer.clone()]).contains(&stored), "body-local checks retain possible aliases");
-    assert_eq!(state.escape_roots([pointer.clone()]), BTreeSet::from([pointer]), "possible aliases are resolved again at the caller");
+    assert_eq!(state.escape_roots([pointer.clone()]), BTreeSet::from([pointer.clone()]), "possible aliases are resolved again at the caller");
+
+    let incoming_field = Target { previous: false, origin: super::Origin::entry(
+        Place { root: parameter.root, projections: [pointer_field, StorageProjection::AddressTarget, field].into() },
+        bray_symbols::DependencyReferenceKind::Address) };
+    state.values.insert(pointer.project(&[field]), super::model::References::one(incoming_field.clone()));
+
+    assert_eq!(state.escape_roots([pointer.clone()]), BTreeSet::from([pointer.clone()]),
+        "an unchanged incoming pointee field is already reachable from its escaped raw-address root");
+    assert!(state.escape_roots([incoming_field.clone()]).contains(&incoming_field),
+        "an explicitly escaped field pointer remains an operand");
+
+    state.values.insert(Target::storage(local.clone()).project(&[pointer_field]), super::model::References::one(incoming_field.clone()));
+    state.values.insert(pointer.project(&[field]), super::model::References::one(stored.clone()));
+
+    let escaped = state.escape_roots([pointer.clone(), Target::storage(local.clone())]);
+
+    assert!(escaped.contains(&incoming_field), "a captured old field pointer survives replacement of its original slot");
+    assert!(escaped.contains(&stored), "a replacement's actual incoming pointer remains an escape root");
 
     let local = Target::storage(local);
     state.values.insert(local.project(&[field]), super::model::References::one(stored.clone()));

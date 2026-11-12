@@ -363,6 +363,8 @@ pub enum StorageProjection {
     Element(BoundExpressionId),
     /// A conservative element region whose selector is not available in this unit.
     AnyElement,
+    /// A raw-address load in an incoming reference route, without ownership or access authority.
+    AddressTarget,
     /// A slice range selected by checked optional bound expressions.
     SliceRange {
         /// The inclusive lower-bound expression, when supplied.
@@ -396,6 +398,7 @@ impl StorageProjection {
             | Self::ElementFromStart(_)
             | Self::ElementFromEnd(_)
             | Self::AnyElement
+            | Self::AddressTarget
             | Self::ActiveUnionPayloadField { .. }
             | Self::NullableValue
             | Self::OwnedTarget

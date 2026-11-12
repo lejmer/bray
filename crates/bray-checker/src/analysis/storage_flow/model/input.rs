@@ -72,6 +72,19 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
 }
 
 impl StorageFlowInput {
+    pub(in crate::analysis::storage_flow) fn entry_buffer_pointer(
+        &self,
+        path: &bray_bound_tree::StorageReferencePath,
+        pointee: Option<bray_symbols::TypeId>,
+    ) -> Option<crate::representation::RawBufferFields> {
+        self.raw_buffers.values().find_map(|(fields, _)| {
+            (pointee == Some(fields.element)
+                && path.borrows().iter().all(|(index, _)| *index < path.projections().len())
+                && path.projections().last() == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer)))
+                .then_some(*fields)
+        })
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "storage-flow preparation consumes independently checked type, dependency, cleanup and memory inputs"

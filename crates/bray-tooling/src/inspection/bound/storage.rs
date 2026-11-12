@@ -442,6 +442,7 @@ enum InspectionStorageProjection {
         selector_expression: u32,
     },
     AnyElement,
+    AddressTarget,
     SliceRange {
         start_expression: Option<u32>,
         end_expression: Option<u32>,
@@ -477,6 +478,7 @@ impl InspectionStorageProjection {
                 selector_expression: selector.ordinal(),
             },
             StorageProjection::AnyElement => Self::AnyElement,
+            StorageProjection::AddressTarget => Self::AddressTarget,
             StorageProjection::SliceRange { start, end } => Self::SliceRange {
                 start_expression: start.map(|expression| expression.ordinal()),
                 end_expression: end.map(|expression| expression.ordinal()),
@@ -500,6 +502,7 @@ impl InspectionStorageProjection {
                 selector_expression,
             } => format!("element:{selector_expression}"),
             Self::AnyElement => String::from("any_element"),
+            Self::AddressTarget => String::from("address_target"),
             Self::SliceRange {
                 start_expression,
                 end_expression,

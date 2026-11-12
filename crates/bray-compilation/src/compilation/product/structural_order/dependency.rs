@@ -206,6 +206,7 @@ impl OrderEncoder<'_, '_> {
                     }
                     DependencyProjection::NullableValue => term("nullable_value", []),
                     DependencyProjection::AnyElement => term("any_element", []),
+                    DependencyProjection::AddressTarget => term("address_target", []),
                     DependencyProjection::UnionPayloadField(id) => {
                         term("union_payload_field", [self.symbol((*id).into())?])
                     }

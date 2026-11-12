@@ -825,6 +825,7 @@ impl InterfaceSemantics {
                 | InterfaceDependencyProjection::NullableValue
                 | InterfaceDependencyProjection::OwnedTarget
                 | InterfaceDependencyProjection::AnyElement
+                | InterfaceDependencyProjection::AddressTarget
                 | InterfaceDependencyProjection::UninitPayload => {}
             }
         }

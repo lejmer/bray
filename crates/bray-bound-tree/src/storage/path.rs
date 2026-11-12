@@ -112,8 +112,16 @@ impl StorageReferencePath {
         &self.projections
     }
 
-    /// Ordered dereference positions and the type reached by each borrow layer.
+    /// Ordered reference-load positions and the type reached by each load.
     pub fn borrows(&self) -> &[(usize, bray_symbols::TypeId)] {
         &self.borrows
+    }
+
+    /// Whether this load follows an explicit raw address rather than a language borrow.
+    pub fn is_address_load(&self, step: usize) -> bool {
+        let (index, _) = self.borrows.get(step).expect("reference load belongs to its prepared route");
+
+        self.projections.get(*index) == Some(&StorageProjection::AddressTarget)
+            && self.borrows.get(step + 1).is_none_or(|(next, _)| next != index)
     }
 }

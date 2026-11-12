@@ -1234,6 +1234,7 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
         trusted module app;
 
         using core.target;
+        using core.memory;
         using std.memory;
 
         struct Row
@@ -1246,6 +1247,83 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
         {
             mut rows: std.memory.RawBuffer<Row>?;
             total: usize;
+        }
+
+        struct Pointer
+        {
+            pointer: DataPointer<u32>;
+        }
+
+        struct DirectoryLink
+        {
+            directory: &Directory;
+        }
+
+        struct LinkOwner
+        {
+            pointer: DataPointer<DirectoryLink>;
+        }
+
+        trusted predicate linked(owner: &LinkOwner);
+
+        extern trusted func rewrite_link(pos owner: &mut LinkOwner)
+            ensures(trusted linked(&owner));
+
+        trusted func borrow_link(pos owner: &LinkOwner) -> &DirectoryLink
+            requires(trusted linked(owner))
+            executes(pure, total)
+            uses(raw_memory, unchecked_alias)
+        {
+            let permit = trusted lambda(pos owner: &LinkOwner)
+                requires(trusted linked(owner))
+                ensures(
+                    trusted core.memory.valid_read<DirectoryLink>(pointer = owner.pointer, count = 1),
+                    trusted core.memory.aligned_for<DirectoryLink>(pointer = owner.pointer),
+                    trusted core.memory.initialized_as<DirectoryLink>(pointer = owner.pointer),
+                    trusted core.memory.shared_alias_valid<DirectoryLink>(pointer = owner.pointer),
+                    trusted core.memory.epoch_current<DirectoryLink>(pointer = owner.pointer),
+                    trusted core.memory.synchronized_access<DirectoryLink>(pointer = owner.pointer),
+                    trusted core.memory.movement_stable<DirectoryLink>(pointer = owner.pointer),
+                    trusted core.memory.finalization_pending<DirectoryLink>(pointer = owner.pointer)
+                )
+                executes(pure, total)
+            {
+            };
+
+            trusted permit(owner);
+            return trusted core.memory.borrow_from<DirectoryLink, LinkOwner>(owner, owner.pointer);
+        }
+
+        trusted func inspect_shared(pos directory: &Directory, pos index: usize) -> &u32
+            uses(raw_memory, intrinsic)
+        {
+            if let ?backing = directory.rows
+            {
+                let rows = trusted std.memory.initialized_slice<Row>(&backing);
+                let slots = trusted std.memory.initialized_slice<u32>(&rows[index].slots);
+
+                return &slots[0];
+            }
+
+            trusted core.target.abort();
+        }
+
+        trusted func inspect_indirect(pos owner: &LinkOwner, pos index: usize) -> &u32
+            requires(trusted linked(owner))
+        {
+            let link = trusted borrow_link(owner);
+
+            return trusted inspect_shared(link.directory, index);
+        }
+
+        trusted func inspect_replaced(pos owner: &mut LinkOwner, pos index: usize) -> &u32
+            requires(trusted linked(&owner))
+        {
+            trusted rewrite_link(owner);
+
+            let link = trusted borrow_link(&owner);
+
+            return trusted inspect_shared(link.directory, index);
         }
 
         trusted func inspect_buffer(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> &mut u32
@@ -1290,9 +1368,23 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
         }
 
         trusted func inspect_forwarded(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> &mut u32
-            uses(raw_memory)
         {
             return trusted inspect_buffer(buffer, index);
+        }
+
+        trusted func inspect_issued(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> Pointer
+        {
+            let slot = trusted inspect_buffer(buffer, index);
+            let issue = trusted lambda(pos slot: &u32) -> Pointer
+                uses(intrinsic)
+            {
+                return
+                {
+                    pointer = std.memory.address_of<u32>(slot)
+                };
+            };
+
+            return trusted issue(&slot);
         }
         "#,
     );
@@ -1301,7 +1393,7 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
 
     let mut failures = Vec::new();
 
-    for name in ["inspect_buffer", "inspect_directory", "inspect_forwarded"] {
+    for name in ["inspect_buffer", "inspect_directory", "inspect_forwarded", "inspect_issued", "inspect_shared", "inspect_indirect", "inspect_replaced"] {
         let key = source_function_body_key(&application, name);
         let checked = application.lowered_unit(key.clone()).unwrap();
 
@@ -1313,17 +1405,22 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
         let flow = application.storage_flow(key).unwrap();
 
         assert!(!flow.value().is_recovered());
-        assert!(flow.value().dependencies().preserves_storage_on_normal_return());
+        assert_eq!(flow.value().dependencies().preserves_storage_on_normal_return(), name != "inspect_replaced");
+        assert!(flow.value().dependencies().normal_completion());
 
         let returned = flow.value().dependencies().borrows().iter().filter(|relation|
             relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result).collect::<Vec<_>>();
 
-        if returned.is_empty() || returned.iter().any(|relation|
-            relation.entry().is_none()
-                || relation.provenance() != bray_symbols::DependencyReferenceProvenance::InputRegions
-                || relation.target_projections().iter().filter(|projection| **projection == bray_symbols::DependencyProjection::OwnedTarget).count() != 2
-                || !relation.target_projections().contains(&bray_symbols::DependencyProjection::AnyElement)) {
-            failures.push(format!("{name}: nested selection must retain both owned backing boundaries as closed regions without forwarding authority: {returned:#?}"));
+        assert!(!returned.is_empty(), "{name} publishes its actual result reference");
+
+        let closed = returned.iter().all(|relation|
+            relation.entry().is_some()
+                && relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions
+                && relation.target_projections().iter().filter(|projection| **projection == bray_symbols::DependencyProjection::OwnedTarget).count() == 2
+                && relation.target_projections().contains(&bray_symbols::DependencyProjection::AnyElement));
+
+        if closed != (name != "inspect_replaced") {
+            failures.push(format!("{name}: closed entry backing expected={}, replacement cannot retain entry origins: {returned:#?}", name != "inspect_replaced"));
         }
     }
 

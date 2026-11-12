@@ -139,7 +139,32 @@ impl State {
         &self,
         roots: impl IntoIterator<Item = Target>,
     ) -> BTreeSet<Target> {
-        self.transitive_regions(roots.into_iter().map(|root| exposure_region(&root)), |region, slot| region.contains(slot)).0
+        let roots = roots.into_iter().map(|root| exposure_region(&root)).collect::<BTreeSet<_>>();
+        let reached = self.transitive_regions(roots.iter().cloned(), |region, slot| region.contains(slot)).0;
+
+        reached.iter().filter(|target| roots.contains(*target)
+            || !reached.iter().any(|region| self.entry_field_is_reachable(region, target)))
+            .cloned().collect()
+    }
+
+    fn entry_field_is_reachable(&self, region: &Target, target: &Target) -> bool {
+        let Origin::Entry { reference: parent, projections, kind: bray_symbols::DependencyReferenceKind::Address, .. } = &region.origin else { return false; };
+        let Origin::Entry { reference: field, .. } = &target.origin else { return false; };
+        let prefix = parent.projections.iter().copied()
+            .chain([bray_bound_tree::StorageProjection::AddressTarget])
+            .chain(projections.iter().copied());
+        let prefix_len = parent.projections.len() + 1 + projections.len();
+
+        if region.previous != target.previous || parent.root != field.root
+            || field.projections.len() < prefix_len
+            || !field.projections.iter().copied().zip(prefix).all(|(field, parent)| field == parent) {
+            return false;
+        }
+
+        // The caller expands the escaped raw address. Only a field still holding its
+        // original incoming pointer is redundant. Writes and captured old copies differ.
+        self.values.get(&region.project(&field.projections[prefix_len..]))
+            .is_some_and(|references| references.targets.contains(target))
     }
 
     pub(in crate::analysis::storage_flow) fn escaped_regions(

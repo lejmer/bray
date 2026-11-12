@@ -118,6 +118,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
             }
             StorageProjection::OwnedTarget
             | StorageProjection::AnyElement
+            | StorageProjection::AddressTarget
             | StorageProjection::UninitPayload
             | StorageProjection::SliceRange { .. } => {
                 panic!("admitted value projection stays within its inline state");

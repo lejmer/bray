@@ -370,7 +370,9 @@ impl State {
         for (step, (index, ty)) in path.borrows().iter().enumerate() {
             target = target.project(&path.projections()[copied..*index]);
 
-            target = match root_borrow.take().filter(|_| step == 0 && *index == 0) {
+            let address = path.is_address_load(step);
+
+            target = match root_borrow.take().filter(|_| step == 0 && *index == 0 && !address) {
                 Some(root) => root,
                 None => lookup(&target).and_then(|reference| self.typed_target(reference, *ty)).or_else(|| {
                     let data = values.type_data(*ty);
@@ -398,7 +400,7 @@ impl State {
                 })?,
             };
 
-            copied = *index;
+            copied = *index + usize::from(address);
         }
 
         Some(target.project(&path.projections()[copied..]))

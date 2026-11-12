@@ -539,6 +539,8 @@ impl ExecutionCondition {
     pub(crate) fn project(self, projection: bray_bound_tree::StorageProjection) -> Self {
         use bray_bound_tree::StorageProjection;
 
+        if projection == StorageProjection::AddressTarget { return self.into_referent(); }
+
         if let (Self::Constructed(_, fields), StorageProjection::ElementFromEnd(index)) =
             (&self, projection)
         {
