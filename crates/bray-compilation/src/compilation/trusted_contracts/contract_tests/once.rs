@@ -63,7 +63,9 @@ fn production_once_and_lazy_owners_keep_cleanup_authority() {
         module app;
 
         using std.sync;
-        func production_probe(pos callback: func() -> u32) requires(blocking_execution()) {{
+        func production_probe(pos callback: func() -> u32)
+            requires(blocking_execution())
+        {{
             {body}
         }}
     "#
@@ -96,7 +98,9 @@ fn production_once_rejects_fabricated_instance_and_attempt_authority() {
 
             using std.memory;
             using std.sync;
-            func production_probe(pos callback: func() -> u32) requires(blocking_execution()) {{
+            func production_probe(pos callback: func() -> u32)
+                requires(blocking_execution())
+            {{
                 {body}
             }}
         "#
@@ -124,7 +128,9 @@ fn static_once_keeps_initializer_authority() {
 
         using std.sync;
         static CELL: std.sync.Once<u32> = { prepared = std.sync.Once<u32>.prepare() };
-        func caller(pos callback: func() -> u32) requires(blocking_execution()) {
+        func caller(pos callback: func() -> u32)
+            requires(blocking_execution())
+        {
             let value = CELL.get_or_init(callback);
         }
     "#,
@@ -191,7 +197,9 @@ fn production_constant_owner_factories_preserve_pairing_and_reject_fabrication()
                 using std.memory;
                 using internal std.sync;
 
-                func production_probe(pos callback: func() -> u32) requires(blocking_execution()) {{
+                func production_probe(pos callback: func() -> u32)
+                    requires(blocking_execution())
+                {{
                     let prepared = {preparation};
                     let transported = prepared;
                     let mut owner: std.sync.{owner}<u32> = {{ prepared = transported }};

@@ -9,15 +9,28 @@ fn cleanup_keeps_completion_guarantees_for_represented_children() {
             r#"
             trusted module app;
             trusted predicate live(value: &Child);
-            struct Child {{
+            struct Child
+            {{
                 value: u32;
-                trusted destruct() requires(trusted live(&self)) {{}}
+                trusted destruct() requires(trusted live(&self))
+                {{
+                }}
             }}
-            struct Parent {{
+            struct Parent
+            {{
                 child: Child;
                 trusted finalize() {guarantee} executes(total) {{}}
             }}
-            func caller() {{ let value: Parent = {{ child = {{ value = 1 }} }}; }}
+            func caller()
+            {{
+                let value: Parent =
+                {{
+                    child =
+                    {{
+                        value = 1
+                    }}
+                }};
+            }}
         "#
         );
 
@@ -43,15 +56,31 @@ fn cleanup_effects_follow_the_actual_borrowed_receiver() {
                 r#"
                 trusted module app;
                 trusted predicate live(value: &Owner);
-                struct Owner {{
+                struct Owner
+                {{
                     mut epoch: u64;
-                    trusted destruct() requires(trusted live(&self)) {{}}
+                    trusted destruct() requires(trusted live(&self))
+                    {{
+                    }}
                 }}
-                struct Writer {{ slot: &mut Owner; destruct() {{ {effect} }} }}
-                trusted func make() -> Owner ensures(trusted live(&result)) {{
-                    return {{ epoch = 1 }};
+                struct Writer
+                {{
+                    slot: &mut Owner;
+                    destruct()
+                    {{
+                        {effect}
+                    }}
                 }}
-                func caller(pos flag: bool) {{
+                trusted func make() -> Owner
+                    ensures(trusted live(&result))
+                {{
+                    return
+                    {{
+                        epoch = 1
+                    }};
+                }}
+                func caller(pos flag: bool)
+                {{
                     let mut owner = make();
                     {cleanup}
                 }}
@@ -83,19 +112,34 @@ fn cleanup_reference_outputs_feed_the_next_lifecycle() {
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{ mut epoch: u64; }}
+            struct Owner
+            {{
+                mut epoch: u64;
+            }}
             trusted predicate live(value: &Owner);
-            struct Writer {{
+            struct Writer
+            {{
                 mut slot: &Owner;
                 other: &Owner;
                 finalize() executes(total) {{ self.slot = self.other; }}
-                trusted destruct() ensures(trusted live(&self.slot)) {{}}
+                trusted destruct() ensures(trusted live(&self.slot))
+                {{
+                }}
             }}
-            func observe(pos owner: &Owner) requires(trusted live(owner)) {{}}
-            func caller() {{
+            func observe(pos owner: &Owner)
+                requires(trusted live(owner))
+            {{
+            }}
+            func caller()
+            {{
                 let mut first: Owner = {{ epoch = 0 }};
                 let mut second: Owner = {{ epoch = 0 }};
-                {{ let writer: Writer = {{ slot = &first, other = &second }}; }}
+                {{
+                    let writer: Writer =
+                    {{
+                        slot = &first, other = &second
+                    }};
+                }}
                 observe(&{observed});
             }}
             "#
@@ -138,7 +182,8 @@ fn memory_evidence_uses_the_same_cleanup_state_as_authority() {
 
             using core.memory;
 
-            struct Writer {{
+            struct Writer
+            {{
                 slot: &mut Uninit<u32>;
 
                 trusted destruct()
@@ -148,7 +193,9 @@ fn memory_evidence_uses_the_same_cleanup_state_as_authority() {
                 }}
             }}
 
-            trusted func caller(pos flag: bool) -> u32 uses(unchecked_init) {{
+            trusted func caller(pos flag: bool) -> u32
+                uses(unchecked_init)
+            {{
                 let mut slot = core.memory.uninit<u32>();
 
                 {cleanup}
@@ -229,10 +276,30 @@ fn cleanup_guarantees_reach_following_blocks_and_replacement() {
             r#"
             trusted module app;
             trusted predicate ready();
-            struct Producer {{ tag: u8; trusted destruct() ensures(trusted ready()) {total} {{}} }}
-            struct Interference {{ tag: u8; destruct() executes(total) {{}} }}
-            func observe() requires(trusted ready()) ensures(trusted ready()) executes(pure, total) {{}}
-            func caller(pos branch: bool) {{ {body} }}
+            struct Producer
+            {{
+                tag: u8;
+                trusted destruct() ensures(trusted ready()) {total}
+                {{
+                }}
+            }}
+            struct Interference
+            {{
+                tag: u8;
+                destruct() executes(total)
+                {{
+                }}
+            }}
+            func observe()
+                requires(trusted ready())
+                ensures(trusted ready())
+                executes(pure, total)
+            {{
+            }}
+            func caller(pos branch: bool)
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -268,9 +335,22 @@ fn backing_release_revokes_destructor_guarantees() {
             r#"
             trusted module app;
             trusted predicate ready();
-            struct Producer {{ payload: {payload}; trusted destruct() ensures(trusted ready()) {{}} }}
-            func observe() requires(trusted ready()) executes(pure, total) {{}}
-            func caller(pos value: {owner}) {{ {{ let released = value; }} observe(); }}
+            struct Producer
+            {{
+                payload: {payload};
+                trusted destruct() ensures(trusted ready()) {{}}
+            }}
+            func observe()
+                requires(trusted ready())
+                executes(pure, total)
+            {{
+            }}
+            func caller(pos value: {owner})
+            {{
+                {{
+                    let released = value;
+                }} observe();
+            }}
         "#
         );
 
@@ -303,9 +383,23 @@ fn conditional_cleanup_cannot_publish_unconditional_guarantees() {
             r#"
             trusted module app;
             trusted predicate ready();
-            struct Producer {{ tag: u8; trusted destruct() ensures(trusted ready()) executes(total) {{}} }}
-            func observe() requires(trusted ready()) executes(pure, total) {{}}
-            func caller(pos flag: bool) {{ let mut retained: Producer? = none; {body} }}
+            struct Producer
+            {{
+                tag: u8;
+                trusted destruct() ensures(trusted ready()) executes(total)
+                {{
+                }}
+            }}
+            func observe()
+                requires(trusted ready())
+                executes(pure, total)
+            {{
+            }}
+            func caller(pos flag: bool)
+            {{
+                let mut retained: Producer? = none;
+                {body}
+            }}
         "#
         );
 
@@ -324,10 +418,14 @@ fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
         let source = format!(
             r#"
             trusted module app;
-            struct Payload {{ value: bool; }}
+            struct Payload
+            {{
+                value: bool;
+            }}
             trusted predicate live(value: &Payload);
             trusted predicate acquired(value: &Guard);
-            struct Guard {{
+            struct Guard
+            {{
                 mut reference: &Payload;
                 other: &Payload;
                 trusted destruct()
@@ -375,13 +473,23 @@ fn generic_cleanup_effects_specialize_through_forwarding() {
                 ensures(trusted ready(value)) executes(pure, total) {{}}
             func observe(pos value: &core.atomic.Atomic<u32>)
                 requires(trusted ready(value)) executes(pure, total) {{}}
-            struct Writer {{
+            struct Writer
+            {{
                 value: &core.atomic.Atomic<u32>;
-                destruct() {{ core.atomic.store<u32, 0>(self.value, 1); }}
+                destruct()
+                {{
+                    core.atomic.store<u32, 0>(self.value, 1);
+                }}
             }}
-            func dispose<T>(pos value: T) {{}}
-            func forward<T>(pos value: T) {{ dispose<T>(value); }}
-            func production_probe() {{
+            func dispose<T>(pos value: T)
+            {{
+            }}
+            func forward<T>(pos value: T)
+            {{
+                dispose<T>(value);
+            }}
+            func production_probe()
+            {{
                 let word = core.atomic.initialize<u32>(0);
                 establish(&word);
                 {argument};
@@ -418,11 +526,18 @@ fn recursive_cleanup_effects_do_not_grow_with_generic_wrappers() {
     let application = production_sync_compilation(
         r#"
         module app;
-        func dispose<T>(pos value: T, pos stop: bool) {
-            if stop { return; }
+        func dispose<T>(pos value: T, pos stop: bool)
+        {
+            if stop
+            {
+                return;
+            }
             dispose<(T,)>((value,), stop);
         }
-        func production_probe() { dispose<u32>(7, true); }
+        func production_probe()
+        {
+            dispose<u32>(7, true);
+        }
     "#,
     );
 
@@ -441,16 +556,27 @@ fn recursive_cleanup_effects_do_not_grow_with_generic_wrappers() {
 fn unexposed_owned_marker_survives_opaque_callback_cleanup() {
     let source = r#"
         trusted module app;
-        struct Marker {}
+        struct Marker
+        {
+        }
         trusted predicate held(marker: &Marker);
-        struct Attempt {
+        struct Attempt
+        {
             marker: Marker;
-            trusted destruct() requires(trusted held(&self.marker)) executes(total) {}
+            trusted destruct() requires(trusted held(&self.marker)) executes(total)
+            {
+            }
         }
-        trusted func acquire() -> Attempt ensures(trusted held(&result.marker)) {
-            return { marker = Marker {} };
+        trusted func acquire() -> Attempt
+            ensures(trusted held(&result.marker))
+        {
+            return
+            {
+                marker = Marker {}
+            };
         }
-        func caller(pos callback: func() -> unit) {
+        func caller(pos callback: func() -> unit)
+        {
             let attempt = acquire();
             callback();
         }
@@ -475,22 +601,44 @@ fn nested_owner_cleanup_preserves_its_required_authority() {
         r#"
         trusted module app;
         extern trusted func opaque();
-        struct Marker {}
-        trusted predicate live(marker: &Marker);
-        struct Owner {
-            instance: Marker;
-            trusted destruct() requires(trusted live(&self.instance)) { opaque(); }
+        struct Marker
+        {
         }
-        struct Outer {
+        trusted predicate live(marker: &Marker);
+        struct Owner
+        {
+            instance: Marker;
+            trusted destruct() requires(trusted live(&self.instance))
+            {
+                opaque();
+            }
+        }
+        struct Outer
+        {
             owner: Owner;
             trusted destruct() requires(trusted live(&self.owner.instance))
                 ensures(trusted live(&self.owner.instance)) {}
-            consume func close() requires(trusted live(&self.owner.instance)) {}
+            consume func close()
+                requires(trusted live(&self.owner.instance))
+            {
+            }
         }
-        trusted func make() -> Outer ensures(trusted live(&result.owner.instance)) {
-            return { owner = { instance = Marker {} } };
+        trusted func make() -> Outer
+            ensures(trusted live(&result.owner.instance))
+        {
+            return
+            {
+                owner =
+                {
+                    instance = Marker {}
+                }
+            };
         }
-        func caller() { let value = make(); value.close(); }
+        func caller()
+        {
+            let value = make();
+            value.close();
+        }
     "#,
     );
 
@@ -504,17 +652,34 @@ fn borrowed_accessor_does_not_prepare_its_referents_cleanup() {
     let application = compilation(
         r#"
         trusted module app;
-        struct Marker {}
+        struct Marker
+        {
+        }
         trusted predicate live(marker: &Marker);
-        struct Owner {
+        struct Owner
+        {
             instance: Marker;
-            const func marker() -> &Marker executes(pure, total) { return &self.instance; }
-            trusted destruct() requires(trusted live(self.marker())) {}
+            const func marker() -> &Marker
+                executes(pure, total)
+            {
+                return &self.instance;
+            }
+            trusted destruct() requires(trusted live(self.marker()))
+            {
+            }
         }
-        trusted func make() -> Owner ensures(trusted live(result.marker())) {
-            return { instance = Marker {} };
+        trusted func make() -> Owner
+            ensures(trusted live(result.marker()))
+        {
+            return
+            {
+                instance = Marker {}
+            };
         }
-        func caller() { let owner = make(); }
+        func caller()
+        {
+            let owner = make();
+        }
     "#,
     );
 
@@ -532,19 +697,32 @@ fn opaque_cleanup_preserves_independent_owner_authority() {
         let application = compilation(&format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            trusted predicate live(marker: &Marker);
-            struct Owner {{
-                marker: Marker;
-                trusted destruct() requires(trusted live(&self.marker)) {{}}
+            struct Marker
+            {{
             }}
-            trusted func make() -> Owner ensures(trusted live(&result.marker)) {{
-                return {{ marker = Marker {{}} }};
+            trusted predicate live(marker: &Marker);
+            struct Owner
+            {{
+                marker: Marker;
+                trusted destruct() requires(trusted live(&self.marker))
+                {{
+                }}
+            }}
+            trusted func make() -> Owner
+                ensures(trusted live(&result.marker))
+            {{
+                return
+                {{
+                    marker = Marker {{}}
+                }};
             }}
             extern trusted async func work();
-            async func caller() {{
+            async func caller()
+            {{
                 let owner = make();
-                {{ {cleanup} }}
+                {{
+                    {cleanup}
+                }}
             }}
         "#
         ));
@@ -608,9 +786,16 @@ fn conditional_cleanup_requires_authority_for_the_selected_payload() {
             const func marker(pos value: &(Owner?)) -> &Marker
                 requires(!(value matches none)) executes(pure, total)
             {{
-                match value {{
-                    case ?owner {{ return &owner.marker; }}
-                    case none {{ panic("absent owner"); }}
+                match value
+                {{
+                    case ?owner
+                    {{
+                        return &owner.marker;
+                    }}
+                    case none
+                    {{
+                        panic("absent owner");
+                    }}
                 }}
             }}
             extern trusted func make() -> Owner?

@@ -13,29 +13,43 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
             trusted module app;
 
             using core.memory;
-            struct Marker {{}}
-            struct Owner {{ marker: Marker; value: u32; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                marker: Marker;
+                value: u32;
+            }}
             trusted predicate live(marker: &Marker);
             trusted func create() -> Owner
                 ensures(trusted live(marker = &result.marker))
             {{
-                return {{ marker = Marker {{}}, value = 1 }};
+                return
+                {{
+                    marker = Marker {{}}, value = 1
+                }};
             }}
             func accept(pos owner: Owner)
                 requires(trusted live(marker = &owner.marker)) {{}}
             @abi(c)
             @link(name = "native")
             @symbol(name = "touch_word")
-            extern trusted func touch_word(pos pointer: DataPointer<u32>) uses(foreign_call);
+            extern trusted func touch_word(pos pointer: DataPointer<u32>)
+                uses(foreign_call);
             @abi(c)
             @link(name = "native")
             @symbol(name = "touch_marker")
-            extern trusted func touch_marker(pos pointer: DataPointer<Marker>) uses(foreign_call);
+            extern trusted func touch_marker(pos pointer: DataPointer<Marker>)
+                uses(foreign_call);
             @abi(c)
             @link(name = "native")
             @symbol(name = "opaque")
-            extern trusted func opaque() uses(foreign_call);
-            trusted func caller() uses(foreign_call) {{
+            extern trusted func opaque()
+                uses(foreign_call);
+            trusted func caller()
+                uses(foreign_call)
+            {{
                 let owner = create();
                 {body}
                 accept(owner);
@@ -69,7 +83,9 @@ fn borrowed_addresses_establish_live_access_conditions() {
             trusted module app;
 
             using core.memory;
-            trusted func caller() -> u8 uses(raw_memory, unchecked_init) {{
+            trusted func caller() -> u8
+                uses(raw_memory, unchecked_init)
+            {{
                 let mut value: u8 = 1;
                 let pointer = core.memory.address_of_mut<u8>(&mut value);
                 {nested}
@@ -94,7 +110,9 @@ fn writing_through_an_address_does_not_extend_its_owner_lifetime() {
         trusted module app;
 
         using core.memory;
-        trusted func caller() -> u8 uses(raw_memory, unchecked_init) {
+        trusted func caller() -> u8
+            uses(raw_memory, unchecked_init)
+        {
             let unrelated: u8 = 1;
             let mut pointer = core.memory.null<u8>();
             {
@@ -140,7 +158,9 @@ fn copied_callable_addresses_preserve_validity_without_creating_it() {
             callable Callback = @abi(c) func();
 
             @abi(c)
-            func entry() {{}}
+            func entry()
+            {{
+            }}
 
             trusted func caller()
                 uses(layout_reinterpret)
@@ -176,11 +196,16 @@ fn raw_addresses_cannot_bypass_custom_witness_copy_contracts() {
 
         using core.memory;
         trusted predicate live(pointer: DataPointer<u8>);
-        trusted func owner() -> DataPointer<u8> ensures(trusted live(result))
+        trusted func owner() -> DataPointer<u8>
+            ensures(trusted live(result))
         {
             return core.memory.null<u8>();
         }
-        func caller() { let pointer = owner(); let copy = pointer; }
+        func caller()
+        {
+            let pointer = owner();
+            let copy = pointer;
+        }
     "#,
     );
 
@@ -219,7 +244,11 @@ fn conditional_storage_guarantees_preserve_copyable_addresses() {
                 predicate enabled(flag: bool) = flag;
                 extern trusted func address(pos flag: bool) -> {ty}
                     ensures(!{guard} || trusted {predicate}(pointer = result, count = 1));
-                func caller() {{ let pointer = address(true); let copy = pointer; }}
+                func caller()
+                {{
+                    let pointer = address(true);
+                    let copy = pointer;
+                }}
             "#
             ));
 
@@ -238,8 +267,13 @@ fn device_addresses_cannot_bypass_custom_witness_copy_contracts() {
         r#"
         trusted module app;
         trusted predicate live(pointer: DevicePointer<u8>);
-        extern trusted func owner() -> DevicePointer<u8> ensures(trusted live(result));
-        func caller() { let pointer = owner(); let copy = pointer; }
+        extern trusted func owner() -> DevicePointer<u8>
+            ensures(trusted live(result));
+        func caller()
+        {
+            let pointer = owner();
+            let copy = pointer;
+        }
     "#,
     );
 
@@ -259,14 +293,20 @@ fn address_guarantees_expire_with_the_borrowed_storage_owner() {
             trusted module app;
 
             using core.memory;
-            struct Owner {{ byte: Uninit<u8>; }}
+            struct Owner
+            {{
+                byte: Uninit<u8>;
+            }}
             trusted func address_view(pos owner: &Owner) -> DataPointer<u8>
                 executes(pure, total)
                 ensures(trusted core.memory.valid_read<u8>(pointer = result, count = 1))
-            {{ return core.memory.uninit_pointer<u8>(&owner.byte); }}
+            {{
+                return core.memory.uninit_pointer<u8>(&owner.byte);
+            }}
             func observe(pos pointer: DataPointer<u8>)
                 requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1)) {{}}
-            func caller() {{
+            func caller()
+            {{
                 let mut pointer = core.memory.null<u8>();
                 {{
                     let owner: Owner = {{ byte = core.memory.uninit<u8>() }};
@@ -305,8 +345,12 @@ fn returned_addresses_preserve_only_the_checked_input_authority() {
             using core.memory;
             func forward(pos pointer: DataPointer<u8>, pos other: DataPointer<u8>) -> DataPointer<u8>
                 executes(pure, total)
-            {{ return {returned}; }}
-            trusted func caller() -> u8 uses(raw_memory) {{
+            {{
+                return {returned};
+            }}
+            trusted func caller() -> u8
+                uses(raw_memory)
+            {{
                 let value: u8 = 1;
                 let pointer = core.memory.address_of<u8>(&value);
                 let forwarded = forward(pointer, core.memory.null<u8>());
@@ -342,8 +386,12 @@ fn returned_address_authority_expires_with_its_original_owner() {
         using core.memory;
         func forward(pos pointer: DataPointer<u8>) -> DataPointer<u8>
             executes(pure, total)
-        { return pointer; }
-        trusted func caller() -> u8 uses(raw_memory) {
+        {
+            return pointer;
+        }
+        trusted func caller() -> u8
+            uses(raw_memory)
+        {
             let mut forwarded = core.memory.null<u8>();
             {
                 let value: u8 = 1;
@@ -367,10 +415,14 @@ fn address_formation_keeps_the_value_owner_distinct_from_the_address_witness() {
         trusted module app;
 
         using core.memory;
-        struct Bytes { first: u8; }
+        struct Bytes
+        {
+            first: u8;
+        }
         func observe(pos pointer: DataPointer<Bytes>)
             requires(trusted core.memory.valid_read<Bytes>(pointer = pointer, count = 1)) {}
-        func caller() -> u8 {
+        func caller() -> u8
+        {
             let owner = Bytes { first = 1 };
             let pointer = core.memory.address_of<Bytes>(&owner);
             let copied = owner.first;
@@ -408,7 +460,10 @@ fn returned_borrow_alias_keeps_address_authority_tied_to_physical_storage() {
             trusted module app;
 
             using core.memory;
-            func identity(pos value: &u8) -> &u8 {{ return value; }}
+            func identity(pos value: &u8) -> &u8
+            {{
+                return value;
+            }}
             func locate(pos value: &u8) -> DataPointer<u8>
                 ensures(
                     trusted core.memory.valid_read<u8>(pointer = result, count = 1),
@@ -419,7 +474,11 @@ fn returned_borrow_alias_keeps_address_authority_tied_to_physical_storage() {
                 let alias: &u8 = identity(value);
                 return core.memory.address_of<u8>(alias);
             }}
-            trusted func caller() -> u8 uses(raw_memory) {{ {body} }}
+            trusted func caller() -> u8
+                uses(raw_memory)
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -465,7 +524,8 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
             using core.memory;
             trusted extern func renew(pos value: DataPointer<u8>) {postcondition};
             extern func publish(pos pointer: DataPointer<DataPointer<u8>>);
-            trusted func run(pos input: DataPointer<u8>) uses(raw_memory, unchecked_init)
+            trusted func run(pos input: DataPointer<u8>)
+                uses(raw_memory, unchecked_init)
             {{
                 let mut pointer = input;
                 {exposure}
@@ -563,7 +623,10 @@ fn conditional_calls_rejoin_preserved_borrowed_pointer_records() {
             trusted predicate selected(cursor: &Cursor);
             extern trusted func update(pos cursor: &Cursor)
                 requires(trusted selected(cursor)) {guarantee};
-            func observe(pos cursor: &Cursor) requires(trusted selected(cursor)) {{}}
+            func observe(pos cursor: &Cursor)
+                requires(trusted selected(cursor))
+            {{
+            }}
             func caller(pos cursor: &Cursor, pos other: &Cursor, pos change: bool)
                 requires(trusted selected(cursor))
             {{

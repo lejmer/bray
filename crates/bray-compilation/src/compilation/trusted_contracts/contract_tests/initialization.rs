@@ -45,7 +45,9 @@ fn closed_writes_preserve_storage_validity_but_opaque_calls_revoke_it() {
             trusted module app;
 
             using core.memory;
-            func harmless() {{}}
+            func harmless()
+            {{
+            }}
             extern func opaque();
             trusted func roundtrip(pos pointer: DataPointer<u8>) -> u8
                 requires(
@@ -172,7 +174,11 @@ fn conditional_initialization_guarantees_from_field_observers() {
             using core.memory;
             const COMPLETE: u32 = 1;
             const OTHER: u32 = 2;
-            struct Slots<T> {{ mut value: Uninit<T>; state: u32; }}
+            struct Slots<T>
+            {{
+                mut value: Uninit<T>;
+                state: u32;
+            }}
             trusted func observe<T>(pos storage: &mut Slots<T>) -> u32
                 ensures(result != {status} || trusted core.memory.uninit_initialized<T>(storage = &storage.value))
             {{
@@ -214,12 +220,18 @@ fn conditional_initialization_guarantees_reach_borrowed_fields() {
             trusted module app;
 
             using core.memory;
-            struct Slots {{ mut value: Uninit<u8>; }}
+            struct Slots
+            {{
+                mut value: Uninit<u8>;
+            }}
 
             trusted func initialize(pos storage: &mut Slots, fail: bool) -> u32
                 ensures(result != 1 || trusted core.memory.uninit_initialized<u8>(storage = &storage.value))
             {{
-                if fail {{ return 0; }}
+                if fail
+                {{
+                    return 0;
+                }}
                 _ = core.memory.uninit_write<u8>(&mut storage.value, 42);
                 return 1;
             }}

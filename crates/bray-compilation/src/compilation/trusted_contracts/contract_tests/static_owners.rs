@@ -9,14 +9,24 @@ fn borrowed_completion_keeps_the_selected_static_instance() {
             r#"
             trusted module app;
             using core.memory;
-            struct Marker {{}}
-            struct Owner {{ marker: Marker; storage: Uninit<u32>; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                marker: Marker;
+                storage: Uninit<u32>;
+            }}
             static OWNED<T>: Owner = {{ marker = Marker {{}}, storage = core.memory.uninit<u32>() }};
             trusted predicate held(owner: &Marker);
             trusted func grant(pos owner: &Owner)
                 ensures(trusted held(owner = &owner.marker)) executes(pure, total) {{}}
-            func observe(pos owner: &Owner) requires(trusted held(owner = &owner.marker)) {{}}
-            func caller() {{
+            func observe(pos owner: &Owner)
+                requires(trusted held(owner = &owner.marker))
+            {{
+            }}
+            func caller()
+            {{
                 grant(&OWNED<u32>);
                 observe(&OWNED<{observed}>);
             }}
@@ -40,7 +50,9 @@ fn equal_const_results_retain_independent_owner_authority() {
         let application = compilation(&format!(r#"
             trusted module app;
 
-            struct Marker {{}}
+            struct Marker
+            {{
+            }}
             struct Owner
             {{
                 marker: Marker;
@@ -48,9 +60,13 @@ fn equal_const_results_retain_independent_owner_authority() {
 
             trusted predicate active(marker: &Marker);
 
-            const func create() -> Owner executes(pure, total)
+            const func create() -> Owner
+                executes(pure, total)
             {{
-                return {{ marker = Marker {{}} }};
+                return
+                {{
+                    marker = Marker {{}}
+                }};
             }}
 
             trusted func activate(pos owner: &Owner)
@@ -103,17 +119,34 @@ fn static_initializers_preserve_only_established_owner_authority() {
             trusted module app;
 
             using core.memory;
-            struct Marker {{}}
-            struct Owner {{ marker: Marker; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                marker: Marker;
+            }}
             trusted predicate held(marker: &Marker);
             trusted const func create() -> Owner
                 ensures(trusted held(&result.marker)) executes(pure, total)
-            {{ return {{ marker = Marker {{}} }}; }}
+            {{
+                return
+                {{
+                    marker = Marker {{}}
+                }};
+            }}
             static OWNER: Owner = {initializer};
-            func observe(pos owner: &Owner) requires(trusted held(&owner.marker)) {{}}
+            func observe(pos owner: &Owner)
+                requires(trusted held(&owner.marker))
+            {{
+            }}
             extern func change();
             extern func publish(pos pointer: DataPointer<Owner>);
-            trusted func caller() uses(raw_memory) {{ {mutation} observe(&OWNER); }}
+            trusted func caller()
+                uses(raw_memory)
+            {{
+                {mutation} observe(&OWNER);
+            }}
         "#
         );
 
@@ -145,17 +178,28 @@ fn static_marker_preservation_keeps_selected_instances_distinct() {
         let application = compilation(&format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            struct Owner {{ marker: Marker; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                marker: Marker;
+            }}
             trusted predicate held(marker: &Marker, identity: u32);
             trusted const func create(pos identity: u32) -> Owner
                 ensures(trusted held(&result.marker, identity)) executes(pure, total)
-            {{ return {{ marker = Marker {{}} }}; }}
+            {{
+                return
+                {{
+                    marker = Marker {{}}
+                }};
+            }}
             static OWNER<const N: u32>: Owner = create(N);
             extern func opaque();
             func observe(pos owner: &Owner, pos identity: u32)
                 requires(trusted held(&owner.marker, identity)) {{}}
-            func caller() {{
+            func caller()
+            {{
                 observe(&OWNER<1>, 1);
                 observe(&OWNER<2>, 2);
                 opaque();
@@ -212,7 +256,12 @@ fn production_host_statics_require_mutation_authority() {
         "let storage = &bray.runtime.bootstrap.host.SYNCHRONIZATION; core.atomic.store<u64, 2>(&storage.main, 0);",
     ] {
         let caller = format!(
-            "module app; using core.atomic; using internal bray.runtime.bootstrap.host; func production_probe() {{ {operation} }}"
+            r#"
+                module app; using core.atomic; using internal bray.runtime.bootstrap.host; func production_probe()
+                {{
+                    {operation}
+                }}
+            "#
         );
 
         let compilation = production_host_compilation(&caller);

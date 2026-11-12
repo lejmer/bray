@@ -21,18 +21,32 @@ fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_expos
                 using core.memory;
                 using core.target;
                 callable Native = @abi(c) trusted func();
-                struct Owner {{ {fields} }}
+                struct Owner
+                {{
+                    {fields}
+                }}
                 trusted predicate live(owner: &Owner);
                 trusted predicate checked(owner: &Owner);
                 extern trusted func inspect(pos owner: &Owner)
                     requires(trusted live(owner)) ensures(trusted checked(owner)) executes(pure, total);
-                func observe(pos owner: &Owner) requires(trusted checked(owner)) executes(pure, total) {{}}
-                extern func opaque() executes(total);
-                extern func release_owner(pos owner: Owner) requires(trusted live(owner = &owner)) executes(total);
-                trusted func publish(pos owner: &Owner) -> usize uses(intrinsic) {{
+                func observe(pos owner: &Owner)
+                    requires(trusted checked(owner))
+                    executes(pure, total)
+                {{
+                }}
+                extern func opaque()
+                    executes(total);
+                extern func release_owner(pos owner: Owner)
+                    requires(trusted live(owner = &owner))
+                    executes(total);
+                trusted func publish(pos owner: &Owner) -> usize
+                    uses(intrinsic)
+                {{
                     return trusted core.target.expose_address<Owner>(core.memory.address_of<Owner>(owner));
                 }}
-                func caller(pos owner: Owner) requires(trusted live(owner = &owner)) {{
+                func caller(pos owner: Owner)
+                    requires(trusted live(owner = &owner))
+                {{
                     {publish}
                     {operation}
                     inspect(&owner);
@@ -78,17 +92,42 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
                 trusted module app;
                 using core.memory;
                 using core.target;
-                struct Marker {{}}
-                struct Owner {{ acquisition: Marker; identity: u64; pointer: DataPointer<u64>; }}
+                struct Marker
+                {{
+                }}
+                struct Owner
+                {{
+                    acquisition: Marker;
+                    identity: u64;
+                    pointer: DataPointer<u64>;
+                }}
                 trusted predicate held(owner: &Marker);
                 trusted predicate scalar_held(owner: &u64);
                 trusted predicate payload_held(pointer: DataPointer<u64>);
-                extern func opaque(pos pointer: DataPointer<u64>) executes(total);
-                func observe(pos marker: &Marker) requires(trusted held(owner = marker)) executes(pure, total) {{}}
-                func observe_scalar(pos value: &u64) requires(trusted scalar_held(owner = value)) executes(pure, total) {{}}
-                func observe_payload(pos pointer: DataPointer<u64>) requires(trusted payload_held(pointer = pointer)) executes(pure, total) {{}}
-                func advance(pos value: &mut u32) {{ value += 1; }}
-                trusted func publish(pos owner: &Owner) -> usize uses(intrinsic) {{
+                extern func opaque(pos pointer: DataPointer<u64>)
+                    executes(total);
+                func observe(pos marker: &Marker)
+                    requires(trusted held(owner = marker))
+                    executes(pure, total)
+                {{
+                }}
+                func observe_scalar(pos value: &u64)
+                    requires(trusted scalar_held(owner = value))
+                    executes(pure, total)
+                {{
+                }}
+                func observe_payload(pos pointer: DataPointer<u64>)
+                    requires(trusted payload_held(pointer = pointer))
+                    executes(pure, total)
+                {{
+                }}
+                func advance(pos value: &mut u32)
+                {{
+                    value += 1;
+                }}
+                trusted func publish(pos owner: &Owner) -> usize
+                    uses(intrinsic)
+                {{
                     return trusted core.target.expose_address<Owner>(core.memory.address_of<Owner>(owner));
                 }}
                 func caller({parameter}, pos count: u32)
@@ -101,7 +140,8 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
                     {binding}
                     _ = trusted publish(owner);
                     let mut index: u32 = 0;
-                    while index < count {{
+                    while index < count
+                    {{
                         if index & 1 == 0 {{ opaque(owner.pointer); }}
                         {use_owner}
                         observe_scalar(&owner.identity);
@@ -155,12 +195,24 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
             trusted module app;
             using core.memory;
             using core.target;
-            struct Marker {{}}
-            struct Owner {{ mut acquisition: Marker; mut payload: u32; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                mut acquisition: Marker;
+                mut payload: u32;
+            }}
             trusted predicate held(owner: &Marker);
             extern func replace(pos owner: &mut Owner);
-            func advance(pos value: &mut u32) {{ value += 1; }}
-            func observe(pos marker: &Marker) requires(trusted held(owner = marker)) {{}}
+            func advance(pos value: &mut u32)
+            {{
+                value += 1;
+            }}
+            func observe(pos marker: &Marker)
+                requires(trusted held(owner = marker))
+            {{
+            }}
             trusted func caller(pos owner: &mut Owner, pos pointer: DataPointer<u32>)
                 requires(
                     trusted held(owner = &owner.acquisition),
@@ -199,16 +251,32 @@ fn guarded_owner_authority_uses_entry_values_after_mutation_and_opaque_calls() {
         let source = format!(
             r#"
             trusted module app;
-            struct Marker {{}}
-            struct Owner {{ acquisition: Marker; }}
+            struct Marker
+            {{
+            }}
+            struct Owner
+            {{
+                acquisition: Marker;
+            }}
             trusted predicate live(owner: &Marker);
             trusted func acquire(pos enabled: bool) -> Owner
                 when(enabled) {{ ensures(trusted live(owner = &result.acquisition)) }}
                 executes(pure, total)
-            {{ return {{ acquisition = Marker {{}} }}; }}
-            extern func opaque() executes(total);
-            func release_owner(pos owner: Owner) requires(trusted live(owner = &owner.acquisition)) executes(pure, total) {{}}
-            func caller() {{
+            {{
+                return
+                {{
+                    acquisition = Marker {{}}
+                }};
+            }}
+            extern func opaque()
+                executes(total);
+            func release_owner(pos owner: Owner)
+                requires(trusted live(owner = &owner.acquisition))
+                executes(pure, total)
+            {{
+            }}
+            func caller()
+            {{
                 let mut enabled = {initial};
                 let owner = acquire(enabled);
                 enabled = !enabled;
@@ -247,17 +315,31 @@ fn shared_marker_borrows_preserve_the_original_owner_without_mutable_authority()
         let source = format!(
             r#"
             trusted module app;
-            struct Marker {{}}
+            struct Marker
+            {{
+            }}
             trusted predicate live(value: &Marker);
-            struct Owner {{
+            struct Owner
+            {{
                 marker: Marker;
-                trusted destruct() requires(trusted live(&self.marker)) executes(total) {{}}
+                trusted destruct() requires(trusted live(&self.marker)) executes(total)
+                {{
+                }}
             }}
-            trusted func create() -> Owner ensures(trusted live(&result.marker)) {{
-                return {{ marker = Marker {{}} }};
+            trusted func create() -> Owner
+                ensures(trusted live(&result.marker))
+            {{
+                return
+                {{
+                    marker = Marker {{}}
+                }};
             }}
-            func invoke(pos owner: {parameter}, pos callback: func() -> unit) {{ callback(); }}
-            func caller(pos callback: func() -> unit) {{
+            func invoke(pos owner: {parameter}, pos callback: func() -> unit)
+            {{
+                callback();
+            }}
+            func caller(pos callback: func() -> unit)
+            {{
                 let mut owner = create();
                 invoke({argument}, callback);
             }}
@@ -291,16 +373,40 @@ fn shared_component_borrow_preserves_only_its_marker_observations() {
     let application = compilation(
         r#"
         trusted module app;
-        struct Marker {}
-        struct Owner { instance: Marker; }
-        struct Pair { first: Owner; second: Owner; }
+        struct Marker
+        {
+        }
+        struct Owner
+        {
+            instance: Marker;
+        }
+        struct Pair
+        {
+            first: Owner;
+            second: Owner;
+        }
         trusted predicate live(marker: &Marker);
-        trusted func make() -> Pair ensures(trusted live(&result.first.instance)) {
-            return { first = { instance = Marker {} }, second = { instance = Marker {} } };
+        trusted func make() -> Pair
+            ensures(trusted live(&result.first.instance))
+        {
+            return
+            {
+                first =
+                {
+                    instance = Marker {}
+                }, second =
+                {
+                    instance = Marker {}
+                }
+            };
         }
         extern trusted func opaque();
-        func observe(pos owner: &Owner) requires(trusted live(&owner.instance)) {}
-        func caller() {
+        func observe(pos owner: &Owner)
+            requires(trusted live(&owner.instance))
+        {
+        }
+        func caller()
+        {
             let pair = make();
             let borrowed = &pair.first;
             opaque();

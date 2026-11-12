@@ -20,7 +20,9 @@ fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
             trusted internal module bray.runtime.bootstrap.host;
             func production_probe(pos mut selected: AttachmentExit)
                 requires(!selected.ready, trusted attachment_exit_inactive(owner = &selected))
-            {{ {body} }}
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -367,7 +369,9 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Header>,
             )
                 requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
-            {{ {body} }}
+            {{
+                {body}
+            }}
             "#
         ));
 

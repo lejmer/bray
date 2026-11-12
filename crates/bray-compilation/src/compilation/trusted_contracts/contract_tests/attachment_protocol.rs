@@ -23,7 +23,11 @@ fn source_attachment_owner_requires_the_native_thread_protocol() {
         let source = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.host.attachment;
-            func production_probe() requires(trusted native_acquisition()) {{ {body} }}
+            func production_probe()
+                requires(trusted native_acquisition())
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -108,7 +112,12 @@ fn opaque_attachment_ordinals_complete_without_becoming_pure_observations() {
                 r#"module app;
 
 using core.target;
- func production_probe(pos {parameter}) -> {result} executes({property}) uses(intrinsic) {{ return {body}; }}"#
+ func production_probe(pos {parameter}) -> {result}
+     executes({property})
+     uses(intrinsic)
+ {{
+     return {body};
+ }}"#
             );
 
             let compilation = crate::test_support::compilation(&source);

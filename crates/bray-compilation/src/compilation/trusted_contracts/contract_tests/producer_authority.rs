@@ -23,27 +23,38 @@ fn bootstrap_host_access_requires_owner_bound_acquisition_evidence() {
             trusted module app;
 
             using core.atomic;
-            struct HostOwner {{ mut value: u64; }}
+            struct HostOwner
+            {{
+                mut value: u64;
+            }}
             trusted predicate acquired(owner: &HostAccess);
-            struct HostAccess {{
+            struct HostAccess
+            {{
                 owner: &HostOwner;
                 lock: &core.atomic.Atomic<u32>;
                 active: bool;
-                trusted destruct() requires(trusted acquired(&self)) executes(total) {{
-                    if self.active {{
+                trusted destruct() requires(trusted acquired(&self)) executes(total)
+                {{
+                    if self.active
+                    {{
                         let decrement: u32 = ~0;
                         _ = core.atomic.fetch_add<u32, 2>(self.lock, decrement);
                     }}
                 }}
             }}
             trusted func acquire(pos host: &HostOwner, pos lock: &core.atomic.Atomic<u32>) -> HostAccess
-                ensures(trusted acquired(&result)) {{
+                ensures(trusted acquired(&result))
+                {{
                 let (_, selected) = core.atomic.compare_exchange<u32, 3, 1>(lock, expected = 0, desired = 1);
-                return {{ owner = host, lock = lock, active = selected }};
+                return
+                {{
+                    owner = host, lock = lock, active = selected
+                }};
             }}
             func observe(pos value: &HostAccess)
                 requires(trusted acquired(value)) ensures(trusted acquired(value)) executes(pure, total) {{}}
-            func caller() {{
+            func caller()
+            {{
                 let host: HostOwner = {{ value = 0 }};
                 let other: HostOwner = {{ value = 0 }};
                 let lock = core.atomic.initialize<u32>(0);
@@ -75,7 +86,10 @@ fn input_guarantees_do_not_make_unrelated_results_authority_witnesses() {
         trusted module app;
 
         using core.memory;
-        struct Owner { value: u8; }
+        struct Owner
+        {
+            value: u8;
+        }
         trusted predicate valid(owner: &Owner);
 
         extern trusted func address(pos owner: &Owner) -> DataPointer<u8>
@@ -114,18 +128,33 @@ fn whole_owner_guarantees_retain_the_result_dependencies() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Value {{ byte: u8; }}
-            struct View {{ value: &Value; }}
+            struct Value
+            {{
+                byte: u8;
+            }}
+            struct View
+            {{
+                value: &Value;
+            }}
             trusted predicate live(owner: &View);
             trusted func make_view(pos observed: &Value, pos retained: &Value) -> View
                 ensures(trusted live(owner = &result)) executes(pure, total)
-            {{ return {{ value = retained }}; }}
+            {{
+                return
+                {{
+                    value = retained
+                }};
+            }}
             func observe(pos owner: &View) -> u8
                 requires(trusted live(owner = owner)) executes(pure, total)
-            {{ return owner.value.byte; }}
-            func caller() -> u8 {{
+            {{
+                return owner.value.byte;
+            }}
+            func caller() -> u8
+            {{
                 let outer: Value = {{ byte = 1 }};
-                let returned: View = {{
+                let returned: View =
+                {{
                     let local: Value = {{ byte = 2 }};
                     yield trusted make_view({arguments});
                 }};
@@ -169,7 +198,14 @@ fn changing_a_guard_does_not_erase_a_safe_producers_entry_obligation() {
         trusted module app;
         trusted predicate live(value: u64);
         func make(pos mut flag: bool) -> u64
-            when(flag) { ensures(trusted live(result)) } { flag = false; return 0; }
+            when(flag)
+            {
+                ensures(trusted live(result))
+            }
+            {
+                flag = false;
+                return 0;
+            }
     "#,
     );
 
@@ -184,10 +220,14 @@ fn a_vacuous_entry_obligation_does_not_make_the_owner_a_witness() {
     let compilation = compilation(
         r#"
         trusted module app;
-        @copy struct Owner { epoch: u64; }
+        @copy struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &Owner);
         func caller(pos value: Owner, flag: bool)
-            requires(flag || trusted live(&value)) {
+            requires(flag || trusted live(&value))
+            {
             if flag { let copied = value; }
         }
     "#,
@@ -205,14 +245,20 @@ fn trusted_producers_establish_live_result_witnesses() {
     let source = r#"
         trusted module app;
 
-        struct Owner { mut epoch: u64; }
+        struct Owner
+        {
+            mut epoch: u64;
+        }
 
         trusted predicate live(owner: &Owner);
 
         trusted func owner() -> Owner
             ensures(trusted live(&result))
         {
-            return { epoch = 1 };
+            return
+            {
+                epoch = 1
+            };
         }
 
         trusted func observe(pos value: &Owner)
@@ -248,7 +294,10 @@ fn moving_raw_contents_preserves_allocation_ownership_until_deallocation() {
             trusted module app;
 
             using core.memory;
-            struct Payload {{ value: u8; }}
+            struct Payload
+            {{
+                value: u8;
+            }}
             trusted func take(pos pointer: DataPointer<Payload>) -> Payload
                 requires(
                     trusted core.memory.owned_allocation(pointer = core.memory.byte_address<Payload>(pointer), bytes = 1, align = 1),
@@ -282,11 +331,29 @@ fn moving_a_witness_preserves_the_new_owner() {
     let compilation = compilation(
         r#"
         trusted module app;
-        struct Owner { epoch: u64; }
+        struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &Owner);
-        trusted func owner() -> Owner ensures(trusted live(&result)) { return { epoch = 1 }; }
-        trusted func observe(pos value: &Owner) requires(trusted live(value)) {}
-        func caller() { let value = owner(); let moved = value; observe(&moved); }
+        trusted func owner() -> Owner
+            ensures(trusted live(&result))
+        {
+            return
+            {
+                epoch = 1
+            };
+        }
+        trusted func observe(pos value: &Owner)
+            requires(trusted live(value))
+        {
+        }
+        func caller()
+        {
+            let value = owner();
+            let moved = value;
+            observe(&moved);
+        }
     "#,
     );
 
@@ -302,14 +369,27 @@ fn an_acknowledged_producer_establishes_guarantees_when_its_obligation_is_expose
     let compilation = compilation(
         r#"
         trusted module app;
-        struct Owner { epoch: u64; }
+        struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate admitted(epoch: u64);
         trusted predicate live(value: &Owner);
         trusted func owner(pos epoch: u64) -> Owner
             requires(trusted admitted(epoch)) ensures(trusted live(&result))
-            { return { epoch = epoch }; }
-        func observe(pos value: &Owner) requires(trusted live(value)) {}
-        func caller(pos epoch: u64) requires(trusted admitted(epoch)) {
+            {
+                return
+                {
+                    epoch = epoch
+                };
+            }
+        func observe(pos value: &Owner)
+            requires(trusted live(value))
+        {
+        }
+        func caller(pos epoch: u64)
+            requires(trusted admitted(epoch))
+        {
             let value = trusted owner(epoch); observe(&value);
         }
     "#,
@@ -327,13 +407,33 @@ fn safe_forwarders_preserve_existing_witnesses() {
     let compilation = compilation(
         r#"
         trusted module app;
-        struct Owner { epoch: u64; }
+        struct Owner
+        {
+            epoch: u64;
+        }
         trusted predicate live(value: &Owner);
-        trusted func owner() -> Owner ensures(trusted live(&result)) { return { epoch = 1 }; }
+        trusted func owner() -> Owner
+            ensures(trusted live(&result))
+        {
+            return
+            {
+                epoch = 1
+            };
+        }
         func forward(pos value: Owner) -> Owner
-            requires(trusted live(&value)) ensures(trusted live(&result)) { return value; }
-        trusted func observe(pos value: &Owner) requires(trusted live(value)) {}
-        func caller() { let value = forward(owner()); observe(&value); }
+            requires(trusted live(&value)) ensures(trusted live(&result))
+            {
+                return value;
+            }
+        trusted func observe(pos value: &Owner)
+            requires(trusted live(value))
+        {
+        }
+        func caller()
+        {
+            let value = forward(owner());
+            observe(&value);
+        }
     "#,
     );
 
@@ -350,12 +450,29 @@ fn ordinary_producer_requirements_guard_trusted_guarantees() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            struct Owner {{ epoch: u64; }}
+            struct Owner
+            {{
+                epoch: u64;
+            }}
             trusted predicate live(value: &Owner);
-            trusted func owner(pos epoch: u64) -> Owner requires(epoch == 1)
-                ensures(trusted live(&result)) {{ return {{ epoch = epoch }}; }}
-            trusted func observe(pos value: &Owner) requires(trusted live(value)) {{}}
-            func caller(pos epoch: u64) {{ let value = owner({value}); observe(&value); }}
+            trusted func owner(pos epoch: u64) -> Owner
+                requires(epoch == 1)
+                ensures(trusted live(&result))
+                {{
+                    return
+                    {{
+                        epoch = epoch
+                    }};
+                }}
+            trusted func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {{
+            }}
+            func caller(pos epoch: u64)
+            {{
+                let value = owner({value});
+                observe(&value);
+            }}
         "#
         ));
 

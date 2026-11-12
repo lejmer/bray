@@ -11,22 +11,33 @@ fn publishing_a_static_address_only_exposes_that_static() {
                     trusted module app;
                     using core.memory;
                     using core.target;
-                    struct Marker {{}}
-                    struct Owner {{ marker: Marker; }}
+                    struct Marker
+                    {{
+                    }}
+                    struct Owner
+                    {{
+                        marker: Marker;
+                    }}
                     trusted predicate live(marker: &Marker);
                     trusted const func make_marker() -> Marker
                         ensures(trusted live(&result))
                     {{
-                        return Marker {{}};
+                        return Marker
+                        {{
+                        }};
                     }}
                     trusted func create() -> Owner
                         ensures(trusted live(&result.marker))
                     {{
-                        return {{ marker = Marker {{}} }};
+                        return
+                        {{
+                            marker = Marker {{}}
+                        }};
                     }}
                     {directive} static TOKEN: Marker = make_marker();
                     {directive} static OTHER: Marker = make_marker();
-                    trusted func publish(pos owner: &Owner) -> usize uses(intrinsic)
+                    trusted func publish(pos owner: &Owner) -> usize
+                        uses(intrinsic)
                     {{
                         return trusted core.target.expose_address<Marker>(
                             core.memory.address_of<Marker>({address})
@@ -81,19 +92,33 @@ fn publishing_global_addresses_keeps_unpublished_input_ownership() {
                 trusted module app;
                 using core.memory;
                 using core.target;
-                struct Marker {{}}
-                struct Owner {{ marker: Marker; }}
+                struct Marker
+                {{
+                }}
+                struct Owner
+                {{
+                    marker: Marker;
+                }}
                 trusted predicate live(marker: &Marker);
-                trusted func create() -> Owner ensures(trusted live(&result.marker)) {{
-                    return {{ marker = Marker {{}} }};
+                trusted func create() -> Owner
+                    ensures(trusted live(&result.marker))
+                {{
+                    return
+                    {{
+                        marker = Marker {{}}
+                    }};
                 }}
                 {directive} static TOKEN: Marker = Marker {{}};
-                trusted func publish(pos owner: &Owner) -> usize uses(intrinsic) {{
+                trusted func publish(pos owner: &Owner) -> usize
+                    uses(intrinsic)
+                {{
                     return trusted core.target.expose_address<Marker>(core.memory.address_of<Marker>({address}));
                 }}
                 extern func opaque();
-                extern trusted func observe(pos owner: Owner) requires(trusted live(&owner.marker));
-                func caller() {{
+                extern trusted func observe(pos owner: Owner)
+                    requires(trusted live(&owner.marker));
+                func caller()
+                {{
                     let owner = trusted create();
                     _ = trusted publish(&owner);
                     opaque();
@@ -131,7 +156,9 @@ fn storing_address_bits_does_not_bind_destination_initialization_to_the_pointee(
             r#"
             trusted module app;
             using core.memory;
-            trusted func caller() uses(raw_memory, unchecked_init) {{
+            trusted func caller()
+                uses(raw_memory, unchecked_init)
+            {{
                 let mut storage: DataPointer<u32> = core.memory.null<u32>();
                 let slot = core.memory.address_of_mut<DataPointer<u32>>(&mut storage);
                 {{
@@ -172,21 +199,34 @@ fn address_retirement_preserves_only_independent_returned_guarantees() {
             r#"
             trusted module app;
             using core.memory;
-            struct Marker {{}}
-            struct Receipt {{ marker: Marker; pointer: DataPointer<u32>; }}
+            struct Marker
+            {{
+            }}
+            struct Receipt
+            {{
+                marker: Marker;
+                pointer: DataPointer<u32>;
+            }}
             trusted predicate held(owner: &Marker);
             trusted func produce(pos payload: &u32) -> Receipt
                 ensures(
                     trusted held(owner = &result.marker),
                     trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1)
                 )
-            {{ return {{ marker = Marker {{}}, pointer = core.memory.address_of<u32>(payload) }}; }}
+            {{
+                return
+                {{
+                    marker = Marker {{}}, pointer = core.memory.address_of<u32>(payload)
+                }};
+            }}
             func observe_marker(pos receipt: &Receipt)
                 requires(trusted held(owner = &receipt.marker)) {{}}
             func observe_address(pos receipt: &Receipt)
                 requires(trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1)) {{}}
-            func caller() {{
-                let receipt = {{
+            func caller()
+            {{
+                let receipt =
+                {{
                     let payload: u32 = 0;
                     yield produce(&payload);
                 }};
@@ -237,8 +277,14 @@ fn address_guarantees_follow_derived_values_without_revoking_independent_markers
             r#"
             trusted module app;
             using core.memory;
-            struct Marker {{}}
-            struct Receipt {{ marker: Marker; pointer: DataPointer<u32>; }}
+            struct Marker
+            {{
+            }}
+            struct Receipt
+            {{
+                marker: Marker;
+                pointer: DataPointer<u32>;
+            }}
             trusted predicate held(owner: &Marker);
             trusted func shifted(pos pointer: DataPointer<u32>) -> Receipt
                 requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
@@ -246,12 +292,20 @@ fn address_guarantees_follow_derived_values_without_revoking_independent_markers
                     trusted held(owner = &result.marker),
                     trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1)
                 )
-            {{ return {{ marker = Marker {{}}, pointer = core.memory.offset<u32>(pointer, elements = 0) }}; }}
+            {{
+                return
+                {{
+                    marker = Marker {{}}, pointer = core.memory.offset<u32>(pointer, elements = 0)
+                }};
+            }}
             func observe(pos pointer: DataPointer<u32>)
                 requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {{}}
             func observe_marker(pos receipt: &Receipt)
                 requires(trusted held(owner = &receipt.marker)) {{}}
-            func caller() {{ {body} }}
+            func caller()
+            {{
+                {body}
+            }}
         "#
         ));
 
@@ -272,15 +326,40 @@ fn address_guarantees_follow_derived_values_without_revoking_independent_markers
 fn input_postconditions_expire_only_their_address_access() {
     for (setter, call) in [
         (
-            "trusted func set(pos receipt: &mut Receipt, pos payload: &u32) requires(trusted held(owner = &receipt.marker)) ensures(trusted held(owner = &receipt.marker), trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1)) { receipt.pointer = core.memory.address_of<u32>(payload); }",
+            r#"
+                trusted func set(pos receipt: &mut Receipt, pos payload: &u32)
+                    requires(trusted held(owner = &receipt.marker))
+                    ensures(trusted held(owner = &receipt.marker), trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+                {
+                    receipt.pointer = core.memory.address_of<u32>(payload);
+                }
+            "#,
             "set(&mut receipt, &payload)",
         ),
         (
-            "impl Receipt { trusted mut func set(pos payload: &u32) requires(trusted held(owner = &self.marker)) ensures(trusted held(owner = &self.marker), trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1)) { self.pointer = core.memory.address_of<u32>(payload); } }",
+            r#"
+                impl Receipt
+                {
+                    trusted mut func set(pos payload: &u32)
+                        requires(trusted held(owner = &self.marker))
+                        ensures(trusted held(owner = &self.marker), trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1))
+                    {
+                        self.pointer = core.memory.address_of<u32>(payload);
+                    }
+                }
+            "#,
             "receipt.set(&payload)",
         ),
         (
-            "trusted func set(pos receipt: &mut Receipt, pos payload: &u32) -> Marker requires(trusted held(owner = &receipt.marker)) ensures(trusted held(owner = &result) && trusted held(owner = &receipt.marker) && trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1)) { receipt.pointer = core.memory.address_of<u32>(payload); return Marker {}; }",
+            r#"
+                trusted func set(pos receipt: &mut Receipt, pos payload: &u32) -> Marker
+                    requires(trusted held(owner = &receipt.marker))
+                    ensures(trusted held(owner = &result) && trusted held(owner = &receipt.marker) && trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+                {
+                    receipt.pointer = core.memory.address_of<u32>(payload);
+                    return Marker {};
+                }
+            "#,
             "set(&mut receipt, &payload)",
         ),
     ] {
@@ -306,15 +385,37 @@ fn input_postconditions_expire_only_their_address_access() {
                 r#"
                 trusted module app;
                 using core.memory;
-                struct Marker {{}}
-                struct Receipt {{ marker: Marker; mut pointer: DataPointer<u32>; }}
+                struct Marker
+                {{
+                }}
+                struct Receipt
+                {{
+                    marker: Marker;
+                    mut pointer: DataPointer<u32>;
+                }}
                 trusted predicate held(owner: &Marker);
-                trusted func produce() -> Receipt ensures(trusted held(owner = &result.marker))
-                {{ return {{ marker = Marker {{}}, pointer = core.memory.null<u32>() }}; }}
-                func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {{}}
-                func observe_marker(pos receipt: &Receipt) requires(trusted held(owner = &receipt.marker)) {{}}
+                trusted func produce() -> Receipt
+                    ensures(trusted held(owner = &result.marker))
+                {{
+                    return
+                    {{
+                        marker = Marker {{}}, pointer = core.memory.null<u32>()
+                    }};
+                }}
+                func observe(pos pointer: DataPointer<u32>)
+                    requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+                {{
+                }}
+                func observe_marker(pos receipt: &Receipt)
+                    requires(trusted held(owner = &receipt.marker))
+                {{
+                }}
                 {setter}
-                func caller() {{ let mut receipt = produce(); {body} }}
+                func caller()
+                {{
+                    let mut receipt = produce();
+                    {body}
+                }}
             "#
             ));
 

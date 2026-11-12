@@ -36,7 +36,7 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Fixed evidence
 
-Pushed b4b5a76f5. Current verified batch has consuming-copyable receiver moves and nullable argument inference.
+Pushed107ad2495 test reorganization. Last accepted semantics b4b5a76f5. Current verified batch has consuming-copyable receiver moves and nullable argument inference.
 Fixed920:791 pass/30 fail/99 ignored. Original907 identities/SHA remain frozen with16 explained repairs and13 added
 controls. Owned248/deferred148 on source/import and witness matrices unchanged. Checker511/bound136 pass.
 Symbols221/interface216/messages92 and proof9 remain valid. Cleanup57/4 and predicates26/2/2 retain outcomes.
@@ -64,18 +64,38 @@ unchanged. Source23 and fixed920 are verified. Native provenance/composition rem
 Deduction now leads repairs, not additional examples. Existing fixed920 remains the regression oracle. No new test
 identities or expected outcomes are added by the current repair. Unexplained changes block the batch.
 
-Confirmed: shared-view forwarding can restore an overwritten pointer from its old live pointee. The pending guard
-requires memory's slot preservation before forwarding. Deeper contradiction: marker preservation adds containing
-identities to stable_descriptors via owner_paths, while memory and ValuePreservation interpret those roots as retaining
-inline pointer slots. Distinguish weak identity claims from complete descriptor claims at the producers. Trace all
-writers before removing weak claims. Nullable-tag claims also enter stable_descriptors, but the proof mask consumes
-those as Identity rather than Discriminant. These rules must agree before another semantic build.
+Preservation repair contract: a live marker retains itself and containing owner identity, never sibling pointer values.
+Whole inline descriptors survive only when their actual storage is unexposed, their shared owner excludes writes, or
+an exact descriptor slot is disjoint. The shared-view consumer must first retain its physical descriptor. Nullable tags
+use Discriminant claims, never descriptor-identity claims. Opaque/ambient effects still consider exposed raw aliases.
 
-The test layout is now one contract_tests module with topic files, maximum666 lines. All370 test names and380 source
-items are retained. Includes resolve to the same files. verification.json maps relocated module names to the immutable
-comparison identities, with unchanged expected outcomes. The descriptor fixture only has Bray formatting changes.
+Producer inventory: opaque_observations filters whole descriptors against invocation reachability. target_observations
+checks stored-loan/slice descriptor slots against actual writes. Active shared loans retain whole descriptors only while
+unexposed. Run cleanup retains an unexposed handle. Marker branches in active loans, shared views and transfers currently
+add weaker containing-identity roots through owner_paths. Remove those weak descriptor claims, retaining actual marker
+leaves. Record explicit surviving raw-address fields instead. Mutable payload loans and tag-free stores currently put
+tags in stable_descriptors. Replace those with classified Discriminant preservation. Physical memory and proof framing
+then consume the same strong descriptor rule without reconstructing fields or adding representation layers.
+
+Keep existing valid private headers, marker-free updates, nullable/union extraction, loop and borrowed-pointer outcomes.
+Reject replaced reference slots, changed sibling pointers, exposed raw aliases and transferred-marker remnants. Fixed920
+and exact runtime inventory remain the regression gate. No more fixture expansion. If a former weak root was doing
+necessary work, identify its actual claimed boundary before restoring any preservation. Net production code should shrink.
+
+The test layout is one contract_tests module with topic files, maximum832 lines after readable inline Bray formatting.
+All372 test names including2 nested fixture tests and380 top-level source items are retained. Includes resolve to the same files. verification.json maps relocated module names to the immutable
+comparison identities, with unchanged expected outcomes. Fixture edits preserve code tokens apart from whitespace. One keyword module was renamed static_owners.
 No separate tests or ownership_tests directories remain. Host/diagnostic/address tests share the same topic hierarchy
 and fixture module. No style pass yet.
+
+Pending preservation candidate: fixed920=786/35/99, checker511/bound136 pass. Not accepted. One repaired negative
+(overwritten reference), six regressions: forwarded_shared_scalars_remain_protected_after_exposure,
+escape_summaries_preserve_input_roots_before_alias_expansion, production_observer_keeps_authority_through_conditional_protocol_changes,
+field_projection_preserves_the_evidence_of_a_borrowed_call_result, nullable_input_adaptation_preserves_physical_owners_and_rejected_values,
+raw_entry_addresses_do_not_replace_borrowed_owners_at_completion. The removed roots also carried necessary owner/loan
+identity. Restore no blanket pointer preservation. Deduce a representation that keeps identity separate from actual
+reference-slot contents and trace producers through physical memory and proof framing before editing again.
+Runtime source/native have not run for this candidate. Further fixture expansion is stopped.
 
 AddressTarget finite raw-load paths and full retain_task InputRegions are verified. take_ready's possible-alias write
 retires Domain.arena.pointer before call staging. Its location survives but no old regions record does. Current marker

@@ -41,7 +41,7 @@ mod report_protocol;
 mod result;
 mod slice;
 mod standard_storage;
-mod static;
+mod static_owners;
 mod synchronization;
 mod task_cleanup;
 mod totality;

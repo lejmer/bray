@@ -11,9 +11,16 @@ fn slice_descriptor_preservation_does_not_preserve_element_authority() {
             r#"
             trusted module app;
             trusted predicate marked(slice: &[u8]);
-            trusted func establish(pos slice: &mut [u8]) ensures(trusted marked(slice = &slice)) {{}}
-            func observe(pos slice: &[u8]) requires(trusted marked(slice = &slice)) {{}}
-            func caller(pos slice: &mut [u8]) {{
+            trusted func establish(pos slice: &mut [u8])
+                ensures(trusted marked(slice = &slice))
+            {{
+            }}
+            func observe(pos slice: &[u8])
+                requires(trusted marked(slice = &slice))
+            {{
+            }}
+            func caller(pos slice: &mut [u8])
+            {{
                 establish(slice);
                 {operation}
                 observe(&slice);
@@ -141,13 +148,25 @@ fn slice_contents_calls_are_not_reused_after_element_mutation() {
         let source = format!(
             r#"
             module app;
-            const func first(pos slice: &[u8]) -> u8 executes(pure, total) {{
-                if slice.length() > 0 {{ return slice[0]; }}
+            const func first(pos slice: &[u8]) -> u8
+                executes(pure, total)
+            {{
+                if slice.length() > 0
+                {{
+                    return slice[0];
+                }}
                 return 0;
             }}
-            func observe(pos slice: &[u8]) requires(first(slice) == 0) executes(total) {{}}
-            func caller(pos slice: &mut [u8]) executes(total) {{
-                if slice.length() > 0 && first(&slice) == 0 {{
+            func observe(pos slice: &[u8])
+                requires(first(slice) == 0)
+                executes(total)
+            {{
+            }}
+            func caller(pos slice: &mut [u8])
+                executes(total)
+            {{
+                if slice.length() > 0 && first(&slice) == 0
+                {{
                     {operation}
                     observe(&slice);
                 }}
@@ -193,13 +212,23 @@ fn nested_slice_bounds_require_descriptor_storage_separation() {
         let source = format!(
             r#"
             module app;
-            struct Envelope {{ values: &mut [u8]; unrelated: usize; }}
-            struct Outer {{ inner: Envelope; }}
-            func caller(pos {parameter}) executes(total) {{
+            struct Envelope
+            {{
+                values: &mut [u8];
+                unrelated: usize;
+            }}
+            struct Outer
+            {{
+                inner: Envelope;
+            }}
+            func caller(pos {parameter})
+                executes(total)
+            {{
                 {prepare}
                 let count = holder.values.length();
                 let mut index: usize = 0;
-                while index < count {{
+                while index < count
+                {{
                     holder.values[index] = 1;
                     _ = holder.values[index];
                     index += 1;

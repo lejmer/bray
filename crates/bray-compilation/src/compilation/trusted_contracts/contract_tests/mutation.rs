@@ -12,16 +12,31 @@ fn sibling_mutation_preserves_a_returned_component_witness() {
             r#"
             trusted module app;
             trusted predicate live(value: &Lease);
-            struct Lease {{ mut active: bool; }}
-            struct Access {{ mut payload: u64; mut lease: Lease; }}
+            struct Lease
+            {{
+                mut active: bool;
+            }}
+            struct Access
+            {{
+                mut payload: u64;
+                mut lease: Lease;
+            }}
             trusted func acquire() -> Access
-                ensures(trusted live(&result.lease)) {{
-                return {{ payload = 0, lease = {{ active = true }} }};
+                ensures(trusted live(&result.lease))
+                {{
+                return
+                {{
+                    payload = 0, lease =
+                    {{
+                        active = true
+                    }}
+                }};
             }}
             func observe(pos lease: &Lease)
                 requires(trusted live(lease))
                 ensures(trusted live(lease)) executes(pure, total) {{}}
-            func caller() {{
+            func caller()
+            {{
                 let mut access = acquire();
                 observe(&access.lease);
                 {mutation}
@@ -89,8 +104,14 @@ fn extracted_fields_survive_sibling_extraction_and_parent_replacement() {
             {{
                 return match owner
                 {{
-                    case ?value {{ yield &value; }}
-                    case none {{ panic("missing owner"); }}
+                    case ?value
+                    {{
+                        yield &value;
+                    }}
+                    case none
+                    {{
+                        panic("missing owner");
+                    }}
                 }};
             }}
 
@@ -146,11 +167,28 @@ fn replacement_guarantees_follow_the_remaining_partition() {
             r#"
             trusted module app;
             trusted predicate ready();
-            struct Producer {{ tag: u8; trusted destruct() ensures(trusted ready()) executes(total) {{}} }}
-            struct Interference {{ tag: u8; destruct() executes(total) {{}} }}
-            struct Pair {{ interference: Interference; producer: Producer; }}
-            func observe() requires(trusted ready()) executes(pure, total) {{}}
-            func caller(pos mut value: Pair, pos replacement: Pair) {{
+            struct Producer
+            {{
+                tag: u8;
+                trusted destruct() ensures(trusted ready()) executes(total) {{}}
+            }}
+            struct Interference
+            {{
+                tag: u8;
+                destruct() executes(total) {{}}
+            }}
+            struct Pair
+            {{
+                interference: Interference;
+                producer: Producer;
+            }}
+            func observe()
+                requires(trusted ready())
+                executes(pure, total)
+            {{
+            }}
+            func caller(pos mut value: Pair, pos replacement: Pair)
+            {{
                 let moved = value.{moved};
                 value = replacement;
                 observe();
@@ -188,17 +226,34 @@ fn input_postconditions_retain_the_complete_owner_after_replacement() {
         ] {
             let source = format!(r#"
                 trusted module app;
-                struct Marker {{}}
-                struct Child {{ marker: Marker; number: u32; }}
-                struct Parent {{ mut child: Child; }}
+                struct Marker
+                {{
+                }}
+                struct Child
+                {{
+                    marker: Marker;
+                    number: u32;
+                }}
+                struct Parent
+                {{
+                    mut child: Child;
+                }}
                 trusted predicate held(marker: &Marker);
                 trusted func replace_child(pos parent: &mut Parent)
                     ensures(trusted held(marker = &parent.child.marker))
-                {{ parent.child = Child {{ marker = Marker {{}}, number = 0 }}; }}
+                {{
+                    parent.child = Child
+                    {{
+                        marker = Marker {{}}, number = 0
+                    }};
+                }}
                 extern trusted func replace_root(pos child: &mut Child)
                     ensures(trusted held(marker = &child.marker));
                 func caller(pos mut parent: {input}) -> {output}
-                {{ trusted {replacement}; return {expression}; }}
+                {{
+                    trusted {replacement};
+                    return {expression};
+                }}
             "#);
 
             let application = compilation(&source);
@@ -230,15 +285,27 @@ fn field_mutation_preserves_only_independent_carrier_observations() {
             let source = format!(
                 r#"
             trusted module app;
-            struct Marker {{}}
-            struct Guard {{ marker: Marker; mut payload: bool; }}
+            struct Marker
+            {{
+            }}
+            struct Guard
+            {{
+                marker: Marker;
+                mut payload: bool;
+            }}
             trusted predicate held(value: &{ty});
             trusted func acquire() -> Guard
                 ensures(trusted held({result})) executes(pure, total)
-            {{ return {{ marker = Marker {{}}, payload = false }}; }}
+            {{
+                return
+                {{
+                    marker = Marker {{}}, payload = false
+                }};
+            }}
             func observe(pos guard: &Guard)
                 requires(trusted held({input})) executes(pure, total) {{}}
-            func caller(pos flag: bool) {{
+            func caller(pos flag: bool)
+            {{
                 let mut guard = acquire();
                 {mutation}
                 observe(&guard);
@@ -278,9 +345,21 @@ fn joined_mutated_values_do_not_inherit_their_entry_contents() {
         let source = format!(
             r#"
             module app;
-            @copy struct State {{ mut ready: bool; }}
-            func make() -> State ensures(result.ready) {{ return {{ ready = true }}; }}
-            func update(pos flag: bool) -> State ensures(result.ready) {{
+            @copy struct State
+            {{
+                mut ready: bool;
+            }}
+            func make() -> State
+                ensures(result.ready)
+            {{
+                return
+                {{
+                    ready = true
+                }};
+            }}
+            func update(pos flag: bool) -> State
+                ensures(result.ready)
+            {{
                 let mut value = make();
                 {mutation}
                 return value;
@@ -314,13 +393,21 @@ fn input_referent_mutations_preserve_only_proven_disjoint_component_witnesses() 
         let source = format!(
             r#"
             trusted module app;
-            struct Cell {{ mut value: bool; }}
-            struct Pair {{ mut first: Cell; mut second: Cell; }}
+            struct Cell
+            {{
+                mut value: bool;
+            }}
+            struct Pair
+            {{
+                mut first: Cell;
+                mut second: Cell;
+            }}
             trusted predicate held(value: &Cell);
             func observe(pos value: &Cell)
                 requires(trusted held(value)) executes(pure, total) {{}}
             func caller(pos left: &mut Pair, pos right: {right_type})
-                requires(trusted held(&left.second)) {{
+                requires(trusted held(&left.second))
+                {{
                 {mutated}.{field}.value = false;
                 observe(&left.second);
             }}

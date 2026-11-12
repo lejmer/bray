@@ -26,16 +26,34 @@ fn execution_domains_use_live_witnesses_without_accepting_fabricated_or_stale_on
         let source = format!(
             r#"
             trusted module app;
-            struct Owner {{ mut value: u64; }}
+            struct Owner
+            {{
+                mut value: u64;
+            }}
             trusted predicate live(owner: &Owner);
             trusted func produce(pos value: u64) -> Owner
                 ensures(result.value == value, trusted live(owner = &result)) executes(total)
-            {{ return {{ value = value }}; }}
+            {{
+                return
+                {{
+                    value = value
+                }};
+            }}
             trusted func observe(pos owner: &Owner) -> u64
                 requires(trusted live(owner = owner), owner.value == 1) executes(total)
-            {{ return owner.value; }}
-            func change(pos owner: &mut Owner) executes(total) {{ owner.value = 2; }}
-            func production_probe() -> u64 executes(total) {{ {body} }}
+            {{
+                return owner.value;
+            }}
+            func change(pos owner: &mut Owner)
+                executes(total)
+            {{
+                owner.value = 2;
+            }}
+            func production_probe() -> u64
+                executes(total)
+            {{
+                {body}
+            }}
         "#
         );
 
@@ -71,25 +89,45 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
     ] {
         let source = r#"
         trusted module app;
-        struct Owner { value: u64; }
-        struct Completed { selected: Owner; incidents: u32; }
+        struct Owner
+        {
+            value: u64;
+        }
+        struct Completed
+        {
+            selected: Owner;
+            incidents: u32;
+        }
         trusted predicate live(owner: &Owner);
         trusted predicate done(owner: &Completed);
-        extern trusted func owner() -> Owner ensures(trusted live(owner = &result));
+        extern trusted func owner() -> Owner
+            ensures(trusted live(owner = &result));
         extern func acquire() -> u64;
         extern func mutate(pos value: &mut Completed);
-        func observe_completion(pos value: &Completed) {
+        func observe_completion(pos value: &Completed)
+        {
             _ = acquire();
             _ = value.incidents;
         }
         extern func publish_completion(pos value: &Completed);
-        func observe() -> u64 executes(pure, total) { return 0; }
+        func observe() -> u64
+            executes(pure, total)
+        {
+            return 0;
+        }
         trusted func complete(pos selected: Owner) -> Completed
             requires(trusted live(owner = &selected))
             ensures(trusted done(owner = &result))
-        { return { selected = selected, incidents = 0 }; }
-        extern trusted func consume_completion(pos completed: Completed) requires(trusted done(owner = &completed));
-        func caller() {
+        {
+            return
+            {
+                selected = selected, incidents = 0
+            };
+        }
+        extern trusted func consume_completion(pos completed: Completed)
+            requires(trusted done(owner = &completed));
+        func caller()
+        {
             let selected = trusted owner();
             let mut completed = trusted complete(selected);
             BODY
@@ -144,7 +182,9 @@ using core.atomic;
                     trusted host_access_live(owner = &lease.acquisition),
                     trusted host_anchor_matches(anchor = &anchor, lease = lease)
                 )
-            {{ {body} }}"#
+            {{
+                {body}
+            }}"#
         );
 
         let compilation = production_host_compilation(&caller);
@@ -249,13 +289,17 @@ fn production_storage_lease_requires_admission_evidence() {
 
             using internal bray.runtime.bootstrap.pool;
             using std.memory;
-            func probe() requires(trusted bray.runtime.bootstrap.pool.protocol_access()) {{
+            func probe()
+                requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+            {{
                 let descriptor: Descriptor = {{ identity = [0; 32], bytes = 64, align = 32 }};
                 let mut lease: Lease = empty_lease();
                 let pointer = std.memory.address_of_mut<Lease>(&mut lease);
                 let description = std.memory.address_of<Descriptor>(&descriptor);
                 {admission}
-                {{ {body} }}
+                {{
+                    {body}
+                }}
             }}
             "#,
             admission = if admission {
@@ -372,10 +416,14 @@ fn production_host_authority_cannot_be_constructed_from_fields() {
         .map(|(index, (body, _))| {
             format!(
                 r#"
-        func production_probe_{index}() {{
+        func production_probe_{index}()
+        {{
             let lease = trusted host_access();
             let mut anchor = trusted host_anchor(&lease);
-            if !lease.active {{ return; }}
+            if !lease.active
+            {{
+                return;
+            }}
             {body}
         }}
         "#,

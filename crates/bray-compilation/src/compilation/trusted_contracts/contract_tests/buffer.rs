@@ -10,9 +10,17 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
             r#"
             trusted module app;
             using core.memory;
-            struct Owner {{ pointer: DataPointer<ForeignPayload>; }}
-            struct Marker {{}}
-            struct ForeignPayload {{ marker: Marker; }}
+            struct Owner
+            {{
+                pointer: DataPointer<ForeignPayload>;
+            }}
+            struct Marker
+            {{
+            }}
+            struct ForeignPayload
+            {{
+                marker: Marker;
+            }}
             trusted predicate retained(owner: &Owner);
             trusted func referent(pos owner: &Owner) -> &ForeignPayload
                 requires(trusted retained(owner))
@@ -46,7 +54,9 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
             }}
             func forwarded(pos owner: {parameter}) -> &Marker
                 requires(trusted retained({argument}))
-            {{ return selected_marker({argument}); }}
+            {{
+                return selected_marker({argument});
+            }}
             "#
         );
 
@@ -293,9 +303,16 @@ fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_ac
             using core.memory;
             using core.target;
             trusted predicate slot(owner: &DataPointer<u32>);
-            extern func opaque() executes(total);
-            func observe_slot(pos owner: &DataPointer<u32>) requires(trusted slot(owner = owner)) executes(pure, total) {{}}
-            trusted func publish(pos owner: &DataPointer<u32>) -> usize uses(intrinsic) {{
+            extern func opaque()
+                executes(total);
+            func observe_slot(pos owner: &DataPointer<u32>)
+                requires(trusted slot(owner = owner))
+                executes(pure, total)
+            {{
+            }}
+            trusted func publish(pos owner: &DataPointer<u32>) -> usize
+                uses(intrinsic)
+            {{
                 return trusted core.target.expose_address<DataPointer<u32>>(core.memory.address_of<DataPointer<u32>>(owner));
             }}
             trusted func overwrite(pos pointer: DataPointer<u64>)
@@ -333,7 +350,8 @@ fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_ac
     let source = r#"
         trusted module app;
         using core.memory;
-        extern func opaque() executes(total);
+        extern func opaque()
+            executes(total);
         trusted predicate slot(owner: &DataPointer<u32>);
         trusted func caller(pos pointer: DataPointer<u32>) -> u32
             requires(

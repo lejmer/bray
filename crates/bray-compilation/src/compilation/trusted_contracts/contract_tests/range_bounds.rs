@@ -201,7 +201,8 @@ fn copied_range_extents_describe_storage_without_owning_it() {
             return 1;
         }
 
-        func caller() {
+        func caller()
+        {
             let value: u8 = 1;
             let pointer = core.memory.address_of<u8>(&value);
             let count: usize = extent(pointer);

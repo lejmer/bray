@@ -104,7 +104,10 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
             r#"module app;
 
 using std.memory;
- using internal bray.runtime.bootstrap.host; using internal bray.runtime.bootstrap.thread.destruction; using internal bray.runtime.bootstrap.host.attachment; using internal bray.runtime.bootstrap.entry.bridge; func production_probe() {{ {operation} }}"#
+ using internal bray.runtime.bootstrap.host; using internal bray.runtime.bootstrap.thread.destruction; using internal bray.runtime.bootstrap.host.attachment; using internal bray.runtime.bootstrap.entry.bridge; func production_probe()
+ {{
+     {operation}
+ }}"#
         );
 
         let compilation = production_host_compilation(&source);
@@ -295,7 +298,9 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
     ] {
         let caller = format!(
             r#"trusted internal module bray.runtime.bootstrap.host;
-            func production_probe() uses(intrinsic) {{
+            func production_probe()
+                uses(intrinsic)
+            {{
                 let lease = trusted host_access();
                 if !lease.active {{ {operation} }}
                 let anchor = trusted host_anchor(&lease);
@@ -315,7 +320,12 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
 
         let terminal = format!(
             r#"trusted internal module bray.runtime.bootstrap.host;
-            func production_probe() uses(intrinsic) {{ let lease = trusted host_access(); {operation} }}"#
+            func production_probe()
+                uses(intrinsic)
+            {{
+                let lease = trusted host_access();
+                {operation}
+            }}"#
         );
 
         let compilation = production_host_compilation(&terminal);
@@ -346,7 +356,12 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
         module app;
 
         using core.target;
-        func production_probe() executes(total) uses(intrinsic) { trusted core.target.abort(); }
+        func production_probe()
+            executes(total)
+            uses(intrinsic)
+        {
+            trusted core.target.abort();
+        }
     "#,
     );
 
@@ -398,7 +413,9 @@ fn production_shutdown_owner_uses_ordinary_completion_rules() {
                     trusted bray.runtime.bootstrap.pool.protocol_access(),
                     {condition}
                 )
-            {{ {body} }}
+            {{
+                {body}
+            }}
             "#,
         );
 
@@ -429,11 +446,20 @@ fn owned_exit_witnesses_move_into_their_consuming_operation() {
     let compilation = crate::test_support::compilation(
         r#"
         trusted module app;
-        struct Owner { value: u64; }
+        struct Owner
+        {
+            value: u64;
+        }
         trusted predicate valid(owner: &Owner);
-        extern trusted func owner() -> Owner ensures(trusted valid(owner = &result));
-        extern trusted func consume_owner(pos owner: Owner) requires(trusted valid(owner = &owner));
-        func caller() { let value = trusted owner(); trusted consume_owner(value); }
+        extern trusted func owner() -> Owner
+            ensures(trusted valid(owner = &result));
+        extern trusted func consume_owner(pos owner: Owner)
+            requires(trusted valid(owner = &owner));
+        func caller()
+        {
+            let value = trusted owner();
+            trusted consume_owner(value);
+        }
     "#,
     );
 
@@ -485,7 +511,9 @@ fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
                     !owner.ready, trusted attachment_exit_inactive(owner = &owner),
                     trusted prepared_attachment_exit(owner = &owner, slot = &selected.slot, lease = lease)
                 )
-            {{ {body} }}
+            {{
+                {body}
+            }}
         "#
         );
 
