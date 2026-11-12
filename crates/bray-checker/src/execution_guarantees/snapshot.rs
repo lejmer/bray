@@ -199,11 +199,16 @@ pub(crate) fn common_components(
                 // Only the active predecessor initializes this payload. Retain
                 // its components under the joined conditional owner.
                 let initialized = if left_inactive { right } else { left };
+                let payload = initialized.clone().project(projection);
+
+                // A retained physical tag selects the same existing payload.
+                // Joining an inactive path does not move that payload's owner.
+                if discriminant.is_some() { return (projection, payload); }
 
                 return (
                     projection,
                     owned_snapshot(
-                        &initialized.clone().project(projection),
+                        &payload,
                         identity.clone().project(projection),
                         budget,
                     ),
@@ -326,6 +331,13 @@ pub(crate) fn owned_snapshot(
     identity: ExecutionCondition,
     budget: &mut usize,
 ) -> ExecutionCondition {
+    // A snapshot already owned by this destination keeps its nested producers.
+    // Reanchoring it again would move children despite no owner transfer.
+    if matches!(source, ExecutionCondition::Observation { owner, kind: ObservationKind::Owned, .. }
+        if owner.as_ref() == &identity) {
+        return source.clone();
+    }
+
     let Some(remaining) = budget.checked_sub(1) else {
         return ExecutionCondition::Unknown;
     };
