@@ -58,48 +58,29 @@ observer/polling105, and withdrawal185/199. E7135 reports include dependent casc
 
 ## Current boundary
 
-Open contract: complete owned backing paths must survive checked borrow formation, private input admission,
-view production, portable publication and caller effects. Dynamic selection does not grant exact address identity,
-freshness, initialization or access authority. Unknown and independent alternatives remain unknown.
+Open contract: slot_at -> retain_locked -> retain_task -> dispatch_ready must carry the complete owned backing
+bound to wait_execution retirement without inventing exact address, authority or independent origins. The final
+Slot pointer is a view, not an allocation extent. Retain real aliases and genuinely unknown alternatives.
+The three source controls pass, but runtime source still has exactly23 accepted identities (6 E7123/17 E7135).
+Trace the actual published paths and caller staging again before another repair. Probe units: slot_at2689821,
+retain_locked2969685, retain_task1034343, dispatch_ready746973. Source identities are in verification.json.
 
-Actual path: dispatch_ready loses view_owned at wait_execution. Retire reaches retain_task's task pointer,
-from retain_locked -> slot_at. slot_at selects Slab.slots through Entries.slabs, nullable payload and binary search.
-Its declared inner buffer borrow reaches Entry.slabs.Nullable.OwnedTarget.Element.slots. The first producer gap
-is the missing pointer record for that complete nested descriptor. The current declaration repair supplies it
-without replacing actual or unknown pointer/descriptor records. Admission now carries known dynamic references
-without wrapping them. Portable AnyElement preserves the full backing suffix as InputRegions. Closed checked
-regions stage without independent uncertainty; extra owned indirection remains unknown. All three real source
-cases (direct, nullable binary search, forwarded call), bound136, symbols221 and interface216 pass. Fixed918
-retains every outcome and matrix case. Checker511, including corrected alias properties, also passes.
-Native has not rerun.
+Backing checkpoint76d5f2736: checked complete-buffer borrows declare missing backing without replacing actual or
+unknown pointer records. Private admission carries evaluated dynamic references. AnyElement retains owned suffixes
+through publication/import as InputRegions without authority. Checked regions stay closed; extra owned indirection
+remains unknown. Direct, nullable binary-search and forwarded source controls and alias properties pass. This is
+not proof that the actual runtime chain composes; the unchanged inventory keeps that contract open.
 
-The focused probe locates the next loss: private input admission wraps the known dynamically selected owner in
-Returned, so initialized_slice_mut cannot find the recorded inner backing. Preserve evaluated known references
-through admission without promoting a dynamic selector to an exact storage address. Do not resolve an arbitrary
-Returned pointer to one of its region bounds. Existing opaque/bounded-reference negatives protect this distinction.
+The newly reachable leave_domain panic is repaired. Internal execution checks substituted mutable-argument roots
+for checked physical effects, erasing an untouched absent field and selecting unpublished cleanup. Every obligation
+now replays the checked effects; observation confinement only classifies dependencies. Removed54 lines, no new
+state or reconstruction. The conditional-cleanup fixture forces separate Termination replay with a runtime
+precondition, is confirmed red before the fix and green after, and retains authority-fabrication negatives.
 
-Publication also truncates at a dynamic Element, dropping slots.OwnedTarget. That outer allocation is not a
-physical bound for the inner allocation. Portable summaries must retain the complete owned path with an unspecified
-element selector. Such a selector is a conservative region, never exact forwarding. Carry it through substitution,
-interface encoding/import and caller region staging. InputRegions currently adds independent uncertainty even for
-closed checked bounds. Preserve closed bounds there, while Independent still stages the existing opaque bound.
-The semantic-reference consumer must continue treating InputRegions as incomplete authority.
-
-Source verification is blocked by a query-worker invariant panic: unit1592784, cleanup E58/access11/part0
-destructor has no published mutation. The owned source process was stopped after the panic. No complete diagnostic
-inventory was produced and the accepted source23 inventory remains the baseline. Trace the shared dispose guard
-and selected cleanup publication/consumer states. Never add an absent-mutation fallback or weaken the panic.
-The root is leave_domain in host/product/thread_cleanup.bray. E58 returns current after select_domain_exit_locked
-and transition(key,6). Publisher proves PendingCleanup.execution absent at every E58 visit, skips destructor part0
-and publishes statics part1. Consumer initially agrees, then loses that guard and selects part0. Trace the first
-loss of S12.execution/F2992 through actual invalidations. Local bounded hooks are excluded from checkpoints.
-Stop migration expansion until this publication contract and the runtime path are closed.
-
-Design hypothesis: reuse descriptor declarations, References and checked region summaries. Remove the dynamic
-prefix truncation and unnecessary private-input wrapping. One portable region-selector variant is justified only
-because local selector identities cannot cross callable boundaries. No parallel ledger, view-type reconstruction,
-consumer-specific owner guessing or narrowed opaque retirement. Reconsider if a suffix cannot survive an owning
-boundary conservatively or a known alias is discarded. Temporary probe hooks must be removed before checkpoint.
+Current repair passes fixed918/matrices789/30/99, checker511/bound136, symbols221/interface216/messages92,
+focused18 and async composition source/MIR plus invalid variants. Adjacent cleanup57/4 and predicates26/2/2 retain
+aggregate counts. Runtime source finishes with the same23 exact identities and no panic. Native execution has not
+repeated. No trace hooks or consumed probes remain. Style/format remain deferred until semantic completion.
 
 Closed contracts protected by accepted checks:
 - Extracted nullable owners carry recorded extracted_values through sync/async admission, body effects, joins and

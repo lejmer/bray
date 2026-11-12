@@ -48,22 +48,9 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         })
     });
 
-    let mut conditional_invalidations =
-        std::borrow::Cow::Borrowed(body.refinements().invalidations());
-
-    if internal {
-        for (site, invalidation) in body.storage_flow().observation_invalidations().iter()
-            .filter(|(site, _)| body.refinements().invalidations().get(site)
-                .is_some_and(|effect| matches!(effect, bray_bound_tree::StorageInvalidation::All { .. }))
-                && !body.dependencies().calls().get(site).is_some_and(
-                    bray_bound_tree::BoundCallDependencyContracts::preserves_storage_on_normal_return))
-        {
-            // Copy only when an override must coexist with the immutable checked publication.
-            conditional_invalidations.to_mut().insert(*site, invalidation.clone());
-        }
-    }
-
-    let invalidations = conditional_invalidations.as_ref();
+    // Execution obligations replay the same checked physical effects as cleanup publication.
+    // Observation confinement classifies dependencies without replacing that storage state.
+    let invalidations = body.refinements().invalidations();
 
     let graph = &prepared.graph;
     let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
@@ -121,41 +108,6 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 
     if property == Some(ExecutionProperty::Pure) && !internal {
         reachable.domain.check_predicate_blocks(body.storage_flow(), &mut diagnostics);
-    }
-
-    if internal {
-        for occurrence in candidate.calls.keys().copied() {
-            if conditional_invalidations.get(&occurrence)
-                == body.refinements().invalidations().get(&occurrence)
-            {
-                continue;
-            }
-
-            let Some(selection) = occurrence
-                .expression()
-                .and_then(|expression| expressions.selections().expression(expression))
-            else {
-                continue;
-            };
-
-            let target = if let bray_bound_tree::SemanticSelection::Call(call) = selection {
-                crate::ExecutionDependencyTarget::selected(call)
-            } else {
-                expressions
-                    .selections()
-                    .invoked_callable(occurrence)
-                    .map(|callable| {
-                        bray_bound_tree::BoundCallableTarget::Declaration(callable).into()
-                    })
-                    .expect("conditional invocation effect retains its selected callable")
-            };
-
-            candidate.dependencies.push(crate::ExecutionDependency {
-                target,
-                obligation: crate::ExecutionObligation::Observation,
-                occurrence,
-            });
-        }
     }
 
     super::operation::collect_preservation_dependencies(
