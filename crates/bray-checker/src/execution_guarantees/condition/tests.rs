@@ -5,6 +5,33 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[test]
+fn observed_storage_bindings_read_the_same_current_value_as_their_producer() {
+    use bray_bound_tree::{BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity, StoragePlanBuilder};
+    use bray_symbols::{LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, SymbolName};
+
+    let (unit, expressions) = crate::test_support::expression_unit(BoundUnitId::new(0), |tree, origin| {
+        vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
+    });
+    let syntax = unit.key().source().syntax();
+    let key = LocalSymbolRegionKey::try_new(unit.key().declared_owner().clone(), LocalSymbolRegionRole::CallableBody, [syntax], None).expect("local region key");
+    let mut symbols = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(unit.unit().raw()), key);
+    let scope = symbols.push_scope(None, LocalScopeBoundary::Root, syntax, syntax.full_range().start()).expect("root scope");
+    let binding = symbols.push_binding(scope, SymbolName::try_new("entered").expect("binding name"), [syntax], None, false).expect("observed binding");
+    let mut builder = StoragePlanBuilder::new(unit.unit(), BoundUnitKind::CallableBody);
+    let identity = builder.push_identity(StorageIdentity::Temporary(expressions[0])).expect("produced storage");
+    let access = builder.push_access(StorageAccess::new(StorageAccessRoot::Storage(identity), [], crate::test_support::error_type(), unit.key().source(), false)).expect("whole produced value");
+    builder.bind(StorageBindingTarget::Local(binding), StorageBinding::Access(access)).expect("observed alias");
+    let storage = builder.finish();
+    let produced = ExecutionPlace::storage_identity(&storage, identity).expect("producer's current place");
+    let observed = ExecutionPlace::binding(&storage, StorageBindingTarget::Local(binding)).expect("binding's current place");
+    let field = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
+    let value = ExecutionCondition::constructed(ExecutionCondition::Expression(expressions[0]), [(field, ExecutionCondition::Boolean(true))].into());
+    let current = BTreeMap::from([(produced, value)]);
+
+    assert_eq!(observed.value_in(&current).map(|value| value.project(field)), Some(ExecutionCondition::Boolean(true)), "an observed name reads its producer's actual current tree");
+}
+
+#[test]
 fn snapshot_substitution_keeps_one_current_component_overlay() {
     let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
     let field = |id| bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(id));

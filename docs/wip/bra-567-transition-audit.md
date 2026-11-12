@@ -46,8 +46,10 @@ fabricated-evidence and escaped-pointer variants. Keep these contracts while tra
 
 Physical tags survive joins and owner reanchoring without retaining overwritten payloads. Known Present/Tagged joins
 retain their existing handling. Fixed912, owned248/deferred148 each surface, witness matrices, checker505/bound136
-and adjacent suites retain accepted outcomes. Native remains27 with no new identities. Checkpoint5062c5b35 is pushed.
-No trace hooks remain. Retained-component discovery passes its red-before property, fixed912, checker505/bound136,
+and adjacent suites retain accepted outcomes. Native remains27 with no new identities. Checkpoint478e764f2 is pushed.
+Single-completion dispatch and canonical whole-root observed aliases pass fixed912, checker506/bound136 and adjacent
+suites. Complete native remains27 with no new identities. No trace hooks remain.
+Retained-component discovery passes its red-before property, fixed912, checker505/bound136,
 owned/deferred/witness matrices and adjacent suites. Complete native remains27 with no new identities.
 
 Stored-pointer reads now use existing field values through a complete, current, equally typed returned view.
@@ -69,8 +71,22 @@ component_projections did not inspect observation contents, so joins saw no reta
 preservation property reproduces the exact empty-payload state through repeated framing/joins and checks stabilization.
 Canonical component discovery now unwraps actual observation contents and nullable snapshots. Joins and witness renaming
 consume it, and redundant caller unwrapping is removed. Repeated-frame/join marker and stabilization assertions pass.
-Native cleanup now has a represented payload, but its guarantee remains unproven. Trace actual versus known marker
-identities and guarantee renaming through that same path. Do not infer complete composition from the local property.
+Native cleanup now has a represented tag and payload marker. The proof entry has only the unconditional current-view
+guarantee, while its conditional operation-view guarantee is missing. Locate its first loss through the actual ledger,
+operation and merge consumers. The ledger trace locates the first loss at join62: both original predecessors have the
+same available conditional guarantee on the complete owner24 and operation payload, but renaming conflicts discard it.
+Old slot15 remains a live Owned observation of scope17 in standalone guarantee analysis. Its effect on the published
+cleanup failure is not established. It is trusted-expression18's output. The plan consumes it at pattern0 Completion, and composite
+storage flow retires it. Standalone operation dispatch skipped ordinary completion without checked storage-flow data.
+Composite call completion also ran during transfer and again with physical completion observations. The repair makes
+standalone operation call transfer then completion once, and leaves composite completion to its physical-data adapter.
+The existing red native path still fails after this repair. Follow only the published state's actual ledger next.
+Passing synthetic witness variants were removed.
+Published storage flow had separate current roots for entered and its produced scoped slot22. ExecutionPlace::storage_identity
+ignored whole-root Access bindings. Its producer/observed-name current-tree regression is red before and green after
+canonicalizing these roots from the existing storage plan. The cleanup still fails. Next check that the nested scope owner
+and its shared alias choose one joined contents identity, rather than merely retaining the same immutable marker.
+Do not infer complete composition from the local property.
 Selected inspect-lowered reproduces the native path in about30s.
 Follow reserve_start E31 as well: start_frame loses token and service-owner proof, and reserve_start fails its registration
 postcondition. Both observed calls carry UnboundedMutation Retire with no access type, which alone establishes no defect.
