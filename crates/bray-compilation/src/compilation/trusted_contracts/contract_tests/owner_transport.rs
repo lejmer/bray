@@ -528,10 +528,13 @@ fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
         trusted func make() -> (u32, Owner)
             ensures(trusted live(&result.1))
         {
-            return (1, Owner
+            return (
+                1,
+                Owner
                 {
                     first = 2, second = 3, third = 0, fourth = 0, pointer = std.memory.null<u8>()
-                });
+                }
+            );
         }
         func consume_owner(pos owner: Owner)
             requires(trusted live(&owner))
@@ -546,7 +549,8 @@ fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
                 {
                     let fields = (owner.first, owner.second, owner.third, owner.fourth);
                     consume_owner(owner);
-                } else
+                }
+                else
                 {
                     return;
                 }

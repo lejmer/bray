@@ -199,9 +199,9 @@ fn changing_a_guard_does_not_erase_a_safe_producers_entry_obligation() {
         trusted predicate live(value: u64);
         func make(pos mut flag: bool) -> u64
             when(flag)
-        {
-            ensures(trusted live(result))
-        }
+            {
+                ensures(trusted live(result))
+            }
         {
             flag = false;
             return 0;
