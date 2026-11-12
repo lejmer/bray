@@ -19,6 +19,57 @@ use super::fixtures::{
 };
 
 #[test]
+fn imported_domain_selection_is_independent_of_collected_diagnostics() {
+    use bray_checker::{ExecutionObligation, ExecutionProperty};
+    use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+
+    let provider = compilation(r"
+        module api;
+
+        func ready()
+            executes(pure, total)
+        {
+        }
+    ");
+    let compilation = execution_consumer(&provider, r"
+        module app;
+
+        using example.package.api;
+
+        func caller()
+        {
+            example.package.api.ready();
+        }
+    ");
+    let cancellation = crate::fact::CancellationToken::default();
+    let key = crate::test_support::source_function_body_key(&compilation, "caller");
+    let semantics = compilation.expression_semantics_with_cancellation(key, &cancellation).expect("caller semantics");
+    assert!(!semantics.result().diagnostics().has_errors(), "{:?}", semantics.result().diagnostics());
+    let callable = semantics.result().value().selections().entries().iter().find_map(|entry| {
+        let bray_bound_tree::SemanticSelection::Call(call) = entry.selection() else { return None; };
+        let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target() else { return None; };
+        Some(callable)
+    }).expect("imported ready invocation");
+    let required = ExecutionObligation::Property(ExecutionProperty::Pure, None);
+    let mut clean = DiagnosticBag::new();
+    let expected = compilation.select_imported_execution_obligation(
+        callable, required, None, &mut clean, &cancellation,
+    ).expect("selection query");
+
+    assert!(expected.is_some(), "the declared domain applies: {clean:?}");
+    assert!(!clean.has_errors());
+
+    let unrelated = Diagnostic::new(DiagnosticId::new(99), DiagnosticKind::CheckingPostconditionNotProven, SeverityKind::Error);
+    let mut collected = DiagnosticBag::single(unrelated.clone());
+    let actual = compilation.select_imported_execution_obligation(
+        callable, required, None, &mut collected, &cancellation,
+    ).expect("selection query with collected diagnostic");
+
+    assert_eq!(actual, expected, "an unrelated failure cannot revoke an applicable execution domain");
+    assert_eq!(collected.into_vec(), vec![unrelated]);
+}
+
+#[test]
 fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
     let provider = r#"
         trusted module api;

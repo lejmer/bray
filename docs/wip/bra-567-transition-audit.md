@@ -27,14 +27,14 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Fixed evidence
 
-Pushed331811912. Frozen907:778 pass/30 fail/99 ignored,16 explained repairs, original SHA unchanged.
-Five added controls give912:783/30/99. These outcomes, checker507/bound136 and all matrices pass.
+Pushed90ea88a85. Frozen907:778 pass/30 fail/99 ignored,16 explained repairs, original SHA unchanged.
+Six added controls give913:784/30/99. These outcomes, checker507/bound136 and all matrices pass.
 Owned248/deferred148 each source/import surface and witness matrices pass. Adjacent cleanup57/4, predicates26/2/2,
 focused18 retain outcomes at checkpoint. Real async source/callable/lifecycle MIR and3 invalid variants pass.
 Native composition has not run. No style pass yet.
 
-Complete native gate still27, no changed identities after local repair. Ten E7123 and17 E7135 reports comprise
-15 primary failures and12 explicit dependency cascades. verification.json contains exact accepted identities.
+Complete native gate27, with the explained cleanup repair and start_frame dependency cascade. Ten E7123 and17 E7135 reports comprise
+12 primary failures and15 explicit dependency cascades. verification.json contains exact accepted identities.
 Seven original sites repaired and4 cascades added against original native.log30. Reports are not independent bug counts.
 
 ## Current boundary
@@ -52,13 +52,26 @@ retained acquisition identity, conditional payload witnesses and a subsequent jo
 Real join62 retained the guarantee but reanchored its acquisition marker in mixed_role_components. The central
 owned_snapshot correction preserves nested producers when the destination already owns the snapshot.
 root_execution now checks and produces MIR, including conditional EntryRestoration cleanup. All trace hooks removed.
-The initial broad idempotence check regressed two fixed nested-choice cases. Restricting it to explicit owned
-observations restores both source/import controls. Fixed912, checker507/bound136 and adjacent suites pass.
-Full native27 now replaces start cleanup E7123 with a cascade from already-failing start_frame. No other changes.
+The shortcut applies only to explicit owned observations, since structural data still needs anchoring.
+Fixed912, checker507/bound136 and adjacent suites pass. Native27 replaces start cleanup E7123 with a cascade
+from already-failing start_frame. No other native identity changes.
+
+Next grouped frontier: task/ownership64, task/waiting27 and scheduler/parking123 lose applicable imported
+guard.get pure evidence because select_imported_execution_obligation tests the caller's accumulated diagnostic
+bag. Their entry proofs succeed and checked pure/total domains exist, but an earlier error suppresses selection.
+Source selection already owns local diagnostics. Isolate imported decision diagnostics and append them afterward.
+The real exported/imported regression is red before and green after isolating the decision's diagnostics.
+Collected output diagnostics are preserved. Source/imported selectors and neighboring shared-bag checks were traced.
+Fixed913, checker507/bound136 and all matrices retain accepted outcomes. No probe hooks remain.
+Complete native27 retains all report identities. Three false missing-evidence causes now correctly name the
+existing driving.bray checking failure. Only12 reports are primary and15 are explicit dependency cascades.
+Adjacent cleanup57/4, predicates26/2/2 and focused18 retain their outcomes.
+Panic360 is separate: slice_pointer's imported entry fails count <= slice.length with actual Unknown.
+Consumed probe logs and passing exploratory guard programs have been removed.
 
 Remaining E7123 groups: conditional cleanup start79..174, prepared cleanup/start234, driving197, entry_scope422,
 root_scope268, attachment/exit464, observer/polling105 and withdrawal58/185/199.
-Primary E7135: reserve_start175 registration postcondition, execution/root162/284/324 and panic338.
+Primary E7135: reserve_start175 registration postcondition and panic338. The three execution/root reports are cascades.
 Follow reserve_start into start_frame too. UnboundedMutation Retire with no access type alone proves no defect.
 
 ## Execution and remaining gates
