@@ -341,6 +341,8 @@ pub enum ConstantUnaryOperation {
     PredicateTrust,
     /// Observe the referent of a borrowed predicate argument.
     BorrowObservation,
+    /// Observe immutable descriptor data without observing reached storage.
+    DescriptorObservation,
     /// Evaluate a conditional guarantee's guard in the callable entry state.
     EntryCondition,
 }

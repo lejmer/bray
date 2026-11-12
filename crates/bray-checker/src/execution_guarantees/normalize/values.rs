@@ -458,6 +458,20 @@ pub(super) fn structured_condition(
             .1
         }
         operation
+            if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::SliceIndex
+                && matches!(
+                    semantics.selections().expression(expression),
+                    Some(SemanticSelection::Operation(SelectedOperation::Index {
+                        target: bray_bound_tree::IndexTarget::ArraySlice | bray_bound_tree::IndexTarget::Slice,
+                        ..
+                    }))
+                ) =>
+        {
+            // Name the evaluated range without inventing element contents.
+            // The enclosing borrow supplies access to the projected storage.
+            ExecutionCondition::Expression(expression)
+        }
+        operation
             if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::ElementIndex
                 && matches!(
                     semantics.selections().expression(expression),

@@ -36,7 +36,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
 ) {
     // Replay each exit once, sharing any implication closure across its clauses.
     let mut trusted = None;
-    let mut unsigned = None;
+    let mut normalized = None;
     let mut integer_ranges = super::integer::IntegerRanges::new();
 
     for ((required, _), failed) in postconditions.iter().zip(failed) {
@@ -69,33 +69,31 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             continue;
         }
 
-        let trusted = trusted.get_or_insert_with(|| {
-            crate::execution_guarantees::trusted_condition_closure(
-                state.trusted_assumptions.iter().map(|(condition, holds)| (
-                    condition.with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions), *holds,
-                )).collect(),
-                &state.assumptions,
-            )
-        });
-
-        if condition.prove_mixed(trusted, &state.assumptions, &mut {
-            ExecutionCondition::WORK_LIMIT
-        }) == Some(true)
-        {
-            continue;
-        }
-
-        let (equalities, known) = unsigned.get_or_insert_with(|| {
+        let (equalities, known) = normalized.get_or_insert_with(|| {
             let equalities = ExecutionCondition::equalities(&state.assumptions, None);
-
-            let known = state
-                .assumptions
-                .iter()
+            let known = state.assumptions.iter()
                 .map(|(condition, holds)| (condition.with_equalities(&equalities), *holds))
                 .collect();
 
             (equalities, known)
         });
+
+        let trusted = trusted.get_or_insert_with(|| {
+            crate::execution_guarantees::trusted_condition_closure(
+                state.trusted_assumptions.iter().map(|(condition, holds)| (
+                    condition.with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions)
+                        .with_equalities(equalities), *holds,
+                )).collect(),
+                known,
+            )
+        });
+
+        if condition.with_equalities(equalities).prove_mixed(trusted, known, &mut {
+            ExecutionCondition::WORK_LIMIT
+        }) == Some(true)
+        {
+            continue;
+        }
 
         if !super::integer::unsigned_arithmetic_is_bounded(
             &condition.with_equalities(equalities), known, &|value| domain.unsigned_value(value),

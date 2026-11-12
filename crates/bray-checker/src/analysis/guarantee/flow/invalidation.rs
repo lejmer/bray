@@ -61,7 +61,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let normalize = |condition: &ExecutionCondition| condition.with_equalities(&equalities)
             .pointer_observations(&self.pointer_predicates);
 
-        let pointer = normalize(&pointer).pointer_identity().clone();
+        let pointer = normalize(&pointer).descriptor_identity().clone();
 
         if pointer.observation_path().is_none() {
             return BTreeSet::new();
@@ -638,7 +638,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         == Some(bray_symbols::DependencyReferenceKind::Address)
                 }) {
                     address_slots.insert(value.owner_identity().clone());
-                    let pointer = value.pointer_identity().clone();
+                    let pointer = value.descriptor_identity().clone();
 
                     address_slots.insert(pointer.clone());
                     observed.push(pointer);

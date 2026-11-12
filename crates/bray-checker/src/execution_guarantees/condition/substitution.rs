@@ -70,6 +70,7 @@ impl ExecutionCondition {
 
         match self {
             Self::Discriminant(value) => value.substitute_values(replace, budget).discriminant(),
+            Self::Descriptor(value) => value.substitute_values(replace, budget).descriptor(),
             Self::ValueAlias(left, right) => Self::value_alias(
                 left.substitute_values(replace, budget), right.substitute_values(replace, budget),
             ),
@@ -322,6 +323,16 @@ fn resolve_equality(
     value
 }
 
+fn rewrite_identity(
+    owner: &ExecutionCondition,
+    identities: Option<&BTreeMap<ExecutionCondition, ExecutionCondition>>,
+    budget: &mut usize,
+) -> ExecutionCondition {
+    identities.map_or_else(|| owner.clone(), |identities| {
+        rewrite_equalities(owner, identities, Some(identities), budget)
+    })
+}
+
 fn rewrite_equalities(
     value: &ExecutionCondition,
     replacements: &std::collections::BTreeMap<ExecutionCondition, ExecutionCondition>,
@@ -343,6 +354,7 @@ fn rewrite_equalities(
 
     let value = match value {
         ExecutionCondition::Discriminant(value) => rewrite_equalities(&value, replacements, identities, budget).discriminant(),
+        ExecutionCondition::Descriptor(value) => rewrite_identity(&value, identities, budget).descriptor(),
         ExecutionCondition::ValueAlias(left, right) => ExecutionCondition::value_alias(
             rewrite_equalities(&left, replacements, identities, budget),
             rewrite_equalities(&right, replacements, identities, budget),
@@ -435,19 +447,12 @@ fn rewrite_equalities(
             invocation,
             ordinal,
         } if let Some(identities) = identities => ExecutionCondition::CapturedInput {
-            owner: Arc::new(rewrite_equalities(
-                &owner,
-                identities,
-                Some(identities),
-                budget,
-            )),
+            owner: Arc::new(rewrite_identity(&owner, Some(identities), budget)),
             invocation,
             ordinal,
         },
         ExecutionCondition::Observation { owner, contents, kind } => ExecutionCondition::observation(
-            identities.map_or_else(|| owner.as_ref().clone(), |identities| {
-                rewrite_equalities(&owner, identities, Some(identities), budget)
-            }),
+            rewrite_identity(&owner, identities, budget),
             rewrite_equalities(&contents, replacements, identities, budget),
             kind,
         ),

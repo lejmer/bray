@@ -121,6 +121,16 @@ fn encode(
 
             ConstantTermData::NullablePresent(value)
         }
+        ExecutionCondition::Descriptor(value) => {
+            let Some(operand) = encode(values, value, inputs, boolean_type, budget)? else {
+                return Ok(None);
+            };
+
+            ConstantTermData::Unary {
+                operation: bray_symbols::ConstantUnaryOperation::DescriptorObservation,
+                operand,
+            }
+        }
         ExecutionCondition::Borrowed(value) => {
             let Some(operand) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
@@ -367,6 +377,10 @@ pub(crate) fn decode(
             operand,
         } => decode(values, *operand, inputs, budget)?.borrowed(),
         ConstantTermData::Unary {
+            operation: bray_symbols::ConstantUnaryOperation::DescriptorObservation,
+            operand,
+        } => decode(values, *operand, inputs, budget)?.descriptor(),
+        ConstantTermData::Unary {
             operation: bray_symbols::ConstantUnaryOperation::EntryCondition,
             operand,
         } => ExecutionCondition::Entry {
@@ -435,6 +449,30 @@ mod tests {
         CallableParameterSymbolId, FunctionSymbolId, ImplementationInstanceData,
         ImplementationSymbolId, SymbolId, UnnamedTraitImplementationSymbolId,
     };
+
+    #[test]
+    fn portable_descriptor_calls_keep_their_observation_after_substitution() {
+        let values = semantic_values();
+        let context = TestCheckerContext::new(false);
+        let boolean_type = crate::representation::representation_type_for_context(
+            &context, bray_compiler_known::RepresentationRole::ScalarBool);
+        let parameter = BoundReferenceTarget::Surface(
+            CallableParameterSymbolId::from_symbol_id(SymbolId::new(904)).into());
+        let callable = callable_instance(FunctionSymbolId::from_symbol_id(SymbolId::new(905)).into());
+        let condition = ExecutionCondition::call(callable, None, [],
+            vec![ExecutionCondition::Input(parameter.into()).descriptor()], None);
+        let term = execution_condition_term(values, &condition, &[parameter], boolean_type)
+            .expect("descriptor call encodes").expect("descriptor call is portable");
+        let decoded = execution_condition_from_term(values, term, &[parameter]).expect("descriptor call decodes");
+        assert_eq!(decoded, condition);
+
+        let owner = ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)));
+        let actual = ExecutionCondition::reference_value(owner.clone().borrowed(), ExecutionCondition::Unknown);
+        let substituted = decoded.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
+            &mut { ExecutionCondition::WORK_LIMIT });
+
+        assert_eq!(substituted, ExecutionCondition::call(callable, None, [], vec![owner.descriptor()], None));
+    }
 
     #[test]
     fn portable_calls_preserve_witness_choices_and_argument_substitution() {

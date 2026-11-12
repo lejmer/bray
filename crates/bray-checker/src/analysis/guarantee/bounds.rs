@@ -220,10 +220,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
         }
 
-        let receiver = self.evaluated_index_input(state, receiver).into_referent();
-        let receiver = receiver.owner_identity();
+        let receiver = self.evaluated_index_input(state, receiver).descriptor();
 
-        if receiver == &ExecutionCondition::Unknown {
+        if receiver == ExecutionCondition::Unknown {
             return false;
         }
 
@@ -244,7 +243,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     return false;
                 };
 
-                receiver == observed.clone().into_referent().owner_identity()
+                receiver == *observed
                     && proves(operator, index.clone(), length.clone())
             })
     }

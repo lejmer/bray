@@ -3861,6 +3861,57 @@ fn slice_bounds_follow_descriptor_identity_through_element_writes_and_replacemen
 }
 
 #[test]
+fn projected_slices_keep_their_descriptor_in_downstream_contracts() {
+    for (input, borrow, change, observed, valid) in [
+        ("&[u8]", "&", "", "selected", true),
+        ("&[u8; 4]", "&", "", "selected", true),
+        ("&mut [u8]", "&mut ", "if count > 0 { selected[0] = 1; }", "&selected", true),
+        ("&[u8]", "&", "", "other", false),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+
+            trusted predicate copied(count: usize, extent: usize);
+
+            trusted func observe(pos values: &[u8], pos count: usize)
+                requires(count <= values.length())
+                ensures(trusted copied(count, values.length()))
+                executes(pure, total)
+            {{
+            }}
+
+            func caller(pos values: {input}, pos other: &[u8], pos offset: usize, pos length: usize) -> u32
+                ensures(result != 0 || trusted copied(length, length))
+            {{
+                if offset > values.length() || length > values.length() - offset
+                {{
+                    return 3;
+                }}
+
+                let selected = {borrow}values[offset..offset + length];
+                let count: usize = selected.length();
+
+                if count != length
+                {{
+                    return 3;
+                }}
+
+                {change}
+                observe({observed}, count);
+                return 0;
+            }}
+        "#);
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
 fn slice_contents_calls_are_not_reused_after_element_mutation() {
     for (operation, valid) in [("", true), ("slice[0] = 1;", false)] {
         let source = format!(

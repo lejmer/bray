@@ -73,6 +73,7 @@ impl ExecutionCondition {
                 )
             }
             Self::Discriminant(value) => value.without_evaluation(mutation, remaining).discriminant(),
+            Self::Descriptor(value) => value.without_evaluation(mutation, remaining).descriptor(),
             Self::Present(value) => Self::Present(std::sync::Arc::new(value.without_evaluation(mutation, remaining))),
             Self::Tagged(variant, value) => Self::Tagged(
                 *variant,
@@ -115,7 +116,7 @@ impl ExecutionCondition {
                                 return argument.computed_value().clone();
                             }
 
-                            argument.pointer_identity().clone()
+                            argument.descriptor_identity().clone()
                         })
                         .collect(),
                 )
@@ -124,8 +125,8 @@ impl ExecutionCondition {
         }
     }
 
-    /// The copied address descriptor, independently of the scalar slot holding it.
-    pub(crate) fn pointer_identity(&self) -> &Self {
+    /// The copied descriptor, independently of its scalar slot and reached contents.
+    pub(crate) fn descriptor_identity(&self) -> &Self {
         let mut pointer = self.copied_value();
 
         // An owning context can survive replacement of the address stored in it.
@@ -305,6 +306,7 @@ impl ExecutionCondition {
                 | Self::Projection(_, value)
                 | Self::Trusted(value)
                 | Self::Borrowed(value)
+                | Self::Descriptor(value)
                 | Self::Present(value)
                 | Self::Entry {
                     condition: value, ..
@@ -394,7 +396,8 @@ impl ExecutionCondition {
                 | Self::Literal(_)
                 | Self::Variant(_)
                 | Self::InitializedSnapshot(_, _, _)
-                | Self::Entry { captured: true, .. } => {}
+                | Self::Entry { captured: true, .. }
+                | Self::Descriptor(_) => {}
                 Self::Entry {
                     condition,
                     captured: false,
@@ -505,6 +508,7 @@ impl ExecutionCondition {
             }
 
             match condition {
+                Self::Descriptor(_) => {},
                 Self::ValueAlias(left, right) => pending.extend([(left.as_ref(), live), (right.as_ref(), live)]),
                 Self::Borrowed(value) => pending.push((value, true)),
                 Self::Entry {

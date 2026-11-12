@@ -102,7 +102,7 @@ fn condition<C: CheckerRequestContext + ?Sized>(
             variant: symbol_path(domain, (*variant).into())?.join("."),
         },
         ExecutionCondition::Unknown => Condition::Unknown,
-        ExecutionCondition::Discriminant(value) => condition(domain, value, budget)?,
+        ExecutionCondition::Discriminant(value) | ExecutionCondition::Descriptor(value) => condition(domain, value, budget)?,
         ExecutionCondition::ValueAlias(_, _) => panic!("internal data alias reached source diagnostic rendering: {value:?}"),
     })
 }
