@@ -16,7 +16,14 @@ pub(super) struct ValuePreservation {
 
 impl ValuePreservation {
     pub(super) fn at_mut(&mut self, path: &[StorageProjection]) -> &mut Self {
-        path.iter().fold(self, |node, projection| node.children.entry(*projection).or_default())
+        let mut node = self;
+
+        for projection in path {
+            if node.value { return node; }
+            node = node.children.entry(*projection).or_default();
+        }
+
+        node
     }
 
     pub(super) fn at(&self, path: &[StorageProjection]) -> Option<&Self> {
@@ -32,12 +39,14 @@ impl ValuePreservation {
 
     /// Frame the actual value and its existing ownership layout together.
     pub(super) fn frame(
-        &self,
+        &mut self,
         state: &mut super::super::state::ExecutionState,
         source: &ExecutionCondition,
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
     ) -> ExecutionCondition {
+        self.retain_inline_descriptors(&source.clone().into_referent(), &mut { ExecutionCondition::WORK_LIMIT });
+
         // Another alias can still retain the original snapshot and layout.
         let ownership = state.owned_result(source);
         // Current ownership survives constructor normalization independently of
@@ -74,6 +83,26 @@ impl ValuePreservation {
         state.owned_results.insert(next.clone(), ownership);
 
         next
+    }
+
+    fn retain_inline_descriptors(&mut self, source: &ExecutionCondition, budget: &mut usize) {
+        let Some(remaining) = budget.checked_sub(1) else { return; };
+        *budget = remaining;
+
+        if self.value { return; }
+
+        for projection in source.component_projections() {
+            if !bray_bound_tree::StoragePath::inline_projections(&[projection]) { continue; }
+
+            let child = source.clone().project(projection);
+            if child.is_reference() {
+                // A retained owner's inline reference slot keeps its descriptor.
+                // Its reached contents and nested owners need separate preservation.
+                if self.descriptor { self.children.entry(projection).or_default().descriptor = true; }
+            } else if let Some(mask) = self.children.get_mut(&projection) {
+                mask.retain_inline_descriptors(&child, budget);
+            }
+        }
     }
 
     fn contents_preservation(&self) -> bray_symbols::DependencyValuePreservation<StorageProjection> {
@@ -166,6 +195,41 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::{BoundExecutionSite, BoundUnitId, StorageMutation, StorageProjection};
     use bray_symbols::SymbolOrdinal;
+
+    #[test]
+    fn retained_owner_descriptors_keep_inline_reference_slots_without_freezing_referents() {
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(place.clone());
+        let referent = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let other = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let data = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let reference = ExecutionCondition::reference_value(referent.clone().borrowed(),
+            ExecutionCondition::constructed(referent, [(field, other.clone().borrowed())].into()));
+        let source = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::constructed(owner,
+            [(field, reference.clone()), (data, ExecutionCondition::Boolean(true))].into()));
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            vec![push_expression(tree, integer_literal_expression(origin, None))]
+        });
+        let mutation = StorageMutation::Operation(sites[0].into());
+        for whole in [true, false] {
+            let mut mask = ValuePreservation { descriptor: whole, ..Default::default() };
+            if !whole { mask.at_mut(&[field]).descriptor = true; }
+            let mut state = super::super::super::state::ExecutionState::default();
+            let updated = mask.frame(&mut state, &source, Some(&place), mutation);
+            let retained = updated.clone().project(field);
+
+            assert_eq!(retained.ownership_identity(), reference.ownership_identity(),
+                "an unchanged inline reference slot keeps its actual descriptor");
+            assert_ne!(retained.clone().into_referent(), reference.clone().into_referent(),
+                "retaining a reference slot does not retain reached contents");
+            assert_ne!(retained.into_referent().project(field).ownership_identity(), other.clone().borrowed().ownership_identity(),
+                "descriptor preservation stops at the stored reference boundary");
+            assert_ne!(updated.clone().project(data).computed_value(), &ExecutionCondition::Boolean(true));
+            assert_eq!(mask.frame(&mut state, &updated, Some(&place), mutation), updated,
+                "repeated framing must stabilize");
+        }
+    }
 
     #[test]
     fn nested_owner_and_shared_alias_join_one_contents_snapshot() {
@@ -287,7 +351,7 @@ mod tests {
         let replay = mask.frame(&mut state, &next, Some(&place), mutation);
         assert_eq!(state.owned_result(&replay), retained, "repeated physical framing stabilizes");
 
-        let overwritten = ValuePreservation { descriptor: true, ..Default::default() };
+        let mut overwritten = ValuePreservation { descriptor: true, ..Default::default() };
         let final_value = overwritten.frame(&mut state, &next, Some(&place), mutation);
         assert_eq!(state.owned_result(&final_value).transfers().count(), 1, "a later overwrite retires the old child authority");
     }
@@ -417,7 +481,7 @@ mod tests {
             (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
         });
         let mutation = StorageMutation::Operation(sites[0].into());
-        let mask = ValuePreservation::default();
+        let mut mask = ValuePreservation::default();
         let fresh = ExecutionCondition::Expression(sites[1]);
         for source in [owner.clone(), ExecutionCondition::owned_value(owner.clone(), previous.clone()), fresh] {
             let mut state = super::super::super::state::ExecutionState::default();

@@ -27,50 +27,54 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Fixed evidence
 
-Pushed90ea88a85. Frozen907:778 pass/30 fail/99 ignored,16 explained repairs, original SHA unchanged.
-Six added controls give913:784/30/99. These outcomes, checker507/bound136 and all matrices pass.
+Latest checkpoint is branch HEAD. Frozen907:778 pass/30 fail/99 ignored,16 explained repairs, original SHA unchanged.
+Seven added controls give914:785/30/99. These outcomes, checker508/bound136 and all matrices pass.
 Owned248/deferred148 each source/import surface and witness matrices pass. Adjacent cleanup57/4, predicates26/2/2,
 focused18 retain outcomes at checkpoint. Real async source/callable/lifecycle MIR and3 invalid variants pass.
 Native composition has not run. No style pass yet.
 
-Complete native gate27, with the explained cleanup repair and start_frame dependency cascade. Ten E7123 and17 E7135 reports comprise
-12 primary failures and15 explicit dependency cascades. verification.json contains exact accepted identities.
-Seven original sites repaired and4 cascades added against original native.log30. Reports are not independent bug counts.
+Complete native gate26:9 E7123 and17 E7135 reports comprise11 primary failures and15 explicit dependency cascades.
+Retained inline reference descriptors repair attachment exit464. No new identities. verification.json contains accepted identities.
+Reports are not independent bug counts.
 
 ## Current boundary
 
-root_execution source84/unit1086282: root_scope E17, trusted output E18/storage15, EntryRestoration E24/storage22,
-entry_current E35/reference30, admit_source_task E78, start_frame E105, dispose_reference E135, scoped E149.
-Existing repaired boundaries: exact stored-pointer reads through complete equally typed bounded views, private
-borrowed roots excluded from implicit external reachability, observation-aware component discovery, single completion,
-and whole-root observed binding canonicalization. Fixed controls and native inventory retain accepted outcomes.
+root_execution now checks and produces MIR, including conditional EntryRestoration cleanup.
+Red-before composition properties cover shared nested contents identities, inactive payload retention and idempotent
+same-owner snapshots. Conditional witnesses survive independently framed views and subsequent joins.
+Explicit owned observations retain nested producers. Structural data still needs anchoring.
+Fixed914, checker508/bound136, all matrices and adjacent suites retain accepted outcomes.
 
-Two red-before properties now cover one joined contents identity for an aggregate's nested owner/shared alias
-and owned_snapshot idempotence for an unchanged destination. Active/inactive nullable joining also preserves a
-physically retained payload rather than moving it. The composed property checks independently framed views,
-retained acquisition identity, conditional payload witnesses and a subsequent join.
-Real join62 retained the guarantee but reanchored its acquisition marker in mixed_role_components. The central
-owned_snapshot correction preserves nested producers when the destination already owns the snapshot.
-root_execution now checks and produces MIR, including conditional EntryRestoration cleanup. All trace hooks removed.
-The shortcut applies only to explicit owned observations, since structural data still needs anchoring.
-Fixed912, checker507/bound136 and adjacent suites pass. Native27 replaces start cleanup E7123 with a cascade
-from already-failing start_frame. No other native identity changes.
+Imported execution selection owns its decision diagnostics and appends them to the caller's output afterward.
+The real exported/imported diagnostic-isolation control is red before and green after. The accepted native baseline before descriptor framing had27 identities,
+with12 primary failures and15 explicit cascades. Three false guard.get causes now name existing driving errors.
+Diagnostics collected from unrelated dependencies must never revoke applicable evidence.
 
-Next grouped frontier: task/ownership64, task/waiting27 and scheduler/parking123 lose applicable imported
-guard.get pure evidence because select_imported_execution_obligation tests the caller's accumulated diagnostic
-bag. Their entry proofs succeed and checked pure/total domains exist, but an earlier error suppresses selection.
-Source selection already owns local diagnostics. Isolate imported decision diagnostics and append them afterward.
-The real exported/imported regression is red before and green after isolating the decision's diagnostics.
-Collected output diagnostics are preserved. Source/imported selectors and neighboring shared-bag checks were traced.
-Fixed913, checker507/bound136 and all matrices retain accepted outcomes. No probe hooks remain.
-Complete native27 retains all report identities. Three false missing-evidence causes now correctly name the
-existing driving.bray checking failure. Only12 reports are primary and15 are explicit dependency cascades.
-Adjacent cleanup57/4, predicates26/2/2 and focused18 retain their outcomes.
-Panic360 is separate: slice_pointer's imported entry fails count <= slice.length with actual Unknown.
-Consumed probe logs and passing exploratory guard programs have been removed.
+Remaining failures are grouped by first loss, not report count. Current raw-retirement group:
+dispatch_ready source63/unit746973 loses view_owned at wait_execution call53 before join76.
+The active shared loan and marker classification are present. Retire reaches an opaque returned raw-byte
+pointer. Its recorded Control type is a view, not the complete allocation extent. Do not use that view type
+to weaken lifetime invalidation. Producer bounds include an execution-owner pointer and an independent origin.
 
-Remaining E7123 groups: conditional cleanup start79..174, prepared cleanup/start234, driving197, entry_scope422,
-root_scope268, attachment/exit464, observer/polling105 and withdrawal58/185/199.
+Descriptor framing now carries actual inline reference slots of retained owners, while refreshing reached contents.
+It stops at stored references and owned-storage boundaries. No values or identities are reconstructed from types.
+The boundary regression is red before and green after. Direct-slot/whole-owner retention, referent expiry,
+overwrite rejection, replay and a real conditional compound-lease postcondition pass. Fixed914, checker508,
+bound136, source/import matrices and adjacent suites retain outcomes. Native attachment exit464 is repaired.
+
+Withdrawal unit3158514 still fails: known live_wait_links after wait_committed has reference-wrapped HostLease
+fields2577/2578, while the next read has bare post-state fields. The roles were already absent before this repair
+could preserve them. Trace host_access result call2 through all frames to find the first role loss.
+The full failed-condition probe is in source-candidate.log. Its static host-link probe adds E7061/E7063 and one
+cascade, so only the complete native gate is acceptance evidence. The proof hook has been removed.
+
+The simple nullable and dynamic-subslice source controls pass. An intervening opaque operation invalidates a
+whole Access predicate containing a nested borrow. Do not assume every lost whole predicate is unsound.
+Panic360 separately fails slice_pointer entry count <= slice.length with actual Unknown.
+Consumed controls and broad traces have been deleted.
+
+Remaining E7123 groups: prepared cleanup/start234, driving197, entry_scope422,
+root_scope268, observer/polling105 and withdrawal58/185/199.
 Primary E7135: reserve_start175 registration postcondition and panic338. The three execution/root reports are cascades.
 Follow reserve_start into start_frame too. UnboundedMutation Retire with no access type alone proves no defect.
 
@@ -79,7 +83,7 @@ Follow reserve_start into start_frame too. UnboundedMutation Retire with no acce
 One CPU-heavy job at a time. Cargo jobs24, tooling profile, same combined target set. No Rust edits during Rust builds.
 Native tools run escalated outside sandbox. Shared target/cargo build dirs, no clean. Selected lowering takes30s.
 Use ABI2 bundle target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
-Direct233-source CLI checks add3 missing-native-link cascades and are investigation controls, not the native gate.
+Direct233-source checks without the native host link add3 cascades. Keep the complete native gate as acceptance evidence.
 Remove consumed probes immediately after extracting evidence.
 
 Remaining gates: all native errors, native async success/panic/cancel/startup rollback/blocked shutdown,
