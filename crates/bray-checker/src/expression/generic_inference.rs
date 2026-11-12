@@ -18,6 +18,10 @@ pub(super) fn infer_call_generic_arguments<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    if parameters.is_empty() {
+        return Some(Vec::new());
+    }
+
     let Some(BoundExpression::Call(call)) = request.view().expression(expression) else {
         panic!(
             "Semantic-selection inputs do not describe the requested bound unit or operation category. in infer_call_generic_arguments"
@@ -62,7 +66,13 @@ where
             );
         };
 
-        if !inference.infer_type(parameter.ty(), actual.ty()) {
+        let expected = match request.semantic_values().type_data(parameter.ty()).as_ref() {
+            TypeData::Nullable(contained)
+                if !matches!(request.semantic_values().type_data(actual.ty()).as_ref(), TypeData::Nullable(_)) => *contained,
+            _ => parameter.ty(),
+        };
+
+        if !inference.infer_type(expected, actual.ty()) {
             return None;
         }
     }

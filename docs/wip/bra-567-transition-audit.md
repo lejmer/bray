@@ -36,90 +36,49 @@ pin and arena before vacancy. WaitResources retains leased storage through membe
 
 ## Fixed evidence
 
-Checkpoint is branch HEAD and remains WIP. Fixed918:789 pass/30 fail/99 ignored, checker511/bound136.
-Frozen907 retains original SHA and778/30/99 outcomes with16 explained repairs. Eleven added controls pass.
-Owned248/deferred148 each source/import surface and witness matrices retain outcomes. Symbols221/interface216,
-messages92, adjacent cleanup57/4, predicates26/2/2 and focused18 passed before the current batch.
-Real async source/callable/lifecycle MIR and3 invalid variants pass. Native composition has not run.
+Pushed ed6548628. Current verified batch has consuming-copyable receiver moves and nullable argument inference.
+Fixed920:791 pass/30 fail/99 ignored. Original907 identities/SHA remain frozen with16 explained repairs and13 added
+controls. Owned248/deferred148 on source/import and witness matrices unchanged. Checker511/bound136 pass.
+Symbols221/interface216/messages92 and proof9 remain valid. Cleanup57/4 and predicates26/2/2 retain outcomes.
+Async composition source/MIR and3 invalid variants pass. Native composition remains unverified.
 
-Accepted native/source baseline25 has8 E7123/17 E7135,9 primary/16 cascades. Exact identities are in verification.json.
-Descriptor selection now survives copy, substitution, import, joins and reached writes without granting ownership or
-letting data equality rename identity. Source negatives and portable/property controls pass. This repairs panic338.
-Whole/projected invalidation frames complete owners before selecting children. Reference descriptors survive,
-reached contents expire, overwritten children lose authority. This repairs attachment exit464 and withdrawal58.
-Correct system host/callback inputs reproduce the native identities in a direct source check. Both use ABI2 std.
+Runtime source23 =6 E7123 +17 E7135. Verified exact logical inventory after3 start.bray span relocations caused by
+consuming start_frame. No repairs or regressions in this batch. Native last25 remains unverified for current changes.
+Seven local failures, sixteen dependent reports:
+- driving197 view_owned: raw retirement may alias borrowed Current marker.
+- start230 producer(self) and224 cleanup service_owned after reserve_start.
+- prepared_start175 registration success postcondition, not a dependency cascade.
+- polling105 transfer_entry result layout.
+- withdrawal185/199 nullable neighbor LinkAccess.
+Do not mistake dependent reports or added passing controls for convergence. Fixed30 remains unchanged.
 
-Fixed918 and all matrices retain their outcomes after loop-continuation, partial-initialization and repeated-tag
-properties. Adjacent checks above repeat with the same results. Latest runtime source23 has6 E7123/17 E7135.
-It matches the accepted native25 inventory except repaired entry_scope422 and root_scope268, with no new identities.
-The earlier completion77/observer333 failures and optional-operation cleanup regressions are repaired.
-Native emission/execution has not repeated. Remaining E7123 groups: driving197, start234/prepared cleanup,
-observer/polling105, and withdrawal185/199. E7135 reports include dependent cascades, not independent bug counts.
+## Current contract and next action
 
-## Current boundary
+Consuming receiver producer now plans Move even for @copy. Direct/staged calls share the producer. Lowering consumes
+checked operands and owned-input classification already includes consuming receivers. Six source cases protect move,
+ordinary-copy rejection, stale-source rejection, nullable conversion/inference and exact nested generic matching.
+Inactive is copyable lease data. root_frame reads the complete initialized lease while its native caller retains the
+frame/provider. start_frame consumes that value and lends self to PreparedStart until rollback/publication. Native ABI
+unchanged. Source23 and fixed920 are verified. Native provenance/composition remains an open gate.
 
-Open contract: slot_at -> retain_locked -> retain_task -> dispatch_ready must carry the complete owned backing
-bound to wait_execution retirement without inventing exact address, authority or independent origins. The final
-Slot pointer is a view, not an allocation extent. Checkpoint a06e18e41 is pushed. Retain real aliases and genuinely unknown alternatives.
-The three source controls pass, but runtime source still has exactly23 accepted identities (6 E7123/17 E7135).
-Actual trace: slot_at and retain_locked now retain both allocation boundaries without independent origins.
-First loss is retain_task E35: staging reduces the source to owner.pointer with unknown=true; publication adds
-Independent. arena/domain accessors publish exact relations. All probes are removed. Four source paths pass,
-including a lambda-issued pointer record. A new indirect reference-field source path is confirmed red with the
-same reduced owner.pointer + Independent result. The root is a field read through a raw-address referent.
+Before another production patch, classify actual fixed30 failures by source contract and trace shared mechanisms.
+Invalid acceptance includes reference-slot replacement, address bounds and undeclared authority. Valid rejection includes
+mutable owner updates, unions, nullable successes, raw transfers and imported cleanup. Summary-count expectations need
+contract inspection, not automatic rebaselining. Current read-only hypothesis: shared-view preservation can confuse a
+replaced reference descriptor with its old referent. Inspect Footprint preparation, active/shared preservation, resolved
+physical effects and condition invalidation together. No fix decided. Pair invalid replace(&mut borrowed) with retained
+old borrow, disjoint descriptor writes, nested references and raw aliases. Also trace reserve_start registration assignment
+through demand_lane and success return. Reconsider the hypothesis if these use different physical/value boundaries.
 
-Repair contract before editing: preserve ordered raw-address loads in portable input paths (AddressTarget),
-without ownership, freshness, initialization or authority. Existing paths represent fields, consecutive borrow
-loads and owned targets, but cannot name a field beyond a raw pointer. Reuse StorageReferencePath's typed load
-positions and the existing entry-reference producer. Declare finite demanded pointee fields at entry for already
-prepared incoming raw addresses. Do not reconstruct on a later read or recursively close pointer-type graphs.
-Owned buffer pointers keep their existing allocation declaration. Actual writes/opaque replacement must retire
-entry field records; a replaced LinkOwner negative must retain unknown/independent provenance. Preserve old captured
-pointer values and real aliases. Add no duplicate ledger or wrapper types. Expected growth is route wiring plus
-bounded entry preparation; remove duplicate role classification through one shared buffer-pointer helper.
+AddressTarget finite raw-load paths and full retain_task InputRegions are verified. take_ready's possible-alias write
+retires Domain.arena.pointer before call staging. Its location survives but no old regions record does. Current marker
+then fails raw Retire with unknown + Entry(owner.pointer) bounds. Never narrow by final Slot view or preserve overwritten
+values. Private descriptor/borrowed descriptor/pointee-authority controls pass. No source improvement resulted.
+Proof graph omissions without recorded causes panic. Legitimate failures preserve typed conditions and leaf locations.
 
-Trace producer -> lookup -> copy/admission -> publication -> substitution/export/import -> caller evaluation ->
-mutation and cleanup. Positive indirect field/lambda controls and replaced-input negatives are fixed before the
-semantic repair. Keep fixed918 identities/outcomes and current source23 inventory. Reopen on any unexplained
-regression, invented authority, lost genuine unknown, recursive path growth or allocation extent derived from a view.
-Current batch adds AddressTarget through typed path preparation, entry field declaration, publication/import,
-semantic selection and diagnostics. It prepares only finite existing pointee demands for original incoming raw
-addresses, not a pointer-type closure. Buffer pointer roles share entry_buffer_pointer. Same-position language and
-raw loads use StorageReferencePath.is_address_load. AddressTarget batch passes the indirect positive and replaced-input negative plus fixed918 at789/30/99 with
-unchanged matrices. Checker511/bound136, symbols221/interface216/messages92 and focused18 pass. Adjacent cleanup57/4
-and predicates26/2/2 retain aggregate counts. Canonical storage_type handles root-access-owned types. Escape summaries
-retain fixed source/import roots by omitting only derived incoming fields still held in the escaped parent's current
-value graph. Explicit operands, replacement values and captured old pointers survive, protected by the extended memory
-property. Runtime source completes with the same23 exact identities, no additions or removals. Native remains unverified.
-Actual runtime trace now proves retain_task E35 publishes the full two-allocation InputRegions path with no
-Independent: owner.pointer.AddressTarget.Domain.arena.ArenaReference.pointer -> Arena.entries.Uninit.slabs.Nullable.
-OwnedTarget.AnyElement.slots.OwnedTarget. Dispatch_ready has that field declared at entry but stages it at E9 as
-Returned(S8, full incoming path). First preceding effect is take_ready E3 writing selected.pointer.pending.Uninit
-(Replace T4904, access T8051). Determine whether that write legitimately retires the incoming field or argument staging
-loses a surviving field. Do not preserve real aliases or invent allocation extent from a Slot view. Stage/publication
-and transition probes are removed after these facts were captured. Exact source inventory still23.
-Proof graph omissions without a recorded failure now panic. Specific source failures retain condition, cause and leaf
-location across dependent proofs. Source-level labels replace checked/control-flow terminology. Nine proof tests and92
-message tests pass, including missing-root/child panics, propagated conditions/locations and raw-route wording.
-Fixed918 retains789/30/99 and all matrices, checker511/bound136. Next investigation is a bounded current-field-before/staged-field probe,
-not a semantic patch until retirement versus staging is resolved.
-
-Backing checkpoint76d5f2736: checked complete-buffer borrows declare missing backing without replacing actual or
-unknown pointer records. Private admission carries evaluated dynamic references. AnyElement retains owned suffixes
-through publication/import as InputRegions without authority. Checked regions stay closed; extra owned indirection
-remains unknown. Direct, nullable binary-search and forwarded source controls and alias properties pass. This is
-not proof that the actual runtime chain composes; the unchanged inventory keeps that contract open.
-
-The newly reachable leave_domain panic is repaired. Internal execution checks substituted mutable-argument roots
-for checked physical effects, erasing an untouched absent field and selecting unpublished cleanup. Every obligation
-now replays the checked effects; observation confinement only classifies dependencies. Removed54 lines, no new
-state or reconstruction. The conditional-cleanup fixture forces separate Termination replay with a runtime
-precondition, is confirmed red before the fix and green after, and retains authority-fabrication negatives.
-
-Current repair passes fixed918/matrices789/30/99, checker511/bound136, symbols221/interface216/messages92,
-focused18 and async composition source/MIR plus invalid variants. Adjacent cleanup57/4 and predicates26/2/2 retain
-aggregate counts. Runtime source finishes with the same23 exact identities and no panic. Native execution has not
-repeated. Current local probes must be removed after use. Style/format remain deferred until semantic completion.
+Checked complete-buffer borrows retain missing backing without replacing actual/unknown records. AnyElement
+preserves owned suffixes as InputRegions without exact authority. Extra owned indirection remains unknown.
+Every execution obligation replays checked physical effects. Observation confinement only classifies dependencies.
 
 Closed contracts protected by accepted checks:
 - Extracted nullable owners carry recorded extracted_values through sync/async admission, body effects, joins and
@@ -145,3 +104,4 @@ Remove consumed probes immediately after extracting evidence.
 Remaining gates: all native errors, native async success/panic/cancel/startup rollback/blocked shutdown,
 result/static disposal, foreign restoration, architecture/test pruning, final style/format, independent review,
 PR and Linear review handoff. Never claim complete composition before these gates.
+

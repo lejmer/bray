@@ -89,7 +89,7 @@ trusted internal func task_start(
 
     let owner = trusted bray.runtime.bootstrap.task.retain_source_claim(&handle);
     let token = trusted root_frame(&frame);
-    let started = trusted start_frame(&selected, &owner, token, none, outcome);
+    let started = trusted token.start_frame(&selected, &owner, none, outcome);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
 

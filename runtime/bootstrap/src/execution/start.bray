@@ -9,18 +9,18 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.activation;
 using internal bray.runtime.bootstrap.scheduler;
 
-// The native caller lends its actual initialized inactive frame and descriptor
-// provider. A successful entry transfers that frame to the admitted root.
+// The native caller retains the initialized inactive frame and descriptor provider.
+// Copying its lease leaves resident ownership with that caller until admission commits.
 trusted internal predicate frame_input(owner: &usize);
 
-trusted internal func root_frame(pos frame: &usize) -> &bray.runtime.bootstrap.activation.Inactive
+trusted internal func root_frame(pos frame: &usize) -> bray.runtime.bootstrap.activation.Inactive
     requires(trusted frame_input(owner = frame))
     ensures(
         trusted frame_input(owner = frame),
-        trusted bray.runtime.bootstrap.activation.producer(token = result),
-        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = result)
+        trusted bray.runtime.bootstrap.activation.producer(token = &result),
+        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &result)
     )
-    uses(raw_memory, unchecked_alias, intrinsic)
+    uses(raw_memory, intrinsic)
 {
     let address = trusted std.memory.read<usize>(std.memory.address_of<usize>(frame));
 
@@ -37,16 +37,11 @@ trusted internal func root_frame(pos frame: &usize) -> &bray.runtime.bootstrap.a
             trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
             trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
             trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
-            trusted core.memory.shared_alias_valid<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
-            trusted core.memory.epoch_current<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
-            trusted core.memory.synchronized_access<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
-            trusted core.memory.movement_stable<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
-            trusted core.memory.finalization_pending<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer)
         )
         executes(pure, total) {};
 
     trusted readable(frame, pointer);
-    return trusted std.memory.borrow_from<bray.runtime.bootstrap.activation.Inactive, usize>(frame, pointer);
+    return trusted std.memory.read<bray.runtime.bootstrap.activation.Inactive>(pointer);
 }
 
 @abi(c)
@@ -145,7 +140,7 @@ trusted internal func root_execution(
 
                 let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
                 let token = trusted root_frame(&frame);
-                let status = trusted start_frame(selected, &owner, token, lane, outcome);
+                let status = trusted token.start_frame(selected, &owner, lane, outcome);
                 let admission = trusted publish_admission(&owner, status);
 
                 if status != 0
@@ -180,65 +175,67 @@ trusted internal func root_execution(
     return result;
 }
 
-trusted internal func start_frame(
-    pos selected: &Current,
-    pos reference: &bray.runtime.bootstrap.task.Reference,
-    pos token: &bray.runtime.bootstrap.activation.Inactive,
-    pos driver: bray.runtime.bootstrap.scheduler.Lane?,
-    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
-) -> u32
-    requires(
-        blocking_execution(),
-        trusted view_owned(owner = &selected.acquisition),
-        selected.status == 0,
-        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
-        trusted bray.runtime.bootstrap.task.retained(owner = reference),
-        trusted bray.runtime.bootstrap.activation.producer(token = token),
-        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token),
-        trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted bray.runtime.bootstrap.host.product.native_host(),
-        trusted bray.runtime.bootstrap.pool.protocol_access()
-    )
-    ensures(
-        trusted view_owned(owner = &selected.acquisition),
-        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
-        trusted bray.runtime.bootstrap.task.retained(owner = reference)
-    )
-    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
-    {
-        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
-    }
+impl bray.runtime.bootstrap.activation.Inactive
 {
-    {
-        let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
-        let control = trusted guard.get();
-
-        if !(control.phase matches bray.runtime.bootstrap.task.Phase.Admitted)
+    trusted internal consume func start_frame(
+        pos selected: &Current,
+        pos reference: &bray.runtime.bootstrap.task.Reference,
+        pos driver: bray.runtime.bootstrap.scheduler.Lane?,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    ) -> u32
+        requires(
+            blocking_execution(),
+            trusted view_owned(owner = &selected.acquisition),
+            selected.status == 0,
+            trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+            trusted bray.runtime.bootstrap.task.retained(owner = reference),
+            trusted bray.runtime.bootstrap.activation.producer(token = &self),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &self),
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        ensures(
+            trusted view_owned(owner = &selected.acquisition),
+            trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+            trusted bray.runtime.bootstrap.task.retained(owner = reference)
+        )
+        when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
         {
-            return 3;
+            ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
         }
-    }
-
-    let prepared = trusted prepare_start(selected, reference, token);
-
-    return match consume prepared
     {
-        case Ok(preparation)
         {
-            yield with mut owner = preparation
+            let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
+            let control = trusted guard.get();
+
+            if !(control.phase matches bray.runtime.bootstrap.task.Phase.Admitted)
             {
-                let status = trusted reserve_start(&mut owner, driver, outcome);
-
-                yield if status == 0
-                {
-                    yield trusted commit_start(&mut owner);
-                }
-                else
-                {
-                    yield status;
-                };
-            };
+                return 3;
+            }
         }
-        case Error(status) { yield status; }
-    };
+
+        let prepared = trusted prepare_start(selected, reference, &self);
+
+        return match consume prepared
+        {
+            case Ok(preparation)
+            {
+                yield with mut owner = preparation
+                {
+                    let status = trusted reserve_start(&mut owner, driver, outcome);
+
+                    yield if status == 0
+                    {
+                        yield trusted commit_start(&mut owner);
+                    }
+                    else
+                    {
+                        yield status;
+                    };
+                };
+            }
+            case Error(status) { yield status; }
+        };
+    }
 }

@@ -5544,6 +5544,153 @@ fn nested_owner_cleanup_preserves_its_required_authority() {
 }
 
 #[test]
+fn consuming_copyable_receivers_move_authority_and_retire_the_source() {
+    use bray_diagnostics::DiagnosticKind;
+
+    for (operation, failure) in [
+        ("let choice: u32? = none; trusted ticket.redeem(choice);", None),
+        ("let choice: u32 = 1; trusted ticket.redeem(choice);", None),
+        ("let choice: u32? = none; trusted ticket.redeem(choice); observe(&ticket);", Some(DiagnosticKind::CheckingUseOfMovedStorage)),
+        ("copy_ticket(ticket);", Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven)),
+        ("let choice: u32 = 1; accept(choice);", None),
+        ("let nested: Holder<u32> = { value = 1 }; require_nested(nested);", Some(DiagnosticKind::CheckingNoApplicableCandidate)),
+    ] {
+        let source = r#"
+            trusted module app;
+
+            @copy
+            struct Marker
+            {
+            }
+
+            trusted predicate live(marker: &Marker);
+
+            @copy
+            struct Ticket
+            {
+                marker: Marker;
+
+                trusted consume func redeem(pos choice: u32?)
+                    requires(trusted live(&self.marker))
+                {
+                }
+            }
+
+            struct Holder<T>
+            {
+                value: T;
+            }
+
+            func accept<T>(pos value: T?)
+            {
+            }
+
+            func require_nested<T>(pos value: Holder<(T?)>)
+            {
+            }
+
+            trusted func issue() -> Ticket
+                ensures(trusted live(&result.marker))
+            {
+                return
+                {
+                    marker = Marker
+                    {
+                    }
+                };
+            }
+
+            func observe(pos ticket: &Ticket)
+                requires(trusted live(&ticket.marker))
+            {
+            }
+
+            func copy_ticket(pos ticket: Ticket)
+                requires(trusted live(&ticket.marker))
+            {
+            }
+
+            func probe()
+            {
+                let ticket = trusted issue();
+
+                OPERATION
+            }
+        "#.replace("OPERATION", operation);
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(diagnostics.has_errors(), failure.is_some(), "{operation}: {diagnostics:#?}");
+
+        if let Some(failure) = failure {
+            bray_testing::assert_goal_state_diagnostic_kind(diagnostics, failure);
+        }
+    }
+}
+
+#[test]
+fn raw_retirement_distinguishes_private_descriptors_from_borrowed_storage() {
+    for (parameter, operation, valid) in [
+        ("Owner", "", true),
+        ("&Owner", "", false),
+        ("Owner", "_ = trusted core.memory.read<u8>(owner.pointer);", false),
+    ] {
+        let source = r#"
+            trusted module app;
+
+            using core.memory;
+
+            struct Marker
+            {
+            }
+
+            trusted predicate live(marker: &Marker);
+
+            struct Owner
+            {
+                marker: Marker;
+                pointer: DataPointer<u8>;
+
+                trusted destruct()
+                    requires(trusted live(&self.marker))
+                {
+                }
+            }
+
+            func observe(pos owner: &Owner)
+                requires(trusted live(&owner.marker))
+            {
+            }
+
+            trusted func probe(pos owner: PARAMETER, pos allocation: DataPointer<u8>)
+                requires(
+                    trusted live(&owner.marker),
+                    trusted core.memory.owned_allocation(pointer = allocation, bytes = 1, align = 1),
+                    trusted core.memory.valid_read<u8>(pointer = owner.pointer, count = 1),
+                    trusted core.memory.aligned_for<u8>(pointer = owner.pointer),
+                    trusted core.memory.initialized_as<u8>(pointer = owner.pointer)
+                )
+                uses(manual_alloc, raw_memory)
+            {
+                trusted core.memory.deallocate(allocation, bytes = 1, align = 1);
+                READ_POINTEE
+                observe(&owner);
+            }
+        "#.replace("PARAMETER", parameter).replace("READ_POINTEE", operation);
+        let application = compilation(&source);
+        let checked = application.lowered_unit(source_function_body_key(&application, "probe"))
+            .expect("raw retirement probe lowers");
+
+        assert_eq!(!checked.diagnostics().has_errors(), valid, "{parameter}, {operation}: {:?}", checked.diagnostics());
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
 fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
     for (body, valid) in [
         (
