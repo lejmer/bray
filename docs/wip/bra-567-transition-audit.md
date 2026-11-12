@@ -24,7 +24,8 @@ Unexplained regressions block expansion. Name traced paths, evidence and exclusi
 Keep one current-value tree, alias model, witness ledger and composite flow. Carry producer-owned identities.
 Reconstruction is a last resort. Specific structured diagnostics. Internal defects panic at their owning boundary.
 Batch independent checks. Proper Bray formatting. Delete consumed probes. Keep records short and current.
-No style/format until semantic completion. Then simplify production code, prune redundant tests, audit AGENTS/DRY,
+Write and inspect correctly formatted Bray fixtures before committing. Never use ad hoc whitespace rewrites.
+Only the automated style/format pass is deferred until semantic completion. Then simplify production code, prune redundant tests, audit AGENTS/DRY,
 run mutating cargo xtask style and cargo xtask format, and rerun affected checks.
 
 Root cleanup precedes terminal publication. Main authority, execution, attachments and providers survive outcomes,
@@ -34,102 +35,63 @@ omission, native provenance/costs and from_core admission/refcounts. PreparedSta
 publication/rollback. EntryRestoration retains displaced context through abnormal exits. RetiredCell disposes control,
 pin and arena before vacancy. WaitResources retains leased storage through membership changes.
 
-## Fixed evidence
+## Current evidence and pause
 
-Checkpoint commits are on the PR branch. Last accepted semantics b4b5a76f5. Current verified batch has consuming-copyable receiver moves and nullable argument inference.
-Fixed920:791 pass/30 fail/99 ignored. Original907 identities/SHA remain frozen with16 explained repairs and13 added
-controls. Owned248/deferred148 on source/import and witness matrices unchanged. Checker511/bound136 pass.
-Symbols221/interface216/messages92 and proof9 remain valid. Cleanup57/4 and predicates26/2/2 retain outcomes.
-Async composition source/MIR and3 invalid variants pass. Native composition remains unverified.
+Paused for the user's app update. No task-owned processes remain. All code and user corrections are pushed through
+9fab0d127. The latest combined tooling build succeeds for that code, including the restored ordinary shared-loan rule.
+Do not start from the last diagnostic. Read the contract gate before changing the unresolved mechanism.
 
-Runtime source23 =6 E7123 +17 E7135. Verified exact logical inventory after3 start.bray span relocations caused by
-consuming start_frame. No repairs or regressions in this batch. Native last25 remains unverified for current changes.
-Seven local failures, sixteen dependent reports:
-- driving197 view_owned: raw retirement may alias borrowed Current marker.
-- start230 producer(self) and224 cleanup service_owned after reserve_start.
-- prepared_start175 registration success postcondition, not a dependency cascade.
-- polling105 transfer_entry result layout.
-- withdrawal185/199 nullable neighbor LinkAccess.
-Do not mistake dependent reports or added passing controls for convergence. Fixed30 remains unchanged.
+Accepted baseline: fixed920=791 pass/30 fail/99 ignored. Original907 identities/SHA are frozen with16 explained repairs
+and13 added controls. Owned248/deferred148 on each source/import surface and witness matrices retain outcomes.
+Last candidate before restoring ordinary shared-loan protection:786/35/99, checker511/bound136 pass. One repaired
+negative and six regressions. That candidate is unaccepted. Its complete diagnostics are in comparison-candidate.log.
+Latest source and fixture changes have compiled but have not run through the comparison again.
 
-## Current contract and next action
+verification.json holds binary paths/digests, frozen expectations and372 relocated test-name mappings. Normalize current
+names through that mapping, never rewrite the frozen comparison. The source-item moves retain all tests. Inline fixtures
+now live in contract_tests topic files. Preserve the user's formatting and path simplifications, including when blocks,
+template clauses, tuple layout and array types. A brace-pair check did not establish correct formatting. Never use ad hoc
+whitespace rewrites. Write and review fixtures as Bray source. Style commands do not format embedded Bray.
 
-Consuming receiver producer now plans Move even for @copy. Direct/staged calls share the producer. Lowering consumes
-checked operands and owned-input classification already includes consuming receivers. Six source cases protect move,
-ordinary-copy rejection, stale-source rejection, nullable conversion/inference and exact nested generic matching.
-Inactive is copyable lease data. root_frame reads the complete initialized lease while its native caller retains the
-frame/provider. start_frame consumes that value and lends self to PreparedStart until rollback/publication. Native ABI
-unchanged. Source23 and fixed920 are verified. Native provenance/composition remains an open gate.
+Accepted runtime source23 =6 E7123 +17 E7135, seven local failures and sixteen cascades. Local groups are driving197,
+start230 producer and224 cleanup, prepared_start175 registration postcondition, polling105, withdrawal185/199. Three
+start.bray span relocations from the consuming receiver are explained. Native last25 remains stale for current semantics.
+Async composition source/MIR and3 invalid variants pass at the accepted checkpoint. Native composition has not run.
 
-Deduction now leads repairs, not additional examples. Existing fixed920 remains the regression oracle. No new test
-identities or expected outcomes are added by the current repair. Unexplained changes block the batch.
+## Unresolved mechanism
 
-Preservation repair contract: a live marker retains itself and containing owner identity, never sibling pointer values.
-Whole inline descriptors survive only when their actual storage is unexposed, their shared owner excludes writes, or
-an exact descriptor slot is disjoint. The shared-view consumer must first retain its physical descriptor. Nullable tags
-use Discriminant claims, never descriptor-identity claims. Actual raw effects retain their alias scope. Ordinary opaque effects cannot grant mutation through a retained shared loan.
+Shared-view forwarding restored evidence through an overwritten reference from its old pointee. The pending repair
+requires descriptor-slot preservation before forwarding, removes marker-derived claims about containing pointer fields,
+and records nullable tags as Discriminant rather than descriptor identity. Ordinary opaque effects cannot grant mutation
+through a retained shared loan. Their original protection is restored. Actual raw operations retain their alias scope.
+Do not accept the batch until every regression is explained and repaired. No additional fixture expansion.
 
-Producer inventory: opaque_observations filters whole descriptors against invocation reachability. target_observations
-checks stored-loan/slice descriptor slots against actual writes. Active shared loans retain whole descriptors only while
-unexposed. Run cleanup retains an unexposed handle. Marker branches in active loans, shared views and transfers currently
-add weaker containing-identity roots through owner_paths. Remove those weak descriptor claims, retaining actual marker
-leaves. Record explicit surviving raw-address fields instead. Mutable payload loans and tag-free stores currently put
-tags in stable_descriptors. Replace those with classified Discriminant preservation. Physical memory and proof framing
-then consume the same strong descriptor rule without reconstructing fields or adding representation layers.
+Next deduction to trace: storage/observation.rs::prepare special-cases shared root borrows, while mutable-root borrow
+fields can enter owned_observations. transfers.rs then uses Target::storage(logical_path), although the actual bytes can
+be an Entry borrow referent. Opaque framing also uses those owned observations. Establish the physical boundary for all
+borrow modes and nested loads before changing this producer. Reuse prepared checked routes and current memory identities,
+never recover an old value from a witness or manufacture a narrower alias bound.
 
-Keep existing valid private headers, marker-free updates, nullable/union extraction, loop and borrowed-pointer outcomes.
-Reject replaced reference slots, changed sibling pointers, exposed raw aliases and transferred-marker remnants. Fixed920
-and exact runtime inventory remain the regression gate. No more fixture expansion. If a former weak root was doing
-necessary work, identify its actual claimed boundary before restoring any preservation. Net production code should shrink.
+Escape-summary regression: exposing owner.pointer and address_of(owner.value) in Frame produces2 roots where the fixed
+control expects3. Frame.value is &Value and Value contains a raw pointer. Determine whether a reachable pointer was lost
+or only a redundant derived incoming root was omitted. Inspect source and import together. Do not change expected counts
+to hide a missing dependency. The other five candidate regressions concern shared scalars, borrowed completion, nullable
+adaptation, raw entry owners and observer protocol changes. Their statuses after restoring ordinary protection are unknown.
 
-The test layout is one contract_tests module with topic files, maximum832 lines after readable inline Bray formatting.
-All372 test names including2 nested fixture tests and380 top-level source items are retained. Includes resolve to the same files. verification.json maps relocated module names to the immutable
-comparison identities, with unchanged expected outcomes. Fixture edits preserve code tokens apart from whitespace. User corrections and path simplifications must be preserved.
-The indentation rewrite was faulty. Whole-fixture brace alignment now passes1676 pairs and template-clause indentation
-is retained. Check current working edits before any further fixture changes. One keyword module was renamed static_owners.
-No separate tests or ownership_tests directories remain. Host/diagnostic/address tests share the same topic hierarchy
-and fixture module. No style pass yet.
-
-Pending preservation candidate: fixed920=786/35/99, checker511/bound136 pass. Not accepted. One repaired negative
-(overwritten reference), six regressions: forwarded_shared_scalars_remain_protected_after_exposure,
-escape_summaries_preserve_input_roots_before_alias_expansion, production_observer_keeps_authority_through_conditional_protocol_changes,
-field_projection_preserves_the_evidence_of_a_borrowed_call_result, nullable_input_adaptation_preserves_physical_owners_and_rejected_values,
-raw_entry_addresses_do_not_replace_borrowed_owners_at_completion. The six failures have not yet been assigned individually. Ordinary opaque effects do not grant mutation
-through retained shared loans, so their original protection has been restored. That revision is not yet rebuilt. Restore no blanket pointer preservation. Deduce a representation that keeps identity separate from actual
-reference-slot contents and trace producers through physical memory and proof framing before editing again.
-Runtime source/native have not run for this candidate. Further fixture expansion is stopped.
-
-AddressTarget finite raw-load paths and full retain_task InputRegions are verified. take_ready's possible-alias write
-retires Domain.arena.pointer before call staging. Its location survives but no old regions record does. Current marker
-then fails raw Retire with unknown + Entry(owner.pointer) bounds. Never narrow by final Slot view or preserve overwritten
-values. Private descriptor/borrowed descriptor/pointee-authority controls pass. No source improvement resulted.
-Proof graph omissions without recorded causes panic. Legitimate failures preserve typed conditions and leaf locations.
-
-Checked complete-buffer borrows retain missing backing without replacing actual/unknown records. AnyElement
-preserves owned suffixes as InputRegions without exact authority. Extra owned indirection remains unknown.
-Every execution obligation replays checked physical effects. Observation confinement only classifies dependencies.
-
-Closed contracts protected by accepted checks:
-- Extracted nullable owners carry recorded extracted_values through sync/async admission, body effects, joins and
-  failure retirement. Vacated slots lose moved lineage. Disjoint owned Values and tags survive parent writes.
-- Deferred joins retire stale selectors against actual predecessor assumptions/current storage, for known and opaque
-  alternatives. CapturedInput freezes copied facts. Valid-loop normal_completion prevents vacuous acceptance.
-- Current-value preservation requires live complete contents, not identity prefixes or synthetic owner snapshots.
-  Partial initialization retains initialized fields without certifying an entire owner.
-- Classified tags use the existing discriminant selector across payload framing. Replacement tags remain unproven.
-- Captured-input diagnostics resolve explicit source arguments. Implicit arguments retain numbered typed captures.
-
-Remaining primary groups: driving197, start234/prepared cleanup, observer/polling105, withdrawal185/199.
-E7135 includes dependent cascades. Retire alone proves no defect. Never narrow retirement by the final Slot view.
+Closed rules remain protected: consuming @copy receivers move, ordinary copies cannot transfer authority, nullable call
+inference permits one outer construction, raw AddressTarget paths carry finite entry demands, checked physical effects
+replay for every obligation, moved nullable owners retain extracted values and retire old slots, deferred joins stabilize,
+and diagnostics retain specific conditions/causes. Missing internal proof causes panic. Keep these rules coherent.
 
 ## Execution and remaining gates
 
-One CPU-heavy job at a time. Cargo jobs24, tooling profile, same combined target set. No Rust edits during Rust builds.
-Native tools run escalated outside sandbox. Shared target/cargo build dirs, no clean. Selected lowering takes30s.
-Use ABI2 bundle target/runtime-bootstrap-standard-library/x86_64-pc-windows-msvc.
-Use system link inputs bray_runtime_host and bray_runtime_callback for the matching direct source check.
-Remove consumed probes immediately after extracting evidence. Stale incremental caches were pruned, retaining current tooling variants.
+One CPU-heavy job at a time. Cargo jobs24, tooling profile, same combined targets, shared target/cargo and LLVM toolchain.
+Run native tooling outside the sandbox. Never edit Rust during a Rust build. The combined build includes brayc, xtask,
+bray-symbols, bray-package-interface, bray-bound-tree, bray-compilation, bray-checker, bray-messages and bray-tooling with
+--profile tooling --all-targets. Reuse binaries in verification.json for tests. No cargo clean or new target directory.
+Stale incremental caches were pruned by explicit user instruction. Delete consumed task probes and logs.
 
-Remaining gates: all native errors, native async success/panic/cancel/startup rollback/blocked shutdown,
-result/static disposal, foreign restoration, architecture/test pruning, final style/format, independent review,
-PR and Linear review handoff. Never claim complete composition before these gates.
+Remaining gates: fixed-suite convergence, all runtime source/native failures, native async success/panic/cancel/startup
+rollback/blocked shutdown, result/static disposal and foreign restoration. Then simplify production code and redundant
+tests, perform the AGENTS audit, run mutating cargo xtask style and cargo xtask format, validate affected behavior,
+obtain independent PR review, mark PR ready and Linear In Review. Never merge, mark Done or claim complete composition early.
