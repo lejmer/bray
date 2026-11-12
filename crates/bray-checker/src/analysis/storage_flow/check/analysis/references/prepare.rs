@@ -416,7 +416,7 @@ pub(super) fn project<C: CheckerRequestContext + ?Sized>(
 
 impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn observe_call_reference_inputs(
-        &self,
+        &mut self,
         state: &mut crate::analysis::storage_flow::model::StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
     ) {
@@ -457,7 +457,10 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
                 continue;
             };
 
-            self.observe_stored_reference(&mut state.memory, location.clone(), logical, pointee);
+            if let Err(error) = self.observe_stored_reference(&mut state.memory, location.clone(), logical, pointee) {
+                self.query_failure = Some(error);
+                return;
+            }
         }
     }
 
@@ -467,11 +470,11 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
         location: crate::analysis::storage_flow::memory::Target,
         logical: Place,
         pointee: bray_symbols::TypeId,
-    ) {
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         use crate::analysis::storage_flow::memory::Origin;
 
         if !location.is_exact() || memory.referenced_regions(&location).is_some() {
-            return;
+            return Ok(());
         }
 
         let container = location.allocation_region().unwrap_or_else(|| {
@@ -497,6 +500,6 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             .cloned()
             .collect::<Vec<_>>();
 
-        memory.observe_reference(location, logical, pointee, inputs);
+        memory.observe_reference(self.request, location, logical, pointee, inputs)
     }
 }

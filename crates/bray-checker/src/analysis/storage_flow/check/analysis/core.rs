@@ -1912,7 +1912,7 @@ where
                         target,
                         logical.clone(),
                         pointee,
-                    );
+                    )?;
                 }
             }
         }
