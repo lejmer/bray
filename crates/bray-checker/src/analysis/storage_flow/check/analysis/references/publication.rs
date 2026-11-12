@@ -144,7 +144,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                     let relation = relation.with_exactness(exact);
 
-                    let relation = if bounds == ReferenceBounds::InputRegions {
+                    let relation = if bounds == ReferenceBounds::InputRegions
+                        || relation.target_projections().contains(&bray_symbols::DependencyProjection::AnyElement) {
                         relation.with_provenance(
                             bray_symbols::DependencyReferenceProvenance::InputRegions,
                         )
@@ -379,13 +380,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let target_projections = match origin {
-            Origin::Entry { projections, .. } if !exact => Some(
+            Origin::Entry { projections, .. } if !exact =>
                 projections
                     .iter()
                     .copied()
-                    .map_while(dependency_projection)
-                    .collect(),
-            ),
+                    .map(|projection| match projection {
+                        bray_bound_tree::StorageProjection::Element(_)
+                        | bray_bound_tree::StorageProjection::AnyElement
+                        | bray_bound_tree::StorageProjection::ElementFromStart(_)
+                        | bray_bound_tree::StorageProjection::ElementFromEnd(_) => Some(bray_symbols::DependencyProjection::AnyElement),
+                        projection => dependency_projection(projection),
+                    })
+                    .collect::<Option<Vec<_>>>(),
             Origin::Entry { projections, .. } => dependency_projections(projections),
             _ => Some(Vec::new()),
         };

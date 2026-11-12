@@ -361,6 +361,8 @@ pub enum StorageProjection {
     },
     /// An array or slice element selected by a checked expression occurrence.
     Element(BoundExpressionId),
+    /// A conservative element region whose selector is not available in this unit.
+    AnyElement,
     /// A slice range selected by checked optional bound expressions.
     SliceRange {
         /// The inclusive lower-bound expression, when supplied.
@@ -379,7 +381,7 @@ pub enum StorageProjection {
 impl StorageProjection {
     /// Whether this selector identifies one component independently of evaluation.
     pub const fn is_exact(self) -> bool {
-        !matches!(self, Self::Element(_) | Self::SliceRange { .. })
+        !matches!(self, Self::Element(_) | Self::AnyElement | Self::SliceRange { .. })
     }
 
     pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
@@ -393,6 +395,7 @@ impl StorageProjection {
             | Self::TupleElement(_)
             | Self::ElementFromStart(_)
             | Self::ElementFromEnd(_)
+            | Self::AnyElement
             | Self::ActiveUnionPayloadField { .. }
             | Self::NullableValue
             | Self::OwnedTarget

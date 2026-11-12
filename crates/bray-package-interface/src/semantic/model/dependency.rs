@@ -38,6 +38,8 @@ pub enum InterfaceDependencyProjection {
     TupleElement(SymbolOrdinal),
     /// Array or slice element selected by a checked term.
     Element(InterfaceConstantTermId),
+    /// A region in an unspecified array or slice element, without an exact address.
+    AnyElement,
     /// Present nullable value.
     NullableValue,
     /// Named union payload field.

@@ -435,6 +435,7 @@ impl<'a> SemanticExporter<'a> {
                 .constant_term_id(*term)
                 .map(InterfaceDependencyProjection::Element),
             DependencyProjection::NullableValue => Ok(InterfaceDependencyProjection::NullableValue),
+            DependencyProjection::AnyElement => Ok(InterfaceDependencyProjection::AnyElement),
             DependencyProjection::UnionPayloadField(field) => self
                 .symbol_reference((*field).into())
                 .map(InterfaceDependencyProjection::UnionPayloadField),

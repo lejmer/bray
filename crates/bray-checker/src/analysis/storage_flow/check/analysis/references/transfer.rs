@@ -794,7 +794,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             )
             .expect("prepared reference regions retain their projections");
 
-            memory.stage_returned_reference(
+            memory.stage_reference_regions(
                 occurrence,
                 destination,
                 logical.clone(),

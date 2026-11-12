@@ -339,7 +339,7 @@ impl StorageFlowState {
                     )
                     .expect("prepared buffer pointer entry retains its reached owner");
 
-                    memory.entry_owned_buffer(owner, target, fields.element);
+                    memory.declare_owned_buffer(owner, target, fields.element);
 
                     continue;
                 }

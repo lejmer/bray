@@ -92,6 +92,7 @@ fn guard_projected_requirements(
                 | StorageProjection::ElementFromStart(_)
                 | StorageProjection::ElementFromEnd(_)
                 | StorageProjection::Element(_)
+                | StorageProjection::AnyElement
                 | StorageProjection::SliceRange { .. }
                 | StorageProjection::OwnedTarget
                 | StorageProjection::UninitPayload => None,

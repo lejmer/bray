@@ -2252,7 +2252,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
     let owner = Target::storage(owner);
     let view = Target::storage(view);
 
-    state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), element);
+    state.declare_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), element);
     state.owned_region(&[owner.clone()], view.clone(), element, BUFFER_POINTER, false);
 
     let projection = StorageProjection::Element(selectors[0]);
@@ -2288,10 +2288,26 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
 
     assert_eq!(merged.declared_type(&backing), Some(element));
 
+    let nested_slot = nested.clone();
     let nested = Target::storage(nested);
 
-    state.entry_owned_buffer(selected.clone(), selected.project(&[BUFFER_POINTER]), element);
-    state.owned_region(&[selected.clone()], nested.clone(), element, BUFFER_POINTER, true);
+    state.declare_owned_buffer(selected.clone(), selected.project(&[BUFFER_POINTER]), element);
+
+    let call = selectors[1].into();
+    let admitted = nested.clone();
+
+    state.borrow_target_storage(values, capability, selected.clone(), element);
+    super::Source::Borrow(capability).stage(&mut state, call, admitted.clone());
+    state.stage_returned_references(call, [(nested_slot, element)], [selected.clone()]);
+    state.complete_transition(call);
+
+    assert_eq!(state.referenced_regions(&admitted), Some(vec![selected.clone()]),
+        "admission carries an evaluated dynamic borrow without wrapping away its owned pointer");
+    assert!(state.value_targets(&admitted).is_none(), "a dynamic selector remains inexact");
+
+    let owners = state.referenced_regions(&admitted).unwrap();
+
+    state.owned_region(&owners, nested.clone(), element, BUFFER_POINTER, true);
 
     assert_eq!(
         state.reference_location(values, nested.clone(), &path, None),
@@ -2315,6 +2331,27 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
     reference.unknown = true;
 
     assert!(state.reference_location(values, view, &path, None).is_none());
+
+    for (recorded, regions) in [
+        (super::model::References::one(backing.clone()), Some(vec![backing.clone()])),
+        (super::model::References { unknown: true, ..Default::default() }, None),
+    ] {
+        let pointer = selected.project(&[BUFFER_POINTER]);
+
+        state.values.insert(selected.clone(), super::model::References::one(selected.clone()));
+        state.values.insert(pointer.clone(), recorded.clone());
+        state.declare_owned_buffer(selected.clone(), pointer.clone(), element);
+
+        assert_eq!(state.values[&pointer], recorded, "a declaration cannot reconstruct or overwrite pointer provenance");
+        assert_eq!(state.owned_regions(&selected, BUFFER_POINTER), regions,
+            "the stored pointer takes precedence over an enclosing descriptor record");
+
+        state.values.remove(&pointer);
+        state.values.insert(selected.clone(), recorded.clone());
+        state.declare_owned_buffer(selected.clone(), pointer.clone(), element);
+
+        assert_eq!(state.values[&pointer], recorded, "whole-descriptor provenance is carried without reconstruction");
+    }
 }
 
 #[test]
@@ -2356,7 +2393,7 @@ fn bounded_returned_regions_do_not_declare_or_initialize_a_cell() {
 
     let mut actual = State::default();
 
-    actual.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), element);
+    actual.declare_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), element);
     actual.owned_region(&[owner], Target::storage(view), element, BUFFER_POINTER, false);
     state.merge(&actual, &Default::default(), &Default::default());
 
@@ -2435,7 +2472,7 @@ fn bounded_owned_views_keep_alternative_regions_without_exact_pointer_identity()
     let destination = Target::storage(view);
 
     for owner in &owners {
-        state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), error_type());
+        state.declare_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), error_type());
     }
 
     state.owned_region(
@@ -2485,7 +2522,7 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
         previous: false,
     };
 
-    state.entry_owned_buffer(header.clone(), header.project(&[BUFFER_POINTER]), error_type());
+    state.declare_owned_buffer(header.clone(), header.project(&[BUFFER_POINTER]), error_type());
 
     state.owned_region(
         &[header.clone()],
@@ -2580,7 +2617,7 @@ fn displaced_regions_require_a_known_allocation_boundary() {
 
     let owner = Target::storage(storage);
 
-    state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), error_type());
+    state.declare_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), error_type());
 
     state.owned_region(
         &[owner.clone()],
@@ -2709,7 +2746,7 @@ fn incoming_aliases_can_reach_allocations_under_invocation_owned_headers() {
         previous: false,
     };
 
-    state.entry_owned_buffer(header.clone(), header.project(&[BUFFER_POINTER]), error_type());
+    state.declare_owned_buffer(header.clone(), header.project(&[BUFFER_POINTER]), error_type());
 
     state.owned_region(
         &[header.clone()],
@@ -3980,7 +4017,7 @@ fn bounded_address_views_preserve_the_allocation_type_without_initializing_the_r
     let mut state = State::default();
     let owner = Target::storage(owner);
 
-    state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), region_type);
+    state.declare_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), region_type);
 
     state.owned_region(
         &[owner.clone()],
@@ -4020,7 +4057,7 @@ fn exact_address_views_reject_a_conflicting_declared_storage_type() {
     let mut state = State::default();
     let owner = Target::storage(owner);
 
-    state.entry_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), region_type);
+    state.declare_owned_buffer(owner.clone(), owner.project(&[BUFFER_POINTER]), region_type);
 
     state.owned_region(
         &[owner],
@@ -4097,7 +4134,7 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
             .storage_path()
             .expect("fixture `storage_path` call must succeed")]
         .targets,
-        BTreeSet::from([payload])
+        BTreeSet::from([payload.clone()])
     );
 
     assert!(
@@ -4106,6 +4143,45 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
             .expect("fixture `storage_path` call must succeed")]
         .is_exact()
     );
+
+    let nested = payload.project(&[StorageProjection::AnyElement, BUFFER_POINTER, StorageProjection::OwnedTarget]);
+    let actual = payload.project(&[StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(0)),
+        BUFFER_POINTER, StorageProjection::OwnedTarget]);
+    let mut checked = State { owned_storage: state.owned_storage.clone(), ..State::default() };
+
+    checked.stage_reference_regions(call, destination.clone(), destination.storage_path().unwrap().clone(),
+        view_type, [nested.clone()]);
+    checked.complete_transition(call);
+
+    let returned = checked.value_target(&destination, view_type).unwrap();
+    let (regions, unknown) = checked.effect_origins(&returned);
+
+    assert!(!unknown, "a checked closed region does not introduce independent storage");
+    assert_eq!(regions.collect::<Vec<_>>(), [&nested]);
+    assert_ne!(checked.target_relationship(&returned, &actual), bray_bound_tree::StorageRelationship::Disjoint,
+        "an unspecified selector must retain real aliases into the same backing");
+    assert_eq!(checked.target_relationship(&returned, &owner), bray_bound_tree::StorageRelationship::Disjoint,
+        "nested backing does not overlap its inline owner header");
+    assert!(!checked.initialized(&destination, view_type), "region bounds grant no initialized authority");
+
+    let exit = checked.exit_references(destination.storage_path().unwrap().root, &Default::default());
+
+    assert!(exit.input_regions.contains(destination.storage_path().unwrap()), "republication retains region provenance");
+
+    let mut opaque = checked.clone();
+
+    opaque.stage_returned_reference(call, destination.clone(), destination.storage_path().unwrap().clone(), view_type, []);
+    opaque.complete_transition(call);
+
+    assert!(opaque.effect_origins(&opaque.value_target(&destination, view_type).unwrap()).1,
+        "an independent alternative cannot be narrowed to the checked input bound");
+
+    checked.stage_reference_regions(call, destination.clone(), destination.storage_path().unwrap().clone(),
+        view_type, [returned.project(&[StorageProjection::OwnedTarget])]);
+    checked.complete_transition(call);
+
+    assert!(checked.effect_origins(&checked.value_target(&destination, view_type).unwrap()).1,
+        "an additional owned indirection is not bounded by its descriptor's region");
 }
 
 #[test]

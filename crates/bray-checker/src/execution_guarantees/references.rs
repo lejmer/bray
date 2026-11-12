@@ -81,7 +81,8 @@ impl ExecutionCondition {
             let mut origin = arguments.get(ordinal)?.clone();
 
             if relation.kind() != DependencyReferenceKind::Borrow
-                || relation.provenance() == DependencyReferenceProvenance::InputRegions {
+                || relation.provenance() == DependencyReferenceProvenance::InputRegions
+                || relation.target_projections().contains(&bray_symbols::DependencyProjection::AnyElement) {
                 complete = false;
                 origins.insert(origin);
                 continue;

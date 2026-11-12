@@ -459,6 +459,7 @@ fn encode_dependency_projections(
             }
             InterfaceDependencyProjection::OwnedTarget => encoder.write_u32(6),
             InterfaceDependencyProjection::UninitPayload => encoder.write_u32(7),
+            InterfaceDependencyProjection::AnyElement => encoder.write_u32(8),
         }
     }
 }

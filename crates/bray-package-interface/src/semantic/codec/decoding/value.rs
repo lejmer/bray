@@ -1510,7 +1510,17 @@ mod tests {
             bray_symbols::DependencyBorrowRelation::new_empty(
                 result.clone(), bray_symbols::DependencyReferenceKind::Address),
             bray_symbols::DependencyBorrowRelation::new_allocation(
-                result.clone(), result, bray_symbols::DependencyReferenceKind::Address),
+                result.clone(), result.clone(), bray_symbols::DependencyReferenceKind::Address),
+            bray_symbols::DependencyBorrowRelation::new(
+                Some(crate::InterfaceDependencySubject::new(
+                    crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)), [])),
+                result, bray_symbols::DependencyReferenceKind::Borrow)
+                .with_target_projections([
+                    crate::InterfaceDependencyProjection::OwnedTarget,
+                    crate::InterfaceDependencyProjection::AnyElement,
+                    crate::InterfaceDependencyProjection::OwnedTarget,
+                ])
+                .with_provenance(bray_symbols::DependencyReferenceProvenance::InputRegions),
         ]);
 
         let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
@@ -1521,8 +1531,17 @@ mod tests {
 
         assert_eq!(
             decode_semantics(&encoded_section_views(&sections), &surface, limits),
-            Ok(semantics)
+            Ok(semantics.clone())
         );
+
+        let store = SemanticValueStore::try_new().expect("fixture semantic value store");
+        let imported = semantics.intern(&store, &resolver(&surface)).expect("closed regions intern");
+        let contract = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
+
+        assert!(contract.borrows().iter().any(|relation|
+            relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions
+                && relation.target_projections() == [bray_symbols::DependencyProjection::OwnedTarget,
+                    bray_symbols::DependencyProjection::AnyElement, bray_symbols::DependencyProjection::OwnedTarget]));
     }
 
     #[test]

@@ -1884,6 +1884,12 @@ where
                                     .memory
                                     .reborrow_value(borrow, &source, capability.parent());
                             } else {
+                                if let Some((fields, _)) = self.input.raw_buffers.get(&ty) {
+                                    let pointer = source.project(&[bray_bound_tree::StorageProjection::ProductField(fields.pointer)]);
+
+                                    state.memory.declare_owned_buffer(source.clone(), pointer, fields.element);
+                                }
+
                                 state.memory.borrow_target_storage(self.request.semantic_values(), borrow, source, ty);
                             }
                         }
@@ -2523,7 +2529,7 @@ where
                     field: self.diagnostic_symbol_name(field.into())?,
                 }
             }
-            StorageProjection::Element(_) => DiagnosticStorageProjection::IndexedElement,
+            StorageProjection::Element(_) | StorageProjection::AnyElement => DiagnosticStorageProjection::IndexedElement,
             StorageProjection::SliceRange { start, end } => {
                 DiagnosticStorageProjection::SliceRange {
                     has_start: start.is_some(),
