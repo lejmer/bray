@@ -1,5 +1,6 @@
 use super::{ExecutionCondition, ExecutionProof};
 use super::context::ProofMemo;
+use crate::execution_guarantees::boolean::prove_boolean;
 use bray_bound_tree::BoundOperator;
 use std::collections::BTreeSet;
 
@@ -46,19 +47,8 @@ impl ExecutionCondition {
             return None;
         }
 
-        if let Self::Boolean(value) = self {
-            return Some(*value);
-        }
-
-        // Test exact evidence once per Boolean node. Recursively proving its entire
-        // subtree at each level makes a chain of clauses require quadratic work.
-        for value in [true, false] {
-            if (trusted.contains(&(self.clone(), value))
-                || (ordinary.contains(&(self.clone(), value)) && !self.contains_trusted()))
-                && !self.contains_unknown()
-            {
-                return Some(value);
-            }
+        if let Some(value) = self.explicit_value(trusted, Some(ordinary)) {
+            return Some(value);
         }
 
         if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
@@ -96,15 +86,7 @@ impl ExecutionCondition {
 
         if let Some(implications) = implications
             && matches!(self, Self::Operation(BoundOperator::LogicalOr, _)) {
-            for (premise, holds) in trusted.iter().chain(ordinary.iter().filter(|(condition, _)| !condition.contains_trusted())) {
-                if *holds && matches!(premise, Self::Operation(BoundOperator::LogicalOr, _))
-                    // Each implication has its own bounded proof. Unrelated clauses cannot
-                    // exhaust the budget for an already established Boolean operand.
-                    && implications.implies(premise, self)
-                {
-                    return Some(true);
-                }
-            }
+            return implications.proves_disjunction(self).then_some(true);
         }
 
         None
@@ -139,17 +121,8 @@ impl ExecutionCondition {
             return None;
         }
 
-        if let Self::Boolean(value) = self {
-            return Some(*value);
-        }
-
-        // These owned keys share immutable operation operands with the proof input.
-        if assumptions.contains(&(self.clone(), true)) && !self.contains_unknown() {
-            return Some(true);
-        }
-
-        if assumptions.contains(&(self.clone(), false)) && !self.contains_unknown() {
-            return Some(false);
+        if let Some(value) = self.explicit_value(assumptions, None) {
+            return Some(value);
         }
 
         if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
@@ -197,6 +170,25 @@ impl ExecutionCondition {
                 prove_boolean(*operator, left.prove_with_memo(assumptions, budget, memo), || right.prove_with_memo(assumptions, budget, memo)),
             _ => None,
         }
+    }
+
+    pub(super) fn explicit_value(
+        &self,
+        trusted: &BTreeSet<(Self, bool)>,
+        ordinary: Option<&BTreeSet<(Self, bool)>>,
+    ) -> Option<bool> {
+        if let Self::Boolean(value) = self { return Some(*value); }
+
+        // Lookup keys share the proof input's immutable operands.
+        for value in [true, false] {
+            if trusted.contains(&(self.clone(), value))
+                || ordinary.is_some_and(|ordinary| ordinary.contains(&(self.clone(), value)) && !self.contains_trusted())
+            {
+                return (!self.contains_unknown()).then_some(value);
+            }
+        }
+
+        None
     }
 
     /// Checks a branch against both direct evidence and retained Boolean alternatives.
@@ -269,9 +261,7 @@ impl ExecutionCondition {
 
     /// Compare carrier promises without turning ordinary truth into trusted evidence.
     pub(crate) fn implies(&self, consequence: &Self) -> bool {
-        let empty = BTreeSet::new();
-
-        ExecutionProof::new(&empty, &empty).implies(self, consequence)
+        ExecutionProof::implies(self, consequence)
     }
 
     pub(crate) fn assume(self, value: bool, assumptions: &mut BTreeSet<(Self, bool)>) {
@@ -284,7 +274,7 @@ impl ExecutionCondition {
         self.assume_proof(value, true, insert);
     }
 
-    pub(super) fn assume_proof(
+    pub(in crate::execution_guarantees) fn assume_proof(
         self,
         value: bool,
         expose_trusted_truth: bool,
@@ -349,20 +339,6 @@ impl ExecutionCondition {
             }
             _ => {}
         }
-    }
-}
-
-fn prove_boolean(operator: BoundOperator, left: Option<bool>, right: impl FnOnce() -> Option<bool>) -> Option<bool> {
-    let decisive = match operator {
-        BoundOperator::LogicalOr => true,
-        BoundOperator::LogicalAnd => false,
-        _ => unreachable!("Boolean proof requires conjunction or disjunction"),
-    };
-
-    match left {
-        Some(value) if value == decisive => Some(value),
-        Some(_) => right(),
-        None => right().filter(|value| *value == decisive),
     }
 }
 

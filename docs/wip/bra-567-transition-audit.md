@@ -2,7 +2,9 @@
 
 Read this record and the [contract gate](../../.agents/skills/work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it)
 after compaction. The current target is less than500ms per fixture case. It is not met. Bounded diagnosis and
-artifact cleanup are complete. The next implementation plan is below. The current request authorizes planning only.
+artifact cleanup are complete. Implementation of the performance plan is authorized. The indexed proof path passes67
+execution-proof and109 guarantee tests. Performance remains above target. Next repair repeated context construction
+in immutable consumer loops and the independent branch-feasibility scan. No full matrix runs are authorized.
 The issue remains incomplete. Do not merge, change issue status, edit develop or create another worktree.
 
 ## Current admission contract
@@ -112,6 +114,24 @@ proof-500ms-sample.json. Superseded build streams, traces and duplicate outputs 
 
 ## Replace repeated implication scans
 
+The bounded attribution run locates hot contexts at conditional_facts source validation and per-owner predecessor proofs,
+plus ExecutionWitness::refine. Goals include nested initialization and branch guards. The common query scan now uses
+the closure graph for a reverse dependency query under the negated goal, then validates
+falsified published premises with the existing bounded raw proof. This preserves single-premise authority and numeric,
+variant, exact-occurrence, wrapper and trusted-polarity rules. Direct goal evaluation uses the current Boolean closure,
+which already contains each premise's forward consequences. Remove pairwise preparation maps and the all-premise loop.
+The graph owns no flow evidence and cannot outlive or mix its immutable owner/snapshot view. Budget exhaustion never
+validates a candidate. Keep moves, overwrite, retirement and unavailable-carrier handling unchanged in this replacement.
+Boolean keys use child IDs. Closure preparation retains its graph. Exact evidence returns before preparation and
+empty-context values follow Boolean children without recursive reproving. The old scan exists only as a unit-test
+comparison oracle. Numeric, variant, qualifier and unrelated-fact scaling controls pass.
+Latest bounded phase counts are proof-indexed-counts.json. The selected source case takes3539ms. The independent-site
+case remains unfinished at10s. Its preparation falls from5.5s to40ms, but repeated closure construction remains4.75s
+in that partial interval. Counts include provider setup and nested phase times must not be added.
+Reuse immutable views in resume, address bounds, cleanup retention, qualification, return inference and transfer loops.
+Recreate views when facts mutate between requirements or ownership cases. Branch feasibility and scalar joins must use
+indexed alternative reasoning, including false conjunctions. Independent owner-support checks must stay independent.
+
 1. Attribute hot contexts and proof requests to constructor sites and clause producers in one bounded single-case run.
    Count original and derived clauses, duplicate facts, distinct goals, rule work and repeated equivalent contexts.
    Inventory supported rules, including negated-goal reasoning, numeric comparisons, unknowns and trusted polarity.
@@ -183,4 +203,4 @@ control and native archive/link requirements. Focused compiler evidence is not i
 
 Keep only current compact outcomes, active build evidence and frozen identities. Remove obsolete task-owned detailed
 logs by verified explicit paths under target/audit. Own all processes. Run native toolchains outside the sandbox.
-Checkpoint this plan on feature/bra-567-async-root-orchestration. Implementation awaits a subsequent request.
+Checkpoint coherent changes on feature/bra-567-async-root-orchestration and verify remote equality.

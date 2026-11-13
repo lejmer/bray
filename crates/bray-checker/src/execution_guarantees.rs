@@ -1,4 +1,5 @@
 mod clause;
+mod boolean;
 mod condition;
 mod declaration;
 mod implication;
