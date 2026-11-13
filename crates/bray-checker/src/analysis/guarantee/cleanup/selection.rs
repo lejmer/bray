@@ -54,7 +54,7 @@ pub(super) fn select_cleanup(
         condition: ExecutionCondition,
         action: impl FnOnce(&mut ExecutionState, bool),
     ) {
-        match condition.prove_ordinary(&state.assumptions) {
+        match condition.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
             Some(false) => {}
             Some(true) => action(state, false),
             None => {

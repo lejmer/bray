@@ -1234,6 +1234,23 @@ fn check_cases(provider: &crate::Compilation, imported: bool, cases: &[(&str, &s
 
         let diagnostics = checked.diagnostics();
 
+        if matches!(*name, "preformed_task_fabricated_after_completion" | "same_site_independent_second") {
+            assert!(diagnostics.has_errors(), "fabricated authority must be rejected, name={name}, imported={imported}");
+
+            for diagnostic in diagnostics.iter() {
+                assert_eq!(diagnostic.kind(), bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+
+                let span = diagnostic.primary_span().expect("rejected operation retains its source location");
+                let document = consumer.source(span.source_id()).expect("diagnostic source belongs to the consumer");
+                let start = usize::try_from(span.start().bytes()).expect("fixture offset fits the host");
+                let end = usize::try_from(span.end().bytes()).expect("fixture offset fits the host");
+                let call = document.text().find("observe(&value)").expect("negative control retains its observe call");
+
+                assert!(start >= call && end <= call + "observe(&value)".len(),
+                    "negative control must fail at observation, name={name}, imported={imported}, span={span:?}");
+            }
+        }
+
         if *name == "same_site_loop" && !diagnostics.has_errors() {
             assert!(crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller")
                 .normal_completion(), "valid deferred loop must retain its continuation, imported={imported}");

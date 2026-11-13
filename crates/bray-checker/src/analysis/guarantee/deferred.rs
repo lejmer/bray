@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionSubstitution;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -116,8 +117,7 @@ impl DeferredValue {
 
     pub(super) fn join_values(
         &mut self,
-        replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
-        identities: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+        substitution: &ExecutionSubstitution<'_>,
         current: &super::current::CurrentValues,
         context: Option<&Selection>,
     ) {
@@ -141,7 +141,7 @@ impl DeferredValue {
                 guard.extend(selection(context));
             }
 
-            if !ExecutionCondition::has_value_changes(replacements) && !ExecutionCondition::has_value_changes(identities) {
+            if !substitution.has_changes() {
                 continue;
             }
 
@@ -150,8 +150,7 @@ impl DeferredValue {
                 .flat_map(|(condition, holds)| {
                     let mut facts = BTreeSet::new();
 
-                    condition
-                        .with_joined_values(replacements, identities)
+                    substitution.value(condition)
                         .assume(*holds, &mut facts);
 
                     facts
@@ -175,7 +174,7 @@ impl DeferredValue {
                 entry.assumptions.extend(captured);
             }
 
-            if let Some(entry) = candidate.entry.joined_values(replacements, identities) {
+            if let Some(entry) = candidate.entry.joined_values(substitution) {
                 candidate.entry = Arc::new(entry);
             }
         }
@@ -233,13 +232,13 @@ mod tests {
 
         let middle = ExecutionCondition::Result;
 
-        state.join_values(&[(owner.clone(), middle.clone())].into(), &[(owner, middle.clone())].into());
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(owner.clone(), middle.clone())].into(), &[(owner, middle.clone())].into()));
         assert!(state.deferred_invocations[&middle].producers[&expressions[0].into()].entry.assumptions.contains(&(captured(middle.clone()), true)));
         assert!(state.deferred_invocations[&middle].producers[&expressions[0].into()].selection.contains(&(source.clone(), true)));
 
         state.current.insert(place, ExecutionCondition::Boolean(false));
 
-        state.join_values(&[(middle.clone(), middle.clone())].into(), &[(middle.clone(), middle.clone())].into());
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), middle.clone())].into(), &[(middle.clone(), middle.clone())].into()));
 
         let unchanged = &state.deferred_invocations[&middle].producers[&expressions[0].into()];
         assert!(!unchanged.selection.contains(&(source.clone(), true)), "identity joins still prune stale selectors");
@@ -247,7 +246,7 @@ mod tests {
 
         let target = ExecutionCondition::Expression(expressions[1]);
 
-        state.join_values(&[(middle.clone(), target.clone())].into(), &[(middle, target.clone())].into());
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), target.clone())].into(), &[(middle, target.clone())].into()));
 
         let moved = &state.deferred_invocations[&target].producers[&expressions[0].into()];
 
@@ -333,10 +332,9 @@ mod tests {
 
         let unrelated = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
 
-        state.join_values(
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(
             &[(unrelated, ExecutionCondition::Boolean(true))].into(),
-            &Default::default(),
-        );
+            &Default::default()));
 
         assert!(Arc::ptr_eq(
             &entry,
@@ -351,10 +349,9 @@ mod tests {
         assert!(state.witness_values(&owner).any(|source| source == value),
             "the future retains the existing source evidence for its checked extraction");
 
-        state.join_values(
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(
             &[(value.clone(), renamed.clone())].into(),
-            &[(value.clone(), renamed.clone())].into(),
-        );
+            &[(value.clone(), renamed.clone())].into()));
 
         let completed = &state.deferred_invocations[&owner].producers[&source].entry;
 

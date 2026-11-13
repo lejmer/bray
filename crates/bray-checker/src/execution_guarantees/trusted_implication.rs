@@ -34,7 +34,7 @@ pub(super) fn prepare_trusted_conditions(
 
         terms[index].asserted_alternative = alternative_value(condition).filter(|held| {
             explicit(&known) == Some(*held)
-                || (!condition.contains_trusted() && explicit(ordinary) == Some(*held))
+                || (explicit(ordinary) == Some(*held) && !condition.contains_trusted())
         });
         terms[index].asserted = match condition {
             ExecutionCondition::Unknown => None,
@@ -42,7 +42,7 @@ pub(super) fn prepare_trusted_conditions(
             ExecutionCondition::Entry { .. } => None,
             ExecutionCondition::Trusted(_) => explicit(&known),
             _ if !node.children.is_empty() => explicit(&known).or_else(|| {
-                (!condition.contains_trusted()).then(|| explicit(ordinary)).flatten()
+                explicit(ordinary).filter(|_| !condition.contains_trusted())
             }),
             _ => condition.prove(&known, &mut { ExecutionCondition::WORK_LIMIT })
                 .or_else(|| condition.prove(ordinary, &mut { ExecutionCondition::WORK_LIMIT })),
@@ -55,7 +55,7 @@ pub(super) fn prepare_trusted_conditions(
 
     // Refinement needs both positive guard facts and exclusions of inactive alternatives.
     for (node, term) in graph.terms.iter_mut().zip(terms) {
-        if !node.condition.contains_trusted() && let Some(value) = term.value {
+        if let Some(value) = term.value && !node.condition.contains_trusted() {
             // Facts and graph retain the same immutable condition operands.
             known.insert((node.condition.clone(), value));
             if alternative_value(&node.condition) == Some(value) {

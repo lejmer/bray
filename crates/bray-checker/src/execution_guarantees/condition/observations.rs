@@ -1,5 +1,7 @@
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::ExecutionCondition;
+use super::traversal::NodeIdentity;
+use std::collections::HashSet;
 
 impl ExecutionCondition {
     pub(crate) fn selector_place(&self) -> Option<&crate::ExecutionPlace> {
@@ -385,8 +387,11 @@ impl ExecutionCondition {
     /// Whether every observed value is in the established unchanged set.
     pub(crate) fn observes_only(&self, stable: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![self];
+        let mut visited = HashSet::new();
 
         while let Some(value) = pending.pop() {
+            if !visited.insert(NodeIdentity(value)) { continue; }
+
             if stable(value) {
                 continue;
             }
@@ -430,12 +435,13 @@ impl ExecutionCondition {
         exclude: impl Fn(&Self) -> bool,
     ) -> impl Iterator<Item = &Self> {
         let mut pending = vec![self];
+        let mut visited = HashSet::new();
 
         std::iter::from_fn(move || {
             loop {
                 let condition = pending.pop()?;
 
-                if exclude(condition) {
+                if !visited.insert(NodeIdentity(condition)) || exclude(condition) {
                     continue;
                 }
 
@@ -496,8 +502,12 @@ impl ExecutionCondition {
     /// Inspect live borrowed observations and uncaptured entry guards, retaining excluded contexts.
     pub(crate) fn observes_live_where(&self, observes: impl Fn(&Self) -> bool, exclude: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![(self, false)];
+        let mut visited = HashSet::new();
 
         while let Some((condition, live)) = pending.pop() {
+            // A shared node reached through a loan must still be inspected as live.
+            if !visited.insert((NodeIdentity(condition), live)) { continue; }
+
             if exclude(condition) { continue; }
 
             if live && condition.observation_path().is_some() {
@@ -546,6 +556,7 @@ impl ExecutionCondition {
 /// Indexed changed values and their observed component paths.
 #[derive(Default)]
 pub(crate) struct Set {
+    preserved: std::sync::Mutex<std::collections::BTreeMap<ExecutionCondition, bool>>,
     discriminants: std::collections::BTreeSet<ExecutionCondition>,
     copies: std::collections::BTreeSet<ExecutionCondition>,
     values: std::collections::BTreeSet<ExecutionCondition>,
@@ -561,9 +572,12 @@ impl Set {
         snapshots: &std::collections::BTreeSet<ExecutionCondition>,
         value: &ExecutionCondition,
     ) -> bool {
+        if snapshots.is_empty() { return false; }
+
+        let Some((role, owner)) = value.ownership_identity() else { return false; };
+
         Self::retained_snapshot(snapshots, value, false, |selected| {
-            !selected.is_unknown() && matches!((selected.ownership_identity(), value.ownership_identity()),
-                (Some((role, owner)), Some((other_role, other))) if role == other_role && owner == other)
+            !selected.is_unknown() && selected.ownership_identity() == Some((role, owner))
         })
     }
 
@@ -572,6 +586,8 @@ impl Set {
         snapshots: &std::collections::BTreeSet<ExecutionCondition>,
         value: &ExecutionCondition,
     ) -> bool {
+        if snapshots.is_empty() { return false; }
+
         if let ExecutionCondition::Observation { owner, contents, kind: ObservationKind::Reference } = value
             && contents.ownership_identity().is_some_and(|(kind, _)| kind == ObservationKind::Owned)
             && **owner == contents.owner_identity().clone().borrowed()
@@ -593,6 +609,8 @@ impl Set {
         after: &std::collections::BTreeSet<ExecutionCondition>,
         observed: &ExecutionCondition,
     ) -> bool {
+        if before.is_empty() || after.is_empty() { return false; }
+
         Self::retained_snapshot(before, observed, true, |previous| {
             Self::retained_snapshot(after, observed, true, |current| Self::same_snapshot_contents(previous, current))
         })
@@ -619,6 +637,8 @@ impl Set {
         observe_referents: bool,
         matches: impl Fn(&ExecutionCondition) -> bool,
     ) -> bool {
+        if snapshots.is_empty() { return false; }
+
         let path = Self::indexed_path(value);
         let mut pending = snapshots.iter().collect::<Vec<_>>();
 
@@ -676,7 +696,7 @@ impl Set {
 
     pub(crate) fn insert_classified(&mut self, value: ExecutionCondition, kind: bray_bound_tree::StorageObservationKind) {
         if kind == bray_bound_tree::StorageObservationKind::Discriminant {
-            self.discriminants.insert(value.discriminant());
+            if self.discriminants.insert(value.discriminant()) { self.clear_preserved(); }
         } else if kind.is_immutable_inline() {
             self.insert(value);
         }
@@ -685,9 +705,28 @@ impl Set {
     /// Retained scalar data preserves value facts independently of its former storage.
     /// A retained tag supports only presence and variant observations.
     pub(crate) fn preserves(&self, value: &ExecutionCondition) -> bool {
-        if Self::retains_contents(&self.values, value)
+        if self.values.is_empty() && self.copies.is_empty() && self.discriminants.is_empty() { return false; }
+
+        if let Some(preserved) = self.preserved.lock().expect("retained observation memo lock is not poisoned").get(value) {
+            return *preserved;
+        }
+
+        let preserved = self.preserves_uncached(value);
+
+        // The set owns immutable shallow keys until any retained snapshot changes.
+        self.preserved.lock().expect("retained observation memo lock is not poisoned").insert(value.clone(), preserved);
+
+        preserved
+    }
+
+    fn clear_preserved(&mut self) {
+        self.preserved.get_mut().expect("retained observation memo lock is not poisoned").clear();
+    }
+
+    fn preserves_uncached(&self, value: &ExecutionCondition) -> bool {
+        if self.copies.contains(value)
+            || Self::retains_contents(&self.values, value)
             || matches!(value, ExecutionCondition::Borrowed(referent) if Self::retains_contents(&self.values, referent))
-            || self.copies.contains(value)
             || Self::retained_snapshot(&self.copies, value, false,
                 |selected| Self::same_snapshot_contents(selected, value))
         {
@@ -709,7 +748,7 @@ impl Set {
             self.paths.entry(root).or_default().insert(path);
         }
 
-        self.values.insert(value);
+        if self.values.insert(value) { self.clear_preserved(); }
     }
 
     /// A surviving scalar snapshot retains data without keeping its source slot alive.
@@ -717,7 +756,7 @@ impl Set {
         if let Some((_, contents)) = value.storage_contents() {
             let copied = contents.clone().argument_value(false);
 
-            if !copied.is_unknown() { self.copies.insert(copied); }
+            if !copied.is_unknown() && self.copies.insert(copied) { self.clear_preserved(); }
         }
     }
 

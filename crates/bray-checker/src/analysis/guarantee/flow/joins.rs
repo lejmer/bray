@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionSubstitution;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::state::ExecutionState;
@@ -187,9 +188,12 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         .pending_results
         .insert(expression, right_value.clone());
 
+    let left_substitution = ExecutionSubstitution::new(&left, &left_ids);
+    let right_substitution = ExecutionSubstitution::new(&right, &right_ids);
+
     let conditions = super::witnesses::conditional_facts(
-        (target, &left, &left_ids),
-        (&incoming, &right, &right_ids),
+        (target, &left_substitution),
+        (&incoming, &right_substitution),
         &BTreeMap::new(),
         &[(expression, joined.clone())],
         &BTreeSet::new(),
@@ -203,8 +207,8 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         &joined,
     );
 
-    target.join_values(&left, &left_ids);
-    incoming.join_values(&right, &right_ids);
+    target.join_values(&left_substitution);
+    incoming.join_values(&right_substitution);
     super::witnesses::retain_conditional_guarantees(target, &mut incoming, &conditions);
 
     for (condition, holds) in facts {
@@ -628,7 +632,7 @@ mod tests {
                 (retired.clone(), right_state.current.get(&retired).expect("retained terminal data").clone())].into();
 
             let retained = super::super::witnesses::conditional_facts(
-                (&left_state, &left_values, &left_owners), (&right_state, &right_values, &right_owners),
+                (&left_state, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners)), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners)),
                 &snapshots, &[], &Default::default(), None, &mut Vec::new());
 
             let mut unknown = left_state.clone();
@@ -636,7 +640,7 @@ mod tests {
             unknown.current.insert(place.clone(), ExecutionCondition::Unknown);
 
             let rejected = super::super::witnesses::conditional_facts(
-                (&unknown, &left_values, &left_owners), (&right_state, &right_values, &right_owners),
+                (&unknown, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners)), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners)),
                 &snapshots, &[], &Default::default(), None, &mut Vec::new());
 
             assert!(!rejected.iter().any(|(_, _, condition, available)| *available && *condition == whole_guarantee(joined.clone())),

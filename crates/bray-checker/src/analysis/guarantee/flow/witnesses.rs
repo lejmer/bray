@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionSubstitution;
 use crate::execution_guarantees::{ExecutionObservationKind as ObservationKind, ExecutionProof};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -10,13 +11,11 @@ use crate::{ExecutionCondition, ExecutionPlace};
 pub(super) fn conditional_facts(
     left: (
         &ExecutionState,
-        &BTreeMap<ExecutionCondition, ExecutionCondition>,
-        &BTreeMap<ExecutionCondition, ExecutionCondition>,
+        &ExecutionSubstitution<'_>,
     ),
     right: (
         &ExecutionState,
-        &BTreeMap<ExecutionCondition, ExecutionCondition>,
-        &BTreeMap<ExecutionCondition, ExecutionCondition>,
+        &ExecutionSubstitution<'_>,
     ),
     current: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     results: &[(BoundExpressionId, ExecutionCondition)],
@@ -55,14 +54,14 @@ pub(super) fn conditional_facts(
 
     let [left_inputs, right_inputs] = inputs;
 
-    let ordinary = [left, right].map(|(state, values, identities)| {
+    let ordinary = [left, right].map(|(state, substitution)| {
         state
             .assumptions
             .iter()
             .filter(|(condition, _)| {
                 !condition.contains_trusted() && !condition.observes_live(None)
             })
-            .map(|(condition, holds)| (condition.with_joined_values(values, identities), *holds))
+            .map(|(condition, holds)| (substitution.value(condition), *holds))
             .collect::<BTreeSet<_>>()
     });
 
@@ -71,8 +70,8 @@ pub(super) fn conditional_facts(
     let path_guards = if let Some(selector) = selector {
         // A structured join owns its selector. Derived consequences are facts, not
         // additional execution choices to multiply against every carrier clause.
-        [left, right].into_iter().flat_map(|(_, values, identities)| {
-            let selector = selector.with_joined_values(values, identities);
+        [left, right].into_iter().flat_map(|(_, substitution)| {
+            let selector = substitution.value(selector);
 
             [selector.clone(), ExecutionCondition::operation(BoundOperator::LogicalNot, vec![selector])]
         }).collect::<BTreeSet<_>>()
@@ -99,7 +98,7 @@ pub(super) fn conditional_facts(
 
     let candidates = [left, right]
         .into_iter()
-        .flat_map(|(state, values, identities)| {
+        .flat_map(|(state, substitution)| {
             state
                 .witnesses
                 .iter()
@@ -119,8 +118,8 @@ pub(super) fn conditional_facts(
                             &mut { ExecutionCondition::WORK_LIMIT }) == Some(true))
                         .then(|| {
                             (
-                                owner.with_joined_owners(values, identities),
-                                condition.with_joined_values(values, identities),
+                                substitution.owner(owner),
+                                substitution.value(condition),
                             )
                         })
                     }).collect::<Vec<_>>()
@@ -248,8 +247,7 @@ fn inactive_guards(
 fn conditional_aliases(
     sources: [(
         &ExecutionState,
-        &BTreeMap<ExecutionCondition, ExecutionCondition>,
-        &BTreeMap<ExecutionCondition, ExecutionCondition>,
+        &ExecutionSubstitution<'_>,
     ); 2],
     inputs: [&BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
@@ -272,8 +270,8 @@ fn conditional_aliases(
 
         if copied.is_reference() || copied.observes_live(None) { continue; }
 
-        for (_, values, identities) in sources {
-            let target = copied.with_joined_values(values, identities);
+        for (_, substitution) in sources {
+            let target = substitution.value(copied);
 
             if target == *copied || target.is_reference() { continue; }
 
@@ -337,7 +335,7 @@ mod tests {
         ]);
         let empty = BTreeMap::new();
         let mut facts = Vec::new();
-        let retained = conditional_facts((&left, &empty, &empty), (&right, &empty, &empty),
+        let retained = conditional_facts((&left, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)), (&right, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)),
             &BTreeMap::new(), &[], &availability, None, &mut facts);
 
         assert!(retained.is_empty());

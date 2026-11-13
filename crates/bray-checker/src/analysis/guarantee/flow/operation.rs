@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionSubstitution;
 use std::collections::BTreeMap;
 
 use super::model::ExecutionFlowDomain;
@@ -687,10 +688,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             super::merge::result_replacements(&source, &target,
                 &Default::default(), &Default::default(), &mut values, &mut identities);
 
-            state.join_values(&values, &identities);
+            let substitution = ExecutionSubstitution::new(&values, &identities);
+
+            state.join_values(&substitution);
 
             if let Some(entry) = state.entries.get_mut(&expression.into())
-                && let Some(renamed) = entry.joined_values(&values, &identities)
+                && let Some(renamed) = entry.joined_values(&substitution)
             {
                 *entry = renamed;
             }

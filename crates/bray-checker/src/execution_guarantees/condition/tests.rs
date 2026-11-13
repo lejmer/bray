@@ -6,6 +6,45 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[test]
+fn observation_walks_visit_shared_nodes_without_expanding_the_tree() {
+    use bray_bound_tree::BoundOperator::LogicalAnd;
+    use std::cell::Cell;
+
+    let mut condition = ExecutionCondition::Boolean(false);
+
+    for _ in 0..12 {
+        condition = ExecutionCondition::Operation(LogicalAnd, vec![condition.clone(), condition].into());
+    }
+
+    assert!(condition.observations().count() <= 25);
+
+    let visits = Cell::new(0);
+
+    assert!(condition.observes_only(|_| { visits.set(visits.get() + 1); false }));
+    assert!(visits.get() <= 25, "stable-value queries scale with the shared graph");
+    visits.set(0);
+    assert!(!condition.observes_live_where(|_| true, |_| { visits.set(visits.get() + 1); false }));
+    assert!(visits.get() <= 25, "live-value queries scale with the shared graph");
+}
+
+#[test]
+fn a_shared_snapshot_reached_again_through_a_loan_still_observes_live_storage() {
+    let referent = Arc::new(ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+
+    let owned = ExecutionCondition::Observation {
+        owner: Arc::new(ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)))),
+        contents: Arc::clone(&referent),
+        kind: super::ExecutionObservationKind::Owned,
+    };
+
+    // The owned contents are inspected first. The same node is live through the other edge.
+    let condition = ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalAnd,
+        vec![ExecutionCondition::Borrowed(Arc::clone(&referent)), owned].into());
+
+    assert!(condition.observes_live_where(|value| value == referent.as_ref(), |_| false));
+}
+
+#[test]
 fn identity_substitutions_preserve_the_existing_shared_value_and_qualifiers() {
     use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalOr};
 
@@ -248,7 +287,7 @@ fn retained_scalar_data_does_not_preserve_its_original_storage_loan_or_owner() {
     let data = input(0);
     let copied = ExecutionCondition::scalar_observation(input(1), data.clone());
 
-    let stable = crate::execution_guarantees::ObservationSet::from_iter([
+    let mut stable = crate::execution_guarantees::ObservationSet::from_iter([
         copied.clone(), copied.clone().borrowed(),
     ]);
 
@@ -264,6 +303,13 @@ fn retained_scalar_data_does_not_preserve_its_original_storage_loan_or_owner() {
 
     assert!(!crate::execution_guarantees::ObservationSet::retains_owner(
         &BTreeSet::from([copied]), &data));
+
+    let other = input(2);
+
+    assert!(!stable.preserves(&other));
+    stable.preserve_scalar_data(&ExecutionCondition::scalar_observation(input(3), other.clone()));
+    assert!(stable.preserves(&other), "adding retained scalar data invalidates an earlier negative query");
+    assert!(!stable.contains(&other), "retained scalar data still grants no storage authority");
 }
 
 #[test]

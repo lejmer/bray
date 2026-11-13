@@ -1,15 +1,20 @@
-use super::{ExecutionCondition, ExecutionProof};
+use super::{ExecutionCondition, ExecutionProof, ExecutionProofCache};
 use super::context::ProofMemo;
+use super::memo::memoized;
 use crate::execution_guarantees::boolean::{alias_value, prove_boolean};
 use bray_bound_tree::BoundOperator;
 use std::collections::BTreeSet;
 
 impl ExecutionCondition {
-    pub(crate) fn prove_ordinary(&self, ordinary: &BTreeSet<(Self, bool)>) -> Option<bool> {
+    pub(crate) fn prove_ordinary(&self, ordinary: &BTreeSet<(Self, bool)>, cache: Option<&ExecutionProofCache>) -> Option<bool> {
         let trusted = BTreeSet::new();
 
         self.prove_mixed_with_implications(&trusted, ordinary, &mut { Self::WORK_LIMIT }, None, None)
-            .or_else(|| ExecutionProof::new(&trusted, ordinary).prove_mixed(self, &mut { Self::WORK_LIMIT }))
+            .or_else(|| {
+                let proof = cache.map_or_else(|| ExecutionProof::new(&trusted, ordinary), |cache| cache.ordinary_proof(ordinary));
+
+                proof.prove_mixed(self, &mut { Self::WORK_LIMIT })
+            })
     }
 
     pub(crate) fn prove_trusted(
@@ -37,7 +42,7 @@ impl ExecutionCondition {
         implications: Option<&ExecutionProof<'_>>,
         memo: Option<&ProofMemo>,
     ) -> Option<bool> {
-        memoized_proof(self, budget, memo, |budget| self.prove_mixed_inner(trusted, ordinary, budget, implications, memo))
+        memoized(memo, self, budget, |budget| self.prove_mixed_inner(trusted, ordinary, budget, implications, memo))
     }
 
     fn prove_mixed_inner(
@@ -113,7 +118,7 @@ impl ExecutionCondition {
         budget: &mut usize,
         memo: Option<&ProofMemo>,
     ) -> Option<bool> {
-        memoized_proof(self, budget, memo, |budget| self.prove_inner(assumptions, budget, memo))
+        memoized(memo, self, budget, |budget| self.prove_inner(assumptions, budget, memo))
     }
 
     fn prove_inner(
@@ -352,29 +357,4 @@ impl ExecutionCondition {
             _ => {}
         }
     }
-}
-
-fn memoized_proof(
-    condition: &ExecutionCondition,
-    budget: &mut usize,
-    memo: Option<&ProofMemo>,
-    prove: impl FnOnce(&mut usize) -> Option<bool>,
-) -> Option<bool> {
-    let Some(memo) = memo else { return prove(budget); };
-
-    let key = (condition.clone(), *budget);
-
-    let cached = memo.lock().expect("analysis proof memo lock is not poisoned").get(&key).copied();
-
-    if let Some((value, remaining)) = cached {
-        *budget = remaining;
-
-        return value;
-    }
-
-    let value = prove(budget);
-
-    memo.lock().expect("analysis proof memo lock is not poisoned").insert(key, (value, *budget));
-
-    value
 }
