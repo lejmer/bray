@@ -147,6 +147,8 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     content_predicates.extend(owned_allocation);
 
     ExecutionFlowDomain {
+        // Exact immutable query results survive cleanup-feasibility rounds within this body.
+        proofs: Default::default(),
         dependencies,
         sequence_length: request
             .context()

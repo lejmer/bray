@@ -51,6 +51,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 }
 
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
+    pub(super) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
     pub(super) values: &'a crate::analysis::liveness::ValueRetention,
     pub(in crate::analysis::guarantee) dependencies:
         &'a bray_bound_tree::CheckedDependencyContracts,
@@ -347,7 +348,10 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
     }
 
     fn boundary(&self) -> Self::State {
-        let mut state = ExecutionState::default();
+        let mut state = ExecutionState {
+            proofs: std::sync::Arc::clone(&self.proofs),
+            ..Default::default()
+        };
 
         state.current = super::super::current::CurrentValues::with_observed_types(
             std::sync::Arc::clone(self.observed_types));
