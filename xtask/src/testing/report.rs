@@ -10,7 +10,7 @@ use super::inventory::SelectedTest;
 pub(super) struct TestTiming {
     binary: String,
     name: String,
-    seconds: f64,
+    completion_gap_seconds: f64,
     success: bool,
 }
 
@@ -85,7 +85,7 @@ impl Recorder {
         self.tests.push(TestTiming {
             binary: self.binary.clone(),
             name: name.to_owned(),
-            seconds: now.duration_since(self.last).as_secs_f64(),
+            completion_gap_seconds: now.duration_since(self.last).as_secs_f64(),
             success: status == "ok",
         });
 
@@ -106,13 +106,13 @@ impl Recorder {
 pub(super) fn write(directory: &Path, mut report: Report) -> Result<(), String> {
     report.tests.sort_by(|left, right| {
         right
-            .seconds
-            .total_cmp(&left.seconds)
+            .completion_gap_seconds
+            .total_cmp(&left.completion_gap_seconds)
             .then_with(|| left.name.cmp(&right.name))
     });
 
     for test in report.tests.iter().take(20) {
-        eprintln!("{:8.3}s {}::{}", test.seconds, test.binary, test.name);
+        eprintln!("+{:8.3}s completion {}::{}", test.completion_gap_seconds, test.binary, test.name);
     }
 
     let mut junit = format!(
@@ -125,10 +125,9 @@ pub(super) fn write(directory: &Path, mut report: Report) -> Result<(), String> 
 
     for test in &report.tests {
         junit.push_str(&format!(
-            "<testcase classname=\"{}\" name=\"{}\" time=\"{}\">{} </testcase>",
+            "<testcase classname=\"{}\" name=\"{}\">{} </testcase>",
             xml(&test.binary),
             xml(&test.name),
-            test.seconds,
             if test.success {
                 ""
             } else {
@@ -215,7 +214,7 @@ mod tests {
 
         assert!(recorder.complete());
         assert!(!recorder.tests[0].success);
-        assert_eq!(recorder.tests[0].seconds, 2.0);
+        assert_eq!(recorder.tests[0].completion_gap_seconds, 2.0);
         assert!(recorder.tests[1].success);
     }
 }

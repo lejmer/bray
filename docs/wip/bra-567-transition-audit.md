@@ -34,14 +34,26 @@ The owning command exited zero and its JSON build-finished record reports succes
   RawBuffer payload reachability, which still accepts the invalid live-owner observation after opaque buffer transport.
 - drop_selected reaches and passes exact Direct Parameter0 / OwnedTarget / Retire with no Unknown effect.
 
-The full148-row source deferred matrix was stopped at its fifteen-minute cap. Import mode was not started. Cases run
-serially inside one test and expose no per-row progress, so this run does not identify a failing or stalled row and is
-not passing matrix evidence. The small oracle reuses the existing consumer checker with an explicit provider and case
-slice. Full owned/deferred matrices, fixed920 and issue-wide source/native gates remain unverified.
+The matrix harness now exposes248 owned and148 deferred rows in each of source/import mode:792 named tests.
+Catalogue assertions protect registration completeness. Original row bodies, outcomes and diagnostic checks remain intact.
+Each process checks and caches its provider once, then checks each revised caller. Provider wait, initialization,
+check and case start/finish events include elapsed times and panic status. The bounded runner resets one live progress
+log per run. CPU availability determines concurrent test threads across its existing process workers.
+
+Use `cargo xtask test compiler --profile tooling --filter owned_transfers:: --timeout-seconds 900` or replace the filter
+with `deferred_completion::`. A row name selects that row in both modes. Existing shard selection remains available.
+Focused owned and deferred source/import probes pass. Their providers checked once per process in812ms and267ms,
+respectively. Both catalogue checks,6 runner tests and the8-row admission oracle pass. The optimized build succeeds
+with opt_level=3 and debug assertions disabled. This does not establish where the previous fifteen-minute stall occurred.
+Full owned/deferred matrices, fixed920 and issue-wide source/native gates remain unverified.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
 correction-frozen30.json. correction-current.json preserves original-to-current mapping. Fixed920 is907 comparison.txt
 names plus13 verification.json comparison_added keys. Count tests separately from matrix rows.
+For comparison, each former `source_owned_transfers_preserve_complete_carriers_and_dependencies` or imported counterpart
+now means all248 rows under `owned_transfers::source::` or `owned_transfers::imported::`. Each former
+`source_deferred_completion_follows_future_ownership` or imported counterpart means all148 rows under the corresponding
+`deferred_completion::source::` or `deferred_completion::imported::` prefix. Group success requires every row to pass.
 
 ## Checks and maintainability
 
@@ -52,14 +64,11 @@ structural errors outside the admission change:
 - flow/merge.rs, storage_flow/check/analysis/cleanup.rs, storage_flow/check/analysis/core.rs,
   execution_guarantees/portable.rs and bray-tooling output/diagnostic/json/argument.rs exceed the function limit.
 
-The user bounds this pause checkpoint to admission. These remain gate failures, not a clean style claim. Automated Rust
-blank lines and three maintained Bray formatting changes are included. Their non-admission deltas are formatting only.
-
-The end audit rereads AGENTS.md, reviews every changed file and searches equivalent witness-clause and pending-entry
-retention/revocation paths outside the edited files. The existing owning-clause policy is reused and its single-clause
-API is removed. No new persistent map, type, cleanup interpreter or ownership policy is introduced. Nonblank semantic
-code growth is19 production lines and111 test/helper lines. Formatting growth is separate. git diff --check passes.
-No temporary instrumentation or fixture filters remain.
+The user bounds this checkpoint to the matrix harness, then stop. These7 errors remain gate failures.
+The end audit rereads AGENTS.md and reviews all changed files. Source revision reuses the canonical fixture updater.
+Named registration and live progress are shared between matrices. The existing runner owns filtering, CPU scheduling,
+timeouts and reports. Concurrent completion gaps are labelled accurately rather than reported as individual durations.
+The compiler implementation is unchanged. Most growth registers named tests. git diff --check passes.
 
 ## Remaining contracts after the pause
 

@@ -42,12 +42,17 @@ fn execute(root: &Path, options: &Options) -> Result<(), String> {
         return Err("compiler test selection is empty, reduce the shard count".to_owned());
     }
 
+    let phases = directory.join("phases");
+
+    std::fs::create_dir_all(&phases).map_err(|error| format!("could not create matrix progress directory: {error}"))?;
+    std::fs::write(phases.join("matrix-progress.log"), []).map_err(|error| format!("could not reset matrix progress: {error}"))?;
+
     let preparation_seconds = started.elapsed().as_secs_f64();
     let execution_started = Instant::now();
     let reference_target = options.tier.reference_target();
 
     let mut report = Report {
-        schema: 1,
+        schema: 2,
         tier: options.tier.name().to_owned(),
         shard: options.shard,
         shards: options.shards,

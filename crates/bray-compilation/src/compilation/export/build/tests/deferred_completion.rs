@@ -1194,14 +1194,17 @@ const CASES: &[(&str, &str, bool)] = &[
 ];
 
 fn check_deferred_completion(imported: bool, api: &str, cases: &[(&str, &str, bool)]) {
-    let provider = compilation(api);
+    let provider = super::matrix::provider("deferred-focused", api);
 
-    assert!(!provider.check_diagnostics().has_errors(), "{:#?}",
-        bray_messages::DiagnosticRenderer::default().render_bag(provider.check_diagnostics()));
+    check_cases(&provider, imported, cases);
+}
 
+fn check_cases(provider: &crate::Compilation, imported: bool, cases: &[(&str, &str, bool)]) {
     let mut failures = Vec::new();
 
     for (name, body, valid) in cases {
+        let _phase = super::matrix::Phase::start("case", name, imported);
+
         let source = format!(
             r"
             module app;
@@ -1217,16 +1220,19 @@ fn check_deferred_completion(imported: bool, api: &str, cases: &[(&str, &str, bo
 
         let consumer = if imported {
             execution_consumer(
-                &provider,
+                provider,
                 &source
                     .replace("using api;", "using example.package.api;")
                     .replace("api.", "example.package.api."),
             )
         } else {
-            compilation_from_sources([api, &source])
+            crate::test_support::with_fixture_caller(provider, &source)
         };
 
-        let diagnostics = consumer.check_diagnostics();
+        let checked = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, "caller"))
+            .expect("matrix caller must lower");
+
+        let diagnostics = checked.diagnostics();
 
         if *name == "same_site_loop" && !diagnostics.has_errors() {
             assert!(crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller")
@@ -1255,14 +1261,170 @@ fn check_deferred_completion(imported: bool, api: &str, cases: &[(&str, &str, bo
     assert!(failures.is_empty(), "deferred cases completed: imported={imported}, count={}\n{}", cases.len(), failures.join("\n"));
 }
 
-#[test]
-fn source_deferred_completion_follows_future_ownership() {
-    check_deferred_completion(false, API, CASES);
+fn check_matrix_catalogue(names: &[&str]) {
+    assert_eq!(CASES.iter().map(|case| case.0.to_ascii_lowercase()).collect::<Vec<_>>(), names);
 }
 
-#[test]
-fn imported_deferred_completion_follows_future_ownership() {
-    check_deferred_completion(true, API, CASES);
+fn check_matrix_case(imported: bool, index: usize, expected: &str) {
+    static PROVIDER: std::sync::LazyLock<crate::Compilation> = std::sync::LazyLock::new(|| super::matrix::provider("deferred", API));
+
+    let wait = super::matrix::Phase::start("provider-wait", "deferred", imported);
+    let provider = &*PROVIDER;
+
+    drop(wait);
+    assert_eq!(CASES[index].0.to_ascii_lowercase(), expected, "matrix registration must match its row");
+    check_cases(provider, imported, &CASES[index..index + 1]);
+}
+
+super::matrix::cases! {
+    formal_tuple_task_resumes_nested_carrier = 0,
+    formal_array_task_resumes_nested_carrier = 1,
+    formal_tuple_rejects_another_owners_carrier = 2,
+    implicit_nullable_task_retains_frame = 3,
+    staged_nullable_task_retains_adapted_frame = 4,
+    union_future_retains_capture_identity = 5,
+    union_future_retains_live_reference = 6,
+    task_returns_nullable_future = 7,
+    task_returns_union_future = 8,
+    union_task_input_keeps_authority_private = 9,
+    nullable_task_result_keeps_physical_address_bounds = 10,
+    nullable_task_result_keeps_independent_evidence = 11,
+    task_normal_or_diverging_producer = 12,
+    task_opaque_body_mutation_retires_input_evidence = 13,
+    returned_task_in_array_retains_frame = 14,
+    forwarded_task_retains_frame = 15,
+    returned_task_in_product_retains_frame = 16,
+    task_returns_inactive_future = 17,
+    task_returns_observation_future = 18,
+    forwarded_task_cannot_create_witness = 19,
+    nested_task_cannot_create_witness = 20,
+    normal_reference_releases_frame_borrow = 21,
+    task_reference_releases_frame_borrow = 22,
+    opaque_await_preserves_report_borrow = 23,
+    task_known_result_after_opaque = 24,
+    task_opaque_result_after_opaque = 25,
+    opaque_frame_borrow_released = 26,
+    task_pending_permission_unavailable = 27,
+    task_unrelated_join_permission_unavailable = 28,
+    task_join_opaque_reference_live = 29,
+    task_join_opaque_reference_mutation = 30,
+    task_cancel_opaque_reference_live = 31,
+    task_cancel_opaque_reference_mutation = 32,
+    task_join_reference_escape = 33,
+    task_join_reference_mutation = 34,
+    task_join_reference_live = 35,
+    task_join_reference_match_escape = 36,
+    task_join_opaque_reference_escape = 37,
+    task_cancel_reference_escape = 38,
+    task_cancel_reference_mutation = 39,
+    task_cancel_reference_live = 40,
+    task_cancel_reference_match_escape = 41,
+    task_cancel_opaque_reference_escape = 42,
+    task_forwarded_reference_escape = 43,
+    task_forwarded_reference_live = 44,
+    preformed_future_selected_after_completion = 45,
+    preformed_future_fabricated_after_completion = 46,
+    opaque_future_selected_after_completion = 47,
+    opaque_future_fabricated_after_completion = 48,
+    preformed_task_selected_after_completion = 49,
+    preformed_task_fabricated_after_completion = 50,
+    opaque_task_selected_after_completion = 51,
+    opaque_task_fabricated_after_completion = 52,
+    returned_task_outcome = 53,
+    returned_task_outcome_fabricated = 54,
+    unknown_alternative = 55,
+    unknown_refined = 56,
+    unknown_selected = 57,
+    unknown_mutated_selector = 58,
+    copied_guard_normal = 59,
+    copied_guard_partial = 60,
+    copied_guard_inactive = 61,
+    direct = 62,
+    alias = 63,
+    distinct_sites = 64,
+    distinct_declarations = 65,
+    both_fabricated = 66,
+    left_fabricated = 67,
+    right_fabricated = 68,
+    known_left = 69,
+    known_right = 70,
+    refined_left = 71,
+    refined_right = 72,
+    selected_fabrication = 73,
+    two_live = 74,
+    two_live_independent_fabrication = 75,
+    identity_helper = 76,
+    helper_choice = 77,
+    helper_choice_fabrication = 78,
+    dormant = 79,
+    normal_or_diverging = 80,
+    only_diverging = 81,
+    diverging_or_fabrication = 82,
+    mutated_selector = 83,
+    mutated_selector_fabrication = 84,
+    frame_borrow_ends = 85,
+    address_live = 86,
+    address_expired = 87,
+    independent_address_marker = 88,
+    borrow_live = 89,
+    borrow_expired = 90,
+    same_site_loop = 91,
+    same_site_fabrication = 92,
+    tuple_owners = 93,
+    array_owners = 94,
+    boxed_future = 95,
+    boxed_capture = 96,
+    nullable_owner = 97,
+    swap_both_valid = 98,
+    swap_independent = 99,
+    swap_fabrication = 100,
+    inactive_partial = 101,
+    active_partial = 102,
+    dormant_partial = 103,
+    captured_field_fact = 104,
+    task_direct = 105,
+    task_selected_future = 106,
+    task_cancel_completion = 107,
+    task_cancel_fabrication = 108,
+    task_alias = 109,
+    task_frame_borrow_ends = 110,
+    task_unknown_alternative = 111,
+    task_partial_transfer = 112,
+    owned_body_mutation = 113,
+    selected_body_mutation = 114,
+    task_owned_body_mutation = 115,
+    task_owned_state = 116,
+    task_address_live = 117,
+    task_address_expired = 118,
+    task_independent_address_marker = 119,
+    task_completed_permission = 120,
+    nullable_completed_permission = 121,
+    nullable_fresh_permission = 122,
+    nullable_dropped_permission = 123,
+    task_unobserved_outcome_permission = 124,
+    task_dropped_permission = 125,
+    task_active_discarded_permission = 126,
+    task_discarded_permission = 127,
+    nullable_address_live = 128,
+    nullable_address_expired = 129,
+    nullable_independent_marker = 130,
+    refined_owned_body_effects = 131,
+    task_refined_owned_body_effects = 132,
+    task_selected_owned_body_mutation = 133,
+    task_unknown_refined = 134,
+    task_fabrication = 135,
+    captured_guard_refined = 136,
+    captured_guard_unselected = 137,
+    captured_guard_mutated = 138,
+    same_site_copied_inactive_guard = 139,
+    same_site_copied_active_guard = 140,
+    same_site_numeric_active_guard = 141,
+    same_site_numeric_inactive_guard = 142,
+    same_site_independent_first = 143,
+    same_site_independent_second = 144,
+    copied_real_equality_unknown = 145,
+    copied_real_equality_finite = 146,
+    copied_real_alias_equality_unknown = 147,
 }
 
 #[test]
