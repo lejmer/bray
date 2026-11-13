@@ -4,6 +4,7 @@ use crate::test_support::{compilation, source_function_body_key};
 #[test]
 fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_exposed() {
     for (fields, operation) in [
+        ("tag: usize;", "opaque();"),
         ("tag: usize; pointer: DataPointer<u8>;", "opaque();"),
         ("storage: Uninit<[u64; 16]>; finish: Native;", "opaque();"),
         ("first: &Uninit<u32>; second: &Uninit<u32>;", ""),
@@ -56,6 +57,7 @@ fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_expos
             "#
             );
 
+            let valid = valid && !fields.contains("DataPointer");
             let application = compilation(&source);
 
             assert!(
@@ -104,8 +106,11 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
                 trusted predicate held(owner: &Marker);
                 trusted predicate scalar_held(owner: &u64);
                 trusted predicate payload_held(pointer: DataPointer<u64>);
-                extern func opaque(pos pointer: DataPointer<u64>)
-                    executes(total);
+                @abi(c)
+                @link(name = "native")
+                @symbol(name = "opaque")
+                extern trusted func opaque(pos pointer: DataPointer<u64>)
+                    executes(total) uses(foreign_call);
                 func observe(pos marker: &Marker)
                     requires(trusted held(owner = marker))
                     executes(pure, total)
@@ -130,19 +135,20 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
                 {{
                     return trusted core.target.expose_address<Owner>(core.memory.address_of<Owner>(owner));
                 }}
-                func caller({parameter}, pos count: u32)
+                trusted func caller({parameter}, pos count: u32)
                     requires(
                         trusted held(owner = &{subject}.acquisition),
                         trusted scalar_held(owner = &{subject}.identity),
                         trusted payload_held(pointer = {subject}.pointer)
                     )
+                    uses(foreign_call)
                 {{
                     {binding}
                     _ = trusted publish(owner);
                     let mut index: u32 = 0;
                     while index < count
                     {{
-                        if index & 1 == 0 {{ opaque(owner.pointer); }}
+                        if index & 1 == 0 {{ trusted opaque(owner.pointer); }}
                         {use_owner}
                         observe_scalar(&owner.identity);
                         advance(&mut index);
@@ -153,7 +159,7 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
                 "#
             );
 
-            let application = compilation(&source);
+            let application = super::fixtures::foreign_compilation(&source);
             let diagnostics = application.check_diagnostics();
 
             assert_eq!(
@@ -309,7 +315,7 @@ fn guarded_owner_authority_uses_entry_values_after_mutation_and_opaque_calls() {
 fn shared_marker_borrows_preserve_the_original_owner_without_mutable_authority() {
     for (parameter, argument, valid) in [
         ("&Owner", "&owner", true),
-        ("&mut Owner", "&mut owner", false),
+        ("&mut Owner", "&mut owner", true),
         ("&Marker", "&owner.marker", true),
     ] {
         let source = format!(

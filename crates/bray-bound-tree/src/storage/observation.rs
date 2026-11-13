@@ -18,16 +18,22 @@ pub enum StorageObservationKind {
 }
 
 impl StorageObservationKind {
-    /// Records a proven survival claim. A complete value subsumes a tag-only claim.
+    /// Records descriptor survival separately from preserved contents or tags.
     pub fn record_preservation(
         self,
         path: crate::StoragePath,
+        descriptors: &mut std::collections::BTreeSet<crate::StoragePath>,
         observations: &mut std::collections::BTreeMap<crate::StoragePath, Self>,
     ) {
-        let retained = if self == Self::Discriminant { self } else { Self::Value };
+        if self == Self::Identity {
+            descriptors.insert(path);
+            return;
+        }
+
+        let retained = if matches!(self, Self::Discriminant | Self::Address) { self } else { Self::Value };
 
         observations.entry(path).and_modify(|previous| {
-            if *previous == Self::Discriminant { *previous = retained; }
+            if *previous == Self::Discriminant || retained == Self::Value { *previous = retained; }
         }).or_insert(retained);
     }
 

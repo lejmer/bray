@@ -429,7 +429,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> crate::execution_guarantees::ObservationSet {
         let snapshots = paths
             .iter()
-            .filter(|(_, kind)| **kind != bray_bound_tree::StorageObservationKind::Discriminant)
+            .filter(|(_, kind)| kind.is_immutable_inline())
             .flat_map(|(path, _)| self.storage_path_values(state, path.clone(), mutation))
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| *value != ExecutionCondition::Unknown)
@@ -554,14 +554,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let mask = masks.entry(root).or_default().at_mut(path);
 
-            // A surviving address retains its copied bits. Reachable-state evidence
-            // is revoked separately, without replacing that immutable value.
-            let address = self.observed_types.get(place).copied().flatten()
-                .is_some_and(|ty| crate::representation::reference_kind(self.request, ty)
-                    == Some(bray_symbols::DependencyReferenceKind::Address));
-
             if kind == bray_bound_tree::StorageObservationKind::Discriminant { mask.discriminant = true; }
-            else if kind != bray_bound_tree::StorageObservationKind::Identity || address { mask.value = true; }
+            else if kind != bray_bound_tree::StorageObservationKind::Identity { mask.value = true; }
             else { mask.descriptor = true; }
         }
 

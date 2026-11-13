@@ -106,7 +106,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
             .get(&invocation)
             .into_iter()
             .flat_map(|dependencies| {
-                dependencies.carriers().iter().map(|carrier| {
+                dependencies.carriers().iter().flat_map(|carrier| {
                     let condition = crate::execution_condition_from_type_term(
                         self.request.semantic_values(),
                         carrier.guarantee(),
@@ -114,14 +114,10 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
                     )
                     .expect("checked carrier condition decodes in the same semantic store");
 
-                    (
-                        capture(&condition),
-                        result_projection(
-                            self.request.semantic_values(),
-                            self.dependencies,
-                            carrier.path(),
-                        ),
-                    )
+                    let subject = result_projection(
+                        self.request.semantic_values(), self.dependencies, carrier.path(),
+                    );
+                    condition.conjuncts().map(|condition| (capture(condition), subject.clone())).collect::<Vec<_>>()
                 })
             })
             .collect::<Vec<_>>();
@@ -129,6 +125,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
         let guarantees = contract
             .guarantees
             .iter()
+            .flat_map(ExecutionCondition::conjuncts)
             .map(capture)
             .chain(inferred.iter().map(|(condition, _)| condition.clone()))
             .collect::<Vec<_>>();
@@ -153,6 +150,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
             .collect::<Vec<_>>();
 
         subjects.extend(inferred);
+        subjects.retain(|(condition, _)| condition.contains_trusted());
 
         (guarantees, subjects)
     }
@@ -487,6 +485,11 @@ pub(in crate::analysis) fn portable_path<C: crate::CheckerRequestContext + ?Size
 impl ExecutionState {
     /// Discharges ordinary guards while each original carrier still supplies its own evidence.
     pub(in crate::analysis::guarantee) fn refine_witnesses(&mut self) {
+        // Ownership guards also have meaning when no trusted carrier exists.
+        // Ordinary premises cannot introduce trusted occurrences into this closure.
+        let ordinary = crate::execution_guarantees::trusted_condition_closure(Default::default(), &self.assumptions);
+        self.assumptions.extend(ordinary);
+
         for witness in self
             .witnesses
             .values_mut()

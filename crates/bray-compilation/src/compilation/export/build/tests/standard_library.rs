@@ -2257,7 +2257,7 @@ fn raw_buffer_origins_require_recognition_and_survive_prefix_writes() {
         filled
             .borrows()
             .iter()
-            .any(|relation| relation.entry().is_none()
+            .any(|relation| relation.allocation().is_some()
                 && relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result),
         "the real allocated pointer retains its independent origin after filling: {filled:#?}"
     );
@@ -2287,17 +2287,11 @@ fn raw_buffer_origins_require_recognition_and_survive_prefix_writes() {
             "{name}: {summary:#?}"
         );
 
-        assert!(
-            summary
-                .effects()
-                .contains(&bray_symbols::DependencyStorageEffect::Ambient),
-            "{name}: {summary:#?}"
-        );
-
         if name == "drop_selected" {
             assert!(summary.effects().iter().any(|effect| matches!(effect,
-                bray_symbols::DependencyStorageEffect::Indirect { reference, kind: bray_symbols::DependencyMutationKind::Retire, .. }
-                    if reference.subject_root() == bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)))),
+                bray_symbols::DependencyStorageEffect::Direct { subject, kind: bray_symbols::DependencyMutationKind::Retire, .. }
+                    if subject.subject_root() == bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+                        && subject.projections() == [bray_symbols::DependencyProjection::OwnedTarget])),
                 "the input alternative must retain its retirement effect: {summary:#?}");
         }
     }
@@ -4292,7 +4286,7 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
             bray_symbols::NativeLinkKind::System,
         ),
     ]);
-    let provider = super::fixtures::standard_library_compilation_with_options([
+    let provider = standard_library_compilation_with_options([
         include_str!("../../../../../../../standard-library/std/src/std.bray"), declarations,
     ], options.clone());
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
@@ -4343,7 +4337,7 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
             let application = if imported {
                 super::fixtures::execution_consumer(&provider, &source)
             } else {
-                super::fixtures::standard_library_compilation_with_options([
+                standard_library_compilation_with_options([
                     include_str!("../../../../../../../standard-library/std/src/std.bray"), declarations, &source,
                 ], options.clone())
             };

@@ -203,6 +203,7 @@ wire_tags!(ConstantUnaryOperation {
     6 => ConstantUnaryOperation::BorrowObservation,
     7 => ConstantUnaryOperation::EntryCondition,
     8 => ConstantUnaryOperation::DescriptorObservation,
+    9 => ConstantUnaryOperation::ValueDescriptorObservation,
 });
 
 wire_tags!(TargetSizedIntegerType {

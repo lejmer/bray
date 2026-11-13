@@ -220,12 +220,6 @@ fn phase_contract_is_compatible(
             .with_predicates([], [])
             .with_trusted_capabilities([])
         && (target.may_unwind() || !source.may_unwind())
-        && source.predicate_requirements().iter().all(|condition| {
-            target.predicate_requirements().iter().any(|candidate| {
-                candidate.condition() == condition.condition()
-                    && candidate.domain() == condition.domain()
-            })
-        })
         && phase_guarantees_are_compatible(values, parameter_count, source, target)
 }
 
@@ -250,6 +244,20 @@ fn phase_guarantees_are_compatible(
             })
             .unwrap_or(ExecutionCondition::Unknown)
     };
+
+    let requirements = source.predicate_requirements().iter().all(|condition| {
+        if target.predicate_requirements().iter().any(|candidate| candidate == condition) {
+            return true;
+        }
+
+        let mut known = std::collections::BTreeSet::new();
+
+        for candidate in target.predicate_requirements().iter().filter(|candidate| candidate.domain() == condition.domain()) {
+            decode(candidate).assume(true, &mut known);
+        }
+
+        decode(condition).prove(&known, &mut { bray_symbols::EXECUTION_CONDITION_WORK_LIMIT }) == Some(true)
+    });
 
     let promised = |entry: &[bray_symbols::PredicateSemanticSummary], property| {
         if source.execution_properties().contains(&property) {
@@ -308,7 +316,7 @@ fn phase_guarantees_are_compatible(
         }) == Some(true)
     });
 
-    postconditions
+    requirements && postconditions
         && target
             .execution_properties()
             .iter()

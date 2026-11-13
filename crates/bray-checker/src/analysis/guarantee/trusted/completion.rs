@@ -170,6 +170,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let (guarantees, subjects) = self.completion_guarantees(invocation, contract, &capture);
 
+
         let address_subjects = contract
             .address_subjects
             .iter()
@@ -340,7 +341,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for template in guarantees
             .iter()
-            .filter(|guarantee| guarantee.observes_completion_result())
+            .filter(|guarantee| guarantee.contains_trusted() && guarantee.observes_completion_result())
         {
             if subjects.iter().any(|(guarantee, subject)| {
                 guarantee == template && subject.observes_completion_result()
@@ -360,7 +361,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for guarantee in &guarantees {
             let guarantee = instantiate(guarantee);
 
-            guarantee.assume(true, &mut state.trusted_assumptions);
+            guarantee.assume_with(true, &mut |condition, holds| {
+                if condition.contains_trusted() {
+                    state.trusted_assumptions.insert((condition, holds));
+                } else {
+                    state.assumptions.insert((condition, holds));
+                }
+            });
         }
 
         for postcondition in &postconditions {

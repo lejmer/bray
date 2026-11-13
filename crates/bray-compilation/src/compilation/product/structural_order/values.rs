@@ -407,6 +407,7 @@ fn unary_name(operation: bray_symbols::ConstantUnaryOperation) -> &'static str {
         ConstantUnaryOperation::BorrowObservation => "borrow_observation",
         ConstantUnaryOperation::EntryCondition => "entry_condition",
         ConstantUnaryOperation::DescriptorObservation => "descriptor_observation",
+        ConstantUnaryOperation::ValueDescriptorObservation => "value_descriptor_observation",
     }
 }
 

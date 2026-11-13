@@ -794,8 +794,55 @@ const API: &str = r"
 
 ";
 
+#[test]
+fn normal_result_shapes_keep_empty_exits_without_reusing_replaced_entry_tags() {
+    let declarations = r#"
+        trusted module api;
+        struct Marker {}
+        union Choice<T> { Value(pos value: T); Empty; }
+        trusted predicate held(owner: &Marker);
+        trusted func make() -> Marker ensures(trusted held(&result)) { return Marker {}; }
+        func inspect(pos value: &Marker) requires(trusted held(value)) {}
+        func empty(pos mut value: Choice<Marker>) -> Choice<Marker>
+        { value = .Empty; return value; }
+        func replace(pos mut value: Choice<Marker>) -> Choice<Marker> requires(value matches .Empty)
+        { value = .Value(Marker {}); return value; }
+        func choose<T>(pos value: T, pos take: bool) -> Choice<T>
+        { return if take { yield .Value(value); } else { yield .Empty; }; }
+    "#;
+    let provider = compilation(declarations);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    for (call, valid) in [("api.empty(.Value(api.make()))", true), ("api.replace(.Empty)", false),
+        ("api.choose<api.Marker>(api.make(), take)", true), ("api.choose<api.Marker>(api.Marker {}, take)", false)] {
+        let source = format!(r#"
+            module app;
+            using api;
+            func caller(pos take: bool)
+            {{
+                let result = {call};
+                match consume result
+                {{
+                    case .Value(value) {{ api.inspect(&value); }}
+                    case .Empty {{}}
+                }}
+            }}
+        "#);
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else { compilation_from_sources([declarations, source.as_str()]) };
+            let diagnostics = consumer.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "{call}, imported={imported}: {}", super::fixtures::diagnostic_messages(diagnostics));
+            if !valid { bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven); }
+        }
+    }
+}
+
 fn check_owned_transfers(imported: bool) {
     let provider = compilation(API);
+
 
     assert!(
         !provider.check_diagnostics().has_errors(),

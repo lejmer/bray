@@ -343,6 +343,8 @@ pub enum ConstantUnaryOperation {
     BorrowObservation,
     /// Observe immutable descriptor data without observing reached storage.
     DescriptorObservation,
+    /// Read the current value through a view before observing its descriptor data.
+    ValueDescriptorObservation,
     /// Evaluate a conditional guarantee's guard in the callable entry state.
     EntryCondition,
 }

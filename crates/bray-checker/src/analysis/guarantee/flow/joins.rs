@@ -211,11 +211,7 @@ pub(in crate::analysis::guarantee) fn merge_returned(
     *target = completed.expect("reachable normal return retains a state");
     target.pending_results.remove(&expression);
 
-    if ownership.is_empty() {
-        target.owned_results.remove(&joined);
-    } else {
-        target.owned_results.insert(joined.clone(), ownership);
-    }
+    target.owned_results.insert(joined.clone(), ownership);
 
     joined
 }
@@ -797,6 +793,7 @@ mod tests {
             .insert(place.clone(), ExecutionCondition::Boolean(false));
 
         let mut target = Some(state);
+        let mut previous_keys = None;
 
         for _ in 0..16 {
             let mut incoming = target.clone().expect("reachable loop header");
@@ -813,13 +810,11 @@ mod tests {
                 Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)).into(),
             );
 
-            assert!(
-                target
-                    .as_ref()
-                    .expect("reachable loop header")
-                    .owned_results
-                    .is_empty()
-            );
+            let layouts = &target.as_ref().expect("reachable loop header").owned_results;
+            assert!(layouts.values().all(bray_symbols::DependencyOwnedResult::is_empty));
+            let keys = layouts.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+            if let Some(previous) = &previous_keys { assert_eq!(&keys, previous, "loop ownership observations must stabilize"); }
+            previous_keys = Some(keys);
         }
     }
 }

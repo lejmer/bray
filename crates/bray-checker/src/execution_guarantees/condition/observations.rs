@@ -73,7 +73,7 @@ impl ExecutionCondition {
                 )
             }
             Self::Discriminant(value) => value.without_evaluation(mutation, remaining).discriminant(),
-            Self::Descriptor(value) => value.without_evaluation(mutation, remaining).descriptor(),
+            Self::Descriptor(kind, value) => value.without_evaluation(mutation, remaining).descriptor(*kind),
             Self::Present(value) => Self::Present(std::sync::Arc::new(value.without_evaluation(mutation, remaining))),
             Self::Tagged(variant, value) => Self::Tagged(
                 *variant,
@@ -306,7 +306,7 @@ impl ExecutionCondition {
                 | Self::Projection(_, value)
                 | Self::Trusted(value)
                 | Self::Borrowed(value)
-                | Self::Descriptor(value)
+                | Self::Descriptor(_, value)
                 | Self::Present(value)
                 | Self::Entry {
                     condition: value, ..
@@ -397,7 +397,7 @@ impl ExecutionCondition {
                 | Self::Variant(_)
                 | Self::InitializedSnapshot(_, _, _)
                 | Self::Entry { captured: true, .. }
-                | Self::Descriptor(_) => {}
+                | Self::Descriptor(..) => {}
                 Self::Entry {
                     condition,
                     captured: false,
@@ -508,7 +508,7 @@ impl ExecutionCondition {
             }
 
             match condition {
-                Self::Descriptor(_) => {},
+                Self::Descriptor(..) => {},
                 Self::ValueAlias(left, right) => pending.extend([(left.as_ref(), live), (right.as_ref(), live)]),
                 Self::Borrowed(value) => pending.push((value, true)),
                 Self::Entry {

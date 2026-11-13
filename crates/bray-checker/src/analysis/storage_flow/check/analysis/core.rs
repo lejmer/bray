@@ -1072,6 +1072,20 @@ where
             self.retire_consumed_value_slots(state, kind);
         }
 
+        if !matches!(
+            kind,
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Input | AnalysisCallPhase::Attempt,
+                ..
+            } | AnalysisOperationKind::Suspension {
+                kind: crate::analysis::model::AnalysisSuspensionKind::Await,
+                ..
+            }
+        ) {
+            self.end_last_use_borrows(state, kind.occurrence());
+            self.end_last_use_storage(state, kind.occurrence());
+        }
+
         crate::analysis::refinement::transfer_operation(
             &mut refinements,
             operation,
@@ -1286,19 +1300,6 @@ where
             });
         }
 
-        if !matches!(
-            kind,
-            AnalysisOperationKind::Call {
-                phase: AnalysisCallPhase::Attempt,
-                ..
-            } | AnalysisOperationKind::Suspension {
-                kind: crate::analysis::model::AnalysisSuspensionKind::Await,
-                ..
-            }
-        ) {
-            self.end_last_use_borrows(state, kind.occurrence());
-            self.end_last_use_storage(state, kind.occurrence());
-        }
     }
 
     fn transfer_result_dependencies(
@@ -1885,7 +1886,7 @@ where
                                     .reborrow_value(borrow, &source, capability.parent());
                             } else {
                                 if let Some((fields, _)) = self.input.raw_buffers.get(&ty) {
-                                    let pointer = source.project(&[bray_bound_tree::StorageProjection::ProductField(fields.pointer)]);
+                                    let pointer = source.project(&[StorageProjection::ProductField(fields.pointer)]);
 
                                     state.memory.declare_owned_buffer(source.clone(), pointer, fields.element);
                                 }

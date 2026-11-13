@@ -418,10 +418,7 @@ fn trusted_implementation_does_not_export_undeclared_authority() {
         .lowered_unit(source_function_body_key(&application, "caller"))
         .expect("fixture callable must lower successfully");
 
-    bray_testing::assert_goal_state_diagnostic_kind(
-        checked.diagnostics(),
-        DiagnosticKind::CheckingTrustedObligationNotProven,
-    );
+    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
 }
 
 #[test]

@@ -403,7 +403,7 @@ pub(crate) fn owned_snapshot(
         ExecutionCondition::Discriminant(_) => ExecutionCondition::owned_value(identity, source.clone()),
         ExecutionCondition::Borrowed(_)
         | ExecutionCondition::Boolean(_)
-        | ExecutionCondition::Descriptor(_)
+        | ExecutionCondition::Descriptor(..)
         | ExecutionCondition::Literal(_)
         | ExecutionCondition::InitializedSnapshot(_, _, _)
         | ExecutionCondition::Unknown => source.clone(),

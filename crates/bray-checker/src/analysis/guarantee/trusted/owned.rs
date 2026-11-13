@@ -93,9 +93,7 @@ impl super::check::TrustedChecks {
                     )
                 },
                 &mut |condition| {
-                    if condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                        == Some(true)
-                    {
+                    if *condition == ExecutionCondition::Boolean(true) {
                         return Ok(None);
                     }
 
@@ -107,22 +105,38 @@ impl super::check::TrustedChecks {
             .expect("formal ownership publication is infallible"),
         };
 
-        for (condition, holds) in state.assumptions.difference(&self.owned_entry_conditions) {
-            if !matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input()) {
-                continue;
-            }
 
-            let condition = if *holds {
-                condition.clone()
+        for (condition, holds) in state.assumptions.difference(&self.owned_entry_conditions) {
+            let formal = matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input());
+            let condition = if formal { condition.clone() } else {
+                if condition.contains_trusted() { continue; }
+                let mapped = condition.boolean_consequence(*holds, &mut |atom| {
+                    let mapped = super::super::flow::returned_condition(atom, result);
+                    super::carriers::portable(domain.request, &mapped)?;
+                    // Mapping each atom keeps one clause's unrelated local terms
+                    // from consuming the current-snapshot rewrite budget.
+                    let actual = mapped.substitute(&|place| ExecutionCondition::Input(place.clone()), result,
+                        &mut { ExecutionCondition::WORK_LIMIT });
+                    (actual == *atom).then_some(mapped)
+                }, &mut { ExecutionCondition::WORK_LIMIT });
+                if !mapped.observes_completion_result() { continue; }
+                mapped
+            };
+
+            let condition = if !formal || *holds {
+                condition
             } else {
                 ExecutionCondition::operation(
                     bray_bound_tree::BoundOperator::LogicalNot,
-                    vec![condition.clone()],
+                    vec![condition],
                 )
             };
 
-            let condition = super::carriers::portable(domain.request, &condition)
-                .expect("formal Boolean exit condition is portable");
+            let condition = match super::carriers::portable(domain.request, &condition) {
+                Some(condition) => condition,
+                None if formal => unreachable!("formal Boolean exit condition is portable"),
+                None => continue,
+            };
 
             returned.transfers = DependencyOwnedResult::case(condition, returned.transfers);
         }

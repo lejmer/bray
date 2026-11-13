@@ -644,7 +644,15 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
 fn mutable_union_completion_observes_the_updated_owner() {
     for (preserved, valid) in [("trusted held(value = &value),", true), ("", false)] {
         let source = r#"trusted module app;
-using std.memory;
+using core.memory;
+trusted func replace<T>(pos storage: &mut T, pos value: T) -> T
+    uses(raw_memory, unchecked_init)
+{
+    let pointer = core.memory.address_of_mut<T>(storage);
+    let previous = trusted core.memory.read<T>(pointer);
+    trusted core.memory.write<T>(pointer, value);
+    return previous;
+}
 struct Marker
 {
 }
@@ -680,11 +688,11 @@ trusted func take(pos value: &mut Value) -> Reference
     {
         case Value.First(row)
         {
-            yield trusted std.memory.replace_value<Reference>(&mut row.provider, fresh());
+            yield trusted replace<Reference>(&mut row.provider, fresh());
         }
         case Value.Second(row)
         {
-            yield trusted std.memory.replace_value<Reference>(&mut row.provider, fresh());
+            yield trusted replace<Reference>(&mut row.provider, fresh());
         }
     };
 }

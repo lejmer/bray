@@ -230,6 +230,46 @@ impl ExecutionCondition {
         })
     }
 
+    /// Maps equivalent Boolean atoms, forgetting unsupported ones without strengthening the clause.
+    pub(crate) fn boolean_consequence(
+        &self,
+        holds: bool,
+        map: &mut impl FnMut(&Self) -> Option<Self>,
+        budget: &mut usize,
+    ) -> Self {
+        fn visit<'a>(
+            condition: &'a ExecutionCondition,
+            holds: bool,
+            map: &mut impl FnMut(&ExecutionCondition) -> Option<ExecutionCondition>,
+            budget: &mut usize,
+            known: &mut std::collections::BTreeMap<(&'a ExecutionCondition, bool), ExecutionCondition>,
+        ) -> ExecutionCondition {
+            if let Some(value) = known.get(&(condition, holds)) { return value.clone(); }
+            let Some(remaining) = budget.checked_sub(1) else { return ExecutionCondition::Boolean(true); };
+            *budget = remaining;
+
+            let value = match condition {
+                ExecutionCondition::Boolean(value) => ExecutionCondition::Boolean(*value == holds),
+                ExecutionCondition::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 =>
+                    visit(&operands[0], !holds, map, budget, known),
+                ExecutionCondition::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands) => {
+                    let operator = if holds { *operator } else if *operator == BoundOperator::LogicalAnd {
+                        BoundOperator::LogicalOr
+                    } else { BoundOperator::LogicalAnd };
+                    ExecutionCondition::operation(operator, operands.iter()
+                        .map(|operand| visit(operand, holds, map, budget, known)).collect())
+                }
+                condition => map(condition).map_or(ExecutionCondition::Boolean(true), |condition| if holds { condition } else {
+                    ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition])
+                }),
+            };
+            known.insert((condition, holds), value.clone());
+            value
+        }
+
+        visit(self, holds, map, budget, &mut Default::default())
+    }
+
     /// Compare carrier promises without turning ordinary truth into trusted evidence.
     pub(crate) fn implies(&self, consequence: &Self) -> bool {
         if self.is_unknown() || consequence.is_unknown() {
@@ -288,7 +328,7 @@ impl ExecutionCondition {
 
         match self {
             Self::Unknown => {}
-            condition @ Self::Observation { kind: crate::execution_guarantees::ExecutionObservationKind::Scalar, .. } => {
+            condition @ (Self::Observation { .. } | Self::Borrowed(_)) => {
                 let contents = condition.computed_value().clone();
 
                 if !condition.contains_unknown() {

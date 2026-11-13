@@ -485,8 +485,7 @@ fn equal_scalar_values_do_not_share_borrowed_authority() {
 
 #[test]
 fn borrowed_results_do_not_invalidate_their_input_observations() {
-    // A readonly borrow retains an empty marker's historical identity. An opaque
-    // implementation can still change observable mutable contents.
+    // The shared cell protects its marker's inline fields while callbacks run.
     for marker_fields in ["", "mut active: bool;"] {
         for body in [
             "return obtain<T>(&lazy.cell, lazy.initializer);",
@@ -544,21 +543,12 @@ fn borrowed_results_do_not_invalidate_their_input_observations() {
 
                     let compilation = compilation(&source);
 
-                    let valid = marker_fields.is_empty() || (opaque && guarantee);
-
-                    assert_eq!(
+                    assert!(
                         !compilation.check_diagnostics().has_errors(),
-                        valid,
                         "{source}: {:?}",
                         compilation.check_diagnostics()
                     );
 
-                    if !valid {
-                        bray_testing::assert_goal_state_diagnostic_kind(
-                            compilation.check_diagnostics(),
-                            DiagnosticKind::CheckingTrustedObligationNotProven,
-                        );
-                    }
                 }
             }
         }

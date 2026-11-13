@@ -13,6 +13,15 @@ pub enum ExecutionObservationKind {
     Scalar,
 }
 
+/// Whether a descriptor is supplied directly or read through a view of its storage.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutionDescriptorKind {
+    /// Retain a reference descriptor independently of its reached contents.
+    Reference,
+    /// Read the current value before selecting its descriptor.
+    Value,
+}
+
 /// A bounded, source-independent value used to compare entry and completion conditions.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ExecutionCondition {
@@ -27,7 +36,7 @@ pub enum ExecutionCondition {
     /// An immutable nullable presence or union tag, without payload data or authority.
     Discriminant(Arc<ExecutionCondition>),
     /// Immutable descriptor data, independently of current reached contents.
-    Descriptor(Arc<ExecutionCondition>),
+    Descriptor(ExecutionDescriptorKind, Arc<ExecutionCondition>),
     /// A checked literal value.
     Literal(Arc<ConstantValueData>),
     /// The value of a supplied input before execution begins.
@@ -131,7 +140,7 @@ impl ExecutionCondition {
                 Self::Trusted(value)
                 | Self::Borrowed(value)
                 | Self::Discriminant(value)
-                | Self::Descriptor(value)
+                | Self::Descriptor(_, value)
             | Self::Present(value)
                 | Self::Projection(_, value)
                 | Self::VariantTest(_, value)
@@ -153,7 +162,7 @@ impl ExecutionCondition {
             Self::Tagged(_, value)
             | Self::VariantTest(_, value)
             | Self::Discriminant(value)
-                | Self::Descriptor(value)
+                | Self::Descriptor(_, value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::Borrowed(value)
@@ -188,7 +197,7 @@ impl ExecutionCondition {
             Self::Trusted(value)
             | Self::Borrowed(value)
             | Self::Discriminant(value)
-                | Self::Descriptor(value)
+                | Self::Descriptor(_, value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::VariantTest(_, value)

@@ -67,27 +67,43 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             transfers.push((effect, ty, raw));
         }
 
+        let ambient = memory.ambient_regions(effects.unwrap_or(&unknown));
         let exposed = memory.raw_exposed_regions();
 
-        let survives = |target: &Target, observation: Observation, owner: Option<bray_symbols::TypeId>, shared: bool| {
+        let transfers_owner = |owner: Option<bray_symbols::TypeId>, ty: Option<bray_symbols::TypeId>| {
+            owner.and_then(|owner| self.input.footprint.inline_carriers(owner))
+                .zip(ty.and_then(|ty| self.input.footprint.inline_carriers(ty)))
+                .is_none_or(|(owner, transfer)| owner.is_empty() || !owner.is_disjoint(transfer))
+        };
+
+        let survives = |target: &Target, observation: Observation, owner: Option<bray_symbols::TypeId>, borrow: Option<bray_symbols::BorrowKind>| {
             transfers.iter().all(|(effect, ty, raw)| {
                 // Ordinary code cannot transfer a retained shared loan's inline
                 // owner. Raw operations still retain their actual reached region.
-                if shared && !raw { return true; }
+                if borrow == Some(bray_symbols::BorrowKind::Shared) && !raw { return true; }
+
+                // Unrelated ambient work cannot transfer an exclusively retained
+                // inline owner. Published addresses and admitted mutable inputs
+                // remain subject to their actual effects.
+                if borrow == Some(bray_symbols::BorrowKind::Mutable) && !raw
+                    && matches!(effect, Effect::Ambient)
+                    && matches!(observation, Observation::Identity | Observation::Marker(_))
+                    && exposed.iter().all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint) {
+                    return true;
+                }
 
                 let transports = match observation {
                     Observation::Marker(marker) => ty.and_then(|ty| self.input.footprint.inline_carriers(ty))
                         .is_none_or(|markers| markers.contains(&marker)),
-                    Observation::Value | Observation::Mutable | Observation::Identity => {
+                    Observation::Identity => !raw || transfers_owner(owner, *ty),
+                    Observation::Value | Observation::Mutable => {
                         // A typed move can retire only the nominal carriers it moves.
                         // Scalar fields alone provide no such ownership bound. Writes
                         // still change data through aliases of different nominal types.
                         let moving = matches!(effect, Effect::Mutation(_, Mutation::Consume, _)
                             | Effect::UnboundedMutation { kind: Mutation::Consume, .. });
 
-                        !moving || !raw || owner.and_then(|owner| self.input.footprint.inline_carriers(owner))
-                            .zip(ty.and_then(|ty| self.input.footprint.inline_carriers(ty)))
-                            .is_none_or(|(owner, transfer)| owner.is_empty() || !owner.is_disjoint(transfer))
+                        !moving || !raw || transfers_owner(owner, *ty)
                     },
                     // Tags are actual stored data. A surviving marker or owner
                     // identity alone cannot preserve an overwritten variant.
@@ -99,8 +115,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let retained = match effect {
                     Effect::Mutation(reached, _, _) => memory.target_relationship(reached, target) == StorageRelationship::Disjoint,
-                    Effect::UnboundedMutation { ambient: true, .. } | Effect::Ambient => exposed.iter()
-                        .all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint),
+                    Effect::UnboundedMutation { ambient: true, .. } | Effect::Ambient => ambient.as_ref()
+                        .is_some_and(|regions| regions.iter().all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint)),
                     _ => false,
                 };
 
@@ -115,18 +131,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     for (path, observation) in observations {
                         if !matches!(observation, Observation::Value | Observation::Discriminant | Observation::Address) { continue; }
 
-                        if survives(&Target::storage(path.clone()), *observation, None, false) {
-                            if *observation == Observation::Address {
-                                stable_descriptors.insert(path.clone());
-                            } else {
-                                observation.record_preservation(path.clone(), stable_values);
-                            }
+                        if survives(&Target::storage(path.clone()), *observation, None, None) {
+                            observation.record_preservation(path.clone(), stable_descriptors, stable_values);
                         }
                     }
                 }
 
                 for (path, marker) in &self.input.footprint.empty_markers {
-                    if !survives(&Target::storage(path.clone()), Observation::Marker(*marker), None, false) { continue; }
+                    if !survives(&Target::storage(path.clone()), Observation::Marker(*marker), None, None) { continue; }
 
                     stable_values.insert(path.clone(), bray_bound_tree::StorageObservationKind::Value);
                 }
@@ -134,8 +146,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             StorageInvalidation::Paths(_) => return,
         }
 
-        let shared = |target: &Target, observation, ty| survives(target, observation, Some(ty), true);
-        let active = |target: &Target, observation, ty, shared| survives(target, observation, Some(ty), shared);
+        let shared = |target: &Target, observation, ty| survives(target, observation, Some(ty), Some(bray_symbols::BorrowKind::Shared));
+        let active = |target: &Target, observation, ty, shared| survives(target, observation, Some(ty), Some(if shared { bray_symbols::BorrowKind::Shared } else { bray_symbols::BorrowKind::Mutable }));
+
 
         self.preserve_active_borrows(state, memory, &active, invalidation);
         self.preserve_shared_views(memory, &shared, invalidation);

@@ -178,7 +178,7 @@ impl Lowerer<'_> {
 
     fn default_callable_owner(
         selection: &bray_bound_tree::SelectedCall,
-        callable: bray_ir::MirCallableReference,
+        callable: MirCallableReference,
     ) -> bray_ir::MirDefaultOwner {
         bray_ir::MirDefaultOwner::Callable(bray_ir::MirCallableSelection::new(
             callable,
@@ -254,7 +254,7 @@ impl Lowerer<'_> {
                     expression,
                     block,
                     Self::retained_source(source),
-                    bray_ir::MirOperationKind::Borrow { kind, place },
+                    MirOperationKind::Borrow { kind, place },
                     ty,
                 )
             })
@@ -297,12 +297,13 @@ impl Lowerer<'_> {
             return Ok((block, MirOperand::Copy(place)));
         }
 
-        let block = if bray_bound_tree::storage_expression_republishes_destructor_receiver(
+        let block = if self.input.storage_plan().resolved_projections(decision.access()) == Some(&[])
+            && self.input.storage_plan().root_identity(decision.access()).is_some_and(|identity|
+                bray_bound_tree::storage_identity_is_destructor_receiver(
             self.input.unit(),
             self.input.storage_plan(),
-            expression,
-        )
-        .is_some()
+            identity,
+        ))
         {
             self.admit_outgoing_owner(expression, block, source, place.ty())?
         } else {
@@ -697,7 +698,7 @@ impl Lowerer<'_> {
                     None,
                 )?;
 
-                let projected = bray_ir::MirPlace::new(
+                let projected = MirPlace::new(
                     place.storage(),
                     place
                         .projections()

@@ -83,6 +83,29 @@ fn addressed_reference(
 }
 
 #[test]
+fn retained_address_bits_keep_their_targets_without_preserving_pointee_state() {
+    let ([pointer, referent, ..], origins) = places();
+    let mut state = State::default();
+    state.address(referent.clone(), pointer.clone(), error_type(), origins[0]);
+    let target = Target::storage(pointer.clone());
+    let reached = state.value_targets(&target).expect("stored address").to_vec();
+    assert!(state.initialized(&target, error_type()));
+    let invalidation = bray_bound_tree::StorageInvalidation::All {
+        stable_descriptors: Default::default(),
+        stable_values: [(pointer.clone(), bray_bound_tree::StorageObservationKind::Address)].into(),
+        stable_reference_slots: Default::default(),
+        normal_snapshots: Default::default(),
+    };
+    let storage = StoragePlanBuilder::new(pointer.root.unit(), BoundUnitKind::CallableBody).finish();
+
+    state.apply_effects(None, &invalidation, &storage);
+
+    assert_eq!(state.value_targets(&target).as_deref(), Some(reached.as_slice()));
+    assert!(!state.initialized(&target, error_type()), "retaining pointer bits does not retain reached data");
+    assert!(invalidation.invalidates_path(&pointer, &storage), "address survival does not shield arbitrary observations of its reachable state");
+}
+
+#[test]
 fn cleanup_retains_its_value_scope_and_follows_actual_contained_references() {
     use bray_symbols::DependencyMutationKind;
 

@@ -183,12 +183,14 @@ pub(crate) fn selected_call_condition(
         // inputs. A reference value must not become a different const-call key.
         let mut arguments = argument_values(budget);
 
-        if matches!(
-            call.implementation_hook(),
-            Some(Hook::SequenceLength | Hook::SequenceIsEmpty)
-        ) {
+        if observed_intrinsic {
+            let kind = if call.implementation_hook() == Some(Hook::RawPointerIsNull) {
+                crate::execution_guarantees::ExecutionDescriptorKind::Value
+            } else {
+                crate::execution_guarantees::ExecutionDescriptorKind::Reference
+            };
             for value in &mut arguments {
-                *value = value.descriptor();
+                *value = value.descriptor(kind);
             }
         }
 

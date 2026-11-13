@@ -330,39 +330,35 @@ impl ExecutionState {
         value: &ExecutionCondition,
     ) -> crate::execution_guarantees::AddressDependencies {
         let mut addresses = crate::execution_guarantees::AddressDependencies::new();
+        let mut pending = self.owned_values(value).collect::<Vec<_>>();
+        let mut observed = BTreeSet::new();
 
-        for value in self.owned_values(value) {
-            let mut carrier = value.owner_identity().clone();
+        while let Some(value) = pending.pop() {
+            // Input loans observe their current data without owning it. Old
+            // descriptor snapshots are not the values of cleared address fields.
+            let data = value.computed_value();
+            if !observed.insert(data.clone()) { continue; }
+            pending.extend(data.owned_components().cloned());
+        }
 
-            loop {
-                if let Some(witness) = self.witnesses.get(&carrier) {
-                    for (condition, guarantee) in &witness.conditions {
-                        if condition.prove_trusted(&self.trusted_assumptions, &self.assumptions)
-                            != Some(true)
-                        {
-                            continue;
-                        }
-
-                        for (address, owners) in &guarantee.addresses {
-                            if address.is_owned_projection_of(&value) {
-                                addresses
-                                    .entry(address.clone())
-                                    .or_default()
-                                    .extend(owners.iter().cloned());
-                            }
-                        }
+        for witness in self.witnesses.values() {
+            for (condition, guarantee) in &witness.conditions {
+                if condition.prove_trusted(&self.trusted_assumptions, &self.assumptions) != Some(true) {
+                    continue;
+                }
+                for (address, owners) in &guarantee.addresses {
+                    let Some((root, path)) = address.observation_path() else { continue; };
+                    let current = observed.iter().any(|data| {
+                        let Some((source, prefix)) = data.observation_path() else { return false; };
+                        if source != root || !path.starts_with(&prefix) { return false; }
+                        let actual = path[prefix.len()..].iter().fold(data.clone(), |value, field| value.component(*field))
+                            .into_referent();
+                        actual.descriptor_identity().observation_path() == Some((root.clone(), path.clone()))
+                    });
+                    if current {
+                        addresses.entry(address.clone()).or_default().extend(owners.iter().cloned());
                     }
                 }
-
-                carrier = match carrier {
-                    ExecutionCondition::Projection(_, parent) => parent.owner_identity().clone(),
-                    ExecutionCondition::Input(mut place) if !place.projections.is_empty() => {
-                        place.projections = place.projections[..place.projections.len() - 1].into();
-
-                        ExecutionCondition::Input(place)
-                    }
-                    _ => break,
-                };
             }
         }
 
@@ -1019,7 +1015,7 @@ mod tests {
         let access = ExecutionCondition::Trusted(Arc::new(address.clone()));
         let mut state = ExecutionState::default();
 
-        std::sync::Arc::make_mut(state.witnesses.entry(carrier).or_default())
+        Arc::make_mut(state.witnesses.entry(carrier).or_default())
             .conditions
             .entry(access.clone())
             .or_default()
@@ -1035,6 +1031,13 @@ mod tests {
         );
 
         assert!(state.address_dependencies(&input(3)).is_empty());
+        let field = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let object = ExecutionCondition::constructed(input(2), [(field, address.clone())].into());
+        let borrowed = object.clone().borrowed();
+        assert_eq!(state.address_dependencies(&borrowed), state.address_dependencies(&address));
+        assert!(state.owned_result(&borrowed).is_empty(), "an observed address bound grants no ownership");
+        let cleared = object.with_storage_component(&[field], ExecutionCondition::Boolean(false)).borrowed();
+        assert!(state.address_dependencies(&cleared).is_empty(), "the old field snapshot is no longer current");
         state.trusted_assumptions.clear();
         assert!(state.address_dependencies(&address).is_empty());
     }
@@ -1048,7 +1051,7 @@ mod tests {
 
         state.current.insert(owner.clone(), input(30));
 
-        std::sync::Arc::make_mut(state.witnesses.entry(pointer.clone()).or_default())
+        Arc::make_mut(state.witnesses.entry(pointer.clone()).or_default())
             .conditions
             .entry(access.clone())
             .or_default()
@@ -1087,7 +1090,7 @@ mod tests {
                 .get_mut(&carrier)
                 .expect("the complete carrier owns its clauses");
 
-            std::sync::Arc::make_mut(witness)
+            Arc::make_mut(witness)
                 .conditions
                 .get_mut(&access)
                 .expect("the access conjunct is retained")
@@ -1095,7 +1098,7 @@ mod tests {
                 .insert(input(2), BTreeSet::from([owner.clone()]));
 
             if whole_lifetime {
-                std::sync::Arc::make_mut(witness)
+                Arc::make_mut(witness)
                     .dependencies
                     .insert(owner.clone());
             }
@@ -1137,7 +1140,7 @@ mod tests {
             state.carry_guarantee(carrier.clone(), access.clone());
             access.clone().assume(true, &mut state.trusted_assumptions);
 
-            std::sync::Arc::make_mut(
+            Arc::make_mut(
                 state
                     .witnesses
                     .get_mut(&carrier)
@@ -1203,7 +1206,7 @@ mod tests {
         let owners = BTreeSet::from([ExecutionPlace::argument(SymbolOrdinal::new(30))]);
 
         let mut witness =
-            std::sync::Arc::new(crate::execution_guarantees::ExecutionWitness::default());
+            Arc::new(crate::execution_guarantees::ExecutionWitness::default());
 
         witness.carry(
             &condition,
@@ -1308,7 +1311,7 @@ mod tests {
             state.carry_guarantee(carrier.clone(), guarded.clone());
             guarded.clone().assume(true, &mut state.trusted_assumptions);
 
-            std::sync::Arc::make_mut(
+            Arc::make_mut(
                 state
                     .witnesses
                     .get_mut(&carrier)
@@ -1627,7 +1630,7 @@ mod tests {
 
         state.current.insert(owner.clone(), input(0));
 
-        std::sync::Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
+        Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
             .dependencies = BTreeSet::from([owner.clone()]);
 
         state.carry_guarantee(carrier.clone(), spatial.clone());
@@ -1718,10 +1721,10 @@ mod tests {
         state.current.insert(owner.clone(), input(0));
         state.current.insert(intermediate.clone(), input(1));
 
-        std::sync::Arc::make_mut(state.witnesses.entry(input(1)).or_default()).dependencies =
+        Arc::make_mut(state.witnesses.entry(input(1)).or_default()).dependencies =
             BTreeSet::from([owner.clone()]);
 
-        std::sync::Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
+        Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
             .dependencies = BTreeSet::from([intermediate]);
 
         state.carry_guarantee(carrier, spatial.clone());
@@ -1794,7 +1797,7 @@ mod tests {
         );
 
         // Retaining a value cannot extend the storage required by its witness.
-        std::sync::Arc::make_mut(state.witnesses.entry(child).or_default()).dependencies =
+        Arc::make_mut(state.witnesses.entry(child).or_default()).dependencies =
             BTreeSet::from([root.clone()]);
 
         state.invalidate_trusted_roots(&BTreeSet::from([root.root.clone()]));
@@ -1820,7 +1823,7 @@ mod tests {
 
             state.current.insert(dependency.clone(), input(ordinal));
 
-            std::sync::Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
+            Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
                 .dependencies = BTreeSet::from([dependency]);
 
             state.carry_guarantee(carrier.clone(), carrier.clone());
@@ -1832,7 +1835,7 @@ mod tests {
 
         state.current.insert(cycle.clone(), input(513));
 
-        std::sync::Arc::make_mut(state.witnesses.entry(input(1)).or_default()).dependencies =
+        Arc::make_mut(state.witnesses.entry(input(1)).or_default()).dependencies =
             BTreeSet::from([cycle]);
 
         state.carry_guarantee(independent.clone(), independent.clone());
@@ -1944,7 +1947,7 @@ mod tests {
                 .current
                 .insert(dependency.clone(), ExecutionCondition::Input(place));
 
-            std::sync::Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
+            Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
                 .dependencies = BTreeSet::from([dependency]);
 
             state.carry_guarantee(carrier.clone(), carrier.clone());
@@ -2139,5 +2142,4 @@ mod tests {
             assert_eq!(state.trusted_assumptions.contains(&(condition, true)), valid, "retirement must compare the established fact with the surviving owner");
         }
     }
-
 }

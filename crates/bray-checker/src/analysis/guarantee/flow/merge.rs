@@ -249,6 +249,15 @@ fn join_observations<'a>(
     for (place, joined) in &joined_values {
         if *joined == ExecutionCondition::Unknown { continue; }
 
+        let left_available = resolved_availability(target, place);
+        let right_available = resolved_availability(incoming, place);
+
+        // Retained terminal data does not publish another ownership layout for
+        // a value that may already have moved into a live result.
+        if left_available == ValueAvailability::Absent && right_available == ValueAvailability::Absent {
+            continue;
+        }
+
         let left = place
             .value_in(&target.current)
             .unwrap_or(ExecutionCondition::Unknown);
@@ -262,11 +271,15 @@ fn join_observations<'a>(
         {
             owned_results.insert(
                 joined.clone(),
-                super::witnesses::owned_alternatives(
+                if left_available == ValueAvailability::Absent {
+                    incoming.owned_result(&right)
+                } else if right_available == ValueAvailability::Absent {
+                    target.owned_result(&left)
+                } else { super::witnesses::owned_alternatives(
                     (target, &left),
                     (incoming, &right),
                     joined,
-                ),
+                ) },
             );
         }
     }
@@ -546,12 +559,6 @@ fn publish_owned_results(
     let mut changed = false;
 
     for (value, ownership) in owned_results {
-        if ownership.is_empty() {
-            changed |= target.owned_results.remove(&value).is_some();
-            incoming.to_mut().owned_results.remove(&value);
-            continue;
-        }
-
         changed |= target.owned_results.get(&value) != Some(&ownership);
 
         target
@@ -870,6 +877,34 @@ fn insert_replacement(
 #[cfg(test)]
 mod tests {
     use super::{BTreeMap, ExecutionCondition, ExecutionState, current_replacements};
+
+    #[test]
+    fn absent_slots_cannot_erase_a_transferred_values_owner_layout() {
+        use super::super::super::current::{CurrentValue, ValueAvailability};
+        use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation, SymbolOrdinal};
+
+        let place = crate::ExecutionPlace::argument(SymbolOrdinal::new(1));
+        let value = ExecutionCondition::Input(crate::ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let layout = DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(value.clone(), [])
+            .with_preservation(DependencyValuePreservation::all()));
+
+        for availability in [ValueAvailability::Absent, ValueAvailability::Present] {
+            let mut left = ExecutionState::default();
+            let mut right = ExecutionState::default();
+            for state in [&mut left, &mut right] {
+                state.owned_results.insert(value.clone(), layout.clone());
+            }
+            left.current.set_slot(place.clone(), CurrentValue {
+                value: ExecutionCondition::Unknown,
+                availability: ValueAvailability::Absent,
+            });
+            right.current.set_slot(place.clone(), CurrentValue { value: value.clone(), availability });
+
+            let mut joined = Some(left);
+            super::merge(&mut joined, &Some(right), super::ExecutionJoin::Boundary);
+            assert_eq!(joined.expect("reachable join").owned_result(&value), layout);
+        }
+    }
 
     #[test]
     fn joining_loan_postconditions_preserves_implicit_field_snapshots() {

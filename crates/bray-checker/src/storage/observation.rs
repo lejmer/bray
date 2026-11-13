@@ -86,7 +86,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
 
     let mut shape = Shape {
         observations: vec![(Vec::new(), observation)],
-        complete_value: scalar && !reference,
+        complete_value: (scalar || role == RepresentationRole::FunctionPointer) && !reference,
         inline_only: scalar,
         complete_references: scalar || matches!(observation, Observation::Address),
         inline_carriers: (scalar || matches!(observation, Observation::Address))
@@ -348,6 +348,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     let Some(StorageInvalidation::Observed {
         accesses,
         stable_descriptors,
+        stable_values,
         ..
     }) = &mut footprint.atomic
     else {
@@ -548,14 +549,14 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                     }
                     Observation::Value | Observation::Address => {
                         if *observation == Observation::Address {
-                            stable_descriptors.insert(path.clone());
+                            observation.record_preservation(path.clone(), stable_descriptors, stable_values);
                         }
 
                         if let Some((reference, kind, ty)) = borrowed {
                             footprint.borrowed_observations.entry(reference)
                                 .or_insert_with(|| (kind, ty, Vec::new()))
                                 .2.push((path.clone(), *observation));
-                        } else if identity.is_invocation_owned(storage.kind()) && *observation == Observation::Value {
+                        } else if identity.is_invocation_owned(storage.kind()) {
                             footprint.owned_observations.entry(root).or_default().push((path.clone(), *observation));
                         }
 
@@ -721,8 +722,6 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         _ => None,
     };
 
-    let nominal = matches!(data.as_ref(), TypeData::Named { .. }) && role.is_none();
-
     if let Some(role) = role.filter(|role| {
         !matches!(
             role,
@@ -860,7 +859,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         _ => return Ok(Shape::unknown()),
     };
 
-    let mut result = Vec::new();
+    let mut result = vec![(Vec::new(), Observation::Identity)];
 
     if definition.is_some() && let Some(carriers) = &mut inline_carriers {
         carriers.insert(ty);
@@ -889,17 +888,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     for (field, ty) in fields {
         let shape = paths(request, ty, visiting, complete_reference_types)?;
 
-        // A nominal carrier retains inline addresses and code entries. Their
-        // pointees and providers remain governed by the carried dependency contract.
-        let address = nominal
-            && (crate::representation::reference_kind(request, ty)
-                == Some(bray_symbols::DependencyReferenceKind::Address)
-                || matches!(
-                    request.semantic_values().type_data(ty).as_ref(),
-                    TypeData::Callable(_)
-                ));
-
-        complete_value &= shape.complete_value || address;
+        complete_value &= shape.complete_value;
         inline_only &= shape.inline_only && shape.is_reference_free();
         complete_references &= shape.complete_references;
 
@@ -977,7 +966,7 @@ pub(crate) fn restrict(
                 let mut accesses = frame_paths.clone();
 
                 accesses.retain(|_, paths| {
-                    paths.retain(|path| !stable_values.iter().any(|(stable, kind)| *kind != Observation::Discriminant && stable.contains(path)));
+                    paths.retain(|path| !stable_values.iter().any(|(stable, kind)| kind.is_immutable_inline() && stable.contains(path)));
 
                     !paths.is_empty()
                 });

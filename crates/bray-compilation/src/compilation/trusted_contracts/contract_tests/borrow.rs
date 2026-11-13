@@ -75,7 +75,12 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 }}
             }}
             trusted predicate held(marker: &Marker);
-            extern trusted func pointer(pos owner: &Owner) -> DataPointer<{pointee}>
+            @abi(c)
+            @link(name = "native")
+            @symbol(name = "pointer")
+            extern trusted func native_pointer(pos owner: DataPointer<Owner>) -> DataPointer<{pointee}>
+                executes(pure, total) uses(foreign_call);
+            trusted func pointer(pos owner: &Owner) -> DataPointer<{pointee}>
                 requires(trusted held(&owner.marker))
                 ensures(
                     trusted held(&owner.marker),
@@ -84,19 +89,25 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                     trusted core.memory.initialized_as<{pointee}>(pointer = result),
                     trusted core.memory.aligned_for<{pointee}>(pointer = result)
                 )
-                executes(pure, total);
+                executes(pure, total) uses(foreign_call)
+            {{
+                return trusted native_pointer(core.memory.address_of<Owner>(owner));
+            }}
             trusted predicate known_address(address: usize);
+            @abi(c)
+            @link(name = "native")
+            @symbol(name = "external_pointer")
             extern trusted func external_pointer() -> DataPointer<{pointee}>
                 ensures(
                     trusted core.memory.valid_write<{pointee}>(pointer = result, count = 1),
                     trusted core.memory.valid_read<{pointee}>(pointer = result, count = 1),
                     trusted core.memory.initialized_as<{pointee}>(pointer = result),
                     trusted core.memory.aligned_for<{pointee}>(pointer = result)
-                ) executes(pure, total);
+                ) executes(pure, total) uses(foreign_call);
             trusted func transfer_external()
-                uses({capabilities})
+                uses(foreign_call, {capabilities})
             {{
-                let destination = external_pointer();
+                let destination = trusted external_pointer();
                 {operation}
             }}
             trusted func transfer_unresolved(pos address: usize)
@@ -126,7 +137,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 requires(trusted held(&owner.marker))
                 uses({capabilities})
             {{
-                let destination = pointer(owner);
+                let destination = trusted pointer(owner);
                 {operation}
             }}
             trusted func forward_transfer(pos owner: &Owner)
@@ -148,14 +159,14 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             {{
                 {expose}
                 let borrowed = {borrowed};
-                let destination = pointer(borrowed);
+                let destination = trusted pointer(borrowed);
                 {invoke}
                 observe(borrowed);
             }}
             "#
             );
 
-            let application = compilation(&source);
+            let application = super::fixtures::foreign_compilation(&source);
             let diagnostics = application.check_diagnostics();
 
             if diagnostics.has_errors() == valid {

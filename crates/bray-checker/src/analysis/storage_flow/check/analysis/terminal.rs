@@ -192,7 +192,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.input.terminal_dependencies
                     && !state.fully_moved.contains(&receiver.root)
                     && slot.observation_path().is_none_or(|path| {
-                        !self.input.opaque_values.get(&path).is_some_and(|kind| *kind != bray_bound_tree::StorageObservationKind::Discriminant)
+                        !self.input.opaque_values.get(&path).is_some_and(|kind| kind.is_immutable_inline())
                             && !state
                                 .definitely_absent
                                 .keys()

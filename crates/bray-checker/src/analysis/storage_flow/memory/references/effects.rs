@@ -9,20 +9,21 @@ impl State {
     ) -> bool {
         if invalidation.preserves_reference_slot(target) { return true; }
 
-        let descriptors = match invalidation {
+        let (descriptors, values) = match invalidation {
             StorageInvalidation::All {
-                stable_descriptors, ..
+                stable_descriptors, stable_values, ..
             }
             | StorageInvalidation::Observed {
-                stable_descriptors, ..
-            } => stable_descriptors,
+                stable_descriptors, stable_values, ..
+            } => (stable_descriptors, stable_values),
             StorageInvalidation::Paths(_) => return false,
         };
 
         // A retained whole descriptor protects its inline reference values. It does
         // not protect the storage reached through those references or owned backing.
         target.observation_path().is_some_and(|slot| {
-            descriptors.contains(&slot) || !slot
+            values.get(&slot) == Some(&bray_bound_tree::StorageObservationKind::Address)
+                || descriptors.contains(&slot) || !slot
                 .projections
                 .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
                 && descriptors.contains(&Place::root(slot.root))
@@ -42,6 +43,17 @@ impl State {
         // The target is the disposed value, not each differently typed referent.
         // Consumers follow its stored references while the value is still live.
         vec![Effect::Mutation(receiver.clone(), kind, Some(ty))]
+    }
+
+    /// Normal ambient effects share external roots and this call's escaped inputs.
+    /// A whole invocation escape has no finite reachability bound.
+    pub(in crate::analysis::storage_flow) fn ambient_regions(&self, effects: &[Effect]) -> Option<std::collections::BTreeSet<Target>> {
+        if effects.contains(&Effect::Escape) { return None; }
+        let escaped = effects.iter().filter_map(|effect| match effect {
+            Effect::Mutation(target, DependencyMutationKind::Escape, _) => Some(target.clone()),
+            _ => None,
+        });
+        Some(self.reachable_targets(self.escaped_regions(escaped)))
     }
 
     pub(in crate::analysis::storage_flow) fn apply_effects(
@@ -82,23 +94,7 @@ impl State {
                         _ => DependencyMutationKind::Retire,
                     };
 
-                    if effects.contains(&Effect::Escape) {
-                        // Opaque calls can reach every invocation input, including delayed escapes.
-                        self.invalidate(
-                            invalidation,
-                            storage,
-                            kind,
-                        );
-                    } else {
-                        let escaped = effects.iter().filter_map(|effect| match effect {
-                            Effect::Mutation(target, DependencyMutationKind::Escape, _) => {
-                                Some(target.clone())
-                            }
-                            _ => None,
-                        });
-
-                        let targets = self.reachable_targets(self.escaped_regions(escaped));
-
+                    if let Some(targets) = self.ambient_regions(effects) {
                         for target in targets {
                             self.invalidate_target(
                                 &target,
@@ -107,6 +103,8 @@ impl State {
                                 false,
                             );
                         }
+                    } else {
+                        self.invalidate(invalidation, storage, kind);
                     }
                 }
                 effect if effect.is_atomic() => self.invalidate(

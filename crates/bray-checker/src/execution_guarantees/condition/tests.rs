@@ -1062,3 +1062,55 @@ fn carrier_implication_preserves_trusted_provenance_through_negated_guards() {
 
     assert!(!unresolved.implies(&unresolved));
 }
+
+#[test]
+fn boolean_publication_forgets_local_atoms_under_both_polarities() {
+    use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalNot, LogicalOr};
+    let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+    let left = input(0);
+    let right = input(1);
+    let local = ExecutionCondition::InitializedSnapshot(ExecutionPlace::argument(SymbolOrdinal::new(2)),
+        Arc::new(ExecutionCondition::Boolean(true)), Arc::new(input(2)));
+    let not = |condition| ExecutionCondition::operation(LogicalNot, vec![condition]);
+    let and = |left, right| ExecutionCondition::operation(LogicalAnd, vec![left, right]);
+    let or = |left, right| ExecutionCondition::operation(LogicalOr, vec![left, right]);
+    let relation = or(and(left.clone(), local.clone()), and(right.clone(), not(local.clone())));
+    let retain = |condition: &ExecutionCondition| matches!(condition, ExecutionCondition::Input(_)).then(|| condition.clone());
+
+    for (condition, holds, expected) in [
+        (relation.clone(), true, or(left.clone(), right.clone())),
+        (relation.clone(), false, ExecutionCondition::Boolean(true)),
+        (not(relation.clone()), true, ExecutionCondition::Boolean(true)),
+        (not(relation), false, or(left.clone(), right.clone())),
+        (or(left.clone(), local.clone()), true, ExecutionCondition::Boolean(true)),
+        (and(left.clone(), local.clone()), false, ExecutionCondition::Boolean(true)),
+        (local.clone(), true, ExecutionCondition::Boolean(true)),
+        (not(local.clone()), true, ExecutionCondition::Boolean(true)),
+    ] {
+        let projected = condition.boolean_consequence(holds, &mut { retain }, &mut { ExecutionCondition::WORK_LIMIT });
+        assert_eq!(projected, expected);
+        let premise = if holds { condition } else { not(condition) };
+        assert!(premise.implies(&projected), "{premise:?} must imply {projected:?}");
+        assert_eq!(projected.prove_trusted(&BTreeSet::new(), &BTreeSet::from([(premise, true)])), Some(true));
+    }
+
+    assert_eq!(left.boolean_consequence(true, &mut { retain }, &mut 0), ExecutionCondition::Boolean(true));
+}
+
+#[test]
+fn boolean_publication_bounds_unique_terms_instead_of_repeated_occurrences() {
+    use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalOr};
+    let atom = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let local = ExecutionCondition::InitializedSnapshot(ExecutionPlace::argument(SymbolOrdinal::new(1)),
+        Arc::new(ExecutionCondition::Boolean(true)), Arc::new(atom.clone()));
+    let mut relation = ExecutionCondition::Operation(LogicalAnd, vec![atom.clone(), local].into());
+    for index in 0..10 {
+        relation = ExecutionCondition::Operation(if index % 2 == 0 { LogicalOr } else { LogicalAnd },
+            vec![relation.clone(), relation].into());
+    }
+    let mut budget = ExecutionCondition::WORK_LIMIT;
+    let projected = relation.boolean_consequence(true, &mut |condition|
+        matches!(condition, ExecutionCondition::Input(_)).then(|| condition.clone()), &mut budget);
+    assert!(budget > 0, "repeated subformulas cannot exhaust the unique-term bound");
+    assert_eq!(projected, atom, "forgetting the local conjunct retains the portable consequence");
+}
