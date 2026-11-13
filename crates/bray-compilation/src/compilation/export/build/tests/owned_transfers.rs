@@ -840,6 +840,64 @@ fn normal_result_shapes_keep_empty_exits_without_reusing_replaced_entry_tags() {
     }
 }
 
+#[test]
+fn two_input_owner_selection_keeps_only_the_selected_witness() {
+    let declarations = r#"
+        trusted module api;
+        struct Marker {}
+        struct Box<T> { value: T; }
+        trusted predicate held(owner: &Marker);
+        trusted func make() -> Marker ensures(trusted held(&result)) { return Marker {}; }
+        func inspect(pos value: &Marker) requires(trusted held(value)) {}
+        func select<T>(pos left: T, pos right: T, pos take: bool) -> T
+        { return if take { yield left; } else { yield right; }; }
+        func nested<T>(pos left: T, pos right: T, pos take: bool) -> Box<T>
+        { return { value = select<T>(left, right, take) }; }
+    "#;
+    let provider = compilation(declarations);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+    let mut failures = Vec::new();
+    for (call, projection, valid) in [
+        ("api.select<api.Marker>(api.make(), api.make(), take)", "", true),
+        ("api.select<api.Marker>(api.make(), api.Marker {}, true)", "", true),
+        ("api.select<api.Marker>(api.Marker {}, api.make(), false)", "", true),
+        ("api.select<api.Marker>(api.make(), api.Marker {}, false)", "", false),
+        ("api.select<api.Marker>(api.Marker {}, api.make(), true)", "", false),
+        ("api.select<api.Marker>(api.Marker {}, api.Marker {}, take)", "", false),
+        ("api.nested<api.Marker>(api.make(), api.make(), take)", ".value", true),
+        ("api.nested<api.Marker>(api.make(), api.Marker {}, false)", ".value", false),
+    ] {
+        let source = format!(r#"
+            module app;
+            using api;
+            func caller(pos take: bool) {{ let result = {call}; api.inspect(&result{projection}); }}
+        "#);
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else { compilation_from_sources([declarations, source.as_str()]) };
+            let diagnostics = consumer.check_diagnostics();
+            if diagnostics.has_errors() == valid {
+                failures.push(format!("{call}, imported={imported}, valid={valid}: {}", super::fixtures::diagnostic_messages(diagnostics)));
+            } else if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+    let values = provider.semantic_value_store().expect("provider semantic values");
+    let expected = [0, 1].map(|ordinal| values.intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(
+        bray_symbols::SymbolOrdinal::new(ordinal))).expect("formal selection input")).into_iter().collect::<std::collections::BTreeSet<_>>();
+    for name in ["select", "nested"] {
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
+        let actual = summary.owned_result().transfers().map(|transfer| transfer.input()).collect::<std::collections::BTreeSet<_>>();
+        if actual != expected || !summary.owned_result().guaranteed_transfers().is_empty() {
+            failures.push(format!("{name} must retain both possible inputs without unconditionally selecting either: {:?}", summary.owned_result()));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 fn check_owned_transfers(imported: bool) {
     let provider = compilation(API);
 

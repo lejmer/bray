@@ -515,7 +515,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             descriptor_paths.iter().map(|(place, path)| (place, path.projections.as_ref())),
             values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind)));
 
-        let current = state.current.iter().map(|(place, value)| (place.clone(), value.clone())).collect::<Vec<_>>();
+        let current = state.current.iter().filter_map(|(place, _)| {
+            value_for_invalidation(state, place).map(|value| (place.clone(), value))
+        }).collect::<Vec<_>>();
 
         for (place, source) in current {
             let mut mask = masks.remove(&place).unwrap_or_default();
@@ -689,6 +691,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .iter()
                 .filter(|place| !descriptor_paths.contains_key(*place))
                 .filter_map(|place| {
+                    let value = value_for_invalidation(state, place)?;
                     if self.observed_types.get(place).copied().flatten()
                         .and_then(|ty| crate::representation::type_representation(self.request, ty))
                         .is_some_and(crate::representation::is_scalar_value)
@@ -700,7 +703,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         return None;
                     }
 
-                    place.value_in(&state.current)
+                    Some(value)
                 })
                 .collect()
         };
@@ -726,6 +729,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut updates = BTreeMap::new();
 
         for place in changed_places {
+            if value_for_invalidation(state, &place).is_none() { continue; }
             let mut root = place.clone();
 
             root.projections = [].into();
@@ -933,6 +937,69 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 *previous = value;
             }
+        }
+    }
+}
+
+/// Definite absence retains terminal data, not another object that an effect can update.
+fn value_for_invalidation(state: &ExecutionState, place: &crate::ExecutionPlace) -> Option<ExecutionCondition> {
+    if super::merge::resolved_availability(state, place) == super::super::current::ValueAvailability::Absent {
+        None
+    } else { place.value_in(&state.current) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::preservation::ValuePreservation;
+    use crate::analysis::guarantee::current::{CurrentValue, ValueAvailability};
+    use crate::{ExecutionCondition, ExecutionPlace};
+    use bray_bound_tree::{BoundUnitId, StorageMutation, StorageProjection};
+    use bray_symbols::{DependencyOwnedResult as Layout, DependencyOwnedTransfer as Transfer, DependencyValuePreservation as Preservation, SymbolOrdinal};
+
+    #[test]
+    fn absent_sources_cannot_overwrite_live_return_ownership_during_invalidation() {
+        let (_, expressions) = crate::test_support::expression_unit(BoundUnitId::new(0), |tree, origin| {
+            (0..2).map(|_| crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))).collect()
+        });
+        let place = |ordinal| ExecutionPlace::argument(SymbolOrdinal::new(ordinal));
+        let left = ExecutionCondition::Input(place(3));
+        let right = ExecutionCondition::Input(place(4));
+        let owner = ExecutionCondition::Expression(expressions[0]);
+        let current = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::Unknown);
+        let unknown = ExecutionCondition::Input(place(5));
+        let guard = ExecutionCondition::Input(place(6));
+        let transfer = |input| Layout::Transfer(Transfer::new(input, []).with_preservation(Preservation::all()));
+        let mutation = StorageMutation::Operation(expressions[1].into());
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+
+        for absent in [ValueAvailability::Absent, ValueAvailability::Guarded(guard.clone())] {
+            let mut state = ExecutionState::default();
+            guard.clone().assume(false, &mut state.assumptions);
+            state.assign(place(0), current.clone(), None);
+            state.current.set_slot(place(1), CurrentValue { value: owner.clone(), availability: absent });
+            state.current.set_slot(place(2), CurrentValue { value: unknown.clone(), availability: ValueAvailability::Unknown });
+            let child = place(2).project(&[field]).expect("tuple child");
+            state.current.retire(&child);
+            state.owned_results.insert(current.clone(), transfer(right.clone()));
+            state.owned_results.insert(owner.clone(), transfer(left.clone()));
+            state.owned_results.insert(unknown.clone(), transfer(unknown.clone()));
+
+            assert!(value_for_invalidation(&state, &place(2)).is_some(), "unknown storage remains a possible mutation target");
+            assert!(value_for_invalidation(&state, &child).is_none(), "an absent child does not suppress its remaining root");
+            let values = state.current.iter().filter_map(|(place,_)|
+                value_for_invalidation(&state, place).map(|value| (place.clone(),value))).collect::<Vec<_>>();
+            for (place,value) in values {
+                let next = ValuePreservation::default().frame(&mut state, &value, &[], Some(&place), mutation);
+                state.observe(place, next, None);
+            }
+            let result = place(0).value_in(&state.current).expect("live return");
+            let layout = state.owned_result(&result);
+            let actual = layout.guaranteed_transfers().into_iter().collect::<Vec<_>>();
+            assert_eq!(actual.len(), 1);
+            assert_eq!(actual[0].input(), right, "the terminal source cannot replace the live return's input");
+            assert_eq!(place(1).value_in(&state.current), Some(owner.clone()), "terminal data remains readable and unchanged");
+            assert_ne!(place(2).value_in(&state.current), Some(unknown.clone()), "unknown availability cannot freeze contents");
         }
     }
 }
