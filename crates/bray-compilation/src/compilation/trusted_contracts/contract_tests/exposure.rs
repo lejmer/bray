@@ -57,7 +57,9 @@ fn rewritten_raw_pointer_fields_publish_opaque_output_identities() {
 
 #[test]
 fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
+    for transport in [false, true] {
     for (mutation, valid) in [("", true), ("carrier.payload.value = 1;", false)] {
+        let acquire = if transport { "forward(forward(make(&mut payload)))" } else { "make(&mut payload)" };
         let source = format!(
             r#"
             trusted module app;
@@ -69,6 +71,7 @@ fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
             {{
                 payload: &mut Payload;
             }}
+            func forward<T>(pos value: T) -> T {{ return value; }}
             trusted predicate live(carrier: &Carrier);
             trusted func make(pos payload: &mut Payload) -> Carrier
                 ensures(trusted live(&result)) executes(pure, total)
@@ -83,7 +86,7 @@ fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
             func caller()
             {{
                 let mut payload: Payload = {{ value = 0 }};
-                let mut carrier = make(&mut payload);
+                let mut carrier = {acquire};
                 {mutation}
                 observe(&carrier);
             }}
@@ -106,6 +109,7 @@ fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
             );
         }
     }
+}
 }
 
 #[test]

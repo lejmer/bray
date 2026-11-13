@@ -261,6 +261,48 @@ mod tests {
     use bray_symbols::SymbolOrdinal;
 
     #[test]
+    fn anonymous_nullable_wrappers_and_payloads_retain_their_recorded_layout() {
+        use bray_bound_tree::StorageObservationKind as Kind;
+        use bray_symbols::{DependencyOwnedResult as Layout, DependencyOwnedTransfer as Transfer, DependencyValuePreservation as Mask};
+        use super::super::super::state::ExecutionState;
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let input = ExecutionCondition::Input(place.clone());
+        let layout = Layout::Transfer(Transfer::new(input.clone(), []).with_preservation(Mask::all()));
+        let source = ExecutionCondition::Present(std::sync::Arc::new(input.clone()));
+        let mut state = ExecutionState::default();
+        state.owned_results.insert(input.clone(), layout.clone());
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            vec![push_expression(tree, integer_literal_expression(origin, None))]
+        });
+        let observations: [(std::sync::Arc<[StorageProjection]>, Kind); 3] = [
+            (std::sync::Arc::from([]), Kind::Discriminant),
+            (std::sync::Arc::from([StorageProjection::NullableValue]), Kind::Identity),
+            (std::sync::Arc::from([StorageProjection::NullableValue]), Kind::InlineBits),
+        ];
+        let mut mask = ValuePreservation::returned(&Mask::all(), &observations);
+        let framed = mask.frame(&mut state, &source, &[], Some(&place), StorageMutation::Operation(sites[0].into()));
+        assert_eq!(framed.ownership_identity(), None,
+            "the nullable wrapper has no independent owner after framing its opaque payload");
+        let whole = state.owned_result(&framed);
+        let transfers = whole.transfers().collect::<Vec<_>>();
+        assert_eq!(transfers.len(), 1);
+        assert_eq!(transfers[0].input(), input);
+        assert_eq!(transfers[0].output(), &[StorageProjection::NullableValue]);
+        assert_eq!(transfers[0].preservation(), &Mask::all());
+        let payload = framed.clone().project(StorageProjection::NullableValue);
+        assert_eq!(state.owned_result(&payload), layout,
+            "payload selection projects the same recorded wrapper layout");
+        state.owned_results.insert(framed.clone(), Layout::default());
+        assert!(state.owned_result(&framed).is_empty());
+        assert!(state.owned_result(&payload).is_empty(),
+            "an explicit no-transfer wrapper cannot recover an earlier payload mapping");
+        let borrowed = input.borrowed();
+        state.owned_results.insert(borrowed.clone(), layout);
+        assert!(state.owned_result(&borrowed).is_empty());
+        assert!(state.owned_result(&ExecutionCondition::Unknown).is_empty());
+    }
+
+    #[test]
     fn repeated_identity_returns_keep_current_data_and_finite_snapshots() {
         use bray_symbols::DependencyValuePreservation as Mask;
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));

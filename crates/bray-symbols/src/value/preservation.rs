@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-/// Contents preserved by an identity transfer, with overrides for child subtrees.
+/// Ordinary inline data and descriptors preserved by an identity transfer, with child overrides.
+/// Actual-type replay keeps protected and reached contents separate.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyValuePreservation<Projection> {
     preserved: bool,
@@ -40,7 +41,7 @@ impl<Projection> Default for DependencyValuePreservation<Projection> {
 }
 
 impl<Projection> DependencyValuePreservation<Projection> {
-    /// Records preservation of every value in the subtree.
+    /// Records preservation of ordinary inline data and descriptors throughout the subtree.
     pub fn all() -> Self {
         Self { preserved: true, children: BTreeMap::new() }
     }
