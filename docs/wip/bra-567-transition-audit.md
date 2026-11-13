@@ -14,19 +14,18 @@ Frozen30 membership is target/audit/comparison.txt minus verification.json compa
 correction-frozen30.json. Map relocated namespaces or deliberate renames only. Count tests separately from matrix rows.
 Fixed920 membership is907 comparison.txt names plus13 verification.json comparison_added keys.
 
-The current checkpoint is incomplete. Fresh uninstrumented binary2FA7C156 passes22 bounded compilation tests,
-fails4 and ignores2 tier:proof tests. Both owned matrices execute248 rows with43 failed positive rows each and zero
-invalid-negative acceptances. Deferred wrappers fail in the provider's formal_tuple.value.0 and formal_array[1] after
-cancel/join. The passing controls include guarded borrowed fields, Slot, async composition and19 cleanup tests. The
-ignored controls are generic_cleanup_effects_specialize_through_forwarding and
-recursive_cleanup_effects_do_not_grow_with_generic_wrappers. Execute them explicitly before claiming their coverage.
+The current identity batch is verified on uninstrumented compilation binaryA058651C.
+The live-return/absent-source collision control passes, including guarded absence, Unknown mutation and partial child
+availability. The existing open-T choose/current-exit-tag source/import oracle passes. The16case select/nested oracle
+executes all source/import rows: both exported possible-input assertions pass,8 positive held requirements still fail
+and8 selected fabricated-owner negatives retain the expected diagnostic. This is2 passing tests and1 failing test,
+not16 independent tests. correction-identity-current.json records exact source/binary identity and current failures.
 
-The same source passes both Boolean publication controls and the faithful source/import result-shape oracle, including
-open-T acquired/fabricated choose, no-transfer empty and replaced-entry negative. correction-shape-current.json and
-correction-cleanup-current.json retain exact binary/source identities and current outcomes. Current tracked source diff
-hash is FFEEEB68A11D968D3A887234D59B9EFDF5E063B3C12C705B14A96855884C216C. The selector module's separate hash is in both
-manifests. correction-cleanup-failures.log contains only current actionable leaves. Frozen30 and fixed920 need fresh
-verification after the remaining family and payload repair. No temporary tracing or test filters remain.
+The implementation now preserves selected input identity; shallow generic contents preservation remains unresolved.
+Four required source/import deferred/owned wrappers, exact30, fixed920 and all final gates need fresh verification after
+that repair. correction-cleanup-current.json retains only that fixed bounded scope, without obsolete outcomes. The two
+proof-tier cleanup controls must run with --ignored. No temporary tracing or fixture filter remains. Checkpoint progress
+is pushed to the existing feature branch, and work continues without a mergeability claim.
 
 ## Behavioral contracts implemented
 
@@ -75,12 +74,28 @@ exact Direct Parameter0 OwnedTarget Retire with no Unknown. Reverify this reache
 
 ## Remaining contract boundaries
 
-Use minimal faithful cases before another matrix run. One-input open-T choose now passes. Nested/composed conditional
-returns and two-input selection still fail. Inspect exact provider layout, published guard and consumer witness rebase
-at the first loss. Existing strict ownership-guard transport still maps complete clauses, unlike the new exit-fact path.
-Do not infer that it is the cause without decoded evidence. Deferred formal tuple/array loses a nested required marker
-through start, cancel/join and the resulting branch join. Trace capture, result mapping and logical authority separately.
-No caller preservation exception, partial-root traversal model or budget increase is justified by current evidence.
+The small two-input oracle executes8 rows in source/import modes: unknown choice with both acquired witnesses,
+known choice selecting a real witness, selected fabricated-owner negatives and the equivalent nested wrapper. Its8
+positive source/import rows fail and its8 negatives retain the expected trusted-obligation diagnostic. Decoded select<T>
+incorrectly publishes unconditional Input0 and false contents preservation, including when Input1 is selected.
+The initial CFG join is correct: Case(take,Input0 preserved)/Case(!take,Input1 preserved). Raw normal-return collection
+already has Input0 in both Cases with false preservation. Common-transfer reconstruction faithfully consumes that
+corrupt layout, so no change to it is justified.
+
+The first corruption is established at invalidation. Callable result s0 is Present before cleanup and moved source s4
+is Absent, sharing J but retaining different snapshot layouts. Live s0 frames selected Input1 into Owned(J,PostState),
+then absent s4 frames a stale Input0 layout into the exact same next key and overwrites it. Boundary publication then
+faithfully retains the wrong input. The repair gives all3 invalidation readers one private value reader using existing
+resolved_availability. Only definite Absent is excluded. Unknown still changes, and partial-root/component policy remains
+unchanged. The live result continues to frame genuine effects. This removes the three unconditional terminal reads
+without a new value representation or pending-return mechanism.
+
+The semantic control uses a live return and an absent moved source sharing identity but different layouts, covers
+literal and proven guarded absence, and checks Unknown mutation plus an absent child under a still-possible root.
+The existing16case source/import oracle exercises actual invalidation callers. The uninstrumented collision and exported-input controls pass. The consumed probe is removed. False physical preservation on the live open-T result is separate: determine
+whether its Value observation is absent or whether joined MAY reachability overlaps it. Compare specialized Marker
+effects at the caller before changing policy. No preservation exception is added. Deferred formal tuple/array still
+loses its nested required marker through start/cancel/join and remains in scope.
 
 RawBuffer Push still installs no stored metadata and exit publication excludes allocation payload slots. Close the
 producer/export/import/staged replay contract before schema edits. Whole-value source edges belong inside the existing
