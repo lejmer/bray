@@ -194,6 +194,11 @@ pub(crate) fn production_fixture(
         compilation
     });
 
+    with_fixture_caller(baseline, caller)
+}
+
+/// Revise the caller while retaining the fixture's unchanged source inputs.
+pub(crate) fn with_fixture_caller(baseline: &Compilation, caller: &str) -> Compilation {
     if caller == "module app;" {
         // Identical requests share completed query values, including production proofs.
         return baseline.clone();

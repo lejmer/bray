@@ -293,12 +293,12 @@ const API: &str = r"
 
     func factory() -> [Receipt?; 2]
     {
-        return[make(), make()];
+        return [make(), make()];
     }
 
     func marker_factory() -> [Marker; 2]
     {
-        return[make_marker(), make_marker()];
+        return [make_marker(), make_marker()];
     }
 
     func conditional_factory(pos take: bool) -> [Marker?; 2]
@@ -314,7 +314,7 @@ const API: &str = r"
 
         let other: Marker? = make_marker();
 
-        return[value, other];
+        return [value, other];
     }
 
     struct Resource
@@ -950,15 +950,7 @@ fn conditional_payloads_preserve_only_the_selected_owner() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-fn check_owned_transfers(imported: bool) {
-    let provider = compilation(API);
-
-    assert!(
-        !provider.check_diagnostics().has_errors(),
-        "{:#?}",
-        provider.check_diagnostics()
-    );
-
+fn owned_cases() -> Vec<(String, String, bool)> {
     let cases = [
         (
             "deferred",
@@ -1038,18 +1030,12 @@ fn check_owned_transfers(imported: bool) {
         ),
     ];
 
-    let mut failures = Vec::new();
-    let mut checked = 0;
+    let mut all = Vec::new();
 
     for (name, body) in cases {
         for valid in [true, false] {
-            let body = body.replace("INPUT", if valid { "api.make()" } else { "none" });
-
-            checked += 1;
-
-            if let Some(failure) = check(&provider, imported, name, &body, valid) {
-                failures.push(failure);
-            }
+            all.push((format!("{name}_{}", if valid { "valid" } else { "invalid" }),
+                body.replace("INPUT", if valid { "api.make()" } else { "none" }), valid));
         }
     }
 
@@ -2159,14 +2145,10 @@ fn check_owned_transfers(imported: bool) {
             true,
         ),
     ] {
-        checked += 1;
-
-        if let Some(failure) = check(&provider, imported, name, body, valid) {
-            failures.push(failure);
-        }
+        all.push((name.to_owned(), body.to_owned(), valid));
     }
 
-    assert!(failures.is_empty(), "owned cases completed: imported={imported}, count={checked}\n{}", failures.join("\n"));
+    all
 }
 
 fn check(
@@ -2203,10 +2185,13 @@ fn check(
                 .replace("api.", "example.package.api."),
         )
     } else {
-        compilation_from_sources([API, &source])
+        crate::test_support::with_fixture_caller(provider, &source)
     };
 
-    let diagnostics = consumer.check_diagnostics();
+    let checked = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, "caller"))
+            .expect("matrix caller must lower");
+
+    let diagnostics = checked.diagnostics();
 
     if diagnostics.has_errors() == valid {
         return Some(format!(
@@ -2230,14 +2215,279 @@ fn check(
     None
 }
 
-#[test]
-fn source_owned_transfers_preserve_complete_carriers_and_dependencies() {
-    check_owned_transfers(false);
+fn check_matrix_catalogue(names: &[&str]) {
+    assert_eq!(owned_cases().iter().map(|case| case.0.to_ascii_lowercase()).collect::<Vec<_>>(), names);
 }
 
-#[test]
-fn imported_owned_transfers_preserve_complete_carriers_and_dependencies() {
-    check_owned_transfers(true);
+fn check_matrix_case(imported: bool, index: usize, expected: &str) {
+    static PROVIDER: std::sync::LazyLock<crate::Compilation> = std::sync::LazyLock::new(|| super::matrix::provider("owned", API));
+    static CASES: std::sync::OnceLock<Vec<(String, String, bool)>> = std::sync::OnceLock::new();
+
+    let wait = super::matrix::Phase::start("provider-wait", "owned", imported);
+    let provider = &*PROVIDER;
+
+    drop(wait);
+
+    let (name, body, valid) = &CASES.get_or_init(owned_cases)[index];
+
+    assert_eq!(name.to_ascii_lowercase(), expected, "matrix registration must match its row");
+
+    let _phase = super::matrix::Phase::start("case", name, imported);
+
+    if let Some(failure) = check(provider, imported, name, body, *valid) {
+        panic!("{failure}");
+    }
+}
+
+super::matrix::cases! {
+    deferred_valid = 0,
+    deferred_invalid = 1,
+    tuple_valid = 2,
+    tuple_invalid = 3,
+    product_valid = 4,
+    product_invalid = 5,
+    union_valid = 6,
+    union_invalid = 7,
+    nullable_valid = 8,
+    nullable_invalid = 9,
+    array_valid = 10,
+    array_invalid = 11,
+    nested_valid = 12,
+    nested_invalid = 13,
+    conditional_union_valid = 14,
+    conditional_union_invalid = 15,
+    conditional_nullable_valid = 16,
+    conditional_nullable_invalid = 17,
+    conditional_exits_valid = 18,
+    conditional_exits_invalid = 19,
+    conditional_reversed_valid = 20,
+    conditional_reversed_invalid = 21,
+    conditional_nested_valid = 22,
+    conditional_nested_invalid = 23,
+    conditional_deferred_valid = 24,
+    conditional_deferred_invalid = 25,
+    conditional_lambda_valid = 26,
+    conditional_lambda_invalid = 27,
+    suspending_conditional_valid = 28,
+    suspending_conditional_invalid = 29,
+    reference_valid = 30,
+    reference_invalid = 31,
+    mutation_valid = 32,
+    mutation_invalid = 33,
+    branches_valid = 34,
+    branches_invalid = 35,
+    composition_valid = 36,
+    composition_invalid = 37,
+    nullable_payload_join = 38,
+    nullable_payload_fabricated = 39,
+    array_factory = 40,
+    array_payload_factory = 41,
+    array_conditional_factory = 42,
+    conditional_absent_input = 43,
+    conditional_optional_exits = 44,
+    conditional_optional_join = 45,
+    conditional_copy = 46,
+    conditional_live_address = 47,
+    conditional_expired_address = 48,
+    conditional_independent_marker = 49,
+    conditional_authority_before = 50,
+    conditional_authority_active = 51,
+    conditional_authority_inactive = 52,
+    independent_permission = 53,
+    conditional_consuming_receiver = 54,
+    conditional_consuming_receiver_forged = 55,
+    consuming_receiver_external_mutation = 56,
+    consuming_receiver_independent_claim = 57,
+    consumed_permission = 58,
+    deferred_consumed_permission = 59,
+    copied_original_authority = 60,
+    consumed_independent_permission = 61,
+    deferred_authority_active = 62,
+    deferred_authority_inactive = 63,
+    deferred_live_capture = 64,
+    deferred_dropped_capture = 65,
+    deferred_dropped_nested_capture = 66,
+    conditional_future_active = 67,
+    conditional_future_inactive = 68,
+    conditional_future_dropped = 69,
+    extract_complete_child = 70,
+    extract_partial_input = 71,
+    deferred_partial_input_inactive = 72,
+    deferred_partial_input_awaited = 73,
+    deferred_complete_child = 74,
+    partial_optional_inactive = 75,
+    partial_optional_active = 76,
+    partial_optional_unknown = 77,
+    partial_optional_inactive_path = 78,
+    partial_optional_active_path = 79,
+    partial_optional_complete_child = 80,
+    deferred_partial_optional_inactive = 81,
+    deferred_partial_optional_active = 82,
+    deferred_partial_optional_unknown = 83,
+    deferred_partial_optional_inactive_path = 84,
+    deferred_partial_optional_active_path = 85,
+    deferred_partial_optional_complete_child = 86,
+    partial_choice_inactive = 87,
+    partial_choice_active = 88,
+    partial_choice_unknown = 89,
+    partial_choice_inactive_path = 90,
+    partial_choice_active_path = 91,
+    partial_choice_complete_child = 92,
+    deferred_partial_choice_inactive = 93,
+    deferred_partial_choice_active = 94,
+    deferred_partial_choice_unknown = 95,
+    deferred_partial_choice_inactive_path = 96,
+    deferred_partial_choice_active_path = 97,
+    deferred_partial_choice_complete_child = 98,
+    partial_future_unpolled = 99,
+    consuming_constructor = 100,
+    suspending_live_address = 101,
+    suspending_aliased_address = 102,
+    suspending_selected_owner = 103,
+    suspending_replaced_borrow = 104,
+    suspending_borrow_active = 105,
+    suspending_borrow_expired = 106,
+    suspending_expired_address = 107,
+    suspending_independent_marker = 108,
+    unchanged_dependency = 109,
+    projected_dependency_nullable_join = 110,
+    projected_dependency_nullable_move = 111,
+    projected_dependency_nullable_wrong_owner = 112,
+    projected_dependency_nullable_fabricated = 113,
+    changed_dependency = 114,
+    independent_dependency = 115,
+    projected_input = 116,
+    two_inputs = 117,
+    two_inputs_forged = 118,
+    copied_input = 119,
+    copied_product = 120,
+    live_address = 121,
+    expired_address = 122,
+    independent_marker = 123,
+    live_address_mutation = 124,
+    expired_address_mutation = 125,
+    marker_mutation = 126,
+    expired_reference = 127,
+    select_exits_both = 128,
+    select_exits_left = 129,
+    select_exits_right = 130,
+    select_join_both = 131,
+    select_join_left = 132,
+    select_join_right = 133,
+    select_forward_both = 134,
+    select_forward_left = 135,
+    select_forward_right = 136,
+    swap_both = 137,
+    swap_left = 138,
+    swap_right = 139,
+    swap_join_both = 140,
+    swap_join_left = 141,
+    swap_join_right = 142,
+    mixed_both = 143,
+    mixed_left = 144,
+    mixed_right = 145,
+    mixed_join_both = 146,
+    mixed_join_left = 147,
+    mixed_join_right = 148,
+    mixed_permission = 149,
+    mixed_permission_fabricated = 150,
+    mixed_expired_address = 151,
+    mixed_independent_address = 152,
+    mixed_join_permission = 153,
+    mixed_join_permission_fabricated = 154,
+    mixed_join_expired_address = 155,
+    mixed_join_independent_address = 156,
+    select_inputs_fabricated = 157,
+    select_join_fabricated = 158,
+    select_forward_fabricated = 159,
+    swap_fabricated = 160,
+    swap_join_fabricated = 161,
+    mixed_fabricated = 162,
+    mixed_join_fabricated = 163,
+    select_direct_both = 164,
+    select_direct_left = 165,
+    select_direct_right = 166,
+    select_direct_neither = 167,
+    select_direct_join_both = 168,
+    select_direct_join_left = 169,
+    select_direct_join_right = 170,
+    select_direct_join_neither = 171,
+    select_loop_both = 172,
+    select_loop_left = 173,
+    select_loop_right = 174,
+    select_loop_neither = 175,
+    select_nullable_inputs_exits_both = 176,
+    select_nullable_inputs_exits_left = 177,
+    select_nullable_inputs_exits_right = 178,
+    select_nullable_inputs_exits_neither = 179,
+    select_nullable_inputs_join_both = 180,
+    select_nullable_inputs_join_left = 181,
+    select_nullable_inputs_join_right = 182,
+    select_nullable_inputs_join_neither = 183,
+    select_variant_inputs_exits_both = 184,
+    select_variant_inputs_exits_left = 185,
+    select_variant_inputs_exits_right = 186,
+    select_variant_inputs_exits_neither = 187,
+    select_variant_inputs_join_both = 188,
+    select_variant_inputs_join_left = 189,
+    select_variant_inputs_join_right = 190,
+    select_variant_inputs_join_neither = 191,
+    alternative_disposed = 192,
+    alternative_old_scalar = 193,
+    alternative_independent = 194,
+    alternative_array = 195,
+    alternative_product = 196,
+    alternative_nullable = 197,
+    alternative_union = 198,
+    select_inputs_known_true_true = 199,
+    select_inputs_known_true_false = 200,
+    select_inputs_known_false_true = 201,
+    select_inputs_known_false_false = 202,
+    select_join_known_true_true = 203,
+    select_join_known_true_false = 204,
+    select_join_known_false_true = 205,
+    select_join_known_false_false = 206,
+    select_direct_known_true_true = 207,
+    select_direct_known_true_false = 208,
+    select_direct_known_false_true = 209,
+    select_direct_known_false_false = 210,
+    select_direct_join_known_true_true = 211,
+    select_direct_join_known_true_false = 212,
+    select_direct_join_known_false_true = 213,
+    select_direct_join_known_false_false = 214,
+    select_nullable_inputs_exits_known_true_true = 215,
+    select_nullable_inputs_exits_known_true_false = 216,
+    select_nullable_inputs_exits_known_false_true = 217,
+    select_nullable_inputs_exits_known_false_false = 218,
+    select_variant_inputs_join_known_true_true = 219,
+    select_variant_inputs_join_known_true_false = 220,
+    select_variant_inputs_join_known_false_true = 221,
+    select_variant_inputs_join_known_false_false = 222,
+    select_context_left = 223,
+    select_context_right = 224,
+    select_loop_known_true_true = 225,
+    select_loop_known_true_false = 226,
+    select_loop_known_false_true = 227,
+    select_loop_known_false_false = 228,
+    mixed_known_true_true = 229,
+    mixed_known_true_false = 230,
+    mixed_known_false_true = 231,
+    mixed_known_false_false = 232,
+    mixed_join_known_true_true = 233,
+    mixed_join_known_true_false = 234,
+    mixed_join_known_false_true = 235,
+    mixed_join_known_false_false = 236,
+    only_return_true = 237,
+    only_return_false = 238,
+    only_deferred_true = 239,
+    only_deferred_false = 240,
+    impossible_choice = 241,
+    possible_choice = 242,
+    possible_choice_fabricated = 243,
+    inactive_never_returning_future = 244,
+    scalar_impossible_completion = 245,
+    captured_true_selector = 246,
+    captured_false_selector = 247,
 }
 
 #[test]

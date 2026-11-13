@@ -41,6 +41,7 @@ impl Tier {
 }
 
 pub(super) struct Options {
+    pub(super) filter: Option<String>,
     pub(super) profile: String,
     pub(super) tier: Tier,
     pub(super) shard: usize,
@@ -51,6 +52,7 @@ pub(super) struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
+            filter: None,
             profile: "test".to_owned(),
             tier: Tier::Fast,
             shard: 1,
@@ -63,7 +65,7 @@ impl Default for Options {
 impl Options {
     pub(super) fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, String> {
         if arguments.next().as_deref() != Some("compiler") {
-            return Err("usage: cargo xtask test compiler [--profile profile] [--tier fast|native|proof|exhaustive|all] [--shard index/count] [--timeout-seconds seconds]".to_owned());
+            return Err("usage: cargo xtask test compiler [--filter substring] [--profile profile] [--tier fast|native|proof|exhaustive|all] [--shard index/count] [--timeout-seconds seconds]".to_owned());
         }
 
         let mut options = Self::default();
@@ -74,6 +76,7 @@ impl Options {
                 .ok_or_else(|| format!("missing value for {argument}"))?;
 
             match argument.as_str() {
+                "--filter" => options.filter = Some(value),
                 "--profile" => options.profile = value,
                 "--tier" => options.tier = Tier::parse(&value)?,
                 "--timeout-seconds" => {

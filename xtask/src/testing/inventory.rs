@@ -108,6 +108,7 @@ fn list(
 pub(super) fn select(tests: Vec<SelectedTest>, options: &Options) -> Vec<SelectedTest> {
     tests
         .into_iter()
+        .filter(|test| options.filter.as_ref().is_none_or(|filter| test.name.contains(filter)))
         .filter(|test| options.tier == Tier::All || test.tier == options.tier.name())
         .enumerate()
         .filter_map(|(index, test)| (index % options.shards == options.shard - 1).then_some(test))
@@ -122,8 +123,7 @@ pub(super) fn batches(tests: &[SelectedTest]) -> Vec<&[SelectedTest]> {
 
     for (index, test) in tests.iter().enumerate() {
         if index > start
-            && (index - start == 16
-                || tests[start].executable != test.executable
+            && (tests[start].executable != test.executable
                 || bytes + test.name.encode_utf16().count() + 3 > 24_000)
         {
             batches.push(&tests[start..index]);
@@ -242,6 +242,12 @@ mod tests {
 
     #[test]
     fn shards_cover_the_inventory_once_in_stable_order() {
+        let filtered = select(fixture(), &Options {
+            tier: Tier::All, filter: Some("b".to_owned()), ..Options::default()
+        });
+
+        assert_eq!(filtered.iter().map(|test| test.name.as_str()).collect::<Vec<_>>(), ["b"]);
+
         let mut names = BTreeSet::new();
 
         for shard in 1..=3 {
@@ -310,7 +316,9 @@ mod tests {
 
         let groups = batches(&many);
 
-        assert!(groups.iter().all(|group| group.len() <= 16));
+        assert_eq!(groups.len(), 1, "short names share a provider process");
+        for test in &mut tests { test.name = "x".repeat(13_000); }
+        assert!(batches(&tests).iter().all(|group| group.len() == 1));
 
         assert_eq!(
             groups
