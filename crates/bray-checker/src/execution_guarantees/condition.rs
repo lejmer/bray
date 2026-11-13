@@ -1,4 +1,5 @@
 mod model;
+mod context;
 mod observations;
 mod proof;
 mod substitution;
@@ -12,3 +13,4 @@ mod tests;
 pub use model::{ExecutionCondition, ExecutionDescriptorKind, ExecutionObservationKind};
 
 pub(crate) use observations::Set as ObservationSet;
+pub(crate) use context::ExecutionProof;

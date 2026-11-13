@@ -136,9 +136,10 @@ impl ExecutionWitness {
         }
 
         let mut evidence = BTreeSet::new();
+        let proof = super::ExecutionProof::new(trusted, assumptions);
 
         for condition in self.conditions.keys().filter(|condition| {
-            condition.prove_mixed(trusted, assumptions, &mut {
+            proof.prove_mixed(condition, &mut {
                 ExecutionCondition::WORK_LIMIT
             }) == Some(true)
         }) {

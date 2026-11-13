@@ -1,7 +1,7 @@
 # BRA-567 current correction audit
 
 Read this record and the [contract gate](../../.agents/skills/work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it)
-after compaction. The user requests pausing after this checkpoint is committed and pushed. Do not start another batch.
+after compaction. Current scope is proof preparation reuse and bounded checks of the five unfinished cases, then stop.
 The issue remains incomplete. Do not merge, change issue status, edit develop or create another worktree.
 
 ## Current admission contract
@@ -53,7 +53,7 @@ preformed_task_fabricated_after_completion, plus source same_site_independent_se
 Other slow same-site rows finish after555–794s, locating expensive analysis inside individual cases.
 The deferred case phase currently ends before its final aggregated assertion, so panicking=false in its progress log
 does not establish success. Use the final test report for outcomes. All runner-owned processes terminate at the bound.
-Fixed920 and issue-wide source/native gates remain unverified. No compiler fixes or second broad run follow this checkpoint.
+Fixed920 and issue-wide source/native gates remain unverified. No full matrix rerun is authorized for this repair.
 
 A bounded30s native stack profile of source preformed_task_selected_after_completion captures118 samples.
 Conditional cleanup selection occurs in99, implication checking in82 and trusted-condition closure in62, with overlap.
@@ -63,7 +63,27 @@ disjunctions and calls implies, which rebuilds trusted_condition_closure for eac
 loops repeatedly construct structurally keyed proof graphs and clone/compare/drop conditions. Per-proof work limits do
 not bound that repeated total work. This is the measured bottleneck, not evidence that fixed-point iteration counts are
 healthy. A repair must share preparation within the exact immutable evidence context without widening authority or
-discarding required clauses. The profiled child is terminated at its bound. Compiler code remains unchanged.
+discarding required clauses. All profiled children are terminated at their bounds.
+
+Repair contract: ExecutionCondition proof owns Boolean derivation. conditional_facts and conditional_aliases consume
+it against each original predecessor and exact owner evidence. Reuse may preserve preparation and fixed-budget query
+results, never across changed fact sets. Borrow immutable trusted/ordinary sets, prepare each premise and each requested
+clause's negation once per context, group candidates by owner and discard the context before evidence changes.
+Equivalent groups include witness refinement, call requirements, result-carrier selection and postcondition exit checks.
+Explicit-budget mixed proofs still charge each visited node. A decisive first operand skips an unnecessary Boolean
+subtree, retaining unknown/false/true logic. Keep unknowns, ordinary/trusted separation, unavailable carriers, snapshots, negative
+implication fallback and existing budgets unchanged. Replace repeated preparation without a global cache or stored flow
+state. Existing condition/guard/cleanup tests and the real positive/fabricated task cases are the fixed oracles.
+Comparison reasoning must reject noncomparison operators before constructing ordering terms. This removes work whose
+result was always None, retaining all applicable comparison reasoning and Boolean derivation rules.
+Extend the existing provenance test with context isolation/reuse. Bound each unfinished case to120s. Do not run either full matrix. Target less
+than150 added production lines. Reconsider if proof outcomes change or preparation sharing leaves the cases pathological.
+
+Current implementation shares premise closures, negated requests and fixed-budget results through borrowed proof
+contexts, groups merge candidates by owner, and uses those contexts in the equivalent immutable query groups.
+Comparison proof skips noncomparison operators and both Boolean proof engines short-circuit decisive operands.
+All173 focused execution-guarantee/guarantee-analysis tests pass. Latest five-case verification awaits the rebuilt binary.
+The previous code finished four task cases in27s but the loop still hit120s, so performance completion remains unclaimed.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
 correction-frozen30.json. correction-current.json preserves original-to-current mapping. Fixed920 is907 comparison.txt
@@ -82,11 +102,11 @@ structural errors outside the admission change:
 - flow/merge.rs, storage_flow/check/analysis/cleanup.rs, storage_flow/check/analysis/core.rs,
   execution_guarantees/portable.rs and bray-tooling output/diagnostic/json/argument.rs exceed the function limit.
 
-The user bounds this checkpoint to the matrix harness, then stop. These7 errors remain gate failures.
+The user bounds this checkpoint to proof preparation and the five unfinished cases, then stop. These7 errors remain gate failures.
 The end audit rereads AGENTS.md and reviews all changed files. Source revision reuses the canonical fixture updater.
 Named registration and live progress are shared between matrices. The existing runner owns filtering, CPU scheduling,
 timeouts and reports. Concurrent completion gaps are labelled accurately rather than reported as individual durations.
-The compiler implementation is unchanged. Most growth registers named tests. git diff --check passes.
+Proof rules retain predecessor and owner isolation. git diff --check passes.
 
 ## Remaining contracts after the pause
 
