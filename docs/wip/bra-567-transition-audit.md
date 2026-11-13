@@ -1,7 +1,7 @@
 # BRA-567 current correction audit
 
 Read this record and the [contract gate](../../.agents/skills/work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it)
-after compaction. Current scope is proof preparation reuse and bounded checks of the five unfinished cases, then stop.
+after compaction. The proof preparation checkpoint is complete. Stop after pushing it. Do not start another batch.
 The issue remains incomplete. Do not merge, change issue status, edit develop or create another worktree.
 
 ## Current admission contract
@@ -18,7 +18,7 @@ the existing ledger without another stored representation. Resume still requires
 captured proof. Precise invalidate_referents, retire_entry_context, retired-root and discarded-capture pruning remain
 authoritative, including external observations of a private witness. No borrowed-prefix ownership inference is added.
 
-## Current verification
+## Frozen comparison baseline
 
 Fresh uninstrumented optimized tooling binaries and source diff identity are recorded in
 correction-admission-current.json and correction-current.json. Cargo reports opt_level=3. The build command is
@@ -55,6 +55,8 @@ The deferred case phase currently ends before its final aggregated assertion, so
 does not establish success. Use the final test report for outcomes. All runner-owned processes terminate at the bound.
 Fixed920 and issue-wide source/native gates remain unverified. No full matrix rerun is authorized for this repair.
 
+## Proof preparation repair
+
 A bounded30s native stack profile of source preformed_task_selected_after_completion captures118 samples.
 Conditional cleanup selection occurs in99, implication checking in82 and trusted-condition closure in62, with overlap.
 The sampled path is storage-flow analysis, conditional cleanup, merge, guarded-fact proof, implication and closure.
@@ -82,8 +84,13 @@ than150 added production lines. Reconsider if proof outcomes change or preparati
 Current implementation shares premise closures, negated requests and fixed-budget results through borrowed proof
 contexts, groups merge candidates by owner, and uses those contexts in the equivalent immutable query groups.
 Comparison proof skips noncomparison operators and both Boolean proof engines short-circuit decisive operands.
-All173 focused execution-guarantee/guarantee-analysis tests pass. Latest five-case verification awaits the rebuilt binary.
-The previous code finished four task cases in27s but the loop still hit120s, so performance completion remains unclaimed.
+Final optimized verification passes all173 execution-guarantee/guarantee-analysis tests and all five formerly unfinished
+cases under the unchanged120s bound. Task cases take48.3–49.5s and the loop117.5s, with117.8s total. Positive cases pass
+and fabricated-owner/second-owner negatives reject. The loop remains expensive. This is not full-matrix verification.
+Temporary counters are removed. The198-block loop graph showed expensive individual passes, not runaway update counts.
+Required cleanup-feasibility replay remains intact. Prepared facts retain raw/mixed subproof results keyed by condition
+and incoming budget, restoring the exact remaining budget on hits. Raw/mixed facts and policies stay separate.
+The fixed63/62-step oracle checks repeated prepared queries. No extra memoization policy remains.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
 correction-frozen30.json. correction-current.json preserves original-to-current mapping. Fixed920 is907 comparison.txt
@@ -95,7 +102,8 @@ now means all248 rows under `owned_transfers::source::` or `owned_transfers::imp
 
 ## Checks and maintainability
 
-`cargo xtask format` passes. Mutating `cargo xtask style` ran and applied deterministic formatting. It still reports7
+The mutating style and format commands run through the repository's optimized xtask-incremental alias. Format passes.
+Style changes only Rust blank lines and still reports the same7
 structural errors outside the admission change:
 
 - cleanup/selection.rs and flow/invalidation.rs have wildcard test imports.
@@ -103,10 +111,10 @@ structural errors outside the admission change:
   execution_guarantees/portable.rs and bray-tooling output/diagnostic/json/argument.rs exceed the function limit.
 
 The user bounds this checkpoint to proof preparation and the five unfinished cases, then stop. These7 errors remain gate failures.
-The end audit rereads AGENTS.md and reviews all changed files. Source revision reuses the canonical fixture updater.
-Named registration and live progress are shared between matrices. The existing runner owns filtering, CPU scheduling,
-timeouts and reports. Concurrent completion gaps are labelled accurately rather than reported as individual durations.
-Proof rules retain predecessor and owner isolation. git diff --check passes.
+The end audit rereads AGENTS.md, reviews every changed file and searches equivalent proof-preparation and budget-cache
+behavior. Raw/mixed engines share one memo helper. Contexts retain exact predecessor/owner evidence and original proof
+budgets, with no persistent flow-state cache. Net nonblank growth is101 production lines and36 test lines. Formatting
+growth is separate. git diff --check passes.
 
 ## Remaining contracts after the pause
 
