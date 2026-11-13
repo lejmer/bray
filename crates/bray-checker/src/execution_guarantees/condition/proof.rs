@@ -86,7 +86,7 @@ impl ExecutionCondition {
 
         if let Some(implications) = implications
             && matches!(self, Self::Operation(BoundOperator::LogicalOr, _)) {
-            return implications.proves_disjunction(self).then_some(true);
+            return implications.proves_alternative(self).then_some(true);
         }
 
         None
@@ -193,7 +193,12 @@ impl ExecutionCondition {
 
     /// Checks a branch against both direct evidence and retained Boolean alternatives.
     pub(crate) fn can_assume(&self, value: bool, assumptions: &BTreeSet<(Self, bool)>) -> bool {
-        if let Some(known) = self.prove(assumptions, &mut { Self::WORK_LIMIT }) {
+        if self.is_unknown() { return true; }
+
+        let empty = BTreeSet::new();
+        let proof = ExecutionProof::new(&empty, assumptions);
+
+        if let Some(known) = proof.prove_mixed(self, &mut { Self::WORK_LIMIT }) {
             return known == value;
         }
 
@@ -203,15 +208,11 @@ impl ExecutionCondition {
             self.clone()
         };
 
-        // assume_proof decomposes true conjunctions and false disjunctions.
-        // Their opposite outcomes retain the complete clause without choosing
-        // an alternative, which can still exclude an incompatible branch.
-        !assumptions.iter().any(|(condition, holds)| match condition {
-            Self::Operation(BoundOperator::LogicalOr, _) if *holds => condition.implies(&contrary),
-            Self::Operation(BoundOperator::LogicalAnd, _) if !*holds =>
-                Self::operation(BoundOperator::LogicalNot, vec![condition.clone()]).implies(&contrary),
-            _ => false,
-        })
+        // Feasibility also asks about atomic conditions. Ordinary query recursion
+        // already searches alternatives for disjunctions, so do not repeat that work.
+        !(proof.prove_trusted(&contrary) == Some(true)
+            || !matches!(contrary, Self::Operation(BoundOperator::LogicalOr, _))
+                && proof.proves_alternative(&contrary))
     }
 
     /// Maps equivalent Boolean atoms, forgetting unsupported ones without strengthening the clause.

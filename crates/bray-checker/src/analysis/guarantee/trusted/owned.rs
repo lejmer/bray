@@ -53,6 +53,7 @@ impl super::check::TrustedChecks {
 
         let result = result.clone().coerce(domain.request.semantic_values(), result_type, result_type);
         let result = &result;
+        let return_substitution = super::super::flow::return_substitution(result);
 
         let mut returned = OwnedReturn {
             value: result.clone(),
@@ -97,7 +98,7 @@ impl super::check::TrustedChecks {
                         return Ok(None);
                     }
 
-                    let mapped = super::super::flow::returned_condition(condition, result);
+                    let mapped = return_substitution(condition);
 
                     Ok(super::carriers::portable(domain.request, &mapped))
                 },
@@ -112,7 +113,7 @@ impl super::check::TrustedChecks {
                 if condition.contains_trusted() { continue; }
 
                 let mapped = condition.boolean_consequence(*holds, &mut |atom| {
-                    let mapped = super::super::flow::returned_condition(atom, result);
+                    let mapped = return_substitution(atom);
 
                     super::carriers::portable(domain.request, &mapped)?;
 

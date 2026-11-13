@@ -2,7 +2,7 @@
 
 Read this record and the [contract gate](../../.agents/skills/work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it)
 after compaction. The current target is less than500ms per fixture case. It is not met. Bounded diagnosis and
-artifact cleanup are complete. Implementation of the performance plan is authorized. The indexed proof path passes67
+artifact cleanup are complete. Implementation of the performance plan is authorized. The indexed proof path passes68
 execution-proof and109 guarantee tests. Performance remains above target. Next repair repeated context construction
 in immutable consumer loops and the independent branch-feasibility scan. No full matrix runs are authorized.
 The issue remains incomplete. Do not merge, change issue status, edit develop or create another worktree.
@@ -58,101 +58,62 @@ The deferred case phase currently ends before its final aggregated assertion, so
 does not establish success. Use the final test report for outcomes. All runner-owned processes terminate at the bound.
 Fixed920 and issue-wide source/native gates remain unverified. No full matrix rerun is authorized for this repair.
 
-## Proof preparation repair
+## Proof performance contract
 
-A bounded30s native stack profile of source preformed_task_selected_after_completion captures118 samples.
-Conditional cleanup selection occurs in99, implication checking in82 and trusted-condition closure in62, with overlap.
-The sampled path is storage-flow analysis, conditional cleanup, merge, guarded-fact proof, implication and closure.
-flow/witnesses.rs checks candidate clauses and guards against predecessor evidence. condition/proof.rs then scans existing
-disjunctions and calls implies, which rebuilds trusted_condition_closure for each premise. Nested proposal/implication
-loops repeatedly construct structurally keyed proof graphs and clone/compare/drop conditions. Per-proof work limits do
-not bound that repeated total work. This is the measured bottleneck, not evidence that fixed-point iteration counts are
-healthy. A repair must share preparation within the exact immutable evidence context without widening authority or
-discarding required clauses. All profiled children are terminated at their bounds.
+Target: every fixed tiny case below500ms, including caller construction, checking and lowering, excluding shared provider
+setup and Rust builds. No full matrix runs. Retain every positive/negative expectation and actual failure boundary.
 
-Repair contract: ExecutionCondition proof owns Boolean derivation. conditional_facts and conditional_aliases consume
-it against each original predecessor and exact owner evidence. Reuse may preserve preparation and fixed-budget query
-results, never across changed fact sets. Borrow immutable trusted/ordinary sets, prepare each premise and each requested
-clause's negation once per context, group candidates by owner and discard the context before evidence changes.
-Equivalent groups include witness refinement, call requirements, result-carrier selection and postcondition exit checks.
-Explicit-budget mixed proofs still charge each visited node. A decisive first operand skips an unnecessary Boolean
-subtree, retaining unknown/false/true logic. Keep unknowns, ordinary/trusted separation, unavailable carriers, snapshots, negative
-implication fallback and existing budgets unchanged. Replace repeated preparation without a global cache or stored flow
-state. Existing condition/guard/cleanup tests and the real positive/fabricated task cases are the fixed oracles.
-Comparison reasoning must reject noncomparison operators before constructing ordering terms. This removes work whose
-result was always None, retaining all applicable comparison reasoning and Boolean derivation rules.
-The existing provenance test covers context isolation/reuse. The former120s bound proved completion only and is superseded
-by the500ms target, including consumer construction, checking and lowering, excluding shared provider setup and Rust builds.
-Do not run either full matrix. Target less
-than150 added production lines. Reconsider if proof outcomes change or preparation sharing leaves the cases pathological.
+ExecutionProof borrows exact immutable trusted/ordinary facts. Shared preparation must never cross an owner, entry,
+selection, snapshot or evidence mutation. Keep unknowns, trusted polarity, current referents, unavailable carriers,
+overwrite/retirement and authoritative empty ownership records intact. Budget exhaustion cannot establish a claim.
+Required cleanup-feasibility replay remains. Independent owner-support checks must stay independent.
 
-Current implementation shares premise closures, negated requests and fixed-budget results through borrowed proof
-contexts, groups merge candidates by owner, and uses those contexts in the equivalent immutable query groups.
-Comparison proof skips noncomparison operators and both Boolean proof engines short-circuit decisive operands.
-The completion baseline passes all173 execution-guarantee/guarantee-analysis tests and all five formerly unfinished
-cases under the former120s bound. Task cases take48.3–49.5s and the loop117.5s, with117.8s total. Positive cases pass
-and fabricated-owner/second-owner negatives reject. The loop remains expensive. This is not full-matrix verification.
-Temporary counters are removed. The198-block loop graph showed expensive individual passes, not runaway update counts.
-Required cleanup-feasibility replay remains intact. Prepared facts retain raw/mixed subproof results keyed by condition
-and incoming budget, restoring the exact remaining budget on hits. Raw/mixed facts and policies stay separate.
-The fixed63/62-step oracle checks repeated prepared queries. No extra memoization policy remains.
+Baseline: the cached implementation takes48 to 50s for the four preformed-task rows and117.5s for the independent-site row.
+A bounded20s caller interval starts at least1,605,633 implications. The cause is repeated all-premise implication scans.
+Alias proposal loops did zero work in that interval. Hot consumers are join source validation, per-owner predecessor
+proofs and guarded-witness refinement. Facts include initialization and branch relationships, not just source requirements.
 
-A hash-verified15s individual-case leaf profile at bf27eafca collected401 samples:175 structural condition comparisons,
-34 memo-helper samples,28 condition clones and26 drops. Leaf sampling does not identify callers. conditional_aliases
-can propose128 values ×2 predecessors ×128 guards =32,768 guarded clauses per merge, each checked on both predecessors.
-This upper bound is not the observed cause. A subsequent instrumented20s individual run completed76 caller alias merges
-with zero alias proposals, zero guarded clauses and zero alias predecessor checks. Nevertheless the caller started at
-least1,605,633 implication attempts. Counts are partial-run lower bounds. The alias-proposal hypothesis is ruled out for
-this interval. A second20s instrumented invocation observed72,733 top-level requests,13,923 completed disjunction scans,
-2,757,965 premise visits and1,572,864 implication attempts, including provider setup. A hot caller context made509
-requests and219 scans, visiting385 entries and attempting382 implications on every scan:83,658 attempts total.
-Its326 deterministic1-in-256 pair samples were all distinct. This describes the sample, not full pair uniqueness.
-The observed cause is the all-premise search per unresolved disjunction. Hot-context constructor sites and the sources
-of their expanded premises remain unidentified. More blind caching does not address the observed search breadth.
-Temporary instrumentation is removed. Current evidence is scanner-counts.json, actual-counts.json, proof-unfinished.json and
-proof-500ms-sample.json. Superseded build streams, traces and duplicate outputs were removed. Frozen comparison evidence remains.
+Checkpoint518014c0a replaces the scan with indexed Boolean structure shared with closure preparation. Negating a goal
+updates connected nodes. Only contradicted published alternatives reach the existing bounded raw rule. Boolean keys
+hash child IDs. Exact facts return before preparation. Empty-context values follow Boolean children directly.
+Per-premise preparation maps are removed. The old scan remains only as a unit-test comparison oracle.
 
-## Replace repeated implication scans
+The consumer batch shares proof views across immutable resume, address-bound, cleanup-retention, qualification, return
+inference and transfer phases. Reference-origin refinement republishes after each witness, so its view is per witness.
+Resume reads captured facts while publishing current truth. Cleanup borrows pruned ordinary facts before trusted truth
+changes. Branch/scalar reasoning uses ordinary-only facts. False conjunctions retain their actual polarity and use the
+same elimination rules as true disjunctions, without reconstructing negations.
 
-The bounded attribution run locates hot contexts at conditional_facts source validation and per-owner predecessor proofs,
-plus ExecutionWitness::refine. Goals include nested initialization and branch guards. The common query scan now uses
-the closure graph for a reverse dependency query under the negated goal, then validates
-falsified published premises with the existing bounded raw proof. This preserves single-premise authority and numeric,
-variant, exact-occurrence, wrapper and trusted-polarity rules. Direct goal evaluation uses the current Boolean closure,
-which already contains each premise's forward consequences. Remove pairwise preparation maps and the all-premise loop.
-The graph owns no flow evidence and cannot outlive or mix its immutable owner/snapshot view. Budget exhaustion never
-validates a candidate. Keep moves, overwrite, retirement and unavailable-carrier handling unchanged in this replacement.
-Boolean keys use child IDs. Closure preparation retains its graph. Exact evidence returns before preparation and
-empty-context values follow Boolean children without recursive reproving. The old scan exists only as a unit-test
-comparison oracle. Numeric, variant, qualifier and unrelated-fact scaling controls pass.
-Latest bounded phase counts are proof-indexed-counts.json. The selected source case takes3539ms. The independent-site
-case remains unfinished at10s. Its preparation falls from5.5s to40ms, but repeated closure construction remains4.75s
-in that partial interval. Counts include provider setup and nested phase times must not be added.
-Reuse immutable views in resume, address bounds, cleanup retention, qualification, return inference and transfer loops.
-Recreate views when facts mutate between requirements or ownership cases. Branch feasibility and scalar joins must use
-indexed alternative reasoning, including false conjunctions. Independent owner-support checks must stay independent.
+Last validated consumer batch:68 proof tests and109 guarantee tests pass. Four fixed task cases retain their outcomes
+at3308 to3626ms. The independent-site case remains unfinished at10s. The target is not met. Formal-return mappings are
+built once per actual exit, and Boolean lookup keys no longer allocate child vectors.
+A bounded native stack sample attributes40/143 inclusive samples to repeated return mapping and30/143 to graph intern.
+Inclusive counts overlap. Symbol names for folded native functions can alias and are not source attribution by themselves.
 
-1. Attribute hot contexts and proof requests to constructor sites and clause producers in one bounded single-case run.
-   Count original and derived clauses, duplicate facts, distinct goals, rule work and repeated equivalent contexts.
-   Inventory supported rules, including negated-goal reasoning, numeric comparisons, unknowns and trusted polarity.
-2. Trace the measured obligations through production, joins, deferred completion and consumption. Preserve owner,
-   guard and current-value relationships through the existing witness and stored-value mechanisms. Transfer established
-   relationships directly. Keep overwrite, retirement, unavailable carriers and authoritative empty records intact.
-3. Extend the existing Boolean closure graph. Share immutable condition structure using existing identities or local
-   node IDs. Keep evidence views scoped to exact owners, dependencies and snapshots. Index rule inputs and conclusions,
-   propagate changed facts through a work queue, and resolve each distinct goal through its transitive relevant slice.
-   Preserve indirect proofs and contradictions. Predicate-name filtering and unit propagation alone are insufficient.
-   Count total query work, including every implication attempt. Limits must not become a way to reject valid fixtures.
-4. Migrate the measured async composition through both source and imported contracts. Compare existing and replacement
-   results temporarily, investigate differences against the contract, then remove the superseded scan and redundant
-   preparation caches. Do not ship parallel proof engines or an old-engine fallback.
-5. Preserve the five formerly unfinished cases and their negative failure locations. Reuse focused rule and ownership
-   controls. Add only missing controls for irrelevant-fact scaling, owner isolation and loop stabilization. A regression
-   blocks expansion. Measure production growth separately from tests and remove temporary detailed outputs.
-6. Require each of those five cases to complete below500ms in separate bounded optimized runs, including caller setup,
-   checking and lowering, excluding the shared provider and Rust build. Report repeats and actual rule-work counts.
-   Reconsider the design if irrelevant facts multiply implication work or equivalent evidence is rebuilt on replay.
-   Do not run the full matrices during this performance work. Broader BRA-567 verification remains a later gate.
+Next contract: assume_availability knows a Boolean guard correspondence but publishes numeric equality. Boolean closure
+does not read that relation, and cleanup selection uses raw proof before forking. Publish the existing ordinary
+ValueAlias instead. Closure copies Boolean truth only through established aliases. Query hypotheses may follow those
+actual aliases but cannot invent alias identity from matching truth. Raw proof can disprove an alias from differing
+Boolean values. Availability and cleanup selection must use ordinary-only deduction. Unknown conditional aliases stay
+inactive. Keep current value/epoch identity, no reference/owner substitution, no qualified evidence from ordinary facts,
+and stable alias cycles. Other existing ValueAlias producers use the same reader.
+
+Current evidence: proof-indexed-current.json, proof-indexed-counts.json and proof-indexed-sample.json. Phase counts include
+provider setup and nested durations must not be added. Remove superseded detailed outputs after retaining compact facts.
+The original150-line production-growth target is exceeded by the indexed replacement. Final review must simplify it or
+justify the remaining growth by required inference and removed machinery. Count production separately from tests/style.
+
+1. Attribute expensive work to actual producers and consumers before further edits. Extend the rule inventory for new
+   transitions. Reconsider whenever a fix leaves repeated reconstruction or irrelevant facts multiply query work.
+2. Preserve owner, guard and current-value relationships through the existing witness and stored-value mechanisms.
+   Check complete production, joins, deferred completion and consumption, including source/import replay.
+3. Keep the Boolean graph as the shared deduction mechanism. Preserve comparisons, variant exclusions, negated-goal
+   reasoning, qualifier polarity and budgets. Predicate-name filtering and unit propagation alone are insufficient.
+4. Hold fixed the five formerly unfinished rows and existing ownership/loop controls. The generated comparison oracle,
+   numeric/variant controls and irrelevant-fact work check protect the migration. An unexplained regression blocks it.
+5. Require separate bounded optimized runs and repeats below500ms for all five rows. Report actual work and timing
+   boundaries. Remove superseded machinery, audit maintainability, run style/format at the end and checkpoint/push.
+   Passing these controls establishes performance evidence, not BRA-567 completion or full-matrix correctness.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
 correction-frozen30.json. correction-current.json preserves original-to-current mapping. Fixed920 is907 comparison.txt

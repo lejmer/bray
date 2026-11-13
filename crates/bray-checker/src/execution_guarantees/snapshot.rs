@@ -24,14 +24,7 @@ pub(crate) fn common_components(
         if candidate.ownership_identity().is_none()
             && candidate.observation_kind().is_none_or(|kind| kind == ObservationKind::Scalar)
             && let ExecutionCondition::Boolean(value) = other
-            && (candidate.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(*value)
-                || assumptions.iter().any(|(condition, holds)| {
-                    holds == value && !condition.contains_trusted() && if *value {
-                        condition.implies(candidate)
-                    } else {
-                        candidate.implies(condition)
-                    }
-                }))
+            && !candidate.can_assume(!value, assumptions)
         {
             return candidate.clone();
         }

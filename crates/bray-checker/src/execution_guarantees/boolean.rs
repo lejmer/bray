@@ -9,7 +9,9 @@ pub(super) struct BooleanId(pub(super) usize);
 
 #[derive(Eq, Hash, PartialEq)]
 enum BooleanKey {
-    Operation(BoundOperator, Vec<BooleanId>),
+    Not(BooleanId),
+    And(BooleanId, BooleanId),
+    Or(BooleanId, BooleanId),
     Entry(bool, BooleanId),
     Observation(ExecutionObservationKind, BooleanId, BooleanId),
     Borrowed(BooleanId),
@@ -20,8 +22,9 @@ enum BooleanKey {
 impl BooleanKey {
     fn new(condition: &ExecutionCondition, mut child: impl FnMut(&ExecutionCondition) -> Option<BooleanId>) -> Option<Self> {
         Some(match condition {
-            ExecutionCondition::Operation(operator @ (BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands) =>
-                Self::Operation(*operator, operands.iter().map(&mut child).collect::<Option<_>>()?),
+            ExecutionCondition::Operation(BoundOperator::LogicalNot, operands) if let [value] = operands.as_ref() => Self::Not(child(value)?),
+            ExecutionCondition::Operation(BoundOperator::LogicalAnd, operands) if let [left, right] = operands.as_ref() => Self::And(child(left)?, child(right)?),
+            ExecutionCondition::Operation(BoundOperator::LogicalOr, operands) if let [left, right] = operands.as_ref() => Self::Or(child(left)?, child(right)?),
             ExecutionCondition::Entry { captured, condition } => Self::Entry(*captured, child(condition)?),
             ExecutionCondition::Observation { owner, contents, kind } => Self::Observation(*kind, child(owner)?, child(contents)?),
             ExecutionCondition::Borrowed(value) => Self::Borrowed(child(value)?),
@@ -33,7 +36,8 @@ impl BooleanKey {
 
     fn children(&self) -> Vec<BooleanId> {
         match self {
-            Self::Operation(_, children) => children.to_vec(),
+            Self::And(left, right) | Self::Or(left, right) => vec![*left, *right],
+            Self::Not(child) => vec![*child],
             Self::Entry(_, child) | Self::Borrowed(child) | Self::Observation(_, _, child) => vec![*child],
             Self::Trusted(_) | Self::Atom(_) => Vec::new(),
         }
@@ -44,7 +48,7 @@ pub(super) struct BooleanTerm {
     pub(super) condition: ExecutionCondition,
     pub(super) children: Vec<BooleanId>,
     pub(super) parents: Vec<BooleanId>,
-    pub(super) published: bool,
+    pub(super) published: Option<bool>,
 }
 
 /// Shared Boolean structure, with qualified occurrences kept as independent atoms.
@@ -61,10 +65,10 @@ impl BooleanGraph {
         let mut graph = Self { terms: Vec::new(), indices: HashMap::new() };
 
         for (condition, holds) in trusted.iter().chain(ordinary.iter().filter(|(condition, _)| !condition.contains_trusted())) {
-            if *holds && matches!(condition, ExecutionCondition::Operation(BoundOperator::LogicalOr, _)) {
+            if alternative_value(condition) == Some(*holds) {
                 let id = graph.intern(condition);
 
-                graph.terms[id.0].published = true;
+                graph.terms[id.0].published = Some(*holds);
             }
         }
 
@@ -89,7 +93,7 @@ impl BooleanGraph {
 
         // Graph keys and nodes retain immutable operands independently of the borrowed evidence view.
         self.indices.insert(key, id);
-        self.terms.push(BooleanTerm { condition: condition.clone(), children, parents: Vec::new(), published: false });
+        self.terms.push(BooleanTerm { condition: condition.clone(), children, parents: Vec::new(), published: None });
 
         id
     }
@@ -114,27 +118,27 @@ impl BooleanGraph {
     }
 }
 
-/// Find published clauses falsified by a goal's contrary without testing every premise against it.
-pub(super) struct DisjunctionProof {
+/// Find published alternatives contradicted by a goal's contrary without testing every premise against it.
+pub(super) struct AlternativeProof {
     graph: BooleanGraph,
     related: HashMap<ExecutionCondition, Vec<BooleanId>>,
     baseline: Vec<Option<bool>>,
     values: Vec<(usize, Option<bool>)>,
     asserted: Vec<(usize, Option<bool>)>,
-    queued: Vec<usize>,
+    queued: Vec<bool>,
     epoch: usize,
     queue: VecDeque<BooleanId>,
     candidates: Vec<BooleanId>,
-    always_false: Vec<BooleanId>,
+    baseline_conflicts: Vec<BooleanId>,
     #[cfg(test)]
     pub(super) work: usize,
 }
 
-impl DisjunctionProof {
+impl AlternativeProof {
     pub(super) fn new(graph: BooleanGraph) -> Self {
         let mut related = HashMap::<_, Vec<_>>::new();
         let mut baseline = Vec::with_capacity(graph.terms.len());
-        let mut always_false = Vec::new();
+        let mut baseline_conflicts = Vec::new();
 
         // Children precede parents. Intrinsic values need preparation only once per view.
         for (index, term) in graph.terms.iter().enumerate() {
@@ -148,16 +152,16 @@ impl DisjunctionProof {
             let value = graph.derived(BooleanId(index), |child| baseline[child.0]);
 
             baseline.push(value);
-            if term.published && value == Some(false) {
-                always_false.push(BooleanId(index));
+            if let Some(held) = term.published && value == Some(!held) {
+                baseline_conflicts.push(BooleanId(index));
             }
         }
 
         let size = graph.terms.len();
 
         Self {
-            graph, related, baseline, always_false,
-            values: vec![(0, None); size], asserted: vec![(0, None); size], queued: vec![0; size],
+            graph, related, baseline, baseline_conflicts,
+            values: vec![(0, None); size], asserted: vec![(0, None); size], queued: vec![false; size],
             epoch: 0, queue: VecDeque::new(), candidates: Vec::new(),
             #[cfg(test)]
             work: 0,
@@ -165,8 +169,8 @@ impl DisjunctionProof {
     }
 
     pub(super) fn proves(&mut self, consequence: &ExecutionCondition) -> bool {
+        if consequence.is_unknown() { return false; }
         self.epoch = self.epoch.checked_add(1).expect("Boolean proof query epoch fits usize");
-        self.queue.clear();
         self.candidates.clear();
         #[cfg(test)]
         { self.work = 0; }
@@ -188,8 +192,8 @@ impl DisjunctionProof {
             for subject in related_subjects(condition) {
                 if let Some(ids) = self.related.get(subject) {
                     for id in ids {
-                        if self.queued[id.0] != self.epoch {
-                            self.queued[id.0] = self.epoch;
+                        if !self.queued[id.0] {
+                            self.queued[id.0] = true;
                             self.queue.push_back(*id);
                         }
                     }
@@ -198,7 +202,7 @@ impl DisjunctionProof {
         }
 
         while let Some(id) = self.queue.pop_front() {
-            self.queued[id.0] = 0;
+            self.queued[id.0] = false;
             #[cfg(test)]
             { self.work += 1; }
 
@@ -217,22 +221,26 @@ impl DisjunctionProof {
                 self.values[id.0] = (self.epoch, value);
 
                 for parent in &term.parents {
-                    if self.queued[parent.0] != self.epoch {
-                        self.queued[parent.0] = self.epoch;
+                    if !self.queued[parent.0] {
+                        self.queued[parent.0] = true;
                         self.queue.push_back(*parent);
                     }
                 }
             }
 
-            if term.published && value == Some(false) {
+            if let Some(held) = term.published && value == Some(!held) {
                 self.candidates.push(id);
             }
         }
 
         // The graph selects candidates. The owning bounded rule still decides the implication.
         // This also preserves exact-occurrence precedence when supplied facts conflict.
-        self.candidates.iter().chain(&self.always_false).any(|id| {
-            self.graph.terms[id.0].condition.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT }) == Some(false)
+        self.candidates.iter().chain(&self.baseline_conflicts).any(|id| {
+            let term = &self.graph.terms[id.0];
+            let held = term.published.expect("implication candidates have an asserted alternative");
+
+            term.condition.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT })
+                == Some(!held)
         })
     }
 
@@ -241,8 +249,8 @@ impl DisjunctionProof {
 
         *prior = (self.epoch, Some(holds || prior.0 == self.epoch && prior.1 == Some(true)));
 
-        if self.queued[id.0] != self.epoch {
-            self.queued[id.0] = self.epoch;
+        if !self.queued[id.0] {
+            self.queued[id.0] = true;
             self.queue.push_back(id);
         }
     }
@@ -251,6 +259,14 @@ impl DisjunctionProof {
         let (epoch, value) = self.values[id.0];
 
         if epoch == self.epoch { value } else { self.baseline[id.0] }
+    }
+}
+
+pub(super) fn alternative_value(condition: &ExecutionCondition) -> Option<bool> {
+    match condition {
+        ExecutionCondition::Operation(BoundOperator::LogicalOr, _) => Some(true),
+        ExecutionCondition::Operation(BoundOperator::LogicalAnd, _) => Some(false),
+        _ => None,
     }
 }
 
@@ -284,7 +300,7 @@ mod tests {
     use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalNot, LogicalOr};
     use bray_symbols::SymbolOrdinal;
 
-    use super::{BooleanGraph, DisjunctionProof};
+    use super::{BooleanGraph, AlternativeProof};
     use crate::{ExecutionCondition, ExecutionPlace};
 
     #[test]
@@ -298,7 +314,7 @@ mod tests {
         let goal = or(not(input(0)), or(not(input(1)), claim.clone()));
         let empty = BTreeSet::new();
         let mut facts = BTreeSet::from([(premise, true)]);
-        let mut small = DisjunctionProof::new(BooleanGraph::new(&facts, &empty));
+        let mut small = AlternativeProof::new(BooleanGraph::new(&facts, &empty));
 
         assert!(small.proves(&goal));
 
@@ -308,7 +324,7 @@ mod tests {
             facts.insert((or(input(index * 2), input(index * 2 + 1)), true));
         }
 
-        let mut large = DisjunctionProof::new(BooleanGraph::new(&facts, &empty));
+        let mut large = AlternativeProof::new(BooleanGraph::new(&facts, &empty));
 
         for _ in 0..2 {
             assert!(large.proves(&goal));
@@ -316,7 +332,7 @@ mod tests {
             assert!(!large.proves(&or(input(3000), claim.clone())), "unknown guards cannot release authority");
         }
 
-        let mut ordinary = DisjunctionProof::new(BooleanGraph::new(&empty, &facts));
+        let mut ordinary = AlternativeProof::new(BooleanGraph::new(&empty, &facts));
 
         assert!(!ordinary.proves(&goal), "ordinary occurrences cannot supply qualified evidence");
     }

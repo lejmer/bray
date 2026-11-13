@@ -132,6 +132,14 @@ fn retained_disjunctions_reject_only_incompatible_branches() {
 
     assert!(first.can_assume(true, &assumptions));
     assert!(!third.can_assume(true, &assumptions));
+
+    let qualified = ExecutionCondition::Trusted(Arc::new(input(1)));
+    let untrusted_alternative = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(0), qualified]);
+    let assumptions = BTreeSet::from([(untrusted_alternative, true), (input(0), false)]);
+
+    assert!(input(1).can_assume(true, &assumptions));
+    assert!(input(1).can_assume(false, &assumptions),
+        "ordinary qualified clauses cannot establish their predicate's truth");
 }
 
 #[test]

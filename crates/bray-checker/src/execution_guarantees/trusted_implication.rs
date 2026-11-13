@@ -3,13 +3,13 @@ use std::collections::{BTreeSet, VecDeque};
 use bray_bound_tree::BoundOperator;
 
 use super::ExecutionCondition;
-use super::boolean::{BooleanGraph, BooleanId};
+use super::boolean::{BooleanGraph, BooleanId, alternative_value};
 
 #[derive(Default)]
 struct ProofTerm {
     value: Option<bool>,
     asserted: Option<bool>,
-    asserted_disjunction: bool,
+    asserted_alternative: Option<bool>,
 }
 
 /// Derive Boolean consequences without promoting ordinary occurrences to trusted evidence.
@@ -34,10 +34,10 @@ pub(super) fn prepare_trusted_conditions(
             [true, false].into_iter().find(|value| assumptions.contains(&(condition.clone(), *value)))
         };
 
-        terms[index].asserted_disjunction = matches!(condition,
-            ExecutionCondition::Operation(BoundOperator::LogicalOr, _))
-            && (explicit(&known) == Some(true)
-                || (!condition.contains_trusted() && explicit(ordinary) == Some(true)));
+        terms[index].asserted_alternative = alternative_value(condition).filter(|held| {
+            explicit(&known) == Some(*held)
+                || (!condition.contains_trusted() && explicit(ordinary) == Some(*held))
+        });
         terms[index].asserted = match condition {
             ExecutionCondition::Unknown => None,
             ExecutionCondition::Boolean(value) => Some(*value),
@@ -60,12 +60,12 @@ pub(super) fn prepare_trusted_conditions(
         if !node.condition.contains_trusted() && let Some(value) = term.value {
             // Facts and graph retain the same immutable condition operands.
             known.insert((node.condition.clone(), value));
-            if value && matches!(node.condition, ExecutionCondition::Operation(BoundOperator::LogicalOr, _)) {
-                node.published = true;
+            if alternative_value(&node.condition) == Some(value) {
+                node.published = Some(value);
             }
         }
-        if term.asserted_disjunction {
-            node.published = true;
+        if let Some(held) = term.asserted_alternative {
+            node.published = Some(held);
         }
     }
 
@@ -88,15 +88,15 @@ fn propagate(
             queue.extend(node.parents.iter().copied());
         }
 
-        if terms[id.0].asserted_disjunction && let [left, right] = node.children.as_slice() {
+        if let Some(held) = terms[id.0].asserted_alternative && let [left, right] = node.children.as_slice() {
             let established = [
-                (terms[left.0].value == Some(false)).then_some(*right),
-                (terms[right.0].value == Some(false)).then_some(*left),
+                (terms[left.0].value == Some(!held)).then_some(*right),
+                (terms[right.0].value == Some(!held)).then_some(*left),
             ];
 
             for child in established.into_iter().flatten() {
                 // Normal assumptions retain qualified predicates and negation polarity.
-                graph.terms[child.0].condition.clone().assume_with(true, &mut |condition, value| {
+                graph.terms[child.0].condition.clone().assume_with(held, &mut |condition, value| {
                     if !known.insert((condition.clone(), value)) { return; }
 
                     if let Some(id) = graph.find(&condition) {
@@ -109,9 +109,8 @@ fn propagate(
                             queue.extend(graph.terms[id.0].parents.iter().copied());
                         }
 
-                        if value && matches!(condition,
-                            ExecutionCondition::Operation(BoundOperator::LogicalOr, _)) {
-                            term.asserted_disjunction = true;
+                        if alternative_value(&condition) == Some(value) {
+                            term.asserted_alternative = Some(value);
                             queue.push_back(id);
                         }
                     }
@@ -373,5 +372,23 @@ mod tests {
         input(2).assume(false, &mut ordinary);
 
         assert_eq!(qualified.prove_trusted(&trusted, &ordinary), Some(true));
+    }
+
+    #[test]
+    fn false_conjunctions_preserve_qualified_negative_authority() {
+        let qualified = ExecutionCondition::Trusted(Arc::new(input(1)));
+        let alternative = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![input(0), qualified.clone()]);
+        let ordinary = BTreeSet::from([(input(0), true)]);
+        let trusted = BTreeSet::from([(alternative.clone(), false)]);
+        let known = trusted_condition_closure(trusted, &ordinary);
+
+        assert_eq!(qualified.prove_trusted(&known, &ordinary), Some(false));
+        assert_eq!(input(1).prove(&known, &mut { ExecutionCondition::WORK_LIMIT }), Some(false));
+
+        let ordinary = BTreeSet::from([(alternative, false), (input(0), true)]);
+        let known = trusted_condition_closure(BTreeSet::new(), &ordinary);
+
+        assert_eq!(qualified.prove_trusted(&known, &ordinary), None,
+            "an ordinary negative alternative cannot supply qualified negative evidence");
     }
 }

@@ -109,10 +109,9 @@ fn collect_current_content_identities(
     }
 }
 
-pub(in crate::analysis::guarantee) fn returned_condition(
-    condition: &ExecutionCondition,
+pub(in crate::analysis::guarantee) fn return_substitution(
     result: &ExecutionCondition,
-) -> ExecutionCondition {
+) -> impl Fn(&ExecutionCondition) -> ExecutionCondition {
     let mut values = BTreeMap::new();
     let mut identities = BTreeMap::new();
 
@@ -125,7 +124,7 @@ pub(in crate::analysis::guarantee) fn returned_condition(
         &mut identities,
     );
 
-    condition.with_joined_values(&values, &identities)
+    move |condition| condition.with_joined_values(&values, &identities)
 }
 
 pub(in crate::analysis::guarantee) fn merge_returned(
