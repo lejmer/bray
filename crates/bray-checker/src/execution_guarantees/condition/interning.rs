@@ -75,13 +75,13 @@ impl ConditionIndex {
         self.0.lock().expect("condition index lock is not poisoned").intern(condition)
     }
 
-    pub(super) fn map<T>(&self) -> ConditionMap<T> {
+    pub(in crate::execution_guarantees) fn map<T>(&self) -> ConditionMap<T> {
         ConditionMap { conditions: self.clone(), values: HashMap::new() }
     }
 }
 
 /// Memo values belong to this exact query scope. Only structural identity is shared.
-pub(super) struct ConditionMap<T> {
+pub(in crate::execution_guarantees) struct ConditionMap<T> {
     conditions: ConditionIndex,
     values: HashMap<ConditionId, T>,
 }

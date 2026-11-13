@@ -38,26 +38,29 @@ This correction changes representation/query work, not inference rules or state 
 
 ## Evidence and active work
 
-Pushed checkpoint 08e87fd06:189 focused controls, fixed five outcomes, tasks550–573ms/loop3542ms, frozen 29/1.
-Finalized batch:195 focused controls pass. Two uninstrumented fixed-five repetitions retain all outcomes and
-negative call locations. Tasks437–484ms meet500ms, loop2657–2746ms does not. Frozen30 remains29 pass/1 known
-RawBuffer invalid acceptance,12.64s. Style applied fixes and reports only its six prior errors: wildcard
-flow/invalidation and oversized flow/merge, storage_flow cleanup/core, execution_guarantees/portable and tooling
-output/diagnostic/json/argument. Source formatting passes. No temporary tracing or backend switches remain.
+Checkpoint60bebc2bd established shared structural IDs and immutable operand properties. Its195 controls passed,
+tasks437-484ms/loop2657-2746ms, frozen29/1. Structural tree memo keys were slower than interned keys and removed.
 
-Interned memo keys won repeated task/loop comparisons over structural tree keys. Growth from08e87fd06 is305
-nonblank production lines and164 test lines. It exceeds the150-line target. The growth buys shared structural
-identity, immutable operand properties and scoped reuse. Duplicate Boolean keys/flags and experimental backends
-are removed. New controls cover semantic collisions, ordering, lifetime retention, opacity and exact budgets.
+Finalized correction: AlternativeProof owns immutable graph/baselines. AlternativeQuery owns its scratch.
+Shared epochs and the enclosing proof mutex are removed. Existing completed-answer cache helpers synchronize
+only lookup/publication. Queue order, positive assertion precedence, unknown handling, numeric/variant
+relations, alias propagation and the final bounded implication remain unchanged. No authority or inference changes.
+Local storage is dense up to1024 nodes, sparse above it. Initialization is bounded independently of large graphs.
+Measured queries visit81 of129 nodes on average. Large irrelevant-clause controls require storage/work proportional
+to reached nodes. No reconstruction or pooled shared scratch. Net32 nonblank production lines and14 test lines.
 
-ACTIVE: commit/push this verified progress checkpoint, then continue the loop investigation. The500ms gate
-remains incomplete. Current proof-build.jsonl selects the exact optimized binary. proof-indexed-current.json,
-proof-checker.log and proof-frozen30.json retain final evidence. No full matrices have run.
+Final optimized build passes195 controls, including concurrent differing goals and original budget controls.
+Two fixed-five repetitions preserve outcomes and negative call locations: tasks443-491ms, loop2727-2782ms.
+The loop still misses500ms. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance,12.54s. Style applied
+fixes and reports only six prior errors: wildcard flow/invalidation and oversized flow/merge, storage_flow
+cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument. Source formatting passes.
+No temporary probes or backend switches remain. Maintainability review reuses the existing memo helper and finds
+no equivalent reusable dense/sparse Boolean query store outside this domain. No public API changed.
 
-After the checkpoint, profile the remaining loop cost inside witness refinement and flow. Prior detailed counters
-identified repeated structural comparisons and property walks, but those predate the operand-property repair.
-Do not keep layering caches on an unmeasured boundary. Use one bounded loop and coarse scopes to locate the
-remaining dominant work. Preserve exact mutable/immutable evidence boundaries while choosing the next algorithm.
+Next performance target is conditional-fact construction. Coarse profile: ConditionalFacts326ms exclusive,
+Snapshots279ms/55270 calls, Retire314ms, PrepareBoolean279ms, Alternative270ms, Observations265ms.
+Inspect repeated with_snapshots inputs before changing substitution. Keep snapshot capture opacity and exact
+immutable-map scope. proof-query-current.json retains this current profile, not historical experiments.
 
 ## Fixed gates and broader work
 

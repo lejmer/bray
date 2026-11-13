@@ -45,7 +45,7 @@ impl ProofMemo {
 struct DerivedFacts {
     conditions: BTreeSet<(ExecutionCondition, bool)>,
     mixed: ProofMemo,
-    alternatives: Mutex<AlternativeProof>,
+    alternatives: AlternativeProof,
     guards: OnceLock<GuardSubstitution>,
     positive: OnceLock<ConditionMap<()>>,
     refined: ConditionMemo<Arc<[ExecutionCondition]>>,
@@ -56,7 +56,7 @@ impl DerivedFacts {
         // Preparation owns expanded facts, sharing immutable condition operands with the inputs.
         let (conditions, graph) = crate::execution_guarantees::trusted_implication::prepare_trusted_conditions(trusted.clone(), ordinary, index.clone());
 
-        Self { conditions, mixed: ProofMemo::new(index), alternatives: Mutex::new(AlternativeProof::new(graph)), guards: OnceLock::new(), positive: OnceLock::new(), refined: Mutex::new(index.map()) }
+        Self { conditions, mixed: ProofMemo::new(index), alternatives: AlternativeProof::new(graph), guards: OnceLock::new(), positive: OnceLock::new(), refined: Mutex::new(index.map()) }
     }
 
     fn establishes(&self, condition: &ExecutionCondition) -> bool {
@@ -288,7 +288,7 @@ impl<'a> ExecutionProof<'a> {
                 .any(|(premise, holds)| *holds && matches!(premise, ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, _)) && Self::implies(premise, consequence));
         }
 
-        self.known().alternatives.lock().expect("analysis alternative proof lock is not poisoned").proves(consequence)
+        self.known().alternatives.proves(consequence)
     }
 
     pub(super) fn implies(premise: &ExecutionCondition, consequence: &ExecutionCondition) -> bool {

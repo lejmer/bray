@@ -1,11 +1,12 @@
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::sync::Mutex;
 
 use bray_bound_tree::BoundOperator;
 
 use super::ExecutionCondition;
-use super::condition::{ConditionId, ConditionIndex};
+use super::condition::{ConditionId, ConditionIndex, ConditionMemo, cached_condition};
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct BooleanId(pub(super) usize);
 
 pub(super) struct BooleanTerm {
@@ -117,17 +118,61 @@ impl BooleanGraph {
 pub(super) struct AlternativeProof {
     graph: BooleanGraph,
     related: HashMap<ConditionId, Vec<BooleanId>>,
-    answers: HashMap<ConditionId, bool>,
+    answers: ConditionMemo<bool>,
     baseline: Vec<Option<bool>>,
-    values: Vec<(usize, Option<bool>)>,
-    asserted: Vec<(usize, Option<bool>)>,
-    queued: Vec<bool>,
-    epoch: usize,
+    baseline_conflicts: Vec<BooleanId>,
+}
+
+/// Only this query can change its hypothetical facts and reached-node values.
+struct AlternativeQuery<'a> {
+    proof: &'a AlternativeProof,
+    nodes: QueryNodes,
     queue: VecDeque<BooleanId>,
     candidates: Vec<BooleanId>,
-    baseline_conflicts: Vec<BooleanId>,
     #[cfg(test)]
-    pub(super) work: usize,
+    work: usize,
+}
+
+#[derive(Clone, Copy, Default)]
+struct QueryNode {
+    // An absent override reads the immutable baseline. An explicit None is unknown.
+    value: Option<Option<bool>>,
+    asserted: Option<bool>,
+    queued: bool,
+}
+
+/// Bound initialization for small graphs, while large graphs allocate only reached nodes.
+enum QueryNodes {
+    Dense(Vec<QueryNode>),
+    Sparse(BTreeMap<BooleanId, QueryNode>),
+}
+
+impl QueryNodes {
+    fn new(size: usize) -> Self {
+        const DENSE_LIMIT: usize = 1024;
+
+        if size <= DENSE_LIMIT { Self::Dense(vec![QueryNode::default(); size]) }
+        else { Self::Sparse(BTreeMap::new()) }
+    }
+
+    fn get(&self, id: BooleanId) -> Option<&QueryNode> {
+        match self {
+            Self::Dense(nodes) => Some(&nodes[id.0]),
+            Self::Sparse(nodes) => nodes.get(&id),
+        }
+    }
+
+    fn entry(&mut self, id: BooleanId) -> &mut QueryNode {
+        match self {
+            Self::Dense(nodes) => &mut nodes[id.0],
+            Self::Sparse(nodes) => nodes.entry(id).or_default(),
+        }
+    }
+
+    #[cfg(test)]
+    fn allocated(&self) -> usize {
+        match self { Self::Dense(nodes) => nodes.len(), Self::Sparse(nodes) => nodes.len() }
+    }
 }
 
 impl AlternativeProof {
@@ -154,38 +199,29 @@ impl AlternativeProof {
             }
         }
 
-        let size = graph.terms.len();
+        let answers = Mutex::new(graph.conditions.map());
 
+        Self { graph, related, baseline, baseline_conflicts, answers }
+    }
+
+    pub(super) fn proves(&self, consequence: &ExecutionCondition) -> bool {
+        if consequence.is_unknown() { return false; }
+
+        cached_condition(&self.answers, consequence, || AlternativeQuery::new(self).proves(consequence))
+    }
+}
+
+impl<'a> AlternativeQuery<'a> {
+    fn new(proof: &'a AlternativeProof) -> Self {
         Self {
-            graph, related, baseline, baseline_conflicts, answers: HashMap::new(),
-            values: vec![(0, None); size], asserted: vec![(0, None); size], queued: vec![false; size],
-            epoch: 0, queue: VecDeque::new(), candidates: Vec::new(),
+            proof, nodes: QueryNodes::new(proof.graph.terms.len()),
+            queue: VecDeque::new(), candidates: Vec::new(),
             #[cfg(test)]
             work: 0,
         }
     }
 
-    pub(super) fn proves(&mut self, consequence: &ExecutionCondition) -> bool {
-        #[cfg(test)]
-        { self.work = 0; }
-
-        if consequence.is_unknown() { return false; }
-
-        let key = self.graph.conditions.intern(consequence);
-
-        if let Some(answer) = self.answers.get(&key) { return *answer; }
-
-        let answer = self.proves_uncached(consequence);
-
-        self.answers.insert(key, answer);
-
-        answer
-    }
-
-    fn proves_uncached(&mut self, consequence: &ExecutionCondition) -> bool {
-        self.epoch = self.epoch.checked_add(1).expect("Boolean proof query epoch fits usize");
-        self.candidates.clear();
-
+    fn proves(&mut self, consequence: &ExecutionCondition) -> bool {
         let mut contrary = BTreeSet::new();
 
         // Negating a qualified occurrence never establishes an ordinary negative predicate.
@@ -198,32 +234,34 @@ impl AlternativeProof {
         }
 
         while let Some(id) = self.queue.pop_front() {
-            self.queued[id.0] = false;
+            let asserted = {
+                let node = self.nodes.entry(id);
+
+                node.queued = false;
+
+                node.asserted
+            };
 
             #[cfg(test)]
             { self.work += 1; }
 
-            let term = &self.graph.terms[id.0];
+            let proof = self.proof;
+            let term = &proof.graph.terms[id.0];
 
             let value = if let ExecutionCondition::Boolean(value) = &term.condition {
                 Some(*value)
-            } else if self.asserted[id.0].0 == self.epoch {
-                self.asserted[id.0].1
+            } else if let Some(value) = asserted {
+                Some(value)
             } else {
-                self.graph.derived(id, |child| self.value(child)).or_else(|| {
+                self.proof.graph.derived(id, |child| self.value(child)).or_else(|| {
                     term.children.is_empty().then(|| term.condition.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT })).flatten()
                 })
             };
 
             if self.value(id) != value {
-                self.values[id.0] = (self.epoch, value);
+                self.nodes.entry(id).value = Some(value);
 
-                for parent in &term.parents {
-                    if !self.queued[parent.0] {
-                        self.queued[parent.0] = true;
-                        self.queue.push_back(*parent);
-                    }
-                }
+                for parent in &term.parents { self.enqueue(*parent); }
             }
 
             if let Some(held) = term.published && value == Some(!held) {
@@ -233,10 +271,10 @@ impl AlternativeProof {
             // Only an established ordinary data correspondence can extend the hypothesis.
             // Never infer alias identity merely because two conditions have matching truth.
             let copied = if matches!(term.condition, ExecutionCondition::ValueAlias(_, _)) && term.published == Some(true) {
-                self.graph.consequences(id, true, |child| self.value(child)).map(|copy| {
+                self.proof.graph.consequences(id, true, |child| self.value(child)).map(|copy| {
                     copy.filter(|(child, _)| self.value(*child).is_none()).map(|(child, value)| {
                         // The hypothesis owns these fact keys while operands stay shared with the graph.
-                        (self.graph.terms[child.0].condition.clone(), value)
+                        (self.proof.graph.terms[child.0].condition.clone(), value)
                     })
                 })
             } else { [None, None] };
@@ -254,8 +292,8 @@ impl AlternativeProof {
 
         // The graph selects candidates. The owning bounded rule still decides the implication.
         // This also preserves exact-occurrence precedence when supplied facts conflict.
-        self.candidates.iter().chain(&self.baseline_conflicts).any(|id| {
-            let term = &self.graph.terms[id.0];
+        self.candidates.iter().chain(&self.proof.baseline_conflicts).any(|id| {
+            let term = &self.proof.graph.terms[id.0];
             let held = term.published.expect("implication candidates have an asserted alternative");
 
             term.condition.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT })
@@ -264,38 +302,38 @@ impl AlternativeProof {
     }
 
     fn assert(&mut self, id: BooleanId, holds: bool) {
-        let prior = &mut self.asserted[id.0];
+        let node = self.nodes.entry(id);
 
-        *prior = (self.epoch, Some(holds || prior.0 == self.epoch && prior.1 == Some(true)));
-
-        if !self.queued[id.0] {
-            self.queued[id.0] = true;
-            self.queue.push_back(id);
-        }
+        node.asserted = Some(holds || node.asserted == Some(true));
+        self.enqueue(id);
     }
 
     fn seed(&mut self, condition: &ExecutionCondition, held: bool) {
-        if let Some(id) = self.graph.find(condition) && !self.graph.terms[id.0].condition.contains_unknown() {
+        if let Some(id) = self.proof.graph.find(condition) && !self.proof.graph.terms[id.0].condition.contains_unknown() {
             self.assert(id, held);
         }
 
         // Include comparison and variant dependencies when a copied hypothesis changes too.
+        let proof = self.proof;
+
         for subject in related_subjects(condition) {
-            if let Some(ids) = self.related.get(&self.graph.conditions.intern(subject)) {
-                for id in ids {
-                    if !self.queued[id.0] {
-                        self.queued[id.0] = true;
-                        self.queue.push_back(*id);
-                    }
-                }
+            if let Some(ids) = proof.related.get(&proof.graph.conditions.intern(subject)) {
+                for id in ids { self.enqueue(*id); }
             }
         }
     }
 
-    fn value(&self, id: BooleanId) -> Option<bool> {
-        let (epoch, value) = self.values[id.0];
+    fn enqueue(&mut self, id: BooleanId) {
+        let node = self.nodes.entry(id);
 
-        if epoch == self.epoch { value } else { self.baseline[id.0] }
+        if !node.queued {
+            node.queued = true;
+            self.queue.push_back(id);
+        }
+    }
+
+    fn value(&self, id: BooleanId) -> Option<bool> {
+        self.nodes.get(id).and_then(|node| node.value).unwrap_or(self.proof.baseline[id.0])
     }
 }
 
@@ -344,7 +382,7 @@ mod tests {
     use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalNot, LogicalOr};
     use bray_symbols::SymbolOrdinal;
 
-    use super::{BooleanGraph, AlternativeProof};
+    use super::{BooleanGraph, AlternativeProof, AlternativeQuery};
     use crate::{ExecutionCondition, ExecutionPlace};
 
     #[test]
@@ -358,25 +396,43 @@ mod tests {
         let goal = or(not(input(0)), or(not(input(1)), claim.clone()));
         let empty = BTreeSet::new();
         let mut facts = BTreeSet::from([(premise, true)]);
-        let mut small = AlternativeProof::new(BooleanGraph::new(&facts, &empty, Default::default()));
+        let small = AlternativeProof::new(BooleanGraph::new(&facts, &empty, Default::default()));
 
-        assert!(small.proves(&goal));
+        let mut query = AlternativeQuery::new(&small);
 
-        let work = small.work;
+        assert!(query.proves(&goal));
+
+        let work = query.work;
 
         for index in 10..1010 {
             facts.insert((or(input(index * 2), input(index * 2 + 1)), true));
         }
 
-        let mut large = AlternativeProof::new(BooleanGraph::new(&facts, &empty, Default::default()));
+        let large = AlternativeProof::new(BooleanGraph::new(&facts, &empty, Default::default()));
 
-        for iteration in 0..2 {
+        for _ in 0..2 {
+            let mut query = AlternativeQuery::new(&large);
+
+            assert!(query.proves(&goal));
+            assert_eq!(query.work, work);
+            assert!(query.nodes.allocated() <= work, "query storage follows reached nodes, not the full graph");
             assert!(large.proves(&goal));
-            assert_eq!(large.work, if iteration == 0 { work } else { 0 });
             assert!(!large.proves(&or(input(3000), claim.clone())), "unknown guards cannot release authority");
         }
 
-        let mut ordinary = AlternativeProof::new(BooleanGraph::new(&empty, &facts, Default::default()));
+        let parallel = AlternativeProof::new(BooleanGraph::new(&facts, &empty, Default::default()));
+
+        std::thread::scope(|threads| {
+            for (goal, expected) in [(goal.clone(), true), (or(input(3000), claim.clone()), false)] {
+                let parallel = &parallel;
+
+                threads.spawn(move || {
+                    for _ in 0..4 { assert_eq!(parallel.proves(&goal), expected); }
+                });
+            }
+        });
+
+        let ordinary = AlternativeProof::new(BooleanGraph::new(&empty, &facts, Default::default()));
 
         assert!(!ordinary.proves(&goal), "ordinary occurrences cannot supply qualified evidence");
     }
