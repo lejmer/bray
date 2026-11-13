@@ -1,7 +1,8 @@
 # BRA-567 current correction audit
 
 Read this record and the [contract gate](../../.agents/skills/work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it)
-after compaction. The proof preparation checkpoint is complete. Stop after pushing it. Do not start another batch.
+after compaction. The current target is less than500ms per fixture case. It is not met. Only bounded diagnosis and
+artifact cleanup were authorized for this checkpoint. Both are complete. Await resumption before implementation.
 The issue remains incomplete. Do not merge, change issue status, edit develop or create another worktree.
 
 ## Current admission contract
@@ -78,19 +79,29 @@ implication fallback and existing budgets unchanged. Replace repeated preparatio
 state. Existing condition/guard/cleanup tests and the real positive/fabricated task cases are the fixed oracles.
 Comparison reasoning must reject noncomparison operators before constructing ordering terms. This removes work whose
 result was always None, retaining all applicable comparison reasoning and Boolean derivation rules.
-Extend the existing provenance test with context isolation/reuse. Bound each unfinished case to120s. Do not run either full matrix. Target less
+The existing provenance test covers context isolation/reuse. The former120s bound proved completion only and is superseded
+by the500ms target, including consumer construction, checking and lowering, excluding shared provider setup and Rust builds.
+Do not run either full matrix. Target less
 than150 added production lines. Reconsider if proof outcomes change or preparation sharing leaves the cases pathological.
 
 Current implementation shares premise closures, negated requests and fixed-budget results through borrowed proof
 contexts, groups merge candidates by owner, and uses those contexts in the equivalent immutable query groups.
 Comparison proof skips noncomparison operators and both Boolean proof engines short-circuit decisive operands.
-Final optimized verification passes all173 execution-guarantee/guarantee-analysis tests and all five formerly unfinished
-cases under the unchanged120s bound. Task cases take48.3–49.5s and the loop117.5s, with117.8s total. Positive cases pass
+The completion baseline passes all173 execution-guarantee/guarantee-analysis tests and all five formerly unfinished
+cases under the former120s bound. Task cases take48.3–49.5s and the loop117.5s, with117.8s total. Positive cases pass
 and fabricated-owner/second-owner negatives reject. The loop remains expensive. This is not full-matrix verification.
 Temporary counters are removed. The198-block loop graph showed expensive individual passes, not runaway update counts.
 Required cleanup-feasibility replay remains intact. Prepared facts retain raw/mixed subproof results keyed by condition
 and incoming budget, restoring the exact remaining budget on hits. Raw/mixed facts and policies stay separate.
 The fixed63/62-step oracle checks repeated prepared queries. No extra memoization policy remains.
+
+A hash-verified15s individual-case leaf profile at bf27eafca collected401 samples:175 structural condition comparisons,
+34 memo-helper samples,28 condition clones and26 drops. Leaf sampling does not identify callers. conditional_aliases
+can propose128 values ×2 predecessors ×128 guards =32,768 guarded clauses per merge, each checked on both predecessors.
+This is an upper bound, not an observed count. Next measure actual proposal counts, then reduce unnecessary search by
+deducing transport from authoritative predecessor facts. Do not add more memo layers without that evidence.
+No production edits or rebuilds were made for this diagnosis. Current evidence is proof-unfinished.json and
+proof-500ms-sample.json. Superseded build streams, traces and duplicate outputs were removed. Frozen comparison evidence remains.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
 correction-frozen30.json. correction-current.json preserves original-to-current mapping. Fixed920 is907 comparison.txt
@@ -110,7 +121,7 @@ structural errors outside the admission change:
 - flow/merge.rs, storage_flow/check/analysis/cleanup.rs, storage_flow/check/analysis/core.rs,
   execution_guarantees/portable.rs and bray-tooling output/diagnostic/json/argument.rs exceed the function limit.
 
-The user bounds this checkpoint to proof preparation and the five unfinished cases, then stop. These7 errors remain gate failures.
+This checkpoint is bounded to diagnosis and cleanup, then stop. These7 errors remain gate failures.
 The end audit rereads AGENTS.md, reviews every changed file and searches equivalent proof-preparation and budget-cache
 behavior. Raw/mixed engines share one memo helper. Contexts retain exact predecessor/owner evidence and original proof
 budgets, with no persistent flow-state cache. Net nonblank growth is101 production lines and36 test lines. Formatting
@@ -141,4 +152,4 @@ control and native archive/link requirements. Focused compiler evidence is not i
 
 Keep only current compact outcomes, active build evidence and frozen identities. Remove obsolete task-owned detailed
 logs by verified explicit paths under target/audit. Own all processes. Run native toolchains outside the sandbox.
-Checkpoint this tested batch on feature/bra-567-async-root-orchestration, verify remote equality, then stop.
+Checkpoint the compact diagnosis on feature/bra-567-async-root-orchestration, verify remote equality, then stop.
