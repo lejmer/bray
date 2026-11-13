@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
+use super::interning::{ConditionIndex, ConditionMap};
 
 use super::ExecutionCondition;
 use std::sync::Mutex;
 
-pub(super) type ConditionMemo<T = bool> = Mutex<BTreeMap<ExecutionCondition, T>>;
+pub(super) type ConditionMemo<T = bool> = Mutex<ConditionMap<T>>;
 
 pub(super) fn cached_condition<T: Clone>(memo: &ConditionMemo<T>, value: &ExecutionCondition, compute: impl FnOnce() -> T) -> T {
     if let Some(result) = memo.lock().expect("condition query memo lock is not poisoned").get(value) {
@@ -11,14 +12,15 @@ pub(super) fn cached_condition<T: Clone>(memo: &ConditionMemo<T>, value: &Execut
     }
 
     let result = compute();
-    memo.lock().expect("condition query memo lock is not poisoned").insert(value.clone(), result.clone());
+
+    memo.lock().expect("condition query memo lock is not poisoned").insert(value, result.clone());
 
     result
 }
 
 /// Captured immutable inputs establish the scope of each pure condition query.
-pub(crate) fn memoize_condition(query: impl Fn(&ExecutionCondition) -> bool) -> impl Fn(&ExecutionCondition) -> bool {
-    let memo = ConditionMemo::default();
+pub(super) fn memoize_condition(map: ConditionMap<bool>, query: impl Fn(&ExecutionCondition) -> bool) -> impl Fn(&ExecutionCondition) -> bool {
+    let memo = Mutex::new(map);
 
     move |value| cached_condition(&memo, value, || query(value))
 }
@@ -41,6 +43,7 @@ impl<T: Clone> Computation<T> {
         }
 
         let value = self.exhausted.get(budget)?.clone();
+
         *budget = 0;
 
         Some(value)
@@ -48,21 +51,26 @@ impl<T: Clone> Computation<T> {
 }
 
 /// Pure execution queries retain their original semantic work cost on a cache hit.
-pub(super) struct ExecutionMemo<K, T> {
-    values: Mutex<BTreeMap<K, Computation<T>>>,
+pub(super) struct ExecutionMemo<T> {
+    values: Mutex<ConditionMap<Computation<T>>>,
 }
 
-impl<K, T> Default for ExecutionMemo<K, T> {
-    fn default() -> Self { Self { values: Mutex::new(BTreeMap::new()) } }
+impl<T> Default for ExecutionMemo<T> {
+    fn default() -> Self { Self { values: Mutex::new(ConditionMap::default()) } }
 }
 
-pub(super) fn memoized<K: Clone + Ord, T: Clone>(
-    memo: Option<&ExecutionMemo<K, T>>,
-    key: &K,
+impl<T> ExecutionMemo<T> {
+    pub(super) fn new(index: &ConditionIndex) -> Self { Self { values: Mutex::new(index.map()) } }
+}
+
+pub(super) fn memoized<T: Clone>(
+    memo: Option<&ExecutionMemo<T>>,
+    key: &ExecutionCondition,
     budget: &mut usize,
     compute: impl FnOnce(&mut usize) -> T,
 ) -> T {
     let Some(memo) = memo else { return compute(budget); };
+
     let cached = memo.values.lock().expect("execution query memo lock is not poisoned")
         .get(key).and_then(|cached| cached.reuse(budget));
 
@@ -70,12 +78,14 @@ pub(super) fn memoized<K: Clone + Ord, T: Clone>(
 
     let initial = *budget;
     let value = compute(budget);
+
     assert!(*budget <= initial, "execution queries cannot increase their work budget");
+
     let mut values = memo.values.lock().expect("execution query memo lock is not poisoned");
 
     // Entries retain immutable shallow condition keys and reusable results, without
     // holding the memo lock during recursive inference or copying operand trees.
-    let entry = values.entry(key.clone()).or_default();
+    let entry = values.get_or_insert_with(key, Computation::default);
 
     if *budget > 0 {
         entry.completed = Some((initial - *budget, value.clone()));
@@ -101,7 +111,8 @@ mod tests {
 
         for initial in [1, 2, 1, 4, 2, 4, 1, 3] {
             let mut budget = initial;
-            let result = memoized(Some(&memo), &0, &mut budget, |budget| {
+
+            let result = memoized(Some(&memo), &super::ExecutionCondition::Boolean(true), &mut budget, |budget| {
                 attempts.set(attempts.get() + 1);
 
                 if *budget < 3 {

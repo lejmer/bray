@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::state::ExecutionState;
 use crate::ExecutionCondition;
-use crate::execution_guarantees::memoize_condition;
 
 impl ExecutionState {
     #[cfg(test)]
@@ -50,8 +49,9 @@ impl ExecutionState {
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);
         let retiring_snapshots = retained_snapshots.map(|_| pending.iter().cloned().collect::<BTreeSet<_>>());
+
         let unchanged = retiring_snapshots.as_ref().zip(retained_snapshots).map(|(before, after)| {
-            memoize_condition(move |value| crate::execution_guarantees::ObservationSet::retains_contents_between(before, after, value))
+            self.proofs.memoize_condition(move |value| crate::execution_guarantees::ObservationSet::retains_contents_between(before, after, value))
         });
 
         let retiring_observations = pending.iter().flat_map(|value| value.observations().cloned())
@@ -70,12 +70,12 @@ impl ExecutionState {
 
         self.refine_deferred_witnesses();
 
-        let retained_owner = memoize_condition(|value| retained_snapshots.map_or_else(
+        let retained_owner = self.proofs.memoize_condition(|value| retained_snapshots.map_or_else(
             || retained_observations.contains(value),
             |snapshots| crate::execution_guarantees::ObservationSet::retains_owner(snapshots, value),
         ));
 
-        let retained_data = memoize_condition(|value| retained_snapshots.map_or_else(
+        let retained_data = self.proofs.memoize_condition(|value| retained_snapshots.map_or_else(
             || retained_observations.preserves(value),
             |snapshots| crate::execution_guarantees::ObservationSet::retains_contents(snapshots, value),
         ));
@@ -102,9 +102,9 @@ impl ExecutionState {
                     || selection && observed.selector_place().is_some_and(|place| place.overlaps_any(places)))
         };
 
-        let observes_selection = memoize_condition(|condition| observes(condition, true));
+        let observes_selection = self.proofs.memoize_condition(|condition| observes(condition, true));
 
-        let borrowed_slot_changed = memoize_condition(|condition: &ExecutionCondition| {
+        let borrowed_slot_changed = self.proofs.memoize_condition(|condition: &ExecutionCondition| {
             condition.observations_except(&retained_data).any(|observed| {
                 let ExecutionCondition::Borrowed(value) = observed else { return false; };
 
@@ -119,12 +119,12 @@ impl ExecutionState {
             })
         });
 
-        let borrowed_changed = memoize_condition(|condition: &ExecutionCondition| condition.observes_live_where(|value| {
+        let borrowed_changed = self.proofs.memoize_condition(|condition: &ExecutionCondition| condition.observes_live_where(|value| {
             observes(value, false)
                 || unchanged.as_ref().is_some_and(|unchanged| retiring_observations.overlaps(value) && !unchanged(value))
         }, &retained_data) || borrowed_slot_changed(condition));
 
-        let retained_contents = memoize_condition(|condition: &ExecutionCondition| {
+        let retained_contents = self.proofs.memoize_condition(|condition: &ExecutionCondition| {
             kind.is_write()
                 && !borrowed_slot_changed(condition)
                 && condition.observes_only(|value| retained_observations.preserves(value))
@@ -149,7 +149,7 @@ impl ExecutionState {
         // A surviving carrier keeps facts about immutable captured contents after
         // their former container ends. Borrowed observations and physical bounds
         // still expire. Writes also invalidate affected by-value observations.
-        let revokes = memoize_condition(|condition: &ExecutionCondition| {
+        let revokes = self.proofs.memoize_condition(|condition: &ExecutionCondition| {
             (observes(condition, false) || borrowed_changed(condition)) && !stable(condition)
         });
 
@@ -157,7 +157,7 @@ impl ExecutionState {
             revokes(condition) && (kind.is_write() || borrowed_changed(condition))
         };
 
-        let availability_expired = memoize_condition(|condition: &ExecutionCondition| {
+        let availability_expired = self.proofs.memoize_condition(|condition: &ExecutionCondition| {
             !kind.is_write() && condition.observations().any(|observed| {
                 matches!(observed, ExecutionCondition::InitializedSnapshot(_, _, owner)
                     if retired_owner(owner)
@@ -666,7 +666,6 @@ impl ExecutionState {
 
 #[cfg(test)]
 mod tests {
-    use crate::execution_guarantees::memoize_condition;
     use std::collections::BTreeSet;
     use super::ExecutionState;
     use crate::ExecutionCondition;
@@ -919,10 +918,11 @@ mod tests {
         assert!(!crate::execution_guarantees::ObservationSet::retains_contents(&retained, &before));
 
         let prior = BTreeSet::from([before.clone()]);
-        let owns = memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_owner(&retained, value));
-        let contents = memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents(&retained, value));
-        let unchanged = memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents_between(&prior, &retained, value));
-        let same = memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents_between(&retained, &retained, value));
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let owns = cache.memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_owner(&retained, value));
+        let contents = cache.memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents(&retained, value));
+        let unchanged = cache.memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents_between(&prior, &retained, value));
+        let same = cache.memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents_between(&retained, &retained, value));
 
         for _ in 0..2 {
             assert!(owns(&before));

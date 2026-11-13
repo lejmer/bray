@@ -5,19 +5,26 @@ use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+fn guard_facts(values: &BTreeMap<ExecutionCondition, ExecutionCondition>) -> super::substitution::GuardSubstitution {
+    super::substitution::GuardSubstitution::new(&Default::default(), values.iter().map(|(before, after)| (before, after.clone())))
+}
+
 #[test]
 fn nonidentity_rewrites_keep_unchanged_structure_and_selected_subtrees_shared() {
     let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
     let claim = ExecutionCondition::Trusted(Arc::new(input(1)));
+
     let choice = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr,
         vec![input(0), claim.clone()]);
+
     let unrelated = BTreeMap::from([(input(99), ExecutionCondition::Boolean(false))]);
+
     let ExecutionCondition::Operation(_, operands) = &choice else { unreachable!(); };
 
     for unchanged in [
         choice.with_snapshots(&unrelated),
         choice.with_copy_origins(&unrelated),
-        choice.with_guard_facts(&unrelated),
+        guard_facts(&unrelated).apply(&choice),
         choice.with_equalities(&unrelated),
         choice.with_joined_values(&unrelated, &unrelated),
         choice.pointer_observations(&BTreeMap::new()),
@@ -25,22 +32,25 @@ fn nonidentity_rewrites_keep_unchanged_structure_and_selected_subtrees_shared() 
             &BTreeSet::new(), &BTreeSet::new(), &mut { ExecutionCondition::WORK_LIMIT }),
     ] {
         assert_eq!(unchanged, choice);
+
         let ExecutionCondition::Operation(_, current) = unchanged else { unreachable!(); };
 
-        assert!(Arc::ptr_eq(operands, &current), "unrelated rewriting must retain the existing operand forest");
+        assert!(std::ptr::eq(operands.as_ref(), current.as_ref()), "unrelated rewriting must retain the existing operand forest");
     }
 
     let selected = BTreeMap::from([(input(0), ExecutionCondition::Boolean(false))]);
+
     let ExecutionCondition::Trusted(original) = &claim else { unreachable!(); };
 
     for rewritten in [
         choice.with_snapshots(&selected),
         choice.with_copy_origins(&selected),
-        choice.with_guard_facts(&selected),
+        guard_facts(&selected).apply(&choice),
         choice.with_equalities(&selected),
         choice.with_joined_values(&selected, &selected),
     ] {
         assert_eq!(rewritten, claim);
+
         let ExecutionCondition::Trusted(current) = rewritten else { unreachable!(); };
 
         assert!(Arc::ptr_eq(original, &current), "normalization must keep the selected unchanged claim shared");
@@ -103,13 +113,14 @@ fn identity_substitutions_preserve_the_existing_shared_value_and_qualifiers() {
     }
 
     let ExecutionCondition::Operation(_, original) = &value else { unreachable!(); };
+
     let unrelated = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(99)));
 
     for replacements in [BTreeMap::new(), BTreeMap::from([(unrelated.clone(), unrelated)])] {
         for unchanged in [
             value.with_snapshots(&replacements),
             value.with_copy_origins(&replacements),
-            value.with_guard_facts(&replacements),
+            guard_facts(&replacements).apply(&value),
             value.with_equalities(&replacements),
             value.with_joined_values(&replacements, &replacements),
         ] {
@@ -117,7 +128,7 @@ fn identity_substitutions_preserve_the_existing_shared_value_and_qualifiers() {
                 panic!("an identity substitution cannot erase an existing qualified value");
             };
 
-            assert!(Arc::ptr_eq(original, &operands));
+            assert!(std::ptr::eq(original.as_ref(), operands.as_ref()));
         }
     }
 }
@@ -256,6 +267,7 @@ fn retained_disjunctions_reject_only_incompatible_branches() {
     let assumptions = BTreeSet::from([(untrusted_alternative, true), (input(0), false)]);
 
     assert!(input(1).can_assume(true, &assumptions));
+
     assert!(input(1).can_assume(false, &assumptions),
         "ordinary qualified clauses cannot establish their predicate's truth");
 }

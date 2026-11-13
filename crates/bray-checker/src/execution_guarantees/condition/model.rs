@@ -1,6 +1,11 @@
 use bray_bound_tree::BoundOperator;
 use bray_symbols::ConstantValueData;
 use std::sync::Arc;
+use std::collections::HashSet;
+use std::cmp::Ordering;
+
+use super::traversal::{NodeIdentity, visit_once};
+use super::operands::ExecutionOperands;
 
 /// How a current observation relates to the storage or value that retains it.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -93,19 +98,19 @@ pub enum ExecutionCondition {
         Arc<ExecutionCondition>,
     ),
     /// A selected built-in operation on other known values.
-    Operation(BoundOperator, Arc<[ExecutionCondition]>),
+    Operation(BoundOperator, ExecutionOperands),
     /// A checked predicate application, compared by declaration and selected arguments.
     Predicate(
         bray_symbols::PredicateDefinitionSymbolId,
         bray_symbols::GenericSubstitutionId,
-        Arc<[ExecutionCondition]>,
+        ExecutionOperands,
     ),
     /// A checked deterministic callable application with stable declaration and argument identity.
     Call(
         bray_symbols::CallableInstanceData,
         Option<bray_symbols::ImplementationInstanceData>,
         Arc<[bray_symbols::ImplementationInstanceData]>,
-        Arc<[ExecutionCondition]>,
+        ExecutionOperands,
         // A checked borrowed result type identifies a reference computation without granting ownership.
         Option<bray_symbols::TypeId>,
     ),
@@ -127,11 +132,79 @@ pub enum ExecutionCondition {
     Unknown,
 }
 
+fn compare_operands(left: &[ExecutionCondition], right: &[ExecutionCondition], child: &mut impl FnMut(&ExecutionCondition, &ExecutionCondition) -> Ordering) -> Ordering {
+    left.iter().zip(right).map(|(left, right)| child(left, right)).find(|order| !order.is_eq())
+        .unwrap_or_else(|| left.len().cmp(&right.len()))
+}
+
+impl ExecutionCondition {
+    pub(super) fn eq_parts(&self, other: &Self, child: &mut impl FnMut(&Self, &Self) -> bool) -> bool {
+        self.cmp_parts(other, &mut |left, right| if child(left, right) { Ordering::Equal } else { Ordering::Less }).is_eq()
+    }
+
+    /// Compare exact root fields in declaration order, delegating recursive identity to the caller.
+    pub(super) fn cmp_parts(&self, other: &Self, child: &mut impl FnMut(&Self, &Self) -> Ordering) -> Ordering {
+        use ExecutionCondition as C;
+
+        match (self, other) {
+            (C::Boolean(a), C::Boolean(b)) => a.cmp(b),
+            (C::Variant(a), C::Variant(b)) => a.cmp(b),
+            (C::Literal(a), C::Literal(b)) => a.cmp(b),
+            (C::Input(a), C::Input(b)) => a.cmp(b),
+            (C::Expression(a), C::Expression(b)) | (C::ScopedCapability(a), C::ScopedCapability(b)) => a.cmp(b),
+            (C::Result, C::Result) | (C::Unknown, C::Unknown) => Ordering::Equal,
+            (C::Tagged(tag, a), C::Tagged(other_tag, b))
+            | (C::VariantTest(tag, a), C::VariantTest(other_tag, b)) => tag.cmp(other_tag).then_with(|| child(a, b)),
+            (C::Discriminant(a), C::Discriminant(b)) | (C::Present(a), C::Present(b))
+            | (C::ScalarValue(a), C::ScalarValue(b)) | (C::Trusted(a), C::Trusted(b))
+            | (C::Borrowed(a), C::Borrowed(b)) => child(a, b),
+            (C::Descriptor(kind, a), C::Descriptor(other_kind, b)) => kind.cmp(other_kind).then_with(|| child(a, b)),
+            (C::CapturedInput { owner, invocation, ordinal }, C::CapturedInput { owner: other_owner, invocation: other_invocation, ordinal: other_ordinal }) =>
+                child(owner, other_owner).then_with(|| (invocation, ordinal).cmp(&(other_invocation, other_ordinal))),
+            (C::Constructed(base, fields), C::Constructed(other_base, other_fields)) =>
+                child(base, other_base).then_with(|| fields.iter().zip(other_fields.iter())
+                    .map(|((field, value), (other_field, other_value))| field.cmp(other_field).then_with(|| child(value, other_value)))
+                    .find(|order| !order.is_eq()).unwrap_or_else(|| fields.len().cmp(&other_fields.len()))),
+            (C::Observation { owner, contents, kind }, C::Observation { owner: other_owner, contents: other_contents, kind: other_kind }) =>
+                child(owner, other_owner).then_with(|| child(contents, other_contents)).then_with(|| kind.cmp(other_kind)),
+            (C::PostState(mutation, owner), C::PostState(other_mutation, other_owner)) =>
+                mutation.cmp(other_mutation).then_with(|| child(owner, other_owner)),
+            (C::Joined(unit, block, place), C::Joined(other_unit, other_block, other_place)) =>
+                (unit, block, place).cmp(&(other_unit, other_block, other_place)),
+            (C::ValueAlias(left, right), C::ValueAlias(other_left, other_right)) =>
+                child(left, other_left).then_with(|| child(right, other_right)),
+            (C::InitializedSnapshot(place, join, value), C::InitializedSnapshot(other_place, other_join, other_value)) =>
+                place.cmp(other_place).then_with(|| child(join, other_join)).then_with(|| child(value, other_value)),
+            (C::Operation(operator, operands), C::Operation(other_operator, other_operands)) =>
+                operator.cmp(other_operator).then_with(|| compare_operands(operands, other_operands, child)),
+            (C::Predicate(predicate, substitution, operands), C::Predicate(other_predicate, other_substitution, other_operands)) =>
+                (predicate, substitution).cmp(&(other_predicate, other_substitution)).then_with(|| compare_operands(operands, other_operands, child)),
+            (C::Call(callable, implementation, witnesses, operands, reference_type), C::Call(other_callable, other_implementation, other_witnesses, other_operands, other_reference_type)) =>
+                (callable, implementation, witnesses).cmp(&(other_callable, other_implementation, other_witnesses))
+                    .then_with(|| compare_operands(operands, other_operands, child)).then_with(|| reference_type.cmp(other_reference_type)),
+            (C::Projection(field, value), C::Projection(other_field, other_value)) => field.cmp(other_field).then_with(|| child(value, other_value)),
+            (C::Entry { condition, captured }, C::Entry { condition: other_condition, captured: other_captured }) =>
+                child(condition, other_condition).then_with(|| captured.cmp(other_captured)),
+            // Different variants need only their derived declaration order, with no operand traversal.
+            (C::Boolean(_) | C::Variant(_) | C::Literal(_) | C::Input(_) | C::Expression(_) | C::ScopedCapability(_)
+                | C::Result | C::Unknown | C::Tagged(..) | C::VariantTest(..) | C::Discriminant(_) | C::Present(_)
+                | C::ScalarValue(_) | C::Trusted(_) | C::Borrowed(_) | C::Descriptor(..) | C::CapturedInput { .. }
+                | C::Constructed(..) | C::Observation { .. } | C::PostState(..) | C::Joined(..) | C::ValueAlias(..)
+                | C::InitializedSnapshot(..) | C::Operation(..) | C::Predicate(..) | C::Call(..) | C::Projection(..)
+                | C::Entry { .. }, _) => self.partial_cmp(other).expect("execution condition variants retain their declaration order"),
+        }
+    }
+}
+
 impl Ord for ExecutionCondition {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        if self == other { return std::cmp::Ordering::Equal; }
+        // A recursive comparison stops at shared storage. Root fields are compared
+        // once in declaration order, without a separate equality traversal.
+        if std::ptr::eq(self, other) {
+            return std::cmp::Ordering::Equal;
+        }
 
-        self.partial_cmp(other).expect("execution condition fields retain their total structural order")
+        self.cmp_parts(other, &mut |left, right| left.cmp(right))
     }
 }
 
@@ -149,7 +222,7 @@ impl ExecutionCondition {
                 | Self::Borrowed(value)
                 | Self::Discriminant(value)
                 | Self::Descriptor(_, value)
-            | Self::Present(value)
+                | Self::Present(value)
                 | Self::Projection(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Entry {
@@ -161,26 +234,37 @@ impl ExecutionCondition {
         }
     }
     pub(crate) fn contains_trusted(&self) -> bool {
+        if let Self::Operation(_, operands) | Self::Predicate(_, _, operands) | Self::Call(_, _, _, operands, _) = self {
+            return operands.contains_trusted();
+        }
+
+        self.contains_trusted_in(&mut HashSet::new(), false)
+    }
+
+    fn contains_trusted_in<'a>(&'a self, seen: &mut HashSet<NodeIdentity<'a>>, pending: bool) -> bool {
+        if !visit_once(seen, NodeIdentity(self), pending) { return false; }
+
         match self {
-            Self::ValueAlias(left, right) => left.contains_trusted() || right.contains_trusted(),
+            Self::ValueAlias(left, right) => left.contains_trusted_in(seen, true) || right.contains_trusted_in(seen, pending),
             Self::Trusted(_) => true,
             Self::Operation(_, operands)
             | Self::Predicate(_, _, operands)
-            | Self::Call(_, _, _, operands, _) => operands.iter().any(Self::contains_trusted),
+            | Self::Call(_, _, _, operands, _) => operands.contains_trusted(),
             Self::Tagged(_, value)
             | Self::VariantTest(_, value)
             | Self::Discriminant(value)
-                | Self::Descriptor(_, value)
+            | Self::Descriptor(_, value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::Borrowed(value)
             | Self::Entry {
                 condition: value, ..
             }
-            | Self::CapturedInput { owner: value, .. } => value.contains_trusted(),
-            Self::Observation { owner, contents: value, .. } => owner.contains_trusted() || value.contains_trusted(),
+            | Self::CapturedInput { owner: value, .. } => value.contains_trusted_in(seen, pending),
+            Self::Observation { owner, contents: value, .. } => owner.contains_trusted_in(seen, true) || value.contains_trusted_in(seen, pending),
             Self::Constructed(base, fields) => {
-                base.contains_trusted() || fields.iter().any(|(_, value)| value.contains_trusted())
+                base.contains_trusted_in(seen, pending || !fields.is_empty())
+                    || fields.iter().enumerate().any(|(index, (_, value))| value.contains_trusted_in(seen, pending || index + 1 < fields.len()))
             }
             Self::Boolean(_)
             | Self::Variant(_)
@@ -198,22 +282,75 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn contains_unknown(&self) -> bool {
+        if let Self::Operation(_, operands) = self { return operands.contains_unknown(); }
+
+        self.contains_unknown_in(&mut HashSet::new(), false)
+    }
+
+    fn contains_unknown_in<'a>(&'a self, seen: &mut HashSet<NodeIdentity<'a>>, pending: bool) -> bool {
+        if !visit_once(seen, NodeIdentity(self), pending) { return false; }
+
         match self {
-            Self::ValueAlias(left, right) => left.contains_unknown() || right.contains_unknown(),
-            Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),
-            Self::Observation { owner, contents: value, .. } => owner.contains_unknown() || value.contains_unknown(),
+            Self::ValueAlias(left, right) => left.contains_unknown_in(seen, true) || right.contains_unknown_in(seen, pending),
+            Self::Operation(_, operands) => operands.contains_unknown(),
+            Self::Observation { owner, contents: value, .. } => owner.contains_unknown_in(seen, true) || value.contains_unknown_in(seen, pending),
             Self::Trusted(value)
             | Self::Borrowed(value)
             | Self::Discriminant(value)
-                | Self::Descriptor(_, value)
+            | Self::Descriptor(_, value)
             | Self::Present(value)
             | Self::Projection(_, value)
             | Self::VariantTest(_, value)
             | Self::Entry {
                 condition: value, ..
             }
-            | Self::CapturedInput { owner: value, .. } => value.contains_unknown(),
+            | Self::CapturedInput { owner: value, .. } => value.contains_unknown_in(seen, pending),
             _ => self.is_unknown(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+use std::cmp::Ordering;
+    use std::sync::Arc;
+
+    use bray_bound_tree::BoundOperator::LogicalOr;
+    use bray_symbols::{SymbolId, UnionVariantSymbolId};
+
+    use super::ExecutionCondition as C;
+
+    #[test]
+    fn property_queries_visit_shared_nodes_once_without_crossing_opaque_boundaries() {
+        let mut shared = C::Boolean(false);
+
+        for _ in 0..20 {
+            shared = C::Operation(LogicalOr, vec![shared.clone(), shared].into());
+        }
+
+        let mut seen = HashSet::new();
+
+        assert!(!shared.contains_trusted_in(&mut seen, false));
+        assert!(seen.len() <= 41, "qualification work follows the graph rather than its expanded tree");
+        seen.clear();
+        assert!(!shared.contains_unknown_in(&mut seen, false));
+        assert!(seen.len() <= 41, "unknown detection follows the graph rather than its expanded tree");
+
+        let qualified = C::Trusted(Arc::new(C::Unknown));
+        let tagged = C::Tagged(UnionVariantSymbolId::from_symbol_id(SymbolId::new(900)), Arc::new(qualified.clone()));
+
+        assert!(tagged.contains_trusted());
+        assert!(!tagged.contains_unknown(), "tagged payloads are opaque to unknown detection");
+
+        let scalar = C::ScalarValue(Arc::new(qualified.clone()));
+
+        assert!(!scalar.contains_trusted(), "scalar observations do not carry qualified authority");
+        assert!(!scalar.contains_unknown());
+
+        let later = C::Operation(LogicalOr, vec![shared, qualified].into());
+
+        assert!(later.contains_trusted());
+        assert!(later.contains_unknown(), "an earlier false shared subtree cannot hide a later unknown");
     }
 }

@@ -200,7 +200,7 @@ impl Compilation {
                     bray_symbols::CallableInstanceData::new(definition, substitution),
                     None,
                     std::sync::Arc::new([]),
-                    std::sync::Arc::new([]),
+                    [].into(),
                     None,
                 ))
             };

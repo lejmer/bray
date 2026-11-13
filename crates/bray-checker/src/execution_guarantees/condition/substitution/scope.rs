@@ -2,14 +2,26 @@ use std::collections::BTreeMap;
 
 use super::super::ExecutionCondition;
 use super::super::memo::ExecutionMemo;
+use super::super::interning::{ConditionIndex, ConditionMap};
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy)]
 pub(super) enum MapRole {
     Value,
     Owner,
 }
 
-pub(super) type RewriteMemo = ExecutionMemo<(MapRole, ExecutionCondition), ExecutionCondition>;
+pub(super) struct RewriteMemo {
+    pub(super) values: ExecutionMemo<ExecutionCondition>,
+    pub(super) owners: ExecutionMemo<ExecutionCondition>,
+}
+
+impl Default for RewriteMemo {
+    fn default() -> Self {
+        let index = ConditionIndex::default();
+
+        Self { values: ExecutionMemo::new(&index), owners: ExecutionMemo::new(&index) }
+    }
+}
 
 /// Reuse pure bounded rewriting across one forest and one immutable pair of maps.
 pub(crate) struct ExecutionSubstitution<'a> {
@@ -46,6 +58,37 @@ impl<'a> ExecutionSubstitution<'a> {
     }
 }
 
+/// One immutable ordinary guard environment owns all of its bounded DAG rewrites.
+pub(in crate::execution_guarantees::condition) struct GuardSubstitution {
+    facts: ConditionMap<ExecutionCondition>,
+    mapped: ExecutionMemo<ExecutionCondition>,
+    changed: bool,
+}
+
+impl GuardSubstitution {
+    pub(in crate::execution_guarantees::condition) fn new<'a>(
+        index: &ConditionIndex,
+        replacements: impl IntoIterator<Item = (&'a ExecutionCondition, ExecutionCondition)>,
+    ) -> Self {
+        let mut facts = index.map();
+
+        for (condition, replacement) in replacements { facts.insert(condition, replacement); }
+
+        let changed = !facts.is_identity();
+
+        Self { facts, mapped: ExecutionMemo::new(index), changed }
+    }
+
+    pub(in crate::execution_guarantees::condition) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
+        if !self.changed { return condition.clone(); }
+
+        condition.substitute_values(&|value| match value {
+            ExecutionCondition::Trusted(_) => Some(value.clone()),
+            _ => self.facts.get(value).cloned(),
+        }, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -56,6 +99,47 @@ mod tests {
 
     use super::ExecutionSubstitution;
     use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn guard_rewriting_preserves_each_budget_and_does_not_rewrite_qualified_atoms() {
+        let input = |index| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(index)));
+        let guard = input(0);
+        let qualified = ExecutionCondition::Trusted(Arc::new(guard.clone()));
+        let mut condition = ExecutionCondition::Operation(LogicalOr, vec![guard.clone(), qualified.clone()].into());
+
+        for _ in 0..8 {
+            condition = ExecutionCondition::Operation(LogicalAnd, vec![condition.clone(), condition].into());
+        }
+
+        let index = super::ConditionIndex::default();
+        let scope = super::GuardSubstitution::new(&index, [(&guard, ExecutionCondition::Boolean(false))]);
+
+        let replace = |value: &ExecutionCondition| match value {
+            ExecutionCondition::Trusted(_) => Some(value.clone()),
+            _ => scope.facts.get(value).cloned(),
+        };
+
+        for incoming in (0..=ExecutionCondition::WORK_LIMIT).chain([1, 2, ExecutionCondition::WORK_LIMIT]) {
+            let mut actual_budget = incoming;
+            let mut expected_budget = incoming;
+            let expected = condition.substitute_values(&replace, &mut expected_budget, None);
+            let actual = condition.substitute_values(&replace, &mut actual_budget, Some(&scope.mapped));
+
+            assert_eq!(actual, expected, "guard rewrite differs at budget {incoming}");
+            assert_eq!(actual_budget, expected_budget);
+        }
+
+        assert_eq!(scope.apply(&qualified), qualified);
+
+        let replaced = super::GuardSubstitution::new(&index, [(&guard, ExecutionCondition::Boolean(true))]);
+
+        assert_eq!(scope.apply(&guard), ExecutionCondition::Boolean(false));
+        assert_eq!(replaced.apply(&guard), ExecutionCondition::Boolean(true));
+
+        let identity = super::GuardSubstitution::new(&index, [(&guard, ExecutionCondition::Boolean(false)), (&guard, guard.clone())]);
+
+        assert_eq!(identity.apply(&condition), condition, "the final mapping determines whether rewriting is necessary");
+    }
 
     #[test]
     fn scoped_rewriting_reuses_roots_without_crossing_owner_or_map_boundaries() {
@@ -71,6 +155,7 @@ mod tests {
 
         let first = substitution.value(&claim);
         let second = substitution.value(&claim);
+
         let (ExecutionCondition::Trusted(first), ExecutionCondition::Trusted(second)) = (&first, &second) else {
             panic!("value substitution retains the occurrence qualifier");
         };
@@ -80,10 +165,12 @@ mod tests {
 
         let other_values = BTreeMap::from([(input(0), input(5))]);
         let other = ExecutionSubstitution::new(&other_values, &owners);
+
         assert_eq!(other.value(&input(0)), input(5));
         assert_eq!(other.owner(&input(0)), input(2));
 
         let mut repeated = claim;
+
         for index in 0..9 {
             repeated = ExecutionCondition::Operation(
                 if index % 2 == 0 { LogicalAnd } else { LogicalOr },
@@ -92,6 +179,7 @@ mod tests {
         }
 
         let bounded = repeated.with_joined_values(&values, &owners);
+
         for _ in 0..2 {
             assert_eq!(substitution.value(&repeated), bounded, "reusing a root preserves the original bounded rewrite result");
         }

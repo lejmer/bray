@@ -42,7 +42,7 @@ impl ExecutionCondition {
         implications: Option<&ExecutionProof<'_>>,
         memo: Option<&ProofMemo>,
     ) -> Option<bool> {
-        memoized(memo, self, budget, |budget| self.prove_mixed_inner(trusted, ordinary, budget, implications, memo))
+        memoized(memo.map(|memo| &memo.queries), self, budget, |budget| self.prove_mixed_inner(trusted, ordinary, budget, implications, memo))
     }
 
     fn prove_mixed_inner(
@@ -59,7 +59,7 @@ impl ExecutionCondition {
             return None;
         }
 
-        if let Some(value) = self.explicit_value(trusted, Some(ordinary)) {
+        if let Some(value) = self.explicit_value(trusted, Some(ordinary), memo) {
             return Some(value);
         }
 
@@ -87,9 +87,12 @@ impl ExecutionCondition {
                     left.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo),
                     || right.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo))
             }
-            _ => self
-                .prove(trusted, budget)
-                .or_else(|| self.prove(ordinary, budget)),
+            _ => {
+                let single = memo.map(ProofMemo::single_views);
+
+                self.prove_with_memo(trusted, budget, single.map(|[trusted, _]| trusted))
+                    .or_else(|| self.prove_with_memo(ordinary, budget, single.map(|[_, ordinary]| ordinary)))
+            }
         };
 
         if proven.is_some() {
@@ -118,7 +121,7 @@ impl ExecutionCondition {
         budget: &mut usize,
         memo: Option<&ProofMemo>,
     ) -> Option<bool> {
-        memoized(memo, self, budget, |budget| self.prove_inner(assumptions, budget, memo))
+        memoized(memo.map(|memo| &memo.queries), self, budget, |budget| self.prove_inner(assumptions, budget, memo))
     }
 
     fn prove_inner(
@@ -133,7 +136,7 @@ impl ExecutionCondition {
             return None;
         }
 
-        if let Some(value) = self.explicit_value(assumptions, None) {
+        if let Some(value) = self.explicit_value(assumptions, None, memo) {
             return Some(value);
         }
 
@@ -192,8 +195,10 @@ impl ExecutionCondition {
         &self,
         trusted: &BTreeSet<(Self, bool)>,
         ordinary: Option<&BTreeSet<(Self, bool)>>,
+        memo: Option<&ProofMemo>,
     ) -> Option<bool> {
         if let Self::Boolean(value) = self { return Some(*value); }
+        if let Some(memo) = memo { return memo.explicit_value(self, trusted, ordinary); }
 
         // Lookup keys share the proof input's immutable operands.
         for value in [true, false] {

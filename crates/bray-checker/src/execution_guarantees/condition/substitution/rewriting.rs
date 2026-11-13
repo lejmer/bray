@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::scope::{MapRole, RewriteMemo};
-use super::super::memo::memoized;
+use super::super::memo::{ExecutionMemo, memoized};
 
 impl ExecutionCondition {
     pub(crate) fn has_value_changes(replacements: &BTreeMap<Self, Self>) -> bool {
@@ -25,6 +25,7 @@ impl ExecutionCondition {
                 _ => None,
             },
             budget,
+            None,
         )
     }
 
@@ -36,6 +37,7 @@ impl ExecutionCondition {
         self.substitute_values(
             &|condition| snapshot_value(condition, snapshots),
             &mut { Self::WORK_LIMIT },
+            None,
         )
     }
 
@@ -50,26 +52,24 @@ impl ExecutionCondition {
                 _ => snapshot_value(condition, snapshots),
             },
             &mut { Self::WORK_LIMIT },
+            None,
         )
     }
 
-    /// Discharges ordinary guards without substituting inside trusted atoms.
-    pub(crate) fn with_guard_facts(&self, facts: &BTreeMap<Self, Self>) -> Self {
-        if !Self::has_value_changes(facts) { return self.clone(); }
-
-        self.substitute_values(
-            &|condition| match condition {
-                Self::Trusted(_) => Some(condition.clone()),
-                _ => facts.get(condition).cloned(),
-            },
-            &mut { Self::WORK_LIMIT },
-        )
-    }
-
-    fn substitute_values(
+    pub(super) fn substitute_values(
         &self,
         replace: &impl Fn(&Self) -> Option<Self>,
         budget: &mut usize,
+        memo: Option<&ExecutionMemo<Self>>,
+    ) -> Self {
+        memoized(memo, self, budget, |budget| self.substitute_values_inner(replace, budget, memo))
+    }
+
+    fn substitute_values_inner(
+        &self,
+        replace: &impl Fn(&Self) -> Option<Self>,
+        budget: &mut usize,
+        memo: Option<&ExecutionMemo<Self>>,
     ) -> Self {
         let Some(next) = budget.checked_sub(1) else {
             return Self::Unknown;
@@ -82,10 +82,10 @@ impl ExecutionCondition {
         }
 
         let rewritten = match self {
-            Self::Discriminant(value) => value.substitute_values(replace, budget).discriminant(),
-            Self::Descriptor(kind, value) => value.substitute_values(replace, budget).descriptor(*kind),
+            Self::Discriminant(value) => value.substitute_values(replace, budget, memo).discriminant(),
+            Self::Descriptor(kind, value) => value.substitute_values(replace, budget, memo).descriptor(*kind),
             Self::ValueAlias(left, right) => Self::value_alias(
-                left.substitute_values(replace, budget), right.substitute_values(replace, budget),
+                left.substitute_values(replace, budget, memo), right.substitute_values(replace, budget, memo),
             ),
             Self::Call(callable, implementation, witnesses, operands, reference_type) => Self::call(
                 *callable,
@@ -93,7 +93,7 @@ impl ExecutionCondition {
                 witnesses.iter().copied(),
                 operands
                     .iter()
-                    .map(|operand| operand.substitute_values(replace, budget))
+                    .map(|operand| operand.substitute_values(replace, budget, memo))
                     .collect(),
                 *reference_type,
             ),
@@ -102,48 +102,48 @@ impl ExecutionCondition {
                 *substitution,
                 operands
                     .iter()
-                    .map(|operand| operand.substitute_values(replace, budget).argument_value(operand.is_reference()))
+                    .map(|operand| operand.substitute_values(replace, budget, memo).argument_value(operand.is_reference()))
                     .collect(),
             ),
             Self::Trusted(value) => {
-                Self::Trusted(Arc::new(value.substitute_values(replace, budget)))
+                Self::Trusted(Arc::new(value.substitute_values(replace, budget, memo)))
             }
-            Self::Borrowed(value) => value.substitute_values(replace, budget).borrowed(),
-            Self::Present(value) => Self::Present(Arc::new(value.substitute_values(replace, budget))),
+            Self::Borrowed(value) => value.substitute_values(replace, budget, memo).borrowed(),
+            Self::Present(value) => Self::Present(Arc::new(value.substitute_values(replace, budget, memo))),
             Self::Tagged(variant, value) => {
-                Self::Tagged(*variant, Arc::new(value.substitute_values(replace, budget)))
+                Self::Tagged(*variant, Arc::new(value.substitute_values(replace, budget, memo)))
             }
             Self::VariantTest(variant, value) => value
-                .substitute_values(replace, budget)
+                .substitute_values(replace, budget, memo)
                 .matches_variant(*variant),
             Self::Entry {
                 condition,
                 captured: false,
             } => Self::Entry {
-                condition: Arc::new(condition.substitute_values(replace, budget)),
+                condition: Arc::new(condition.substitute_values(replace, budget, memo)),
                 captured: false,
             },
             Self::Projection(field, value) => {
-                value.substitute_values(replace, budget).component(*field)
+                value.substitute_values(replace, budget, memo).component(*field)
             }
             Self::CapturedInput {
                 owner,
                 invocation,
                 ordinal,
             } => Self::CapturedInput {
-                owner: Arc::new(owner.substitute_values(replace, budget)),
+                owner: Arc::new(owner.substitute_values(replace, budget, memo)),
                 invocation: *invocation,
                 ordinal: *ordinal,
             },
             Self::Observation { owner, contents, kind } => Self::observation(
-                owner.substitute_values(replace, budget),
-                contents.substitute_values(replace, budget),
+                owner.substitute_values(replace, budget, memo),
+                contents.substitute_values(replace, budget, memo),
                 *kind,
             ),
-            Self::Constructed(base, fields) => Self::constructed(base.substitute_values(replace, budget),
+            Self::Constructed(base, fields) => Self::constructed(base.substitute_values(replace, budget, memo),
                 fields
                     .iter()
-                    .map(|(field, value)| (*field, value.substitute_values(replace, budget)))
+                    .map(|(field, value)| (*field, value.substitute_values(replace, budget, memo)))
                     .collect::<Vec<_>>()
                     .into(),
             ),
@@ -151,7 +151,7 @@ impl ExecutionCondition {
                 *operator,
                 operands
                     .iter()
-                    .map(|operand| operand.substitute_values(replace, budget))
+                    .map(|operand| operand.substitute_values(replace, budget, memo))
                     .collect(),
             ),
             _ => self.clone(),
@@ -345,8 +345,10 @@ pub(super) fn joined_owner(
     memo: Option<&RewriteMemo>,
 ) -> ExecutionCondition {
     let owner = value.owner_identity();
+
     let component = matches!(owner, ExecutionCondition::Projection(_, _))
         || matches!(owner, ExecutionCondition::Input(place) if !place.projections.is_empty());
+
     let (replacements, role) = if component { (values, MapRole::Value) } else { (owners, MapRole::Owner) };
 
     if !ExecutionCondition::has_value_changes(replacements) && !ExecutionCondition::has_value_changes(owners) {
@@ -392,7 +394,9 @@ fn rewrite_equalities(
 
     let Some((cache, role)) = memo else { return compute(budget); };
 
-    memoized(Some(cache), &(role, value.clone()), budget, compute)
+    let cache = match role { MapRole::Value => &cache.values, MapRole::Owner => &cache.owners };
+
+    memoized(Some(cache), value, budget, compute)
 }
 
 fn rewrite_equalities_inner(

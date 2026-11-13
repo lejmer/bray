@@ -333,8 +333,10 @@ mod tests {
             (owner.clone(), guard.clone()),
             (owner, ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()])),
         ]);
+
         let empty = BTreeMap::new();
         let mut facts = Vec::new();
+
         let retained = conditional_facts((&left, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)), (&right, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)),
             &BTreeMap::new(), &[], &availability, None, &mut facts);
 
