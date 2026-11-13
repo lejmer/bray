@@ -1,8 +1,8 @@
 # BRA-567 current correction audit
 
 Read this record and the [contract gate](../../.agents/skills/work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it)
-after compaction. The current target is less than500ms per fixture case. It is not met. Only bounded diagnosis and
-artifact cleanup were authorized for this checkpoint. Both are complete. Await resumption before implementation.
+after compaction. The current target is less than500ms per fixture case. It is not met. Bounded diagnosis and
+artifact cleanup are complete. The next implementation plan is below. The current request authorizes planning only.
 The issue remains incomplete. Do not merge, change issue status, edit develop or create another worktree.
 
 ## Current admission contract
@@ -105,11 +105,34 @@ this interval. A second20s instrumented invocation observed72,733 top-level requ
 2,757,965 premise visits and1,572,864 implication attempts, including provider setup. A hot caller context made509
 requests and219 scans, visiting385 entries and attempting382 implications on every scan:83,658 attempts total.
 Its326 deterministic1-in-256 pair samples were all distinct. This describes the sample, not full pair uniqueness.
-Focus on the all-premise search per unresolved disjunction and why caller contexts need hundreds of expanded premises.
-Next identify those context call sites and derive a complete relevance index/deductive path, preserving every proof rule,
-authority boundary and budget. More blind caching does not address the observed search breadth.
+The observed cause is the all-premise search per unresolved disjunction. Hot-context constructor sites and the sources
+of their expanded premises remain unidentified. More blind caching does not address the observed search breadth.
 Temporary instrumentation is removed. Current evidence is scanner-counts.json, actual-counts.json, proof-unfinished.json and
 proof-500ms-sample.json. Superseded build streams, traces and duplicate outputs were removed. Frozen comparison evidence remains.
+
+## Replace repeated implication scans
+
+1. Attribute hot contexts and proof requests to constructor sites and clause producers in one bounded single-case run.
+   Count original and derived clauses, duplicate facts, distinct goals, rule work and repeated equivalent contexts.
+   Inventory supported rules, including negated-goal reasoning, numeric comparisons, unknowns and trusted polarity.
+2. Trace the measured obligations through production, joins, deferred completion and consumption. Preserve owner,
+   guard and current-value relationships through the existing witness and stored-value mechanisms. Transfer established
+   relationships directly. Keep overwrite, retirement, unavailable carriers and authoritative empty records intact.
+3. Extend the existing Boolean closure graph. Share immutable condition structure using existing identities or local
+   node IDs. Keep evidence views scoped to exact owners, dependencies and snapshots. Index rule inputs and conclusions,
+   propagate changed facts through a work queue, and resolve each distinct goal through its transitive relevant slice.
+   Preserve indirect proofs and contradictions. Predicate-name filtering and unit propagation alone are insufficient.
+   Count total query work, including every implication attempt. Limits must not become a way to reject valid fixtures.
+4. Migrate the measured async composition through both source and imported contracts. Compare existing and replacement
+   results temporarily, investigate differences against the contract, then remove the superseded scan and redundant
+   preparation caches. Do not ship parallel proof engines or an old-engine fallback.
+5. Preserve the five formerly unfinished cases and their negative failure locations. Reuse focused rule and ownership
+   controls. Add only missing controls for irrelevant-fact scaling, owner isolation and loop stabilization. A regression
+   blocks expansion. Measure production growth separately from tests and remove temporary detailed outputs.
+6. Require each of those five cases to complete below500ms in separate bounded optimized runs, including caller setup,
+   checking and lowering, excluding the shared provider and Rust build. Report repeats and actual rule-work counts.
+   Reconsider the design if irrelevant facts multiply implication work or equivalent evidence is rebuilt on replay.
+   Do not run the full matrices during this performance work. Broader BRA-567 verification remains a later gate.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
 correction-frozen30.json. correction-current.json preserves original-to-current mapping. Fixed920 is907 comparison.txt
@@ -160,4 +183,4 @@ control and native archive/link requirements. Focused compiler evidence is not i
 
 Keep only current compact outcomes, active build evidence and frozen identities. Remove obsolete task-owned detailed
 logs by verified explicit paths under target/audit. Own all processes. Run native toolchains outside the sandbox.
-Checkpoint the compact diagnosis on feature/bra-567-async-root-orchestration, verify remote equality, then stop.
+Checkpoint this plan on feature/bra-567-async-root-orchestration. Implementation awaits a subsequent request.
