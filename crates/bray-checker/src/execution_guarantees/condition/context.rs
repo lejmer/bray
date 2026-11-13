@@ -2,14 +2,14 @@ use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::ExecutionCondition;
-use crate::execution_guarantees::boolean::DisjunctionProof;
+use crate::execution_guarantees::boolean::AlternativeProof;
 
 pub(super) type ProofMemo = RefCell<BTreeMap<(ExecutionCondition, usize), (Option<bool>, usize)>>;
 
 struct PreparedFacts {
     conditions: BTreeSet<(ExecutionCondition, bool)>,
     mixed: ProofMemo,
-    disjunctions: RefCell<DisjunctionProof>,
+    alternatives: RefCell<AlternativeProof>,
 }
 
 /// Proof preparation belongs to these exact immutable evidence sets.
@@ -74,18 +74,18 @@ impl<'a> ExecutionProof<'a> {
             // Preparation owns the expanded facts while all immutable operand storage stays shared.
             let (conditions, graph) = crate::execution_guarantees::trusted_implication::prepare_trusted_conditions(self.trusted.clone(), self.ordinary);
 
-            PreparedFacts { conditions, mixed: RefCell::new(BTreeMap::new()), disjunctions: RefCell::new(DisjunctionProof::new(graph)) }
+            PreparedFacts { conditions, mixed: RefCell::new(BTreeMap::new()), alternatives: RefCell::new(AlternativeProof::new(graph)) }
         })
     }
 
-    pub(super) fn proves_disjunction(&self, consequence: &ExecutionCondition) -> bool {
+    pub(super) fn proves_alternative(&self, consequence: &ExecutionCondition) -> bool {
         #[cfg(test)]
         if self.reference_scan {
             return self.known().conditions.iter().chain(self.ordinary.iter().filter(|(condition, _)| !condition.contains_trusted()))
                 .any(|(premise, holds)| *holds && matches!(premise, ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, _)) && Self::implies(premise, consequence));
         }
 
-        self.known().disjunctions.borrow_mut().proves(consequence)
+        self.known().alternatives.borrow_mut().proves(consequence)
     }
 
     pub(super) fn implies(premise: &ExecutionCondition, consequence: &ExecutionCondition) -> bool {

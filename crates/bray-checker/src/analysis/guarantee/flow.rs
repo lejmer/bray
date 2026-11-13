@@ -13,7 +13,7 @@ mod refinement;
 mod value;
 mod witnesses;
 
-pub(super) use joins::{merge_returned, returned_condition};
+pub(super) use joins::{merge_returned, return_substitution};
 pub(in crate::analysis) use merge::{ExecutionJoin, merge as merge_execution};
 pub(super) use model::ExecutionFlow;
 pub(crate) use model::ExecutionFlowDomain;

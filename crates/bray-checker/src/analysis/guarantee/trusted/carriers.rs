@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::state::ExecutionState;
 use crate::ExecutionCondition;
+use crate::execution_guarantees::ExecutionProof;
 use bray_bound_tree::StorageProjection;
 use bray_symbols::{DependencyProjection, DependencyWitnessCarrier};
 
@@ -245,6 +246,8 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
     previous: &mut Option<BTreeSet<DependencyWitnessCarrier<StorageProjection>>>,
 ) {
     let mut result = BTreeSet::new();
+    let proof = ExecutionProof::new(&state.trusted_assumptions, &state.assumptions);
+    let return_substitution = super::super::flow::return_substitution(returned);
 
     for (owner, witness) in &state.witnesses {
         let Some(path) = owners.get(owner) else {
@@ -260,13 +263,13 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
             .iter()
             .filter(|(condition, guarantee)| {
                 guarantee.witness
-                    && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                    && proof.prove_trusted(condition)
                         == Some(true)
             })
             .map(|(condition, _)| condition)
         {
             // Rename actual returned storage identities, never ordinary field equalities.
-            let condition = super::super::flow::returned_condition(condition, returned);
+            let condition = return_substitution(condition);
 
             if let Some(term) = portable(request, &condition) {
                 result.insert(DependencyWitnessCarrier::new(term, path.iter().copied()));

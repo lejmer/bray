@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::BoundExpressionId;
 
 use crate::ExecutionCondition;
+use crate::execution_guarantees::ExecutionProof;
 
 pub(super) type DeferredInvocations = BTreeMap<ExecutionCondition, super::deferred::DeferredValue>;
 
@@ -154,6 +155,7 @@ impl ExecutionState {
         let mut assumptions = entry.assumptions.clone();
 
         assumptions.extend(self.assumptions.iter().cloned());
+        let proof = ExecutionProof::new(&entry.trusted_assumptions, &assumptions);
 
         for owner in &entry.witness_inputs {
             let Some(witness) = self.witnesses.get_mut(owner) else {
@@ -163,7 +165,7 @@ impl ExecutionState {
             let mut resumed = false;
 
             for condition in witness.conditions.keys() {
-                if condition.prove_trusted(&entry.trusted_assumptions, &assumptions) == Some(true) {
+                if proof.prove_trusted(condition) == Some(true) {
                     resumed = true;
 
                     condition
@@ -343,9 +345,11 @@ impl ExecutionState {
             pending.extend(data.owned_components().cloned());
         }
 
+        let proof = ExecutionProof::new(&self.trusted_assumptions, &self.assumptions);
+
         for witness in self.witnesses.values() {
             for (condition, guarantee) in &witness.conditions {
-                if condition.prove_trusted(&self.trusted_assumptions, &self.assumptions) != Some(true) {
+                if proof.prove_trusted(condition) != Some(true) {
                     continue;
                 }
 
@@ -461,6 +465,7 @@ impl ExecutionState {
         });
 
         let mut retained = BTreeSet::new();
+        let proof = ExecutionProof::new(&self.trusted_assumptions, &self.assumptions);
 
         self.witnesses.retain(|carrier, witness| {
             if private.contains(carrier) {
@@ -476,7 +481,7 @@ impl ExecutionState {
             // Availability says the carrier can be used, not that every possible
             // clause was proved on this path. Preserve only established truth.
             for condition in witness.conditions.keys().filter(|condition| {
-                witness.available && condition.prove_trusted(&self.trusted_assumptions, &self.assumptions) == Some(true)
+                witness.available && proof.prove_trusted(condition) == Some(true)
             }) {
                 condition.clone().assume(true, &mut retained);
             }

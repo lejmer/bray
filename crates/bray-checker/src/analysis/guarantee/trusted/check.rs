@@ -4,6 +4,7 @@ use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
 use crate::analysis::fixed_point::FixedPointDomain;
 use crate::{CheckerRequestContext, CheckerUnitView, ExecutionCondition};
+use crate::execution_guarantees::ExecutionProof;
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, CheckedExpressionSemantics};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExpressionCategory, DiagnosticKind,
@@ -139,16 +140,19 @@ impl TrustedChecks {
         );
 
         // Completion facts can prove that a potential extraction never occurred.
+        let empty = BTreeSet::new();
+        let proof = ExecutionProof::new(&empty, &state.assumptions);
+
         for (invocation, condition, failure) in self.pending_transfers.drain(..) {
             let active = condition.is_none_or(|condition| {
-                condition
+                let condition = condition
                     .substitute(
                         &|place| ExecutionCondition::Input(place.clone()),
                         &domain.invocation_value(state, invocation),
                         &mut { ExecutionCondition::WORK_LIMIT },
-                    )
-                    .prove_trusted(&BTreeSet::new(), &state.assumptions)
-                    != Some(false)
+                    );
+
+                proof.prove_trusted(&condition) != Some(false)
             });
 
             if active {
