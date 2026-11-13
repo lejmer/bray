@@ -38,44 +38,35 @@ This correction changes representation/query work, not inference rules or state 
 
 ## Evidence and active work
 
-Pushed935f30535 removes AlternativeProof's shared epochs and enclosing proof mutex. The immutable graph/baselines
-are reused, each AlternativeQuery owns its scratch, and existing cache helpers synchronize completed answers.
-Local storage is dense up to1024 nodes and sparse above it, justified by measured81/129 average reached/total nodes.
-Large irrelevant-clause controls retain bounded reached-node work/storage. No pooled scratch or reconstruction.
-Its195 controls passed, tasks443-491ms/loop2727-2782ms, frozen29/1.
+Immutable-publication correction is implemented. AlternativeProof's graph/baselines are immutable. Each
+AlternativeQuery owns scratch, dense up to1024 nodes and sparse above it. Measured queries visit81/129 nodes on
+average. Large irrelevant-clause controls demand reached-node storage/work. Shared epochs/enclosing mutex removed.
 
-Finalized snapshot correction: collect_observations finishes each predecessor map before any proof consumes it.
-One immutable SnapshotSubstitution now serves conditional_facts, inactive_guards, conditional_aliases and
-owned_alternatives. captured_facts and deferred argument forests reuse the same mechanism. Single-value callers
-use the existing convenience method. All delegate to substitute_values and ExecutionMemo. Identity scans run
-once per map. Inserted snapshots are never expanded recursively. Captured entries stay opaque. Projection-prefix
-lookup, unknowns, identity shields and exact budget results remain unchanged. Changed maps get separate scopes.
-This replaces repeated tree rewriting, adding13 nonblank production lines and31 test lines against935f30535.
+SnapshotSubstitution borrows one immutable predecessor map across guards, aliases, owners and captured argument
+forests. It reuses substitute_values/ExecutionMemo. Identity scans run once. Inserted snapshots never expand
+recursively. Captured entries stay opaque. Prefix lookup, unknowns, identity shields and budgets are unchanged.
 
-Optimized build passes196 controls, including differential budgets0..128 and changed-map/captured-entry controls.
-Two fixed-five runs preserve outcomes and negative call locations: tasks397-480ms, loop2380-2427ms. Frozen30
-remains29 pass/1 known RawBuffer invalid acceptance,13.86s. No full matrices. Mutating style and source formatting
-used the unchanged retained xtask product. Formatting passes. Style reports its six prior errors: wildcard
-flow/invalidation and oversized flow/merge, storage_flow cleanup/core, execution_guarantees/portable and tooling
-output/diagnostic/json/argument. No probes or backend switches remain. Audit confirms existing rewrite/memo
-mechanisms are reused, no authority rules or public API changed, and growth stays below60 production lines.
+PreparedFacts also caches immutable witness refinements by retained source allocation. Changed evidence or witness
+metadata cannot share answers. Retention prevents address reuse and forces copy-on-write. Derivation and publication
+are separate. Publication retains the original authority, ordinary-fact and address-filtering rules. No lock spans
+computation. Measured3257/4560 repeated pairs justified reuse, but the observed speed gain was modest.
 
-The loop still misses500ms. Before snapshot reuse, coarse profiling showed costly conditional-fact construction,
-retirement, Boolean preparation and witness refinement. Reprofile before choosing the next optimization. In
-particular, establish how often the same immutable witness/evidence pair is refined before adding reuse there.
-Do not assume finer-grained proof caching removes repeated witness construction. Measure stable inputs first.
-Finalized witness result reuse: measured3257 repeated/1303 unique immutable witness/evidence pairs. Each exact
-PreparedFacts caches derived clauses and metadata by retained witness allocation. Retention prevents address reuse
-and forces changes onto new allocations. No lock spans computation. Publication preserves authority, ordinary
-facts and address filtering. No inference or budget change. Net30 nonblank production lines/26 test lines.
-196 controls pass, including changed evidence/metadata, irrelevant address filtering and concurrent guards.
-Two fixed-five runs retain outcomes/sites: tasks390-436ms, loop2286-2345ms. The gain is modest, not proportional
-to repeated-call count. Frozen30 remains29/1,13.24s. Style/format unchanged six prior errors/pass. Probes removed.
+ExecutionFlowDomain now owns proof preparation for the body. Fresh boundary states share that cache across required
+cleanup-feasibility rounds. Reachability, liveness and mutable flow state are recomputed. Exact evidence checks
+still govern reuse. No cross-body sharing, historical authority or skipped round. This final change adds6 production
+lines. Pushed corrections through9166d4d28 add75 nonblank production lines/71 test lines versus60bebc2bd.
 
-Next: both measured Flow calls are required cleanup-feasibility rounds in body_semantics.rs. Do not remove or
-skip either. ExecutionFlowDomain is constructed before that loop. Trace whether exact immutable proof preparation
-can live with that body analysis instead of being recreated by each boundary state. Share pure results only,
-never mutable flow state, reachability, liveness or historical authority. Read the actual constructors first.
+Latest optimized build passes196 focused controls. Two fixed-five runs preserve outcomes and negative observation
+sites: tasks341-359ms, loop1876-1901ms. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance,12.81s. No full
+matrices. Formatting passes. Mutating style reports only six prior errors: wildcard flow/invalidation and oversized
+flow/merge, storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.
+No probes or backend switches remain. Shared target/cargo is reused. target/audit holds24 current/baseline files,
+about577KB. No task process remains after the completed checks.
+
+The loop still misses500ms. Reprofile the current code before choosing another optimization. Earlier category
+timings are obsolete after the cache lifetime change. Keep measuring costly work, not merely repeated-call counts.
+Do not weaken cleanup-feasibility replay or replace it with historical state. Remaining non-proof work and exact
+cache misses need measurement. Use one bounded loop profile, never the full matrices, to choose the next batch.
 
 ## Fixed gates and broader work
 
