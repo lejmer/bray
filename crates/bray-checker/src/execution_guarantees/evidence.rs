@@ -391,6 +391,7 @@ impl ExecutionCallEvidence {
             .collect();
 
         let known = super::trusted_condition_closure(known, &self.assumptions);
+        let proof = super::ExecutionProof::new(&known, &self.assumptions);
 
         for required in conditions {
             let condition = required.substitute(
@@ -435,7 +436,7 @@ impl ExecutionCallEvidence {
 
             let condition = condition.with_equalities(&equalities);
 
-            if condition.prove_mixed(&known, &self.assumptions, &mut {
+            if proof.prove_mixed(&condition, &mut {
                 super::ExecutionCondition::WORK_LIMIT
             }) != Some(true) {
                 return Err(UnprovenExecutionCondition::new(required.clone(), condition));

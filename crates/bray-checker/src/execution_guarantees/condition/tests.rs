@@ -816,6 +816,19 @@ fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
         (BoundOperator::LogicalOr, true),
         (BoundOperator::LogicalAnd, false),
     ] {
+        let other = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let decisive = ExecutionCondition::operation(operator, vec![known.clone(), other]);
+        let evidence = BTreeSet::from([(known.clone(), truth)]);
+        let mut budget = 3;
+
+        assert_eq!(decisive.prove(&evidence, &mut budget), Some(truth));
+        assert_eq!(budget, 1, "a decisive operand preserves work for subsequent proofs");
+
+        let mut budget = 3;
+
+        assert_eq!(decisive.prove_mixed(&evidence, &evidence, &mut budget), Some(truth));
+        assert_eq!(budget, 1);
+
         let condition = ExecutionCondition::operation(
             operator,
             vec![ExecutionCondition::Unknown, known.clone()],
@@ -1117,6 +1130,23 @@ fn carrier_implication_preserves_trusted_provenance_through_negated_guards() {
     assert!(declared.implies(&published));
     assert!(trusted.implies(&ordinary));
     assert!(!ordinary.implies(&trusted));
+
+    let empty = BTreeSet::new();
+    let evidence = BTreeSet::from([(published.clone(), true)]);
+    let proof = super::ExecutionProof::new(&evidence, &empty);
+
+    for _ in 0..2 {
+        assert_eq!(proof.prove_trusted(&declared), Some(true));
+        assert_eq!(proof.prove_trusted(&published), Some(true));
+        assert_eq!(proof.prove_trusted(&trusted), None, "unknown guard cannot release its evidence");
+        assert_eq!(proof.prove_trusted(&ExecutionCondition::Unknown), None);
+    }
+
+    let ordinary_only = BTreeSet::from([(ordinary.clone(), true)]);
+    let replaced = super::ExecutionProof::new(&empty, &ordinary_only);
+
+    assert_eq!(replaced.prove_trusted(&trusted), None, "another context cannot retain prior authority");
+    assert_eq!(replaced.prove_trusted(&declared), None);
 
     let unresolved = or(ordinary, ExecutionCondition::Unknown);
 

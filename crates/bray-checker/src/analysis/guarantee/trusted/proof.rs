@@ -166,8 +166,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<Vec<_>>();
 
+        let proof = crate::execution_guarantees::ExecutionProof::new(&known, &ordinary);
+
         let mut prove_condition = |condition: &ExecutionCondition| {
-            if condition.prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT })
+            if proof.prove_mixed(condition, &mut { ExecutionCondition::WORK_LIMIT })
                 == Some(true)
             {
                 return true;

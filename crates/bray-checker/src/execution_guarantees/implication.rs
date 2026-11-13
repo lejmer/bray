@@ -12,6 +12,11 @@ pub(super) fn comparison_is_implied(
 ) -> Option<bool> {
     use bray_bound_tree::BoundOperator;
 
+    if !matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual
+        | BoundOperator::Less | BoundOperator::LessEqual | BoundOperator::Greater | BoundOperator::GreaterEqual) {
+        return None;
+    }
+
     let [left, right] = operands else {
         return None;
     };
@@ -574,6 +579,12 @@ mod tests {
         let mut known = Default::default();
 
         comparison(BoundOperator::Greater).assume(true, &mut known);
+
+        let mut budget = 128;
+
+        assert_eq!(super::comparison_is_implied(BoundOperator::LogicalOr,
+            &[left.clone(), left.clone()], &known, &mut budget), None);
+        assert_eq!(budget, 128, "Boolean nodes must not spend comparison proof work");
 
         assert_eq!(
             comparison(BoundOperator::GreaterEqual).prove(&known, &mut 128),

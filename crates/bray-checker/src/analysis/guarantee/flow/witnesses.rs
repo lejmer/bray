@@ -1,4 +1,4 @@
-use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
+use crate::execution_guarantees::{ExecutionObservationKind as ObservationKind, ExecutionProof};
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExpressionId, BoundOperator};
@@ -99,12 +99,11 @@ pub(super) fn conditional_facts(
                         witness.refine(trusted.to_mut(), ordinary.to_mut());
                     }
 
+                    let proof = ExecutionProof::new(&trusted, &ordinary);
+
                     witness.conditions.keys().filter_map(|condition| {
-                        (!witness.available || condition.prove_mixed(
-                            &trusted,
-                            &ordinary,
-                            &mut { ExecutionCondition::WORK_LIMIT },
-                        ) == Some(true))
+                        (!witness.available || proof.prove_mixed(condition,
+                            &mut { ExecutionCondition::WORK_LIMIT }) == Some(true))
                         .then(|| {
                             (
                                 owner.with_joined_owners(values, identities),
@@ -114,25 +113,33 @@ pub(super) fn conditional_facts(
                     }).collect::<Vec<_>>()
                 })
         })
-        .collect::<BTreeSet<_>>();
+        .fold(BTreeMap::<_, BTreeSet<_>>::new(), |mut owners, (owner, condition)| {
+            owners.entry(owner).or_default().insert(condition);
+
+            owners
+        });
 
     let mut retained = Vec::new();
 
-    for (owner, condition) in candidates {
-        if owner == ExecutionCondition::Unknown || condition == ExecutionCondition::Unknown {
+    let source_proofs = [left.0, right.0].map(|state| {
+        ExecutionProof::new(&state.trusted_assumptions, &state.assumptions)
+    });
+
+    for (owner, conditions) in candidates {
+        if owner == ExecutionCondition::Unknown {
             continue;
         }
 
         // Each complete carrier supplies its own authority. An ordinary inactive
         // variant needs no trusted evidence, but another carrier cannot lend it.
         let predecessors =
-            [(left.0, &left_inputs), (right.0, &right_inputs)].map(|(state, inputs)| {
+            [(0, (left.0, &left_inputs)), (1, (right.0, &right_inputs))].map(|(index, (state, inputs))| {
                 let source = owner.with_snapshots(inputs);
                 let mut evidence = BTreeSet::new();
 
                 for (_, witness) in state.owned_witnesses([source]) {
                     for condition in witness.conditions.keys().filter(|condition| {
-                        !witness.available || condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                        !witness.available || source_proofs[index].prove_trusted(condition)
                             == Some(true)
                     }) {
                         condition.clone().assume(true, &mut evidence);
@@ -142,12 +149,13 @@ pub(super) fn conditional_facts(
                 (state, inputs, evidence)
             });
 
+        let proofs = predecessors.each_ref().map(|(state, _, evidence)| {
+            ExecutionProof::new(evidence, &state.assumptions)
+        });
+
         let proved = |clause: &ExecutionCondition| {
-            predecessors.iter().all(|(state, inputs, evidence)| {
-                clause
-                    .with_snapshots(inputs)
-                    .prove_trusted(evidence, &state.assumptions)
-                    == Some(true)
+            predecessors.iter().zip(&proofs).all(|((_, inputs, _), proof)| {
+                proof.prove_trusted(&clause.with_snapshots(inputs)) == Some(true)
             })
         };
 
@@ -158,33 +166,37 @@ pub(super) fn conditional_facts(
                 .all(|(_, witness)| witness.available)
         });
 
-        // An existing guarded claim can already hold on both paths without
-        // discovering a new discriminant or adding a redundant outer guard.
-        if proved(&condition) {
-            retained.push((owner, condition.clone(), condition, available));
-            continue;
-        }
+        for condition in conditions {
+            if condition == ExecutionCondition::Unknown { continue; }
 
-        for guard in guards
-            .iter()
-            .filter(|(parent, _)| {
-                owner.is_owned_projection_of(parent) || parent.is_owned_projection_of(&owner)
-            })
-            .map(|(_, guard)| guard)
-            .chain(&path_guards)
-        {
-            let clause = ExecutionCondition::operation(
-                BoundOperator::LogicalOr,
-                vec![
-                    ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]),
-                    condition.clone(),
-                ],
-            );
+            // An existing guarded claim can already hold on both paths without
+            // discovering a new discriminant or adding a redundant outer guard.
+            if proved(&condition) {
+                retained.push((owner.clone(), condition.clone(), condition, available));
+                continue;
+            }
 
-            // These are actual predecessor snapshots of moved owners, not ordinary
-            // equal-content substitutions for borrowed observations.
-            if proved(&clause) {
-                retained.push((owner.clone(), condition.clone(), clause, available));
+            for guard in guards
+                .iter()
+                .filter(|(parent, _)| {
+                    owner.is_owned_projection_of(parent) || parent.is_owned_projection_of(&owner)
+                })
+                .map(|(_, guard)| guard)
+                .chain(&path_guards)
+            {
+                let clause = ExecutionCondition::operation(
+                    BoundOperator::LogicalOr,
+                    vec![
+                        ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]),
+                        condition.clone(),
+                    ],
+                );
+
+                // These are actual predecessor snapshots of moved owners, not ordinary
+                // equal-content substitutions for borrowed observations.
+                if proved(&clause) {
+                    retained.push((owner.clone(), condition.clone(), clause, available));
+                }
             }
         }
     }
@@ -208,8 +220,11 @@ fn conditional_aliases(
     let mut aliases = BTreeSet::new();
     let guards = availability.iter().map(|(_, guard)| guard).chain(paths).collect::<BTreeSet<_>>();
 
-    let proved = |condition: &ExecutionCondition| sources.iter().zip(inputs).all(|((state, _, _), inputs)| {
-        condition.with_snapshots(inputs).prove_trusted(&BTreeSet::new(), &state.assumptions) == Some(true)
+    let empty = BTreeSet::new();
+    let proofs = sources.map(|(state, _, _)| ExecutionProof::new(&empty, &state.assumptions));
+
+    let proved = |condition: &ExecutionCondition| proofs.iter().zip(inputs).all(|(proof, inputs)| {
+        proof.prove_trusted(&condition.with_snapshots(inputs)) == Some(true)
     });
 
     for value in stable.into_iter().take(ExecutionCondition::WORK_LIMIT) {

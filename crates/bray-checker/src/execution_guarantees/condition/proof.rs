@@ -1,4 +1,4 @@
-use super::ExecutionCondition;
+use super::{ExecutionCondition, ExecutionProof};
 use bray_bound_tree::BoundOperator;
 use std::collections::BTreeSet;
 
@@ -8,16 +8,7 @@ impl ExecutionCondition {
         trusted: &BTreeSet<(Self, bool)>,
         ordinary: &BTreeSet<(Self, bool)>,
     ) -> Option<bool> {
-        if let Some(value) = self.prove(trusted, &mut { Self::WORK_LIMIT }) {
-            return Some(value);
-        }
-
-        let known = crate::execution_guarantees::trusted_implication::trusted_condition_closure(
-            trusted.clone(),
-            ordinary,
-        );
-
-        self.prove_mixed(&known, ordinary, &mut { Self::WORK_LIMIT })
+        ExecutionProof::new(trusted, ordinary).prove_trusted(self)
     }
 
     pub(crate) fn prove_mixed(
@@ -26,15 +17,15 @@ impl ExecutionCondition {
         ordinary: &BTreeSet<(Self, bool)>,
         budget: &mut usize,
     ) -> Option<bool> {
-        self.prove_mixed_with_implications(trusted, ordinary, budget, true)
+        ExecutionProof::new(trusted, ordinary).prove_mixed(self, budget)
     }
 
-    fn prove_mixed_with_implications(
+    pub(super) fn prove_mixed_with_implications(
         &self,
         trusted: &BTreeSet<(Self, bool)>,
         ordinary: &BTreeSet<(Self, bool)>,
         budget: &mut usize,
-        use_implications: bool,
+        implications: Option<&ExecutionProof<'_>>,
     ) -> Option<bool> {
         *budget = budget.checked_sub(1)?;
 
@@ -58,11 +49,11 @@ impl ExecutionCondition {
         }
 
         if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
-            return value.prove_mixed_with_implications(trusted, ordinary, budget, use_implications);
+            return value.prove_mixed_with_implications(trusted, ordinary, budget, implications);
         }
 
         if let Self::Entry { condition, .. } = self {
-            return condition.prove_mixed_with_implications(trusted, ordinary, budget, use_implications);
+            return condition.prove_mixed_with_implications(trusted, ordinary, budget, implications);
         }
 
         let proven = match self {
@@ -71,32 +62,15 @@ impl ExecutionCondition {
                 if let [operand] = operands.as_ref() =>
             {
                 operand
-                    .prove_mixed_with_implications(trusted, ordinary, budget, use_implications)
+                    .prove_mixed_with_implications(trusted, ordinary, budget, implications)
                     .map(|value| !value)
             }
-            Self::Operation(BoundOperator::LogicalAnd, operands)
+            Self::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands)
                 if let [left, right] = operands.as_ref() =>
             {
-                match (
-                    left.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
-                    right.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
-                ) {
-                    (Some(false), _) | (_, Some(false)) => Some(false),
-                    (Some(true), Some(true)) => Some(true),
-                    _ => None,
-                }
-            }
-            Self::Operation(BoundOperator::LogicalOr, operands)
-                if let [left, right] = operands.as_ref() =>
-            {
-                match (
-                    left.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
-                    right.prove_mixed_with_implications(trusted, ordinary, budget, use_implications),
-                ) {
-                    (Some(true), _) | (_, Some(true)) => Some(true),
-                    (Some(false), Some(false)) => Some(false),
-                    _ => None,
-                }
+                prove_boolean(*operator,
+                    left.prove_mixed_with_implications(trusted, ordinary, budget, implications),
+                    || right.prove_mixed_with_implications(trusted, ordinary, budget, implications))
             }
             _ => self
                 .prove(trusted, budget)
@@ -107,12 +81,13 @@ impl ExecutionCondition {
             return proven;
         }
 
-        if use_implications && matches!(self, Self::Operation(BoundOperator::LogicalOr, _)) {
+        if let Some(implications) = implications
+            && matches!(self, Self::Operation(BoundOperator::LogicalOr, _)) {
             for (premise, holds) in trusted.iter().chain(ordinary.iter().filter(|(condition, _)| !condition.contains_trusted())) {
                 if *holds && matches!(premise, Self::Operation(BoundOperator::LogicalOr, _))
                     // Each implication has its own bounded proof. Unrelated clauses cannot
                     // exhaust the budget for an already established Boolean operand.
-                    && premise.implies(self)
+                    && implications.implies(premise, self)
                 {
                     return Some(true);
                 }
@@ -187,22 +162,8 @@ impl ExecutionCondition {
             (BoundOperator::LogicalNot, [operand]) => {
                 operand.prove(assumptions, budget).map(|value| !value)
             }
-            (BoundOperator::LogicalAnd, [left, right]) => match (
-                left.prove(assumptions, budget),
-                right.prove(assumptions, budget),
-            ) {
-                (Some(false), _) | (_, Some(false)) => Some(false),
-                (Some(true), Some(true)) => Some(true),
-                _ => None,
-            },
-            (BoundOperator::LogicalOr, [left, right]) => match (
-                left.prove(assumptions, budget),
-                right.prove(assumptions, budget),
-            ) {
-                (Some(true), _) | (_, Some(true)) => Some(true),
-                (Some(false), Some(false)) => Some(false),
-                _ => None,
-            },
+            (operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), [left, right]) =>
+                prove_boolean(*operator, left.prove(assumptions, budget), || right.prove(assumptions, budget)),
             _ => None,
         }
     }
@@ -277,38 +238,9 @@ impl ExecutionCondition {
 
     /// Compare carrier promises without turning ordinary truth into trusted evidence.
     pub(crate) fn implies(&self, consequence: &Self) -> bool {
-        if self.is_unknown() || consequence.is_unknown() {
-            return false;
-        }
+        let empty = BTreeSet::new();
 
-        if self == consequence {
-            return !self.contains_unknown();
-        }
-
-        let mut evidence = BTreeSet::new();
-
-        self.clone().assume(true, &mut evidence);
-
-        let ordinary = BTreeSet::new();
-        let known = super::super::trusted_condition_closure(evidence.clone(), &ordinary);
-
-        // Implication uses Boolean consequences directly, so premise checking cannot call itself.
-        if consequence.prove_mixed_with_implications(&known, &ordinary, &mut { Self::WORK_LIMIT }, false) == Some(true) {
-            return true;
-        }
-
-        evidence.clear();
-
-        // Negating the requested clause exposes its Boolean path conditions.
-        // Keep a negated trusted occurrence opaque: lack of that evidence must
-        // never become an assumption that the ordinary predicate is false.
-        consequence
-            .clone()
-            .assume_proof(false, false, &mut |condition, holds| {
-                evidence.insert((condition, holds));
-            });
-
-        self.prove(&evidence, &mut { Self::WORK_LIMIT }) == Some(false)
+        ExecutionProof::new(&empty, &empty).implies(self, consequence)
     }
 
     pub(crate) fn assume(self, value: bool, assumptions: &mut BTreeSet<(Self, bool)>) {
@@ -321,7 +253,7 @@ impl ExecutionCondition {
         self.assume_proof(value, true, insert);
     }
 
-    fn assume_proof(
+    pub(super) fn assume_proof(
         self,
         value: bool,
         expose_trusted_truth: bool,
@@ -386,5 +318,19 @@ impl ExecutionCondition {
             }
             _ => {}
         }
+    }
+}
+
+fn prove_boolean(operator: BoundOperator, left: Option<bool>, right: impl FnOnce() -> Option<bool>) -> Option<bool> {
+    let decisive = match operator {
+        BoundOperator::LogicalOr => true,
+        BoundOperator::LogicalAnd => false,
+        _ => unreachable!("Boolean proof requires conjunction or disjunction"),
+    };
+
+    match left {
+        Some(value) if value == decisive => Some(value),
+        Some(_) => right(),
+        None => right().filter(|value| *value == decisive),
     }
 }

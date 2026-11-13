@@ -35,8 +35,10 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
     failed: &mut [Option<crate::UnprovenExecutionCondition>],
 ) {
     // Replay each exit once, sharing any implication closure across its clauses.
-    let mut trusted = None;
-    let mut normalized = None;
+    let trusted = std::cell::OnceCell::new();
+    let normalized = std::cell::OnceCell::new();
+    let normalized_proof = std::cell::OnceCell::new();
+    let proof = crate::execution_guarantees::ExecutionProof::new(&state.trusted_assumptions, &state.assumptions);
     let mut integer_ranges = super::integer::IntegerRanges::new();
 
     for ((required, _), failed) in postconditions.iter().zip(failed) {
@@ -58,7 +60,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             continue;
         }
 
-        if condition.prove_mixed(&state.trusted_assumptions, &state.assumptions, &mut {
+        if proof.prove_mixed(&condition, &mut {
             ExecutionCondition::WORK_LIMIT
         }) == Some(true)
         {
@@ -69,7 +71,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             continue;
         }
 
-        let (equalities, known) = normalized.get_or_insert_with(|| {
+        let (equalities, known) = normalized.get_or_init(|| {
             let equalities = ExecutionCondition::equalities(&state.assumptions, None);
 
             let known = state.assumptions.iter()
@@ -79,7 +81,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             (equalities, known)
         });
 
-        let trusted = trusted.get_or_insert_with(|| {
+        let trusted = trusted.get_or_init(|| {
             crate::execution_guarantees::trusted_condition_closure(
                 state.trusted_assumptions.iter().map(|(condition, holds)| (
                     condition.with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions)
@@ -89,7 +91,9 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             )
         });
 
-        if condition.with_equalities(equalities).prove_mixed(trusted, known, &mut {
+        let proof = normalized_proof.get_or_init(|| crate::execution_guarantees::ExecutionProof::new(trusted, known));
+
+        if proof.prove_mixed(&condition.with_equalities(equalities), &mut {
             ExecutionCondition::WORK_LIMIT
         }) == Some(true)
         {

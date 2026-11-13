@@ -320,6 +320,8 @@ fn collect(
         return;
     }
 
+    let proof = crate::execution_guarantees::ExecutionProof::new(&state.trusted_assumptions, &state.assumptions);
+
     for ((guarantee, _), previous) in guarantees.iter().zip(previous) {
         let guarantee = guarantee.substitute(
             &|input| {
@@ -356,7 +358,7 @@ fn collect(
                 .iter()
                 .filter(|(condition, guarantee)| {
                     guarantee.witness
-                        && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                        && proof.prove_trusted(condition)
                             == Some(true)
                 })
                 .map(|(condition, _)| condition)
