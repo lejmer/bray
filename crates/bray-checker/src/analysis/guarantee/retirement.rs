@@ -907,11 +907,21 @@ mod tests {
         let after = ExecutionCondition::owned_value(child, ExecutionCondition::Boolean(false));
 
         let retained = BTreeSet::from([ExecutionCondition::constructed(root.clone(), [(
-            StorageProjection::TupleElement(SymbolOrdinal::new(0)), after,
+            StorageProjection::TupleElement(SymbolOrdinal::new(0)), after.clone(),
         )].into())]);
 
         assert!(crate::execution_guarantees::ObservationSet::retains_owner(&retained, &root));
         assert!(crate::execution_guarantees::ObservationSet::retains_owner(&retained, &before));
         assert!(!crate::execution_guarantees::ObservationSet::retains_contents(&retained, &before));
+
+        let mut stable = crate::execution_guarantees::ObservationSet::from_iter(retained);
+
+        for _ in 0..2 {
+            assert!(!stable.preserves(&before), "same owner cannot revive overwritten contents");
+            assert!(stable.preserves(&after));
+        }
+
+        stable.insert(before.clone());
+        assert!(stable.preserves(&before), "a newly retained snapshot invalidates the earlier negative query");
     }
 }

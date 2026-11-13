@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionSubstitution;
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::BTreeMap;
 
@@ -363,9 +364,12 @@ fn join_observations<'a>(
             joined_facts.extend(common_join_conditions(target, incoming, &joined_values));
         }
 
+        let left_substitution = ExecutionSubstitution::new(&left, &left_identities);
+        let right_substitution = ExecutionSubstitution::new(&right, &right_identities);
+
         let conditional = super::witnesses::conditional_facts(
-            (target, &left, &left_identities),
-            (incoming_joined.as_ref(), &right, &right_identities),
+            (target, &left_substitution),
+            (incoming_joined.as_ref(), &right_substitution),
             &joined_values,
             &results,
             &availability_guards,
@@ -373,11 +377,11 @@ fn join_observations<'a>(
             &mut joined_facts,
         );
 
-        target.join_values(&left, &left_identities);
+        target.join_values(&left_substitution);
 
         let incoming = incoming_joined.to_mut();
 
-        incoming.join_values(&right, &right_identities);
+        incoming.join_values(&right_substitution);
 
         super::witnesses::retain_conditional_guarantees(target, incoming, &conditional);
 
@@ -493,7 +497,7 @@ pub(super) fn stable_observations(
 
 pub(super) fn resolved_availability(state: &ExecutionState, place: &crate::ExecutionPlace) -> ValueAvailability {
     match state.current.availability(place) {
-        ValueAvailability::Guarded(guard) => match guard.prove_ordinary(&state.assumptions) {
+        ValueAvailability::Guarded(guard) => match guard.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
             Some(true) => ValueAvailability::Present,
             Some(false) => ValueAvailability::Absent,
             None => ValueAvailability::Guarded(guard),

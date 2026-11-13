@@ -1,14 +1,32 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
+use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 
 use super::ExecutionCondition;
 use bray_bound_tree::StorageMutation;
 
+/// Physical sharing only, never semantic value or owner identity.
+#[derive(Clone, Copy)]
+pub(in crate::execution_guarantees) struct NodeIdentity<'a>(pub(in crate::execution_guarantees) &'a ExecutionCondition);
+
+impl PartialEq for NodeIdentity<'_> {
+    fn eq(&self, other: &Self) -> bool { std::ptr::eq(self.0, other.0) }
+}
+
+impl Eq for NodeIdentity<'_> {}
+
+impl Hash for NodeIdentity<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) { std::ptr::hash(self.0, state); }
+}
+
 impl ExecutionCondition {
     fn visit(&self, mut inspect: impl FnMut(&Self) -> ControlFlow<()>) -> ControlFlow<()> {
         let mut pending = vec![self];
+        let mut visited = HashSet::new();
 
         while let Some(condition) = pending.pop() {
+            if !visited.insert(NodeIdentity(condition)) { continue; }
+
             inspect(condition)?;
 
             match condition {

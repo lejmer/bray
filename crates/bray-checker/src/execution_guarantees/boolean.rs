@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use bray_bound_tree::BoundOperator;
 
 use super::{ExecutionCondition, ExecutionObservationKind};
+use super::condition::NodeIdentity;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) struct BooleanId(pub(super) usize);
@@ -21,7 +22,7 @@ enum BooleanKey {
 }
 
 impl BooleanKey {
-    fn new(condition: &ExecutionCondition, mut child: impl FnMut(&ExecutionCondition) -> Option<BooleanId>) -> Option<Self> {
+    fn new<'a>(condition: &'a ExecutionCondition, mut child: impl FnMut(&'a ExecutionCondition) -> Option<BooleanId>) -> Option<Self> {
         Some(match condition {
             ExecutionCondition::Operation(BoundOperator::LogicalNot, operands) if let [value] = operands.as_ref() => Self::Not(child(value)?),
             ExecutionCondition::Operation(BoundOperator::LogicalAnd, operands) if let [left, right] = operands.as_ref() => Self::And(child(left)?, child(right)?),
@@ -65,10 +66,11 @@ impl BooleanGraph {
         ordinary: &BTreeSet<(ExecutionCondition, bool)>,
     ) -> Self {
         let mut graph = Self { terms: Vec::new(), indices: HashMap::new() };
+        let mut shared = HashMap::new();
 
-        for (condition, holds) in trusted.iter().chain(ordinary.iter().filter(|(condition, _)| !condition.contains_trusted())) {
-            if alternative_value(condition) == Some(*holds) {
-                let id = graph.intern(condition);
+        for ((condition, holds), qualified) in trusted.iter().map(|fact| (fact, true)).chain(ordinary.iter().map(|fact| (fact, false))) {
+            if alternative_value(condition) == Some(*holds) && (qualified || !condition.contains_trusted()) {
+                let id = graph.intern(condition, &mut shared);
 
                 graph.terms[id.0].published = Some(*holds);
             }
@@ -77,11 +79,15 @@ impl BooleanGraph {
         graph
     }
 
-    fn intern(&mut self, condition: &ExecutionCondition) -> BooleanId {
-        let key = BooleanKey::new(condition, |child| Some(self.intern(child)))
+    fn intern<'a>(&mut self, condition: &'a ExecutionCondition, shared: &mut HashMap<NodeIdentity<'a>, BooleanId>) -> BooleanId {
+        if let Some(id) = shared.get(&NodeIdentity(condition)) { return *id; }
+
+        let key = BooleanKey::new(condition, |child| Some(self.intern(child, shared)))
             .expect("interned Boolean children have identities");
 
         if let Some(id) = self.indices.get(&key) {
+            shared.insert(NodeIdentity(condition), *id);
+
             return *id;
         }
 
@@ -96,14 +102,24 @@ impl BooleanGraph {
         // Graph keys and nodes retain immutable operands independently of the borrowed evidence view.
         self.indices.insert(key, id);
         self.terms.push(BooleanTerm { condition: condition.clone(), children, parents: Vec::new(), published: None });
+        shared.insert(NodeIdentity(condition), id);
 
         id
     }
 
     pub(super) fn find(&self, condition: &ExecutionCondition) -> Option<BooleanId> {
-        let key = BooleanKey::new(condition, |child| self.find(child))?;
+        self.find_shared(condition, &mut HashMap::new())
+    }
 
-        self.indices.get(&key).copied()
+    fn find_shared<'a>(&self, condition: &'a ExecutionCondition, shared: &mut HashMap<NodeIdentity<'a>, Option<BooleanId>>) -> Option<BooleanId> {
+        if let Some(id) = shared.get(&NodeIdentity(condition)) { return *id; }
+
+        let id = BooleanKey::new(condition, |child| self.find_shared(child, shared))
+            .and_then(|key| self.indices.get(&key).copied());
+
+        shared.insert(NodeIdentity(condition), id);
+
+        id
     }
 
     pub(super) fn derived(&self, id: BooleanId, value: impl Fn(BooleanId) -> Option<bool>) -> Option<bool> {

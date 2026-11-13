@@ -323,15 +323,13 @@ impl ExecutionWitness {
 impl super::ExecutionCallEvidence {
     pub(crate) fn joined_values(
         &self,
-        replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
-        identities: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+        substitution: &super::ExecutionSubstitution<'_>,
     ) -> Option<Self> {
-        if !ExecutionCondition::has_value_changes(replacements) && !ExecutionCondition::has_value_changes(identities) {
+        if !substitution.has_changes() {
             return None;
         }
 
-        let rename =
-            |value: &ExecutionCondition| value.with_joined_values(replacements, identities);
+        let rename = |value: &ExecutionCondition| substitution.value(value);
 
         let rename_arguments = |arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>| {
             arguments
@@ -346,7 +344,7 @@ impl super::ExecutionCallEvidence {
         let witness_inputs = self
             .witness_inputs
             .iter()
-            .map(|owner| owner.with_joined_owners(replacements, identities))
+            .map(|owner| substitution.owner(owner))
             .collect();
 
         let extracted_values = self.extracted_values.iter().map(rename).collect();

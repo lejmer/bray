@@ -1,4 +1,5 @@
 mod model;
+mod memo;
 mod context;
 mod observations;
 mod proof;
@@ -14,3 +15,6 @@ pub use model::{ExecutionCondition, ExecutionDescriptorKind, ExecutionObservatio
 
 pub(crate) use observations::Set as ObservationSet;
 pub(crate) use context::{ExecutionProof, ExecutionProofCache};
+pub(crate) use substitution::ExecutionSubstitution;
+
+pub(super) use traversal::NodeIdentity;

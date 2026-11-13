@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionSubstitution;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::BoundExpressionId;
@@ -564,18 +565,14 @@ impl ExecutionState {
 
     pub(super) fn join_values(
         &mut self,
-        replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
-        identities: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+        substitution: &ExecutionSubstitution<'_>,
     ) {
-        if replacements.is_empty() && identities.is_empty() {
+        if substitution.is_empty() {
             return;
         }
 
-        let rename =
-            |value: &ExecutionCondition| value.with_joined_values(replacements, identities);
-
-        let rename_identity =
-            |value: &ExecutionCondition| value.with_joined_owners(replacements, identities);
+        let rename = |value: &ExecutionCondition| substitution.value(value);
+        let rename_identity = |value: &ExecutionCondition| substitution.owner(value);
 
         let mut computations = DeferredInvocations::new();
 
@@ -587,8 +584,7 @@ impl ExecutionState {
             }
 
             entries.join_values(
-                replacements,
-                identities,
+                substitution,
                 &self.current,
                 (value != owner).then_some(&self.assumptions),
             );
@@ -607,7 +603,7 @@ impl ExecutionState {
 
         // Even identity-only joins prune stale frame captures above. They do not
         // rename the remaining value snapshots, carrier clauses or storage identities.
-        if !ExecutionCondition::has_value_changes(replacements) && !ExecutionCondition::has_value_changes(identities) {
+        if !substitution.has_changes() {
             return;
         }
 
@@ -856,6 +852,8 @@ mod tests {
         let current_guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
             vec![snapshot.clone(), absent.clone()]);
 
+        retained.insert(input(99));
+        assert!(!retained.preserves(&guard));
         retained.insert_classified(snapshot, bray_bound_tree::StorageObservationKind::Discriminant);
         assert_eq!(retained.preserves(&guard), preserved, "owner identity alone cannot preserve a different tag");
         state.invalidate_contents(&BTreeSet::new(), [owner.clone()], &BTreeSet::new(), &retained, None);

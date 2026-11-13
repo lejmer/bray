@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionSubstitution;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -353,11 +354,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
-        if let Some(renamed) = entry.joined_values(&values, &identities) {
+        let substitution = ExecutionSubstitution::new(&values, &identities);
+
+        if let Some(renamed) = entry.joined_values(&substitution) {
             entry = renamed;
         }
 
-        state.join_values(&values, &identities);
+        state.join_values(&substitution);
 
         // Every copied input has one immutable identity in its frame. Constants
         // describe that input's value rather than changing the input's identity.
