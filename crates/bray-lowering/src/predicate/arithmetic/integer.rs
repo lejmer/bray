@@ -161,6 +161,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             ConstantUnaryOperation::Identity
             | ConstantUnaryOperation::BorrowObservation
             | ConstantUnaryOperation::DescriptorObservation
+            | ConstantUnaryOperation::ValueDescriptorObservation
                 | ConstantUnaryOperation::EntryCondition => return Ok(operand),
             ConstantUnaryOperation::LogicalNot => MirUnaryOperator::Not,
             ConstantUnaryOperation::Negate => MirUnaryOperator::Negate,
@@ -206,6 +207,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             ConstantUnaryOperation::Identity
             | ConstantUnaryOperation::BorrowObservation
             | ConstantUnaryOperation::DescriptorObservation
+            | ConstantUnaryOperation::ValueDescriptorObservation
                 | ConstantUnaryOperation::EntryCondition => return self.convert(block, operand, ty),
             ConstantUnaryOperation::LogicalNot => MirUnaryOperator::Not,
             ConstantUnaryOperation::Negate => MirUnaryOperator::Negate,

@@ -349,7 +349,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
     pub(in crate::analysis::guarantee) fn owned_input_ordinals(
         &self,
-        selection: &bray_bound_tree::SemanticSelection,
+        selection: &SemanticSelection,
     ) -> std::sync::Arc<[SymbolOrdinal]> {
         bray_base::sorted_unique_shared_slice(
             selection
@@ -420,7 +420,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         ExecutionCallEvidence {
             implementation_witnesses: match selection {
-                bray_bound_tree::SemanticSelection::Call(call) => {
+                SemanticSelection::Call(call) => {
                     call.resolution().implementation_witnesses().into()
                 }
                 _ => Default::default(),

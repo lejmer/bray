@@ -267,7 +267,12 @@ struct Containing
     owner: Owner;
 }
 trusted predicate live(owner: &Owner);
-extern trusted func pointer(pos owner: &Owner) -> DataPointer<$POINTEE>
+@abi(c)
+@link(name = "native")
+@symbol(name = "pointer")
+extern trusted func native_pointer(pos owner: DataPointer<Owner>) -> DataPointer<$POINTEE>
+    executes(pure, total) uses(foreign_call);
+trusted func pointer(pos owner: &Owner) -> DataPointer<$POINTEE>
     requires(trusted live(owner))
     ensures(
         trusted live(owner),
@@ -276,7 +281,10 @@ extern trusted func pointer(pos owner: &Owner) -> DataPointer<$POINTEE>
         trusted core.memory.initialized_as<$POINTEE>(pointer = result),
         trusted core.memory.aligned_for<$POINTEE>(pointer = result)
     )
-    executes(pure, total);
+    executes(pure, total) uses(foreign_call)
+{
+    return trusted native_pointer(core.memory.address_of<Owner>(owner));
+}
 func observe(pos owner: &Owner)
     requires(trusted live(owner))
     executes(pure, total)
@@ -284,17 +292,18 @@ func observe(pos owner: &Owner)
 }
 trusted func caller(pos owner: &Owner)
     requires(trusted live(owner))
-    uses(raw_memory, unchecked_init)
+    uses($CAPABILITIES)
 {
-    let address = pointer(owner);
+    let address = trusted pointer(owner);
     $OPERATION
     observe(owner);
 }
-"#.replace("$FIELD", field).replace("$OPERATION", operation).replace("$POINTEE", pointee);
+"#.replace("$CAPABILITIES", if operation.contains(".write<") { "raw_memory, unchecked_init" } else { "raw_memory" }).replace("$FIELD", field).replace("$OPERATION", operation).replace("$POINTEE", pointee);
 
-        let application = compilation(&source);
+        let application = super::fixtures::foreign_compilation(&source);
         let diagnostics = application.check_diagnostics();
 
+        let valid = valid && field == "u64";
         assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
         }
     }

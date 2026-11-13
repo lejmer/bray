@@ -79,7 +79,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .collect::<BTreeSet<_>>();
 
                 for subject in subjects {
-                    let address = instantiate(&subject);
+                    let address = address_value(instantiate(&subject));
 
                     let retained_input = dependencies
                         .retained_inputs()
@@ -203,10 +203,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         ),
                     );
 
-                    let owners = source.addresses.get(&input).unwrap_or(owners);
+                    let owners = source.addresses.get(&address_value(input)).unwrap_or(owners);
 
                     addresses
-                        .entry(instantiate(&address))
+                        .entry(address_value(instantiate(&address)))
                         .or_insert_with(BTreeSet::new)
                         .extend(owners.iter().cloned());
                 }
@@ -258,7 +258,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 entry,
             );
 
-            let source = entry_subject(arguments, &source);
+            let source = address_value(entry_subject(arguments, &source));
 
             if let Some(owners) = sources.get(&source) {
                 addresses
@@ -302,7 +302,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     )
                 })
         }) {
-            let address = instantiate(subject);
+            let address = address_value(instantiate(subject));
 
             let owners = addresses
                 .entry(address.clone())
@@ -323,7 +323,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     };
 
                     for path in paths {
-                        let value = entry_subject(entry, path);
+                        let value = address_value(entry_subject(entry, path));
 
                         if let Some(storage) = source.addresses.get(&value) {
                             owners.extend(storage.iter().cloned());
@@ -374,7 +374,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     )
                 })
         }) {
-            let address = instantiate(subject);
+            let address = address_value(instantiate(subject));
 
             if address == ExecutionCondition::Unknown {
                 continue;
@@ -485,4 +485,10 @@ fn entry_subject(
         &ExecutionCondition::Unknown,
         &mut { ExecutionCondition::WORK_LIMIT },
     )
+}
+
+/// Classified raw-address subjects can be reached through an input loan. The
+/// predicate observes the address stored there, independently of that loan.
+fn address_value(value: ExecutionCondition) -> ExecutionCondition {
+    value.into_referent().descriptor_identity().clone()
 }

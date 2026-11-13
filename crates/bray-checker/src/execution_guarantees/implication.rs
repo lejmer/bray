@@ -318,7 +318,7 @@ pub fn map_execution_condition_references<E>(
 ) -> Result<ExecutionCondition, E> {
     Ok(match condition {
         ExecutionCondition::Discriminant(value) => map_execution_condition_references(value, map, input, literal, call)?.discriminant(),
-        ExecutionCondition::Descriptor(value) => map_execution_condition_references(value, map, input, literal, call)?.descriptor(),
+        ExecutionCondition::Descriptor(kind, value) => map_execution_condition_references(value, map, input, literal, call)?.descriptor(*kind),
         ExecutionCondition::ValueAlias(left, right) => ExecutionCondition::value_alias(
             map_execution_condition_references(left, map, input, literal, call)?,
             map_execution_condition_references(right, map, input, literal, call)?,

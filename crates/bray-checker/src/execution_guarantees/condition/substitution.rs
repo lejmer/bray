@@ -70,7 +70,7 @@ impl ExecutionCondition {
 
         match self {
             Self::Discriminant(value) => value.substitute_values(replace, budget).discriminant(),
-            Self::Descriptor(value) => value.substitute_values(replace, budget).descriptor(),
+            Self::Descriptor(kind, value) => value.substitute_values(replace, budget).descriptor(*kind),
             Self::ValueAlias(left, right) => Self::value_alias(
                 left.substitute_values(replace, budget), right.substitute_values(replace, budget),
             ),
@@ -354,7 +354,7 @@ fn rewrite_equalities(
 
     let value = match value {
         ExecutionCondition::Discriminant(value) => rewrite_equalities(&value, replacements, identities, budget).discriminant(),
-        ExecutionCondition::Descriptor(value) => rewrite_identity(&value, identities, budget).descriptor(),
+        ExecutionCondition::Descriptor(kind, value) => rewrite_identity(&value, identities, budget).descriptor(kind),
         ExecutionCondition::ValueAlias(left, right) => ExecutionCondition::value_alias(
             rewrite_equalities(&left, replacements, identities, budget),
             rewrite_equalities(&right, replacements, identities, budget),

@@ -3,6 +3,16 @@ use crate::{Compilation, CompilationRequest};
 use crate::test_support::{ProductionFixtureCache, production_fixture, source_input};
 use std::sync::{OnceLock};
 
+pub(super) fn foreign_compilation(source: &str) -> Compilation {
+    crate::test_support::compilation_with_options(source,
+        crate::CompilationOptions::default().with_native_link_inputs([
+            bray_symbols::NativeLinkRequirement::new(
+                bray_base::NonEmptySharedStr::try_new("native").expect("fixture link name is nonempty"),
+                bray_symbols::NativeLinkKind::Dynamic,
+            ),
+        ]))
+}
+
 pub(super) fn production_sync_compilation(caller: &str) -> Compilation {
     production_sync_compilation_for_target(caller, crate::SelectedTarget::baseline())
 }

@@ -141,20 +141,12 @@ impl StorageFlowInput {
             })
             .map(bray_bound_tree::StoragePath::root);
 
-        let opaque_values = footprint.owned_observations.values().flatten()
-            .fold(BTreeMap::new(), |mut retained, (path, kind)| {
-                kind.record_preservation(path.clone(), &mut retained);
-                retained
-            });
+        let mut opaque_descriptors = owned_descriptors.collect::<BTreeSet<_>>();
+        let mut opaque_values = BTreeMap::new();
 
-        // A field can keep its complete owner while another component changes.
-        // Prepare the finite inline ancestry once, without following pointees.
-        let opaque_descriptors = owned_descriptors.chain(opaque_values.keys().flat_map(|path| {
-            (0..path.projections.len()).map(move |length| bray_bound_tree::StoragePath {
-                root: path.root,
-                projections: path.projections[..length].into(),
-            })
-        })).collect::<BTreeSet<_>>();
+        for (path, kind) in footprint.owned_observations.values().flatten() {
+            kind.record_preservation(path.clone(), &mut opaque_descriptors, &mut opaque_values);
+        }
 
         let opaque_candidates = opaque_descriptors.iter().cloned()
             .chain(footprint.borrowed_observations.keys().cloned())

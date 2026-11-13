@@ -15,16 +15,20 @@ impl ExecutionCondition {
     }
 
     /// Retain this descriptor observation through later input substitution.
-    pub(crate) fn descriptor(&self) -> Self {
-        let identity = self.descriptor_identity();
+    pub(crate) fn descriptor(&self, kind: super::ExecutionDescriptorKind) -> Self {
+        let source = match kind {
+            super::ExecutionDescriptorKind::Reference => self.clone(),
+            super::ExecutionDescriptorKind::Value => self.clone().into_referent(),
+        };
+        let identity = source.descriptor_identity();
 
         if identity.contains_unknown() { return Self::Unknown; }
 
         let identity = identity.clone().into_referent();
 
         match identity {
-            Self::Descriptor(_) | Self::Unknown => identity,
-            identity => Self::Descriptor(Arc::new(identity)),
+            Self::Descriptor(..) | Self::Unknown => identity,
+            identity => Self::Descriptor(kind, Arc::new(identity)),
         }
     }
 
@@ -670,7 +674,7 @@ impl ExecutionCondition {
                 .unwrap_or_else(|| {
                     base.as_ref().clone().component(projection)
                 }),
-            Self::Unknown | Self::Discriminant(_) | Self::Descriptor(_) => Self::Unknown,
+            Self::Unknown | Self::Discriminant(_) | Self::Descriptor(..) => Self::Unknown,
             value => Self::Projection(projection, Arc::new(value)),
         }
     }
@@ -951,9 +955,31 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn raw_descriptor_reads_follow_current_field_data_after_substitution() {
+        use crate::execution_guarantees::ExecutionDescriptorKind as Kind;
+
+        let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let original = owner.clone().project(field);
+        let replacement = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        let template = ExecutionCondition::Input(root.clone()).project(field).descriptor(Kind::Value);
+
+        for current in [original.clone(), replacement.clone()] {
+            let contents = ExecutionCondition::constructed(owner.clone(), [(field, current.clone())].into());
+            let actual = ExecutionCondition::reference_value(owner.clone().borrowed(), contents);
+            let inputs: std::collections::BTreeMap<_, _> = [(root.clone(), actual)].into();
+            let observed = template.substitute(&|place| place.value_in(&inputs).expect("selected input"),
+                &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT });
+            assert_eq!(observed, current.descriptor(Kind::Value));
+            assert_eq!(observed == original.descriptor(Kind::Value), current == original);
+        }
+    }
+
+    #[test]
     fn descriptor_selection_survives_substitution_without_observing_reached_contents() {
         let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
-        let template = input(0).descriptor();
+        let template = input(0).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference);
         let owner = input(1);
 
         for contents in [input(2), ExecutionCondition::Unknown] {
@@ -965,20 +991,20 @@ mod tests {
                 let observed = template.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
                     &mut { ExecutionCondition::WORK_LIMIT });
 
-                assert_eq!(observed, owner.descriptor());
-                assert_eq!(observed.descriptor(), observed);
+                assert_eq!(observed, owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference));
+                assert_eq!(observed.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), observed);
                 assert!(!observed.contains_unknown());
                 assert!(!observed.observes_live(None));
                 assert_eq!(observed.ownership_identity(), None);
             }
         }
 
-        assert_ne!(owner.descriptor(), input(4).descriptor(), "replacement does not retain the old descriptor");
-        assert_eq!(ExecutionCondition::Unknown.descriptor(), ExecutionCondition::Unknown);
-        assert_eq!(ExecutionCondition::reference_value(ExecutionCondition::Unknown, input(2)).descriptor(),
+        assert_ne!(owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), input(4).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), "replacement does not retain the old descriptor");
+        assert_eq!(ExecutionCondition::Unknown.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), ExecutionCondition::Unknown);
+        assert_eq!(ExecutionCondition::reference_value(ExecutionCondition::Unknown, input(2)).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference),
             ExecutionCondition::Unknown, "known pointee data cannot supply a missing descriptor identity");
 
-        let observed = owner.descriptor();
+        let observed = owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference);
         let contents = [(owner.clone(), input(2))].into();
         let identities = [(owner.clone(), input(4))].into();
 
@@ -986,7 +1012,7 @@ mod tests {
             "equal data cannot equate descriptor identities");
         assert_eq!(observed.with_joined_values(&contents, &Default::default()), observed,
             "replacing reached contents cannot replace the observed descriptor");
-        assert_eq!(observed.with_joined_values(&contents, &identities), input(4).descriptor(),
+        assert_eq!(observed.with_joined_values(&contents, &identities), input(4).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference),
             "a real identity transfer must follow the identity map rather than new contents");
     }
 

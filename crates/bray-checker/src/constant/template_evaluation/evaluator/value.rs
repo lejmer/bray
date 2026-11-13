@@ -236,6 +236,7 @@ where
             ConstantUnaryOperation::PredicateTrust
                 | ConstantUnaryOperation::BorrowObservation
                 | ConstantUnaryOperation::DescriptorObservation
+                | ConstantUnaryOperation::ValueDescriptorObservation
                 | ConstantUnaryOperation::EntryCondition
         ) {
             return Ok(operand);

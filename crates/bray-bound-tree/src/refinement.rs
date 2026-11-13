@@ -66,8 +66,12 @@ fn intersect_preserved_values(
 ) {
     retained.retain(|path, kind| {
         if let Some(other) = incoming.get(path) {
-            if *other == crate::StorageObservationKind::Discriminant { *kind = *other; }
-            true
+            if *kind == *other || *other == crate::StorageObservationKind::Value {
+                true
+            } else if *kind == crate::StorageObservationKind::Value {
+                *kind = *other;
+                true
+            } else { false }
         } else { unchanged(path) }
     });
 }
@@ -257,7 +261,7 @@ impl StorageInvalidation {
         match self {
             Self::All { .. } => true,
             Self::Observed { stable_values, .. }
-                if stable_values.iter().any(|(stable, kind)| *kind != crate::StorageObservationKind::Discriminant && stable.contains(path)) =>
+                if stable_values.iter().any(|(stable, kind)| kind.is_immutable_inline() && stable.contains(path)) =>
             {
                 false
             }
@@ -282,7 +286,7 @@ impl StorageInvalidation {
             } => {
                 accesses.contains_key(&access)
                     && !storage.logical_path(access).is_some_and(|path| {
-                        stable_values.iter().any(|(stable, kind)| *kind != crate::StorageObservationKind::Discriminant && stable.contains(path))
+                        stable_values.iter().any(|(stable, kind)| kind.is_immutable_inline() && stable.contains(path))
                     })
             }
             Self::Paths(mutations) => mutations.iter().any(|mutation| {
@@ -563,11 +567,18 @@ mod tests {
 
         let path = crate::StoragePath::root(crate::StorageIdentityId::from_slot(BoundUnitId::new(0), 0));
 
-        for kinds in [[StorageObservationKind::Value, StorageObservationKind::Discriminant],
-            [StorageObservationKind::Discriminant, StorageObservationKind::Value]] {
-            let mut values = std::collections::BTreeMap::new();
+        let mut descriptors = BTreeSet::new();
+        let mut contents = std::collections::BTreeMap::new();
+        StorageObservationKind::Identity.record_preservation(path.clone(), &mut descriptors, &mut contents);
+        assert!(descriptors.contains(&path));
+        assert!(contents.is_empty(), "identity survival does not preserve reached contents");
 
-            for kind in kinds { kind.record_preservation(path.clone(), &mut values); }
+        for weaker in [StorageObservationKind::Discriminant, StorageObservationKind::Address] {
+        for kinds in [[StorageObservationKind::Value, weaker], [weaker, StorageObservationKind::Value]] {
+            let mut values = std::collections::BTreeMap::new();
+            let mut descriptors = BTreeSet::new();
+
+            for kind in kinds { kind.record_preservation(path.clone(), &mut descriptors, &mut values); }
 
             assert_eq!(values[&path], StorageObservationKind::Value);
 
@@ -576,12 +587,13 @@ mod tests {
             };
             let tag = super::StorageInvalidation::All {
                 stable_descriptors: Default::default(),
-                stable_values: [(path.clone(), StorageObservationKind::Discriminant)].into(),
+                stable_values: [(path.clone(), weaker)].into(),
                 stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
             };
 
             retained.merge(&tag);
             assert_eq!(retained, tag);
+        }
         }
     }
 

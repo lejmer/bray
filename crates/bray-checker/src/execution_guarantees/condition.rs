@@ -9,6 +9,6 @@ mod tags;
 #[cfg(test)]
 mod tests;
 
-pub use model::{ExecutionCondition, ExecutionObservationKind};
+pub use model::{ExecutionCondition, ExecutionDescriptorKind, ExecutionObservationKind};
 
 pub(crate) use observations::Set as ObservationSet;

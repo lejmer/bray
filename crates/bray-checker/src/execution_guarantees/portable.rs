@@ -121,13 +121,16 @@ fn encode(
 
             ConstantTermData::NullablePresent(value)
         }
-        ExecutionCondition::Descriptor(value) => {
+        ExecutionCondition::Descriptor(kind, value) => {
             let Some(operand) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
             };
 
             ConstantTermData::Unary {
-                operation: bray_symbols::ConstantUnaryOperation::DescriptorObservation,
+                operation: match kind {
+                    super::ExecutionDescriptorKind::Reference => bray_symbols::ConstantUnaryOperation::DescriptorObservation,
+                    super::ExecutionDescriptorKind::Value => bray_symbols::ConstantUnaryOperation::ValueDescriptorObservation,
+                },
                 operand,
             }
         }
@@ -379,7 +382,11 @@ pub(crate) fn decode(
         ConstantTermData::Unary {
             operation: bray_symbols::ConstantUnaryOperation::DescriptorObservation,
             operand,
-        } => decode(values, *operand, inputs, budget)?.descriptor(),
+        } => decode(values, *operand, inputs, budget)?.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference),
+        ConstantTermData::Unary {
+            operation: bray_symbols::ConstantUnaryOperation::ValueDescriptorObservation,
+            operand,
+        } => decode(values, *operand, inputs, budget)?.descriptor(super::ExecutionDescriptorKind::Value),
         ConstantTermData::Unary {
             operation: bray_symbols::ConstantUnaryOperation::EntryCondition,
             operand,
@@ -460,7 +467,7 @@ mod tests {
             CallableParameterSymbolId::from_symbol_id(SymbolId::new(904)).into());
         let callable = callable_instance(FunctionSymbolId::from_symbol_id(SymbolId::new(905)).into());
         let condition = ExecutionCondition::call(callable, None, [],
-            vec![ExecutionCondition::Input(parameter.into()).descriptor()], None);
+            vec![ExecutionCondition::Input(parameter.into()).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None);
         let term = execution_condition_term(values, &condition, &[parameter], boolean_type)
             .expect("descriptor call encodes").expect("descriptor call is portable");
         let decoded = execution_condition_from_term(values, term, &[parameter]).expect("descriptor call decodes");
@@ -471,7 +478,16 @@ mod tests {
         let substituted = decoded.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
             &mut { ExecutionCondition::WORK_LIMIT });
 
-        assert_eq!(substituted, ExecutionCondition::call(callable, None, [], vec![owner.descriptor()], None));
+        assert_eq!(substituted, ExecutionCondition::call(callable, None, [], vec![owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None));
+
+        let raw = ExecutionCondition::Input(parameter.into()).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Value);
+        let term = execution_condition_term(values, &raw, &[parameter], boolean_type)
+            .expect("raw descriptor encodes").expect("raw descriptor is portable");
+        let decoded = execution_condition_from_term(values, term, &[parameter]).expect("raw descriptor decodes");
+        assert_eq!(decoded, raw);
+        assert_eq!(decoded.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
+            &mut { ExecutionCondition::WORK_LIMIT }), ExecutionCondition::Unknown,
+            "a known view descriptor cannot invent the unknown raw pointer stored through it");
     }
 
     #[test]

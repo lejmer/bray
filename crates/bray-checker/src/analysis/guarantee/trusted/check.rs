@@ -224,7 +224,7 @@ impl TrustedChecks {
         self.collect_carriers(domain.request, state, &result);
 
         if domain.request.unit().key().kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
-            let observed = super::carriers::portable(domain.request, &result);
+            let observed = super::carriers::portable(domain.request, result.copied_value());
 
             match &mut self.observed_result {
                 Some(previous) if *previous != observed => *previous = None,

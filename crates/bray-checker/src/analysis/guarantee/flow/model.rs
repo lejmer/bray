@@ -85,7 +85,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) contracts:
         &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     pub(in crate::analysis) disposal: &'a super::super::cleanup::Cleanup<'a>,
-    pub(in crate::analysis::guarantee) refinements: &'a std::collections::BTreeMap<
+    pub(in crate::analysis::guarantee) refinements: &'a BTreeMap<
         bray_bound_tree::BoundExecutionSite,
         bray_bound_tree::StorageInvalidation,
     >,
@@ -132,7 +132,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         {
             true
         } else if invocation.expression().is_none_or(|expression| !matches!(
-            self.request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Await(_))
+            self.request.view().expression(expression), Some(BoundExpression::Await(_))
         )) {
             self.dependencies
                 .calls()
@@ -405,7 +405,22 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         }
 
         for (identity, storage) in self.storage.identity_entries() {
-            if matches!(storage, bray_bound_tree::StorageIdentity::PostconditionResult(_)) {
+            if matches!(storage,
+                bray_bound_tree::StorageIdentity::LocalOwned(_)
+                    | bray_bound_tree::StorageIdentity::Result(_)
+                    | bray_bound_tree::StorageIdentity::Temporary(_)
+                    | bray_bound_tree::StorageIdentity::Evaluated(_)
+                    | bray_bound_tree::StorageIdentity::InvocationInput { .. }
+                    | bray_bound_tree::StorageIdentity::InvocationResult(_)
+                    | bray_bound_tree::StorageIdentity::ScopedCapability { .. }
+            ) {
+                if let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, identity) {
+                    state.current.set_slot(place, super::super::current::CurrentValue {
+                        value: ExecutionCondition::Unknown,
+                        availability: super::super::current::ValueAvailability::Absent,
+                    });
+                }
+            } else if matches!(storage, bray_bound_tree::StorageIdentity::PostconditionResult(_)) {
                 let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
                     .expect("a postcondition result retains its formal storage identity");
 
@@ -428,7 +443,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
         for assumption in self.input_invariants.iter().chain(self.assumptions) {
             if assumption.prove(&state.assumptions, &mut {
-                crate::ExecutionCondition::WORK_LIMIT
+                ExecutionCondition::WORK_LIMIT
             }) == Some(false)
             {
                 return None;

@@ -420,9 +420,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         entry.assumptions.extend(captured);
 
         for (value, ownership) in ownership {
-            if !ownership.is_empty() {
-                state.owned_results.insert(value, ownership);
-            }
+            state.owned_results.insert(value, ownership);
         }
 
         state.resume_owned_witnesses(&entry);

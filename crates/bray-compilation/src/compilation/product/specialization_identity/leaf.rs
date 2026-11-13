@@ -94,6 +94,7 @@ impl StructuralValueEncoder<'_, '_> {
             ConstantUnaryOperation::BorrowObservation => 5,
             ConstantUnaryOperation::EntryCondition => 6,
             ConstantUnaryOperation::DescriptorObservation => 7,
+            ConstantUnaryOperation::ValueDescriptorObservation => 8,
         });
     }
 

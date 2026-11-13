@@ -220,7 +220,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
         }
 
-        let receiver = self.evaluated_index_input(state, receiver).descriptor();
+        let receiver = self.evaluated_index_input(state, receiver).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference);
 
         if receiver == ExecutionCondition::Unknown {
             return false;

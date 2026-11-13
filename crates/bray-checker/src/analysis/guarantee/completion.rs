@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, StorageAccessId};
+use bray_bound_tree::{BoundExpressionId, BoundReferenceTarget, StorageAccessId};
 use bray_symbols::TypeData;
 
 use super::flow::{ExecutionFlow, ExecutionFlowDomain};
@@ -227,20 +227,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expect("cleanup retains its checked storage access")
             .reached_type();
 
-        let value = ExecutionPlace::storage(self.storage, access)
-            .and_then(|place| place.value_in(&state.current))
-            .or_else(|| {
-                let node = self
-                    .storage
-                    .identity(self.storage.root_identity(access)?)?
-                    .definition_node()?;
+        let place = ExecutionPlace::storage(self.storage, access);
 
-                let AnyBoundNodeId::Expression(expression) = node else {
-                    return None;
-                };
+        if place.as_ref().is_some_and(|place| state.current.availability(place)
+            == super::current::ValueAvailability::Absent) {
+            return true;
+        }
 
-                Some(self.value(state, expression))
-            });
+        let value = place.and_then(|place| place.value_in(&state.current));
 
         match crate::representation::type_representation(self.request, ty) {
             Some(bray_compiler_known::RepresentationRole::Future) => {

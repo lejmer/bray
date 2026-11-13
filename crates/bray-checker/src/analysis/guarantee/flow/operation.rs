@@ -402,7 +402,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.consume_value_slots(state, operation.occurrence(), bray_bound_tree::StorageValueConsumptionPhase::Completion);
     }
 
-    fn consume_value_slots(
+    pub(super) fn consume_value_slots(
         &self,
         state: &mut ExecutionState,
         occurrence: bray_bound_tree::BoundExecutionSite,

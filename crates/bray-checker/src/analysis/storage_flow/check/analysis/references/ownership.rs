@@ -93,15 +93,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyOwnedResult, C::UpstreamError> {
         use bray_symbols::ConstantTermData;
 
-        if candidates.is_empty() {
-            return Ok(bray_symbols::DependencyOwnedResult::default());
-        }
-
-        let inputs = self
-            .request
-            .trusted_contracts()
-            .expect("owned transfer inference retains formal inputs");
-
         let mut copyable = std::collections::BTreeMap::new();
 
         let result = candidates.try_map(
@@ -138,6 +129,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     }
                 };
 
+                let inputs = self.request.trusted_contracts()
+                    .expect("owned transfer inference retains formal inputs");
                 let input = inputs.inputs
                     [usize::try_from(ordinal).expect("formal input ordinal fits the target")];
 
@@ -249,11 +242,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             &mut |(condition, _)| Ok(Some(*condition)),
         )?;
 
-        Ok(if result.is_empty() {
-            bray_symbols::DependencyOwnedResult::default()
-        } else {
-            result
-        })
+        Ok(result)
     }
 
     fn owned_projection_type(

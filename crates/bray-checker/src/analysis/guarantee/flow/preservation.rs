@@ -53,6 +53,9 @@ impl ValuePreservation {
 
         // Another alias can still retain the original snapshot and layout.
         let ownership = state.owned_result(&source);
+        // Selection applies to this branch's existing snapshot too. An explicit
+        // empty layout cannot later be inferred again from an inactive child.
+        state.owned_results.insert(source.clone(), ownership.clone());
         // Current ownership survives constructor normalization independently of
         // formal input transfers. Fresh local owners have no input mapping.
         let owned_context = source.ownership_identity()
@@ -61,7 +64,7 @@ impl ValuePreservation {
         let moved = state.entries.get(&mutation.occurrence())
             .map_or(&empty, |entry| &entry.extracted_values);
         let next = mask.apply_bounded(&source, place, mutation, owned_context, moved, &mut { ExecutionCondition::WORK_LIMIT });
-        if source == next || ownership.is_empty() { return next; }
+        if source == next { return next; }
 
         let ownership = ownership.try_map(
             &mut |transfer| {
@@ -328,6 +331,50 @@ mod tests {
         let required = held(place.value_in(&state.current).expect("current owner").project(scope));
         assert_eq!(required.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true),
             "the next join must preserve the same conditional guarantee");
+    }
+
+    #[test]
+    fn selected_empty_ownership_survives_framing_and_both_join_boundaries() {
+        use bray_symbols::{DependencyOwnedResult as Layout, DependencyOwnedTransfer as Transfer, DependencyValuePreservation as Mask};
+        use super::super::super::state::ExecutionState;
+        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
+            (0..3).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
+        });
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(2));
+        let input = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let guard = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let origin = ExecutionCondition::Expression(sites[0]);
+        let source = ExecutionCondition::owned_value(origin.clone(), ExecutionCondition::constructed(origin,
+            [(field, input.clone())].into()));
+        let conditional = Layout::case(guard.clone(), Layout::Transfer(Transfer::new(input.clone(), [field])
+            .with_preservation(Mask::all())));
+        let mut states = Vec::new();
+
+        for (index, unchanged) in [true, false].into_iter().enumerate() {
+            let mut state = ExecutionState::default();
+            state.owned_results.insert(input.clone(), Layout::Transfer(Transfer::new(input.clone(), []).with_preservation(Mask::all())));
+            state.owned_results.insert(source.clone(), conditional.clone());
+            guard.clone().assume(false, &mut state.assumptions);
+            let mut mask = ValuePreservation { descriptor: true, value: unchanged, ..Default::default() };
+            mask.at_mut(&[field]).descriptor = true;
+            let value = mask.frame(&mut state, &source, &[], Some(&place), StorageMutation::Operation(sites[index].into()));
+            state.assumptions.clear();
+            assert!(state.owned_result(&source).is_empty(), "the original selected snapshot cannot revive after its selector expires");
+            assert!(state.owned_result(&value).is_empty(), "a retained inactive child is no ownership proof");
+            state.assign(place.clone(), value.clone(), None);
+            states.push((state, value));
+        }
+
+        let mut joined = Some(states[0].0.clone());
+        super::super::merge::merge(&mut joined, &Some(states[1].0.clone()), super::super::merge::ExecutionJoin::Boundary);
+        let mut current = joined.expect("reachable current-value join");
+        let value = place.value_in(&current.current).expect("joined value");
+        assert!(current.owned_result(&value).is_empty(), "current-value join retains explicit no-transfer information");
+
+        let returned = super::super::joins::merge_returned(&mut current, &states[1].0, &value, &states[1].1,
+            &ExecutionCondition::Expression(sites[2]), sites[2]);
+        assert!(current.owned_result(&returned).is_empty(), "result publication retains explicit no-transfer information");
     }
 
     #[test]

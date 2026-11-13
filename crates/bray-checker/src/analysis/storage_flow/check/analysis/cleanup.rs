@@ -44,8 +44,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut mutate =
             |execution: &mut ExecutionState,
              identity: bray_bound_tree::StorageMutation,
-             mutation: crate::analysis::guarantee::CleanupMutation<'_>| {
+             mutation: crate::analysis::guarantee::CleanupMutation<'_>,
+             conditional: bool| {
                 use crate::analysis::guarantee::CleanupMutation;
+
+                let skipped = conditional.then(|| memory.clone());
 
                 if let CleanupMutation::Lifecycle(call) = &mutation {
                     self.collect_lifecycle_reports(operation, call, &mut report_outputs);
@@ -134,6 +137,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let inherited_tail =
                     self.record_cleanup_obligations(operation, &mutation, effects.as_deref());
+
 
                 if let Some(report) = self.inactive_cleanup_report(
                     operation,
@@ -240,6 +244,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 domain.invalidate_observations(execution, identity, &invalidation, false, false);
                 domain.observe_references(execution, completion.references());
+
+                if let Some(skipped) = skipped {
+                    // Effects are possible updates. The branch that did not run
+                    // cleanup retains its original physical reference contents.
+                    memory.merge(&skipped, &Default::default(), &Default::default());
+                }
             };
 
         domain.transition_storage_cleanup(

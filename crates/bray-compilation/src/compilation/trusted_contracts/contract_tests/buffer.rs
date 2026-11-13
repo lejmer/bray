@@ -302,25 +302,25 @@ fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_ac
             trusted module app;
             using core.memory;
             using core.target;
-            trusted predicate slot(owner: &DataPointer<u32>);
-            extern func opaque()
-                executes(total);
-            func observe_slot(pos owner: &DataPointer<u32>)
+            struct Slot {{ pointer: DataPointer<u32>; }}
+            predicate slot(owner: &Slot) = core.memory.is_null<u32>(owner.pointer);
+            extern func opaque();
+            func observe_slot(pos owner: &Slot)
                 requires(trusted slot(owner = owner))
                 executes(pure, total)
             {{
             }}
-            trusted func publish(pos owner: &DataPointer<u32>) -> usize
+            trusted func publish(pos owner: &Slot) -> usize
                 uses(intrinsic)
             {{
-                return trusted core.target.expose_address<DataPointer<u32>>(core.memory.address_of<DataPointer<u32>>(owner));
+                return trusted core.target.expose_address<Slot>(core.memory.address_of<Slot>(owner));
             }}
             trusted func overwrite(pos pointer: DataPointer<u64>)
                 requires(
                     trusted core.memory.valid_write<u64>(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<u64>(pointer = pointer)
                 ) uses(raw_memory, unchecked_init) {{ trusted core.memory.write<u64>(pointer, 0); }}
-            func caller(pos pointer: DataPointer<u32>, pos other: DataPointer<u64>)
+            func caller(pos pointer: Slot, pos other: DataPointer<u64>)
                 requires(
                     trusted slot(owner = &pointer),
                     trusted core.memory.valid_write<u64>(pointer = other, count = 1),

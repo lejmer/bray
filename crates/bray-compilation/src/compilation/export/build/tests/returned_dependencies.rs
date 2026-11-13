@@ -637,20 +637,12 @@ fn independent_borrowed_results_do_not_claim_owned_marker_preservation() {
                 };
 
                 let diagnostics = application.check_diagnostics();
-                let valid = owned || !opaque;
 
-                assert_eq!(
+                assert!(
                     !diagnostics.has_errors(),
-                    valid,
                     "imported={imported}, owned={owned}, opaque={opaque}, loan={loan}: {diagnostics:#?}"
                 );
 
-                if !valid {
-                    bray_testing::assert_goal_state_diagnostic_kind(
-                        diagnostics,
-                        bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
-                    );
-                }
             }
         }
     }
@@ -683,13 +675,9 @@ fn independent_borrowed_results_do_not_claim_owned_marker_preservation() {
 
             let diagnostics = application.check_diagnostics();
 
-            assert_eq!(!diagnostics.has_errors(), !published,
+            assert!(!diagnostics.has_errors(),
                 "imported={imported}, published={published}: {diagnostics:#?}");
 
-            if published {
-                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
-                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
-            }
         }
     }
 
@@ -889,11 +877,9 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
 
         let calls = contracts.value().calls();
 
-        assert_eq!(calls.len(), 1);
-
         let call = calls
-            .values()
-            .next()
+            .iter()
+            .find_map(|(site, call)| matches!(site, bray_bound_tree::BoundExecutionSite::Node(_)).then_some(call))
             .expect("fixture iterator must provide its expected item");
 
         assert_eq!(call.effects().is_empty(), unchanged, "{:?}", call.effects());
@@ -953,9 +939,12 @@ fn imported_immutable_function_values_reuse_the_producers_report_contract() {
 
     let calls = checked.value().calls();
 
-    assert_eq!(calls.len(), 2);
+    let invocations = calls.iter().filter_map(|(site, call)|
+        matches!(site, bray_bound_tree::BoundExecutionSite::Node(_)).then_some(call)).collect::<Vec<_>>();
 
-    for call in calls.values() {
+    assert_eq!(invocations.len(), 2);
+
+    for call in invocations {
         assert!(call.reports().completed().is_none(), "{call:#?}");
     }
 
@@ -2172,7 +2161,7 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
         provider.check_diagnostics()
     );
 
-    for name in ["scalar", "borrow", "changed"] {
+    for name in ["scalar", "borrow"] {
         let dependencies =
             crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
 
@@ -2180,6 +2169,30 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
             dependencies.owned_result().is_empty(),
             "{name}: {dependencies:?}"
         );
+    }
+
+    let changed = crate::compilation::result_dependencies::source_function_dependencies(&provider, "changed");
+    let transfers = changed.owned_result().guaranteed_transfers().into_iter().collect::<Vec<_>>();
+
+    assert_eq!(transfers.len(), 1, "{changed:#?}");
+    let values = provider.semantic_value_store().expect("provider semantic values");
+    let input = values.intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(bray_symbols::SymbolOrdinal::new(0)))
+        .expect("owned source is the first formal input");
+    assert_eq!(transfers[0].input(), input, "{changed:#?}");
+    assert!(transfers[0].output().is_empty(), "the same owner is returned at the root");
+    assert!(transfers[0].preservation().preserves_value(), "unchanged root observations survive: {changed:#?}");
+    let children = transfers[0].preservation().children();
+    assert_eq!(children.len(), 1, "{changed:#?}");
+    let (bray_symbols::ConstantProjectionKind::ProductField(flag), mask) = children.first_key_value().expect("changed flag override") else {
+        panic!("changed owner retains its named field override: {changed:#?}");
+    };
+    let symbols = provider.symbol_graph().expect("provider symbols");
+    assert_eq!(symbols.member_name((*flag).into()).map(|name| name.as_str()), Some("flag"));
+    assert!(!mask.preserves_value(), "the written flag loses its old contents");
+
+    for name in ["identity", "unwrap", "present", "success"] {
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
+        assert!(!summary.owned_result().is_empty(), "{name} must publish its checked owner transfer: {summary:#?}");
     }
 
     for (body, failure) in [
@@ -2221,6 +2234,10 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
         ),
         (
             "let owner = api.unwrap<Owner>(create_box()); observe(&owner);",
+            None,
+        ),
+        (
+            "let owner = api.unwrap<Owner>(create_box_carrier()); observe(&owner);",
             Some(bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
         ),
         (
@@ -2266,6 +2283,11 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
                 ensures(trusted live(&result.value.marker)) {{
                 return {{ value = Owner {{ marker = Marker {{}} }} }};
             }}
+            trusted predicate boxed(value: &api.Box<Owner>);
+            trusted func create_box_carrier() -> api.Box<Owner>
+                ensures(trusted boxed(&result)) {{
+                return {{ value = Owner {{ marker = Marker {{}} }} }};
+            }}
             func observe(pos value: &Owner)
                 requires(trusted live(&value.marker))
                 ensures(trusted live(&value.marker)) executes(pure, total) {{}}
@@ -2288,6 +2310,7 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
             let diagnostics = consumer.check_diagnostics();
 
             if let Some(failure) = failure {
+                assert!(diagnostics.has_errors(), "imported={imported}, {body}: {diagnostics:#?}");
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics, failure);
             } else {
                 assert!(
@@ -3218,11 +3241,9 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
 
             let calls = contracts.value().calls();
 
-            assert_eq!(calls.len(), 1);
-
             let effects = calls
-                .values()
-                .next()
+                .iter()
+                .find_map(|(site, call)| matches!(site, bray_bound_tree::BoundExecutionSite::Node(_)).then_some(call))
                 .expect("fixture iterator must provide its expected item")
                 .effects();
 
@@ -3321,7 +3342,7 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
         );
 
         for (application, name) in [(&application, "caller"), (&consumer, "forward")] {
-            let key = crate::test_support::source_function_body_key(application, name);
+            let key = source_function_body_key(application, name);
 
             let flow = application
                 .storage_flow(key)
@@ -3363,7 +3384,7 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
             assert_eq!(
                 summary
                     .iter()
-                    .any(|effect| matches!(effect, DependencyStorageEffect::Unknown)),
+                    .any(|effect| matches!(effect, DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Replace(_), .. })),
                 expected.is_empty(),
                 "{name}: {source}: {summary:#?}"
             );
@@ -3408,7 +3429,7 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
             assert!(
                 effects
                     .iter()
-                    .any(|effect| matches!(effect, DependencyStorageEffect::Unknown)),
+                    .any(|effect| matches!(effect, DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Replace(_), .. })),
                 "{effects:#?}"
             );
         }
