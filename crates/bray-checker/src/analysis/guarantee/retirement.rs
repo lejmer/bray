@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::state::ExecutionState;
 use crate::ExecutionCondition;
+use crate::execution_guarantees::memoize_condition;
 
 impl ExecutionState {
     #[cfg(test)]
@@ -42,10 +43,16 @@ impl ExecutionState {
     ) {
         let (kind, places) = effect;
 
+        let pending = values.into_iter().collect::<Vec<_>>();
+
+        if pending.is_empty() && places.is_empty() { return; }
+
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);
-        let pending = values.into_iter().collect::<Vec<_>>();
         let retiring_snapshots = retained_snapshots.map(|_| pending.iter().cloned().collect::<BTreeSet<_>>());
+        let unchanged = retiring_snapshots.as_ref().zip(retained_snapshots).map(|(before, after)| {
+            memoize_condition(move |value| crate::execution_guarantees::ObservationSet::retains_contents_between(before, after, value))
+        });
 
         let retiring_observations = pending.iter().flat_map(|value| value.observations().cloned())
             .collect::<crate::execution_guarantees::ObservationSet>();
@@ -61,21 +68,17 @@ impl ExecutionState {
                 .collect()
         };
 
-        if pending.is_empty() && places.is_empty() {
-            return;
-        }
-
         self.refine_deferred_witnesses();
 
-        let retained_owner = |value: &ExecutionCondition| retained_snapshots.map_or_else(
+        let retained_owner = memoize_condition(|value| retained_snapshots.map_or_else(
             || retained_observations.contains(value),
             |snapshots| crate::execution_guarantees::ObservationSet::retains_owner(snapshots, value),
-        );
+        ));
 
-        let retained_data = |value: &ExecutionCondition| retained_snapshots.map_or_else(
+        let retained_data = memoize_condition(|value| retained_snapshots.map_or_else(
             || retained_observations.preserves(value),
             |snapshots| crate::execution_guarantees::ObservationSet::retains_contents(snapshots, value),
-        );
+        ));
 
         let invalidated = self.retired_owners(pending, kind, retained_snapshots.is_some(), &retained_owner);
 
@@ -99,7 +102,9 @@ impl ExecutionState {
                     || selection && observed.selector_place().is_some_and(|place| place.overlaps_any(places)))
         };
 
-        let borrowed_slot_changed = |condition: &ExecutionCondition| {
+        let observes_selection = memoize_condition(|condition| observes(condition, true));
+
+        let borrowed_slot_changed = memoize_condition(|condition: &ExecutionCondition| {
             condition.observations_except(&retained_data).any(|observed| {
                 let ExecutionCondition::Borrowed(value) = observed else { return false; };
 
@@ -112,23 +117,21 @@ impl ExecutionState {
                     _ => false,
                 }
             })
-        };
+        });
 
-        let borrowed_changed = |condition: &ExecutionCondition| condition.observes_live_where(|value| {
+        let borrowed_changed = memoize_condition(|condition: &ExecutionCondition| condition.observes_live_where(|value| {
             observes(value, false)
-                || matches!((&retiring_snapshots, retained_snapshots), (Some(before), Some(after))
-                    if retiring_observations.overlaps(value)
-                        && !crate::execution_guarantees::ObservationSet::retains_contents_between(before, after, value))
-        }, &retained_data) || borrowed_slot_changed(condition);
+                || unchanged.as_ref().is_some_and(|unchanged| retiring_observations.overlaps(value) && !unchanged(value))
+        }, &retained_data) || borrowed_slot_changed(condition));
 
-        let retained_contents = |condition: &ExecutionCondition| {
+        let retained_contents = memoize_condition(|condition: &ExecutionCondition| {
             kind.is_write()
                 && !borrowed_slot_changed(condition)
                 && condition.observes_only(|value| retained_observations.preserves(value))
                 && condition
                     .observations()
                     .any(|value| retained_observations.preserves(value))
-        };
+        });
 
         let stable = |condition: &ExecutionCondition| {
             let predicate = match condition {
@@ -146,21 +149,21 @@ impl ExecutionState {
         // A surviving carrier keeps facts about immutable captured contents after
         // their former container ends. Borrowed observations and physical bounds
         // still expire. Writes also invalidate affected by-value observations.
-        let revokes = |condition: &ExecutionCondition| {
+        let revokes = memoize_condition(|condition: &ExecutionCondition| {
             (observes(condition, false) || borrowed_changed(condition)) && !stable(condition)
-        };
+        });
 
         let revokes_guarantee = |condition: &ExecutionCondition| {
             revokes(condition) && (kind.is_write() || borrowed_changed(condition))
         };
 
-        let availability_expired = |condition: &ExecutionCondition| {
+        let availability_expired = memoize_condition(|condition: &ExecutionCondition| {
             !kind.is_write() && condition.observations().any(|observed| {
                 matches!(observed, ExecutionCondition::InitializedSnapshot(_, _, owner)
                     if retired_owner(owner)
                         && !retained_owner(owner))
             })
-        };
+        });
 
         self.assumptions
             .retain(|(condition, _)| !availability_expired(condition)
@@ -233,12 +236,12 @@ impl ExecutionState {
                 || !revokes_guarantee(condition) && !invalidated.contains(owner)
         });
 
-        self.retire_entry_context(&revokes, &|condition| observes(condition, true), &retired_conditions);
+        self.retire_entry_context(&revokes, &observes_selection, &retired_conditions);
 
         for entries in self.deferred_invocations.values_mut() {
             // Current branch selectors can outlive a slot's loop incarnation.
             // Frozen call-entry arguments remain owned by their captured frame.
-            entries.retire_selection(|condition| observes(condition, true));
+            entries.retire_selection(&observes_selection);
         }
 
         // A destroyed frame cannot participate in a later incarnation's ownership join.
@@ -663,6 +666,7 @@ impl ExecutionState {
 
 #[cfg(test)]
 mod tests {
+    use crate::execution_guarantees::memoize_condition;
     use std::collections::BTreeSet;
     use super::ExecutionState;
     use crate::ExecutionCondition;
@@ -914,7 +918,21 @@ mod tests {
         assert!(crate::execution_guarantees::ObservationSet::retains_owner(&retained, &before));
         assert!(!crate::execution_guarantees::ObservationSet::retains_contents(&retained, &before));
 
-        let mut stable = crate::execution_guarantees::ObservationSet::from_iter(retained);
+        let prior = BTreeSet::from([before.clone()]);
+        let owns = memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_owner(&retained, value));
+        let contents = memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents(&retained, value));
+        let unchanged = memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents_between(&prior, &retained, value));
+        let same = memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents_between(&retained, &retained, value));
+
+        for _ in 0..2 {
+            assert!(owns(&before));
+            assert!(!contents(&before));
+            assert!(contents(&after));
+            assert!(!unchanged(&before), "owner retention cannot preserve overwritten data");
+            assert!(same(&after), "a different predecessor has its own scoped answer");
+        }
+
+        let mut stable = crate::execution_guarantees::ObservationSet::from_iter(retained.clone());
 
         for _ in 0..2 {
             assert!(!stable.preserves(&before), "same owner cannot revive overwritten contents");

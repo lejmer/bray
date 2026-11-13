@@ -23,7 +23,7 @@ pub enum ExecutionDescriptorKind {
 }
 
 /// A bounded, source-independent value used to compare entry and completion conditions.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum ExecutionCondition {
     /// A checked Boolean value.
     Boolean(bool),
@@ -125,6 +125,14 @@ pub enum ExecutionCondition {
     },
     /// Meaning that cannot currently be established.
     Unknown,
+}
+
+impl Ord for ExecutionCondition {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self == other { return std::cmp::Ordering::Equal; }
+
+        self.partial_cmp(other).expect("execution condition fields retain their total structural order")
+    }
 }
 
 impl ExecutionCondition {

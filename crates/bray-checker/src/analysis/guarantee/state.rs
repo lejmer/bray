@@ -459,6 +459,9 @@ impl ExecutionState {
         admitted: Option<bray_bound_tree::BoundExecutionSite>,
     ) {
         self.refine_witnesses();
+        let retained_owner = crate::execution_guarantees::memoize_condition(|value| {
+            crate::execution_guarantees::ObservationSet::retains_owner(stable_owners, value)
+        });
 
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);
@@ -479,7 +482,7 @@ impl ExecutionState {
                 return true;
             }
 
-            if !crate::execution_guarantees::ObservationSet::retains_owner(stable_owners, carrier) {
+            if !retained_owner(carrier) {
                 return false;
             }
 
@@ -523,7 +526,7 @@ impl ExecutionState {
         self.allocation_owners.retain(|condition, owner| {
             private_allocations.contains(condition)
                 || (condition.observes_only(|value| stable_values.preserves(value))
-                    && crate::execution_guarantees::ObservationSet::retains_owner(stable_owners, owner))
+                    && retained_owner(owner))
         });
 
         for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution && {

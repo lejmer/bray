@@ -78,10 +78,10 @@ impl ExecutionCondition {
         *budget = next;
 
         if let Some(value) = replace(self) {
-            return value;
+            return self.reuse_unchanged(value);
         }
 
-        match self {
+        let rewritten = match self {
             Self::Discriminant(value) => value.substitute_values(replace, budget).discriminant(),
             Self::Descriptor(kind, value) => value.substitute_values(replace, budget).descriptor(*kind),
             Self::ValueAlias(left, right) => Self::value_alias(
@@ -155,7 +155,9 @@ impl ExecutionCondition {
                     .collect(),
             ),
             _ => self.clone(),
-        }
+        };
+
+        self.reuse_unchanged(rewritten)
     }
 
     pub(crate) fn capture_entry(
@@ -171,7 +173,7 @@ impl ExecutionCondition {
 
         *budget = next;
 
-        match self {
+        let rewritten = match self {
             Self::Entry {
                 condition,
                 captured: false,
@@ -197,7 +199,9 @@ impl ExecutionCondition {
                     .collect(),
             ),
             value => value.clone(),
-        }
+        };
+
+        self.reuse_unchanged(rewritten)
     }
 
     pub(crate) fn equalities(
@@ -382,13 +386,13 @@ fn rewrite_equalities(
         return value.clone();
     }
 
-    let Some((cache, role)) = memo else {
-        return rewrite_equalities_inner(value, replacements, identities, budget, None);
+    let compute = |budget: &mut usize| {
+        value.reuse_unchanged(rewrite_equalities_inner(value, replacements, identities, budget, memo))
     };
 
-    memoized(Some(cache), &(role, value.clone()), budget, |budget| {
-        rewrite_equalities_inner(value, replacements, identities, budget, memo)
-    })
+    let Some((cache, role)) = memo else { return compute(budget); };
+
+    memoized(Some(cache), &(role, value.clone()), budget, compute)
 }
 
 fn rewrite_equalities_inner(

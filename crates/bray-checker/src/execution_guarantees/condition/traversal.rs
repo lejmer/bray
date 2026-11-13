@@ -19,13 +19,18 @@ impl Hash for NodeIdentity<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) { std::ptr::hash(self.0, state); }
 }
 
+/// Acyclic value graphs need remembered nodes only while another path is pending.
+pub(super) fn visit_once<K: Eq + Hash>(visited: &mut HashSet<K>, node: K, has_pending: bool) -> bool {
+    if has_pending { visited.insert(node) } else { !visited.contains(&node) }
+}
+
 impl ExecutionCondition {
     fn visit(&self, mut inspect: impl FnMut(&Self) -> ControlFlow<()>) -> ControlFlow<()> {
         let mut pending = vec![self];
         let mut visited = HashSet::new();
 
         while let Some(condition) = pending.pop() {
-            if !visited.insert(NodeIdentity(condition)) { continue; }
+            if !visit_once(&mut visited, NodeIdentity(condition), !pending.is_empty()) { continue; }
 
             inspect(condition)?;
 
