@@ -101,9 +101,14 @@ can propose128 values ×2 predecessors ×128 guards =32,768 guarded clauses per 
 This upper bound is not the observed cause. A subsequent instrumented20s individual run completed76 caller alias merges
 with zero alias proposals, zero guarded clauses and zero alias predecessor checks. Nevertheless the caller started at
 least1,605,633 implication attempts. Counts are partial-run lower bounds. The alias-proposal hypothesis is ruled out for
-this interval. Next measure top-level proof queries, disjunctions scanned and repeated implication pairs. Focus on the
-unbounded per-disjunction premise scanner, not conditional_aliases or more memo layers. Preserve authority and budgets.
-Temporary instrumentation is removed. Current evidence is actual-counts.json, proof-unfinished.json and
+this interval. A second20s instrumented invocation observed72,733 top-level requests,13,923 completed disjunction scans,
+2,757,965 premise visits and1,572,864 implication attempts, including provider setup. A hot caller context made509
+requests and219 scans, visiting385 entries and attempting382 implications on every scan:83,658 attempts total.
+Its326 deterministic1-in-256 pair samples were all distinct. This describes the sample, not full pair uniqueness.
+Focus on the all-premise search per unresolved disjunction and why caller contexts need hundreds of expanded premises.
+Next identify those context call sites and derive a complete relevance index/deductive path, preserving every proof rule,
+authority boundary and budget. More blind caching does not address the observed search breadth.
+Temporary instrumentation is removed. Current evidence is scanner-counts.json, actual-counts.json, proof-unfinished.json and
 proof-500ms-sample.json. Superseded build streams, traces and duplicate outputs were removed. Frozen comparison evidence remains.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
