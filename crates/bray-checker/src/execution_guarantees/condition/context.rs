@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::ExecutionCondition;
-use super::memo::ExecutionMemo;
+use super::memo::{ExecutionMemo, ConditionMemo, cached_condition, memoized};
 use crate::execution_guarantees::boolean::AlternativeProof;
 
 pub(super) type ProofMemo = ExecutionMemo<ExecutionCondition, Option<bool>>;
@@ -30,13 +30,15 @@ struct PreparedFacts {
     trusted: BTreeSet<(ExecutionCondition, bool)>,
     ordinary: BTreeSet<(ExecutionCondition, bool)>,
     raw: ProofMemo,
+    requested: ProofMemo,
+    trusted_results: ConditionMemo<Option<bool>>,
     derived: OnceLock<DerivedFacts>,
 }
 
 impl PreparedFacts {
     fn new(trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: &BTreeSet<(ExecutionCondition, bool)>) -> Self {
         // One exact snapshot owns all pure query memos and their lazy Boolean closure.
-        Self { trusted: trusted.clone(), ordinary: ordinary.clone(), raw: ProofMemo::default(), derived: OnceLock::new() }
+        Self { trusted: trusted.clone(), ordinary: ordinary.clone(), raw: ProofMemo::default(), requested: ProofMemo::default(), trusted_results: ConditionMemo::default(), derived: OnceLock::new() }
     }
 
     fn derived(&self) -> &DerivedFacts {
@@ -138,6 +140,14 @@ impl<'a> ExecutionProof<'a> {
     }
 
     pub(crate) fn prove_trusted(&self, condition: &ExecutionCondition) -> Option<bool> {
+        if self.cache.is_none() || matches!(condition, ExecutionCondition::Boolean(_)) {
+            return self.prove_trusted_inner(condition);
+        }
+
+        cached_condition(&self.facts().trusted_results, condition, || self.prove_trusted_inner(condition))
+    }
+
+    fn prove_trusted_inner(&self, condition: &ExecutionCondition) -> Option<bool> {
         if let Some(value) = condition.explicit_value(self.trusted, None) {
             return Some(value);
         }
@@ -152,6 +162,15 @@ impl<'a> ExecutionProof<'a> {
 
     pub(crate) fn prove_mixed(&self, condition: &ExecutionCondition, budget: &mut usize) -> Option<bool> {
         if *budget == 0 { return None; }
+
+        if self.cache.is_none() || matches!(condition, ExecutionCondition::Boolean(_)) {
+            return self.prove_mixed_inner(condition, budget);
+        }
+
+        memoized(Some(&self.facts().requested), condition, budget, |budget| self.prove_mixed_inner(condition, budget))
+    }
+
+    fn prove_mixed_inner(&self, condition: &ExecutionCondition, budget: &mut usize) -> Option<bool> {
 
         if let Some(value) = condition.explicit_value(self.trusted, Some(self.ordinary)) {
             *budget -= 1;

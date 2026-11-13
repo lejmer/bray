@@ -6,6 +6,48 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[test]
+fn nonidentity_rewrites_keep_unchanged_structure_and_selected_subtrees_shared() {
+    let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+    let claim = ExecutionCondition::Trusted(Arc::new(input(1)));
+    let choice = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr,
+        vec![input(0), claim.clone()]);
+    let unrelated = BTreeMap::from([(input(99), ExecutionCondition::Boolean(false))]);
+    let ExecutionCondition::Operation(_, operands) = &choice else { unreachable!(); };
+
+    for unchanged in [
+        choice.with_snapshots(&unrelated),
+        choice.with_copy_origins(&unrelated),
+        choice.with_guard_facts(&unrelated),
+        choice.with_equalities(&unrelated),
+        choice.with_joined_values(&unrelated, &unrelated),
+        choice.pointer_observations(&BTreeMap::new()),
+        choice.capture_entry(&|place| ExecutionCondition::Input(place.clone()),
+            &BTreeSet::new(), &BTreeSet::new(), &mut { ExecutionCondition::WORK_LIMIT }),
+    ] {
+        assert_eq!(unchanged, choice);
+        let ExecutionCondition::Operation(_, current) = unchanged else { unreachable!(); };
+
+        assert!(Arc::ptr_eq(operands, &current), "unrelated rewriting must retain the existing operand forest");
+    }
+
+    let selected = BTreeMap::from([(input(0), ExecutionCondition::Boolean(false))]);
+    let ExecutionCondition::Trusted(original) = &claim else { unreachable!(); };
+
+    for rewritten in [
+        choice.with_snapshots(&selected),
+        choice.with_copy_origins(&selected),
+        choice.with_guard_facts(&selected),
+        choice.with_equalities(&selected),
+        choice.with_joined_values(&selected, &selected),
+    ] {
+        assert_eq!(rewritten, claim);
+        let ExecutionCondition::Trusted(current) = rewritten else { unreachable!(); };
+
+        assert!(Arc::ptr_eq(original, &current), "normalization must keep the selected unchanged claim shared");
+    }
+}
+
+#[test]
 fn observation_walks_visit_shared_nodes_without_expanding_the_tree() {
     use bray_bound_tree::BoundOperator::LogicalAnd;
     use std::cell::Cell;

@@ -24,7 +24,7 @@ impl ExecutionCondition {
                 Ok(selected.unwrap_or(call))
             });
 
-        result.unwrap_or_else(|error| match error {})
+        self.reuse_unchanged(result.unwrap_or_else(|error| match error {}))
     }
 
     /// Retain actual carrier paths and defer marker containment until origins are known.

@@ -4,6 +4,11 @@ use bray_bound_tree::BoundOperator;
 use std::sync::Arc;
 
 impl ExecutionCondition {
+    /// Preserve existing shared structure after a rewrite that changes no meaning.
+    pub(crate) fn reuse_unchanged(&self, rewritten: Self) -> Self {
+        if self == &rewritten { self.clone() } else { rewritten }
+    }
+
     /// Name new contents by the existing value, independently of an alias slot.
     /// Replaying a mutation retains the defining identity instead of nesting epochs.
     pub(crate) fn post_state(mutation: bray_bound_tree::StorageMutation, identity: Self) -> Self {

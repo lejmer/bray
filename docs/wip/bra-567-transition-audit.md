@@ -38,18 +38,26 @@ unchanged. Captured entries remain opaque. Ordinary proof preparation uses the s
 Observation walks visit shared physical nodes once. Live-borrow traversal keys include live/owned context.
 Retained-data memo keys include current contents, clear on retained-set changes and grant no prefix ownership.
 
-Current optimized evidence:187 focused proof/guarantee controls pass. All five fixed outcomes pass, including
-trusted-obligation primary spans within observe(&value) for the fixed negatives. Tasks take779–904ms and the loop
-5594ms. The500ms gate remains unmet. The frozen30 remains29 pass/1 known RawBuffer invalid acceptance in13.85s.
-No full matrix has run. proof-indexed-current.json and proof-frozen30.json retain exact binaries and source digests.
+Current optimized evidence:189 focused proof/guarantee controls pass. All five fixed outcomes pass, including
+trusted-obligation primary spans within observe(&value) for the fixed negatives. Tasks take550–573ms and the loop
+3542ms. The500ms gate remains unmet. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance in13.00s.
+No full matrix has run. proof-indexed-current.json and proof-frozen30.json retain exact binary identities.
 
 ## Remaining performance work
 
-Continue with one bounded source-level profile before further guesses. Prior instrumentation counted925524
-retained-snapshot calls for a task and7313416 for the loop. Timing every tiny call inflated that category.
-Capture projection was negligible. Native folded symbols alone are not attribution. Profile remaining preparation,
-query misses, refinement, retirement and CFG replay together, with counters for tiny operations.
-Do not preserve temporary profiling code after retaining compact evidence.
+The latest detailed profile at0bfc9eb80 counts3721300 snapshot-retention searches in the loop. Retirement takes
+2570ms self-time, while evidence-cache lookup takes54ms. Tiny operations use counters rather than per-call timers.
+The corrected code shares exact retention/invalidation queries, skips empty invalidation setup, preserves unchanged
+rewritten nodes, hashes shared descendants once, and checks equality before ordering. Mutable retained sets explicitly
+invalidate their memo. Final public proof queries retain original precedence and budget costs. No inference rule changes.
+Most recent changes beyond the retirement batch brought little additional timing improvement. Keep improvements that
+remove repeated graph work, but do not add more speculative caches. Next profile must split retirement's dependency
+index construction, ledger mutation, entry cleanup and actual proof/refinement work together. Time useful boundaries,
+count tiny operations, run one task and one loop with10s bounds, and remove temporary instrumentation afterward.
+
+Checkpoint0bfc9eb80 is pushed. Its growth fromaffe3239a is236 production lines and193 test/helper lines.
+The current checkpoint adds sharing/retirement work and splits retention from observation traversal. No temporary
+profiling code remains. Audit the latest growth separately from code movement at finalization.
 
 Six-step status: diagnosis and transition tracing done, indexed engine implemented, source/import outcomes retained,
 final maintainability/regression gates incomplete,500ms gate unmet. Require repeats and current work counts.

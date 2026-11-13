@@ -1,5 +1,27 @@
 use std::collections::BTreeMap;
+
+use super::ExecutionCondition;
 use std::sync::Mutex;
+
+pub(super) type ConditionMemo<T = bool> = Mutex<BTreeMap<ExecutionCondition, T>>;
+
+pub(super) fn cached_condition<T: Clone>(memo: &ConditionMemo<T>, value: &ExecutionCondition, compute: impl FnOnce() -> T) -> T {
+    if let Some(result) = memo.lock().expect("condition query memo lock is not poisoned").get(value) {
+        return result.clone();
+    }
+
+    let result = compute();
+    memo.lock().expect("condition query memo lock is not poisoned").insert(value.clone(), result.clone());
+
+    result
+}
+
+/// Captured immutable inputs establish the scope of each pure condition query.
+pub(crate) fn memoize_condition(query: impl Fn(&ExecutionCondition) -> bool) -> impl Fn(&ExecutionCondition) -> bool {
+    let memo = ConditionMemo::default();
+
+    move |value| cached_condition(&memo, value, || query(value))
+}
 
 struct Computation<T> {
     completed: Option<(usize, T)>,
