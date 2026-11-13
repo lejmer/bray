@@ -14,26 +14,22 @@ Frozen30 membership is target/audit/comparison.txt minus verification.json compa
 correction-frozen30.json. Map relocated namespaces or deliberate renames only. Count tests separately from matrix rows.
 Fixed920 membership is907 comparison.txt names plus13 verification.json comparison_added keys.
 
-The current uninstrumented shallow replay build (2CEF032C) passes the selected-owner oracle in all16 source/import
-rows, including8 valid positives and8 fabricated negatives. All13 preservation controls, ordinary output shape and raw
-extraction controls pass. Exact30 is29 pass/1 fail, only the known RawBuffer payload dependency gap. The reached
-exact drop_selected retirement assertion passes. correction-current.json and correction-shallow-current.json retain
-source/binary identity and actionable failures. The four physical-mask regressions are closed.
+Fresh uninstrumented validation (6D9D8CAC) is in correction-nullable-current.json and correction-current.json.
+All14 preservation,7 ownership and the absent-source collision controls pass. The selected-owner source/import oracle,
+ordinary result-shape oracle and relocated raw extraction control pass. Focused26 tests are25 pass/1 fail. The remaining
+conditional subset executes12 rows:2 valid known-real nullable rows pass,4 fabricated rows reject,6 positive unknown
+nullable/nested/optional rows fail. No invalid acceptance is established. Exact30 is29 pass/1 fail, only the RawBuffer
+payload gap. The reached exact drop_selected retirement assertion passes.
 
-Atomic control executes all6 rows after the distinct-name fixture correction. Baseline marker/scalar positives and
-protected-word negatives pass. Generic transported Marker/scalar positives fail with ValueChanged at the nested
-forward tuple call before the atomic store. The transported protected-word negative still rejects. Actual nested
-borrow descriptors need current referent publication, rather than retaining captured entry data. The exact-transfer
-shape is descriptive, and generic reference fields are absent from template reference_subjects. Trace that completion
-boundary before another patch. The scalar expectation follows shared_alias_valid preserving ordinary alias rules and
-the live shared scalar loan. No atomic preservation exception or invalid acceptance is established.
+Recorded ownership is now authoritative for anonymous wrappers after borrowed/scalar rejection. Payload selection
+projects an existing parent record before nullable snapshot fallback. The new control verifies whole/payload contents
+preservation, authoritative empty records, borrowed views and Unknown. No temporary probes or fixture filters remain.
 
-Source/import deferred wrappers still fail provider formal_tuple.value.0 and formal_array[1] observe requirements.
-Both owned matrices completed248 rows each with8 valid positive failures and zero invalid acceptances. Remaining
-rows are conditional_nested, conditional_optional_exits/join, conditional_future_active,
-select_nullable_inputs_exits/join_both and exits_known_True_True/False_True. correction-wrapper-current.json retains
-only those current first diagnostics. Checkpoint progress is pushed, and
-local corrections continue. Final gates remain required. No tracing or fixture filter is present. No build/test process remains active.
+The generic borrowed atomic/actual pointee-mutation positives and formal task admission remain open. Protected/raw
+negative verification for the new transported rows requires a clean forwarding prefix and the expected final failure
+location. Full owned/deferred matrices need fresh verification after those corrections, so obsolete detailed outcomes
+are removed. Native and other final gates remain unverified. No build/test process is active. Progress is checkpointed
+on the existing branch, and this task remains incomplete.
 
 ## Behavioral contracts implemented
 
@@ -89,16 +85,16 @@ child descriptors, while portable child exclusions remain explicit. InlineBits c
 claiming completeness or reference freedom, immutable snapshot stability, atomic stability or pointer-slot identity.
 Address retains its pointer-specific semantics. The two untyped returned-content walkers are removed, and the one
 ValuePreservation evaluator applies the actual checked shape. Reference/protected contents refresh. Concrete array
-observations remain bounded by the existing work limit. This checkpoint changes production by+160/-161 lines and
-tests by+105/-64 lines relative to043562401, including the moved finite-snapshot regression. No additional retained map or type walker is introduced.
+observations remain bounded by the existing work limit. No additional retained map or type walker is introduced.
 
 Current storage invalidation excludes only definite-Absent snapshots at All roots, Observed value retirement and
 Observed changed places. Unknown and partial-root behavior stays conservative. Current preservation tests pass.
 
-The transported shared Marker/scalar precision gap, eight remaining conditional owned positives per mode and deferred provider formal_tuple.value.0/formal_array[1]
-need source-first loss classification before another semantic patch. Source/import parity supplies no evidence of an
-interface-specific defect. Capture renaming already supports compact input projections. Trace actual published
-layout, selected replay and captured witness availability rather than adding owner or rename fallback mechanisms.
+The remaining corrections are current-data completion for transported shared fields, inactive conditional result
+shape, and private captured admission. Compact first causes are in correction-probe-current.json. Reuse actual typed
+reference subjects, existing ordinary shape publication and the witness's owning-clause/address-dependency distinction.
+No borrowed-prefix ownership grant, new ledger or current-data proof from historical entry snapshots is allowed.
+Capture renaming already supports compact input projections. Source/import parity supplies no evidence of a codec defect.
 
 RawBuffer Push still installs no stored metadata and exit publication excludes allocation payload slots. Close the
 producer/export/import/staged replay contract before schema edits. Whole-value source edges belong inside the existing

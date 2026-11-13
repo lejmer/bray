@@ -900,6 +900,31 @@ fn two_input_owner_selection_keeps_only_the_selected_witness() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+#[test]
+fn conditional_payloads_preserve_only_the_selected_owner() {
+    let provider = compilation(API);
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+    let mut failures = Vec::new();
+    for (name, body, valid) in [
+        ("nullable_both", "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.make_marker(), choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", true),
+        ("nullable_real", "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.Marker {}, true, true); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", true),
+        ("nullable_fake", "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.Marker {}, false, true); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", false),
+        ("nested_real", "let result = api.select_nested<api.Marker>(api.make_marker(), choice); match consume result.value { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }", true),
+        ("nested_fake", "let result = api.select_nested<api.Marker>(api.Marker {}, choice); match consume result.value { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }", false),
+        ("optional_real", "let result = api.select_optional<api.Receipt>(api.make(), choice); match consume result { case ?value { let wrapped: api.Receipt? = value; api.observe(&wrapped); } case none {} }", true),
+    ] {
+        let source = format!("module app; using api; func caller(pos choice: bool, pos active: bool) {{ {body} }}");
+        for imported in [false, true] {
+            let application = if imported { execution_consumer(&provider, &source.replace("using api;", "using example.package.api;").replace("api.", "example.package.api.")) }
+                else { compilation_from_sources([API, source.as_str()]) };
+            let diagnostics = application.check_diagnostics();
+            if diagnostics.has_errors() == valid { failures.push(format!("{name}, imported={imported}, valid={valid}: {}", super::fixtures::diagnostic_messages(diagnostics))); }
+            else if !valid { bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven); }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 fn check_owned_transfers(imported: bool) {
     let provider = compilation(API);
 

@@ -51,10 +51,6 @@ impl ExecutionState {
 
         *budget = remaining;
 
-        if let Some(payload) = value.nullable_payload_snapshot() {
-            return self.owned_result_bounded(payload, extraction, budget);
-        }
-
         let role = value.ownership_identity().map(|(kind, _)| kind);
 
         if role == Some(ObservationKind::Reference)
@@ -63,10 +59,20 @@ impl ExecutionState {
             return DependencyOwnedResult::default();
         }
 
-        if role == Some(ObservationKind::Owned)
-            && let Some(result) = self.recorded_owned_result(value, budget)
-        {
+        if let Some(result) = self.recorded_owned_result(value, budget) {
             return result;
+        }
+
+        // A projected anonymous wrapper keeps its authoritative layout even when
+        // its current payload data no longer exposes the original formal input.
+        if let ExecutionCondition::Projection(field, parent) = value
+            && let Some(result) = self.recorded_owned_result(parent, budget)
+        {
+            return project_owned_result(result, *field);
+        }
+
+        if let Some(payload) = value.nullable_payload_snapshot() {
+            return self.owned_result_bounded(payload, extraction, budget);
         }
 
         let contents = match value {
