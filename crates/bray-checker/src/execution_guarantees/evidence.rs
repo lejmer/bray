@@ -83,12 +83,14 @@ impl ExecutionCallEvidence {
             return facts;
         }
 
+        let snapshots = super::SnapshotSubstitution::new(&bindings);
+
         for (condition, holds) in ordinary {
             if condition.contains_trusted() || condition.observes_live(None) {
                 continue;
             }
 
-            let captured = condition.with_snapshots(&bindings);
+            let captured = snapshots.apply(condition);
 
             if captured != *condition {
                 captured.assume(*holds, &mut facts);

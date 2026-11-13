@@ -20,7 +20,7 @@ pub use model::{ExecutionCondition, ExecutionDescriptorKind, ExecutionObservatio
 
 pub(crate) use retention::Set as ObservationSet;
 pub(crate) use context::{ExecutionProof, ExecutionProofCache};
-pub(crate) use substitution::ExecutionSubstitution;
+pub(crate) use substitution::{ExecutionSubstitution, SnapshotSubstitution};
 
 pub(super) use interning::{ConditionId, ConditionIndex};
 
