@@ -144,10 +144,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 )[0])
             }).expect("checked owned data projection mapping is infallible");
 
-            let contents = returned_contents(
-                &value, &preservation, invocation, &input,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            );
+            let contents = super::super::flow::ValuePreservation::returned(
+                &preservation, dependencies.returned_value(transfer).observations(),
+            ).apply(&value, Some(&input), bray_bound_tree::StorageMutation::Operation(invocation));
 
             let value = if borrowed_result || value.is_reference() {
                 ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::Unknown)
@@ -494,7 +493,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             DependencyOwnedResult::Transfer(transfer) => {
                 let dependencies = &self.dependencies.calls()[&invocation];
 
-                for term in dependencies.returned_value_conditions(transfer) {
+                for term in dependencies.returned_value(transfer).conditions() {
                     let condition = crate::execution_condition_from_type_term(
                         self.request.semantic_values(),
                         *term,
@@ -786,77 +785,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 }
 
-fn returned_contents(
-    source: &ExecutionCondition,
-    preservation: &bray_symbols::DependencyValuePreservation<StorageProjection>,
-    invocation: BoundExecutionSite,
-    input: &ExecutionPlace,
-    budget: &mut usize,
-) -> ExecutionCondition {
-    let Some(remaining) = budget.checked_sub(1) else {
-        return ExecutionCondition::Unknown;
-    };
-
-    *budget = remaining;
-
-    if source.is_reference() && preservation.preserves_value() {
-        return ExecutionCondition::reference_value(source.owner_identity().clone(), ExecutionCondition::Unknown);
-    }
-
-    let mut contents = if preservation.preserves_value() {
-        without_reached_contents(source, budget)
-    } else {
-        ExecutionCondition::post_state(bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::Input(input.clone()))
-    };
-
-    for (projection, child) in preservation.children() {
-        let actual = source.clone().project(*projection);
-
-        let place = input.clone().project(&[*projection])
-            .expect("owned contents have a checked input projection");
-
-        let value = returned_contents(&actual, child, invocation, &place, budget);
-
-        contents = contents.with_storage_component(&[*projection], value);
-    }
-
-    contents
-}
-
-/// Entry reference descriptors survive transport independently of mutable reached data.
-fn without_reached_contents(value: &ExecutionCondition, budget: &mut usize) -> ExecutionCondition {
-    let Some(remaining) = budget.checked_sub(1) else {
-        return ExecutionCondition::Unknown;
-    };
-
-    *budget = remaining;
-
-    if value.is_reference() {
-        return ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::Unknown);
-    }
-
-    if let Some(payload) = value.nullable_payload_snapshot() {
-        return without_reached_contents(payload, budget);
-    }
-
-    match value {
-        ExecutionCondition::Observation { owner, contents, kind } => ExecutionCondition::observation(
-            owner.as_ref().clone(), without_reached_contents(contents, budget), *kind,
-        ),
-        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::constructed(
-            without_reached_contents(base, budget),
-            fields.iter().map(|(projection, value)| {
-                (*projection, without_reached_contents(value, budget))
-            }).collect(),
-        ),
-        ExecutionCondition::Present(value) => ExecutionCondition::Present(std::sync::Arc::new(without_reached_contents(value, budget))),
-        ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
-            *variant, std::sync::Arc::new(without_reached_contents(value, budget)),
-        ),
-        _ => value.clone(),
-    }
-}
-
 pub(in crate::analysis::guarantee) fn project_place(
     values: &bray_symbols::SemanticValueStore,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
@@ -924,49 +852,4 @@ fn construct(
 
         root.with_storage_component(&[projection], component)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::returned_contents;
-    use crate::test_support::{expression_unit, integer_literal_expression, push_expression};
-    use crate::{ExecutionCondition, ExecutionPlace};
-    use bray_bound_tree::{BoundExecutionSite, BoundUnitId, StorageProjection};
-    use bray_symbols::{DependencyValuePreservation as Mask, SymbolOrdinal};
-
-    #[test]
-    fn repeated_identity_returns_keep_current_data_and_finite_snapshots() {
-        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(place.clone());
-        let retained = StorageProjection::TupleElement(SymbolOrdinal::new(0));
-        let changed = StorageProjection::TupleElement(SymbolOrdinal::new(1));
-
-        let source = ExecutionCondition::constructed(owner.clone(), [
-            (retained, ExecutionCondition::Boolean(true)),
-            (changed, ExecutionCondition::Boolean(false)),
-        ].into());
-
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
-        });
-
-        let changed_mask = Mask::new(true, [(changed, Mask::none())].into());
-
-        let contents = returned_contents(&source, &changed_mask, BoundExecutionSite::from(sites[0]),
-            &place, &mut { ExecutionCondition::WORK_LIMIT });
-
-        let mut current = ExecutionCondition::owned_value(owner.clone(), contents);
-        let expected = current.clone();
-
-        for _ in 0..16 {
-            let contents = returned_contents(&current, &Mask::all(), BoundExecutionSite::from(sites[1]),
-                &place, &mut { ExecutionCondition::WORK_LIMIT });
-
-            current = ExecutionCondition::owned_value(owner.clone(), contents);
-            assert_eq!(current, expected);
-        }
-
-        assert_eq!(current.clone().project(retained), ExecutionCondition::Boolean(true));
-        assert_ne!(current.project(changed), ExecutionCondition::Boolean(false));
-    }
 }

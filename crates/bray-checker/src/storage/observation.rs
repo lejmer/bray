@@ -30,7 +30,7 @@ impl Shape {
     fn unknown() -> Self {
         // Opaque reachable state does not expose this value's inline storage.
         Self {
-            observations: vec![(Vec::new(), Observation::Identity), (Vec::new(), Observation::Mutable)],
+            observations: vec![(Vec::new(), Observation::Identity), (Vec::new(), Observation::InlineBits), (Vec::new(), Observation::Mutable)],
             complete_value: false,
             inline_only: false,
             complete_references: false,
@@ -49,6 +49,23 @@ pub(crate) fn carries_no_borrows<C: CheckerRequestContext + ?Sized>(
         matches!(observation, Observation::Reference(ty)
             if matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::Borrow { .. }))
     }))
+}
+
+/// Describes the inline data of a checked transferred value without its reached state.
+pub(crate) fn returned_observations<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<Vec<(std::sync::Arc<[StorageProjection]>, Observation)>, CheckerQueryError<C::UpstreamError>> {
+    let shape = paths(request, request.semantic_values().unborrowed_type(ty), &mut BTreeSet::new(), &mut BTreeMap::new())?;
+    let boundaries = shape.observations.iter().filter_map(|(path, observation)|
+        matches!(observation, Observation::Reference(ty)
+            if matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::Borrow { .. }))
+            .then_some(path)).collect::<Vec<_>>();
+
+    Ok(shape.observations.iter().filter(|(path, observation)| {
+        !boundaries.iter().any(|boundary| path.starts_with(boundary)
+            && (path != *boundary || !matches!(observation, Observation::Reference(_))))
+    }).map(|(path, kind)| (path.clone().into(), *kind)).collect())
 }
 
 fn known_shape<C: CheckerRequestContext + ?Sized>(
@@ -481,7 +498,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 };
 
                 let borrowed = match observation {
-                    Observation::Value | Observation::Address | Observation::Identity | Observation::Marker(_) | Observation::Discriminant =>
+                    Observation::Value | Observation::InlineBits | Observation::Address | Observation::Identity | Observation::Marker(_) | Observation::Discriminant =>
                         (0..=projections.len()).rev().find_map(|length| {
                             borrowed_paths.get(&projections[..length]).map(|(kind, ty)| {
                                 (StoragePath {
@@ -547,7 +564,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
                         None
                     }
-                    Observation::Value | Observation::Address => {
+                    Observation::Value | Observation::InlineBits | Observation::Address => {
                         if *observation == Observation::Address {
                             observation.record_preservation(path.clone(), stable_descriptors, stable_values);
                         }
@@ -833,6 +850,16 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
             if shape.inline_only {
                 shape.observations.push((Vec::new(), Observation::Value));
+            } else if let Some(length) = crate::constant::known_array_length(request.semantic_values(), ty)
+                && length.checked_mul(element.observations.len()).is_some_and(|work| work <= crate::ExecutionCondition::WORK_LIMIT)
+            {
+                for index in 0..length {
+                    let index = bray_symbols::SymbolOrdinal::new(u32::try_from(index)
+                        .expect("bounded array observation index fits an ordinal"));
+                    shape.observations.extend(element.observations.iter().map(|(path, kind)| {
+                        (std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect(), *kind)
+                    }));
+                }
             }
 
             return Ok(shape);

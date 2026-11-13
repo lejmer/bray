@@ -14,18 +14,26 @@ Frozen30 membership is target/audit/comparison.txt minus verification.json compa
 correction-frozen30.json. Map relocated namespaces or deliberate renames only. Count tests separately from matrix rows.
 Fixed920 membership is907 comparison.txt names plus13 verification.json comparison_added keys.
 
-The current identity batch is verified on uninstrumented compilation binaryA058651C.
-The live-return/absent-source collision control passes, including guarded absence, Unknown mutation and partial child
-availability. The existing open-T choose/current-exit-tag source/import oracle passes. The16case select/nested oracle
-executes all source/import rows: both exported possible-input assertions pass,8 positive held requirements still fail
-and8 selected fabricated-owner negatives retain the expected diagnostic. This is2 passing tests and1 failing test,
-not16 independent tests. correction-identity-current.json records exact source/binary identity and current failures.
+The current uninstrumented shallow replay build (2CEF032C) passes the selected-owner oracle in all16 source/import
+rows, including8 valid positives and8 fabricated negatives. All13 preservation controls, ordinary output shape and raw
+extraction controls pass. Exact30 is29 pass/1 fail, only the known RawBuffer payload dependency gap. The reached
+exact drop_selected retirement assertion passes. correction-current.json and correction-shallow-current.json retain
+source/binary identity and actionable failures. The four physical-mask regressions are closed.
 
-The implementation now preserves selected input identity; shallow generic contents preservation remains unresolved.
-Four required source/import deferred/owned wrappers, exact30, fixed920 and all final gates need fresh verification after
-that repair. correction-cleanup-current.json retains only that fixed bounded scope, without obsolete outcomes. The two
-proof-tier cleanup controls must run with --ignored. No temporary tracing or fixture filter remains. Checkpoint progress
-is pushed to the existing feature branch, and work continues without a mergeability claim.
+Atomic control executes all6 rows after the distinct-name fixture correction. Baseline marker/scalar positives and
+protected-word negatives pass. Generic transported Marker/scalar positives fail with ValueChanged at the nested
+forward tuple call before the atomic store. The transported protected-word negative still rejects. Actual nested
+borrow descriptors need current referent publication, rather than retaining captured entry data. The exact-transfer
+shape is descriptive, and generic reference fields are absent from template reference_subjects. Trace that completion
+boundary before another patch. The scalar expectation follows shared_alias_valid preserving ordinary alias rules and
+the live shared scalar loan. No atomic preservation exception or invalid acceptance is established.
+
+Source/import deferred wrappers still fail provider formal_tuple.value.0 and formal_array[1] observe requirements.
+Both owned matrices completed248 rows each with8 valid positive failures and zero invalid acceptances. Remaining
+rows are conditional_nested, conditional_optional_exits/join, conditional_future_active,
+select_nullable_inputs_exits/join_both and exits_known_True_True/False_True. correction-wrapper-current.json retains
+only those current first diagnostics. Checkpoint progress is pushed, and
+local corrections continue. Final gates remain required. No tracing or fixture filter is present. No build/test process remains active.
 
 ## Behavioral contracts implemented
 
@@ -74,28 +82,23 @@ exact Direct Parameter0 OwnedTarget Retire with no Unknown. Reverify this reache
 
 ## Remaining contract boundaries
 
-The small two-input oracle executes8 rows in source/import modes: unknown choice with both acquired witnesses,
-known choice selecting a real witness, selected fabricated-owner negatives and the equivalent nested wrapper. Its8
-positive source/import rows fail and its8 negatives retain the expected trusted-obligation diagnostic. Decoded select<T>
-incorrectly publishes unconditional Input0 and false contents preservation, including when Input1 is selected.
-The initial CFG join is correct: Case(take,Input0 preserved)/Case(!take,Input1 preserved). Raw normal-return collection
-already has Input0 in both Cases with false preservation. Common-transfer reconstruction faithfully consumes that
-corrupt layout, so no change to it is justified.
+Selected input identity and ordinary shallow contents are verified in all16 small select/nested source/import rows.
+All8 selected fabricated negatives reject. Descriptive shapes are prepared for every exact possible transfer in the
+existing returned-values map. Only complete_owned_result selects authority. Physical Value recording subsumes redundant
+child descriptors, while portable child exclusions remain explicit. InlineBits composes ordinary contents proof without
+claiming completeness or reference freedom, immutable snapshot stability, atomic stability or pointer-slot identity.
+Address retains its pointer-specific semantics. The two untyped returned-content walkers are removed, and the one
+ValuePreservation evaluator applies the actual checked shape. Reference/protected contents refresh. Concrete array
+observations remain bounded by the existing work limit. This checkpoint changes production by+160/-161 lines and
+tests by+105/-64 lines relative to043562401, including the moved finite-snapshot regression. No additional retained map or type walker is introduced.
 
-The first corruption is established at invalidation. Callable result s0 is Present before cleanup and moved source s4
-is Absent, sharing J but retaining different snapshot layouts. Live s0 frames selected Input1 into Owned(J,PostState),
-then absent s4 frames a stale Input0 layout into the exact same next key and overwrites it. Boundary publication then
-faithfully retains the wrong input. The repair gives all3 invalidation readers one private value reader using existing
-resolved_availability. Only definite Absent is excluded. Unknown still changes, and partial-root/component policy remains
-unchanged. The live result continues to frame genuine effects. This removes the three unconditional terminal reads
-without a new value representation or pending-return mechanism.
+Current storage invalidation excludes only definite-Absent snapshots at All roots, Observed value retirement and
+Observed changed places. Unknown and partial-root behavior stays conservative. Current preservation tests pass.
 
-The semantic control uses a live return and an absent moved source sharing identity but different layouts, covers
-literal and proven guarded absence, and checks Unknown mutation plus an absent child under a still-possible root.
-The existing16case source/import oracle exercises actual invalidation callers. The uninstrumented collision and exported-input controls pass. The consumed probe is removed. False physical preservation on the live open-T result is separate: determine
-whether its Value observation is absent or whether joined MAY reachability overlaps it. Compare specialized Marker
-effects at the caller before changing policy. No preservation exception is added. Deferred formal tuple/array still
-loses its nested required marker through start/cancel/join and remains in scope.
+The transported shared Marker/scalar precision gap, eight remaining conditional owned positives per mode and deferred provider formal_tuple.value.0/formal_array[1]
+need source-first loss classification before another semantic patch. Source/import parity supplies no evidence of an
+interface-specific defect. Capture renaming already supports compact input projections. Trace actual published
+layout, selected replay and captured witness availability rather than adding owner or rename fallback mechanisms.
 
 RawBuffer Push still installs no stored metadata and exit publication excludes allocation payload slots. Close the
 producer/export/import/staged replay contract before schema edits. Whole-value source edges belong inside the existing

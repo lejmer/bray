@@ -96,7 +96,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     Observation::Marker(marker) => ty.and_then(|ty| self.input.footprint.inline_carriers(ty))
                         .is_none_or(|markers| markers.contains(&marker)),
                     Observation::Identity => !raw || transfers_owner(owner, *ty),
-                    Observation::Value | Observation::Mutable => {
+                    Observation::Value | Observation::InlineBits | Observation::Mutable => {
                         // A typed move can retire only the nominal carriers it moves.
                         // Scalar fields alone provide no such ownership bound. Writes
                         // still change data through aliases of different nominal types.
@@ -129,7 +129,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             | StorageInvalidation::Observed { stable_values, stable_descriptors, .. } => {
                 for observations in self.input.footprint.owned_observations.values() {
                     for (path, observation) in observations {
-                        if !matches!(observation, Observation::Value | Observation::Discriminant | Observation::Address) { continue; }
+                        if !matches!(observation, Observation::Value | Observation::InlineBits | Observation::Discriminant | Observation::Address) { continue; }
 
                         if survives(&Target::storage(path.clone()), *observation, None, None) {
                             observation.record_preservation(path.clone(), stable_descriptors, stable_values);

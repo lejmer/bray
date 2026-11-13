@@ -5,6 +5,8 @@ pub enum StorageObservationKind {
     Mutable,
     /// An ordinary inline value with no mutable reachable contents.
     Value,
+    /// Unchanged ordinary inline data of an unresolved shape, excluding protected or reached state.
+    InlineBits,
     /// An address value whose reachable contents remain independent observations.
     Address,
     /// An identity whose protected contents can progress independently.
@@ -30,7 +32,7 @@ impl StorageObservationKind {
             return;
         }
 
-        let retained = if matches!(self, Self::Discriminant | Self::Address) { self } else { Self::Value };
+        let retained = if matches!(self, Self::Discriminant | Self::Address | Self::InlineBits) { self } else { Self::Value };
 
         observations.entry(path).and_modify(|previous| {
             if *previous == Self::Discriminant || retained == Self::Value { *previous = retained; }

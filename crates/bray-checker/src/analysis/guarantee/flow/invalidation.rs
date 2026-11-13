@@ -556,9 +556,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let mask = masks.entry(root).or_default().at_mut(path);
 
-            if kind == bray_bound_tree::StorageObservationKind::Discriminant { mask.discriminant = true; }
-            else if kind != bray_bound_tree::StorageObservationKind::Identity { mask.value = true; }
-            else { mask.descriptor = true; }
+            mask.record(kind);
         }
 
         masks

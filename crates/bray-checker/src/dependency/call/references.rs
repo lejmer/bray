@@ -31,8 +31,6 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         contracts
     };
 
-    let input_count = contracts.input_count();
-
     let retained_inputs = result_retains_inputs(request, expression.into(), template)
         .then(|| crate::dependency::result_inputs(expression, call, template));
 
@@ -44,30 +42,6 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
         .with_owned_result(template.owned_result().clone())
-        .with_returned_value_conditions(returned_value_conditions(
-            request,
-            expression.into(),
-            template.owned_result().transfers(),
-            input_count,
-            |ordinal| {
-                let receiver = call.receiver().is_some();
-
-                let root = if receiver && ordinal == 0 {
-                    DependencySubjectRoot::Receiver
-                } else {
-                    DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
-                        ordinal - u32::from(receiver),
-                    ))
-                };
-
-                Ok(reference_input_type(
-                    request,
-                    call,
-                    &bray_symbols::DependencySubject::root(root),
-                )?
-                .map(|(ty, _)| ty))
-            },
-        )?)
         .with_normal_completion(deferred || template.normal_completion())
         .with_normal_storage_preservation(
             deferred || pure || template.preserves_storage_on_normal_return(),
@@ -111,8 +85,6 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
     contracts: BoundCallDependencyContracts,
     template: &bray_symbols::DependencyContractTemplateData,
 ) -> Result<BoundCallDependencyContracts, CheckerQueryError<C::UpstreamError>> {
-    let input_count = contracts.input_count();
-
     let retained = result_retains_inputs(request, invocation, template)
         .then(|| std::collections::BTreeSet::from([source]));
 
@@ -135,20 +107,7 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
         .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
         .with_owned_result(template.owned_result().clone())
-        .with_returned_value_conditions(returned_value_conditions(
-            request,
-            invocation,
-            template.owned_result().transfers(),
-            input_count,
-            |ordinal| {
-                assert_eq!(
-                    ordinal, 0,
-                    "implicit invocation has one receiver-first input"
-                );
-
-                Ok(Some(ty))
-            },
-        )?))
+)
 }
 
 pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
@@ -194,6 +153,13 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
         }
     }
 
+    let receiver = input_type(&bray_symbols::DependencySubject::root(DependencySubjectRoot::Receiver))?.is_some();
+    let returned = returned_values(request, template.owned_result().transfers(), contracts.input_count(), |ordinal| {
+        let root = if receiver && ordinal == 0 { DependencySubjectRoot::Receiver }
+            else { DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(ordinal - u32::from(receiver))) };
+        Ok(input_type(&bray_symbols::DependencySubject::root(root))?.map(|(ty, _)| ty))
+    })?;
+
     let mut references = Vec::with_capacity(template.borrows().len());
     let mut incomplete = std::collections::BTreeSet::new();
 
@@ -220,6 +186,7 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
     references.retain(|reference| !incomplete.contains(reference.relation().exit()));
 
     Ok(contracts
+        .with_returned_values(returned)
         .with_reference_subjects(inputs)
         .with_references(references, retained_inputs))
 }
@@ -320,9 +287,8 @@ pub(super) fn reference_subject_path<C: CheckerRequestContext + ?Sized>(
     crate::storage::reference_path(request, ty, projections.into(), None)
 }
 
-fn returned_value_conditions<'a, C: CheckerRequestContext + ?Sized>(
+fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    invocation: bray_bound_tree::BoundExecutionSite,
     transfers: impl IntoIterator<Item = &'a bray_symbols::DependencyOwnedTransfer>,
     input_count: usize,
     mut input_type: impl FnMut(
@@ -334,7 +300,7 @@ fn returned_value_conditions<'a, C: CheckerRequestContext + ?Sized>(
 ) -> Result<
     std::collections::BTreeMap<
         bray_symbols::DependencyOwnedTransfer,
-        std::sync::Arc<[bray_symbols::ConstantTermId]>,
+        bray_bound_tree::BoundReturnedValue,
     >,
     CheckerQueryError<C::UpstreamError>,
 > {
@@ -343,9 +309,8 @@ fn returned_value_conditions<'a, C: CheckerRequestContext + ?Sized>(
     for transfer in transfers {
         let mut conditions = Vec::new();
 
-        let transferred = returned_input_projection_conditions(
+        let (transferred, ty) = returned_input_projection_conditions(
             request,
-            invocation,
             transfer.input(),
             input_count,
             &mut input_type,
@@ -378,7 +343,9 @@ fn returned_value_conditions<'a, C: CheckerRequestContext + ?Sized>(
 
         conditions.sort_unstable();
         conditions.dedup();
-        result.insert(transfer.clone(), conditions.into());
+        result.insert(transfer.clone(), bray_bound_tree::BoundReturnedValue::new(
+            conditions, crate::storage::observation::returned_observations(request, ty)?,
+        ));
     }
 
     Ok(result)
@@ -386,7 +353,6 @@ fn returned_value_conditions<'a, C: CheckerRequestContext + ?Sized>(
 
 fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    invocation: bray_bound_tree::BoundExecutionSite,
     mut term: bray_symbols::ConstantTermId,
     input_count: usize,
     input_type: &mut impl FnMut(
@@ -395,7 +361,7 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
         Option<bray_symbols::TypeId>,
         CheckerQueryError<C::UpstreamError>,
     >,
-) -> Result<Vec<bray_symbols::ConstantTermId>, CheckerQueryError<C::UpstreamError>> {
+) -> Result<(Vec<bray_symbols::ConstantTermId>, bray_symbols::TypeId), CheckerQueryError<C::UpstreamError>> {
     use bray_symbols::{
         ConstantBinaryOperation, ConstantProjectionKind, ConstantTermData, ConstantValueData,
         ConstantValueKind, DependencyProjection,
@@ -420,9 +386,8 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
         "owned transfer refers to an actual input"
     );
 
-    let Some(mut ty) = input_type(ordinal)? else {
-        return Ok(Vec::new());
-    };
+    let mut ty = input_type(ordinal)?
+        .expect("checked owned transfer retains its actual input type");
 
     let mut conditions = Vec::new();
 
@@ -492,11 +457,10 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
         ty = crate::storage::projected_value_type(request, ty, projection)?
             .value()
             .unwrap_or_else(|| panic!(
-                "checked returned input has no projected type: unit={:?}, invocation={invocation:?}, input={ordinal}, subject={:?}, type={:?}, projection={projection:?}, call={}",
+                "checked returned input has no projected type: unit={:?}, input={ordinal}, subject={:?}, type={:?}, projection={projection:?}",
                 request.unit().unit(), values.constant_term_data(subject), values.type_data(ty),
-                invocation.expression().map(|expression| crate::diagnostic::expression_text(request, expression)).unwrap_or_default(),
             ));
     }
 
-    Ok(conditions)
+    Ok((conditions, ty))
 }

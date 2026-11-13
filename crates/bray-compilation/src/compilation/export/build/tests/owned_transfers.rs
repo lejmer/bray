@@ -891,8 +891,10 @@ fn two_input_owner_selection_keeps_only_the_selected_witness() {
     for name in ["select", "nested"] {
         let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
         let actual = summary.owned_result().transfers().map(|transfer| transfer.input()).collect::<std::collections::BTreeSet<_>>();
-        if actual != expected || !summary.owned_result().guaranteed_transfers().is_empty() {
-            failures.push(format!("{name} must retain both possible inputs without unconditionally selecting either: {:?}", summary.owned_result()));
+        if actual != expected || !summary.owned_result().guaranteed_transfers().is_empty()
+            || summary.owned_result().transfers().any(|transfer| !transfer.preservation().preserves_value())
+        {
+            failures.push(format!("{name} must retain both possible inputs and their ordinary contents without unconditionally selecting either: {:?}", summary.owned_result()));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
