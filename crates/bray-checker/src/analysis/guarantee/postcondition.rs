@@ -38,7 +38,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
     let trusted = std::cell::OnceCell::new();
     let normalized = std::cell::OnceCell::new();
     let normalized_proof = std::cell::OnceCell::new();
-    let proof = crate::execution_guarantees::ExecutionProof::new(&state.trusted_assumptions, &state.assumptions);
+    let proof = state.proof();
     let mut integer_ranges = super::integer::IntegerRanges::new();
 
     for ((required, _), failed) in postconditions.iter().zip(failed) {

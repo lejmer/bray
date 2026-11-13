@@ -30,10 +30,7 @@ pub(super) fn selection(facts: &Selection) -> Selection {
         .collect()
 }
 
-pub(super) fn possible(guard: &Selection, facts: &Selection) -> bool {
-    let trusted = BTreeSet::new();
-    let proof = crate::execution_guarantees::ExecutionProof::new(&trusted, facts);
-
+pub(super) fn possible(guard: &Selection, proof: &crate::execution_guarantees::ExecutionProof<'_>) -> bool {
     !guard
         .iter()
         .any(|(condition, holds)| proof.prove_trusted(condition) == Some(!holds))
@@ -70,17 +67,17 @@ impl DeferredValue {
         }
     }
 
-    pub(super) fn unknown_possible(&self, facts: &Selection) -> bool {
+    pub(super) fn unknown_possible(&self, proof: &crate::execution_guarantees::ExecutionProof<'_>) -> bool {
         self.unknown
             .as_ref()
-            .is_some_and(|candidate| possible(&candidate.selection, facts))
+            .is_some_and(|candidate| possible(&candidate.selection, proof))
     }
 
-    pub(super) fn known_sources(&self, facts: &Selection) -> Option<BTreeSet<BoundExecutionSite>> {
-        (!self.unknown_possible(facts)).then(|| {
+    pub(super) fn known_sources(&self, proof: &crate::execution_guarantees::ExecutionProof<'_>) -> Option<BTreeSet<BoundExecutionSite>> {
+        (!self.unknown_possible(proof)).then(|| {
             self.producers
                 .iter()
-                .filter(|(_, candidate)| possible(&candidate.selection, facts))
+                .filter(|(_, candidate)| possible(&candidate.selection, proof))
                 .map(|(source, _)| *source)
                 .collect()
         })
@@ -142,6 +139,10 @@ impl DeferredValue {
 
             if let Some(context) = &context {
                 guard.extend(selection(context));
+            }
+
+            if !ExecutionCondition::has_value_changes(replacements) && !ExecutionCondition::has_value_changes(identities) {
+                continue;
             }
 
             *guard = guard
@@ -237,6 +238,12 @@ mod tests {
         assert!(state.deferred_invocations[&middle].producers[&expressions[0].into()].selection.contains(&(source.clone(), true)));
 
         state.current.insert(place, ExecutionCondition::Boolean(false));
+
+        state.join_values(&[(middle.clone(), middle.clone())].into(), &[(middle.clone(), middle.clone())].into());
+
+        let unchanged = &state.deferred_invocations[&middle].producers[&expressions[0].into()];
+        assert!(!unchanged.selection.contains(&(source.clone(), true)), "identity joins still prune stale selectors");
+        assert!(unchanged.entry.copy_sources.is_empty(), "identity joins still revoke stale copy origins");
 
         let target = ExecutionCondition::Expression(expressions[1]);
 

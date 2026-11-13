@@ -7,7 +7,6 @@ use bray_symbols::{
 
 use super::super::flow::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
-use crate::execution_guarantees::ExecutionProof;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis) fn reference_value_source(
@@ -224,7 +223,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut retired = BTreeSet::new();
         let mut published = Vec::new();
-        let proof = ExecutionProof::new(&state.trusted_assumptions, &state.assumptions);
+        let proof = state.proofs.proof(&state.trusted_assumptions, &state.assumptions);
 
         for (owner, guard) in guards {
             if guard.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })

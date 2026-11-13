@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::state::ExecutionState;
 use crate::ExecutionCondition;
-use crate::execution_guarantees::ExecutionProof;
 use bray_bound_tree::StorageProjection;
 use bray_symbols::{DependencyProjection, DependencyWitnessCarrier};
 
@@ -246,7 +245,7 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
     previous: &mut Option<BTreeSet<DependencyWitnessCarrier<StorageProjection>>>,
 ) {
     let mut result = BTreeSet::new();
-    let proof = ExecutionProof::new(&state.trusted_assumptions, &state.assumptions);
+    let proof = state.proof();
     let return_substitution = super::super::flow::return_substitution(returned);
 
     for (owner, witness) in &state.witnesses {
@@ -323,7 +322,7 @@ fn collect(
         return;
     }
 
-    let proof = crate::execution_guarantees::ExecutionProof::new(&state.trusted_assumptions, &state.assumptions);
+    let proof = state.proof();
 
     for ((guarantee, _), previous) in guarantees.iter().zip(previous) {
         let guarantee = guarantee.substitute(
@@ -494,7 +493,7 @@ impl ExecutionState {
     pub(in crate::analysis::guarantee) fn refine_witnesses(&mut self) {
         // Ownership guards also have meaning when no trusted carrier exists.
         // Ordinary premises cannot introduce trusted occurrences into this closure.
-        let ordinary = crate::execution_guarantees::trusted_condition_closure(Default::default(), &self.assumptions);
+        let ordinary = self.proofs.closure(&Default::default(), &self.assumptions);
 
         self.assumptions.extend(ordinary);
 
@@ -503,7 +502,7 @@ impl ExecutionState {
             .values_mut()
             .filter(|witness| witness.available)
         {
-            witness.refine(&mut self.trusted_assumptions, &mut self.assumptions);
+            witness.refine(&mut self.trusted_assumptions, &mut self.assumptions, &self.proofs);
         }
 
         self.refine_deferred_witnesses();
@@ -526,7 +525,7 @@ impl ExecutionState {
             let entry = &candidate.entry;
 
             if !entry.pending_execution
-                || !super::super::deferred::possible(&candidate.selection, &self.assumptions)
+                || !super::super::deferred::possible(&candidate.selection, &self.proofs.ordinary_proof(&self.assumptions))
             {
                 continue;
             }
@@ -559,7 +558,7 @@ impl ExecutionState {
 
                 for owner in owners {
                     if let Some(witness) = self.witnesses.get_mut(&owner) {
-                        witness.refine(&mut trusted, &mut assumptions);
+                        witness.refine(&mut trusted, &mut assumptions, &self.proofs);
                     }
                 }
 
