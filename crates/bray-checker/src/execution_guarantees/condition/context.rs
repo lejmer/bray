@@ -3,14 +3,30 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::ExecutionCondition;
 
+pub(super) type ProofMemo = RefCell<BTreeMap<(ExecutionCondition, usize), (Option<bool>, usize)>>;
+
+#[derive(Default)]
+struct PreparedFacts {
+    conditions: BTreeSet<(ExecutionCondition, bool)>,
+    raw: ProofMemo,
+    mixed: ProofMemo,
+}
+
+impl PreparedFacts {
+    fn new(conditions: BTreeSet<(ExecutionCondition, bool)>) -> Self {
+        Self { conditions, ..Self::default() }
+    }
+}
+
 /// Proof preparation belongs to these exact immutable evidence sets.
 pub(crate) struct ExecutionProof<'a> {
     trusted: &'a BTreeSet<(ExecutionCondition, bool)>,
     ordinary: &'a BTreeSet<(ExecutionCondition, bool)>,
-    known: OnceCell<BTreeSet<(ExecutionCondition, bool)>>,
-    premises: RefCell<BTreeMap<ExecutionCondition, BTreeSet<(ExecutionCondition, bool)>>>,
-    contraries: RefCell<BTreeMap<ExecutionCondition, BTreeSet<(ExecutionCondition, bool)>>>,
-    conclusions: RefCell<BTreeMap<ExecutionCondition, Option<bool>>>,
+    known: OnceCell<PreparedFacts>,
+    premises: RefCell<BTreeMap<ExecutionCondition, PreparedFacts>>,
+    contraries: RefCell<BTreeMap<ExecutionCondition, PreparedFacts>>,
+    raw: ProofMemo,
+    mixed: ProofMemo,
 }
 
 impl<'a> ExecutionProof<'a> {
@@ -18,30 +34,31 @@ impl<'a> ExecutionProof<'a> {
         trusted: &'a BTreeSet<(ExecutionCondition, bool)>,
         ordinary: &'a BTreeSet<(ExecutionCondition, bool)>,
     ) -> Self {
-        Self { trusted, ordinary, known: OnceCell::new(), premises: RefCell::new(BTreeMap::new()),
-            contraries: RefCell::new(BTreeMap::new()), conclusions: RefCell::new(BTreeMap::new()) }
+        Self {
+            trusted,
+            ordinary,
+            known: OnceCell::new(),
+            premises: RefCell::new(BTreeMap::new()),
+            contraries: RefCell::new(BTreeMap::new()),
+            raw: RefCell::new(BTreeMap::new()),
+            mixed: RefCell::new(BTreeMap::new()),
+        }
     }
 
     pub(crate) fn prove_trusted(&self, condition: &ExecutionCondition) -> Option<bool> {
-        if let Some(value) = self.conclusions.borrow().get(condition) {
-            return *value;
+        if let Some(value) = condition.prove_with_memo(self.trusted, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.raw)) {
+            return Some(value);
         }
 
-        let value = condition.prove(self.trusted, &mut { ExecutionCondition::WORK_LIMIT }).or_else(|| {
-            let known = self.known.get_or_init(|| {
-                crate::execution_guarantees::trusted_condition_closure(self.trusted.clone(), self.ordinary)
-            });
-
-            condition.prove_mixed_with_implications(known, self.ordinary, &mut { ExecutionCondition::WORK_LIMIT }, Some(self))
+        let known = self.known.get_or_init(|| {
+            PreparedFacts::new(crate::execution_guarantees::trusted_condition_closure(self.trusted.clone(), self.ordinary))
         });
 
-        self.conclusions.borrow_mut().insert(condition.clone(), value);
-
-        value
+        condition.prove_mixed_with_implications(&known.conditions, self.ordinary, &mut { ExecutionCondition::WORK_LIMIT }, Some(self), Some(&known.mixed))
     }
 
     pub(crate) fn prove_mixed(&self, condition: &ExecutionCondition, budget: &mut usize) -> Option<bool> {
-        condition.prove_mixed_with_implications(self.trusted, self.ordinary, budget, Some(self))
+        condition.prove_mixed_with_implications(self.trusted, self.ordinary, budget, Some(self), Some(&self.mixed))
     }
 
     pub(super) fn implies(&self, premise: &ExecutionCondition, consequence: &ExecutionCondition) -> bool {
@@ -61,11 +78,11 @@ impl<'a> ExecutionProof<'a> {
 
             premise.clone().assume(true, &mut evidence);
 
-            crate::execution_guarantees::trusted_condition_closure(evidence, &ordinary)
+            PreparedFacts::new(crate::execution_guarantees::trusted_condition_closure(evidence, &ordinary))
         });
 
         // Premise preparation cannot recursively search implications.
-        if consequence.prove_mixed_with_implications(known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }, None) == Some(true) {
+        if consequence.prove_mixed_with_implications(&known.conditions, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }, None, Some(&known.mixed)) == Some(true) {
             return true;
         }
 
@@ -79,9 +96,9 @@ impl<'a> ExecutionProof<'a> {
                 evidence.insert((condition, holds));
             });
 
-            evidence
+            PreparedFacts::new(evidence)
         });
 
-        premise.prove(evidence, &mut { ExecutionCondition::WORK_LIMIT }) == Some(false)
+        premise.prove_with_memo(&evidence.conditions, &mut { ExecutionCondition::WORK_LIMIT }, Some(&evidence.raw)) == Some(false)
     }
 }

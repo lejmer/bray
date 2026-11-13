@@ -1,4 +1,5 @@
 use super::{ExecutionCondition, ExecutionProof};
+use super::context::ProofMemo;
 use bray_bound_tree::BoundOperator;
 use std::collections::BTreeSet;
 
@@ -26,6 +27,18 @@ impl ExecutionCondition {
         ordinary: &BTreeSet<(Self, bool)>,
         budget: &mut usize,
         implications: Option<&ExecutionProof<'_>>,
+        memo: Option<&ProofMemo>,
+    ) -> Option<bool> {
+        memoized_proof(self, budget, memo, |budget| self.prove_mixed_inner(trusted, ordinary, budget, implications, memo))
+    }
+
+    fn prove_mixed_inner(
+        &self,
+        trusted: &BTreeSet<(Self, bool)>,
+        ordinary: &BTreeSet<(Self, bool)>,
+        budget: &mut usize,
+        implications: Option<&ExecutionProof<'_>>,
+        memo: Option<&ProofMemo>,
     ) -> Option<bool> {
         *budget = budget.checked_sub(1)?;
 
@@ -49,11 +62,11 @@ impl ExecutionCondition {
         }
 
         if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
-            return value.prove_mixed_with_implications(trusted, ordinary, budget, implications);
+            return value.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo);
         }
 
         if let Self::Entry { condition, .. } = self {
-            return condition.prove_mixed_with_implications(trusted, ordinary, budget, implications);
+            return condition.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo);
         }
 
         let proven = match self {
@@ -62,15 +75,15 @@ impl ExecutionCondition {
                 if let [operand] = operands.as_ref() =>
             {
                 operand
-                    .prove_mixed_with_implications(trusted, ordinary, budget, implications)
+                    .prove_mixed_with_implications(trusted, ordinary, budget, implications, memo)
                     .map(|value| !value)
             }
             Self::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands)
                 if let [left, right] = operands.as_ref() =>
             {
                 prove_boolean(*operator,
-                    left.prove_mixed_with_implications(trusted, ordinary, budget, implications),
-                    || right.prove_mixed_with_implications(trusted, ordinary, budget, implications))
+                    left.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo),
+                    || right.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo))
             }
             _ => self
                 .prove(trusted, budget)
@@ -102,6 +115,24 @@ impl ExecutionCondition {
         assumptions: &BTreeSet<(Self, bool)>,
         budget: &mut usize,
     ) -> Option<bool> {
+        self.prove_with_memo(assumptions, budget, None)
+    }
+
+    pub(super) fn prove_with_memo(
+        &self,
+        assumptions: &BTreeSet<(Self, bool)>,
+        budget: &mut usize,
+        memo: Option<&ProofMemo>,
+    ) -> Option<bool> {
+        memoized_proof(self, budget, memo, |budget| self.prove_inner(assumptions, budget, memo))
+    }
+
+    fn prove_inner(
+        &self,
+        assumptions: &BTreeSet<(Self, bool)>,
+        budget: &mut usize,
+        memo: Option<&ProofMemo>,
+    ) -> Option<bool> {
         *budget = budget.checked_sub(1)?;
 
         if self.is_unknown() {
@@ -122,11 +153,11 @@ impl ExecutionCondition {
         }
 
         if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
-            return value.prove(assumptions, budget);
+            return value.prove_with_memo(assumptions, budget, memo);
         }
 
         if let Self::Entry { condition, .. } = self {
-            return condition.prove(assumptions, budget);
+            return condition.prove_with_memo(assumptions, budget, memo);
         }
 
         if let Self::VariantTest(variant, subject) = self {
@@ -160,10 +191,10 @@ impl ExecutionCondition {
 
         match (operator, operands.as_ref()) {
             (BoundOperator::LogicalNot, [operand]) => {
-                operand.prove(assumptions, budget).map(|value| !value)
+                operand.prove_with_memo(assumptions, budget, memo).map(|value| !value)
             }
             (operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), [left, right]) =>
-                prove_boolean(*operator, left.prove(assumptions, budget), || right.prove(assumptions, budget)),
+                prove_boolean(*operator, left.prove_with_memo(assumptions, budget, memo), || right.prove_with_memo(assumptions, budget, memo)),
             _ => None,
         }
     }
@@ -333,4 +364,27 @@ fn prove_boolean(operator: BoundOperator, left: Option<bool>, right: impl FnOnce
         Some(_) => right(),
         None => right().filter(|value| *value == decisive),
     }
+}
+
+fn memoized_proof(
+    condition: &ExecutionCondition,
+    budget: &mut usize,
+    memo: Option<&ProofMemo>,
+    prove: impl FnOnce(&mut usize) -> Option<bool>,
+) -> Option<bool> {
+    let Some(memo) = memo else { return prove(budget); };
+
+    let key = (condition.clone(), *budget);
+
+    if let Some((value, remaining)) = memo.borrow().get(&key).copied() {
+        *budget = remaining;
+
+        return value;
+    }
+
+    let value = prove(budget);
+
+    memo.borrow_mut().insert(key, (value, *budget));
+
+    value
 }

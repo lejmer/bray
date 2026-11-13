@@ -555,6 +555,19 @@ mod tests {
             condition.prove_mixed(&Default::default(), &ordinary, &mut 62),
             None
         );
+
+        let empty = Default::default();
+        let proof = crate::execution_guarantees::ExecutionProof::new(&empty, &ordinary);
+
+        for _ in 0..2 {
+            let mut sufficient = 63;
+            let mut insufficient = 62;
+
+            assert_eq!(proof.prove_mixed(&condition, &mut sufficient), Some(true));
+            assert_eq!(sufficient, 0);
+            assert_eq!(proof.prove_mixed(&condition, &mut insufficient), None);
+            assert_eq!(insufficient, 0, "cached proof must replay its exact work budget");
+        }
     }
 
     #[test]
@@ -584,6 +597,7 @@ mod tests {
 
         assert_eq!(super::comparison_is_implied(BoundOperator::LogicalOr,
             &[left.clone(), left.clone()], &known, &mut budget), None);
+
         assert_eq!(budget, 128, "Boolean nodes must not spend comparison proof work");
 
         assert_eq!(
