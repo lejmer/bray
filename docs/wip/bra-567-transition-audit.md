@@ -42,9 +42,8 @@ log per run. CPU availability determines concurrent test threads across its exis
 
 Use `cargo xtask test compiler --profile tooling --filter owned_transfers:: --timeout-seconds 900` or replace the filter
 with `deferred_completion::`. A row name selects that row in both modes. Existing shard selection remains available.
-Focused owned and deferred source/import probes pass. Their providers checked once per process in812ms and267ms,
-respectively. Both catalogue checks,6 runner tests and the8-row admission oracle pass. The optimized build succeeds
-with opt_level=3 and debug assertions disabled. This does not establish where the previous fifteen-minute stall occurred.
+Both catalogue checks,6 runner tests and the8-row admission oracle pass. The optimized build succeeds
+with opt_level=3 and debug assertions disabled.
 The complete owned selection finishes in122s:484/496 matrix rows pass and12 fail, comprising six source/import pairs.
 The deferred selection reaches its900s bound:281/296 rows pass,10 fail and5 remain unfinished. Across both selections,
 15/16 additional related tests pass. These are observed outcomes, not newly established regressions against a full prior run.
@@ -55,6 +54,16 @@ Other slow same-site rows finish after555–794s, locating expensive analysis in
 The deferred case phase currently ends before its final aggregated assertion, so panicking=false in its progress log
 does not establish success. Use the final test report for outcomes. All runner-owned processes terminate at the bound.
 Fixed920 and issue-wide source/native gates remain unverified. No compiler fixes or second broad run follow this checkpoint.
+
+A bounded30s native stack profile of source preformed_task_selected_after_completion captures118 samples.
+Conditional cleanup selection occurs in99, implication checking in82 and trusted-condition closure in62, with overlap.
+The sampled path is storage-flow analysis, conditional cleanup, merge, guarded-fact proof, implication and closure.
+flow/witnesses.rs checks candidate clauses and guards against predecessor evidence. condition/proof.rs then scans existing
+disjunctions and calls implies, which rebuilds trusted_condition_closure for each premise. Nested proposal/implication
+loops repeatedly construct structurally keyed proof graphs and clone/compare/drop conditions. Per-proof work limits do
+not bound that repeated total work. This is the measured bottleneck, not evidence that fixed-point iteration counts are
+healthy. A repair must share preparation within the exact immutable evidence context without widening authority or
+discarding required clauses. The profiled child is terminated at its bound. Compiler code remains unchanged.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
 correction-frozen30.json. correction-current.json preserves original-to-current mapping. Fixed920 is907 comparison.txt
