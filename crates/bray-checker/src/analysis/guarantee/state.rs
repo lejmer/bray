@@ -9,6 +9,7 @@ pub(super) type DeferredInvocations = BTreeMap<ExecutionCondition, super::deferr
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ExecutionState {
+    pub(super) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
     pub(super) trust_boundaries: BTreeSet<BoundExpressionId>,
     pub(super) assumptions: BTreeSet<(ExecutionCondition, bool)>,
     pub(super) witnesses:
@@ -30,6 +31,7 @@ pub(crate) struct ExecutionState {
 impl Default for ExecutionState {
     fn default() -> Self {
         Self {
+            proofs: Default::default(),
             trust_boundaries: BTreeSet::new(),
             assumptions: BTreeSet::new(),
             witnesses: BTreeMap::new(),
@@ -65,6 +67,10 @@ pub(super) fn update_parent_observations(
 }
 
 impl ExecutionState {
+    pub(super) fn proof(&self) -> ExecutionProof<'_> {
+        self.proofs.proof(&self.trusted_assumptions, &self.assumptions)
+    }
+
     pub(super) fn entry_witness_inputs(
         &self,
         invocation: bray_bound_tree::BoundExecutionSite,
@@ -155,7 +161,7 @@ impl ExecutionState {
         let mut assumptions = entry.assumptions.clone();
 
         assumptions.extend(self.assumptions.iter().cloned());
-        let proof = ExecutionProof::new(&entry.trusted_assumptions, &assumptions);
+        let proof = self.proofs.proof(&entry.trusted_assumptions, &assumptions);
 
         for owner in &entry.witness_inputs {
             let Some(witness) = self.witnesses.get_mut(owner) else {
@@ -345,7 +351,7 @@ impl ExecutionState {
             pending.extend(data.owned_components().cloned());
         }
 
-        let proof = ExecutionProof::new(&self.trusted_assumptions, &self.assumptions);
+        let proof = self.proof();
 
         for witness in self.witnesses.values() {
             for (condition, guarantee) in &witness.conditions {
@@ -465,7 +471,7 @@ impl ExecutionState {
         });
 
         let mut retained = BTreeSet::new();
-        let proof = ExecutionProof::new(&self.trusted_assumptions, &self.assumptions);
+        let proof = self.proofs.proof(&self.trusted_assumptions, &self.assumptions);
 
         self.witnesses.retain(|carrier, witness| {
             if private.contains(carrier) {
@@ -598,6 +604,12 @@ impl ExecutionState {
         }
 
         self.deferred_invocations = computations;
+
+        // Even identity-only joins prune stale frame captures above. They do not
+        // rename the remaining value snapshots, carrier clauses or storage identities.
+        if !ExecutionCondition::has_value_changes(replacements) && !ExecutionCondition::has_value_changes(identities) {
+            return;
+        }
 
         for facts in [&mut self.assumptions, &mut self.trusted_assumptions] {
             let mut renamed = BTreeSet::new();

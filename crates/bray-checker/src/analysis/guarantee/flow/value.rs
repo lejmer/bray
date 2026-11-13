@@ -441,7 +441,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state
             .deferred_entries(&value)?
-            .known_sources(&state.assumptions)
+            .known_sources(&state.proofs.ordinary_proof(&state.assumptions))
     }
 
     pub(super) fn started_future(
@@ -503,7 +503,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let entries = state.deferred_entries(&value)?;
         let mut captures = std::collections::BTreeSet::new();
 
-        for source in entries.known_sources(&state.assumptions)? {
+        for source in entries.known_sources(&state.proofs.ordinary_proof(&state.assumptions))? {
             let types = self
                 .disposal
                 .plan
@@ -530,7 +530,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state
             .deferred_entries(&self.storage_path_value(state, path))?
-            .known_sources(&state.assumptions)
+            .known_sources(&state.proofs.ordinary_proof(&state.assumptions))
     }
 
     /// Whether a known task can run cleanup for its captured values.

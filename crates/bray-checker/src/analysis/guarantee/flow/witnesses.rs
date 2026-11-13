@@ -88,7 +88,7 @@ pub(super) fn conditional_facts(
         .collect::<BTreeSet<_>>() };
 
     let empty = BTreeSet::new();
-    let ordinary_proofs = [left.0, right.0].map(|state| ExecutionProof::new(&empty, &state.assumptions));
+    let ordinary_proofs = [left.0, right.0].map(|state| state.proofs.proof(&empty, &state.assumptions));
     let inactive = inactive_guards(&guards, &path_guards, [&left_inputs, &right_inputs], &ordinary_proofs, facts);
 
     conditional_aliases([left, right], [&left_inputs, &right_inputs], &guards, &path_guards, &inactive, &ordinary_proofs, facts);
@@ -109,10 +109,10 @@ pub(super) fn conditional_facts(
                     let mut ordinary = std::borrow::Cow::Borrowed(&state.assumptions);
 
                     if witness.has_guards() {
-                        witness.refine(trusted.to_mut(), ordinary.to_mut());
+                        witness.refine(trusted.to_mut(), ordinary.to_mut(), &state.proofs);
                     }
 
-                    let proof = ExecutionProof::new(&trusted, &ordinary);
+                    let proof = state.proofs.proof(&trusted, &ordinary);
 
                     witness.conditions.keys().filter_map(|condition| {
                         (!witness.available || proof.prove_mixed(condition,
@@ -135,7 +135,7 @@ pub(super) fn conditional_facts(
     let mut retained = Vec::new();
 
     let source_proofs = [left.0, right.0].map(|state| {
-        ExecutionProof::new(&state.trusted_assumptions, &state.assumptions)
+        state.proof()
     });
 
     for (owner, conditions) in candidates {
@@ -163,7 +163,7 @@ pub(super) fn conditional_facts(
             });
 
         let proofs = predecessors.each_ref().map(|(state, _, evidence)| {
-            ExecutionProof::new(evidence, &state.assumptions)
+            state.proofs.proof(evidence, &state.assumptions)
         });
 
         let proved = |clause: &ExecutionCondition| {

@@ -81,7 +81,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                 .into_iter()
                 .flat_map(|value| value.producers.iter())
                 .filter(|(_, candidate)| {
-                    super::super::deferred::possible(&candidate.selection, &state.assumptions)
+                    super::super::deferred::possible(&candidate.selection, &state.proofs.ordinary_proof(&state.assumptions))
                 })
                 .map(|(source, candidate)| (*source, &candidate.entry)),
         );

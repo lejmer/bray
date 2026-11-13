@@ -1,191 +1,94 @@
-# BRA-567 current correction audit
+# BRA-567 current performance correction
 
-Read this record and the [contract gate](../../.agents/skills/work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it)
-after compaction. The current target is less than500ms per fixture case. It is not met. Bounded diagnosis and
-artifact cleanup are complete. Implementation of the performance plan is authorized. The indexed proof path passes69
-execution-proof and112 guarantee tests. Performance remains above target. Immutable consumers and branch feasibility
-are migrated. Availability aliases, direct cleanup selectors and immutable deferred/owner proof views are repaired. No full matrix runs are authorized.
-The issue remains incomplete. Do not merge, change issue status, edit develop or create another worktree.
+Read this record and the contract gate in the work-on-bray-issues skill after compaction.
+Implementation and checkpoint pushes to feature/bra-567-async-root-orchestration are authorized.
+The active objective is the six-step proof-performance plan from134a77de0. BRA-567 remains incomplete.
+Do not run the full matrices, merge, mark the PR ready, change issue status or create another worktree.
+Run style only at finalization. No Bray fixtures have changed in this performance correction.
 
-## Current admission contract
+## Contract and fixed evidence
 
-Compatible cleanup retains historical pending admission only from the exact existing private carrier listed in that
-entry's witness_inputs. The witness must own the clause, prove it from the captured entry, and require trusted evidence
-rather than ordinary truth alone. Expand through the existing assume operation and retain only already-existing facts.
-This never publishes current truth or restores witness availability. Unknown conditional guards do not grant their
-consequence. Address-only, unproved and vacuous clauses do not qualify.
+Each of the five formerly unfinished rows must finish below500ms in separate bounded optimized runs,
+including caller construction, checking and lowering, excluding the provider and Rust build. No native execution
+occurs in these rows. Preserve every expected outcome and verify the negative rejection locations.
+Facts remain scoped to exact owners, dependencies, current values, entry snapshots and qualified polarity.
+Unknowns cannot establish authority. Overwrite, retirement, unavailable carriers and authoritative empty records
+remain intact. Required cleanup-feasibility replay stays. Proof budgets cannot reject valid fixtures as a speed fix.
 
-ExecutionState::invalidate_cleanup owns this retention boundary. ExecutionWitness::owning_conditions generalizes the
-existing single-clause reader, and the former consumers select its first clause. Immutable Arc views permit filtering
-the existing ledger without another stored representation. Resume still requires the surviving exact carrier and
-captured proof. Precise invalidate_referents, retire_entry_context, retired-root and discarded-capture pruning remain
-authoritative, including external observations of a private witness. No borrowed-prefix ownership inference is added.
+Use the existing tooling profile and shared Cargo products. The build-finished JSON must report success and opt3.
+Native toolchain checks run outside the sandbox. The current binaries are selected by proof-build.jsonl,
+not timestamps. proof-indexed-current.json records the current binary hash and fixed five outcomes.
+proof-unfinished.json preserves their identities and baseline48–50s task timings and117.5s loop timing.
+The original bounded interval attempted1,605,633 implications. Both matrices stay excluded.
 
-## Frozen comparison baseline
+Frozen30 membership is correction-frozen30.json, mapped through correction-current.json original/current names.
+The latest comparison remains29 pass/1 fail with no new failures. Its existing invalid acceptance is
+raw_buffer_reachability_preserves_reference_bearing_payload_dependencies. proof-frozen30.json holds current evidence.
+Fixed920 is comparison.txt's907 names plus13 verification.json comparison_added names. It is not rerun here.
 
-Fresh uninstrumented optimized tooling binaries and source diff identity are recorded in
-correction-admission-current.json and correction-current.json. Cargo reports opt_level=3. The build command is
-`cargo test -p bray-compilation -p bray-checker --lib --no-run --profile tooling --message-format=json`.
-The owning command exited zero and its JSON build-finished record reports success.
+## Current implementation and result
 
-- All28 guarantee-state tests pass, including admitted-carrier selection, conditional guards, actual observation mutation
-  and discarded-carrier revocation.
-- All6 deferred contract tests pass, including panic and failing cleanup boundaries.
-- private_formal_task_admission_preserves_only_its_carrier passes all8 source/import rows:4 real tuple/array positives
-  and4 fabricated-carrier negatives. The real paths include Box capture, Task.start, join and cancellation.
-- Exact frozen30 is29 pass/1 fail, with no ignored or incomplete tests. The remaining failure is reference-bearing
-  RawBuffer payload reachability, which still accepts the invalid live-owner observation after opaque buffer transport.
-- drop_selected reaches and passes exact Direct Parameter0 / OwnedTarget / Retire with no Unknown effect.
+The Boolean graph indexes relevant implication candidates and shares condition structure by local node IDs.
+The owning bounded rule still decides each implication. The former all-premise scan exists only as a test oracle.
+Generated differential, numeric, variant, NaN, unknown and qualification controls protect the rule inventory.
+Immutable consumers share proof views. Availability uses ordinary ValueAlias, never numeric owner equality.
+Established aliases transport Boolean truth, matching truth cannot invent identity, and unknown aliases stay inactive.
+Cleanup supplies its actual selector directly. A join that grew21 clauses into443 now retains21.
+Common inactive guards become ordinary exclusions instead of vacuous carrier promises.
+Checkpoint6a2188ab4 contains these fixes and is pushed.
 
-The matrix harness now exposes248 owned and148 deferred rows in each of source/import mode:792 named tests.
-Catalogue assertions protect registration completeness. Original row bodies, outcomes and diagnostic checks remain intact.
-Each process checks and caches its provider once, then checks each revised caller. Provider wait, initialization,
-check and case start/finish events include elapsed times and panic status. The bounded runner resets one live progress
-log per run. CPU availability determines concurrent test threads across its existing process workers.
+The current reuse batch adds ExecutionProofCache to live analysis state. Forks share it, semantic state equality
+ignores memoization, and no cache survives globally. Hashes only select buckets. Both complete evidence sets must
+compare equal for reuse. Owner-local inputs are never unioned to obtain a hit. Preparation and guard-discharge
+observations are reused, while address/ownership metadata is still applied per original carrier clause.
+Query memo hits preserve both the result and exact remaining budget. Locks are released before recursive inference.
+Deferred selection receives ordinary proof views. Task cleanup keeps its formation snapshot distinct from current truth.
 
-Use `cargo xtask test compiler --profile tooling --filter owned_transfers:: --timeout-seconds 900` or replace the filter
-with `deferred_completion::`. A row name selects that row in both modes. Existing shard selection remains available.
-Both catalogue checks,6 runner tests and the8-row admission oracle pass. The optimized build succeeds
-with opt_level=3 and debug assertions disabled.
-The complete owned selection finishes in122s:484/496 matrix rows pass and12 fail, comprising six source/import pairs.
-The deferred selection reaches its900s bound:281/296 rows pass,10 fail and5 remain unfinished. Across both selections,
-15/16 additional related tests pass. These are observed outcomes, not newly established regressions against a full prior run.
-Deferred failures cover task address/frame and returned-future authority. Owned failures cover conditional result authority.
-The unfinished deferred rows are both modes of preformed_task_selected_after_completion and
-preformed_task_fabricated_after_completion, plus source same_site_independent_second. Provider checks finish below1s.
-Other slow same-site rows finish after555–794s, locating expensive analysis inside individual cases.
-The deferred case phase currently ends before its final aggregated assertion, so panicking=false in its progress log
-does not establish success. Use the final test report for outcomes. All runner-owned processes terminate at the bound.
-Fixed920 and issue-wide source/native gates remain unverified. No full matrix rerun is authorized for this repair.
+Identity-only substitutions preserve existing shared values, matching the established explicit identity-pin rule.
+Identity-only state joins still prune stale deferred selectors/copy origins and publish captured facts before
+skipping pure renaming. Nonidentity rewrites retain the existing owner, borrow, epoch and captured-entry rules.
+The frame-incarnation control now requires pruning at an identity-only join.
 
-## Proof performance contract
+Current uninstrumented optimized results:183 focused proof/guarantee controls pass. All five fixed outcomes pass.
+Task rows take957–1015ms and the loop7569ms. The500ms target remains unmet.
+The full frozen30 finishes in13.28s with its unchanged29/1 result. No full matrix has run.
+Temporary production counters are removed. Detailed diagnostic artifacts must be replaced or deleted when superseded.
 
-Target: every fixed tiny case below500ms, including caller construction, checking and lowering, excluding shared provider
-setup and Rust builds. No full matrix runs. Retain every positive/negative expectation and actual failure boundary.
+Measured repetition:11264 preparations for500 exact input pairs and521266 graph nodes in a task case.
+A bounded loop interval prepared18432 contexts for1218 pairs and1519476 nodes.
+Per-unit timing places almost all cost in the caller's two storage-flow passes, not dependency checking.
+Their solver/collector replay remains necessary. Native folded symbols can alias, so names alone are not attribution.
 
-ExecutionProof borrows exact immutable trusted/ordinary facts. Shared preparation must never cross an owner, entry,
-selection, snapshot or evidence mutation. Keep unknowns, trusted polarity, current referents, unavailable carriers,
-overwrite/retirement and authoritative empty ownership records intact. Budget exhaustion cannot establish a claim.
-Required cleanup-feasibility replay remains. Independent owner-support checks must stay independent.
+## Next contract and gates
 
-Baseline: the cached implementation takes48 to 50s for the four preformed-task rows and117.5s for the independent-site row.
-A bounded20s caller interval starts at least1,605,633 implications. The cause is repeated all-premise implication scans.
-Alias proposal loops did zero work in that interval. Hot consumers are join source validation, per-owner predecessor
-proofs and guarded-witness refinement. Facts include initialization and branch relationships, not just source requirements.
+Value rewriting still maps the same clauses separately in ordinary/trusted facts, witnesses and captured frames.
+Reuse a pure substitution across one immutable pair of value/owner maps and the complete value forest. Keep value
+renaming and owner renaming distinct. Reuse only the same input and operation role. The existing bounded rewrite
+remains the authority, including root identity pins, current referents and opaque captured entries. Do not skip
+frame pruning or context publication. Remove superseded reconstruction, without adding another rewrite engine.
+Compare scoped and standalone results, owner isolation, sharing and budget behavior before fixed-case timing.
+Reconsider if fresh mapping scopes or irrelevant facts still multiply work. An unexplained regression blocks expansion.
 
-Checkpoint518014c0a replaces the scan with indexed Boolean structure shared with closure preparation. Negating a goal
-updates connected nodes. Only contradicted published alternatives reach the existing bounded raw rule. Boolean keys
-hash child IDs. Exact facts return before preparation. Empty-context values follow Boolean children directly.
-Per-premise preparation maps are removed. The old scan remains only as a unit-test comparison oracle.
+The six-step status is diagnosis done, measured transitions traced with repairs being verified, indexed engine
+implemented, source/import fixed outcomes retained, regression/final maintainability gates incomplete,500ms gate unmet.
+Require separate repeat timings and actual work counts before declaring the performance correction complete.
+The original150-line production-growth target is exceeded. Measure production and tests separately and simplify
+or justify necessary remaining growth. Do not claim maintainability from passing tests.
 
-The consumer batch shares proof views across immutable resume, address-bound, cleanup-retention, qualification, return
-inference and transfer phases. Reference-origin refinement republishes after each witness, so its view is per witness.
-Resume reads captured facts while publishing current truth. Cleanup borrows pruned ordinary facts before trusted truth
-changes. Branch/scalar reasoning uses ordinary-only facts. False conjunctions retain their actual polarity and use the
-same elimination rules as true disjunctions, without reconstructing negations.
+At finalization re-read AGENTS, audit all changed behavior and equivalent implementations, remove temporary hooks,
+run the mutating cargo xtask style and cargo xtask format, inspect changes and run the smallest sufficient checks.
+The prior style gate has six outstanding violations after the cleanup wildcard was removed: flow/invalidation's
+wildcard and oversized functions in flow/merge, storage_flow cleanup/core, execution_guarantees/portable and tooling
+output/diagnostic/json/argument. Recheck rather than assuming that list is complete.
 
-Last validated consumer batch:68 proof tests and109 guarantee tests pass. Four fixed task cases retain their outcomes
-at3308 to3626ms. The independent-site case remains unfinished at10s. The target is not met. Formal-return mappings are
-built once per actual exit, and Boolean lookup keys no longer allocate child vectors.
-A bounded native stack sample attributes40/143 inclusive samples to repeated return mapping and30/143 to graph intern.
-Inclusive counts overlap. Symbol names for folded native functions can alias and are not source attribution by themselves.
+## Broader BRA-567 work, outside this performance gate
 
-Next contract: assume_availability knows a Boolean guard correspondence but publishes numeric equality. Boolean closure
-does not read that relation, and cleanup selection uses raw proof before forking. Publish the existing ordinary
-ValueAlias instead. Closure copies Boolean truth only through established aliases. Query hypotheses may follow those
-actual aliases but cannot invent alias identity from matching truth. Raw proof can disprove an alias from differing
-Boolean values. Availability and cleanup selection must use ordinary-only deduction. Unknown conditional aliases stay
-inactive. Keep current value/epoch identity, no reference/owner substitution, no qualified evidence from ordinary facts,
-and stable alias cycles. Other existing ValueAlias producers use the same reader.
-Availability aliases are local CFG facts. Portable contracts already exclude both ValueAlias and InitializedSnapshot.
-Callers construct their own availability relations in source and imported modes. No interface schema change is planned.
+Generic borrowed-field completion mappings, inactive conditional result shapes and RawBuffer payload dependencies
+remain. Preserve d302124's deferred-admission control. Historical pending admission comes only from the exact private
+carrier in witness_inputs, proving its own nonvacuous qualified clause through captured entry evidence. It never
+publishes current truth or restores availability. Precise mutation, retirement and discarded-capture pruning stay.
 
-Current repair contract: conditional cleanup supplies its actual selector directly to ExecutionJoin. The taken and
-skipped snapshots still independently prove every proposed owner clause. Use the selector and actual storage guards,
-not all ordinary facts derived from that selector, as candidate branch guards. General CFG joins retain their existing
-path discovery. Unknowns cannot establish a clause, unavailable authority stays unavailable, and no owner borrows
-another carrier's evidence. Both source/import fixed cases and owner-local negative controls remain fixed.
-A bounded probe measured21 candidate clauses becoming443 at a join with98 derived path guards, then1941 clauses.
-Keep common inactive ordinary guards once and omit vacuously guarded owner promises. Do not cache across mutation.
-The replacement removes cleanup's reconstruction of branch selectors. The loop sample also locates repeated graph
-preparation in deferred::possible: each guard fact creates another proof against identical immutable ordinary facts.
-One view must cover the complete selection. The same rule applies to owning_conditions. Preserve existing raw proof,
-qualification, budgets and exact-evidence precedence. No view survives a fact mutation.
-Reconsider if actual selected clauses or their
-rejection boundaries change. Existing focused proof/guarantee controls pass180 tests, but the real case still exceeds10s.
-
-Current bounded evidence: four fixed task rows pass at2456 to2551ms. The independent-site row still reaches10s.
-The cleanup join that grew21 clauses into443 now retains21. Its control retains authority only on the surviving path
-with50 copied selectors. All181 focused proof/guarantee tests pass. Style remains deferred until finalization.
-Repeated-input counters measured11264 preparations for500 distinct exact fact pairs in the task case,521266 nodes.
-The bounded loop interval measured18432 preparations for1218 pairs,1519476 nodes. No full matrix runs.
-Temporary hooks are removed. Compact evidence: proof-indexed-current.json, proof-repetition-counts.json and the current
-stack sample. These measurements justify reusing completed preparation across exact immutable inputs, rather than
-adding more local loop caches. Any reuse must compare both complete fact sets, isolate qualified/current/owner facts,
-preserve budgets and outputs, be scoped to live analysis, and stay outside semantic state equality.
-
-The original150-line production-growth target is exceeded by the indexed replacement. Final review must simplify it or
-justify the remaining growth by required inference and removed machinery. Count production separately from tests/style.
-
-1. Attribute expensive work to actual producers and consumers before further edits. Extend the rule inventory for new
-   transitions. Reconsider whenever a fix leaves repeated reconstruction or irrelevant facts multiply query work.
-2. Preserve owner, guard and current-value relationships through the existing witness and stored-value mechanisms.
-   Check complete production, joins, deferred completion and consumption, including source/import replay.
-3. Keep the Boolean graph as the shared deduction mechanism. Preserve comparisons, variant exclusions, negated-goal
-   reasoning, qualifier polarity and budgets. Predicate-name filtering and unit propagation alone are insufficient.
-4. Hold fixed the five formerly unfinished rows and existing ownership/loop controls. The generated comparison oracle,
-   numeric/variant controls and irrelevant-fact work check protect the migration. An unexplained regression blocks it.
-5. Require separate bounded optimized runs and repeats below500ms for all five rows. Report actual work and timing
-   boundaries. Remove superseded machinery, audit maintainability, run style/format at the end and checkpoint/push.
-   Passing these controls establishes performance evidence, not BRA-567 completion or full-matrix correctness.
-
-Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
-correction-frozen30.json. correction-current.json preserves original-to-current mapping. Fixed920 is907 comparison.txt
-names plus13 verification.json comparison_added keys. Count tests separately from matrix rows.
-For comparison, each former `source_owned_transfers_preserve_complete_carriers_and_dependencies` or imported counterpart
-now means all248 rows under `owned_transfers::source::` or `owned_transfers::imported::`. Each former
-`source_deferred_completion_follows_future_ownership` or imported counterpart means all148 rows under the corresponding
-`deferred_completion::source::` or `deferred_completion::imported::` prefix. Group success requires every row to pass.
-
-## Checks and maintainability
-
-The mutating style and format commands run through the repository's optimized xtask-incremental alias. Format passes.
-Style changes only Rust blank lines and still reports the same7
-structural errors outside the admission change:
-
-- cleanup/selection.rs and flow/invalidation.rs have wildcard test imports.
-- flow/merge.rs, storage_flow/check/analysis/cleanup.rs, storage_flow/check/analysis/core.rs,
-  execution_guarantees/portable.rs and bray-tooling output/diagnostic/json/argument.rs exceed the function limit.
-
-This checkpoint is bounded to diagnosis and cleanup, then stop. These7 errors remain gate failures.
-The end audit rereads AGENTS.md, reviews every changed file and searches equivalent proof-preparation and budget-cache
-behavior. Raw/mixed engines share one memo helper. Contexts retain exact predecessor/owner evidence and original proof
-budgets, with no persistent flow-state cache. Net nonblank growth is101 production lines and36 test lines. Formatting
-growth is separate. git diff --check passes.
-
-## Remaining contracts after the pause
-
-Borrowed generic tuple/array transport lacks current-data completion: exact typed reference leaves have no prepared
-reference subjects or corresponding result completion relation. Replay must use actual stored-value paths and current
-completion without preserving entry referents. Conditional ownership alternatives cannot become unconditional borrow
-relations. Protected/raw negatives need a clean forwarding prefix and failure at the actual mutation boundary.
-
-Inactive conditional result shape remains incomplete for unknown nullable/nested/optional extraction. Reuse ordinary
-current-shape publication and known_variant/known_presence. Do not infer shape or ownership from a witness. Recorded
-anonymous wrapper and payload ownership stays authoritative after borrowed/scalar rejection, including explicit empty
-records. Absent terminal snapshots cannot erase live result ownership. Unknown storage remains conservative.
-
-RawBuffer Push lacks generic stored payload metadata and allocation-payload exit publication. Close producer/export/
-import/staged replay before schema edits. Whole-value source edges belong inside the existing stored-value graph,
-separate from physical pointer targets. Distinguish resolvable open-T contents from unknown pointer origins. Preserve
-formal value origin after moving from a source slot without borrowing it. Conditional stores keep unchanged alternatives;
-AnyElement append unions prefix contents and pop retains possible remaining contents. Reuse canonical clear/retirement
-and generic raw Write. Cover two referents, scalars, nested owners and source/import replay.
-
-Keep original opaque raw-pointer, replaced-reference, actual mutation and fabricated-owner negatives. Preserve actual
-root/main authority, lexical cleanup before terminal publication, normal/panic/cancellation, retained services, sync
-control and native archive/link requirements. Focused compiler evidence is not issue-wide completion or mergeability.
-
-Keep only current compact outcomes, active build evidence and frozen identities. Remove obsolete task-owned detailed
-logs by verified explicit paths under target/audit. Own all processes. Run native toolchains outside the sandbox.
-Checkpoint coherent changes on feature/bra-567-async-root-orchestration and verify remote equality.
+After those repairs, complete the maintainability pass and full owned/deferred, frozen30, fixed920 and source/native
+gates. BRA-567 still needs root/main authority, cleanup before publication, normal/panic/cancellation behavior,
+rollback exactly once, services through static disposal, synchronous control and archive/link proof that Rust
+orchestration was removed. Complete independent PR review before ready/In Review. Closing follows merge.

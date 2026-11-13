@@ -1,8 +1,45 @@
 use super::ExecutionCondition;
+
 use crate::ExecutionPlace;
 use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+
+#[test]
+fn identity_substitutions_preserve_the_existing_shared_value_and_qualifiers() {
+    use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalOr};
+
+    let mut value = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Input(
+        ExecutionPlace::argument(SymbolOrdinal::new(0)),
+    )));
+
+    // Shared repeated subexpressions are one existing value, regardless of expanded tree size.
+    for index in 0..9 {
+        value = ExecutionCondition::Operation(
+            if index % 2 == 0 { LogicalAnd } else { LogicalOr },
+            vec![value.clone(), value].into(),
+        );
+    }
+
+    let ExecutionCondition::Operation(_, original) = &value else { unreachable!(); };
+    let unrelated = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(99)));
+
+    for replacements in [BTreeMap::new(), BTreeMap::from([(unrelated.clone(), unrelated)])] {
+        for unchanged in [
+            value.with_snapshots(&replacements),
+            value.with_copy_origins(&replacements),
+            value.with_guard_facts(&replacements),
+            value.with_equalities(&replacements),
+            value.with_joined_values(&replacements, &replacements),
+        ] {
+            let ExecutionCondition::Operation(_, operands) = unchanged else {
+                panic!("an identity substitution cannot erase an existing qualified value");
+            };
+
+            assert!(Arc::ptr_eq(original, &operands));
+        }
+    }
+}
 
 #[test]
 fn observed_storage_bindings_read_the_same_current_value_as_their_producer() {

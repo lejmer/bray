@@ -364,7 +364,9 @@ fn memoized_proof(
 
     let key = (condition.clone(), *budget);
 
-    if let Some((value, remaining)) = memo.borrow().get(&key).copied() {
+    let cached = memo.lock().expect("analysis proof memo lock is not poisoned").get(&key).copied();
+
+    if let Some((value, remaining)) = cached {
         *budget = remaining;
 
         return value;
@@ -372,7 +374,7 @@ fn memoized_proof(
 
     let value = prove(budget);
 
-    memo.borrow_mut().insert(key, (value, *budget));
+    memo.lock().expect("analysis proof memo lock is not poisoned").insert(key, (value, *budget));
 
     value
 }

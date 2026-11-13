@@ -100,14 +100,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let deferred = state.deferred_entries(&value)?;
 
             let mut feasible = deferred.producers.iter().filter(|(_, candidate)| {
-                super::super::deferred::possible(&candidate.selection, &state.assumptions)
+                super::super::deferred::possible(&candidate.selection, &state.proofs.ordinary_proof(&state.assumptions))
             });
 
             let first = feasible.next();
             let second = feasible.next();
 
             let unknown = deferred.unknown.as_ref().filter(|guard| {
-                super::super::deferred::possible(&guard.selection, &state.assumptions)
+                super::super::deferred::possible(&guard.selection, &state.proofs.ordinary_proof(&state.assumptions))
             });
 
             if second.is_some() || (first.is_some() && unknown.is_some()) {
@@ -192,7 +192,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state
             .deferred_entries(&task)?
-            .known_sources(&state.assumptions)
+            .known_sources(&state.proofs.ordinary_proof(&state.assumptions))
     }
 
     pub(in crate::analysis) fn capture_deferred_reports<E>(
@@ -261,7 +261,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .map(|candidate| (&candidate.selection, candidate.reports.get(&output)
                         .expect("an opaque future retains its captured report dependencies"))),
             )
-            .filter(|(guard, _)| super::super::deferred::possible(guard, &state.assumptions))
+            .filter(|(guard, _)| super::super::deferred::possible(guard, &state.proofs.ordinary_proof(&state.assumptions)))
             .map(|(_, reports)| reports)
         {
             if let Some(previous) = &mut reports {
@@ -467,7 +467,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .into_iter()
             .flat_map(|entries| entries.producers.iter())
             .filter(|(_, candidate)| {
-                super::super::deferred::possible(&candidate.selection, &state.assumptions)
+                super::super::deferred::possible(&candidate.selection, &state.proofs.ordinary_proof(&state.assumptions))
             })
             .map(|(source, candidate)| (*source, &candidate.entry))
     }
@@ -485,7 +485,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state
             .deferred_entries(&self.value(state, awaited.operand()))
-            .is_none_or(|entries| entries.unknown_possible(&state.assumptions))
+            .is_none_or(|entries| entries.unknown_possible(&state.proofs.ordinary_proof(&state.assumptions)))
     }
 
     pub(super) fn remember_deferred_value(
@@ -547,7 +547,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let (mut completed, value) = self.complete_producers(state, &root, expression, &deferred, observations)
             .unwrap_or_else(|| panic!("reachable deferred completion has no feasible producer: {expression:?}, producers={:?}", deferred.producers.iter().map(|(source, candidate)| (*source,
-                super::super::deferred::possible(&candidate.selection, &state.assumptions),
+                super::super::deferred::possible(&candidate.selection, &state.proofs.ordinary_proof(&state.assumptions)),
                 self.dependencies.calls()[source].deferred_completion(),
                 self.owned_normal_completion(&state.assumptions, *source, &candidate.entry, &root),
             )).collect::<Vec<_>>()));
@@ -570,7 +570,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut completed = deferred
             .unknown
             .as_ref()
-            .filter(|guard| super::super::deferred::possible(&guard.selection, &state.assumptions))
+            .filter(|guard| super::super::deferred::possible(&guard.selection, &state.proofs.ordinary_proof(&state.assumptions)))
             .map(|guard| {
                 let mut branch = state.clone();
 
@@ -580,7 +580,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             });
 
         for (&source, candidate) in &deferred.producers {
-            if !super::super::deferred::possible(&candidate.selection, &state.assumptions) {
+            if !super::super::deferred::possible(&candidate.selection, &state.proofs.ordinary_proof(&state.assumptions)) {
                 continue;
             }
 

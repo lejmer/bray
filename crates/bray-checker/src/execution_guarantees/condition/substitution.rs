@@ -5,6 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 impl ExecutionCondition {
+    pub(crate) fn has_value_changes(replacements: &BTreeMap<Self, Self>) -> bool {
+        replacements.iter().any(|(before, after)| before != after)
+    }
+
     pub(crate) fn substitute(
         &self,
         input: &impl Fn(&crate::execution_guarantees::ExecutionPlace) -> Self,
@@ -24,6 +28,8 @@ impl ExecutionCondition {
     /// Inserts predecessor snapshots once. A snapshot can contain the same
     /// surviving owner, so recursively resolving it as an equality would cycle.
     pub(crate) fn with_snapshots(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
+        if !Self::has_value_changes(snapshots) { return self.clone(); }
+
         self.substitute_values(
             &|condition| snapshot_value(condition, snapshots),
             &mut { Self::WORK_LIMIT },
@@ -32,6 +38,8 @@ impl ExecutionCondition {
 
     /// Copy correlations apply to values. They cannot relocate borrowed observations.
     pub(crate) fn with_copy_origins(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
+        if !Self::has_value_changes(snapshots) { return self.clone(); }
+
         self.substitute_values(
             &|condition| match condition {
                 Self::Borrowed(_) | Self::Observation { kind: ExecutionObservationKind::Reference, .. } =>
@@ -44,6 +52,8 @@ impl ExecutionCondition {
 
     /// Discharges ordinary guards without substituting inside trusted atoms.
     pub(crate) fn with_guard_facts(&self, facts: &BTreeMap<Self, Self>) -> Self {
+        if !Self::has_value_changes(facts) { return self.clone(); }
+
         self.substitute_values(
             &|condition| match condition {
                 Self::Trusted(_) => Some(condition.clone()),
@@ -246,6 +256,8 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn with_equalities(&self, replacements: &BTreeMap<Self, Self>) -> Self {
+        if !Self::has_value_changes(replacements) { return self.clone(); }
+
         rewrite_equalities(self, replacements, None, &mut { Self::WORK_LIMIT })
     }
 
@@ -270,6 +282,8 @@ impl ExecutionCondition {
         replacements: &BTreeMap<Self, Self>,
         identities: &BTreeMap<Self, Self>,
     ) -> Self {
+        if !Self::has_value_changes(replacements) && !Self::has_value_changes(identities) { return self.clone(); }
+
         rewrite_equalities(self, replacements, Some(identities), &mut {
             Self::WORK_LIMIT
         })
@@ -329,6 +343,8 @@ fn rewrite_identity(
     budget: &mut usize,
 ) -> ExecutionCondition {
     identities.map_or_else(|| owner.clone(), |identities| {
+        if !ExecutionCondition::has_value_changes(identities) { return owner.clone(); }
+
         rewrite_equalities(owner, identities, Some(identities), budget)
     })
 }
@@ -339,6 +355,10 @@ fn rewrite_equalities(
     identities: Option<&BTreeMap<ExecutionCondition, ExecutionCondition>>,
     budget: &mut usize,
 ) -> ExecutionCondition {
+    if replacements.is_empty() && identities.is_none_or(BTreeMap::is_empty) {
+        return value.clone();
+    }
+
     // An unchanged complete observation shields its components from ancestor renaming.
     if replacements.get(value) == Some(value) {
         return value.clone();

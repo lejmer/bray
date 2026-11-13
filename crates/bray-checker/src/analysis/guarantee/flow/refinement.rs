@@ -2,7 +2,6 @@ use super::super::super::model::{AnalysisEdge, AnalysisRefinement};
 use super::super::state::ExecutionState;
 use super::model::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition};
-use crate::execution_guarantees::ExecutionProof;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, Refinement, RefinementKind, SelectedPropagation,
     SelectedPropagationBoundary, SemanticSelection, StorageProjection,
@@ -72,7 +71,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for witness in state.witnesses.values_mut().filter(|witness| witness.available) {
             let mut derived = Vec::new();
-            let proof = ExecutionProof::new(&state.trusted_assumptions, &state.assumptions);
+            let proof = state.proofs.proof(&state.trusted_assumptions, &state.assumptions);
 
             for (condition, guarantee) in &witness.conditions {
                 if proof.prove_trusted(condition) != Some(true) {

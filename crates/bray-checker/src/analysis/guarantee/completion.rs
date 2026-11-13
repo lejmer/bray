@@ -417,7 +417,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .flat_map(|value| state.owned_values(&value))
             .filter_map(|value| state.deferred_entries(&value))
             .flat_map(|deferred| deferred.producers.values())
-            .filter(|producer| super::deferred::possible(&producer.selection, &entry.assumptions))
+            .filter(|producer| super::deferred::possible(&producer.selection, &state.proofs.ordinary_proof(&entry.assumptions)))
             .flat_map(|producer| producer.entry.extracted_values.iter().cloned())
             .collect::<BTreeSet<_>>();
 

@@ -130,13 +130,14 @@ impl ExecutionWitness {
         self: &mut Arc<Self>,
         trusted: &mut BTreeSet<(ExecutionCondition, bool)>,
         assumptions: &mut BTreeSet<(ExecutionCondition, bool)>,
+        cache: &super::ExecutionProofCache,
     ) {
         if !self.has_guards() {
             return;
         }
 
         let mut evidence = BTreeSet::new();
-        let proof = super::ExecutionProof::new(trusted, assumptions);
+        let proof = cache.proof(trusted, assumptions);
 
         for condition in self.conditions.keys().filter(|condition| {
             proof.prove_mixed(condition, &mut {
@@ -146,36 +147,13 @@ impl ExecutionWitness {
             condition.clone().assume(true, &mut evidence);
         }
 
-        let known = crate::execution_guarantees::trusted_condition_closure(evidence, assumptions);
-
-        let ordinary = known
-            .iter()
-            .chain(assumptions.iter())
-            .filter(|(condition, _)| !condition.contains_trusted())
-            .map(|(condition, holds)| (condition.clone(), ExecutionCondition::Boolean(*holds)))
-            .collect();
+        let proof = cache.proof(&evidence, assumptions);
 
         let mut derived =
             BTreeMap::<ExecutionCondition, crate::execution_guarantees::ExecutionGuarantee>::new();
 
         for (condition, guarantee) in &self.conditions {
-            if !known.contains(&(condition.clone(), true)) {
-                continue;
-            }
-
-            let refined = condition.with_guard_facts(&ordinary);
-
-            let refined = (refined != *condition && refined.contains_trusted()).then_some(refined);
-
-            for observation in refined.iter().chain(condition
-                .observations()
-                .filter(|condition| {
-                    (!condition.contains_trusted()
-                        || matches!(condition, ExecutionCondition::Trusted(_)))
-                        && Some(*condition) != refined.as_ref()
-                })
-                .filter(|condition| known.contains(&((*condition).clone(), true))))
-            {
+            for observation in proof.refined_observations(condition).iter() {
                 let retained = derived.entry(observation.clone()).or_default();
 
                 retained.witness |= guarantee.witness;
@@ -348,6 +326,10 @@ impl super::ExecutionCallEvidence {
         replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
         identities: &BTreeMap<ExecutionCondition, ExecutionCondition>,
     ) -> Option<Self> {
+        if !ExecutionCondition::has_value_changes(replacements) && !ExecutionCondition::has_value_changes(identities) {
+            return None;
+        }
+
         let rename =
             |value: &ExecutionCondition| value.with_joined_values(replacements, identities);
 
@@ -469,7 +451,7 @@ mod tests {
         let mut trusted = [(original, true)].into();
         let mut ordinary = [(outer, true)].into();
 
-        witness.refine(&mut trusted, &mut ordinary);
+        witness.refine(&mut trusted, &mut ordinary, &super::super::ExecutionProofCache::default());
 
         assert!(witness.conditions.contains_key(&residual));
         assert!(trusted.contains(&(residual.clone(), true)));

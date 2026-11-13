@@ -74,7 +74,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn deferred_execution<'s>(
         &'s self,
         deferred: &'s super::super::state::DeferredInvocations,
-        assumptions: &'s std::collections::BTreeSet<(ExecutionCondition, bool)>,
+        proof: crate::execution_guarantees::ExecutionProof<'s>,
         value: ExecutionCondition,
         result: ExecutionCondition,
     ) -> impl Iterator<
@@ -93,12 +93,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let deferred = deferred.get(value.owner_identity())?;
 
-            if deferred.unknown_possible(assumptions) {
+            if deferred.unknown_possible(&proof) {
                 return None;
             }
 
             let mut feasible = deferred.producers.iter().filter(|(_, candidate)| {
-                super::super::deferred::possible(&candidate.selection, assumptions)
+                super::super::deferred::possible(&candidate.selection, &proof)
             });
 
             let (source, candidate) = feasible.next()?;
@@ -140,7 +140,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<(BoundExecutionSite, usize)> {
         self.deferred_execution(
             &state.deferred_invocations,
-            &state.assumptions,
+            state.proofs.ordinary_proof(&state.assumptions),
             value,
             ExecutionCondition::Unknown,
         )
@@ -188,12 +188,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 return false;
             };
 
-            if deferred.unknown_possible(&state.assumptions) {
+            if deferred.unknown_possible(&state.proofs.ordinary_proof(&state.assumptions)) {
                 return false;
             }
 
             for (source, candidate) in &deferred.producers {
-                if !super::super::deferred::possible(&candidate.selection, &state.assumptions) {
+                if !super::super::deferred::possible(&candidate.selection, &state.proofs.ordinary_proof(&state.assumptions)) {
                     continue;
                 }
 
@@ -267,7 +267,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         self.deferred_execution(
             &state.deferred_invocations,
-            &state.assumptions,
+            state.proofs.ordinary_proof(&state.assumptions),
             value,
             ExecutionCondition::Expression(expression),
         )
@@ -345,7 +345,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut steps = self
             .deferred_execution(
                 &state.deferred_invocations,
-                &formation,
+                state.proofs.ordinary_proof(&formation),
                 value,
                 ExecutionCondition::Expression(expression),
             )
