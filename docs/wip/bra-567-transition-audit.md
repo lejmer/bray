@@ -98,9 +98,12 @@ The fixed63/62-step oracle checks repeated prepared queries. No extra memoizatio
 A hash-verified15s individual-case leaf profile at bf27eafca collected401 samples:175 structural condition comparisons,
 34 memo-helper samples,28 condition clones and26 drops. Leaf sampling does not identify callers. conditional_aliases
 can propose128 values ×2 predecessors ×128 guards =32,768 guarded clauses per merge, each checked on both predecessors.
-This is an upper bound, not an observed count. Next measure actual proposal counts, then reduce unnecessary search by
-deducing transport from authoritative predecessor facts. Do not add more memo layers without that evidence.
-No production edits or rebuilds were made for this diagnosis. Current evidence is proof-unfinished.json and
+This upper bound is not the observed cause. A subsequent instrumented20s individual run completed76 caller alias merges
+with zero alias proposals, zero guarded clauses and zero alias predecessor checks. Nevertheless the caller started at
+least1,605,633 implication attempts. Counts are partial-run lower bounds. The alias-proposal hypothesis is ruled out for
+this interval. Next measure top-level proof queries, disjunctions scanned and repeated implication pairs. Focus on the
+unbounded per-disjunction premise scanner, not conditional_aliases or more memo layers. Preserve authority and budgets.
+Temporary instrumentation is removed. Current evidence is actual-counts.json, proof-unfinished.json and
 proof-500ms-sample.json. Superseded build streams, traces and duplicate outputs were removed. Frozen comparison evidence remains.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
