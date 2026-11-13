@@ -119,6 +119,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             {
                 let exit = bray_symbols::DependencySubject::new(
                     self.formal_root(slot.root).expect("allocation output has a formal root"), exit);
+
                 let anchor = allocations.entry(allocation.clone()).or_insert_with(|| exit.clone());
 
                 Some(bray_symbols::DependencyBorrowRelation::new_allocation(
@@ -164,8 +165,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for slot in self.references.iter().flat_map(|references| references.empty_slots()) {
             let Some(root) = self.formal_root(slot.root) else { continue; };
+
             let ty = self.storage.identity_type(slot.root).expect("published reference has its storage type");
+
             let Some(kind) = self.reference_kind(slot, ty)? else { continue; };
+
             let Some(projections) = dependency_projections(&slot.projections) else { continue; };
 
             relations.push((slot.clone(), bray_symbols::DependencyBorrowRelation::new_empty(

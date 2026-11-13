@@ -21,6 +21,7 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
 
     let contracts = if deferred {
         let (captures, result) = super::super::cleanup::prepare_future_effects(request, call)?;
+
         contracts.with_deferred_cleanup(captures, result)
             .with_deferred_execution(
                 template.effects().iter().cloned(),
@@ -154,9 +155,11 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
     }
 
     let receiver = input_type(&bray_symbols::DependencySubject::root(DependencySubjectRoot::Receiver))?.is_some();
+
     let returned = returned_values(request, template.owned_result().transfers(), contracts.input_count(), |ordinal| {
         let root = if receiver && ordinal == 0 { DependencySubjectRoot::Receiver }
             else { DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(ordinal - u32::from(receiver))) };
+
         Ok(input_type(&bray_symbols::DependencySubject::root(root))?.map(|(ty, _)| ty))
     })?;
 
@@ -343,6 +346,7 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
 
         conditions.sort_unstable();
         conditions.dedup();
+
         result.insert(transfer.clone(), bray_bound_tree::BoundReturnedValue::new(
             conditions, crate::storage::observation::returned_observations(request, ty)?,
         ));

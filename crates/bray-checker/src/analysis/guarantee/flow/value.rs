@@ -35,6 +35,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.storage.binding(bray_bound_tree::StorageBindingTarget::Result) else {
                 panic!("a returned value retains its checked callable result storage");
             };
+
         let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
             .expect("callable result storage has a current value place");
 
@@ -48,9 +49,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         value: &ExecutionCondition,
     ) {
         let Some(active) = value.known_variant() else { return; };
+
         let ty = self.semantics.types().expression(expression)
             .expect("a produced union retains its checked type").ty();
+
         let Some(variants) = self.union_variants.get(&ty) else { return; };
+
         let owner = std::sync::Arc::new(value.owner_identity().clone());
 
         // Record every inactive case while the constructor owns this knowledge.
@@ -112,6 +116,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // A scalar copy reads current data independently of its source's
             // owner or loan wrapper. The immutable data is shared by this read.
             let contents = value.computed_value().clone();
+
             return if contents == ExecutionCondition::Unknown {
                 ExecutionCondition::opaque_scalar(identity)
             } else { ExecutionCondition::scalar_observation(identity, contents) };
@@ -534,9 +539,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         sources: &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
     ) -> Option<bool> {
         let mut cleanup = false;
+
         for source in sources {
             cleanup |= !self.disposal.plan.future_capture_cleanup.get(&source.expression()?)?.is_empty();
         }
+
         Some(cleanup)
     }
 }

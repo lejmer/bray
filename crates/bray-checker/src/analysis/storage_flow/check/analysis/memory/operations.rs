@@ -89,6 +89,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let proven = self.memory_evidence.as_ref().filter(|evidence| evidence.initialized)
             .map(|evidence| evidence.empty_copy);
+
         let mut write_target = None;
 
         let status = if !state.reachable {

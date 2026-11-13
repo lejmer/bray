@@ -91,6 +91,7 @@ impl Lowerer<'_> {
         // from cancellation before the child produced a result.
         let completed = self.materialize_temporary(id, LoweredExpression::continuing(
             block, Some(value), Self::retained_source(&source)))?;
+
         let value = completed.value.expect("await completion retains its produced value");
 
         let retention = self.frame_retention(&source, id.into())?;
@@ -111,6 +112,7 @@ impl Lowerer<'_> {
         )?;
 
         self.branch_frame_cancellation(block, &source, continuation, cancellation)?;
+
         Ok(LoweredExpression::continuing(resume, value, source))
     }
 

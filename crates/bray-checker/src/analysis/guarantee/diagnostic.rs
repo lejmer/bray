@@ -26,12 +26,15 @@ pub(super) fn panic_requirement<C: CheckerRequestContext + ?Sized>(
         let Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement() else {
             continue;
         };
+
         if invocation.node() != node || flow.edge_output(edge.id()).is_none() {
             continue;
         }
+
         let Some(contract) = flow.domain.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation)) else {
             continue;
         };
+
         let state = flow.output(edge.source()).expect("reachable entry failure has a source state");
         let entry = state.entries.get(&invocation).expect("entry failure retains its captured input values before retirement");
 
@@ -60,6 +63,7 @@ fn condition<C: CheckerRequestContext + ?Sized>(
     budget: &mut usize,
 ) -> Outcome<C> {
     let Some(remaining) = budget.checked_sub(1) else { return Ok(Condition::Elided); };
+
     *budget = remaining;
 
     Ok(match value {
@@ -126,6 +130,7 @@ fn application<C: CheckerRequestContext + ?Sized>(
     substitution: bray_symbols::GenericSubstitutionId, arguments: &[ExecutionCondition], budget: &mut usize,
 ) -> Outcome<C> {
     let selected = domain.request.semantic_values().generic_substitution_data(substitution);
+
     let types = selected.bindings().iter().map(|binding| match binding.argument() {
         GenericArgument::Type(ty) => crate::diagnostic::diagnostic_type(domain.request.context(), ty).map(DiagnosticTypeArgument::Type),
         GenericArgument::Constant(_) => Ok(DiagnosticTypeArgument::Constant),
@@ -141,6 +146,7 @@ fn symbol_path<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain<'
     let context = domain.request.context();
     let name = context.member_name(symbol)?.expect("checked named condition symbol retains its name");
     let key = context.symbol_key(symbol)?.expect("checked named condition symbol retains its key");
+
     Ok(crate::diagnostic::diagnostic_symbol_path(key, name.as_str()))
 }
 
@@ -176,6 +182,7 @@ fn place<C: CheckerRequestContext + ?Sized>(
                 (AnySymbolId::CallableParameter(parameter), None) => {
                     let parameter = context.callable_parameter(*parameter)?
                         .expect("checked unnamed input retains its source/imported parameter record");
+
                     Condition::Argument(parameter.ordinal())
                 }
                 (_, None) => panic!("checked condition input {value:?} has no source/imported name"),
@@ -188,6 +195,7 @@ fn place<C: CheckerRequestContext + ?Sized>(
         }
         ExecutionInput::Reference(BoundReferenceTarget::Local(local)) => {
             let locals = domain.request.unit().local_symbols();
+
             match local {
                 AnyLocalSymbolId::Binding(id) => Condition::Source(locals.binding(*id).expect("condition binding is installed").name().as_str().to_owned()),
                 AnyLocalSymbolId::AnonymousCallableParameter(id) => Condition::Source(locals.anonymous_parameter(*id).expect("condition parameter is installed").name().as_str().to_owned()),
@@ -195,6 +203,7 @@ fn place<C: CheckerRequestContext + ?Sized>(
                 AnyLocalSymbolId::PostconditionResult(_) => Condition::Result,
                 AnyLocalSymbolId::AnonymousCallable(_) => {
                     let anchor = locals.syntax_anchor(*local).expect("condition callable has its source anchor");
+
                     Condition::Source(domain.request.source_syntax(anchor).text().trim().to_owned())
                 }
             }
@@ -204,6 +213,7 @@ fn place<C: CheckerRequestContext + ?Sized>(
         ExecutionInput::Static(selection) => Condition::Source(symbol_path(domain, selection.template().declaration().into())?.join(".")),
         ExecutionInput::Storage(storage) => {
             let identity = domain.storage.identity(*storage).expect("condition storage is planned");
+
             if let Some(rebound) = ExecutionPlace::storage_identity(domain.storage, *storage).filter(|other| other.root != value.root) {
                 place(domain, &rebound, budget)?
             } else if let Some(producer) = identity.definition_occurrence() {
@@ -236,6 +246,7 @@ fn occurrence<C: CheckerRequestContext + ?Sized>(
                     let bray_symbols::DependencySubjectRoot::Parameter(ordinal) = input.root() else {
                         panic!("a declaration-owned default belongs to a formal parameter");
                     };
+
                     return Ok(Condition::Argument(ordinal.raw()));
                 }
             }
@@ -270,8 +281,10 @@ fn term_value<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>, term: bray_symbols::ConstantTermId, budget: &mut usize,
 ) -> Outcome<C> {
     let inputs = domain.request.trusted_contracts().map_or(&[][..], |contracts| &contracts.inputs);
+
     let value = crate::execution_condition_from_term(domain.request.semantic_values(), term, inputs)
         .expect("diagnostic constant term belongs to the checked semantic store");
+
     condition(domain, &value, budget)
 }
 
@@ -279,6 +292,7 @@ fn literal<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>, value: &ConstantValueKind, budget: &mut usize,
 ) -> Outcome<C> {
     let Some(remaining) = budget.checked_sub(1) else { return Ok(Condition::Elided); };
+
     *budget = remaining;
 
     Ok(match value {
@@ -286,6 +300,7 @@ fn literal<C: CheckerRequestContext + ?Sized>(
         ConstantValueKind::StaticAddress(selection) => Condition::StaticAddress(symbol_path(domain, selection.template().declaration().into())?),
         ConstantValueKind::Borrowed(value) => {
             let value = domain.request.semantic_values().constant_value_data(*value);
+
             literal(domain, value.kind(), budget)?
         }
         ConstantValueKind::Boolean(value) => Condition::Boolean(*value),
@@ -295,6 +310,7 @@ fn literal<C: CheckerRequestContext + ?Sized>(
         ConstantValueKind::NullableAbsent => Condition::Absent,
         ConstantValueKind::NullablePresent(value) => {
             let value = domain.request.semantic_values().constant_value_data(*value);
+
             Condition::Present(Box::new(literal(domain, value.kind(), budget)?))
         }
         ConstantValueKind::Error => Condition::Unknown,

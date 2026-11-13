@@ -62,6 +62,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         self.assume_produced_variant(state, expression, &result);
         state.pending_results.insert(expression, result);
+
         if !panicked {
             // The pending Ok payload owns this value before predecessor joins.
             // Its terminal operand snapshot still feeds the physical commit.

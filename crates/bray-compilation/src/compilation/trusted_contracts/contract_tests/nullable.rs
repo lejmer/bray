@@ -150,8 +150,10 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
     ] {
         let asynchronous = if deferred { "async " } else { "" };
         let caller_async = if deferred || route != "direct" { "async " } else { "" };
+
         let execute = if deferred { "let mutation = trusted mutate(owner);\n                await mutation;" }
             else { "trusted mutate(owner);" };
+
         let extraction = match route {
             "direct" => format!("let outgoing = std.memory.replace_value<(Owner?)>({source_owner}, none);\n                consume_optional(outgoing);"),
             "await" => format!("let extraction = trusted forward_owner({source_owner});\n                let outgoing = await extraction;\n                consume_optional(outgoing);"),
@@ -165,9 +167,11 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
             "#.to_owned(),
             _ => unreachable!(),
         };
+
         let postcondition = if promise {
             "ensures(owner matches none || trusted optional_owner(owner = &owner))"
         } else { "" };
+
         let source = format!(r#"
             trusted module app;
             using std.memory;
@@ -235,18 +239,24 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
                 {extraction}
             }}
         "#);
+
         let application = crate::test_support::production_standard_library_compilation(
             crate::SelectedTarget::baseline(), &source);
+
         if route == "await" {
             let published = source_function_dependencies(&application, "forward_owner");
+
             assert!(!published.owned_result().is_empty(),
                 "checked extraction must publish the source-to-result ownership transfer: {published:?}");
         }
+
         let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
             .expect("nullable extraction caller reaches lowering");
+
         let diagnostics = checked.diagnostics();
 
         assert_eq!(!diagnostics.has_errors(), valid, "deferred={deferred} promise={promise} source={source_owner} route={route}: {diagnostics:#?}");
+
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
         }

@@ -564,13 +564,16 @@ mod tests {
     fn mapped_guards_keep_the_enclosing_equation_depth() {
         let receiver = DependencySubject::root(DependencySubjectRoot::Receiver);
         let input = DependencyRequirement::direct(receiver.clone(), DependencyRequirementKind::ValueDependencies);
+
         let equation = DependencyRequirement::fixed_point(
             [vec![input.clone()]],
             [DependencyRequirement::guarded(DependencyGuard::NullablePresent(receiver), [input])],
         );
+
         let mapped = map_requirements(&[equation], &mut |_, _, _| {
             Ok::<_, std::convert::Infallible>(vec![DependencyRequirement::variable(0, SymbolOrdinal::new(0))])
         }).expect("mapping preserves the caller's outer variable binding");
+
         let outer = DependencyRequirement::variable(1, SymbolOrdinal::new(0));
 
         assert_eq!(mapped, vec![DependencyRequirement::fixed_point([vec![outer.clone()]], [outer])]);

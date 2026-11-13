@@ -9,6 +9,7 @@ pub(in crate::dependency) fn prepare_future_effects<C: CheckerRequestContext + ?
     call: &bray_bound_tree::SelectedCall,
 ) -> Result<(Vec<Effect>, Vec<Effect>), CheckerQueryError<C::UpstreamError>> {
     let mut captures = Vec::new();
+
     let inputs = call.arguments().iter().map(bray_bound_tree::SelectedInput::Argument)
         .chain(call.receiver().map(bray_bound_tree::SelectedInput::Receiver));
 
@@ -17,10 +18,13 @@ pub(in crate::dependency) fn prepare_future_effects<C: CheckerRequestContext + ?
             subject: DependencySubject::root(input.root()), kind: Kind::Dispose(input.ty(request.semantic_values())), access_type: Some(input.ty(request.semantic_values())),
         }])?);
     }
+
     let ty = call.resolution().result().completion_type();
+
     let result = resolve_effects(request, &[Effect::Direct {
         subject: DependencySubject::root(DependencySubjectRoot::Result), kind: Kind::Dispose(ty), access_type: Some(ty),
     }])?;
+
     Ok((captures, result))
 }
 
@@ -49,6 +53,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     let Some((kind @ (Kind::Dispose(ty) | Kind::Cleanup(ty)), _)) = mutation(effect) else {
         // The result owns its effects while sharing immutable projection paths.
         resolved.push(effect.clone());
+
         return Ok(());
     };
 
@@ -62,6 +67,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
 
     if !active.insert(ty) {
         resolved.push(effect.clone());
+
         return Ok(());
     }
 
@@ -70,6 +76,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     if parts.value().is_empty() {
         resolved.push(effect.clone());
         active.remove(&ty);
+
         return Ok(());
     }
 
@@ -96,6 +103,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         }
 
         let mut children = Vec::new();
+
         append_part(request, *ty, part.as_ref().expect("concrete represented cleanup part"), &scope, &mut children)?;
 
         for child in children {
@@ -104,6 +112,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     }
 
     active.remove(&ty);
+
     Ok(())
 }
 
@@ -121,6 +130,7 @@ fn expand_region<C: CheckerRequestContext + ?Sized>(
         subject: DependencySubject::root(DependencySubjectRoot::Result),
         kind: Kind::Dispose(ty), access_type: Some(ty),
     };
+
     let mut effects = Vec::new();
 
     expand(request, shapes, &value, active, &mut effects)?;
@@ -151,6 +161,7 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
     if let Some(fields) = crate::representation::raw_buffer_fields(request, ty)? {
         let pointer = [Projection::ProductField(fields.pointer)];
+
         let backing = match scope {
             Effect::Direct { subject, .. } => Effect::Indirect {
                 reference: DependencySubject::new(subject.subject_root(), subject.projections().iter().copied().chain(pointer)),
@@ -161,6 +172,7 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
 
         effects.push(replace_kind(&backing, Kind::Dispose(fields.element), None));
         effects.push(backing);
+
         return Ok(());
     }
 
@@ -170,11 +182,13 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
 
     if !part.phases().includes_lifecycle() {
         effects.push(scope.clone());
+
         return Ok(());
     }
 
     for slot in [bray_symbols::TypeAssociatedLifecycleSlot::Finalizer, bray_symbols::TypeAssociatedLifecycleSlot::Destructor] {
         let selected = request.context().lifecycle_callable(ty, slot)?;
+
         assert!(!selected.diagnostics().has_errors(), "selected cleanup lifecycle retains its checked declaration: {ty:?}");
 
         if let Some((callable, _)) = selected.value() {
@@ -192,8 +206,10 @@ fn append_call<C: CheckerRequestContext + ?Sized>(
     effects: &mut Vec<Effect>,
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
     let template = request.callable_result_dependencies(callable.definition().callable_symbol())?;
+
     let template = request.semantic_values().substitute_dependency_contract(template, callable.substitution())
         .expect("selected lifecycle substitution retains its checked dependency contract");
+
     let template = request.semantic_values().dependency_contract_template_data(template);
 
     effects.extend(template.effects().iter().map(|effect| match effect {

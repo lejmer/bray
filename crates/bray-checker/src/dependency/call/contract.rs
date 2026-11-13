@@ -830,10 +830,13 @@ mod tests {
             (0..3).map(|_| push_expression(tree,
                 BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))).collect()
         });
+
         let [argument, pointer, call_expression] = expressions.as_slice() else {
             panic!("raw-view fixture has an owner, pointer and call");
         };
+
         let (argument, pointer, call_expression) = (*argument, *pointer, *call_expression);
+
         let raw_view = matches!(implementation, ImplementationHook::BorrowFrom | ImplementationHook::BorrowMutFrom);
 
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
@@ -905,6 +908,7 @@ mod tests {
         if raw_view {
             let (_, pointer_access) = push_direct_storage(&mut storage,
                 StorageIdentity::Temporary(pointer), unit.key().source());
+
             push_staged_input(&mut storage, call_expression, 1, pointer, pointer_access,
                 error_type(), unit.key().source(), None);
         }

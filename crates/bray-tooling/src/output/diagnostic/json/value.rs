@@ -25,6 +25,7 @@ mod tests {
             constness: DiagnosticCallableConstness::Constant, execution: DiagnosticCallableExecution::Synchronous,
             trust: DiagnosticCallableTrust::Trusted, abi: DiagnosticCallableAbi::Bray,
         };
+
         let json = serde_json::to_value(super::DiagnosticTypeJson::from_type(&ty)).expect("callable type JSON serializes");
         let signature = &json["callable"];
 
@@ -47,6 +48,7 @@ mod tests {
         let ty = DiagnosticType::Borrow { kind: DiagnosticBorrowKind::Mutable, target: Box::new(
             DiagnosticType::Borrow { kind: DiagnosticBorrowKind::Shared, target: Box::new(DiagnosticType::U32) },
         ) };
+
         let json = serde_json::to_value(super::DiagnosticTypeJson::from_type(&ty)).expect("borrow type JSON serializes");
 
         assert_eq!(json["kind"], "borrow");

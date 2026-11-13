@@ -40,6 +40,7 @@ impl ExecutionCondition {
                 Self::PostState(site, _) => *site == mutation,
                 _ => false,
             };
+
             if depends { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
         }).is_break()
     }
@@ -53,12 +54,15 @@ impl ExecutionCondition {
     /// Mutations already retained by the current values, without reconstructing invalidation history.
     pub(crate) fn observed_mutations(&self) -> BTreeSet<StorageMutation> {
         let mut changes = BTreeSet::new();
+
         let _ = self.visit(|condition| {
             if let Self::PostState(mutation, _) = condition {
                 changes.insert(*mutation);
             }
+
             ControlFlow::Continue(())
         });
+
         changes
     }
 }

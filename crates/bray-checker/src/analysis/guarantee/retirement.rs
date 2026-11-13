@@ -113,6 +113,7 @@ impl ExecutionState {
                 }
             })
         };
+
         let borrowed_changed = |condition: &ExecutionCondition| condition.observes_live_where(|value| {
             observes(value, false)
                 || matches!((&retiring_snapshots, retained_snapshots), (Some(before), Some(after))
@@ -679,13 +680,17 @@ mod tests {
         let (_, expressions) = expression_unit(BoundUnitId::new(91), |tree, origin| {
             vec![push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))]
         });
+
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let selector = ExecutionCondition::ScalarValue(Arc::new(ExecutionCondition::Joined(BoundUnitId::new(91), 6, place.clone())));
+
         let unrelated = ExecutionCondition::ScalarValue(Arc::new(ExecutionCondition::Joined(BoundUnitId::new(91), 6,
             ExecutionPlace::argument(SymbolOrdinal::new(1)))));
+
         let captured = ExecutionCondition::CapturedInput {
             owner: Arc::new(ExecutionCondition::Result), invocation: expressions[0].into(), ordinal: SymbolOrdinal::new(0),
         };
+
         let mut state = ExecutionState::default();
 
         state.deferred_invocations.insert(ExecutionCondition::Result, DeferredValue {
@@ -811,11 +816,15 @@ mod tests {
             assert!(state.trusted_assumptions.contains(&(condition.clone(), true)));
 
             let scope = ExecutionPlace::argument(SymbolOrdinal::new(1));
+
             state.current.insert(scope.clone(), ExecutionCondition::Input(scope.clone()));
             state.carry_guarantee(loan.clone(), condition.clone());
+
             std::sync::Arc::make_mut(state.witnesses.get_mut(&loan).expect("the scoped view has its own evidence"))
                 .dependencies.insert(scope.clone());
+
             let mut only_view = ExecutionState::default();
+
             only_view.current = state.current.clone();
             only_view.witnesses.insert(loan.clone(), state.witnesses[&loan].clone());
             only_view.trusted_assumptions.insert((condition.clone(), true));

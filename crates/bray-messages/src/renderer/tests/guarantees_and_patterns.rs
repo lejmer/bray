@@ -25,6 +25,7 @@ fn witness_transfer_failures_name_the_operation_and_owning_guarantee() {
                 arguments: vec![DiagnosticCondition::Source("owner.token".to_owned())],
             },
         };
+
         let diagnostic = Diagnostic::new(DiagnosticId::new(0),
             DiagnosticKind::CheckingTrustedWitnessTransferNotProven, SeverityKind::Error)
             .with_arg(DiagnosticArg::witness_transfer(failure));
@@ -111,6 +112,7 @@ fn execution_failure_labels_render_source_level_causes() {
             .with_arg(DiagnosticArg::referenced_name("total"))
             .with_label(DiagnosticLabel::secondary(DiagnosticLabelKind::ExecutionProofFailure, span)
                 .with_arg(DiagnosticArg::execution_proof_failure(cause)));
+
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
 
         assert_eq!(rendered.labels()[0].message(), expected);
@@ -262,6 +264,7 @@ fn forbidden_predicate_blocks_name_the_syntax_and_const_helper_remedy() {
             .with_arg(DiagnosticArg::actual_syntax_kind(kind))
             .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::ForbiddenPredicateBlock, span))
             .with_note(DiagnosticNote::new(DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper));
+
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
 
         assert_eq!(rendered.message(), expected);
@@ -276,6 +279,7 @@ fn unproven_contract_labels_name_the_actual_condition() {
         DiagnosticContractObligation, DiagnosticContractObligationKind};
 
     let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+
     let obligation = DiagnosticContractObligation {
         kind: DiagnosticContractObligationKind::Postcondition,
         required: DiagnosticCondition::Result,
@@ -285,11 +289,13 @@ fn unproven_contract_labels_name_the_actual_condition() {
                 DiagnosticCondition::Literal("1".to_owned())],
         },
     };
+
     let diagnostic = Diagnostic::new(DiagnosticId::new(0),
         DiagnosticKind::CheckingPostconditionNotProven, SeverityKind::Error)
         .with_label(DiagnosticLabel::secondary(DiagnosticLabelKind::UnprovenContractCondition, span)
             .with_arg(DiagnosticArg::contract_obligation(obligation))
             .with_arg(DiagnosticArg::execution_proof_failure(bray_diagnostics::DiagnosticExecutionProofFailure::Unproven)));
+
     let rendered = DiagnosticRenderer::english().render(&diagnostic);
 
     assert_eq!(rendered.labels()[0].message(), "this operation or its cleanup does not establish the required contract: postcondition `(value > 1)`");

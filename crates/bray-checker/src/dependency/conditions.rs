@@ -8,7 +8,9 @@ pub(super) fn references<C>(request: CheckerUnitView<'_, C>)
 where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let mut references = bray_bound_tree::ConditionCallReferences::new();
+
     let Some(inputs) = request.trusted_contracts() else { return Ok(references); };
+
     let conditions = inputs.requirements.iter().chain(&inputs.preconditions)
         .chain(inputs.guarantees.iter().map(|(condition, _)| condition))
         .chain(inputs.calls.values().flat_map(|call| call.requirements.iter()
@@ -29,6 +31,7 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
                     if let std::collections::btree_map::Entry::Vacant(entry) = references.entry(key) {
                         let template = request.callable_result_dependencies(callable.definition().callable_symbol())?;
                         let template = super::resolved_result_template(request, Some(callable), template, None)?;
+
                         let signature = request.resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                             callable.definition().callable_symbol()))?;
 

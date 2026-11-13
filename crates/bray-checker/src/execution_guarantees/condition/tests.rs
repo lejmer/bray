@@ -12,6 +12,7 @@ fn observed_storage_bindings_read_the_same_current_value_as_their_producer() {
     let (unit, expressions) = crate::test_support::expression_unit(BoundUnitId::new(0), |tree, origin| {
         vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
     });
+
     let syntax = unit.key().source().syntax();
     let key = LocalSymbolRegionKey::try_new(unit.key().declared_owner().clone(), LocalSymbolRegionRole::CallableBody, [syntax], None).expect("local region key");
     let mut symbols = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(unit.unit().raw()), key);
@@ -20,7 +21,9 @@ fn observed_storage_bindings_read_the_same_current_value_as_their_producer() {
     let mut builder = StoragePlanBuilder::new(unit.unit(), BoundUnitKind::CallableBody);
     let identity = builder.push_identity(StorageIdentity::Temporary(expressions[0])).expect("produced storage");
     let access = builder.push_access(StorageAccess::new(StorageAccessRoot::Storage(identity), [], crate::test_support::error_type(), unit.key().source(), false)).expect("whole produced value");
+
     builder.bind(StorageBindingTarget::Local(binding), StorageBinding::Access(access)).expect("observed alias");
+
     let storage = builder.finish();
     let produced = ExecutionPlace::storage_identity(&storage, identity).expect("producer's current place");
     let observed = ExecutionPlace::binding(&storage, StorageBindingTarget::Local(binding)).expect("binding's current place");
@@ -41,13 +44,16 @@ fn snapshot_substitution_keeps_one_current_component_overlay() {
 
     assert_eq!(joined.with_snapshots(&snapshots), source,
         "a predecessor snapshot replaces the current overlay without retaining nested copies");
+
     assert_eq!(joined.borrowed().with_snapshots(&snapshots), source.clone().borrowed());
 
     let changed = ExecutionCondition::constructed(source.clone(), [(field(1), ExecutionCondition::Boolean(false))].into());
+
     let expected = ExecutionCondition::constructed(input(0), [(field(0), ExecutionCondition::Boolean(true)),
         (field(1), ExecutionCondition::Boolean(false))].into());
 
     assert_eq!(changed, expected, "the outer overlay replaces overwritten contents and keeps untouched siblings");
+
     assert_eq!(ExecutionCondition::constructed(source.borrowed(), [(field(1), ExecutionCondition::Boolean(false))].into()),
         expected.borrowed(), "overlay composition preserves reference capability without acquiring ownership");
 }
@@ -67,26 +73,33 @@ fn predicate_reference_arguments_keep_referents_owners_and_changed_contents_dist
     assert_ne!(condition(loan(2, contents)), condition(loan(2, ExecutionCondition::owned_value(input(0), input(5)))));
 
     let copied = |ordinal| ExecutionCondition::scalar_observation(input(ordinal), ExecutionCondition::Boolean(true));
+
     assert_ne!(condition(loan(2, copied(6))), condition(loan(2, copied(7))));
 
     let callable = crate::test_support::callable_instance(
         bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(960)).into());
+
     let reference_type = crate::test_support::semantic_values().intern_type(bray_symbols::TypeData::Borrow {
         kind: bray_symbols::BorrowKind::Shared, target: crate::test_support::error_type(),
     }).expect("checked reference type");
+
     let computed = |reference_type| ExecutionCondition::call(callable, None, [], vec![input(0)], reference_type);
 
     assert_eq!(condition(loan(2, computed(Some(reference_type)))), condition(loan(3, computed(Some(reference_type)))));
     assert_ne!(condition(loan(2, computed(None))), condition(loan(3, computed(None))));
     assert_eq!(computed(Some(reference_type)).ownership_identity(), None);
     assert_eq!(computed(Some(reference_type)).borrowed().ownership_identity(), None);
+
     let symbolic = condition(loan(2, computed(Some(reference_type))));
+
     assert_eq!(symbolic.substitute(&|place| ExecutionCondition::Input(place.clone()),
         &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT }), symbolic);
+
     assert!(condition(loan(2, ExecutionCondition::Unknown)).is_unknown());
     assert!(condition(loan(3, ExecutionCondition::Unknown)).is_unknown());
 
     let ExecutionCondition::Predicate(_, _, arguments) = condition(loan(2, input(0))) else { unreachable!(); };
+
     assert_eq!(arguments[0].ownership_identity().map(|(kind, _)| kind), Some(super::ExecutionObservationKind::Reference));
 }
 
@@ -114,6 +127,7 @@ fn retained_disjunctions_reject_only_incompatible_branches() {
         ExecutionCondition::operation(BoundOperator::LogicalNot, vec![first.clone()]),
         ExecutionCondition::operation(BoundOperator::LogicalNot, vec![second.clone()]),
     ]);
+
     let assumptions = BTreeSet::from([(unavailable, false)]);
 
     assert!(first.can_assume(true, &assumptions));
@@ -157,19 +171,25 @@ fn copy_proof_correlations_preserve_borrowed_storage_identity() {
     let substitution = crate::test_support::callable_instance(definition.into()).substitution();
     let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(901));
     let source = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+
     let copied = ExecutionCondition::scalar_observation(
         ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))), source.clone());
+
     let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+
     let evidence = crate::ExecutionCallEvidence {
         arguments: BTreeMap::from([(place.clone(), copied.clone())]),
         copy_sources: BTreeMap::from([(place, source.clone())]),
         ..Default::default()
     };
+
     let condition = |value| ExecutionCondition::predicate(predicate.into(), substitution, vec![value]);
+
     let facts = BTreeSet::from([
         (condition(source.clone()), true),
         (condition(source.clone().borrowed()), true),
     ]);
+
     let observed = evidence.proof_facts(&facts).collect::<BTreeSet<_>>();
 
     assert!(observed.contains(&(condition(copied.clone()), true)));
@@ -182,9 +202,11 @@ fn retained_scalar_data_does_not_preserve_its_original_storage_loan_or_owner() {
     let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
     let data = input(0);
     let copied = ExecutionCondition::scalar_observation(input(1), data.clone());
+
     let stable = crate::execution_guarantees::ObservationSet::from_iter([
         copied.clone(), copied.clone().borrowed(),
     ]);
+
     let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
     let substitution = crate::test_support::empty_substitution(predicate.into());
     let condition = |value| ExecutionCondition::predicate(predicate.into(), substitution, vec![value]);
@@ -194,6 +216,7 @@ fn retained_scalar_data_does_not_preserve_its_original_storage_loan_or_owner() {
     assert!(condition(data.clone()).observes_only(|value| stable.preserves(value)));
     assert!(!condition(data.clone().borrowed()).observes_only(|value| stable.preserves(value)));
     assert!(condition(copied.clone().borrowed()).observes_only(|value| stable.preserves(value)));
+
     assert!(!crate::execution_guarantees::ObservationSet::retains_owner(
         &BTreeSet::from([copied]), &data));
 }
@@ -207,11 +230,15 @@ fn predicate_substitution_distinguishes_value_reads_from_explicit_loans() {
     let callable = crate::test_support::callable_instance(definition.into());
     let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(902));
     let field_value = input(0).component(projection);
+
     let condition = ExecutionCondition::predicate(predicate.into(), callable.substitution(),
         vec![field_value.clone(), field_value.borrowed()]);
+
     let arguments = BTreeMap::from([(ExecutionPlace::argument(SymbolOrdinal::new(0)), input(1).borrowed())]);
+
     let instantiated = condition.substitute(&|place| place.value_in(&arguments).unwrap(),
         &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT });
+
     let expected = input(1).component(projection);
 
     assert_eq!(instantiated, ExecutionCondition::predicate(predicate.into(), callable.substitution(),
@@ -219,7 +246,9 @@ fn predicate_substitution_distinguishes_value_reads_from_explicit_loans() {
 
     let condition = ExecutionCondition::predicate(predicate.into(), callable.substitution(),
         vec![input(0), input(0).borrowed()]);
+
     let copied = ExecutionCondition::scalar_observation(input(2), input(1).borrowed());
+
     let instantiated = condition.substitute(&|_| copied.clone(),
         &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT });
 
@@ -255,14 +284,18 @@ fn spatial_extents_observe_copied_values_without_owning_them() {
     let callable = crate::test_support::callable_instance(definition.into());
     let pointer = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
     let count = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+
     let copied = ExecutionCondition::scalar_observation(
         ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))), count.clone());
+
     let condition = |extent| ExecutionCondition::predicate(predicate.into(), callable.substitution(),
         vec![pointer.clone(), extent]);
+
     let spatial = BTreeMap::from([(predicate.into(), &[0][..])]);
 
     assert_eq!(condition(copied.clone()).pointer_observations(&spatial),
         condition(count).pointer_observations(&spatial));
+
     assert!(copied.ownership_identity().is_none());
 }
 
@@ -276,21 +309,28 @@ fn spatial_predicates_follow_copied_descriptors_without_copying_owner_authority(
     let copied = ExecutionCondition::scalar_observation(copy_identity.clone(), pointer.clone());
     let owned = ExecutionCondition::owned_value(copy_identity, pointer.clone());
     let count = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+
     let condition = |value| ExecutionCondition::predicate(predicate.into(), callable.substitution(),
         vec![value, count.clone()]);
+
     let spatial = BTreeMap::from([(predicate.into(), &[0][..])]);
 
     for observed in [copied.clone(), owned.clone(), pointer.clone().borrowed()] {
         assert_eq!(condition(observed).pointer_observations(&spatial),
             condition(pointer.clone()).pointer_observations(&spatial));
     }
+
     assert_ne!(condition(copied.clone().borrowed()).pointer_observations(&spatial),
         condition(pointer.clone()).pointer_observations(&spatial));
+
     assert_ne!(condition(owned.clone().borrowed()).pointer_observations(&spatial),
         condition(pointer.clone()).pointer_observations(&spatial));
+
     let replaced = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(3)));
+
     assert_eq!(condition(owned.with_current_contents(replaced.clone())).pointer_observations(&spatial),
         condition(replaced).pointer_observations(&spatial));
+
     assert_ne!(copied.clone().borrowed().owner_identity(), pointer.borrowed().owner_identity());
     assert!(copied.ownership_identity().is_none());
 }
@@ -300,28 +340,38 @@ fn disjoint_ranges_observe_both_descriptors_and_borrowed_extents() {
     let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("NonOverlapping");
     let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
     let callable = crate::test_support::callable_instance(definition.into());
+
     let values = (0..4).map(|ordinal| ExecutionCondition::Input(
         ExecutionPlace::argument(SymbolOrdinal::new(ordinal)))).collect::<Vec<_>>();
+
     let observed = values.iter().enumerate().map(|(index, value)| {
         ExecutionCondition::scalar_observation(
             ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(4 + index as u32))),
             value.clone(),
         ).borrowed()
     }).collect::<Vec<_>>();
+
     let condition = |arguments| ExecutionCondition::predicate(predicate.into(), callable.substitution(), arguments);
     let spatial = BTreeMap::from([(predicate.into(), &[0, 2][..])]);
 
     // Borrowing a copied scalar observes its separate storage identity.
     assert_ne!(condition(observed).pointer_observations(&spatial),
         condition(values.clone()).pointer_observations(&spatial));
+
     assert_eq!(condition(values.iter().cloned().map(ExecutionCondition::borrowed).collect()).pointer_observations(&spatial),
         condition(values.clone()).pointer_observations(&spatial));
+
     let mut materialized = values.clone();
+
     materialized[1] = ExecutionCondition::owned_value(values[3].clone(), values[1].clone());
+
     assert_eq!(condition(materialized).pointer_observations(&spatial),
         condition(values.clone()).pointer_observations(&spatial));
+
     let mut changed = values.clone();
+
     changed.swap(0, 2);
+
     assert_ne!(condition(changed).pointer_observations(&spatial),
         condition(values).pointer_observations(&spatial));
 }
@@ -467,6 +517,7 @@ fn data_aliases_preserve_identity_without_assuming_numeric_equality() {
 
     for condition in [alias.clone(), numeric] {
         let selected = input(2);
+
         let guarded = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![
             ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![selected.clone()]), condition.clone(),
         ]);
@@ -489,17 +540,21 @@ fn structural_rewrites_preserve_initialized_nullable_contents() {
     let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
     let nullable = bray_bound_tree::StorageProjection::NullableValue;
     let source = input(0).present();
+
     let captured = crate::execution_guarantees::owned_snapshot(
         &source, input(1), &mut { ExecutionCondition::WORK_LIMIT },
     );
+
     let moved = crate::execution_guarantees::owned_snapshot(
         &source, input(2), &mut { ExecutionCondition::WORK_LIMIT },
     );
+
     let values = [(input(1), input(2))].into();
 
     assert_eq!(captured.with_snapshots(&Default::default()), captured);
     assert_eq!(captured.with_joined_values(&Default::default(), &Default::default()), captured);
     assert_eq!(captured.with_joined_values(&values, &values), moved);
+
     let mapped = crate::map_execution_condition_references(
         &captured,
         &|value| Ok::<_, std::convert::Infallible>(value),
@@ -520,11 +575,14 @@ fn structural_rewrites_preserve_initialized_nullable_contents() {
     assert_eq!(held(republished.clone()), held(input(1)), "payload extraction retains the whole nullable predicate argument");
 
     let values = crate::test_support::semantic_values();
+
     let argument = values.intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(SymbolOrdinal::new(1)))
         .expect("the formal argument belongs to the test store");
+
     let payload = values.intern_constant_term(bray_symbols::ConstantTermData::Projection(
         bray_symbols::ConstantProjection::new(argument, ConstantProjectionKind::NullableValue),
     )).expect("the payload belongs to the test store");
+
     let term = values.intern_constant_term(bray_symbols::ConstantTermData::NullablePresent(payload))
         .expect("the present term belongs to the test store");
 
@@ -839,8 +897,10 @@ fn anonymous_aggregate_contents_do_not_establish_an_observation_identity() {
     );
 
     assert_eq!(anonymous.owner_identity(), changed.owner_identity());
+
     assert_eq!(anonymous.owner_identity(), &ExecutionCondition::Unknown,
         "anonymous contents cannot become a substitute for missing backing identity");
+
     assert!(anonymous.owner_identity().observation_path().is_none());
     assert!(changed.owner_identity().observation_path().is_none());
 }
@@ -1066,11 +1126,14 @@ fn carrier_implication_preserves_trusted_provenance_through_negated_guards() {
 #[test]
 fn boolean_publication_forgets_local_atoms_under_both_polarities() {
     use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalNot, LogicalOr};
+
     let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
     let left = input(0);
     let right = input(1);
+
     let local = ExecutionCondition::InitializedSnapshot(ExecutionPlace::argument(SymbolOrdinal::new(2)),
         Arc::new(ExecutionCondition::Boolean(true)), Arc::new(input(2)));
+
     let not = |condition| ExecutionCondition::operation(LogicalNot, vec![condition]);
     let and = |left, right| ExecutionCondition::operation(LogicalAnd, vec![left, right]);
     let or = |left, right| ExecutionCondition::operation(LogicalOr, vec![left, right]);
@@ -1088,8 +1151,11 @@ fn boolean_publication_forgets_local_atoms_under_both_polarities() {
         (not(local.clone()), true, ExecutionCondition::Boolean(true)),
     ] {
         let projected = condition.boolean_consequence(holds, &mut { retain }, &mut { ExecutionCondition::WORK_LIMIT });
+
         assert_eq!(projected, expected);
+
         let premise = if holds { condition } else { not(condition) };
+
         assert!(premise.implies(&projected), "{premise:?} must imply {projected:?}");
         assert_eq!(projected.prove_trusted(&BTreeSet::new(), &BTreeSet::from([(premise, true)])), Some(true));
     }
@@ -1100,17 +1166,24 @@ fn boolean_publication_forgets_local_atoms_under_both_polarities() {
 #[test]
 fn boolean_publication_bounds_unique_terms_instead_of_repeated_occurrences() {
     use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalOr};
+
     let atom = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+
     let local = ExecutionCondition::InitializedSnapshot(ExecutionPlace::argument(SymbolOrdinal::new(1)),
         Arc::new(ExecutionCondition::Boolean(true)), Arc::new(atom.clone()));
+
     let mut relation = ExecutionCondition::Operation(LogicalAnd, vec![atom.clone(), local].into());
+
     for index in 0..10 {
         relation = ExecutionCondition::Operation(if index % 2 == 0 { LogicalOr } else { LogicalAnd },
             vec![relation.clone(), relation].into());
     }
+
     let mut budget = ExecutionCondition::WORK_LIMIT;
+
     let projected = relation.boolean_consequence(true, &mut |condition|
         matches!(condition, ExecutionCondition::Input(_)).then(|| condition.clone()), &mut budget);
+
     assert!(budget > 0, "repeated subformulas cannot exhaust the unique-term bound");
     assert_eq!(projected, atom, "forgetting the local conjunct retains the portable consequence");
 }

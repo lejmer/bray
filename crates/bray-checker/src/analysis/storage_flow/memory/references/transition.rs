@@ -234,6 +234,7 @@ impl State {
         // an origin of the pointers stored in those fields.
         if let Some(contents) = self.bounded_reference_contents(request, &destination)? {
             self.values.insert(destination, contents);
+
             return Ok(());
         }
 
@@ -488,9 +489,11 @@ impl State {
     ) {
         let target = Target { previous: false,
             origin: Origin::Allocation { allocation, projections: [].into() } };
+
         let pending = self.pending.entry(call).or_default();
 
         pending.payloads.entry(target.clone()).or_default().allocations.extend(call.expression());
+
         pending.values.entry(destination).or_default()
             .merge(&References::one(target.project(projections)));
     }
@@ -528,6 +531,7 @@ impl State {
         // A produced owning descriptor names its backing region, just as an
         // owning formal does. This declares neither freshness nor initialization.
         let backing = owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]);
+
         self.stage_bounded_reference(call, destination, reference, element, References::one(backing));
     }
 

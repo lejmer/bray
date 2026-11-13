@@ -96,14 +96,10 @@ trusted func acquire(pos cancelled: bool) -> ChildCleanup
 }
 
 func observe(pos owner: &ChildCleanup)
-    requires(trusted retained(marker = &owner.marker))
-{
-}
+    requires(trusted retained(marker = &owner.marker)) {}
 
 func observe_whole(pos owner: &ChildCleanup)
-    requires(trusted coherent(owner = owner))
-{
-}
+    requires(trusted coherent(owner = owner)) {}
 
 struct ScopedOwner
 {
@@ -216,6 +212,7 @@ async func inactive(pos owner: ChildCleanup)
     requires(main_thread_execution(), trusted retained(marker = &owner.marker))
 {
     _ = core.atomic.fetch_add<u32, 3>(&INACTIVE_BODIES, 1);
+
     observe(&owner);
 }
 
@@ -223,6 +220,7 @@ async func produce() -> Future<unit>
     requires(main_thread_execution())
 {
     let mut returned_owner = await transport(acquire(false), true);
+
     await returned_owner.advance();
     observe_whole(&returned_owner);
     return inactive(returned_owner);
@@ -233,17 +231,9 @@ async func dispose_returned()
 {
     match consume await produce().start().join()
     {
-        case Completed(pending)
-        {
-        }
-        case Panicked(report)
-        {
-            panic("payload producer panicked");
-        }
-        case Cancelled
-        {
-            panic("payload producer was cancelled");
-        }
+        case Completed(pending) {}
+        case Panicked(report) { panic("payload producer panicked"); }
+        case Cancelled { panic("payload producer was cancelled"); }
     }
 }
 

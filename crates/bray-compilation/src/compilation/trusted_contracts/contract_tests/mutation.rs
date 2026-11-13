@@ -148,12 +148,15 @@ fn extracted_fields_survive_sibling_extraction_and_parent_replacement() {
                 consume_marker(left);
             }}
         "#);
+
         let application = crate::test_support::production_standard_library_compilation(
             crate::SelectedTarget::baseline(), &source);
+
         let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
             .expect("extracted field caller reaches lowering");
 
         assert_eq!(!checked.diagnostics().has_errors(), valid, "{continuation}: {:#?}", checked.diagnostics());
+
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
         }

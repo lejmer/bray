@@ -1025,6 +1025,7 @@ mod tests {
             expression,
             phase: crate::analysis::model::AnalysisResultPhase::Production,
         });
+
         let mut pending = BTreeSet::from([subject, cursor]);
 
         transfer_operation(&mut pending, &produced, &effects, &effects.universe);

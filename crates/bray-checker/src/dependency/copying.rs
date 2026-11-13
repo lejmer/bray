@@ -60,6 +60,7 @@ impl super::ValueInputs {
             std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
             std::collections::btree_map::Entry::Vacant(entry) => {
                 let logical = matches!(request.view().kind(), bray_bound_tree::BoundUnitKind::ContractClause | bray_bound_tree::BoundUnitKind::PredicateDefinition);
+
                 let borrow_free = if logical {
                     crate::representation::reference_kind(request, ty) == Some(bray_symbols::DependencyReferenceKind::Address)
                 } else {

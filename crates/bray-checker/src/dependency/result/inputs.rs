@@ -11,6 +11,7 @@ use crate::{CheckerQueryError, CheckerRequestContext};
 impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
     pub(super) fn borrowed_input_receiver(&self, input: BoundExecutionSite) -> Option<bray_bound_tree::BoundExpressionId> {
         let BoundExecutionSite::CallInput { expression, ordinal } = input else { return None; };
+
         let bray_bound_tree::SelectedInput::Receiver(receiver) = self.selections.expression(expression)
             .expect("input dependency transfer retains its invocation")
             .input(ordinal).expect("input dependency transfer retains its exact input") else { return None; };

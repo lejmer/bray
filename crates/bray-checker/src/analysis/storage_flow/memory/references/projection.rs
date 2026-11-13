@@ -112,13 +112,17 @@ impl State {
         if location.previous { return Ok(None); }
 
         let Origin::Returned { reference, projections } = &location.origin else { return Ok(None); };
+
         let bounds = self.returned_reference_bounds(reference);
+
         if projections.is_empty() || bounds.unknown || bounds.displaced || bounds.inexact || bounds.targets.is_empty() {
             return Ok(None);
         }
 
         let parent = Target { previous: false, origin: Origin::Returned { reference: reference.clone(), projections: [].into() } };
+
         let Some(ty) = self.declared_type(&parent) else { return Ok(None); };
+
         let mut contents = References::default();
 
         for target in &bounds.targets {
@@ -127,6 +131,7 @@ impl State {
             }
 
             let Some(value) = self.values.get(&target.project(projections)) else { return Ok(None); };
+
             if value.unknown || value.displaced { return Ok(None); }
 
             contents.merge(value);
@@ -305,6 +310,7 @@ impl State {
         path: &bray_bound_tree::StorageReferencePath,
     ) -> Option<Target> {
         let staged = self.pending.get(&invocation)?;
+
         self.reference_location_in(values, root.clone(), path, None, |target| {
             if root.contains(target) { staged.values.get(target) } else { self.values.get(target) }
         })
@@ -318,9 +324,11 @@ impl State {
         path: &bray_bound_tree::StorageReferencePath,
     ) -> Option<Target> {
         let captured = &self.pending.get(&invocation)?.inputs;
+
         let lookup = |target: &Target| {
             if root.contains(target) { captured.get(target) } else { self.values.get(target) }
         };
+
         let location = self.reference_location_in(values, root.clone(), path, None, lookup)?;
 
         let references = lookup(&location)?;
@@ -350,10 +358,12 @@ impl State {
         let staged = self.pending.get(&invocation).expect("captured completion references retain their prepared transfer");
         let mut targets = std::collections::BTreeSet::new();
         let mut unknown = false;
+
         for (_, references) in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot)) {
             targets.extend(references.targets.iter().cloned());
             unknown |= references.unknown || references.displaced;
         }
+
         (targets, unknown)
     }
 

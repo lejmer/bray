@@ -151,6 +151,7 @@ impl Compilation {
         }
 
         let mut diagnostics = DiagnosticBag::new();
+
         let evidence = self.instantiate_execution_evidence(
             evidence.unwrap_or(&ExecutionCallEvidence::default()),
             cancellation,
@@ -208,6 +209,7 @@ impl Compilation {
                         && evidence.prove_trusted_with_inputs(&entry, &inputs).is_ok()
                     {
                         collected.add_range(diagnostics);
+
                         return Ok(Some(ExecutionObligation::Property(
                             property,
                             Some(ExecutionClauseId::Imported(domain.ordinal)),
@@ -231,6 +233,7 @@ impl Compilation {
         };
 
         collected.add_range(diagnostics);
+
         selected
     }
 }

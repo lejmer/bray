@@ -77,6 +77,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         Self::close_entry_demands(request, &mut demands, parents)?;
 
         self.install_reference_paths(request, storage, &demands)?;
+
         self.prepare_entry_pointee_fields(request, storage, &demands)
     }
 
@@ -104,7 +105,9 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 let projections = slot.projections.iter().copied()
                     .chain([bray_bound_tree::StorageProjection::AddressTarget])
                     .chain(projections.iter().copied()).collect::<Arc<[_]>>();
+
                 let root = storage.storage_type(slot.root).expect("incoming reference has its checked storage type");
+
                 let Some((reached, prepared)) = crate::storage::reference_path(request, root,
                     Arc::clone(&projections), Some(*reached))? else { continue; };
 

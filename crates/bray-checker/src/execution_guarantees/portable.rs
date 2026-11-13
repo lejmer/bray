@@ -226,6 +226,7 @@ fn encode(
 
             if let Some(ty) = reference_type {
                 let term = values.intern_constant_term(call)?;
+
                 return values.intern_constant_term(ConstantTermData::Typed { term, ty: *ty }).map(Some);
             }
 
@@ -461,30 +462,42 @@ mod tests {
     fn portable_descriptor_calls_keep_their_observation_after_substitution() {
         let values = semantic_values();
         let context = TestCheckerContext::new(false);
+
         let boolean_type = crate::representation::representation_type_for_context(
             &context, bray_compiler_known::RepresentationRole::ScalarBool);
+
         let parameter = BoundReferenceTarget::Surface(
             CallableParameterSymbolId::from_symbol_id(SymbolId::new(904)).into());
+
         let callable = callable_instance(FunctionSymbolId::from_symbol_id(SymbolId::new(905)).into());
+
         let condition = ExecutionCondition::call(callable, None, [],
             vec![ExecutionCondition::Input(parameter.into()).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None);
+
         let term = execution_condition_term(values, &condition, &[parameter], boolean_type)
             .expect("descriptor call encodes").expect("descriptor call is portable");
+
         let decoded = execution_condition_from_term(values, term, &[parameter]).expect("descriptor call decodes");
+
         assert_eq!(decoded, condition);
 
         let owner = ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)));
         let actual = ExecutionCondition::reference_value(owner.clone().borrowed(), ExecutionCondition::Unknown);
+
         let substituted = decoded.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
             &mut { ExecutionCondition::WORK_LIMIT });
 
         assert_eq!(substituted, ExecutionCondition::call(callable, None, [], vec![owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None));
 
         let raw = ExecutionCondition::Input(parameter.into()).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Value);
+
         let term = execution_condition_term(values, &raw, &[parameter], boolean_type)
             .expect("raw descriptor encodes").expect("raw descriptor is portable");
+
         let decoded = execution_condition_from_term(values, term, &[parameter]).expect("raw descriptor decodes");
+
         assert_eq!(decoded, raw);
+
         assert_eq!(decoded.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
             &mut { ExecutionCondition::WORK_LIMIT }), ExecutionCondition::Unknown,
             "a known view descriptor cannot invent the unknown raw pointer stored through it");
@@ -560,13 +573,16 @@ mod tests {
         let reference_type = values.intern_type(bray_symbols::TypeData::Borrow {
             kind: bray_symbols::BorrowKind::Shared, target: boolean_type,
         }).expect("checked borrowed result type");
+
         let borrowed = ExecutionCondition::call(callable, Some(witnesses[0]), [witnesses[1]],
             vec![ExecutionCondition::Input(parameter.into())], Some(reference_type)).borrowed();
+
         let term = execution_condition_term(values, &borrowed, &[parameter], boolean_type)
             .expect("typed reference computation encodes").expect("typed reference computation is portable");
 
         assert_eq!(execution_condition_from_term(values, term, &[parameter])
             .expect("typed reference computation decodes"), borrowed);
+
         assert_eq!(borrowed.ownership_identity(), None);
     }
 }

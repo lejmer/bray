@@ -274,6 +274,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     if awaited.is_some() {
                         let private = state.entry_witness_inputs(expression.into());
+
                         state.suspend_owned_witnesses(&private);
                     }
 
@@ -303,6 +304,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if let Some(expression) = awaited {
             self.set_awaited_execution(state, expression, true);
+
             // The suspended run owns the evaluated frame. Its original output
             // slot cannot remain an independent cleanup owner on any outcome.
             self.consume_value_slots(state, expression.into(), bray_bound_tree::StorageValueConsumptionPhase::Admission);
@@ -681,6 +683,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // belong to the Task during invalidation, not to the consumed Future.
             let mut values = BTreeMap::new();
             let mut identities = BTreeMap::new();
+
             super::merge::result_replacements(&source, &target,
                 &Default::default(), &Default::default(), &mut values, &mut identities);
 

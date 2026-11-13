@@ -14,10 +14,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: BoundExecutionSite,
     ) -> Option<crate::ExecutionCallEvidence> {
         let expression = invocation.expression()?;
+
         if invocation != expression.into() { return None; }
+
         let Some(bray_bound_tree::BoundExpression::Await(awaited)) = self.request.view().expression(expression) else {
             return None;
         };
+
         let value = self.value(state, awaited.operand());
 
         Some(crate::ExecutionCallEvidence {
@@ -238,6 +241,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let value = self.value(state, awaited.operand());
         let deferred = state.deferred_entries(&value)?;
         let mut reports = None;
+
         let output = if output.is_abnormal() {
             bray_bound_tree::CallReportOutput::DeferredAbnormal
         } else {

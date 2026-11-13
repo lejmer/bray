@@ -112,13 +112,16 @@ fn native_atomic_word_declarations_check_for_every_target() {
 #[ignore = "tier:proof"]
 fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
     let mut failures = Vec::new();
+
     for transport in [false, true] {
     for (observation, valid) in [("marker", true), ("word", false), ("scalar", true)] {
         let transported = if transport {
             "let (marker_view, word_view, scalar_view) = forward(forward((marker, word, scalar)));"
         } else { "" };
+
         let marker_argument = if transport { "marker_view" } else { "marker" };
         let observation_argument = if transport { format!("{observation}_view") } else { observation.to_owned() };
+
         let source = format!(
             r#"
             trusted module app;
@@ -185,6 +188,7 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
         }
     }
     }
+
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 

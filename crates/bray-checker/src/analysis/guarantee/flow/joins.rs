@@ -32,6 +32,7 @@ pub(super) fn common_current_owner(
 ) -> Option<(crate::execution_guarantees::ExecutionObservationKind, ExecutionCondition)> {
     let role = |value: &ExecutionCondition| value.observation_kind()
         .or_else(|| value.ownership_identity().map(|(role, _)| role));
+
     let kind = role(left)?;
 
     if role(right) != Some(kind) || left.owner_identity() != right.owner_identity() {
@@ -48,6 +49,7 @@ pub(super) fn current_content_identities(
     block: Option<crate::analysis::id::AnalysisBlockId>,
 ) -> BTreeMap<ExecutionCondition, ExecutionCondition> {
     let Some(block) = block else { return BTreeMap::new(); };
+
     let mut owners = BTreeMap::new();
 
     for place in places {
@@ -55,6 +57,7 @@ pub(super) fn current_content_identities(
             || super::merge::resolved_availability(right, place) != super::super::current::ValueAvailability::Present { continue; }
 
         let (Some(left), Some(right)) = (place.value_in(&left.current), place.value_in(&right.current)) else { continue; };
+
         collect_current_content_identities(&left, &right, super::merge::joined_observation(block, place), &mut owners);
     }
 
@@ -64,9 +67,11 @@ pub(super) fn current_content_identities(
         if let Some((root, path)) = owner.observation_path() {
             for length in 0..path.len() {
                 let parent = path[..length].iter().fold(root.clone(), |value, projection| value.component(*projection));
+
                 if let Some((_, parent)) = owners.get(&parent) {
                     identity = path[length..].iter().fold(parent.clone(),
                         |value, projection| value.component(*projection));
+
                     break;
                 }
             }
@@ -85,6 +90,7 @@ fn collect_current_content_identities(
     use crate::execution_guarantees::ExecutionObservationKind;
 
     let Some((kind, owner)) = common_current_owner(left, right) else { return; };
+
     let entry = owners.entry(owner).or_insert_with(|| (kind, contents.clone()));
 
     // A loan observes its actual owner's contents, including owners moved into
@@ -146,6 +152,7 @@ pub(in crate::analysis::guarantee) fn merge_returned(
     let mut right = BTreeMap::new();
     let mut left_ids = BTreeMap::new();
     let mut right_ids = BTreeMap::new();
+
     let (stable_values, stable_identities) = super::merge::stable_observations(target, &incoming);
 
     for (source, replacements, identities) in [
@@ -246,6 +253,7 @@ mod tests {
         let data = ExecutionCondition::ScalarValue(Arc::new(input(2)));
         let source = ExecutionCondition::scalar_observation(input(0), data.clone());
         let destination = input(1);
+
         let moved = crate::execution_guarantees::owned_snapshot(&source, destination.clone(), &mut {
             ExecutionCondition::WORK_LIMIT
         });
@@ -262,16 +270,22 @@ mod tests {
         let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
         let payload = StorageProjection::NullableValue;
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+
         let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             crate::test_support::error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
         )));
+
         let identity = input(9);
         let conditions = Default::default();
+
         let join = |left: &ExecutionCondition, right: &ExecutionCondition| {
             let mut budget = 64;
+
             let value = common_components(left, right, Some(identity.clone()), (&conditions, &conditions),
                 &mut Vec::new(), &mut budget);
+
             assert!(budget > 0, "normalization must remove a wrapper or descend into a component");
+
             value
         };
 
@@ -286,9 +300,11 @@ mod tests {
                 let selected = joined.clone().project(payload);
 
                 assert_eq!(selected.clone().project(field).into_referent(), ExecutionCondition::Boolean(true));
+
                 assert_eq!(selected.ownership_identity().map(|(kind, _)| kind), Some(if borrowed {
                     ExecutionObservationKind::Reference
                 } else { ExecutionObservationKind::Owned }));
+
                 assert_eq!(join(&absent, &present), joined);
                 assert_eq!(join(&joined, &absent), joined, "nullable back edges must stabilize");
             }
@@ -296,11 +312,14 @@ mod tests {
 
         let reference = |ordinal| ExecutionCondition::constructed(input(ordinal),
             [(field, ExecutionCondition::Boolean(true))].into()).borrowed().present();
+
         let joined = join(&reference(0), &reference(1));
 
         assert_eq!(joined.clone().project(payload).project(field).into_referent(), ExecutionCondition::Boolean(true));
+
         assert_eq!(joined.project(payload).ownership_identity().map(|(kind, _)| kind),
             Some(ExecutionObservationKind::Reference), "joining nullable references cannot grant ownership");
+
         assert_eq!(join(&ExecutionCondition::Unknown, &absent), ExecutionCondition::Unknown);
     }
 
@@ -310,9 +329,11 @@ mod tests {
             crate::test_support::error_type(),
             bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(value)),
         )));
+
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let identity = |version| ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone());
         let conditions = Default::default();
+
         let join = |left: &ExecutionCondition, right: &ExecutionCondition, version| {
             common_components(left, right, Some(identity(version)), (&conditions, &conditions),
                 &mut Vec::new(), &mut { ExecutionCondition::WORK_LIMIT })
@@ -325,11 +346,15 @@ mod tests {
 
             assert_ne!(joined.computed_value(), &ExecutionCondition::Unknown,
                 "two produced scalar alternatives need a guard subject: copied={copy_left}/{copy_right}");
+
             assert!(joined.ownership_identity().is_none());
             assert_eq!(join(&right, &left, 1), joined, "predecessor order cannot change the produced datum");
+
             assert_ne!(ExecutionCondition::operation(bray_bound_tree::BoundOperator::Less,
                 vec![joined.clone(), literal(8)]), ExecutionCondition::Unknown);
+
             assert_eq!(join(&joined, &right, 1), joined, "repeated analysis must stabilize");
+
             assert_ne!(join(&left, &right, 2).computed_value(), joined.computed_value(),
                 "another contents epoch cannot reuse the old scalar datum");
         }
@@ -347,12 +372,15 @@ mod tests {
             (bray_bound_tree::BoundOperator::LogicalOr, true, true),
         ] {
             let data = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+
             let data = if compound {
                 ExecutionCondition::operation(operator, vec![data,
                     ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)))])
             } else { data };
+
             let left = ExecutionCondition::scalar_observation(ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(9))),
                 data);
+
             let right = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
             let formula = ExecutionCondition::operation(operator, vec![left.clone(), right]);
             let produced = ExecutionCondition::scalar_observation(ExecutionCondition::Result, formula);
@@ -364,11 +392,13 @@ mod tests {
 
             for reversed in [false, true] {
                 let constant = ExecutionCondition::Boolean(shortcut);
+
                 let (first, second, conditions) = if reversed {
                     (&produced, &constant, (&evaluated, &skipped))
                 } else {
                     (&constant, &produced, (&skipped, &evaluated))
                 };
+
                 let joined = common_components(first, second, Some(ExecutionCondition::Result), conditions,
                     &mut Vec::new(), &mut { ExecutionCondition::WORK_LIMIT });
 
@@ -492,6 +522,7 @@ mod tests {
         let guarantee = |value: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(symbol.into(), substitution, vec![value.component(field).borrowed()]),
         ));
+
         let whole_guarantee = |value: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(symbol.into(), substitution, vec![value.borrowed()]),
         ));
@@ -554,7 +585,9 @@ mod tests {
                 state.current.insert(place.clone(), value.clone());
                 state.current.insert(ExecutionPlace::argument(SymbolOrdinal::new(99)), value.clone().borrowed());
                 state.current.insert(ExecutionPlace::argument(SymbolOrdinal::new(98)), value.clone().borrowed().component(field));
+
                 let retired = ExecutionPlace::argument(SymbolOrdinal::new(97));
+
                 state.current.insert(retired.clone(), previous);
                 state.current.retire(&retired);
                 condition.clone().assume(true, &mut state.trusted_assumptions);
@@ -564,7 +597,9 @@ mod tests {
                 } else { value.clone().into_referent() };
 
                 state.carry_guarantee(carrier, condition);
+
                 let whole = whole_guarantee(value.clone());
+
                 state.carry_guarantee(value.into_referent(), whole.clone());
                 whole.assume(true, &mut state.trusted_assumptions);
 
@@ -574,6 +609,7 @@ mod tests {
             let previous = ExecutionCondition::constructed(descriptor.clone(),
                 [(StorageProjection::TupleElement(SymbolOrdinal::new(0)),
                     ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(96))))].into()).borrowed();
+
             let left_state = state(left.clone(), previous);
             let right_state = state(right.clone(), descriptor.clone().borrowed());
             let mut left_values = Default::default();
@@ -587,20 +623,25 @@ mod tests {
             }
 
             let retired = ExecutionPlace::argument(SymbolOrdinal::new(97));
+
             let snapshots = [(place.clone(), joined.clone()),
                 (retired.clone(), right_state.current.get(&retired).expect("retained terminal data").clone())].into();
+
             let retained = super::super::witnesses::conditional_facts(
                 (&left_state, &left_values, &left_owners), (&right_state, &right_values, &right_owners),
                 &snapshots, &[], &Default::default(), &mut Vec::new());
 
             let mut unknown = left_state.clone();
+
             unknown.current.insert(place.clone(), ExecutionCondition::Unknown);
+
             let rejected = super::super::witnesses::conditional_facts(
                 (&unknown, &left_values, &left_owners), (&right_state, &right_values, &right_owners),
                 &snapshots, &[], &Default::default(), &mut Vec::new());
 
             assert!(!rejected.iter().any(|(_, _, condition, available)| *available && *condition == whole_guarantee(joined.clone())),
                 "a live Unknown observation cannot supply the missing whole-object evidence");
+
             if matches!(context, Context::Reference) {
                 assert!(!retained.iter().any(|(carrier, _, _, _)| carrier == joined.clone().into_referent().owner_identity()),
                     "a reference descriptor cannot manufacture a joined pointee owner");
@@ -617,14 +658,17 @@ mod tests {
             );
 
             let merged = merged.expect("both current observations remain reachable");
+
             assert_eq!(merged.current.get(&ExecutionPlace::argument(SymbolOrdinal::new(99)))
                 .expect("retained readonly alias").clone().into_referent(),
                 merged.current.get(&place).expect("joined owner").clone().into_referent(),
                 "an alias and its owner must observe the same joined contents");
+
             assert_eq!(merged.current.get(&ExecutionPlace::argument(SymbolOrdinal::new(98)))
                 .expect("retained readonly field alias").clone().into_referent(),
                 merged.current.get(&place).expect("joined owner").clone().component(field).into_referent(),
                 "a field alias must observe its containing owner's joined component");
+
             let condition = guarantee(merged.current.get(&place).expect("joined observation").clone());
             let whole = whole_guarantee(merged.current.get(&place).expect("joined observation").clone());
 
@@ -811,8 +855,11 @@ mod tests {
             );
 
             let layouts = &target.as_ref().expect("reachable loop header").owned_results;
+
             assert!(layouts.values().all(bray_symbols::DependencyOwnedResult::is_empty));
+
             let keys = layouts.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+
             if let Some(previous) = &previous_keys { assert_eq!(&keys, previous, "loop ownership observations must stabilize"); }
             previous_keys = Some(keys);
         }
@@ -835,12 +882,15 @@ mod nested_guard_tests {
         let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
+
         let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.project(marker).borrowed()]),
         ));
+
         let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
         )));
+
         let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| (0..2).map(|_| {
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))
         }).collect());
@@ -854,13 +904,16 @@ mod nested_guard_tests {
             guarantee.assume(true, &mut left.trusted_assumptions);
 
             let present = (0..depth).fold(input(0), |value, _| value.present());
+
             let joined = merge_returned(&mut left, &ExecutionState::default(), &present, &absent,
                 &ExecutionCondition::Result, expressions[0]);
+
             let mut selected = joined;
 
             for _ in 0..depth {
                 ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
                     vec![selected.clone(), absent.clone()]).assume(true, &mut left.assumptions);
+
                 selected = selected.project(StorageProjection::NullableValue);
             }
 
@@ -874,13 +927,16 @@ mod nested_guard_tests {
         for parent in [input(2), ExecutionCondition::Expression(expressions[1])] {
         for detailed in [None, Some(4), Some(6)] {
         let support = parent.clone().project(marker);
+
         let condition = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.borrowed(), support.clone().project(marker).borrowed()]),
         ));
+
         let mut left = ExecutionState::default();
 
         left.assign(ExecutionPlace::argument(SymbolOrdinal::new(2)),
             ExecutionCondition::constructed(parent.clone(), [(marker, ExecutionCondition::Unknown)].into()), None);
+
         left.assign(ExecutionPlace::argument(SymbolOrdinal::new(5)), support.clone(), None);
 
         if let Some(alias) = detailed {
@@ -927,12 +983,15 @@ mod nested_guard_tests {
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
+
         let permission = |value| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), substitution, vec![value]),
         ));
+
         let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
         )));
+
         let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
         ]);
@@ -940,8 +999,10 @@ mod nested_guard_tests {
         for (guarded, materialized) in [(false, false), (true, false), (false, true), (true, true)] {
             for valid in [false, true] {
                 let choice = input(3);
+
                 let value = if materialized { ExecutionCondition::constructed(input(0), [(field,
                     ExecutionCondition::opaque_scalar(input(0).project(field)))].into()) } else { input(0) };
+
                 let copied = ExecutionCondition::scalar_observation(input(4), value.clone().project(field));
                 let mut present = ExecutionState::default();
                 let mut missing = ExecutionState::default();
@@ -955,6 +1016,7 @@ mod nested_guard_tests {
 
                 let owner = input(u32::from(!valid));
                 let claim = permission(if valid { value.clone().project(field) } else { owner.clone().project(field) });
+
                 let claim = if guarded { ExecutionCondition::operation(
                     bray_bound_tree::BoundOperator::LogicalOr,
                     vec![ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![choice]), claim],
@@ -965,9 +1027,12 @@ mod nested_guard_tests {
 
                 let joined = merge_returned(&mut present, &missing, &value.present(), &absent,
                     &ExecutionCondition::Result, expressions[0]);
+
                 let required = permission(copied);
+
                 let prove = |state: &ExecutionState| {
                     let aliases = ExecutionCondition::equalities(&state.assumptions, None);
+
                     let trusted = state.trusted_assumptions.iter().map(|(condition, holds)|
                         (condition.with_equalities(&aliases), *holds)).collect();
 
@@ -975,8 +1040,10 @@ mod nested_guard_tests {
                 };
 
                 assert_ne!(prove(&present), Some(true));
+
                 ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
                     vec![joined.clone(), absent.clone()]).assume(true, &mut present.assumptions);
+
                 assert_eq!(prove(&present) == Some(true), valid,
                     "guarded={guarded} valid={valid} facts={:?} ordinary={:?}", present.trusted_assumptions, present.assumptions);
 
@@ -991,12 +1058,15 @@ mod nested_guard_tests {
         let input = |id| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(id)));
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
+
         let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.borrowed()]),
         ));
+
         let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
         )));
+
         let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
         ]);
@@ -1007,15 +1077,20 @@ mod nested_guard_tests {
             let present = nullable(input(0));
             let claim = held(if valid { present.clone() } else { nullable(input(1)) });
             let mut left = ExecutionState::default();
+
             left.carry_guarantee(present.clone(), claim.clone());
             claim.assume(true, &mut left.trusted_assumptions);
+
             let joined = merge_returned(&mut left, &ExecutionState::default(), &present, &absent,
                 &ExecutionCondition::Expression(expressions[0]), expressions[0]);
+
             let required = held(joined.clone());
 
             assert_ne!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions), Some(true));
+
             ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
                 vec![joined, absent.clone()]).assume(true, &mut left.assumptions);
+
             assert_eq!(required.prove_trusted(&left.trusted_assumptions, &left.assumptions) == Some(true), valid,
                 "valid={valid} known_present={known_present} required={required:?} facts={:?} witnesses={:?}", left.trusted_assumptions, left.witnesses);
         }
@@ -1027,21 +1102,27 @@ mod nested_guard_tests {
         let variant = |id| UnionVariantSymbolId::from_symbol_id(SymbolId::new(id));
         let active = variant(920);
         let inactive = variant(921);
+
         let field = StorageProjection::ActiveUnionPayloadField {
             variant: active, field: UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(922)),
         };
+
         let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
+
         let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.project(marker).borrowed()]),
         ));
+
         let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
         )));
+
         let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| (0..2).map(|_| {
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))
         }).collect());
+
         for nullable_outer in [true, false] {
         let alternatives = if nullable_outer { [
             ExecutionCondition::constructed(ExecutionCondition::Tagged(active, Arc::new(input(1))),
@@ -1068,26 +1149,36 @@ mod nested_guard_tests {
             guarantee.assume(true, &mut states[0].trusted_assumptions);
 
             let [first, second, third] = order;
+
             let mut inner = states[second].clone();
+
             let inner_value = merge_returned(&mut inner, &states[third], &alternatives[second], &alternatives[third],
                 &ExecutionCondition::Expression(expressions[0]), expressions[0]);
+
             let mut outer = states[first].clone();
             let expression = expressions[usize::from(!same_region)];
+
             let joined = merge_returned(&mut outer, &inner, &alternatives[first], &inner_value,
                 &ExecutionCondition::Expression(expression), expression);
+
             let (nullable, tagged, payload) = if nullable_outer {
                 let tagged = joined.clone().project(StorageProjection::NullableValue);
+
                 (joined.clone(), tagged.clone(), tagged.project(field))
             } else {
                 let nullable = joined.clone().project(field);
+
                 (nullable.clone(), joined.clone(), nullable.project(StorageProjection::NullableValue))
             };
+
             let required = held(payload);
 
             assert_ne!(required.prove_trusted(&outer.trusted_assumptions, &outer.assumptions), Some(true),
                 "an unselected payload cannot expose authority");
+
             ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual,
                 vec![nullable, absent.clone()]).assume(true, &mut outer.assumptions);
+
             tagged.matches_variant(active).assume(true, &mut outer.assumptions);
 
             assert_eq!(required.prove_trusted(&outer.trusted_assumptions, &outer.assumptions) == Some(true), valid,
@@ -1202,39 +1293,52 @@ mod nested_guard_tests {
         let variant = |id| UnionVariantSymbolId::from_symbol_id(SymbolId::new(id));
         let active = variant(910);
         let empty = variant(911);
+
         let field = StorageProjection::ActiveUnionPayloadField {
             variant: active,
             field: UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(912)),
         };
+
         let source_place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let source = ExecutionCondition::Input(source_place.clone());
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
+
         let held = |owner: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.borrowed()]),
         ));
+
         let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
         ]);
+
         let mut left = ExecutionState::default();
+
         left.current.insert(source_place.clone(), source.clone());
         left.current.retire(&source_place);
+
         let right = left.clone();
         let condition = held(source.clone());
+
         left.carry_guarantee(source.clone(), condition.clone());
         condition.assume(true, &mut left.trusted_assumptions);
+
         let accepted = ExecutionCondition::constructed(
             ExecutionCondition::Tagged(active, Arc::new(ExecutionCondition::Input(
                 ExecutionPlace::argument(SymbolOrdinal::new(1)),
             ))),
             [(field, source)].into(),
         );
+
         let rejected = ExecutionCondition::Tagged(empty, Arc::new(ExecutionCondition::Input(
             ExecutionPlace::argument(SymbolOrdinal::new(2)),
         )));
+
         let joined = merge_returned(&mut left, &right, &accepted, &rejected,
             &ExecutionCondition::Result, expressions[0]);
+
         joined.clone().matches_variant(active).assume(true, &mut left.assumptions);
+
         assert_eq!(held(joined.project(field)).prove_trusted(
             &left.trusted_assumptions, &left.assumptions,
         ), Some(true));
@@ -1255,16 +1359,21 @@ mod nested_guard_tests {
 
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(1));
         let nested = component.clone().project(field);
+
         for unchanged in [true, false] {
             let changed = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
             let current = if unchanged { nested.clone() } else { changed.clone().project(field) };
+
             let joined = ExecutionCondition::owned_value(component.clone(), ExecutionCondition::constructed(
                 changed, [(field, current)].into(),
             ));
+
             let mut values = Default::default();
             let mut identities = Default::default();
+
             super::super::merge::result_replacements(&component, &joined,
                 &Default::default(), &Default::default(), &mut values, &mut identities);
+
             assert_eq!(nested.with_joined_values(&values, &identities) == nested, unchanged,
                 "implicit retained field unchanged={unchanged}");
         }

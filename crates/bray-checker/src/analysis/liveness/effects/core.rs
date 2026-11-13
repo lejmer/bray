@@ -278,6 +278,7 @@ impl OperationEffects {
                 } else {
                     effect.uses.insert(subject);
                 }
+
                 effects.universe.insert(subject);
             }
         }

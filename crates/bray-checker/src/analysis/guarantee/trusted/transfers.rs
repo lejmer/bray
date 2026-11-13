@@ -14,7 +14,8 @@ pub(super) fn copied_witness(state: &ExecutionState, value: crate::ExecutionCond
     let (carrier, witness) = state.owned_witnesses([value]).find(|(carrier, _)|
         state.directly_carries_witness(carrier))
         .expect("a rejected copy retains its live owning carrier");
-    let guarantee = witness.owning_condition(&state.trusted_assumptions, &state.assumptions)
+
+    let guarantee = witness.owning_conditions(&state.trusted_assumptions, &state.assumptions).next()
         .expect("a rejected copy retains its live owning condition").clone();
 
     WitnessTransferFailure {
@@ -135,7 +136,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
 
                 if witness.is_some_and(|witness| {
                         state.directly_carries_witness(&container)
-                            || witness.owning_condition(&entry.trusted_assumptions, &entry.assumptions).is_some()
+                            || witness.owning_conditions(&entry.trusted_assumptions, &entry.assumptions).next().is_some()
                     })
                     && input.projections[index..].iter().any(|projection| {
                         *projection != bray_symbols::ConstantProjectionKind::NullableValue
@@ -173,8 +174,9 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                             });
 
                     let witness = witness.expect("a rejected extraction retains its carrier contract");
-                    let guarantee = witness.owning_condition(&entry.trusted_assumptions, &entry.assumptions)
-                        .or_else(|| witness.owning_condition(&state.trusted_assumptions, &state.assumptions))
+
+                    let guarantee = witness.owning_conditions(&entry.trusted_assumptions, &entry.assumptions).next()
+                        .or_else(|| witness.owning_conditions(&state.trusted_assumptions, &state.assumptions).next())
                         .expect("a rejected extraction retains its live owning condition").clone();
 
                     transfers.push((occurrence, condition, WitnessTransferFailure {
@@ -271,6 +273,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
         let path = current_access(plan);
 
         let materializes = storage.access_plan_role(plan) == bray_bound_tree::StorageAccessPlanRole::SourceMaterialization;
+
         let value = if materializes {
             path.as_ref().map(|path| domain.current_access_value(state, path))
                 .unwrap_or(crate::ExecutionCondition::Unknown)
@@ -303,7 +306,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
             copied_witness(state, value)
         } else if !copies && let Some(carrier) = partial_witness {
             let guarantee = state.witnesses.get(carrier.owner_identity())
-                .and_then(|witness| witness.owning_condition(&state.trusted_assumptions, &state.assumptions))
+                .and_then(|witness| witness.owning_conditions(&state.trusted_assumptions, &state.assumptions).next())
                 .expect("a rejected transfer retains its live owning condition").clone();
 
             WitnessTransferFailure { kind: bray_diagnostics::DiagnosticWitnessTransferKind::Separation,

@@ -142,10 +142,14 @@ impl ExecutionState {
             ),
             ExecutionCondition::Input(place) if !place.projections.is_empty() => {
                 let mut root = place.clone();
+
                 root.projections = [].into();
+
                 let ownership = self.owned_result_bounded(&ExecutionCondition::Input(root), extraction, budget);
+
                 if place.projections.len() > *budget { return DependencyOwnedResult::default(); }
                 *budget -= place.projections.len();
+
                 place.projections.iter().fold(ownership, |ownership, field| project_owned_result(ownership, *field))
             }
             ExecutionCondition::Input(place) if extraction && place.is_callable_input() => {
@@ -277,13 +281,17 @@ fn applicable_owned_cases(
     budget: &mut usize,
 ) -> Option<DependencyOwnedResult<StorageProjection, ExecutionCondition>> {
     let Some(remaining) = budget.checked_sub(1) else { return Some(DependencyOwnedResult::default()); };
+
     *budget = remaining;
 
     match layout {
         DependencyOwnedResult::Case { condition, result } => {
             let known = condition.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT });
+
             if known == Some(false) { return None; }
+
             let selected = applicable_owned_cases(result, assumptions, budget)?;
+
             Some(if known == Some(true) { selected } else { DependencyOwnedResult::case(condition.clone(), selected) })
         }
         DependencyOwnedResult::All(values) => values.iter()
@@ -291,12 +299,12 @@ fn applicable_owned_cases(
             .collect::<Option<Vec<_>>>().map(DependencyOwnedResult::all),
         DependencyOwnedResult::Choice(values) => {
             let selected = values.iter().filter_map(|value| applicable_owned_cases(value, assumptions, budget)).collect::<Vec<_>>();
+
             (!selected.is_empty()).then(|| DependencyOwnedResult::choice(selected))
         }
         DependencyOwnedResult::Transfer(_) => Some(layout.clone()),
     }
 }
-
 
 fn project_owned_result(
     ownership: DependencyOwnedResult<StorageProjection, ExecutionCondition>,
@@ -431,32 +439,39 @@ mod tests {
     #[test]
     fn initialized_alternatives_select_ownership_without_a_trusted_witness() {
         use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalNot, LogicalOr};
+
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let value = ExecutionCondition::Input(place.clone());
         let take = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
         let initialized = ExecutionCondition::InitializedSnapshot(place, std::sync::Arc::new(ExecutionCondition::Boolean(true)), std::sync::Arc::new(value.clone()));
         let not = |condition| ExecutionCondition::operation(LogicalNot, vec![condition]);
+
         let relation = ExecutionCondition::operation(LogicalOr, vec![
             ExecutionCondition::operation(LogicalAnd, vec![initialized.clone(), not(take.clone())]),
             ExecutionCondition::operation(LogicalAnd, vec![not(initialized.clone()), take.clone()]),
         ]);
+
         let transfer = DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(value.clone(), [])
             .with_preservation(DependencyValuePreservation::all()));
 
         for selected in [None, Some(false), Some(true)] {
             let mut state = ExecutionState::default();
+
             relation.clone().assume(true, &mut state.assumptions);
             state.assumptions.insert((ExecutionCondition::Trusted(std::sync::Arc::new(take.clone())), true));
             if let Some(selected) = selected { initialized.clone().assume(selected, &mut state.assumptions); }
+
             state.owned_results.insert(value.clone(), DependencyOwnedResult::choice([
                 DependencyOwnedResult::case(take.clone(), transfer.clone()),
                 DependencyOwnedResult::case(not(take.clone()), DependencyOwnedResult::default()),
             ]));
+
             state.refine_witnesses();
             assert!(state.witnesses.is_empty());
             assert!(state.trusted_assumptions.is_empty());
 
             let actual = state.owned_result(&value);
+
             match selected {
                 Some(false) => assert_eq!(actual, transfer),
                 Some(true) => assert!(actual.is_empty()),
@@ -476,17 +491,24 @@ mod tests {
         let selected = root.clone().project(field);
         let explicit = ExecutionCondition::Projection(projection, std::sync::Arc::new(root.clone()));
         let mut state = ExecutionState::default();
+
         assert!(state.owned_result(&selected).is_empty());
 
         let preservation = DependencyValuePreservation::new(true, [(field, DependencyValuePreservation::none())].into());
+
         let layout = DependencyOwnedResult::case(
             ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))),
             DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(root.clone(), []).with_preservation(preservation)),
         );
+
         state.owned_results.insert(root.clone(), layout);
+
         let actual = state.owned_result(&selected);
+
         assert_eq!(actual, state.owned_result(&explicit));
+
         let transfers = actual.transfers().collect::<Vec<_>>();
+
         assert_eq!(transfers.len(), 1);
         assert_eq!(transfers[0].input(), selected);
         assert!(!transfers[0].preservation().preserves_value());
@@ -498,6 +520,7 @@ mod tests {
     fn checked_extraction_publishes_current_formal_contents_without_borrow_authority() {
         let original = ExecutionCondition::Input(ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
             bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0)).into())));
+
         let state = ExecutionState::default();
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let current = original.clone().with_storage_component(&[field], ExecutionCondition::Unknown);
@@ -505,17 +528,24 @@ mod tests {
         assert!(state.owned_result(&original).is_empty(), "borrowing a formal never grants ownership");
         assert!(state.extracted_result(&original.clone().borrowed()).is_empty(), "returning a loan cannot extract its referent");
         assert!(state.extracted_result(&ExecutionCondition::ScalarValue(std::sync::Arc::new(original.clone()))).is_empty(), "copied data cannot carry owner authority");
+
         let moved = state.extracted_result(&original);
+
         assert!(moved.transfers().any(|transfer| transfer.input() == original && transfer.preservation().preserves_value()));
+
         let changed = state.extracted_result(&current);
+
         assert!(changed.transfers().any(|transfer| transfer.input() == original && transfer.output().is_empty()));
+
         assert!(changed.transfers().all(|transfer| transfer.preservation().children().get(&field)
             .is_some_and(|child| !child.preserves_value())), "retained identity cannot restore overwritten contents");
 
         let (_, sites) = crate::test_support::expression_unit(bray_bound_tree::BoundUnitId::new(0), |tree, origin| {
             vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
         });
+
         let opaque = ExecutionCondition::post_state(bray_bound_tree::StorageMutation::Operation(sites[0].into()), original);
+
         assert!(state.extracted_result(&opaque).is_empty(), "opaque replacement cannot resurrect the old formal value");
     }
 
@@ -593,16 +623,20 @@ mod tests {
     fn joins_keep_distinct_contents_snapshots_of_the_same_owner() {
         let original = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+
         let original_layout = DependencyOwnedResult::Transfer(
             DependencyOwnedTransfer::new(original.clone(), []).with_preservation(DependencyValuePreservation::all()),
         );
+
         let mut state = ExecutionState::default();
 
         state.owned_results.insert(original.clone(), original_layout.clone());
+
         let changed = original.with_storage_component(&[field], ExecutionCondition::Unknown);
         let changed_layout = state.owned_result(&changed);
 
         state.owned_results.insert(changed.clone(), changed_layout.clone());
+
         let unrelated = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
 
         state.join_values(&[(unrelated(1), unrelated(2))].into(), &Default::default());

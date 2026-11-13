@@ -380,8 +380,10 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         let transfer = crate::dependency::ResultTransfer::new(
             self.request, self.execution.semantics.types(), self.execution.semantics.selections(),
             self.patterns, self.values, self.storage, state);
+
         let requirements = transfer.report_values(source, output)?
             .expect("a formed future's selected report has its portable contract");
+
         let contract = self.dependencies.calls()[&source].report(output)
             .expect("a formed future's selected report has its checked contract");
 
@@ -566,12 +568,14 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                 }
                 bray_bound_tree::BoundDependencyRequirement::Value { source, path, ty } => {
                     let borrow_free = self.values.value_carries_no_borrows(*ty);
+
                     if let Some(value) = self.values.copied_value_source(
                         self.request, self.storage,
                         self.execution.semantics.selections(), *source, path, *ty,
                     ) {
                         subjects.extend(self.liveness.retained_by(value)
                             .filter(|subject| !borrow_free || !subject.is_storage_dependency()));
+
                         continue;
                     }
 

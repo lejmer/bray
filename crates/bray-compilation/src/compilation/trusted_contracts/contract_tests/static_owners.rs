@@ -86,8 +86,10 @@ fn equal_const_results_retain_independent_owner_authority() {
                 observe(&{observed});
             }}
         "#));
+
         let body = application.lowered_unit(source_function_body_key(&application, "caller"))
             .expect("const-owner fixture lowers");
+
         assert_eq!(!body.diagnostics().has_errors(), valid, "{observed}: {:?}", body.diagnostics());
 
         if !valid {
@@ -232,6 +234,7 @@ fn static_marker_preservation_keeps_selected_instances_distinct() {
 fn production_process_context_preserves_static_once_authority() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
+
     let mut failures = Vec::new();
 
     for name in ["argument_context_table", "environment_context_table", "directory_context"] {

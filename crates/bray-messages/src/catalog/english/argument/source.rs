@@ -94,6 +94,7 @@ fn format_english_callable_type(
     if abi != DiagnosticCallableAbi::Bray {
         write!(signature, "@abi({}) ", abi.as_str()).expect("writing a string cannot fail");
     }
+
     if trust == DiagnosticCallableTrust::Trusted { signature.push_str("trusted "); }
     if constness == DiagnosticCallableConstness::Constant { signature.push_str("const "); }
     if execution == DiagnosticCallableExecution::Asynchronous { signature.push_str("async "); }
@@ -108,6 +109,7 @@ fn format_english_callable_type(
         write!(signature, "{}: {}", parameter.name, format_english_type(&parameter.ty))
             .expect("writing a string cannot fail");
     }
+
     if variadic {
         if !parameters.is_empty() { signature.push_str(", "); }
         signature.push_str("...");
@@ -208,6 +210,7 @@ pub(super) fn format_english_quoted_text(text: &str) -> String {
 pub(super) fn format_english_quoted_code(text: &str) -> String {
     let snippet = crate::code_snippet::format_code_snippet(text);
     let escaped = snippet.escape_debug().to_string();
+
     format!("'{}'", crate::code_snippet::format_code_snippet(&escaped))
 }
 
@@ -318,6 +321,7 @@ mod tests {
         assert_eq!(super::format_english_type(&ty), "trusted async func(pos mut value: u32) -> bool");
 
         let DiagnosticType::Callable { execution, abi, variadic, .. } = &mut ty else { unreachable!() };
+
         *execution = DiagnosticCallableExecution::Synchronous;
         *abi = DiagnosticCallableAbi::C;
         *variadic = true;
@@ -334,6 +338,7 @@ mod tests {
                 ["std".to_owned(), "memory".to_owned(), "Uninit".to_owned()],
                 [DiagnosticTypeArgument::Type(DiagnosticType::I32)],
             ));
+
             assert_eq!(super::format_english_type(&DiagnosticType::Borrow { kind, target: Box::new(target) }), expected);
         }
     }

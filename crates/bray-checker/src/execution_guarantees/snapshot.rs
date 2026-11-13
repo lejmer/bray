@@ -96,7 +96,9 @@ pub(crate) fn common_components(
     }
 
     let mut projections = left.component_projections();
+
     projections.extend(right.component_projections());
+
     let discriminant = left.common_retained_discriminant(right);
 
     if projections.is_empty() {
@@ -287,6 +289,7 @@ fn common_scalar_components(
             ExecutionCondition::Observation { contents, kind: ObservationKind::Scalar, .. } => contents.as_ref().clone(),
             value => value.clone(),
         };
+
         let Some(identity) = result.cloned() else { return Some(ExecutionCondition::Unknown); };
 
         return Some(ExecutionCondition::scalar_observation(identity,

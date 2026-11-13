@@ -760,6 +760,7 @@ impl ControlFlowGraph {
         let loops_are_valid = self.loop_expressions.iter().all(|(header, expression)| {
             self.block(*header).is_some() && expression.unit() == self.unit
         });
+
         let exits_are_valid = self.exits.iter().all(|exit| {
             exit.node().unit() == self.unit && self.block(exit.block()).is_some()
         });

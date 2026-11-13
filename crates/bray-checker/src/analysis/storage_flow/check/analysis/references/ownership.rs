@@ -131,6 +131,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let inputs = self.request.trusted_contracts()
                     .expect("owned transfer inference retains formal inputs");
+
                 let input = inputs.inputs
                     [usize::try_from(ordinal).expect("formal input ordinal fits the target")];
 

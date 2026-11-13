@@ -22,8 +22,10 @@ impl ValueInputs {
     ) -> Option<BoundExpressionId> {
         let root = storage.root_identity(source)?;
         let producer = storage.identity(root)?.definition_occurrence()?;
+
         let projections = storage.resolved_projections(source)?.iter()
             .chain(path.projections().iter()).copied().collect::<Vec<_>>();
+
         let projections = crate::storage::dependency_projections(&projections)?;
 
         let (source, remaining) =
@@ -458,6 +460,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             if let Some(subject) = effect.subject() {
                 retain(subject.projections());
             }
+
             if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
                 retain(projections);
             }
@@ -488,6 +491,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             if let Some(subject) = effect.subject() {
                 retain(subject.projections());
             }
+
             if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
                 retain(projections);
             }

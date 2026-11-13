@@ -1193,15 +1193,15 @@ const CASES: &[(&str, &str, bool)] = &[
     ),
 ];
 
-fn check_deferred_completion(imported: bool) {
-    let provider = compilation(API);
+fn check_deferred_completion(imported: bool, api: &str, cases: &[(&str, &str, bool)]) {
+    let provider = compilation(api);
 
     assert!(!provider.check_diagnostics().has_errors(), "{:#?}",
         bray_messages::DiagnosticRenderer::default().render_bag(provider.check_diagnostics()));
 
     let mut failures = Vec::new();
 
-    for (name, body, valid) in CASES {
+    for (name, body, valid) in cases {
         let source = format!(
             r"
             module app;
@@ -1223,7 +1223,7 @@ fn check_deferred_completion(imported: bool) {
                     .replace("api.", "example.package.api."),
             )
         } else {
-            compilation_from_sources([API, &source])
+            compilation_from_sources([api, &source])
         };
 
         let diagnostics = consumer.check_diagnostics();
@@ -1252,15 +1252,96 @@ fn check_deferred_completion(imported: bool) {
         }
     }
 
-    assert!(failures.is_empty(), "deferred cases completed: imported={imported}, count={}\n{}", CASES.len(), failures.join("\n"));
+    assert!(failures.is_empty(), "deferred cases completed: imported={imported}, count={}\n{}", cases.len(), failures.join("\n"));
 }
 
 #[test]
 fn source_deferred_completion_follows_future_ownership() {
-    check_deferred_completion(false);
+    check_deferred_completion(false, API, CASES);
 }
 
 #[test]
 fn imported_deferred_completion_follows_future_ownership() {
-    check_deferred_completion(true);
+    check_deferred_completion(true, API, CASES);
+}
+
+#[test]
+fn private_formal_task_admission_preserves_only_its_carrier() {
+    let api = r"
+    trusted module api;
+
+    struct Marker {}
+
+    struct Box<T>
+    {
+        value: T;
+    }
+
+    trusted predicate held(owner: &Marker);
+
+    trusted func make() -> Marker
+        ensures(trusted held(owner = &result))
+    {
+        return Marker {};
+    }
+
+    func observe(pos value: &Marker)
+        requires(trusted held(owner = value))
+    {
+    }
+
+    async func pass<T>(pos value: T) -> T
+    {
+        return value;
+    }
+
+    async func formal_tuple(pos input: (Marker, u32), pos cancel: bool) -> (Marker, u32)
+        requires(trusted held(owner = &input.0))
+    {
+        let wrapper: Box<(Marker, u32)> = { value = input };
+        let task = pass<Box<(Marker, u32)>>(wrapper).start();
+
+        let value = if cancel
+        {
+            yield try await task.cancel();
+        }
+        else
+        {
+            yield try await task.join();
+        };
+
+        observe(&value.value.0);
+        return value.value;
+    }
+
+    async func formal_array(pos input: [Marker; 2], pos cancel: bool) -> [Marker; 2]
+        requires(trusted held(owner = &input[1]))
+    {
+        let task = pass<[Marker; 2]>(input).start();
+
+        let value = if cancel
+        {
+            yield try await task.cancel();
+        }
+        else
+        {
+            yield try await task.join();
+        };
+
+        observe(&value[1]);
+        return value;
+    }
+
+";
+
+    let cases = [
+        ("tuple_owned", r"let value = await api.formal_tuple((api.make(), 0), choice); api.observe(&value.0);", true),
+        ("array_owned", r"let input: [api.Marker; 2] = [api.Marker {}, api.make()]; let value = await api.formal_array(input, choice); api.observe(&value[1]);", true),
+        ("tuple_fabricated", r"let unrelated = api.make(); let value = await api.formal_tuple((api.Marker {}, 0), choice); api.observe(&value.0);", false),
+        ("array_fabricated", r"let unrelated = api.make(); let input: [api.Marker; 2] = [api.Marker {}, api.Marker {}]; let value = await api.formal_array(input, choice); api.observe(&value[1]);", false),
+    ];
+
+    for imported in [false, true] {
+        check_deferred_completion(imported, api, &cases);
+    }
 }

@@ -913,6 +913,7 @@ mod tests {
         assert!(template.effects().iter().any(|effect| matches!(effect,
             DependencyStorageEffect::Direct { kind: DependencyMutationKind::Dispose(ty), access_type: Some(access), .. }
                 if *ty == imported.types()[0] && *access == imported.types()[0])));
+
         assert!(template.effects().iter().any(|effect| matches!(effect,
             DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Dispose(ty), projections, .. }
                 if *ty == imported.types()[0] && projections.as_ref() == [bray_symbols::DependencyProjection::OwnedTarget])));

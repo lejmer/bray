@@ -176,6 +176,7 @@ mod tests {
         for (kind, operation) in [(DiagnosticWitnessTransferKind::Copy, "copy"),
             (DiagnosticWitnessTransferKind::Separation, "separation")] {
             let source = format!("inline {{\n{}\n}}", "statement;".repeat(20));
+
             let failure = DiagnosticWitnessTransfer {
                 kind, carrier: Condition::Source(source.clone()),
                 guarantee: Condition::Application {
@@ -183,6 +184,7 @@ mod tests {
                     arguments: vec![Condition::Source(source.clone())],
                 },
             };
+
             let json = serde_json::to_value(WitnessTransferJson::from_failure(&failure))
                 .expect("witness transfer JSON serializes");
 
@@ -201,10 +203,12 @@ mod tests {
                 value: Box::new(Condition::Source("owner".to_owned())), projection: Projection::Field("token".to_owned()),
             }, Condition::Literal("42".to_owned())],
         };
+
         let obligation = DiagnosticContractObligation {
             kind: DiagnosticContractObligationKind::CleanupRequirement,
             required: Condition::Argument(0), actual,
         };
+
         let json = serde_json::to_value(ContractObligationJson::from_obligation(&obligation)).expect("contract JSON serializes");
 
         assert_eq!(json["boundary"], "cleanup_requirement");
@@ -227,6 +231,7 @@ mod tests {
         let json = serde_json::to_value(ExecutionProofFailureJson::from_failure(
             DiagnosticExecutionProofFailure::UnboundedLoop,
         )).expect("termination failure JSON serializes");
+
         assert_eq!(json["reason"], "unbounded_loop");
     }
 }

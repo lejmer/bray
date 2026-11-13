@@ -16,6 +16,7 @@ impl ExecutionCondition {
             &|place| Ok(Self::Input(place.clone())), &|value| Ok(Arc::clone(value)),
             &mut |callable, dispatch, witnesses, operands, reference_type| {
                 let call = Self::Call(callable, dispatch, witnesses.into(), operands.into(), reference_type);
+
                 let selected = call.reference_origins(values, dependencies, Some(ordinary))
                     .and_then(|(mut origins, complete)| (complete && origins.len() == 1)
                         .then(|| origins.pop_first().expect("one forwarded origin remains")));
@@ -64,8 +65,10 @@ impl ExecutionCondition {
     fn reference_origins(&self, values: &SemanticValueStore, dependencies: &CheckedDependencyContracts,
         ordinary: Option<&BTreeSet<(Self, bool)>>) -> Option<(BTreeSet<Self>, bool)> {
         let Self::Call(callable, dispatch, witnesses, arguments, Some(_)) = self else { return None; };
+
         let (receiver, relations) = dependencies.condition_references()
             .get(&(*callable, *dispatch, Arc::clone(witnesses)))?;
+
         let mut origins = BTreeSet::new();
         let mut complete = true;
 
@@ -73,11 +76,13 @@ impl ExecutionCondition {
             relation.exit().subject_root() == DependencySubjectRoot::Result
                 && relation.exit().projections().is_empty()) {
             let Some(entry) = relation.entry() else { complete = false; continue; };
+
             let ordinal = match entry.subject_root() {
                 DependencySubjectRoot::Receiver => 0,
                 DependencySubjectRoot::Parameter(ordinal) => ordinal.to_index()? + usize::from(*receiver),
                 _ => return None,
             };
+
             let mut origin = arguments.get(ordinal)?.clone();
 
             if relation.kind() != DependencyReferenceKind::Borrow

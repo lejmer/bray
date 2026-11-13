@@ -5,6 +5,7 @@ use super::fixtures::{production_host_compilation};
 #[test]
 fn async_ownership_composition_checks_real_source_transitions() {
     let source = include_str!("../../../../../../xtask/fixtures/native-execution/async-ownership-composition.bray");
+
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), source);
 
@@ -15,9 +16,12 @@ fn async_ownership_composition_checks_real_source_transitions() {
         && key.source().syntax().source_id() == source_id) {
           let properties = compilation.execution_properties(key.clone())
               .expect("every composition function and lifecycle body is certified");
+
           assert!(!properties.diagnostics().has_errors(), "{key:?}: {:?}", properties.diagnostics());
+
         let checked = compilation.lowered_unit(key.clone())
             .expect("every composition function and lifecycle body lowers");
+
         assert!(!checked.diagnostics().has_errors(), "{key:?}: {:?}", checked.diagnostics());
     }
 }
@@ -42,9 +46,12 @@ fn async_ownership_composition_rejects_fabricated_and_moved_owners() {
         await pending;"#, "transport", DiagnosticKind::CheckingConflictingBorrow),
     ] {
         assert_eq!(source.matches(original).count(), 1);
+
         let invalid = source.replace(original, replacement);
+
         let compilation = crate::test_support::production_standard_library_compilation(
             crate::SelectedTarget::baseline(), &invalid);
+
         let lowered = compilation.lowered_unit(source_function_body_key(&compilation, body))
             .expect("invalid composition reports source diagnostics");
 

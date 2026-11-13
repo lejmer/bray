@@ -256,7 +256,6 @@ fn construction_inputs_lower_nullable_values_before_aggregate_transfer() {
     }
 }
 
-
 #[test]
 fn returned_temporary_is_borrowable_after_call_completion() {
     let compilation = compilation(r#"
@@ -288,9 +287,12 @@ fn returned_temporary_is_borrowable_after_call_completion() {
             return make().read();
         }
     "#);
+
     assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+
     let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "main"))
         .expect("checked caller lowers");
+
     lowered_mir(&lowered);
 }
 
@@ -320,10 +322,13 @@ fn trust_boundary_preserves_a_completed_call_result() {
             return trusted identity(first);
         }
     "#);
+
     assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+
     for name in ["main", "forward"] {
         let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
             .expect("trusted result caller lowers");
+
         lowered_mir(&lowered);
     }
 }
@@ -358,12 +363,15 @@ fn returned_borrow_survives_field_and_index_projection() {
             return array_view(values)[0].value;
         }
     "#);
+
     let diagnostics = compilation.check_diagnostics();
+
     assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
 
     for name in ["borrow_field", "read_index"] {
         let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name))
             .expect("projection through a returned borrow lowers");
+
         lowered_mir(&lowered);
     }
 }

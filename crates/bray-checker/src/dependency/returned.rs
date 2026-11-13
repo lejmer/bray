@@ -78,6 +78,7 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         .transpose()?;
 
     let relation = call.implementation_hook().and_then(super::implementation::implementation_borrow);
+
     let template = if let Some((source, authority)) = call
         .implementation_hook()
         .and_then(super::implementation_dependency_source)

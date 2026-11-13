@@ -149,10 +149,13 @@ impl State {
 
     fn entry_field_is_reachable(&self, region: &Target, target: &Target) -> bool {
         let Origin::Entry { reference: parent, projections, kind: bray_symbols::DependencyReferenceKind::Address, .. } = &region.origin else { return false; };
+
         let Origin::Entry { reference: field, .. } = &target.origin else { return false; };
+
         let prefix = parent.projections.iter().copied()
             .chain([bray_bound_tree::StorageProjection::AddressTarget])
             .chain(projections.iter().copied());
+
         let prefix_len = parent.projections.len() + 1 + projections.len();
 
         if region.previous != target.previous || parent.root != field.root

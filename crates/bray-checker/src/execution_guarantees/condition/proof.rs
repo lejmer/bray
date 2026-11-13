@@ -245,7 +245,9 @@ impl ExecutionCondition {
             known: &mut std::collections::BTreeMap<(&'a ExecutionCondition, bool), ExecutionCondition>,
         ) -> ExecutionCondition {
             if let Some(value) = known.get(&(condition, holds)) { return value.clone(); }
+
             let Some(remaining) = budget.checked_sub(1) else { return ExecutionCondition::Boolean(true); };
+
             *budget = remaining;
 
             let value = match condition {
@@ -256,6 +258,7 @@ impl ExecutionCondition {
                     let operator = if holds { *operator } else if *operator == BoundOperator::LogicalAnd {
                         BoundOperator::LogicalOr
                     } else { BoundOperator::LogicalAnd };
+
                     ExecutionCondition::operation(operator, operands.iter()
                         .map(|operand| visit(operand, holds, map, budget, known)).collect())
                 }
@@ -263,7 +266,9 @@ impl ExecutionCondition {
                     ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition])
                 }),
             };
+
             known.insert((condition, holds), value.clone());
+
             value
         }
 

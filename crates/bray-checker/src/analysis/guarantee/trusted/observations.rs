@@ -196,6 +196,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // Root refresh supplies current fields without rereading that source.
             let argument = crate::ExecutionPlace::argument(ordinal).value_in(arguments)
                 .unwrap_or_else(|| panic!("completed borrow input retains its evaluated root: {invocation:?}, {subject:?}"));
+
             let context = prepared.projections().iter().copied()
                 .fold(argument, ExecutionCondition::project);
 
