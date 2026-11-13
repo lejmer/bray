@@ -854,7 +854,9 @@ mod tests {
         assert!(decode_words(&words, limits).is_err(), "an allocation requires its producer identity");
 
         words[7] = attributes | crate::semantic::codec::common::REFERENCE_EMPTY;
+
         let contract = decode_words(&words, limits).expect("known empty reference must decode");
+
         assert!(contract.borrows[0].is_empty_reference());
 
         for invalid in [REFERENCE_EXACT, REFERENCE_INPUT_REGIONS, crate::semantic::codec::common::REFERENCE_ALLOCATION] {

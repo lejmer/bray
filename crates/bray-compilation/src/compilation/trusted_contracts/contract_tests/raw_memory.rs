@@ -304,6 +304,7 @@ trusted func caller(pos owner: &Owner)
         let diagnostics = application.check_diagnostics();
 
         let valid = valid && field == "u64";
+
         assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
         }
     }
@@ -424,7 +425,9 @@ fn raw_retirement_distinguishes_private_descriptors_from_borrowed_storage() {
                 observe(&owner);
             }
         "#.replace("PARAMETER", parameter).replace("READ_POINTEE", operation);
+
         let application = compilation(&source);
+
         let checked = application.lowered_unit(source_function_body_key(&application, "probe"))
             .expect("raw retirement probe lowers");
 

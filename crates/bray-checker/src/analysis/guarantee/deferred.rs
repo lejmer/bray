@@ -126,6 +126,7 @@ impl DeferredValue {
                 && observed.selector_place().is_some_and(|place| current.live_value(place)
                     .is_none_or(|value| value.copied_value() != observed)))
         };
+
         let context = context.map(|facts| facts.iter().filter(|(condition, _)| current_fact(condition))
             .cloned().collect::<Selection>());
 
@@ -156,6 +157,7 @@ impl DeferredValue {
 
         for candidate in self.producers.values_mut() {
             let captured = context.as_ref().map(|context| candidate.entry.captured_facts(context)).unwrap_or_default();
+
             let stale = candidate.entry.copy_sources.values().any(|source| !current_fact(source))
                 || candidate.entry.assumptions.iter().chain(&candidate.entry.trusted_assumptions)
                     .any(|(condition, _)| !current_fact(condition));
@@ -201,16 +203,20 @@ mod tests {
         let (_, expressions) = expression_unit(BoundUnitId::new(92), |tree, origin| {
             [0, 1].map(|_| push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))).to_vec()
         });
+
         let owner = ExecutionCondition::Expression(expressions[0]);
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let source = ExecutionCondition::ScalarValue(Arc::new(ExecutionCondition::Joined(BoundUnitId::new(92), 6, place.clone())));
+
         let captured = |owner| ExecutionCondition::CapturedInput {
             owner: Arc::new(owner), invocation: expressions[0].into(), ordinal: SymbolOrdinal::new(0),
         };
+
         let mut state = ExecutionState::default();
 
         state.current.insert(place.clone(), source.clone());
         state.assumptions.insert((source.clone(), true));
+
         state.deferred_invocations.insert(owner.clone(), DeferredValue {
             producers: [(expressions[0].into(), DeferredInvocation {
                 entry: Arc::new(ExecutionCallEvidence {
@@ -220,6 +226,7 @@ mod tests {
             })].into(),
             unknown: Some(DeferredInvocation { entry: (), reports: Default::default(), selection: [(source.clone(), true)].into() }),
         });
+
         let middle = ExecutionCondition::Result;
 
         state.join_values(&[(owner.clone(), middle.clone())].into(), &[(owner, middle.clone())].into());
@@ -249,15 +256,19 @@ mod tests {
         let requirement = |ordinal| DependencyRequirement::direct(
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(ordinal))),
             DependencyRequirementKind::ValueDependencies);
+
         let captured = |ordinal| Arc::new(crate::dependency::ReportDependencies {
             requirements: [requirement(ordinal)].into(), ..Default::default()
         });
+
         let completed = captured(0);
         let abnormal = captured(1);
+
         let mut first = DeferredInvocation {
             entry: (), selection: Default::default(),
             reports: [(DeferredCompleted, Arc::clone(&completed)), (DeferredAbnormal, Arc::clone(&abnormal))].into(),
         };
+
         let second = DeferredInvocation {
             entry: (), selection: Default::default(),
             reports: [(DeferredCompleted, captured(2))].into(),
@@ -326,6 +337,7 @@ mod tests {
 
         assert!(!state.owned_values(&owner).any(|owned| owned == value),
             "capturing extraction evidence does not make the future own its borrowed source");
+
         assert!(state.witness_values(&owner).any(|source| source == value),
             "the future retains the existing source evidence for its checked extraction");
 

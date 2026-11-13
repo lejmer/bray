@@ -77,6 +77,7 @@ fn machine_products_retain_proven_bounds_across_boolean_joins() {
             return;
         }
     ";
+
     let split = r"
         if stride != 0
         {
@@ -133,10 +134,12 @@ fn machine_products_retain_proven_bounds_across_boolean_joins() {
                 inspect(&owner, stride, capacity);
             }}
         ");
+
         let compilation = compilation(&source);
         let diagnostics = compilation.check_diagnostics();
 
         assert_eq!(!diagnostics.has_errors(), valid, "source={source_value}, guard={guard}: {diagnostics:#?}");
+
         assert!(diagnostics.iter().all(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven),
             "the negative must reach its ownership requirement: {diagnostics:#?}");
     }

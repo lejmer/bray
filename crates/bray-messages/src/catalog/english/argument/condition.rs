@@ -20,12 +20,15 @@ pub(super) fn format_obligation(obligation: &DiagnosticContractObligation) -> St
         DiagnosticContractObligationKind::Postcondition => "postcondition",
         DiagnosticContractObligationKind::ExecutionRequirement => "execution-context requirement",
     };
+
     let actual = format_condition(&obligation.actual);
+
     let condition = if matches!(obligation.actual, DiagnosticCondition::Unknown | DiagnosticCondition::Elided) {
         format!("{} (actual condition: {actual})", format_condition(&obligation.required))
     } else {
         actual
     };
+
     format!("{role} `{condition}`")
 }
 
@@ -35,6 +38,7 @@ fn format_condition(condition: &DiagnosticCondition) -> String {
         DiagnosticCondition::Boolean(value) => value.to_string(),
         DiagnosticCondition::String(value) => {
             let literal = format!("{value:?}");
+
             format!("\"{}\"", format_code_snippet(&literal[1..literal.len() - 1]))
         }
         DiagnosticCondition::Character(value) => format!("{value:?}"),
@@ -43,18 +47,22 @@ fn format_condition(condition: &DiagnosticCondition) -> String {
         DiagnosticCondition::Argument(ordinal) => format!("argument {}", u64::from(*ordinal) + 1),
         DiagnosticCondition::Application { path, types, arguments } => {
             let mut name = format_code_snippet(&path.join("."));
+
             if !types.is_empty() {
                 let types = types.iter().map(|argument| match argument {
                     DiagnosticTypeArgument::Type(ty) => super::source::format_english_type(ty),
                     DiagnosticTypeArgument::Constant => "…".to_owned(),
                 }).collect::<Vec<_>>().join(", ");
+
                 name.push_str(&format!("<{types}>"));
             }
+
             format!("{name}({})", arguments.iter().map(format_condition).collect::<Vec<_>>().join(", "))
         }
         DiagnosticCondition::Operation { operation, operands } => {
             let operands = operands.iter().map(format_condition).collect::<Vec<_>>();
             let operator = operation_token(*operation);
+
             match operands.as_slice() {
                 [value] => format!("{operator}({value})"),
                 [left, right] => format!("({left} {operator} {right})"),
@@ -63,6 +71,7 @@ fn format_condition(condition: &DiagnosticCondition) -> String {
         }
         DiagnosticCondition::Projection { value, projection } => {
             let value = format_condition(value);
+
             match projection {
                 DiagnosticConditionProjection::Field(field) => format!("{value}.{}", format_code_snippet(field)),
                 DiagnosticConditionProjection::TupleElement(index) => format!("{value}.{index}"),
@@ -150,6 +159,7 @@ mod tests {
     fn source_operands_are_shortened_without_limiting_the_condition() {
         let inline = "lambda(pos value: u32) -> u32\n{\n    return value;\n}";
         let long = "λ".repeat(100);
+
         let condition = DiagnosticCondition::Application {
             path: vec!["requires_each_operand".to_owned()], types: Vec::new(),
             arguments: vec![
@@ -162,6 +172,7 @@ mod tests {
         };
 
         let rendered = format_condition(&condition);
+
         assert_eq!(rendered, format!("requires_each_operand(lambda(pos value: u32) -> u32…, {}…, {}…, \"{}…\", true)", "λ".repeat(79), "1".repeat(79), "s".repeat(79)));
         assert!(rendered.chars().count() > 160, "only code operands have a length limit");
     }

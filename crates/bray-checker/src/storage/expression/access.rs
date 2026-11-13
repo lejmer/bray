@@ -640,6 +640,7 @@ where
 
             let node = self.request.view().expression(expression)
                 .expect("returned index borrow belongs to its expression");
+
             let access = StorageAccess::new(StorageAccessRoot::Storage(storage), [], stored_type,
                 node.origin().source_anchor(), node.is_recovered());
 

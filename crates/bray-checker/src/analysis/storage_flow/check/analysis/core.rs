@@ -1059,6 +1059,7 @@ where
         }
 
         let input_references = self.completed_input_references(state, kind);
+
         let memory_status = self.apply_storage_operation(
             state,
             operation,
@@ -2035,6 +2036,7 @@ where
         access: StorageAccessId,
     ) -> Vec<BoundExpressionId> {
         let logical = self.storage.logical_path(access);
+
         let retained = self.retained_borrow_value(state, access)
             .and_then(|borrow| state.memory.borrow_regions(borrow));
 

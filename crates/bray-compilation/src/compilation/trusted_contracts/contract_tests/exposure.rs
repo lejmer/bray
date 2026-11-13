@@ -60,6 +60,7 @@ fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
     for transport in [false, true] {
     for (mutation, valid) in [("", true), ("carrier.payload.value = 1;", false)] {
         let acquire = if transport { "forward(forward(make(&mut payload)))" } else { "make(&mut payload)" };
+
         let source = format!(
             r#"
             trusted module app;

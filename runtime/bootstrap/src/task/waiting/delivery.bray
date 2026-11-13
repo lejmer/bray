@@ -183,10 +183,7 @@ trusted internal func release_wait_target(pos owner: WaitRegistration) -> Refere
             trusted bray.runtime.bootstrap.event.release_callback(callback);
             trusted bray.runtime.bootstrap.event.release_event(reference);
         }
-        case WaitTarget.ExecutionEvent(reference, _)
-        {
-            trusted bray.runtime.bootstrap.event.release_event(reference);
-        }
+        case WaitTarget.ExecutionEvent(reference, _) { trusted bray.runtime.bootstrap.event.release_event(reference); }
     }
 
     return waiter;

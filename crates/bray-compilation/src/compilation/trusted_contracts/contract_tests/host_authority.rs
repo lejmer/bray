@@ -30,6 +30,7 @@ fn implicit_receiver_reborrows_do_not_escape_local_owners() {
         }
         "#,
     );
+
     let checked = compilation.lowered_unit(source_function_body_key(&compilation, "escape"))
         .expect("receiver escape retains its checked lifetime contract");
 

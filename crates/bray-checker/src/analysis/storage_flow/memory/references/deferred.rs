@@ -171,6 +171,7 @@ impl State {
     ) {
         let transfer = self.pending.get_mut(&invocation)
             .expect("deferred cleanup is captured with its prepared value transition");
+
         transfer.captured_cleanup = Some(captures.into_iter().collect());
         transfer.result_cleanup = Some(result.into_iter().collect());
     }
@@ -182,11 +183,13 @@ impl State {
         discard_result: bool,
     ) -> Option<Vec<Effect>> {
         let Source::Value(source) = source else { return None; };
+
         let entries = self.deferred.get(source)?;
         let mut effects = std::collections::BTreeSet::new();
 
         for (_, entry) in entries.iter().filter(|(source, _)| producers.contains(source)) {
             effects.extend(entry.captured_cleanup.as_ref()?.iter().cloned());
+
             if discard_result {
                 effects.extend(entry.result_cleanup.as_ref()?.iter().cloned());
             }

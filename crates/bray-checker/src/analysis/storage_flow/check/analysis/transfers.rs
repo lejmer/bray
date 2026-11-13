@@ -149,7 +149,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let shared = |target: &Target, observation, ty| survives(target, observation, Some(ty), Some(bray_symbols::BorrowKind::Shared));
         let active = |target: &Target, observation, ty, shared| survives(target, observation, Some(ty), Some(if shared { bray_symbols::BorrowKind::Shared } else { bray_symbols::BorrowKind::Mutable }));
 
-
         self.preserve_active_borrows(state, memory, &active, invalidation);
         self.preserve_shared_views(memory, &shared, invalidation);
 

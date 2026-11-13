@@ -378,6 +378,7 @@ fn ownership_guarantees_precede_fallible_wrapping() {
             };
         }
         "#.replace("INITIAL_VALUE", initializer);
+
         let compilation = crate::test_support::compilation(&source);
 
         assert_eq!(!compilation.check_diagnostics().has_errors(), valid, "{source}: {:?}", compilation.check_diagnostics());
@@ -392,6 +393,7 @@ fn ownership_guarantees_precede_fallible_wrapping() {
 fn production_completion_predicates_match_returned_booleans() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
+
     let symbols = compilation.symbol_graph().expect("production symbols are available");
     let mut failures = Vec::new();
     let mut bodies = 0;
@@ -404,6 +406,7 @@ fn production_completion_predicates_match_returned_booleans() {
         }
 
         bodies += 1;
+
         let properties = compilation.execution_properties(key.clone()).expect("completion predicate is certified");
         let body = compilation.lowered_unit(key.clone()).expect("completion predicate lowers");
 

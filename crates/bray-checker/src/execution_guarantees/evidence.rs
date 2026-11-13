@@ -446,7 +446,6 @@ impl ExecutionCallEvidence {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::ExecutionCallEvidence;
@@ -460,6 +459,7 @@ mod tests {
         let required = ExecutionCondition::Input(argument.clone().component(field));
         let contents = ExecutionCondition::Input(owner.clone().component(field));
         let mut entry = ExecutionCallEvidence::default();
+
         entry.arguments.insert(argument.clone(), ExecutionCondition::Input(owner).borrowed());
         entry.assumptions.insert((contents.clone(), true));
 
@@ -473,6 +473,7 @@ mod tests {
 
         entry.arguments.insert(argument, ExecutionCondition::Input(
             ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2))).borrowed());
+
         assert!(entry.prove_requirements([&required]).is_err());
     }
 
@@ -483,7 +484,9 @@ mod tests {
 
         for actual in [ExecutionCondition::Boolean(false), ExecutionCondition::Unknown] {
             let mut entry = ExecutionCallEvidence::default();
+
             entry.arguments.insert(input.clone(), actual.clone());
+
             let failure = entry.prove_requirements([&required]).expect_err("unproven input cannot supply authority");
 
             assert_eq!(failure.required(), &required);
@@ -491,6 +494,7 @@ mod tests {
         }
 
         let mut entry = ExecutionCallEvidence::default();
+
         entry.arguments.insert(input, ExecutionCondition::Boolean(true));
         assert!(entry.prove_requirements([&required]).is_ok());
     }

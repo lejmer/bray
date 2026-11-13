@@ -4017,11 +4017,13 @@ fn typed_links_preserve_pure_pointer_transport_without_address_observation() {
                 return empty;
             }}
         "#);
+
         let application = standard_library_compilation([
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
             &source,
         ]);
+
         let certificate = application.execution_properties(source_function_body_key(&application, "make_link"))
             .expect("link production has an execution certificate result");
 
@@ -4030,6 +4032,7 @@ fn typed_links_preserve_pure_pointer_transport_without_address_observation() {
         if valid {
             let forwarded = application.execution_properties(source_function_body_key(&application, "forward_link"))
                 .expect("forwarding has an execution certificate result");
+
             let checked = application.lowered_unit(source_function_body_key(&application, "forward_link"))
                 .expect("pointer transport reaches its checked lowering boundary");
 
@@ -4148,12 +4151,14 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
             return owner.link.pointer;
         }
     "#;
+
     let declarations = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
         owner,
     ];
+
     let provider = standard_library_compilation(declarations);
 
     assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
@@ -4188,11 +4193,13 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
         ("&std.memory.Link", "", "", "", "trusted std.memory.read_borrow_from_guard(&mut guard)", escaping),
     ] {
         let valid = failure.is_none();
+
         let read_view = if view.is_empty() {
             String::new()
         } else {
             format!("let state = trusted {view}.get();")
         };
+
         let source = format!(r#"
             trusted module app;
 
@@ -4208,11 +4215,13 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
                 return {returned};
             }}
         "#);
+
         let local = standard_library_compilation(declarations.into_iter().chain([source.as_str()]));
         let imported = super::fixtures::execution_consumer(&provider, &source);
 
         for (application, imported) in [(&local, false), (&imported, true)] {
             let diagnostics = application.check_diagnostics();
+
             let summary = crate::compilation::result_dependencies::source_function_dependencies(
                 application, "caller",
             );
@@ -4222,6 +4231,7 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
             if valid {
                 assert!(!summary.requirements().iter().any(|requirement| matches!(requirement,
                     bray_symbols::DependencyRequirement::Direct { kind: bray_symbols::DependencyRequirementKind::StorageAlive, .. })), "a copied field does not retain its reading lifetime: {summary:#?}");
+
                 assert!(summary.requirements().iter().any(|requirement| matches!(requirement,
                     bray_symbols::DependencyRequirement::Direct { subject, kind: bray_symbols::DependencyRequirementKind::ValueDependencies }
                         if matches!(subject.subject_root(), bray_symbols::DependencySubjectRoot::Parameter(_))
@@ -4280,20 +4290,25 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
 
         extern trusted func mutate(pos pointer: DataPointer<u32>);
     "#;
+
     let options = CompilationOptions::default().with_native_link_inputs([
         bray_symbols::NativeLinkRequirement::new(
             bray_base::NonEmptySharedStr::try_new("c").expect("fixture native library name"),
             bray_symbols::NativeLinkKind::System,
         ),
     ]);
+
     let provider = standard_library_compilation_with_options([
         include_str!("../../../../../../../standard-library/std/src/std.bray"), declarations,
     ], options.clone());
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
     let address = r#"
                 let mut value: u32 = 0;
                 let mut pointer = core.memory.address_of_mut<u32>(&mut value);
     "#;
+
     let conditional = r#"
                 let status = trusted std.memory.produce(pointer);
 
@@ -4302,6 +4317,7 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
                     return;
                 }
     "#;
+
     let staged = r#"
                 let mut carrier: std.memory.Carrier =
                 {
@@ -4309,6 +4325,7 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
                 };
                 trusted std.memory.after_input(carrier.pointer, std.memory.overwrite(&mut carrier));
     "#;
+
     for (name, parameters, setup, call, observed, valid, capabilities) in [
         ("conditional address", "", address, conditional, "pointer", true, ""),
         ("conditional parameter", "pos pointer: DataPointer<u32>", "", conditional, "pointer", true, ""),
@@ -4333,6 +4350,7 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
                 trusted std.memory.inspect({observed});
             }}
         "#);
+
         for imported in [false, true] {
             let application = if imported {
                 super::fixtures::execution_consumer(&provider, &source)
@@ -4341,8 +4359,11 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
                     include_str!("../../../../../../../standard-library/std/src/std.bray"), declarations, &source,
                 ], options.clone())
             };
+
             let diagnostics = application.check_diagnostics();
+
             assert_eq!(!diagnostics.has_errors(), valid, "{name}, imported={imported}: {diagnostics:#?}");
+
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
@@ -4366,9 +4387,11 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
         let parameter = if sized { ", pos count: usize" } else { "" };
         let argument = if sized { ", owner.count" } else { "" };
         let count = if extent == "1" { "1" } else { "owner.count" };
+
         let initialization = if initialized { format!(
             "trusted core.memory.initialized_range_as<Uninit<u8>>(pointer = result.0, count = {extent}),"
         ) } else { String::new() };
+
         let separation = if separated { format!(r#"
                 trusted core.memory.non_overlapping<Uninit<u8>>(
                     left = result.0,
@@ -4377,6 +4400,7 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
                     right_count = {extent}
                 ),
         "#) } else { String::new() };
+
         let declarations = format!(r#"
             trusted module std.range_test;
 
@@ -4410,6 +4434,7 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
                 return (owner.source, owner.destination);
             }}
         "#);
+
         let sources = [
             include_str!("../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
@@ -4417,11 +4442,15 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
             include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
             declarations.as_str(),
         ];
+
         let provider = standard_library_compilation(sources);
+
         assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
         let (binding, source, destination) = if destructured {
             ("(source, destination)", "source", "destination")
         } else { ("pointers", "pointers.0", "pointers.1") };
+
         let source = format!(r#"
             trusted module app;
 
@@ -4438,27 +4467,36 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
                 trusted std.memory.copy<Uninit<u8>>({source}, {destination}, count = {count});
             }}
         "#);
+
         for imported in [false, true] {
             let application = if imported {
                 super::fixtures::execution_consumer(&provider, &source)
             } else { standard_library_compilation(sources.into_iter().chain([source.as_str()])) };
+
             let diagnostics = application.check_diagnostics();
+
             assert_eq!(!diagnostics.has_errors(), initialized && separated,
                 "extent={extent}, destructured={destructured}, imported={imported}: {diagnostics:#?}");
+
             if !initialized || !separated {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+
                 let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| {
                     match argument.value() {
                         bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
                         _ => None,
                     }
                 }).expect("rejected memory operation retains its failed condition");
+
                 let bray_diagnostics::DiagnosticCondition::Application { path, .. } = &obligation.actual else {
                     panic!("memory requirement retains its predicate: {obligation:#?}");
                 };
+
                 let expected = if initialized { "non_overlapping" } else { "initialized_range_as" };
+
                 assert_eq!(path.last().map(String::as_str), Some(expected));
+
                 if initialized {
                     assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingUninitializedRawStorage).next().is_none(),
                         "a different failed requirement must not erase proven initialization: {diagnostics:#?}");
@@ -4558,6 +4596,7 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
             return trusted std.memory.borrow_from<PointerState, Owner>(owner, pointer);
         }
     "#;
+
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
@@ -4566,8 +4605,11 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         declarations,
     ];
+
     let provider = standard_library_compilation(sources);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
     let required = r#"
                 requires(
                     trusted core.memory.callable_address_valid<std.function_evidence.Callback>(
@@ -4575,6 +4617,7 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
                     )
                 )
     "#;
+
     for (name, requirement, setup, observed, valid) in [
         ("value", "", "trusted std.function_evidence.supply_value(owner.pointer);", "owner.pointer", true),
         ("borrowed field", "", "trusted std.function_evidence.supply_field(&owner);", "owner.pointer", true),
@@ -4664,14 +4707,19 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
                 return trusted std.memory.callable_from_pointer<std.function_evidence.Callback>({observed});
             }}
         "#);
+
         for imported in [false, true] {
             let application = if imported { super::fixtures::execution_consumer(&provider, &source) }
                 else { standard_library_compilation(sources.into_iter().chain([source.as_str()])) };
+
             let diagnostics = application.check_diagnostics();
+
             assert_eq!(!diagnostics.has_errors(), valid, "{name}, imported={imported}: {diagnostics:#?}");
+
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+
                 if name.ends_with("slot authority") {
                     assert!(diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).any(|argument| {
                         matches!(argument.value(), bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation)
@@ -4708,9 +4756,12 @@ fn numeric_field_requirements_match_shared_borrow_observations() {
         {
         }
     "#;
+
     let sources = [include_str!("../../../../../../../standard-library/std/src/std.bray"), declarations];
     let provider = standard_library_compilation(sources);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
     for (borrow, before, after, observed, valid) in [
         ("&", "", "", "owner.value", true),
         ("&", "", "", "owner.other", false),
@@ -4718,6 +4769,7 @@ fn numeric_field_requirements_match_shared_borrow_observations() {
         ("&mut ", "", "owner.value = owner.other;", "owner.value", false),
     ] {
         let supplied = if borrow == "&" { "owner" } else { "&owner" };
+
         let source = format!(r#"
             module app;
 
@@ -4732,11 +4784,15 @@ fn numeric_field_requirements_match_shared_borrow_observations() {
                 std.scalar_evidence.require_value({observed});
             }}
         "#);
+
         for imported in [false, true] {
             let application = if imported { super::fixtures::execution_consumer(&provider, &source) }
                 else { standard_library_compilation(sources.into_iter().chain([source.as_str()])) };
+
             let diagnostics = application.check_diagnostics();
+
             assert_eq!(!diagnostics.has_errors(), valid, "{borrow}, {observed}, imported={imported}: {diagnostics:#?}");
+
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);

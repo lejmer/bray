@@ -845,6 +845,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
     fn include_type_representation(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let tables = self.tables.declarations.as_ref()
             .expect("selected representation has declaration tables");
+
         let representation = tables.type_representations.decode(index, &mut self.context, |reader, context| {
             declaration::decode_type_representation(reader, context.limits(), context)
         })?;
@@ -1073,7 +1074,6 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
                 | DependencyStorageEffect::Ambient
                 | DependencyStorageEffect::Unknown
                 | DependencyStorageEffect::Escape => {}
-
                 DependencyStorageEffect::Direct { subject, .. } => {
                     self.include_dependency_subject(subject)
                 }

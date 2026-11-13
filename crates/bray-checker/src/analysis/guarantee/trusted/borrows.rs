@@ -73,7 +73,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 };
 
                 let source = input.value_in(arguments)?;
+
                 if !source.is_reference() { return None; }
+
                 let value = source.into_referent();
 
                 value.ownership_identity().is_some_and(|(role, _)|
@@ -533,6 +535,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .map(|value| {
                         let extraction = value.is_reference() && !self.returned_value_is_borrowed(
                             dependencies, &crate::storage::owned_storage_projections(self.dependencies, transfer.output()));
+
                         let value = value.into_referent();
 
                         if extraction { state.extracted_result(&value) } else { state.owned_result(&value) }
@@ -655,10 +658,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 };
 
                 if !belongs { return result; }
+
                 base.as_ref()
             }
             value => value,
         };
+
         let retains_identity = matches!(
             pending,
             ExecutionCondition::Expression(_)

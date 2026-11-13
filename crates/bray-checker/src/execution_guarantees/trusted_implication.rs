@@ -238,10 +238,13 @@ mod tests {
         let ordinary = input(0);
         let promised = ExecutionCondition::Trusted(Arc::new(input(2)));
         let extra = ExecutionCondition::Trusted(Arc::new(input(1)));
+
         let established = ExecutionCondition::operation(BoundOperator::LogicalOr,
             vec![ordinary, promised.clone()]);
+
         let required = ExecutionCondition::operation(BoundOperator::LogicalOr,
             vec![established.clone(), extra.clone()]);
+
         let known = BTreeSet::from([(established.clone(), true)]);
 
         assert!(established.implies(&required));
@@ -251,13 +254,17 @@ mod tests {
         assert_eq!(required.prove_mixed(&BTreeSet::new(), &known, &mut { ExecutionCondition::WORK_LIMIT }), None);
 
         let mut unrelated = known;
+
         for index in 0..256 {
             let clause = ExecutionCondition::operation(BoundOperator::LogicalOr,
                 vec![input(10 + index), ExecutionCondition::Trusted(Arc::new(input(1000 + index)))]);
+
             unrelated.insert((clause, true));
         }
+
         let ordinary = BTreeSet::from([(input(3000), true)]);
         let decisive = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(3000), extra]);
+
         assert_eq!(decisive.prove_mixed(&unrelated, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }), Some(true));
     }
 
@@ -267,10 +274,13 @@ mod tests {
         let success = input(0).matches_variant(variant(900));
         let failure = input(0).matches_variant(variant(901));
         let claim = ExecutionCondition::Trusted(Arc::new(input(1)));
+
         let nullable = ExecutionCondition::operation(BoundOperator::LogicalOr,
             vec![input(2), claim.clone()]);
+
         let guarantee = ExecutionCondition::operation(BoundOperator::LogicalOr,
             vec![failure.clone(), nullable]);
+
         let known = trusted_condition_closure(BTreeSet::from([(guarantee, true)]),
             &BTreeSet::from([(success, true)]));
 

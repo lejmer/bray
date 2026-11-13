@@ -1306,9 +1306,12 @@ mod tests {
                         {body}
                     }}
                 "#);
+
                 let application = compilation(&source);
                 let diagnostics = application.check_diagnostics();
+
                 assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
                 if !valid {
                     assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
                         == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven), "{diagnostics:#?}");
@@ -1349,9 +1352,12 @@ mod tests {
                         return index;
                     }}
                 "#);
+
                 let application = compilation(&source);
                 let diagnostics = application.check_diagnostics();
+
                 assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
                 if !valid {
                     assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
                         == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven), "{diagnostics:#?}");
@@ -1414,9 +1420,12 @@ mod tests {
                         {body}
                     }}
                 "#);
+
                 let application = compilation(&source);
                 let diagnostics = application.check_diagnostics();
+
                 assert_eq!(diagnostics.has_errors(), failure.is_some(), "{source}: {diagnostics:#?}");
+
                 if let Some(kind) = failure {
                     assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind() == kind), "{diagnostics:#?}");
                 }
@@ -1463,10 +1472,12 @@ mod tests {
                         {body}
                     }}
                 "#);
+
                 let application = compilation(&source);
                 let diagnostics = application.check_diagnostics();
 
                 assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
                 if !valid {
                     assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
                         == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven), "{diagnostics:#?}");
@@ -1536,12 +1547,14 @@ mod tests {
                         {body}
                     }}
                 "#, outside = if outside_origin { "if bypass\n                        {\n                            return other;\n                        }" } else { "" });
+
                 let application = compilation(&source);
                 let diagnostics = application.check_diagnostics();
 
                 if !diagnostics.has_errors() != valid {
                     failures.push(format!("{source}: {diagnostics:#?}"));
                 }
+
                 if !valid {
                     assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
                         == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
@@ -1564,6 +1577,7 @@ mod tests {
             }
 
             let missing_entry = source.replacen("    requires(trusted valid(owner = &owner))\n", "", 1);
+
             let fabricated = source.replace("ownership = Ownership.Cleanup(execution_pin),",
                 "ownership = Ownership.Cleanup(\n            {\n                marker = {},\n            }\n        ),");
 
@@ -1648,6 +1662,7 @@ mod tests {
         let independent = include_str!("fixtures/fresh-allocation-returns.bray")
             .replace("return trusted core.memory.allocate(bytes = 8, align = 8);", "let temporary = trusted core.memory.allocate(bytes = 8, align = 8);\n    trusted core.memory.deallocate(temporary, bytes = 8, align = 8);\n    return trusted existing();")
             + "\nextern trusted func existing() -> DataPointer<u8>\n    ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 8, align = 8));\n";
+
         let application = compilation(&independent);
         let diagnostics = application.check_diagnostics();
 
@@ -1731,6 +1746,7 @@ mod tests {
                     _ = last;
                 }}
             "#);
+
             let application = compilation(&source);
             let diagnostics = application.check_diagnostics();
 
@@ -1785,9 +1801,12 @@ mod tests {
                         return owner;
                     }}
                 "#);
+
                 let application = compilation(&source);
                 let diagnostics = application.check_diagnostics();
+
                 assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
                 if !valid {
                     assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
                         == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");
@@ -1799,6 +1818,7 @@ mod tests {
     #[test]
     fn guarded_trusted_requirements_accept_weaker_clauses_but_not_changed_storage_or_authority() {
         let weaker = "operation < 4 || (operation == 4 && trusted destination(cursor.pointer, argument)) || (operation == 5 && trusted retiring(cursor.pointer))";
+
         for asynchronous in ["", "async "] {
             for (requirement, body, valid) in [
                 (weaker, "invoke(cursor, operation, argument);", true),
@@ -1828,9 +1848,12 @@ mod tests {
                         {body}
                     }}
                 "#);
+
                 let application = compilation(&source);
                 let diagnostics = application.check_diagnostics();
+
                 assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
                 if !valid {
                     assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
                         == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "{diagnostics:#?}");

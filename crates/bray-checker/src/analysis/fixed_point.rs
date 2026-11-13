@@ -560,6 +560,7 @@ mod tests {
         let (_, expressions) = crate::test_support::expression_unit(unit, |tree, origin| vec![
             crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None)),
         ]);
+
         expressions[0]
     }
 

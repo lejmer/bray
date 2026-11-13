@@ -348,6 +348,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
     fn boundary(&self) -> Self::State {
         let mut state = ExecutionState::default();
+
         state.current = super::super::current::CurrentValues::with_observed_types(
             std::sync::Arc::clone(self.observed_types));
 

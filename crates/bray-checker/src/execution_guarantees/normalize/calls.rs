@@ -189,6 +189,7 @@ pub(crate) fn selected_call_condition(
             } else {
                 crate::execution_guarantees::ExecutionDescriptorKind::Reference
             };
+
             for value in &mut arguments {
                 *value = value.descriptor(kind);
             }

@@ -132,10 +132,12 @@ fn projected_slices_keep_their_descriptor_in_downstream_contracts() {
                 return 0;
             }}
         "#);
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
         assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
         }

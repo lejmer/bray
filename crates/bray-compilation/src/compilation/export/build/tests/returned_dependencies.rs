@@ -6,12 +6,14 @@ use super::fixtures::{compilation, compilation_from_sources, execution_consumer}
 fn allocation_producers_preserve_freshness_in_source_and_imported_calls() {
     let api = include_str!("../../../execution_guarantees/fixtures/fresh-allocation-returns.bray")
         .replace("trusted module app;", "trusted module api;");
+
     let provider = compilation(&api);
 
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for imported in [false, true] {
         let prefix = if imported { "example.package.api" } else { "api" };
+
         let caller = r#"
             trusted module app;
 
@@ -28,8 +30,10 @@ fn allocation_producers_preserve_freshness_in_source_and_imported_calls() {
                 API.observe(owner);
             }
         "#.replace("API", prefix);
+
         let consumer = if imported { execution_consumer(&provider, &caller) }
             else { compilation_from_sources([&api, &caller]) };
+
         let diagnostics = consumer.check_diagnostics();
 
         assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:#?}");
@@ -64,11 +68,14 @@ fn owned_match_results_release_the_subject_loan() {
             slot.control = none;
         }
     "#;
+
     let provider = compilation(api);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for imported in [false, true] {
         let prefix = if imported { "example.package.api" } else { "api" };
+
         let caller = r#"
             module app;
 
@@ -116,6 +123,7 @@ fn owned_match_results_release_the_subject_loan() {
                 return view;
             }
         "#.replace("API", prefix);
+
         let consumer = if imported {
             execution_consumer(&provider, &caller)
         } else {
@@ -189,7 +197,9 @@ fn guarded_borrowed_fields_compose_through_construction_and_calls() {
         }
 
     "#;
+
     let provider = compilation(api);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for imported in [false, true] {
@@ -206,6 +216,7 @@ fn guarded_borrowed_fields_compose_through_construction_and_calls() {
             } else {
                 ""
             };
+
             let caller = format!(r#"
                 module app;
 
@@ -219,11 +230,13 @@ fn guarded_borrowed_fields_compose_through_construction_and_calls() {
                     trusted {prefix}.inspect(&mut audit_lease_anchor);
                 }}
             "#);
+
             let consumer = if imported {
                 execution_consumer(&provider, &caller)
             } else {
                 compilation_from_sources([api, caller.as_str()])
             };
+
             let checked = consumer.lowered_unit(source_function_body_key(&consumer, "caller"))
                 .expect("guarded borrowed constructor retains its checked Source body");
 
@@ -266,11 +279,14 @@ fn observed_nullable_patterns_keep_their_subject_until_scope_exit() {
             return owner;
         }
     "#;
+
     let provider = compilation(api);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for imported in [false, true] {
         let prefix = if imported { "example.package.api" } else { "api" };
+
         let caller = format!(r#"
             module app;
 
@@ -322,6 +338,7 @@ fn observed_nullable_patterns_keep_their_subject_until_scope_exit() {
                 return none;
             }}
         "#);
+
         let consumer = if imported {
             execution_consumer(&provider, &caller)
         } else {
@@ -392,11 +409,14 @@ fn borrowed_call_projections_outlive_their_retired_descriptors() {
             return trusted core.memory.borrow_from<Payload, Owner>(owner, owner.pointer);
         }
     "#;
+
     let provider = compilation(api);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for imported in [false, true] {
         let prefix = if imported { "example.package.api" } else { "api" };
+
         let caller = format!(r#"
             module app;
 
@@ -415,6 +435,7 @@ fn borrowed_call_projections_outlive_their_retired_descriptors() {
                 return &(trusted {prefix}.borrow_payload(&owner)).marker;
             }}
         "#);
+
         let consumer = if imported {
             execution_consumer(&provider, &caller)
         } else {
@@ -486,6 +507,7 @@ fn borrowed_method_receivers_retain_the_returned_referent() {
 
     for imported in [false, true] {
         let prefix = if imported { "example.package.api" } else { "api" };
+
         let caller = format!(r#"
             module app;
 
@@ -2175,23 +2197,32 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
     let transfers = changed.owned_result().guaranteed_transfers().into_iter().collect::<Vec<_>>();
 
     assert_eq!(transfers.len(), 1, "{changed:#?}");
+
     let values = provider.semantic_value_store().expect("provider semantic values");
+
     let input = values.intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(bray_symbols::SymbolOrdinal::new(0)))
         .expect("owned source is the first formal input");
+
     assert_eq!(transfers[0].input(), input, "{changed:#?}");
     assert!(transfers[0].output().is_empty(), "the same owner is returned at the root");
     assert!(transfers[0].preservation().preserves_value(), "unchanged root observations survive: {changed:#?}");
+
     let children = transfers[0].preservation().children();
+
     assert_eq!(children.len(), 1, "{changed:#?}");
+
     let (bray_symbols::ConstantProjectionKind::ProductField(flag), mask) = children.first_key_value().expect("changed flag override") else {
         panic!("changed owner retains its named field override: {changed:#?}");
     };
+
     let symbols = provider.symbol_graph().expect("provider symbols");
+
     assert_eq!(symbols.member_name((*flag).into()).map(|name| name.as_str()), Some("flag"));
     assert!(!mask.preserves_value(), "the written flag loses its old contents");
 
     for name in ["identity", "unwrap", "present", "success"] {
         let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
+
         assert!(!summary.owned_result().is_empty(), "{name} must publish its checked owner transfer: {summary:#?}");
     }
 
@@ -4551,7 +4582,6 @@ fn copied_handle_fields_do_not_retain_returned_view_loans() {
     }
 }
 
-
 #[test]
 fn resource_acquisitions_survive_pointee_writes_but_not_resource_replacement() {
     let source = r#"
@@ -4616,6 +4646,7 @@ fn resource_acquisitions_survive_pointee_writes_but_not_resource_replacement() {
         {
         }
     "#;
+
     let provider = compilation(source);
     let diagnostics = provider.check_diagnostics();
 
@@ -4644,6 +4675,7 @@ fn resource_acquisitions_survive_pointee_writes_but_not_resource_replacement() {
             } else {
                 compilation_from_sources([source, &caller.replace("example.package.", "")])
             };
+
             let diagnostics = consumer.check_diagnostics();
 
             assert_eq!(!diagnostics.has_errors(), valid, "{operation}, {check}, imported={imported}: {diagnostics:#?}");
@@ -4681,6 +4713,7 @@ fn disjunctive_variant_requirements_exclude_incompatible_match_arms() {
             };
         }
     "#;
+
     let provider = compilation(source);
     let diagnostics = provider.check_diagnostics();
 
@@ -4704,6 +4737,7 @@ fn disjunctive_variant_requirements_exclude_incompatible_match_arms() {
             } else {
                 compilation_from_sources([source, &caller.replace("example.package.", "")])
             };
+
             let diagnostics = consumer.check_diagnostics();
 
             assert_eq!(!diagnostics.has_errors(), valid, "{variant}, imported={imported}: {diagnostics:#?}");
@@ -4823,6 +4857,7 @@ fn entry_union_observations_preserve_sibling_owner_values() {
             return owner.other;
         }
     "#;
+
     let provider = compilation(source);
     let diagnostics = provider.check_diagnostics();
 
@@ -4847,6 +4882,7 @@ fn entry_union_observations_preserve_sibling_owner_values() {
             } else {
                 compilation_from_sources([source, &caller.replace("example.package.", "")])
             };
+
             let diagnostics = consumer.check_diagnostics();
 
             assert_eq!(!diagnostics.has_errors(), valid, "{operation}, imported={imported}: {diagnostics:#?}");
@@ -4991,6 +5027,7 @@ fn conditional_component_guarantees_survive_complete_union_consumption() {
             };
         }
     "#;
+
     let provider = compilation(source);
     let diagnostics = provider.check_diagnostics();
 
@@ -5015,6 +5052,7 @@ fn conditional_component_guarantees_survive_complete_union_consumption() {
             } else {
                 compilation_from_sources([source, &caller.replace("example.package.", "")])
             };
+
             let diagnostics = consumer.check_diagnostics();
 
             assert_eq!(!diagnostics.has_errors(), valid, "{argument}, imported={imported}: {diagnostics:#?}");
@@ -5032,6 +5070,7 @@ fn conditional_component_guarantees_survive_complete_union_consumption() {
 #[test]
 fn escape_summaries_preserve_input_roots_before_alias_expansion() {
     let mut failures = Vec::new();
+
     for (extra, wrapped, choice, expected) in [("", false, false, 1), ("expose(core.memory.address_of<Value>(owner.value));", false, false, 3), ("", true, false, 1), ("", false, true, 2)] {
         let source = r#"
             trusted module api;
@@ -5107,6 +5146,7 @@ fn escape_summaries_preserve_input_roots_before_alias_expansion() {
                 bray_symbols::NativeLinkKind::Dynamic,
             )],
         );
+
         let consumer = execution_consumer(&application, r"
             module app;
 
@@ -5117,23 +5157,31 @@ fn escape_summaries_preserve_input_roots_before_alias_expansion() {
                 example.package.api.forward(owner, first);
             }
         ");
+
         for (application, name, surface) in [(&application, "forward", "source"), (&consumer, "relay", "imported")] {
             let diagnostics = application.check_diagnostics();
+
             assert!(!diagnostics.has_errors(), "{surface}: {}", super::fixtures::diagnostic_messages(diagnostics));
+
             let flow = application.storage_flow(source_function_body_key(application, name))
                 .expect("escape summary composes");
+
             let effects = flow.value().dependencies().effects();
+
             let roots = effects.iter().filter(|effect| matches!(effect,
                 bray_symbols::DependencyStorageEffect::Direct { kind: bray_symbols::DependencyMutationKind::Escape, .. }
                 | bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Escape, .. })).count();
+
             if choice && effects.iter().any(|effect| !matches!(effect,
                 bray_symbols::DependencyStorageEffect::Indirect { reference, projections, kind: bray_symbols::DependencyMutationKind::Escape, .. }
                 if reference.projections().len() == 2 && projections.is_empty())) {
                 failures.push(format!("{surface}: borrowed choices must publish their pointer fields, got {effects:#?}"));
             }
+
             if roots != expected { failures.push(format!("{surface} {extra} wrapped={wrapped}: expected {expected} roots, got {effects:#?}")); }
             assert!(!effects.contains(&bray_symbols::DependencyStorageEffect::Escape), "{surface}: known escape roots remain structured");
         }
     }
+
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

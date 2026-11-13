@@ -223,7 +223,6 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
             MessageTemplatePart::Arg(DiagnosticArgName::ExecutionProofFailure),
             MessageTemplatePart::Text(": "), MessageTemplatePart::Arg(DiagnosticArgName::ContractObligation),
         ]),
-
         DiagnosticLabelKind::InvalidCharacter => MessageTemplate::new(INVALID_CHARACTER),
         DiagnosticLabelKind::MisplacedBom => MessageTemplate::new(MISPLACED_BOM),
         DiagnosticLabelKind::LoneCarriageReturn => MessageTemplate::new(LONE_CARRIAGE_RETURN),

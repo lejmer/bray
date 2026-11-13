@@ -16,6 +16,7 @@ fn ownership_composition_accepts_complete_transport() {
 fn ownership_composition_preserves_trusted_result_transport() {
     let source = include_str!("../../../../../../xtask/fixtures/native-execution/ownership-transitions.bray")
         .replace("owner = acquire()", "owner = trusted acquire()");
+
     let compilation = compilation(&source);
     let diagnostics = compilation.check_diagnostics();
 
@@ -49,21 +50,27 @@ fn extracted_owned_fields_outlive_their_replaced_storage() {
     for deferred in [false, true] {
         for route in ["known", "unknown", "overwrite", "loop", "mutated"] {
             let asynchronous = if deferred { "async " } else { "" };
+
             let take = |name: &str, choice: &str| {
                 let call = format!("trusted take_owned_report(&mut reports, {choice})");
+
                 if deferred { format!("let pending_{name} = {call};\nlet mut {name} = await pending_{name};") }
                 else { format!("let mut {name} = {call};") }
             };
+
             let first = take("previous", "false");
+
             let body = match route {
                 "known" | "unknown" => {
                     let incoming = take("incoming", if route == "known" { "true" } else { "choice" });
+
                     format!("{first}\n{incoming}\nconsume_report(incoming);\nconsume_report(previous);")
                 }
                 "overwrite" => format!("{first}\nreports.left = replacement;\nconsume_report(previous);"),
                 "mutated" => format!("{first}\ntrusted change_report(&mut previous);\nconsume_report(previous);"),
                 "loop" => {
                     let current = take("current", "choice");
+
                     format!(r#"
                         let mut previous: ScalarReport? = none;
                         let mut turn: u32 = 0;
@@ -100,6 +107,7 @@ fn extracted_owned_fields_outlive_their_replaced_storage() {
                 }
                 _ => unreachable!(),
             };
+
             let source = format!(r#"
                 trusted module app;
 
@@ -174,16 +182,23 @@ fn extracted_owned_fields_outlive_their_replaced_storage() {
                     {body}
                 }}
             "#);
+
             let application = crate::test_support::production_standard_library_compilation(
                 crate::SelectedTarget::baseline(), &source);
+
             let published = source_function_dependencies(&application, "take_owned_report");
+
             assert!(!published.owned_result().is_empty(), "the fixture must publish checked extraction lineage: {published:?}");
+
             let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
                 .expect("field extraction caller reaches lowering");
+
             let valid = route != "mutated";
+
             if !checked.diagnostics().has_errors() != valid {
                 failures.push(format!("deferred={deferred} route={route}: {:#?}", checked.diagnostics()));
             }
+
             if !valid && checked.diagnostics().has_errors() {
                 bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
             }
@@ -495,6 +510,7 @@ fn consuming_copyable_receivers_move_authority_and_retire_the_source() {
                 OPERATION
             }
         "#.replace("OPERATION", operation);
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 

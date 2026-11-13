@@ -810,7 +810,9 @@ fn normal_result_shapes_keep_empty_exits_without_reusing_replaced_entry_tags() {
         func choose<T>(pos value: T, pos take: bool) -> Choice<T>
         { return if take { yield .Value(value); } else { yield .Empty; }; }
     "#;
+
     let provider = compilation(declarations);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for (call, valid) in [("api.empty(.Value(api.make()))", true), ("api.replace(.Empty)", false),
@@ -828,13 +830,17 @@ fn normal_result_shapes_keep_empty_exits_without_reusing_replaced_entry_tags() {
                 }}
             }}
         "#);
+
         for imported in [false, true] {
             let consumer = if imported {
                 execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
                     .replace("api.", "example.package.api."))
             } else { compilation_from_sources([declarations, source.as_str()]) };
+
             let diagnostics = consumer.check_diagnostics();
+
             assert_eq!(!diagnostics.has_errors(), valid, "{call}, imported={imported}: {}", super::fixtures::diagnostic_messages(diagnostics));
+
             if !valid { bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven); }
         }
     }
@@ -854,9 +860,13 @@ fn two_input_owner_selection_keeps_only_the_selected_witness() {
         func nested<T>(pos left: T, pos right: T, pos take: bool) -> Box<T>
         { return { value = select<T>(left, right, take) }; }
     "#;
+
     let provider = compilation(declarations);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
     let mut failures = Vec::new();
+
     for (call, projection, valid) in [
         ("api.select<api.Marker>(api.make(), api.make(), take)", "", true),
         ("api.select<api.Marker>(api.make(), api.Marker {}, true)", "", true),
@@ -872,12 +882,15 @@ fn two_input_owner_selection_keeps_only_the_selected_witness() {
             using api;
             func caller(pos take: bool) {{ let result = {call}; api.inspect(&result{projection}); }}
         "#);
+
         for imported in [false, true] {
             let consumer = if imported {
                 execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
                     .replace("api.", "example.package.api."))
             } else { compilation_from_sources([declarations, source.as_str()]) };
+
             let diagnostics = consumer.check_diagnostics();
+
             if diagnostics.has_errors() == valid {
                 failures.push(format!("{call}, imported={imported}, valid={valid}: {}", super::fixtures::diagnostic_messages(diagnostics)));
             } else if !valid {
@@ -885,26 +898,34 @@ fn two_input_owner_selection_keeps_only_the_selected_witness() {
             }
         }
     }
+
     let values = provider.semantic_value_store().expect("provider semantic values");
+
     let expected = [0, 1].map(|ordinal| values.intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(
         bray_symbols::SymbolOrdinal::new(ordinal))).expect("formal selection input")).into_iter().collect::<std::collections::BTreeSet<_>>();
+
     for name in ["select", "nested"] {
         let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
         let actual = summary.owned_result().transfers().map(|transfer| transfer.input()).collect::<std::collections::BTreeSet<_>>();
+
         if actual != expected || !summary.owned_result().guaranteed_transfers().is_empty()
             || summary.owned_result().transfers().any(|transfer| !transfer.preservation().preserves_value())
         {
             failures.push(format!("{name} must retain both possible inputs and their ordinary contents without unconditionally selecting either: {:?}", summary.owned_result()));
         }
     }
+
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
 fn conditional_payloads_preserve_only_the_selected_owner() {
     let provider = compilation(API);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
     let mut failures = Vec::new();
+
     for (name, body, valid) in [
         ("nullable_both", "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.make_marker(), choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", true),
         ("nullable_real", "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.Marker {}, true, true); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", true),
@@ -914,20 +935,23 @@ fn conditional_payloads_preserve_only_the_selected_owner() {
         ("optional_real", "let result = api.select_optional<api.Receipt>(api.make(), choice); match consume result { case ?value { let wrapped: api.Receipt? = value; api.observe(&wrapped); } case none {} }", true),
     ] {
         let source = format!("module app; using api; func caller(pos choice: bool, pos active: bool) {{ {body} }}");
+
         for imported in [false, true] {
             let application = if imported { execution_consumer(&provider, &source.replace("using api;", "using example.package.api;").replace("api.", "example.package.api.")) }
                 else { compilation_from_sources([API, source.as_str()]) };
+
             let diagnostics = application.check_diagnostics();
+
             if diagnostics.has_errors() == valid { failures.push(format!("{name}, imported={imported}, valid={valid}: {}", super::fixtures::diagnostic_messages(diagnostics))); }
             else if !valid { bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven); }
         }
     }
+
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 fn check_owned_transfers(imported: bool) {
     let provider = compilation(API);
-
 
     assert!(
         !provider.check_diagnostics().has_errors(),
@@ -2225,6 +2249,7 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
                     case Error(status) { return status; }
                 };
     "#;
+
     let branch = r#"
                 if api.opaque() != 0
                 {
@@ -2234,6 +2259,7 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
 
                 api.take(owner);
     "#;
+
     for guard in ["!(result matches Ok(_))", "result matches Error(_)"] {
     for (published, setup, body, valid) in [
         (false, created, "_ = api.opaque();\n                api.take(owner);", true),
@@ -2245,6 +2271,7 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
         (true, "let owner: api.Owner? = none;", "api.take(owner);", true),
     ] {
         let publication = if published { "publish(&owner);" } else { "" };
+
         let declarations = format!(r#"
             trusted module api;
 
@@ -2309,8 +2336,11 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
 
             extern func opaque() -> u32;
         "#);
+
         let provider = compilation(&declarations);
+
         assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
         let source = format!(r#"
             module app;
 
@@ -2323,6 +2353,7 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
                 return 0;
             }}
         "#);
+
         for imported in [false, true] {
             let application = if imported {
                 execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
@@ -2330,9 +2361,12 @@ fn published_nullable_payloads_survive_consumed_results_and_opaque_calls() {
             } else {
                 compilation_from_sources([declarations.as_str(), &source])
             };
+
             let diagnostics = application.check_diagnostics();
+
             assert_eq!(!diagnostics.has_errors(), valid, "guard={guard}, published={published}, imported={imported}: {source}\n{diagnostics:#?}\n{:#?}",
                 crate::compilation::result_dependencies::source_function_dependencies(&provider, "make"));
+
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
@@ -2355,6 +2389,7 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
         ("let guard = api.Guard\n{\n};", "release();", "api.Worker\n{\n    marker = api.Marker {}\n}", false),
     ] {
         let extra_variants = if complex { "Created(pos owner: Worker);\nBacking;" } else { "" };
+
         let declarations = format!(r#"
             trusted module api;
 
@@ -2400,7 +2435,9 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
             {{
             }}
         "#);
+
         let provider = compilation(&declarations);
+
         assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
         let source = format!(r#"
@@ -2435,6 +2472,7 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
                 }}
             }}
         "#);
+
         let source = if complex {
             source.replace("yield api.Choice.Empty;", &format!(r#"
                 yield if other
@@ -2463,6 +2501,7 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
                     }
                     case api.Choice.Empty"#)
         } else { source };
+
         let source = if transfer == "return" {
             format!(r#"
                 module app;
@@ -2477,6 +2516,7 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
                 }}
             "#)
         } else { source };
+
         for imported in [false, true] {
             let application = if imported {
                 execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
@@ -2484,9 +2524,12 @@ fn produced_owned_results_survive_enclosing_scope_cleanup() {
             } else {
                 compilation_from_sources([declarations.as_str(), source.as_str()])
             };
+
             let diagnostics = application.check_diagnostics();
+
             assert_eq!(!diagnostics.has_errors(), valid,
                 "complex={complex}, region={region}, guard={guard}, cleanup={cleanup}, imported={imported}: {source}\n{diagnostics:#?}");
+
             if valid {
                 let lowered = application.lowered_unit(
                     crate::test_support::source_function_body_key(&application, "caller"))
@@ -2540,10 +2583,13 @@ fn caught_nullable_results_preserve_container_evidence() {
         {
         }
     "#;
+
     let declarations = if asynchronous {
         declarations.replace("trusted func create()", "trusted async func create()")
     } else { declarations.to_owned() };
+
     let provider = compilation(&declarations);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for (name, setup, valid) in [
@@ -2586,10 +2632,12 @@ fn caught_nullable_results_preserve_container_evidence() {
                 api.take(value);
             }}
         "#);
+
         let source = if asynchronous {
             source.replace("func caller()", "async func caller()")
                 .replace("trusted api.create()", "await trusted api.create()")
         } else { source };
+
         for imported in [false, true] {
             let application = if imported {
                 execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
@@ -2597,8 +2645,11 @@ fn caught_nullable_results_preserve_container_evidence() {
             } else {
                 compilation_from_sources([declarations.as_str(), source.as_str()])
             };
+
             let diagnostics = application.check_diagnostics();
+
             assert_eq!(!diagnostics.has_errors(), valid, "{name}, asynchronous={asynchronous}, imported={imported}: {source}\n{diagnostics:#?}");
+
             if valid {
                 let lowered = application.lowered_unit(crate::test_support::source_function_body_key(&application, "caller"))
                     .expect("caught result has a checked lowering");
@@ -2704,7 +2755,9 @@ async func pause()
 {
 }
 "#;
+
     let provider = compilation(declarations);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for (repeats, mutation, asynchronous) in [
@@ -2717,6 +2770,7 @@ async func pause()
         let asynchronous = if asynchronous { "async " } else { "" };
         let suspension = if asynchronous.is_empty() { "" } else { "await api.pause();" };
         let mutate = if mutation { "owner.marker = api.Marker {};" } else { "" };
+
         let source = format!(r#"
             module app;
 
@@ -2742,6 +2796,7 @@ async func pause()
                 }}
             }}
         "#);
+
         for imported in [false, true] {
             let application = if imported {
                 execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
@@ -2749,9 +2804,12 @@ async func pause()
             } else {
                 compilation_from_sources([declarations, source.as_str()])
             };
+
             let diagnostics = application.check_diagnostics();
+
             assert_eq!(!diagnostics.has_errors(), !mutation,
                 "repeats={repeats}, mutation={mutation}, async={asynchronous}, imported={imported}: {source}\n{diagnostics:#?}");
+
             if mutation {
                 bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);

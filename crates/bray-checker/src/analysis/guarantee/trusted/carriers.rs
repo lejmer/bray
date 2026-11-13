@@ -78,6 +78,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
         // ends. This does not add an owned-result transfer for a borrowed input.
         let referent = condition.clone().into_referent();
         let contexts = state.current.live_values().collect::<BTreeSet<_>>();
+
         // The loan and owning value share immutable completion data, but retain
         // distinct authority. Moving an owner cannot depend on its temporary loan.
         let mut carriers = vec![condition.clone()];
@@ -117,6 +118,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
                     let subject = result_projection(
                         self.request.semantic_values(), self.dependencies, carrier.path(),
                     );
+
                     condition.conjuncts().map(|condition| (capture(condition), subject.clone())).collect::<Vec<_>>()
                 })
             })
@@ -488,6 +490,7 @@ impl ExecutionState {
         // Ownership guards also have meaning when no trusted carrier exists.
         // Ordinary premises cannot introduce trusted occurrences into this closure.
         let ordinary = crate::execution_guarantees::trusted_condition_closure(Default::default(), &self.assumptions);
+
         self.assumptions.extend(ordinary);
 
         for witness in self

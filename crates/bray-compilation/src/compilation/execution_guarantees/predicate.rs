@@ -638,6 +638,7 @@ mod tests {
 
                 predicate selected(value: &Choice, other: &Choice) = {guard} || first(value);
             "#);
+
             let checked = compilation(&source);
 
             assert_eq!(!checked.check_diagnostics().has_errors(), valid,

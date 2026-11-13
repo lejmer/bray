@@ -50,7 +50,9 @@ impl ControlFlowGraphAssembler {
 
     pub(super) fn push_loop_header(&mut self, expression: bray_bound_tree::BoundExpressionId) -> AnalysisBlockId {
         let header = self.push_block();
+
         self.loop_expressions.insert(header, expression);
+
         header
     }
 

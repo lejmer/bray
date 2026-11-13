@@ -102,10 +102,12 @@ fn compound_borrow_postconditions_agree_with_the_next_owner_read() {
                 }}
             }}
         "#);
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
         assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
         }
@@ -268,6 +270,7 @@ fn borrowed_postconditions_name_the_updated_storage_only() {
                 set(writer);
             }
         "# } else { "" };
+
         let source = format!(
             r#"
             trusted module app;
@@ -322,6 +325,7 @@ fn borrowed_postconditions_name_the_updated_storage_only() {
                 DiagnosticArgValue::ContractObligation(obligation) => Some(obligation.kind),
                 _ => None,
             }).collect::<Vec<_>>();
+
         completed += 1;
 
         if diagnostics.has_errors() == valid {
@@ -349,6 +353,7 @@ fn scoped_borrow_postconditions_survive_capability_retirement() {
         ("observe(&first);", false, false),
     ].into_iter().enumerate() {
         let guarantee = if promised { "ensures(trusted live(&lease.slot))" } else { "" };
+
         let source = format!(r#"
             trusted module app;
 
@@ -410,6 +415,7 @@ fn scoped_borrow_postconditions_survive_capability_retirement() {
                 {action}
             }}
         "#);
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
         let kinds = diagnostics.iter().map(|diagnostic| diagnostic.kind()).collect::<Vec<_>>();

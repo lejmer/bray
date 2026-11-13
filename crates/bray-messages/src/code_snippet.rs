@@ -31,6 +31,7 @@ mod tests {
             ("\nbody".to_owned(), "…".to_owned()),
         ] {
             let snippet = format_code_snippet(&source);
+
             assert_eq!(snippet, expected);
             assert!(snippet.chars().count() <= 80);
         }

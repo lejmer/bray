@@ -312,6 +312,7 @@ impl OperationEffects {
                                 request, storage, selections, *source, path, *ty,
                             ) {
                                 let borrow_free = self.value_inputs.value_carries_no_borrows(*ty);
+
                                 nested.extend(retained_subtree_subjects(
                                     &self.value_inputs, value, &retained_by_expression,
                                 ).into_iter().filter(|subject| !borrow_free || !subject.is_storage_dependency()));
@@ -405,6 +406,7 @@ impl OperationEffects {
                             !expression.is_some_and(|id| self.value_inputs.copies_without_borrows(id))
                                 || !subject.is_storage_dependency()
                         }));
+
                         changed |= expression_retention.len() != previous;
                     }
                 }

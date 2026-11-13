@@ -155,7 +155,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 for requirement in self.disposal.plan.requirements.iter().rev() {
                     let identity = requirement.identity();
 
-
                     if !storage_state.live.contains(&identity) {
                         continue;
                     }
@@ -295,8 +294,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         mutate: &mut Option<&mut Mutation<'_>>,
     ) {
         let condition = self.cancellation_condition(state, access);
+
         super::selection::select_cleanup(state, condition, |state, conditional| {
             let mutation = StorageMutation::Cancellation { occurrence: operation.occurrence(), access };
+
             if let Some(mutate) = mutate {
                 let effect = if self.cleanup_preserves_inputs(state, access) {
                     CleanupMutation::Unchanged
@@ -307,6 +308,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         path: self.storage.logical_path(access),
                     }
                 };
+
                 mutate(state, mutation, effect, conditional);
             } else {
                 self.apply_published_cleanup(state, mutation);
@@ -325,15 +327,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let steps = self.disposal.plan.steps.get(&access)
             .expect("selected cleanup has prepared transitions");
+
         let absent = definitely_absent.collect::<Vec<_>>();
 
         for (part, step) in steps.iter().enumerate() {
             let path = match step {
                 Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
             };
+
             if path.is_some_and(|path| absent.iter().any(|absent| absent.contains(path))) { continue; }
 
             let condition = self.cleanup_part_condition(state, step);
+
             super::selection::select_cleanup(state, condition, |state, conditional| {
                 self.dispose_part(state, access, part, step, observe, operation, conditional, mutate);
             });
@@ -354,6 +359,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let occurrence = operation.occurrence();
         let normal = operation.is_normal_cleanup();
+
         let Step::Lifecycle {
             ty,
             place,
@@ -460,6 +466,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let requirements = self.prove_trusted_requirements(&evidence, &lifecycle.contract.requirements)
                 .and_then(|()| evidence.prove_requirements(lifecycle.contract.preconditions.iter()
                     .map(|(condition, _)| condition)));
+
             let established = requirements.is_ok();
 
             if let Some(observe) = observe {

@@ -309,6 +309,7 @@ mod tests {
         let established = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(0), promised]);
         let required = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![established.clone(), extra]);
         let known = BTreeSet::from([(established, true)]);
+
         let mut prove = |condition: &ExecutionCondition| condition.prove_mixed(&known, &BTreeSet::new(),
             &mut { ExecutionCondition::WORK_LIMIT }) == Some(true);
 
@@ -321,6 +322,7 @@ mod tests {
         let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
         let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
         let known = BTreeSet::from([(first.clone(), true)]);
+
         let condition = ExecutionCondition::operation(BoundOperator::LogicalAnd,
             vec![first, second.clone()]);
 

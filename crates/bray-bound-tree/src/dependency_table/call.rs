@@ -309,6 +309,7 @@ impl BoundCallDependencyContracts {
         result: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
     ) -> Self {
         self.deferred_cleanup = Some((bray_symbols::DependencyStorageEffect::normalize(captures), bray_symbols::DependencyStorageEffect::normalize(result)));
+
         self
     }
 

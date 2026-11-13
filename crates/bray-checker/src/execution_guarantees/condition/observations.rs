@@ -328,6 +328,7 @@ impl ExecutionCondition {
     /// Component paths explicitly retained by this snapshot.
     pub(crate) fn component_projections(&self) -> std::collections::BTreeSet<bray_bound_tree::StorageProjection> {
         let mut value = self.computed_value();
+
         while let Some(snapshot) = value.nullable_payload_snapshot() {
             value = snapshot.computed_value();
         }
@@ -620,6 +621,7 @@ impl Set {
     ) -> bool {
         let path = Self::indexed_path(value);
         let mut pending = snapshots.iter().collect::<Vec<_>>();
+
         // Actual snapshots form a finite shared graph. Visit each value once so
         // unrelated roots cannot spend another value's structural work budget.
         let mut visited = std::collections::BTreeSet::new();

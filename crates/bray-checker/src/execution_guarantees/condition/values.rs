@@ -20,6 +20,7 @@ impl ExecutionCondition {
             super::ExecutionDescriptorKind::Reference => self.clone(),
             super::ExecutionDescriptorKind::Value => self.clone().into_referent(),
         };
+
         let identity = source.descriptor_identity();
 
         if identity.contains_unknown() { return Self::Unknown; }
@@ -293,7 +294,6 @@ impl ExecutionCondition {
         if self.observation_kind().is_none() && !self.is_reference() && self.known_presence().is_some() {
             return contents;
         }
-
 
         match self.ownership_identity() {
             Some((ObservationKind::Reference, _)) => self.with_referent(contents),
@@ -969,8 +969,10 @@ mod tests {
             let contents = ExecutionCondition::constructed(owner.clone(), [(field, current.clone())].into());
             let actual = ExecutionCondition::reference_value(owner.clone().borrowed(), contents);
             let inputs: std::collections::BTreeMap<_, _> = [(root.clone(), actual)].into();
+
             let observed = template.substitute(&|place| place.value_in(&inputs).expect("selected input"),
                 &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT });
+
             assert_eq!(observed, current.descriptor(Kind::Value));
             assert_eq!(observed == original.descriptor(Kind::Value), current == original);
         }
@@ -985,6 +987,7 @@ mod tests {
         for contents in [input(2), ExecutionCondition::Unknown] {
             let view = ExecutionCondition::reference_value(owner.clone().borrowed(), contents);
             let copied = ExecutionCondition::scalar_observation(input(3), view.clone());
+
             assert_eq!(copied.clone().borrowed(), view);
 
             for actual in [view, copied.clone(), copied.borrowed()] {
@@ -1001,6 +1004,7 @@ mod tests {
 
         assert_ne!(owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), input(4).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), "replacement does not retain the old descriptor");
         assert_eq!(ExecutionCondition::Unknown.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), ExecutionCondition::Unknown);
+
         assert_eq!(ExecutionCondition::reference_value(ExecutionCondition::Unknown, input(2)).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference),
             ExecutionCondition::Unknown, "known pointee data cannot supply a missing descriptor identity");
 
@@ -1010,8 +1014,10 @@ mod tests {
 
         assert_eq!(observed.with_equalities(&contents), observed,
             "equal data cannot equate descriptor identities");
+
         assert_eq!(observed.with_joined_values(&contents, &Default::default()), observed,
             "replacing reached contents cannot replace the observed descriptor");
+
         assert_eq!(observed.with_joined_values(&contents, &identities), input(4).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference),
             "a real identity transfer must follow the identity map rather than new contents");
     }
@@ -1028,14 +1034,18 @@ mod tests {
             (BoundOperator::NotEqual, BoundOperator::Equal)]
         {
             let compare = |operator| ExecutionCondition::operation(operator, vec![input(0), input(1)]);
+
             let premise = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
                 ExecutionCondition::operation(BoundOperator::LogicalNot, vec![compare(opposite)]), predicate.clone(),
             ]);
+
             let required = ExecutionCondition::operation(BoundOperator::LogicalOr,
                 vec![compare(operator), predicate.clone()]);
+
             let facts = BTreeSet::from([(premise, true)]);
 
             assert_eq!(required.prove_trusted(&facts, &BTreeSet::new()), Some(true));
+
             assert_eq!(required.prove_trusted(&BTreeSet::new(), &facts), None,
                 "ordinary occurrences cannot establish the guarded authority");
         }

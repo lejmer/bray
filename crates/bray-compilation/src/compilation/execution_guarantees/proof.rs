@@ -465,6 +465,7 @@ impl Compilation {
                     depth: u64::try_from(depth).expect("proof depth fits diagnostic count"),
                     limit: u64::try_from(limit).expect("proof depth limit fits diagnostic count"),
                 } });
+
                 break;
             }
 
@@ -565,6 +566,7 @@ impl Compilation {
                 });
 
                 let unproven = |source| ExecutionVerificationFailure { condition: None, source, cause: FailureCause::Unproven };
+
                 let local_failure = if required == ExecutionObligation::Observation {
                     candidate.observation_failure().map(unproven)
                 } else {
@@ -578,6 +580,7 @@ impl Compilation {
                         && !candidate.finite_iteration())
                 {
                     let local = local_failure.unwrap_or_else(|| unproven(source_span(anchor)));
+
                     failure.get_or_insert(local.map_source(Some));
 
                     continue;
@@ -724,9 +727,11 @@ impl Compilation {
                     } else {
                         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                         let source = super::failure::execution_site_span(bound.result().value(), &key, site);
+
                         failure.get_or_insert(ExecutionVerificationFailure {
                             condition: None, source: Some(source), cause: FailureCause::MissingEvidence,
                         });
+
                         valid = false;
                     }
                 }

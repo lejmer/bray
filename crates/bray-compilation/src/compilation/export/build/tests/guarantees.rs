@@ -31,6 +31,7 @@ fn imported_domain_selection_is_independent_of_collected_diagnostics() {
         {
         }
     ");
+
     let compilation = execution_consumer(&provider, r"
         module app;
 
@@ -41,17 +42,24 @@ fn imported_domain_selection_is_independent_of_collected_diagnostics() {
             example.package.api.ready();
         }
     ");
+
     let cancellation = crate::fact::CancellationToken::default();
     let key = crate::test_support::source_function_body_key(&compilation, "caller");
     let semantics = compilation.expression_semantics_with_cancellation(key, &cancellation).expect("caller semantics");
+
     assert!(!semantics.result().diagnostics().has_errors(), "{:?}", semantics.result().diagnostics());
+
     let callable = semantics.result().value().selections().entries().iter().find_map(|entry| {
         let bray_bound_tree::SemanticSelection::Call(call) = entry.selection() else { return None; };
+
         let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target() else { return None; };
+
         Some(callable)
     }).expect("imported ready invocation");
+
     let required = ExecutionObligation::Property(ExecutionProperty::Pure, None);
     let mut clean = DiagnosticBag::new();
+
     let expected = compilation.select_imported_execution_obligation(
         callable, required, None, &mut clean, &cancellation,
     ).expect("selection query");
@@ -61,6 +69,7 @@ fn imported_domain_selection_is_independent_of_collected_diagnostics() {
 
     let unrelated = Diagnostic::new(DiagnosticId::new(99), DiagnosticKind::CheckingPostconditionNotProven, SeverityKind::Error);
     let mut collected = DiagnosticBag::single(unrelated.clone());
+
     let actual = compilation.select_imported_execution_obligation(
         callable, required, None, &mut collected, &cancellation,
     ).expect("selection query with collected diagnostic");
@@ -118,6 +127,7 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
         {
         }
     "#;
+
     let mut failures = Vec::new();
 
     for renewed in [false, true] {
@@ -126,6 +136,7 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
         } else {
             provider.replace("ensures(trusted held(owner = &owner.acquisition))", "")
         };
+
         let provider = compilation(&provider_source);
 
         assert!(
@@ -143,9 +154,11 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
                 let borrowed = origin == "borrowed";
                 let source_type = if borrowed { "&" } else { "" };
                 let source_borrow = if borrowed { "" } else { "&" };
+
                 let parameter = if origin == "fresh" { String::new() } else {
                     format!("pos source: {source_type}{api}.Owner, ")
                 };
+
                 let initial = if origin == "fresh" {
                     format!(r#"
                         let source: {api}.Owner =
@@ -155,12 +168,15 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
                         }};
                     "#)
                 } else { String::new() };
+
                 let requirement = if entry {
                     format!("requires(trusted {api}.held(owner = &source.acquisition))")
                 } else { String::new() };
+
                 let loan = if entry { format!("{source_borrow}source") } else {
                     format!("{api}.obtain({source_borrow}source)")
                 };
+
                 let source = format!(r#"
                     module app;
 
@@ -182,11 +198,13 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
                         {api}.observe(owner);
                     }}
                 "#);
+
                 let consumer = if imported {
                     execution_consumer(&provider, &source)
                 } else {
                     super::fixtures::compilation_from_sources([provider_source.as_str(), &source])
                 };
+
                 let diagnostics = consumer.check_diagnostics();
 
                 if diagnostics.has_errors() == renewed {
@@ -221,6 +239,7 @@ fn bodyless_execution_promises_require_an_external_assertion() {
             extern trusted func asserted()
                 executes(pure, total);
         "#);
+
         let provider = compilation_from_sources_for_product_with_platform_services_and_worker_budget(
             [&source], ProductKind::Library, [], WorkerBudget::default(), None,
             [bray_symbols::NativeLinkRequirement::new(
@@ -228,14 +247,20 @@ fn bodyless_execution_promises_require_an_external_assertion() {
                 bray_symbols::NativeLinkKind::System,
             )],
         );
+
         let diagnostics = provider.check_diagnostics();
+
         bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
             bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven);
+
         let failures = diagnostics.iter().filter(|diagnostic| diagnostic.kind()
             == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven).collect::<Vec<_>>();
+
         assert_eq!(failures.len(), 2, "{boundary}: {diagnostics:?}");
+
         assert!(failures.iter().all(|diagnostic| diagnostic.args().iter().any(|argument| matches!(argument.value(),
             bray_diagnostics::DiagnosticArgValue::ExecutionProofFailure(bray_diagnostics::DiagnosticExecutionProofFailure::MissingEvidence)))));
+
         assert!(provider.package_interface_export_bundle().expect("provider requests export").is_err());
     }
 }
@@ -644,6 +669,7 @@ fn strong_compare_exchange_preserves_its_observed_value_relationship() {
                 diagnostics,
                 bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven,
             );
+
             assert!(!diagnostics.iter().any(|diagnostic| diagnostic.kind()
                 == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven),
                 "the atomic operation remains total: {diagnostics:#?}");

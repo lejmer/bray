@@ -170,7 +170,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let (guarantees, subjects) = self.completion_guarantees(invocation, contract, &capture);
 
-
         let address_subjects = contract
             .address_subjects
             .iter()
@@ -538,12 +537,17 @@ mod admission_tests {
         let owner = ExecutionCondition::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1)));
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
+
         let requirement = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
             predicate.into(), substitution, vec![ExecutionCondition::Input(input.clone()).borrowed()],
         )));
+
         let mut before = ExecutionCallEvidence::default();
+
         before.arguments.insert(input, owner);
+
         let mut completed = before.clone();
+
         assert!(before.prove_trusted_requirements(std::slice::from_ref(&requirement)).is_err());
         assume_normal_entry(&mut completed, &[], std::slice::from_ref(&requirement)).unwrap();
         assert!(completed.prove_trusted_requirements(std::slice::from_ref(&requirement)).is_ok());

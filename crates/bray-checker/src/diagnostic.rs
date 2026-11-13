@@ -195,8 +195,10 @@ pub(crate) fn expression_text<C: CheckerRequestContext + ?Sized>(
 
     while let Some(expression) = pending.pop() {
         let child_span = expression_span(request, expression);
+
         assert_eq!(span.source_id(), child_span.source_id(), "a source expression and its children belong to one snapshot");
         span = SourceSpan::new(span.source_id(), span.range().cover(child_span.range()));
+
         pending.extend(request.view().expression(expression)
             .expect("diagnostic expression belongs to the checked unit").child_expressions());
     }

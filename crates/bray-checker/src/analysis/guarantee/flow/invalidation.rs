@@ -506,7 +506,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut snapshots = self.preserved_storage_values(state, stable_values, mutation);
 
-
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
         let values = self.storage_preservations(state, stable_values);
@@ -633,6 +632,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         == Some(bray_symbols::DependencyReferenceKind::Address)
                 }) {
                     address_slots.insert(value.owner_identity().clone());
+
                     let pointer = value.descriptor_identity().clone();
 
                     address_slots.insert(pointer.clone());
@@ -690,6 +690,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .filter(|place| !descriptor_paths.contains_key(*place))
                 .filter_map(|place| {
                     let value = value_for_invalidation(state, place)?;
+
                     if self.observed_types.get(place).copied().flatten()
                         .and_then(|ty| crate::representation::type_representation(self.request, ty))
                         .is_some_and(crate::representation::is_scalar_value)
@@ -720,6 +721,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations(state, stable_values),
             _ => Vec::new(),
         };
+
         let mut masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.as_ref())),
             values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind)));
@@ -728,6 +730,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for place in changed_places {
             if value_for_invalidation(state, &place).is_none() { continue; }
+
             let mut root = place.clone();
 
             root.projections = [].into();
@@ -748,7 +751,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         for (place, value) in updates { state.observe(place, value, None); }
-
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
             self.observe_references(state, snapshots);
@@ -960,6 +962,7 @@ mod tests {
         let (_, expressions) = crate::test_support::expression_unit(BoundUnitId::new(0), |tree, origin| {
             (0..2).map(|_| crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))).collect()
         });
+
         let place = |ordinal| ExecutionPlace::argument(SymbolOrdinal::new(ordinal));
         let left = ExecutionCondition::Input(place(3));
         let right = ExecutionCondition::Input(place(4));
@@ -973,11 +976,14 @@ mod tests {
 
         for absent in [ValueAvailability::Absent, ValueAvailability::Guarded(guard.clone())] {
             let mut state = ExecutionState::default();
+
             guard.clone().assume(false, &mut state.assumptions);
             state.assign(place(0), current.clone(), None);
             state.current.set_slot(place(1), CurrentValue { value: owner.clone(), availability: absent });
             state.current.set_slot(place(2), CurrentValue { value: unknown.clone(), availability: ValueAvailability::Unknown });
+
             let child = place(2).project(&[field]).expect("tuple child");
+
             state.current.retire(&child);
             state.owned_results.insert(current.clone(), transfer(right.clone()));
             state.owned_results.insert(owner.clone(), transfer(left.clone()));
@@ -985,15 +991,20 @@ mod tests {
 
             assert!(value_for_invalidation(&state, &place(2)).is_some(), "unknown storage remains a possible mutation target");
             assert!(value_for_invalidation(&state, &child).is_none(), "an absent child does not suppress its remaining root");
+
             let values = state.current.iter().filter_map(|(place,_)|
                 value_for_invalidation(&state, place).map(|value| (place.clone(),value))).collect::<Vec<_>>();
+
             for (place,value) in values {
                 let next = ValuePreservation::default().frame(&mut state, &value, &[], Some(&place), mutation);
+
                 state.observe(place, next, None);
             }
+
             let result = place(0).value_in(&state.current).expect("live return");
             let layout = state.owned_result(&result);
             let actual = layout.guaranteed_transfers().into_iter().collect::<Vec<_>>();
+
             assert_eq!(actual.len(), 1);
             assert_eq!(actual[0].input(), right, "the terminal source cannot replace the live return's input");
             assert_eq!(place(1).value_in(&state.current), Some(owner.clone()), "terminal data remains readable and unchanged");

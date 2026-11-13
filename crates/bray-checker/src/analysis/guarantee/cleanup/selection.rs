@@ -28,8 +28,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let (path, guards) = match step {
             Step::Opaque { path, guards, .. } | Step::Lifecycle { path, guards, .. } => (path, guards),
         };
+
         let available = path.as_ref().and_then(|path| ExecutionPlace::storage_path(self.storage, path))
             .map(|place| state.current.availability(&place));
+
         let initialized = match available {
             Some(ValueAvailability::Absent) => ExecutionCondition::Boolean(false),
             Some(ValueAvailability::Guarded(guard)) => guard,
@@ -39,6 +41,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         guards.iter().fold(initialized, |condition, (path, operator, expected)| {
             let guard = ExecutionCondition::pattern(self.storage_path_value(state, path), *operator, expected.clone());
+
             ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, vec![condition, guard])
         })
     }
@@ -56,6 +59,7 @@ pub(super) fn select_cleanup(
             Some(true) => action(state, false),
             None => {
                 let mut skipped = state.clone();
+
                 condition.clone().assume(false, &mut skipped.assumptions);
                 condition.assume(true, &mut state.assumptions);
                 skipped.refine_witnesses();
@@ -63,6 +67,7 @@ pub(super) fn select_cleanup(
                 action(state, true);
 
                 let mut joined = Some(std::mem::take(state));
+
                 merge_execution(&mut joined, &Some(skipped), ExecutionJoin::Boundary);
                 *state = joined.expect("conditional cleanup retains its normal continuation");
             }
@@ -81,8 +86,11 @@ mod tests {
 
         for condition in [ExecutionCondition::Boolean(false), ExecutionCondition::Boolean(true), ExecutionCondition::Unknown] {
             let mut state = ExecutionState::default();
+
             state.assign(place.clone(), value.clone(), None);
+
             let mut calls = 0;
+
             select_cleanup(&mut state, condition.clone(), |state, conditional| {
                 calls += 1;
                 assert_eq!(conditional, condition == ExecutionCondition::Unknown);
@@ -91,6 +99,7 @@ mod tests {
             });
 
             let definite = condition == ExecutionCondition::Boolean(true);
+
             assert_eq!(calls, usize::from(condition != ExecutionCondition::Boolean(false)));
             assert_eq!(fact.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }), definite.then_some(true));
             assert_eq!(state.current.availability(&place) == ValueAvailability::Absent, definite);

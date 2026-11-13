@@ -521,12 +521,14 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
                     let loop_exit = matches!(exit.node(), AnyBoundNodeId::Expression(expression)
                         if matches!(request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Structured(value))
                             if value.kind() == bray_bound_tree::BoundStructuredExpressionKind::Loop));
+
                     if loop_exit { FailureCause::UnboundedLoop } else { FailureCause::NonReturningPath }
                 }
                 AnalysisExitKind::Recovery => FailureCause::Recovery,
                 AnalysisExitKind::Panic if !internal => FailureCause::Panic,
                 _ => continue,
             };
+
             if candidate.failure.is_none() && cause == FailureCause::Panic {
                 if let Some(condition) = super::diagnostic::panic_requirement(reachable, exit.node())? {
                     candidate.failure = Some(crate::ExecutionVerificationFailure {
@@ -535,6 +537,7 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
                     });
                 }
             }
+
             record_failure(request, candidate, exit.node(), cause);
         }
 
@@ -543,6 +546,7 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
         }) {
             let expression = graph.loop_expression(edge.target())
                 .expect("a cyclic edge targets its producer-owned loop header");
+
             record_failure(request, candidate, expression.into(), FailureCause::UnboundedLoop);
         }
     }
@@ -697,6 +701,7 @@ fn check_postconditions<C: CheckerRequestContext + ?Sized>(
     {
         let condition = super::diagnostic::obligation(&flow.domain,
             bray_diagnostics::DiagnosticContractObligationKind::Postcondition, &failed)?;
+
         candidate.failure = Some(crate::ExecutionVerificationFailure {
             source, cause: FailureCause::Unproven, condition: Some(std::sync::Arc::new(condition)),
         });

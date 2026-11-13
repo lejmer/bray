@@ -113,7 +113,6 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                     DependencyStorageEffect::Ambient => encoder.write_u32(6),
                     DependencyStorageEffect::Escape => encoder.write_u32(5),
                     DependencyStorageEffect::Atomic => encoder.write_u32(4),
-
                     DependencyStorageEffect::Direct { subject, kind, access_type } => {
                         encoder.write_u32(1);
                         encode_dependency_subject(encoder, subject);

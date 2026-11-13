@@ -165,7 +165,6 @@ impl InterfaceSemantics {
                     | DependencyStorageEffect::Ambient
                     | DependencyStorageEffect::Unknown
                     | DependencyStorageEffect::Escape => {}
-
                     DependencyStorageEffect::Direct { subject, .. } => {
                         self.validate_dependency_subject(subject, symbol_count, dependency_count)?
                     }

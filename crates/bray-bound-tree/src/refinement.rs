@@ -70,6 +70,7 @@ fn intersect_preserved_values(
                 true
             } else if *kind == crate::StorageObservationKind::Value {
                 *kind = *other;
+
                 true
             } else { false }
         } else { unchanged(path) }
@@ -101,6 +102,7 @@ impl StorageInvalidation {
             Self::All { stable_reference_slots, .. } | Self::Observed { stable_reference_slots, .. } => std::mem::take(stable_reference_slots),
             Self::Paths(_) => BTreeSet::new(),
         };
+
         reference_slots.retain(|slot| incoming.preserves_reference_slot(slot));
 
         let mut normal_snapshots = match &mut *self {
@@ -222,6 +224,7 @@ impl StorageInvalidation {
             | Self::Observed { normal_snapshots: preserved, .. } = self {
             *preserved = normal_snapshots;
         }
+
         if let Self::All { stable_reference_slots, .. } | Self::Observed { stable_reference_slots, .. } = self {
             *stable_reference_slots = reference_slots;
         }
@@ -569,6 +572,7 @@ mod tests {
 
         let mut descriptors = BTreeSet::new();
         let mut contents = std::collections::BTreeMap::new();
+
         StorageObservationKind::Identity.record_preservation(path.clone(), &mut descriptors, &mut contents);
         assert!(descriptors.contains(&path));
         assert!(contents.is_empty(), "identity survival does not preserve reached contents");
@@ -585,6 +589,7 @@ mod tests {
             let mut retained = super::StorageInvalidation::All {
                 stable_descriptors: Default::default(), stable_values: values, stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
             };
+
             let tag = super::StorageInvalidation::All {
                 stable_descriptors: Default::default(),
                 stable_values: [(path.clone(), weaker)].into(),
@@ -899,14 +904,22 @@ mod tests {
 
         let physical = crate::StorageTarget { previous: false, origin: crate::StorageOrigin::entry(first.clone(), bray_symbols::DependencyReferenceKind::Borrow) };
         let mut retained = super::StorageInvalidation::unknown();
+
         retained.preserve_reference_slot(first.clone(), physical.clone());
+
         let mut same = retained.clone();
+
         same.merge(&retained);
         assert_eq!(same, retained, "physical preservation stabilizes on replay");
+
         let mut retired = physical.clone();
+
         retired.previous = true;
+
         let mut different = super::StorageInvalidation::unknown();
+
         different.preserve_reference_slot(first.clone(), retired.clone());
+
         for (mut left, right) in [(retained.clone(), different.clone()), (different, retained)] {
             left.merge(&right);
             assert!(!left.preserves_reference_slot(&physical));

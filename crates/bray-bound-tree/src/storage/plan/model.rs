@@ -770,11 +770,14 @@ mod tests {
         let call = crate::BoundExpressionId::from_slot(unit, 0);
         let source = crate::BoundExpressionId::from_slot(unit, 1);
         let mut builder = crate::StoragePlanBuilder::new(unit, crate::BoundUnitKind::CallableBody);
+
         let input = builder.push_identity(StorageIdentity::InvocationInput {
             expression: call, ordinal: bray_symbols::SymbolOrdinal::new(0),
         }).expect("fixture input has its own storage");
+
         let source = builder.push_identity(StorageIdentity::InvocationResult(source.into()))
             .expect("fixture source has its own storage");
+
         let input = crate::StoragePath::root(input);
         let source = crate::StoragePath::root(source);
 
@@ -913,6 +916,7 @@ mod tests {
         let mut builder = crate::StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
         let fresh = builder.push_identity(StorageIdentity::Temporary(produced)).expect("produced value has storage");
         let stored = builder.push_identity(StorageIdentity::Temporary(existing)).expect("existing value has storage");
+
         builder.set_value_slot(produced, fresh).expect("producer owns its slot");
 
         for (root, purpose) in [(fresh, StorageAccessPurpose::ValueTransfer),
@@ -920,17 +924,22 @@ mod tests {
             let access = builder.push_access(StorageAccess::new(StorageAccessRoot::Storage(root),
                 [StorageProjection::TupleElement(SymbolOrdinal::new(0))], crate::test_support::error_type(),
                 crate::test_support::source_anchor(), false)).expect("component has storage access");
+
             builder.plan_access(pattern.into(), produced, purpose, access).expect("component transfer has a plan");
         }
+
         let consumer = crate::BoundExecutionSite::Node(pattern.into());
+
         builder.consume_value(consumer, crate::StorageValueConsumptionPhase::Completion,
             crate::StoragePath::root(fresh)).expect("consumer retires the produced source after publication");
+
         let storage = builder.finish();
         let plans = storage.node_plans(pattern.into()).collect::<Vec<_>>();
 
         assert_eq!(plans.iter().map(|plan| storage.access_plan_role(*plan)).collect::<Vec<_>>(),
             [crate::StorageAccessPlanRole::EvaluatedValueTransfer,
                 crate::StorageAccessPlanRole::SourceMaterialization, crate::StorageAccessPlanRole::SourceMaterialization]);
+
         assert_eq!(storage.value_retirements(consumer, crate::StorageValueConsumptionPhase::Completion)
             .collect::<Vec<_>>(), [&crate::StoragePath::root(fresh)]);
     }

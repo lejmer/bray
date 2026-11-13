@@ -84,6 +84,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         budget: &mut usize,
     ) -> Option<(BigInt, BigInt)> {
         *budget = budget.checked_sub(1)?;
+
         let value = value.computed_value();
 
         let range = match value {
@@ -765,12 +766,15 @@ mod tests {
             let used = if copied {
                 ExecutionCondition::scalar_observation(input(3), initialized.clone())
             } else { initialized.clone() };
+
             let guarded = if changed { input(4) } else { initialized.clone() };
+
             let assumptions = BTreeSet::from([
                 (ExecutionCondition::operation(BoundOperator::LessEqual, vec![guarded.clone(), capacity.clone()]), true),
                 (ExecutionCondition::operation(BoundOperator::LessEqual, vec![count.clone(),
                     ExecutionCondition::operation(BoundOperator::Subtract, vec![capacity.clone(), guarded])]), true),
             ]);
+
             let range = super::refined_arithmetic_range(BoundOperator::Add, &used, &count,
                 (0.into(), 255.into()), (0.into(), 255.into()), &assumptions,
                 &|value| (value == &capacity).then(|| (0.into(), 255.into())));
@@ -789,9 +793,11 @@ mod tests {
 
         for changed in [false, true] {
             let current = if changed { input(3) } else { original.clone() };
+
             let assumptions = BTreeSet::from([(
                 ExecutionCondition::operation(BoundOperator::Less, vec![current, limit.clone()]), true,
             )]);
+
             let range = refine_integer_range(&captured, Some((0.into(), 255.into())), &assumptions,
                 &|value| (value == &limit).then(|| (10.into(), 10.into())));
 

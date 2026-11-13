@@ -596,10 +596,14 @@ fn empty_raw_copies_do_not_require_an_initialized_value() {
                 trusted core.memory.copy<u8>(pointer, destination = pointer, count = {count});
             }}
         "#);
+
         let compilation = compilation_with_target_operations(&source, true, true);
+
         let flow = compilation.storage_flow(crate::test_support::source_function_body_key(&compilation, "main"))
             .expect("raw copy publishes its storage decision independently of contract failures");
+
         let copy = flow.value().memory_operations().last().expect("copy publishes its memory decision");
+
         assert_eq!(copy.status(), if count == 0 { bray_bound_tree::MemoryOperationStatus::Valid }
             else { bray_bound_tree::MemoryOperationStatus::UninitializedRawStorage }, "{:?}", flow.diagnostics());
     }
@@ -611,6 +615,7 @@ fn moving_raw_payloads_retires_initialization_evidence_for_every_alias() {
         let replacement = if reinitialize {
             "trusted core.memory.write<Payload>(alias, { value = 2 });"
         } else { "" };
+
         let source = format!(r#"
             trusted module app;
 
@@ -648,12 +653,17 @@ fn moving_raw_payloads_retires_initialization_evidence_for_every_alias() {
                 let second = trusted core.memory.read<Payload>(pointer);
             }}
         "#);
+
         let compilation = compilation_with_target_operations(&source, true, true);
+
         let flow = compilation.storage_flow(crate::test_support::source_function_body_key(&compilation, "main"))
             .expect("raw payload transport publishes its physical and trusted state");
+
         let operation = flow.value().memory_operations().last().expect("second read publishes its decision");
+
         assert_eq!(operation.status(), if reinitialize { bray_bound_tree::MemoryOperationStatus::Valid }
             else { bray_bound_tree::MemoryOperationStatus::UninitializedRawStorage }, "{:?}", flow.diagnostics());
+
         if reinitialize {
             assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
         } else {

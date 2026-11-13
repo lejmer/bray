@@ -138,7 +138,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let inherited_tail =
                     self.record_cleanup_obligations(operation, &mutation, effects.as_deref());
 
-
                 if let Some(report) = self.inactive_cleanup_report(
                     operation,
                     &mutation,
@@ -487,7 +486,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 } else {
                     Vec::new()
                 };
+
                 effects.push(Effect::Mutation(target, DependencyMutationKind::Retire, None));
+
                 effects
             })
             .collect::<Vec<_>>();

@@ -21,6 +21,7 @@ fn imported_requirement_diagnostics_retain_actual_fields_and_arguments() {
         {
         }
     "#);
+
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     let consumer = execution_consumer(&provider, r#"
@@ -33,10 +34,13 @@ fn imported_requirement_diagnostics_retain_actual_fields_and_arguments() {
             example.package.api.inspect_owner(&actual_owner, 42);
         }
     "#);
+
     let diagnostics = consumer.check_diagnostics();
+
     let failure = diagnostics.iter().find(|diagnostic| diagnostic.kind()
         == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
         .unwrap_or_else(|| panic!("{diagnostics:#?}"));
+
     let obligation = failure.args().iter().find_map(|argument| match argument.value() {
         bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
         _ => None,
@@ -47,10 +51,13 @@ fn imported_requirement_diagnostics_retain_actual_fields_and_arguments() {
         "the imported selected callable must retain its name: {failure:#?}");
 
     assert_eq!(obligation.kind, bray_diagnostics::DiagnosticContractObligationKind::CallRequirement);
+
     let bray_diagnostics::DiagnosticCondition::Application { path, arguments, .. } = &obligation.actual else {
         panic!("{obligation:#?}");
     };
+
     assert_eq!(path.last().map(String::as_str), Some("live"));
+
     assert_eq!(arguments, &[
         bray_diagnostics::DiagnosticCondition::Projection {
             value: Box::new(bray_diagnostics::DiagnosticCondition::Source("actual_owner".to_owned())),

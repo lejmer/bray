@@ -445,6 +445,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub fn with_provenance(mut self, provenance: DependencyReferenceProvenance) -> Self {
         assert!(!self.is_empty_reference() || provenance == DependencyReferenceProvenance::Alternatives,
             "an empty reference has no input provenance");
+
         assert!(
             provenance != DependencyReferenceProvenance::Exact || self.entry().is_some(),
             "independent reference origin cannot identify an input address"
@@ -533,10 +534,12 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
             ReferenceSource::Allocation(_) => ReferenceSource::Allocation(source.expect("mapped allocation origin retains its subject")),
             ReferenceSource::Independent => {
                 assert!(source.is_none(), "independent origin has no source subject");
+
                 ReferenceSource::Independent
             }
             ReferenceSource::Empty => {
                 assert!(source.is_none(), "empty reference has no source subject");
+
                 ReferenceSource::Empty
             }
         };

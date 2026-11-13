@@ -30,9 +30,12 @@ fn failed_conjunction_names_the_missing_condition_and_keeps_the_full_requirement
             inspect(owner);
         }
     "#);
+
     let diagnostics = application.check_diagnostics();
+
     bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
         DiagnosticKind::CheckingTrustedObligationNotProven);
+
     let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
         DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
         _ => None,
@@ -40,6 +43,7 @@ fn failed_conjunction_names_the_missing_condition_and_keeps_the_full_requirement
 
     assert!(matches!(&obligation.actual, DiagnosticCondition::Application { path, .. }
         if path.last().is_some_and(|name| name == "second")), "{obligation:#?}");
+
     assert!(matches!(&obligation.required, DiagnosticCondition::Operation { .. }), "{obligation:#?}");
 }
 
@@ -67,12 +71,17 @@ fn inline_callback_conditions_show_a_snippet_without_the_function_body() {
             );
         }
     "#);
+
     let diagnostics = application.check_diagnostics();
+
     bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
         DiagnosticKind::CheckingTrustedObligationNotProven);
+
     let failure = diagnostics.iter().find(|diagnostic| diagnostic.kind()
         == DiagnosticKind::CheckingTrustedObligationNotProven).expect("callback requirement fails");
+
     let rendered = bray_messages::DiagnosticRenderer::english().render(failure);
+
     assert!(rendered.message().contains("lambda() -> u32…"), "{}", rendered.message());
     assert!(!rendered.message().contains('\n') && !rendered.message().contains("12345"));
 }
@@ -95,6 +104,7 @@ fn conflicting_borrows_retain_callable_signatures() {
             _ = child;
         }
     "#);
+
     let diagnostics = application.check_diagnostics();
 
     let signature = diagnostics.iter()
@@ -102,9 +112,12 @@ fn conflicting_borrows_retain_callable_signatures() {
         .flat_map(|diagnostic| diagnostic.args())
         .find_map(|argument| {
             let DiagnosticArgValue::StorageAccess(access) = argument.value() else { return None; };
+
             let bray_diagnostics::DiagnosticType::Borrow { target, .. } = access.reached_type() else { return None; };
+
             matches!(target.as_ref(), bray_diagnostics::DiagnosticType::Callable { .. }).then_some(target.as_ref())
         }).unwrap_or_else(|| panic!("the conflict must retain its callback signature: {diagnostics:#?}"));
+
     let bray_diagnostics::DiagnosticType::Callable { parameters, result, execution, trust, abi, .. } = signature else { unreachable!() };
 
     assert_eq!(*execution, bray_diagnostics::DiagnosticCallableExecution::Asynchronous);
@@ -114,9 +127,11 @@ fn conflicting_borrows_retain_callable_signatures() {
     assert_eq!(parameters.len(), 2);
     assert_eq!(parameters[0].name, "value");
     assert_eq!(parameters[0].position, bray_diagnostics::DiagnosticCallablePosition::PositionalOrNamed);
+
     assert!(matches!(&parameters[0].ty, bray_diagnostics::DiagnosticType::Borrow {
         kind: bray_diagnostics::DiagnosticBorrowKind::Mutable, target,
     } if target.as_ref() == &bray_diagnostics::DiagnosticType::Usize));
+
     assert_eq!(parameters[1].name, "enabled");
     assert_eq!(parameters[1].position, bray_diagnostics::DiagnosticCallablePosition::NamedOnly);
     assert_eq!(parameters[1].ty, bray_diagnostics::DiagnosticType::Boolean);
@@ -143,6 +158,7 @@ fn conflicting_borrows_retain_the_concrete_target_and_capability() {
             _ = child;
         }
     "#);
+
     let diagnostics = application.check_diagnostics();
 
     assert!(diagnostics.iter().filter(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingConflictingBorrow)
@@ -190,12 +206,15 @@ fn failed_conditions_name_the_complete_producer_call() {
             inspect(PRODUCER);
         }
     "#.replace("PRODUCER", producer);
+
     let application = compilation(&source);
     let diagnostics = application.check_diagnostics();
+
     let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
         DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
         _ => None,
     }).unwrap_or_else(|| panic!("{diagnostics:#?}"));
+
     let DiagnosticCondition::Application { arguments, .. } = &obligation.actual else {
         panic!("{obligation:#?}");
     };
@@ -206,6 +225,7 @@ fn failed_conditions_name_the_complete_producer_call() {
 
     assert_eq!(path.last().map(String::as_str), Some("acquire"));
     assert_eq!(inputs.len(), input_count);
+
     if input_count != 0 {
         assert_eq!(inputs[0], DiagnosticCondition::Source("factory".to_owned()));
     }
@@ -233,15 +253,19 @@ fn failed_conditions_distinguish_staged_owned_arguments() {
             trusted inspect(first, second);
         }
     "#.replace("ABI", abi);
+
     let application = compilation(&source);
     let diagnostics = application.check_diagnostics();
+
     let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
         DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
         _ => None,
     }).unwrap_or_else(|| panic!("{diagnostics:#?}"));
+
     let DiagnosticCondition::Application { arguments, .. } = &obligation.actual else {
         panic!("{obligation:#?}");
     };
+
     assert_eq!(arguments, &[
         DiagnosticCondition::Source("first".to_owned()),
         DiagnosticCondition::Source("second".to_owned()),
@@ -310,22 +334,28 @@ fn trusted_obligation_diagnostics_retain_the_condition_and_its_role() {
 
             {body}
         "#);
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
+
         let failure = diagnostics.iter()
             .find(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven)
             .unwrap_or_else(|| panic!("{role:?}: {diagnostics:#?}"));
+
         let obligation = failure.args().iter()
             .find(|argument| argument.name().as_str() == "contract_obligation")
             .unwrap_or_else(|| panic!("{role:?} must retain its failed condition: {failure:#?}"));
+
         let DiagnosticArgValue::ContractObligation(obligation) = obligation.value() else {
             panic!("the proof failure must use its typed condition model");
         };
+
         assert_eq!(obligation.kind, role);
 
         let DiagnosticCondition::Application { path, arguments, .. } = &obligation.actual else {
             panic!("the instantiated predicate must survive: {obligation:#?}");
         };
+
         assert_eq!(path.last().map(String::as_str), Some("live"));
         assert_eq!(arguments.len(), 2);
         assert_eq!(arguments[1], DiagnosticCondition::Literal("42".to_owned()));
@@ -341,6 +371,7 @@ fn trusted_obligation_diagnostics_retain_the_condition_and_its_role() {
                 let DiagnosticCondition::Source(subject) = &arguments[0] else {
                     panic!("cleanup must identify the produced owner: {obligation:#?}");
                 };
+
                 assert!(subject.contains("value = 42"), "{subject}");
             }
             DiagnosticContractObligationKind::ExecutionRequirement => unreachable!("this fixture checks value contracts"),
@@ -389,12 +420,16 @@ fn invalidated_trusted_conditions_identify_the_argument_change() {
             inspect_owner(&owner);
         }
     "#;
+
     let application = compilation(source);
     let diagnostics = application.check_diagnostics();
+
     let failure = diagnostics.iter().find(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven)
         .unwrap_or_else(|| panic!("{diagnostics:#?}"));
+
     let change = failure.related_locations().iter().find(|location| location.kind().as_str() == "value_changed")
         .unwrap_or_else(|| panic!("the known argument change must survive: {failure:#?}"));
+
     let operation = source.find("opaque(&mut owner)").expect("fixture has its modifying call");
     let range = change.span();
 
@@ -425,14 +460,18 @@ fn failed_call_diagnostics_preserve_arguments_before_later_writes() {
             count = 99;
         }
     "#);
+
     let diagnostics = application.check_diagnostics();
+
     let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
         DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
         _ => None,
     }).unwrap_or_else(|| panic!("{diagnostics:#?}"));
+
     let DiagnosticCondition::Application { arguments, .. } = &obligation.actual else {
         panic!("{obligation:#?}");
     };
+
     assert_eq!(arguments[1], DiagnosticCondition::Literal("42".to_owned()));
 
     let application = compilation(r#"
@@ -461,13 +500,17 @@ fn failed_call_diagnostics_preserve_arguments_before_later_writes() {
             inspect_owner(&returned);
         }
     "#);
+
     let diagnostics = application.check_diagnostics();
+
     let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
         DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
         _ => None,
     }).unwrap_or_else(|| panic!("{diagnostics:#?}"));
+
     let DiagnosticCondition::Application { arguments, .. } = &obligation.actual else {
         panic!("{obligation:#?}");
     };
+
     assert_eq!(arguments, &[DiagnosticCondition::Source("source".to_owned())]);
 }

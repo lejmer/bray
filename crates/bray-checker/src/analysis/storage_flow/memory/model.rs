@@ -311,6 +311,7 @@ impl Transfer {
             if let Some(current) = effects {
                 if let Some(incoming) = incoming {
                     let before = current.len();
+
                     current.extend(incoming.iter().cloned());
                     changed |= before != current.len();
                 } else {

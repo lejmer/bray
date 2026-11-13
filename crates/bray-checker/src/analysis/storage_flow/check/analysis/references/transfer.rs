@@ -685,6 +685,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if let Some(allocation) = relation.allocation() {
                 let allocation = self.invocation_logical_path(occurrence, allocation)
                     .expect("prepared allocation origin retains its output anchor");
+
                 let projections = storage_projections(self.request.semantic_values(), self.dependencies,
                     relation.target_projections()).expect("prepared allocation projections remain available");
 
@@ -701,8 +702,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             && logical.projections.last() == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer))
                     }))
                     .flatten();
+
                 if let Some((fields, _)) = owned_buffer {
                     let owner = Place { root: logical.root, projections: logical.projections[..logical.projections.len() - 1].into() };
+
                     state.memory.stage_owned_buffer_reference(occurrence, Target::storage(owner), destination, logical, fields.element);
                     continue;
                 }

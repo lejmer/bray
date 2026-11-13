@@ -36,6 +36,7 @@ impl State {
         ty: bray_symbols::TypeId,
     ) -> Vec<Effect> {
         let kind = DependencyMutationKind::Dispose(ty);
+
         let Some(receiver) = receiver else {
             return vec![Effect::unbounded(kind, None, false)];
         };
@@ -49,10 +50,12 @@ impl State {
     /// A whole invocation escape has no finite reachability bound.
     pub(in crate::analysis::storage_flow) fn ambient_regions(&self, effects: &[Effect]) -> Option<std::collections::BTreeSet<Target>> {
         if effects.contains(&Effect::Escape) { return None; }
+
         let escaped = effects.iter().filter_map(|effect| match effect {
             Effect::Mutation(target, DependencyMutationKind::Escape, _) => Some(target.clone()),
             _ => None,
         });
+
         Some(self.reachable_targets(self.escaped_regions(escaped)))
     }
 
@@ -76,6 +79,7 @@ impl State {
                 Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
                 Effect::Mutation(target, DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _) => {
                     let (targets, _) = self.transitive_regions([target.clone()], |_, _| true);
+
                     self.invalidate(invalidation, storage, DependencyMutationKind::Retire);
 
                     for target in targets {

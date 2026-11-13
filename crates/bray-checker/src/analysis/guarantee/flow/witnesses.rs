@@ -204,8 +204,10 @@ fn conditional_aliases(
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) {
     let (stable, _) = super::merge::stable_observations(sources[0].0, sources[1].0);
+
     let mut aliases = BTreeSet::new();
     let guards = availability.iter().map(|(_, guard)| guard).chain(paths).collect::<BTreeSet<_>>();
+
     let proved = |condition: &ExecutionCondition| sources.iter().zip(inputs).all(|((state, _, _), inputs)| {
         condition.with_snapshots(inputs).prove_trusted(&BTreeSet::new(), &state.assumptions) == Some(true)
     });
@@ -372,10 +374,13 @@ fn collect_observations(
         for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
             if let Some(source) = source { insert_snapshot(inputs, joined, source); }
         }
+
         let sources = sources.map(|source| source.map(|source|
             source.clone().project(bray_bound_tree::StorageProjection::NullableValue)));
+
         collect_observations([sources[0].as_ref(), sources[1].as_ref()], payload,
             inputs, guards, absent, active, budget);
+
         return;
     }
 
@@ -385,11 +390,13 @@ fn collect_observations(
 
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
         let Some(source) = source else { continue; };
+
         // A retained phi owner can still have different predecessor contents.
         // Proof inserts that existing snapshot once, without rewriting identity.
         if !matches!(owner, ExecutionCondition::Unknown | ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
             insert_snapshot(inputs, &owner, source);
         }
+
         // Proof needs the complete predecessor value as well as its identity.
         // Rebuilding an opaque value from projected fields changes its snapshot.
         if role != ObservationKind::Reference {
@@ -418,6 +425,7 @@ fn collect_observations(
     // of an inner tag alone has no meaning on an inactive outer payload.
     let presence = sources.into_iter().zip(absent).find_map(|(source, absent)| {
         let source = source?;
+
         match source {
             ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) => Some(value),
             _ => absent.get(source).or_else(|| absent.get(source.owner_identity())),
@@ -509,6 +517,7 @@ fn collect_reference_data(
     // during proof. They do not create an ownership mapping or another origin.
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
         let Some(source) = source else { continue; };
+
         insert_snapshot(inputs, joined, source);
 
         // Unlisted components project through this existing contents identity.

@@ -516,10 +516,12 @@ mod tests {
     fn entry_reference_kind_separates_values_from_raw_addresses() {
         let reference = slot(0);
         let component = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+
         let borrowed = StorageTarget {
             previous: false,
             origin: StorageOrigin::entry(reference.clone(), bray_symbols::DependencyReferenceKind::Borrow),
         }.project(&[component]);
+
         let address = StorageTarget {
             previous: false,
             origin: StorageOrigin::entry(reference.clone(), bray_symbols::DependencyReferenceKind::Address),
@@ -529,6 +531,7 @@ mod tests {
             root: reference.root,
             projections: [component].into(),
         }));
+
         assert!(address.value_observation_path().is_none());
         assert_eq!(borrowed.relationship(&address), StorageRelationship::Identical);
         assert!(StorageTarget { previous: true, ..borrowed }.value_observation_path().is_none());

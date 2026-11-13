@@ -13,7 +13,9 @@ pub(in crate::analysis::guarantee::trusted) fn with_obligation<C: CheckerRequest
     for mutation in failed.actual().observed_mutations() {
         let origin = crate::diagnostic::bound_node_origin(domain.request, mutation.occurrence().node())
             .expect("a current value's mutation belongs to the checked unit");
+
         let anchor = origin.source_anchor().syntax();
+
         diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
             DiagnosticRelatedLocationKind::ValueChanged,
             bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range()),

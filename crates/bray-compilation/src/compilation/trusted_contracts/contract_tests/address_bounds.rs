@@ -659,6 +659,7 @@ trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses
                     {body}
                 }}
             "#));
+
             let diagnostics = application.check_diagnostics();
 
             assert_eq!(
@@ -765,6 +766,7 @@ impl Addresses
                         {body}
                     }}
                 "#));
+
                 let diagnostics = application.check_diagnostics();
 
                 assert_eq!(

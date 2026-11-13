@@ -345,16 +345,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let evidence = state.entries.get(&invocation)?;
         let requirements = self.prove_trusted_requirements(evidence, &contract.requirements);
         let empty_copy = self.empty_memory_copy(state, invocation);
+
         let initialized = requirements.is_ok() || empty_copy || {
             // Failure of another requirement must not erase established initialization.
             // Resolve these identities only on the failing path.
             let provider = self.request.context().available_compiler_known_symbols().provider();
+
             let predicates = ["InitializedAs", "InitializedRangeAs"].map(|name| {
                 provider.declaration_symbol::<bray_symbols::PredicateSymbolId>(
                     &bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
                         .expect("closed initialization predicate key must be valid"),
                 ).map(bray_symbols::PredicateDefinitionSymbolId::from)
             });
+
             // Conditions share their immutable operand trees with the call contract.
             let initialization = contract.requirements.iter().filter(|condition| {
                 matches!(condition, ExecutionCondition::Trusted(value)

@@ -114,6 +114,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if let Some(effects) = contracts.deferred_effects() {
             self.capture_deferred_cleanup(state, invocation);
+
             let effects = task_effects
                 .take()
                 .unwrap_or_else(|| self.call_effects(state, invocation, effects));
@@ -674,6 +675,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 DependencyMutationKind::Dispose(ty) => DependencyMutationKind::Cleanup(ty),
                 kind => kind,
             };
+
             let (origins, unbounded) = memory.effect_origins(target);
 
             if unbounded && kind != DependencyMutationKind::Escape {

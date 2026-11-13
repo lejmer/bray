@@ -8,6 +8,7 @@ fn production_byte_copy_does_not_publish_its_input_addresses() {
 
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");
+
     let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
         &compilation, "copy_spare_raw_bytes");
 
@@ -45,8 +46,10 @@ fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
                 trusted observe(pointer);
             }}
         "#);
+
         let compilation = crate::test_support::production_standard_library_compilation(
             crate::SelectedTarget::baseline(), &source);
+
         let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "caller"))
             .expect("conditional buffer disposal retains its checked transition");
 
@@ -63,7 +66,9 @@ fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
 fn production_awaited_writer_does_not_return_its_completed_receiver_loan() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");
+
     let key = crate::test_support::source_type_callable_member_body_key(&compilation, "into_sink_async");
+
     let lowered = compilation.lowered_unit(key)
         .expect("the consuming async writer publishes its checked completion");
 
@@ -91,6 +96,7 @@ fn production_native_paths_preserve_their_admitted_input_contracts() {
 
         for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path", "platform_path_rename"] {
             let key = source_function_body_key(&compilation, name);
+
             let lowered = compilation.lowered_unit(key.clone())
                 .expect("the native path wrapper publishes its checked source contract");
 
@@ -114,6 +120,7 @@ fn production_native_paths_preserve_their_admitted_input_contracts() {
 fn production_formatted_bytes_retain_the_buffer_owner() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");
+
     let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "bytes"))
         .expect("production formatted bytes reports its checked source contract");
 
@@ -124,6 +131,7 @@ fn production_formatted_bytes_retain_the_buffer_owner() {
 fn production_buffer_views_retain_external_storage() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");
+
     let symbols = compilation.symbol_graph().expect("production symbols are available");
     let mut failures = Vec::new();
 
@@ -131,7 +139,9 @@ fn production_buffer_views_retain_external_storage() {
         let key = crate::test_support::source_type_callable_member_body_key(&compilation, name);
         let member = symbols.symbol_for_key(key.declared_owner()).expect("buffer method is declared");
         let owner = symbols.containing_symbol(member).expect("buffer method has its owning type");
+
         assert_eq!(symbols.member_name(owner).map(|name| name.as_str()), Some("Buffer"));
+
         let lowered = compilation.lowered_unit(key)
             .expect("production buffer view reports its checked source contract");
 
@@ -147,6 +157,7 @@ fn production_buffer_views_retain_external_storage() {
 fn production_dynamic_outputs_preserve_their_write_contracts() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");
+
     let mut failures = Vec::new();
 
     for name in [
@@ -186,6 +197,7 @@ fn production_buffer_range_contracts_survive_pointer_staging() {
 fn production_channel_storage_publishes_its_taken_pending_value() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
+
     let key = crate::test_support::source_type_callable_member_body_key(&compilation, "store_message");
     let properties = compilation.execution_properties(key.clone()).expect("channel storage is certified");
     let body = compilation.lowered_unit(key).expect("channel storage lowers");
@@ -198,9 +210,11 @@ fn production_channel_storage_publishes_its_taken_pending_value() {
 fn production_bounded_channel_creation_retains_its_cleanup_evidence() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
+
     let key = source_function_body_key(&compilation, "bounded");
     let properties = compilation.execution_properties(key.clone()).expect("channel creation is certified");
     let body = compilation.lowered_unit(key.clone()).expect("channel creation lowers");
+
     let output = compilation.source_output_unit(key, &crate::CancellationToken::new())
         .expect("channel creation publishes Source output");
 
@@ -213,6 +227,7 @@ fn production_bounded_channel_creation_retains_its_cleanup_evidence() {
 fn production_channel_endpoints_preserve_loop_and_cleanup_authority() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
+
     let symbols = compilation.symbol_graph().expect("production symbols are available");
     let mut failures = Vec::new();
     let mut bodies = 0;
@@ -221,22 +236,29 @@ fn production_channel_endpoints_preserve_loop_and_cleanup_authority() {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
             continue;
         }
+
         let Some(owner) = symbols.symbol_for_key(key.declared_owner()) else { continue; };
+
         let member = symbols.member_name(owner).map(|name| name.as_str());
         let ty = symbols.containing_symbol(owner).and_then(|ty| symbols.member_name(ty)).map(|name| name.as_str());
+
         if !matches!((ty, member), (Some("Sender"), Some("send")) | (Some("Receiver"), Some("receive"))) {
             continue;
         }
 
         bodies += 1;
+
         let properties = compilation.execution_properties(key.clone()).expect("endpoint execution is certified");
+
         if properties.diagnostics().has_errors() {
             failures.push((key, properties.diagnostics().clone()));
         } else {
             let body = compilation.lowered_unit(key.clone()).expect("endpoint body lowers");
+
             if body.diagnostics().has_errors() { failures.push((key, body.diagnostics().clone())); }
         }
     }
+
     assert_eq!(bodies, 2, "both actual endpoint bodies must be selected");
     assert!(failures.is_empty(), "{failures:?}");
 }
@@ -245,6 +267,7 @@ fn production_channel_endpoints_preserve_loop_and_cleanup_authority() {
 fn production_byte_reads_keep_their_loop_entry_evidence() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
+
     let key = source_function_body_key(&compilation, "read_native_u64");
     let properties = compilation.execution_properties(key.clone()).expect("native byte reads are certified");
     let body = compilation.lowered_unit(key).expect("native byte reads lower");
@@ -272,6 +295,7 @@ fn bounded_collection_storage_effects_keep_their_physical_scope() {
 fn production_collection_destructors_release_transferred_backing() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
+
     let symbols = compilation.symbol_graph().expect("production symbols are available");
     let mut failures = Vec::new();
     let mut bodies = 0;
@@ -286,6 +310,7 @@ fn production_collection_destructors_release_transferred_backing() {
         }
 
         bodies += 1;
+
         let properties = compilation.execution_properties(key.clone()).expect("collection cleanup is certified");
         let body = compilation.lowered_unit(key.clone()).expect("collection cleanup lowers");
 
@@ -406,6 +431,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
 fn production_spare_fill_preserves_its_descriptor_bound() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
+
     let key = source_function_body_key(&compilation, "fill_spare_bytes");
     let properties = compilation.execution_properties(key.clone()).expect("production fill is certified");
     let body = compilation.lowered_unit(key).expect("production fill lowers");
@@ -418,9 +444,11 @@ fn production_spare_fill_preserves_its_descriptor_bound() {
 fn production_windows_environment_storage_retains_its_cleanup_evidence() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc), "module app;");
+
     let key = source_function_body_key(&compilation, "environment_storage");
     let properties = compilation.execution_properties(key.clone()).expect("environment storage is certified");
     let body = compilation.lowered_unit(key.clone()).expect("environment storage lowers");
+
     let output = compilation.source_output_unit(key, &crate::CancellationToken::new())
         .expect("environment storage publishes Source output");
 

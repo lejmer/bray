@@ -739,7 +739,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let Some(expression) = operation.occurrence().expression() else { return observations; };
+
         let execution = state.execution.as_ref().expect("completion retains execution facts");
+
         let producers = self.execution.awaited_invocations(execution, expression)
             .map(|(producer, _)| producer)
             .chain(self.execution.awaited_task_invocations(execution, expression).into_iter().flatten())
@@ -769,8 +771,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 let Some(observed) = self.invocation_logical_path(producer, subject) else { continue; };
+
                 let path = contracts.reference_path(subject).expect("prepared input retains its reference route");
+
                 let Some(path) = self.invocation_reference_path(producer, subject.subject_root(), path) else { continue; };
+
                 let Some(target) = state.memory.captured_input_target(
                     operation.occurrence(), self.request.semantic_values(), &Target::storage(root), &path,
                 ) else { continue; };
@@ -965,6 +970,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 let Some(targets) = memory.value_targets(&slot) else { continue; };
+
                 let [target] = targets.as_slice() else { continue; };
 
                 Some(target.clone())

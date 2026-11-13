@@ -214,12 +214,12 @@ impl ExecutionWitness {
         }
     }
 
-    pub(crate) fn owning_condition(
-        &self,
-        trusted: &BTreeSet<(ExecutionCondition, bool)>,
-        assumptions: &BTreeSet<(ExecutionCondition, bool)>,
-    ) -> Option<&ExecutionCondition> {
-        self.conditions.iter().find(|(condition, guarantee)| {
+    pub(crate) fn owning_conditions<'a>(
+        &'a self,
+        trusted: &'a BTreeSet<(ExecutionCondition, bool)>,
+        assumptions: &'a BTreeSet<(ExecutionCondition, bool)>,
+    ) -> impl Iterator<Item = &'a ExecutionCondition> + 'a {
+        self.conditions.iter().filter(|(condition, guarantee)| {
             guarantee.witness
                 && condition.prove_trusted(trusted, assumptions) == Some(true)
                 && condition.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT })

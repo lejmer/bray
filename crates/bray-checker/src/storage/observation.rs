@@ -57,6 +57,7 @@ pub(crate) fn returned_observations<C: CheckerRequestContext + ?Sized>(
     ty: TypeId,
 ) -> Result<Vec<(std::sync::Arc<[StorageProjection]>, Observation)>, CheckerQueryError<C::UpstreamError>> {
     let shape = paths(request, request.semantic_values().unborrowed_type(ty), &mut BTreeSet::new(), &mut BTreeMap::new())?;
+
     let boundaries = shape.observations.iter().filter_map(|(path, observation)|
         matches!(observation, Observation::Reference(ty)
             if matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::Borrow { .. }))
@@ -856,6 +857,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
                 for index in 0..length {
                     let index = bray_symbols::SymbolOrdinal::new(u32::try_from(index)
                         .expect("bounded array observation index fits an ordinal"));
+
                     shape.observations.extend(element.observations.iter().map(|(path, kind)| {
                         (std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect(), *kind)
                     }));

@@ -43,29 +43,20 @@ internal union WaitTarget
 
 // Ownership belongs to the acquired component values. It does not assert that
 // the mutable slots reached through their pointers keep their old contents.
-internal predicate registration_owned(owner: &WaitResources) = retained(owner = &owner.waiter) &&
-    owned_reference(owner = &owner.waiter) &&
-    (
-        (
-            owner.target matches WaitTarget.Task(_) &&
-            retained(owner = task_wait_target(&owner.target)) &&
-            owned_reference(owner = task_wait_target(&owner.target))
-        ) ||
-        (
-            owner.target matches WaitTarget.Event(_, _, _) &&
-            bray.runtime.bootstrap.event.retained(owner = event_wait_target(&owner.target)) &&
-            bray.runtime.bootstrap.event.owned_reference(owner = event_wait_target(&owner.target)) &&
-            bray.runtime.bootstrap.event.callback_owned(owner = callback_wait_target(&owner.target))
-        ) ||
-        (
-            owner.target matches WaitTarget.ExecutionEvent(_, _) &&
-            bray.runtime.bootstrap.event.retained(owner = execution_event_wait_target(&owner.target)) &&
-            bray.runtime.bootstrap.event.owned_reference(owner = execution_event_wait_target(&owner.target))
-        )
-    );
+internal predicate registration_owned(owner: &WaitResources) = retained(owner = &owner.waiter) && owned_reference(
+    owner = &owner.waiter
+) && ((owner.target matches WaitTarget.Task(_) && retained(owner = task_wait_target(&owner.target)) && owned_reference(
+    owner = task_wait_target(&owner.target)
+)) || (owner.target matches WaitTarget.Event(_, _, _) && bray.runtime.bootstrap.event.retained(
+    owner = event_wait_target(&owner.target)
+) && bray.runtime.bootstrap.event.owned_reference(owner = event_wait_target(&owner.target)) &&
+    bray.runtime.bootstrap.event.callback_owned(owner = callback_wait_target(&owner.target))) || (owner.target matches
+    WaitTarget.ExecutionEvent(_, _) && bray.runtime.bootstrap.event.retained(
+    owner = execution_event_wait_target(&owner.target)
+) && bray.runtime.bootstrap.event.owned_reference(owner = execution_event_wait_target(&owner.target))));
 
-internal predicate optional_registration(owner: &(WaitRegistration?)) = owner matches none ||
-    (owner matches ?_ && registration_owned(owner = &registration_value(owner).resources));
+internal predicate optional_registration(owner: &(WaitRegistration?)) = owner matches none || (owner matches ?_ &&
+    registration_owned(owner = &registration_value(owner).resources));
 
 internal const func registration_value(pos owner: &(WaitRegistration?)) -> &WaitRegistration
     requires(owner matches ?_)

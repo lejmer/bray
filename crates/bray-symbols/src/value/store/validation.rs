@@ -371,7 +371,6 @@ pub(super) fn validate_dependency_template_data(
             | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}
-
             DependencyStorageEffect::Direct { subject, .. } => {
                 validate_dependency_subject(tables, store, subject)
             }

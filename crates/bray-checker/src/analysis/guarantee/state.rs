@@ -224,6 +224,7 @@ impl ExecutionState {
 
                     if deferred.insert((owner.clone(), *invocation)) {
                         pending.extend(entry.owned_arguments());
+
                         if extraction_evidence {
                             pending.extend(entry.extracted_values.iter().cloned());
                         }
@@ -337,6 +338,7 @@ impl ExecutionState {
             // Input loans observe their current data without owning it. Old
             // descriptor snapshots are not the values of cleared address fields.
             let data = value.computed_value();
+
             if !observed.insert(data.clone()) { continue; }
             pending.extend(data.owned_components().cloned());
         }
@@ -346,15 +348,21 @@ impl ExecutionState {
                 if condition.prove_trusted(&self.trusted_assumptions, &self.assumptions) != Some(true) {
                     continue;
                 }
+
                 for (address, owners) in &guarantee.addresses {
                     let Some((root, path)) = address.observation_path() else { continue; };
+
                     let current = observed.iter().any(|data| {
                         let Some((source, prefix)) = data.observation_path() else { return false; };
+
                         if source != root || !path.starts_with(&prefix) { return false; }
+
                         let actual = path[prefix.len()..].iter().fold(data.clone(), |value, field| value.component(*field))
                             .into_referent();
+
                         actual.descriptor_identity().observation_path() == Some((root.clone(), path.clone()))
                     });
+
                     if current {
                         addresses.entry(address.clone()).or_default().extend(owners.iter().cloned());
                     }
@@ -373,7 +381,7 @@ impl ExecutionState {
         self.witnesses
             .get(identity)
             .is_some_and(|witness| {
-                witness.available && witness.owning_condition(&self.trusted_assumptions, &self.assumptions).is_some()
+                witness.available && witness.owning_conditions(&self.trusted_assumptions, &self.assumptions).next().is_some()
             })
     }
 
@@ -444,6 +452,10 @@ impl ExecutionState {
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);
 
+        // Keep immutable views of the existing clauses while the ledger is filtered.
+        let private_witnesses = private.iter().filter_map(|carrier| self.witnesses.get(carrier)
+            .map(|witness| (carrier.clone(), std::sync::Arc::clone(witness)))).collect::<Vec<_>>();
+
         self.assumptions.retain(|(condition, _)| {
             !condition.observes_live(None) || condition.observes_only(|value| stable_values.preserves(value))
         });
@@ -486,8 +498,8 @@ impl ExecutionState {
 
         // Private moved inputs retain historical entry facts while child execution
         // owns their authority. Completion still requires their surviving live witness.
-        let preserves_owned = |fact: &(ExecutionCondition, bool), owners: &BTreeSet<ExecutionCondition>| {
-            preserves(fact)
+        let preserves_owned = |fact: &(ExecutionCondition, bool), owners: &BTreeSet<ExecutionCondition>, admission: &BTreeSet<(ExecutionCondition, bool)>| {
+            preserves(fact) || admission.contains(fact)
                 || (fact.0.observes_only(|value| stable_values.preserves(value))
                     && fact.0.observations().any(|value| {
                         crate::execution_guarantees::ObservationSet::retains_owner(owners, value)
@@ -504,6 +516,7 @@ impl ExecutionState {
 
         for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution && {
             let owners = entry.owned_arguments().collect::<BTreeSet<_>>();
+            let admission = private_admission_facts(entry, &private_witnesses);
 
             entry.trusted_boundary
                 || entry
@@ -517,9 +530,10 @@ impl ExecutionState {
                 || entry
                     .trusted_assumptions
                     .iter()
-                    .any(|fact| !preserves_owned(fact, &owners))
+                    .any(|fact| !preserves_owned(fact, &owners, &admission))
         }) {
             let owners = entry.owned_arguments().collect::<BTreeSet<_>>();
+            let admission = private_admission_facts(entry, &private_witnesses);
 
             entry
                 .copy_sources
@@ -531,7 +545,7 @@ impl ExecutionState {
 
             entry
                 .trusted_assumptions
-                .retain(|fact| preserves_owned(fact, &owners));
+                .retain(|fact| preserves_owned(fact, &owners, &admission));
 
             entry.trusted_boundary = false;
         }
@@ -663,6 +677,24 @@ impl ExecutionState {
 
 }
 
+/// Retain proved admission from the same private complete carriers, without publishing it.
+fn private_admission_facts(
+    entry: &crate::ExecutionCallEvidence,
+    private: &[(ExecutionCondition, std::sync::Arc<crate::execution_guarantees::ExecutionWitness>)],
+) -> BTreeSet<(ExecutionCondition, bool)> {
+    let mut retained = BTreeSet::new();
+
+    for (carrier, witness) in private {
+        if !entry.witness_inputs.contains(carrier) { continue; }
+
+        for condition in witness.owning_conditions(&entry.trusted_assumptions, &entry.assumptions) {
+            condition.clone().assume(true, &mut retained);
+        }
+    }
+
+    retained
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -672,6 +704,39 @@ mod tests {
 
     use super::ExecutionState;
     use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn private_admission_keeps_only_proved_owning_clauses() {
+        let owner = input(0);
+        let guard = input(3);
+        let held = permission(2);
+
+        let condition = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![
+            ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![guard.clone()]),
+            held.clone(),
+        ]);
+
+        for (owning, proved, selected) in [(true, true, None), (true, true, Some(true)),
+            (false, true, None), (true, false, None), (true, true, Some(false))] {
+            let mut witness = Arc::new(crate::execution_guarantees::ExecutionWitness::default());
+
+            witness.carry(&condition, owning, &Default::default());
+
+            let mut entry = crate::ExecutionCallEvidence::default();
+
+            entry.witness_inputs.insert(owner.clone());
+            if proved { condition.clone().assume(true, &mut entry.trusted_assumptions); }
+            if let Some(selected) = selected { guard.clone().assume(selected, &mut entry.assumptions); }
+
+            let retained = super::private_admission_facts(&entry, &[(owner.clone(), witness)]);
+
+            assert_eq!(retained.contains(&(condition.clone(), true)), owning && proved && selected != Some(false));
+
+            if selected.is_none() {
+                assert!(!retained.contains(&(held.clone(), true)), "an unknown guard cannot grant its owning consequent");
+            }
+        }
+    }
 
     #[test]
     fn retirement_respects_the_retained_loan_context() {
@@ -778,8 +843,10 @@ mod tests {
         assert_eq!(retained.preserves(&guard), preserved, "owner identity alone cannot preserve a different tag");
         state.invalidate_contents(&BTreeSet::new(), [owner.clone()], &BTreeSet::new(), &retained, None);
         if preserved { assert!(state.assumptions.contains(&(guard.clone(), true))); }
+
         assert_eq!(current_guard.prove_trusted(&state.trusted_assumptions, &state.assumptions) == Some(true), preserved,
             "historical tag facts cannot prove a replacement value's current tag");
+
         assert!(!state.assumptions.contains(&(payload.clone(), true)));
         assert!(!state.trusted_assumptions.contains(&(payload.clone(), true)));
         }
@@ -933,9 +1000,11 @@ mod tests {
 
         let (_, expressions) = expression_unit(BoundUnitId::new(41), |tree, origin| vec![
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
         ]);
 
         let invocation = expressions[0].into();
+        let pending = expressions[1].into();
         let owner = input(0);
         let condition = permission(2);
 
@@ -960,6 +1029,10 @@ mod tests {
                 ..crate::ExecutionCallEvidence::default()
             });
 
+            let mut captured = state.entries[&invocation].clone();
+
+            captured.pending_execution = true;
+            state.entries.insert(pending, captured);
             state.suspend_owned_witnesses(&BTreeSet::from([owner.clone()]));
 
             assert!(!state.trusted_assumptions.contains(&(condition.clone(), true)));
@@ -970,7 +1043,34 @@ mod tests {
             assert_eq!(state.allocation_owners.contains_key(&condition), accepted);
             assert!(!state.trusted_assumptions.contains(&(condition.clone(), true)));
 
-            let entry = state.entries[&invocation].clone();
+            assert_eq!(state.entries[&pending].trusted_assumptions.contains(&(condition.clone(), true)), accepted,
+                "pending admission must agree with its exact private owning carrier");
+
+            if accepted {
+                let mut changed = state.clone();
+
+                changed.invalidate_referents(&[input(2)], &BTreeSet::new(), &BTreeSet::new(),
+                    &BTreeSet::new(), &Default::default(), Some(invocation));
+
+                let after_write = changed.entries[&pending].clone();
+
+                assert!(!after_write.trusted_assumptions.contains(&(condition.clone(), true)),
+                    "actual external observation mutation revokes historical admission");
+
+                changed.resume_owned_witnesses(&after_write);
+                assert!(!changed.trusted_assumptions.contains(&(condition.clone(), true)));
+
+                let mut dropped = state.clone();
+
+                dropped.retire_trusted_values([owner.clone()], &BTreeSet::new());
+                dropped.resume_owned_witnesses(&state.entries[&pending]);
+
+                assert!(!dropped.trusted_assumptions.contains(&(condition.clone(), true)),
+                    "discarded authority cannot resume from a saved entry");
+            }
+
+            let entry = state.entries[&pending].clone();
+
             state.resume_owned_witnesses(&entry);
 
             assert_eq!(condition.prove_trusted(&state.trusted_assumptions, &state.assumptions) == Some(true), accepted);
@@ -1031,12 +1131,16 @@ mod tests {
         );
 
         assert!(state.address_dependencies(&input(3)).is_empty());
+
         let field = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let object = ExecutionCondition::constructed(input(2), [(field, address.clone())].into());
         let borrowed = object.clone().borrowed();
+
         assert_eq!(state.address_dependencies(&borrowed), state.address_dependencies(&address));
         assert!(state.owned_result(&borrowed).is_empty(), "an observed address bound grants no ownership");
+
         let cleared = object.with_storage_component(&[field], ExecutionCondition::Boolean(false)).borrowed();
+
         assert!(state.address_dependencies(&cleared).is_empty(), "the old field snapshot is no longer current");
         state.trusted_assumptions.clear();
         assert!(state.address_dependencies(&address).is_empty());
@@ -1256,6 +1360,7 @@ mod tests {
 
         let addresses = if stable_descriptor { BTreeSet::from([pointer.owner_identity().clone()]) } else { BTreeSet::new() };
         let stable_values = if stable_descriptor { [pointer.clone()].into_iter().collect() } else { Default::default() };
+
         state.invalidate_referents(
             &[pointer],
             &addresses,
@@ -2087,11 +2192,14 @@ mod tests {
         let owner = input(0);
         let field = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let marker = owner.clone().project(field);
+
         let view = |contents| ExecutionCondition::reference_value(owner.clone().borrowed(),
             ExecutionCondition::constructed(input(2), [(field, contents)].into()));
+
         let before = view(marker.clone().borrowed());
         let temporary = ExecutionCondition::constructed(input(1), [(field, before)].into());
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+
         let condition = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
             symbol.into(), crate::test_support::empty_substitution(symbol.into()), [marker.clone().borrowed()].into(),
         )));
@@ -2099,11 +2207,13 @@ mod tests {
         for noise in [0, 256] {
             for unchanged in [true, false] {
                 let mut retained = BTreeSet::from([view(if unchanged { marker.clone().borrowed() } else { input(3).borrowed() })]);
+
                 retained.extend((100..100 + noise).map(|ordinal| {
                     let owner = input(ordinal);
 
                     ExecutionCondition::reference_value(owner.clone().borrowed(), owner)
                 }));
+
                 let mut state = ExecutionState::default();
 
                 state.carry_guarantee(owner.clone().borrowed(), condition.clone());
@@ -2133,6 +2243,7 @@ mod tests {
             let condition = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
                 symbol.into(), crate::test_support::empty_substitution(symbol.into()), [observed.clone().borrowed()].into(),
             )));
+
             let mut state = ExecutionState::default();
 
             state.carry_guarantee(observed, condition.clone());

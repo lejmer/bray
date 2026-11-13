@@ -98,6 +98,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         ("MovementStable", false, &[0]),
         ("FinalizationPending", false, &[0]),
     ];
+
     let (pointer_predicates, mut content_predicates): (BTreeMap<_, _>, BTreeSet<_>) = request
         .trusted_contracts()
         .into_iter()

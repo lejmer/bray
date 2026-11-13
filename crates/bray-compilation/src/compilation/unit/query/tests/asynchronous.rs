@@ -367,28 +367,34 @@ fn await_result_owns_cleanup_until_the_local_binding_commits() {
     let bound = application.bound_unit(key.clone()).expect("caller binds");
     let storage = application.storage_plan(key.clone()).expect("caller has storage");
     let flow = application.storage_flow(key).expect("caller has checked storage flow");
+
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
     let awaits = bound.value().tree().expressions().filter_map(|(id, expression)| {
         matches!(expression, bray_bound_tree::BoundExpression::Await(_)).then_some(id)
     }).collect::<Vec<_>>();
+
     assert_eq!(awaits.len(), 2);
 
     let local = storage.value().identity_entries().find_map(|(id, identity)| {
         matches!(identity, bray_bound_tree::StorageIdentity::LocalOwned(_)).then_some(id)
     }).expect("guard has local storage");
+
     let result = storage.value().identity_entries().find_map(|(id, identity)| {
         (identity == bray_bound_tree::StorageIdentity::Temporary(awaits[0])).then_some(id)
     }).expect("await has result storage");
 
     let mut completed = false;
+
     for exit in flow.value().exits().iter().filter(|exit| exit.exit() == awaits[0].into()) {
         assert!(!exit.live().contains(&local), "uncommitted local cannot own cleanup: {exit:?}");
         completed |= exit.live().contains(&result);
     }
+
     assert!(completed, "completed await owns its result before cancellation");
 
     let continued = flow.value().suspension(awaits[1]).expect("second await suspends");
+
     assert!(continued.initialized().contains(&local));
     assert!(!continued.initialized().contains(&result));
     assert!(continued.moved().contains(&bray_bound_tree::StoragePath::root(result)));

@@ -126,6 +126,7 @@ const COPIED_SCALAR_SOURCE: &str = r#"
 #[test]
 fn copied_scalar_result_preserves_ordinary_value() {
     let compilation = compilation(COPIED_SCALAR_SOURCE);
+
     assert!(!compilation.check_diagnostics().has_errors(), "{:?}", compilation.check_diagnostics());
 }
 
@@ -139,6 +140,7 @@ fn copied_scalar_result_does_not_copy_borrowed_authority() {
             observe(&result.tag);
         }
     "#));
+
     bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
         DiagnosticKind::CheckingTrustedObligationNotProven);
 }
@@ -184,6 +186,7 @@ fn custom_index_copy_waits_for_the_returned_borrow() {
 
     let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "copy"))
         .expect("copy through a returned index borrow lowers");
+
     assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
 }
 
@@ -211,7 +214,9 @@ fn custom_index_copy_rejects_witness_duplication() {
                 let copied = {selected};
             }}
         "#);
+
         let compilation = compilation(&source);
+
         bray_testing::assert_goal_state_diagnostic_kind(compilation.check_diagnostics(),
             DiagnosticKind::CheckingTrustedWitnessTransferNotProven);
     }

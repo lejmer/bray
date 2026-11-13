@@ -276,19 +276,26 @@ mod tests {
     #[test]
     fn private_production_retains_inputs_until_their_value_is_captured() {
         let unit = BoundUnitId::new(23);
+
         let (bound, values) = expression_unit(unit, |tree, origin| {
             let left = push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())));
             let right = push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())));
+
             let result = push_expression(tree, BoundExpression::Binary(BoundBinaryExpression::new(
                 origin, BoundOperator::LogicalAnd, [left, right], Some(error_type()), false,
             )));
+
             vec![left, right, result]
         });
+
         let [left, right, result] = values.as_slice() else { panic!("fixture has two operands and a result"); };
+
         let types = CheckedExpressionTypes::new(unit, bound.key().kind(), []);
         let selections = CheckedSemanticSelections::try_new(&bound, &types, []).expect("empty fixture selections");
+
         let literals = CheckedLiteralValues::try_new(&bound, &types, semantic_values(),
             std::num::NonZeroU16::new(64).expect("fixture width is nonzero"), []).expect("fixture has no literals");
+
         let semantics = CheckedExpressionSemantics::try_new(types, selections, literals).expect("one fixture unit");
         let storage = StoragePlanBuilder::new(unit, bound.key().kind()).finish();
         let mut graph = ControlFlowGraphAssembler::new(unit);
@@ -297,14 +304,18 @@ mod tests {
         let publication = graph.push_block();
 
         graph.push_bound(entry, (*left).into());
+
         graph.push_edge(entry, selected, AnalysisEdgeKind::ConditionalTrue,
             Some(AnalysisRefinement::Condition { expression: *left, value: true }));
+
         graph.push_bound(selected, (*right).into());
         graph.push_operation(selected, AnalysisOperationKind::Result { expression: *result, phase: AnalysisResultPhase::Production });
         graph.push_edge(selected, publication, AnalysisEdgeKind::Sequential, None);
         graph.push_operation(publication, AnalysisOperationKind::Result { expression: *result, phase: AnalysisResultPhase::Completion });
         graph.push_exit(publication, AnalysisExitKind::NormalFallthrough, (*result).into());
+
         let graph = graph.finish(entry);
+
         let retention = ValueRetention::prepare(&graph, &bound, &storage, &semantics, &|| false)
             .expect("finite fixture retention converges");
 

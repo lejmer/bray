@@ -412,6 +412,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .or_else(|| self.invocation_entry(state, invocation))?;
 
         entry.extracted_values.extend(self.extracted_input_values(invocation, &entry.arguments, &entry.assumptions));
+
         let captured_extractions = entry.owned_arguments()
             .flat_map(|value| state.owned_values(&value))
             .filter_map(|value| state.deferred_entries(&value))

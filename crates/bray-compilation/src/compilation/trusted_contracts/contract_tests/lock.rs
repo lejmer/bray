@@ -295,6 +295,7 @@ fn production_condition_variable_preserves_its_borrowed_queue_authority() {
         }
 
         bodies += 1;
+
         let properties = compilation.execution_properties(key.clone()).expect("production body is certified");
         let checked = compilation.lowered_unit(key.clone()).expect("production body lowers");
 
