@@ -31,9 +31,12 @@ pub(super) fn selection(facts: &Selection) -> Selection {
 }
 
 pub(super) fn possible(guard: &Selection, facts: &Selection) -> bool {
+    let trusted = BTreeSet::new();
+    let proof = crate::execution_guarantees::ExecutionProof::new(&trusted, facts);
+
     !guard
         .iter()
-        .any(|(condition, holds)| condition.prove_trusted(&BTreeSet::new(), facts) == Some(!holds))
+        .any(|(condition, holds)| proof.prove_trusted(condition) == Some(!holds))
 }
 
 impl<Entry> DeferredInvocation<Entry> {

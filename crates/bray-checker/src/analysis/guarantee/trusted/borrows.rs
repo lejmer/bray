@@ -486,7 +486,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &mut { ExecutionCondition::WORK_LIMIT },
                 );
 
-                if condition.prove_trusted(&Default::default(), &state.assumptions) == Some(false) {
+                if condition.prove_ordinary(&state.assumptions) == Some(false) {
                     return None;
                 }
 

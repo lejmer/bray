@@ -21,6 +21,7 @@ pub(super) fn conditional_facts(
     current: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     results: &[(BoundExpressionId, ExecutionCondition)],
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
+    selector: Option<&ExecutionCondition>,
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> Vec<(ExecutionCondition, ExecutionCondition, ExecutionCondition, bool)> {
     let mut guards = availability.clone();
@@ -67,7 +68,15 @@ pub(super) fn conditional_facts(
 
     // Immutable branch selectors can qualify a moved carrier even when the selector
     // is stored outside it. Each proposed clause still needs both predecessor proofs.
-    let path_guards = ordinary[0]
+    let path_guards = if let Some(selector) = selector {
+        // A structured join owns its selector. Derived consequences are facts, not
+        // additional execution choices to multiply against every carrier clause.
+        [left, right].into_iter().flat_map(|(_, values, identities)| {
+            let selector = selector.with_joined_values(values, identities);
+
+            [selector.clone(), ExecutionCondition::operation(BoundOperator::LogicalNot, vec![selector])]
+        }).collect::<BTreeSet<_>>()
+    } else { ordinary[0]
         .iter()
         .filter(|(condition, holds)| ordinary[1].contains(&(condition.clone(), !holds)))
         .flat_map(|(condition, _)| {
@@ -76,9 +85,13 @@ pub(super) fn conditional_facts(
                 ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition.clone()]),
             ]
         })
-        .collect::<BTreeSet<_>>();
+        .collect::<BTreeSet<_>>() };
 
-    conditional_aliases([left, right], [&left_inputs, &right_inputs], &guards, &path_guards, facts);
+    let empty = BTreeSet::new();
+    let ordinary_proofs = [left.0, right.0].map(|state| ExecutionProof::new(&empty, &state.assumptions));
+    let inactive = inactive_guards(&guards, &path_guards, [&left_inputs, &right_inputs], &ordinary_proofs, facts);
+
+    conditional_aliases([left, right], [&left_inputs, &right_inputs], &guards, &path_guards, &inactive, &ordinary_proofs, facts);
 
     if left.0.witnesses.is_empty() && right.0.witnesses.is_empty() {
         return Vec::new();
@@ -184,6 +197,8 @@ pub(super) fn conditional_facts(
                 .map(|(_, guard)| guard)
                 .chain(&path_guards)
             {
+                if inactive.contains(guard) { continue; }
+
                 let clause = ExecutionCondition::operation(
                     BoundOperator::LogicalOr,
                     vec![
@@ -204,6 +219,32 @@ pub(super) fn conditional_facts(
     retained
 }
 
+fn inactive_guards(
+    availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
+    paths: &BTreeSet<ExecutionCondition>,
+    inputs: [&BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
+    proofs: &[ExecutionProof<'_>; 2],
+    facts: &mut Vec<(ExecutionCondition, bool)>,
+) -> BTreeSet<ExecutionCondition> {
+    let guards = availability.iter().map(|(_, guard)| guard).chain(paths).collect::<BTreeSet<_>>();
+    let mut inactive = BTreeSet::new();
+
+    for guard in guards {
+        let negated = ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]);
+
+        if proofs.iter().zip(inputs).all(|(proof, inputs)| {
+            proof.prove_trusted(&negated.with_snapshots(inputs)) == Some(true)
+        }) {
+            // Both actual predecessors establish the ordinary fact, independently of any owner.
+            // Keeping it once avoids manufacturing every vacuously guarded carrier promise.
+            inactive.insert(guard.clone());
+            facts.push((guard.clone(), false));
+        }
+    }
+
+    inactive
+}
+
 fn conditional_aliases(
     sources: [(
         &ExecutionState,
@@ -213,15 +254,14 @@ fn conditional_aliases(
     inputs: [&BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     paths: &BTreeSet<ExecutionCondition>,
+    inactive: &BTreeSet<ExecutionCondition>,
+    proofs: &[ExecutionProof<'_>; 2],
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) {
     let (stable, _) = super::merge::stable_observations(sources[0].0, sources[1].0);
 
     let mut aliases = BTreeSet::new();
     let guards = availability.iter().map(|(_, guard)| guard).chain(paths).collect::<BTreeSet<_>>();
-
-    let empty = BTreeSet::new();
-    let proofs = sources.map(|(state, _, _)| ExecutionProof::new(&empty, &state.assumptions));
 
     let proved = |condition: &ExecutionCondition| proofs.iter().zip(inputs).all(|(proof, inputs)| {
         proof.prove_trusted(&condition.with_snapshots(inputs)) == Some(true)
@@ -247,6 +287,8 @@ fn conditional_aliases(
             }
 
             for guard in guards.iter().take(ExecutionCondition::WORK_LIMIT) {
+                if inactive.contains(*guard) { continue; }
+
                 let clause = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
                     ExecutionCondition::operation(BoundOperator::LogicalNot, vec![(*guard).clone()]),
                     alias.clone(),
@@ -258,6 +300,49 @@ fn conditional_aliases(
     }
 
     facts.extend(aliases.into_iter().map(|condition| (condition, true)));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::Arc;
+
+    use bray_bound_tree::BoundOperator;
+    use bray_symbols::SymbolOrdinal;
+
+    use super::conditional_facts;
+    use crate::analysis::guarantee::state::ExecutionState;
+    use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn common_inactive_guards_publish_truth_without_phantom_carrier_promises() {
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::Input(place.clone());
+        let guard = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let claim = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)))));
+        let mut left = ExecutionState::default();
+        let mut right = ExecutionState::default();
+
+        for state in [&mut left, &mut right] {
+            state.assign(place.clone(), owner.clone(), None);
+            guard.clone().assume(false, &mut state.assumptions);
+        }
+
+        left.carry_guarantee(owner.clone(), claim.clone());
+        claim.assume(true, &mut left.trusted_assumptions);
+
+        let availability = BTreeSet::from([
+            (owner.clone(), guard.clone()),
+            (owner, ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()])),
+        ]);
+        let empty = BTreeMap::new();
+        let mut facts = Vec::new();
+        let retained = conditional_facts((&left, &empty, &empty), (&right, &empty, &empty),
+            &BTreeMap::new(), &[], &availability, None, &mut facts);
+
+        assert!(retained.is_empty());
+        assert!(facts.contains(&(guard, false)));
+    }
 }
 
 /// Keep the same proven clause on its complete carrier after identity renaming.

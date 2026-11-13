@@ -1,7 +1,5 @@
 use std::collections::{BTreeSet, VecDeque};
 
-use bray_bound_tree::BoundOperator;
-
 use super::ExecutionCondition;
 use super::boolean::{BooleanGraph, BooleanId, alternative_value};
 
@@ -88,18 +86,17 @@ fn propagate(
             queue.extend(node.parents.iter().copied());
         }
 
-        if let Some(held) = terms[id.0].asserted_alternative && let [left, right] = node.children.as_slice() {
-            let established = [
-                (terms[left.0].value == Some(!held)).then_some(*right),
-                (terms[right.0].value == Some(!held)).then_some(*left),
-            ];
+        if let Some(held) = terms[id.0].asserted_alternative {
+            let established = graph.consequences(id, held, |child| terms[child.0].value);
 
-            for child in established.into_iter().flatten() {
+            for (child, held) in established.into_iter().flatten() {
                 // Normal assumptions retain qualified predicates and negation polarity.
                 graph.terms[child.0].condition.clone().assume_with(held, &mut |condition, value| {
                     if !known.insert((condition.clone(), value)) { return; }
 
                     if let Some(id) = graph.find(&condition) {
+                        if matches!(graph.terms[id.0].condition, ExecutionCondition::Boolean(_)) { return; }
+
                         let term = &mut terms[id.0];
 
                         term.asserted = Some(term.asserted.unwrap_or(false) || value);
@@ -390,5 +387,49 @@ mod tests {
 
         assert_eq!(qualified.prove_trusted(&known, &ordinary), None,
             "an ordinary negative alternative cannot supply qualified negative evidence");
+    }
+
+    #[test]
+    fn established_data_aliases_transport_guards_without_inventing_authority() {
+        let not = |value| ExecutionCondition::operation(BoundOperator::LogicalNot, vec![value]);
+        let or = |left, right| ExecutionCondition::operation(BoundOperator::LogicalOr, vec![left, right]);
+        let prior = input(0);
+        let current = input(1);
+        let next = input(2);
+        let cycle = input(6);
+        let selected = input(3);
+        let claim = ExecutionCondition::Trusted(Arc::new(input(4)));
+        let alias = ExecutionCondition::value_alias(prior.clone(), current.clone());
+        let conditional = or(not(selected.clone()), alias.clone());
+        let promise = or(not(next.clone()), claim.clone());
+        let empty = BTreeSet::new();
+
+        for selection in [None, Some(false), Some(true)] {
+            let mut ordinary = BTreeSet::from([
+                (conditional.clone(), true), (prior.clone(), true),
+                (ExecutionCondition::value_alias(current.clone(), next.clone()), true),
+                (ExecutionCondition::value_alias(next.clone(), cycle.clone()), true),
+                (ExecutionCondition::value_alias(cycle.clone(), current.clone()), true),
+            ]);
+            if let Some(value) = selection { selected.clone().assume(value, &mut ordinary); }
+
+            let trusted = BTreeSet::from([(promise.clone(), true)]);
+            let proof = crate::execution_guarantees::ExecutionProof::new(&trusted, &ordinary);
+
+            assert_eq!(proof.prove_trusted(&claim) == Some(true), selection == Some(true));
+            assert_eq!(claim.prove_trusted(&empty, &ordinary), None);
+            assert_eq!(input(5).prove_trusted(&empty, &ordinary), None, "another value has no correspondence");
+        }
+
+        let trusted = BTreeSet::from([(or(not(current.clone()), claim.clone()), true)]);
+        let ordinary = BTreeSet::from([(alias.clone(), true)]);
+        let required = or(not(prior.clone()), claim.clone());
+
+        assert_eq!(required.prove_trusted(&trusted, &ordinary), Some(true));
+        assert_eq!(claim.prove_trusted(&trusted, &ordinary), None, "an alias does not select an unknown guard");
+        assert_eq!(alias.prove(&BTreeSet::from([(prior.clone(), true), (current.clone(), false)]),
+            &mut { ExecutionCondition::WORK_LIMIT }), Some(false));
+        assert_eq!(alias.prove(&BTreeSet::from([(prior, true), (current, true)]),
+            &mut { ExecutionCondition::WORK_LIMIT }), None, "matching truth does not invent a stored alias");
     }
 }

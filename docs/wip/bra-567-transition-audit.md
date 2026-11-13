@@ -2,9 +2,9 @@
 
 Read this record and the [contract gate](../../.agents/skills/work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it)
 after compaction. The current target is less than500ms per fixture case. It is not met. Bounded diagnosis and
-artifact cleanup are complete. Implementation of the performance plan is authorized. The indexed proof path passes68
-execution-proof and109 guarantee tests. Performance remains above target. Next repair repeated context construction
-in immutable consumer loops and the independent branch-feasibility scan. No full matrix runs are authorized.
+artifact cleanup are complete. Implementation of the performance plan is authorized. The indexed proof path passes69
+execution-proof and112 guarantee tests. Performance remains above target. Immutable consumers and branch feasibility
+are migrated. Availability aliases, direct cleanup selectors and immutable deferred/owner proof views are repaired. No full matrix runs are authorized.
 The issue remains incomplete. Do not merge, change issue status, edit develop or create another worktree.
 
 ## Current admission contract
@@ -97,9 +97,33 @@ actual aliases but cannot invent alias identity from matching truth. Raw proof c
 Boolean values. Availability and cleanup selection must use ordinary-only deduction. Unknown conditional aliases stay
 inactive. Keep current value/epoch identity, no reference/owner substitution, no qualified evidence from ordinary facts,
 and stable alias cycles. Other existing ValueAlias producers use the same reader.
+Availability aliases are local CFG facts. Portable contracts already exclude both ValueAlias and InitializedSnapshot.
+Callers construct their own availability relations in source and imported modes. No interface schema change is planned.
 
-Current evidence: proof-indexed-current.json, proof-indexed-counts.json and proof-indexed-sample.json. Phase counts include
-provider setup and nested durations must not be added. Remove superseded detailed outputs after retaining compact facts.
+Current repair contract: conditional cleanup supplies its actual selector directly to ExecutionJoin. The taken and
+skipped snapshots still independently prove every proposed owner clause. Use the selector and actual storage guards,
+not all ordinary facts derived from that selector, as candidate branch guards. General CFG joins retain their existing
+path discovery. Unknowns cannot establish a clause, unavailable authority stays unavailable, and no owner borrows
+another carrier's evidence. Both source/import fixed cases and owner-local negative controls remain fixed.
+A bounded probe measured21 candidate clauses becoming443 at a join with98 derived path guards, then1941 clauses.
+Keep common inactive ordinary guards once and omit vacuously guarded owner promises. Do not cache across mutation.
+The replacement removes cleanup's reconstruction of branch selectors. The loop sample also locates repeated graph
+preparation in deferred::possible: each guard fact creates another proof against identical immutable ordinary facts.
+One view must cover the complete selection. The same rule applies to owning_conditions. Preserve existing raw proof,
+qualification, budgets and exact-evidence precedence. No view survives a fact mutation.
+Reconsider if actual selected clauses or their
+rejection boundaries change. Existing focused proof/guarantee controls pass180 tests, but the real case still exceeds10s.
+
+Current bounded evidence: four fixed task rows pass at2456 to2551ms. The independent-site row still reaches10s.
+The cleanup join that grew21 clauses into443 now retains21. Its control retains authority only on the surviving path
+with50 copied selectors. All181 focused proof/guarantee tests pass. Style remains deferred until finalization.
+Repeated-input counters measured11264 preparations for500 distinct exact fact pairs in the task case,521266 nodes.
+The bounded loop interval measured18432 preparations for1218 pairs,1519476 nodes. No full matrix runs.
+Temporary hooks are removed. Compact evidence: proof-indexed-current.json, proof-repetition-counts.json and the current
+stack sample. These measurements justify reusing completed preparation across exact immutable inputs, rather than
+adding more local loop caches. Any reuse must compare both complete fact sets, isolate qualified/current/owner facts,
+preserve budgets and outputs, be scoped to live analysis, and stay outside semantic state equality.
+
 The original150-line production-growth target is exceeded by the indexed replacement. Final review must simplify it or
 justify the remaining growth by required inference and removed machinery. Count production separately from tests/style.
 

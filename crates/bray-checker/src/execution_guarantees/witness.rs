@@ -220,9 +220,11 @@ impl ExecutionWitness {
         trusted: &'a BTreeSet<(ExecutionCondition, bool)>,
         assumptions: &'a BTreeSet<(ExecutionCondition, bool)>,
     ) -> impl Iterator<Item = &'a ExecutionCondition> + 'a {
-        self.conditions.iter().filter(|(condition, guarantee)| {
+        let proof = super::ExecutionProof::new(trusted, assumptions);
+
+        self.conditions.iter().filter(move |(condition, guarantee)| {
             guarantee.witness
-                && condition.prove_trusted(trusted, assumptions) == Some(true)
+                && proof.prove_trusted(condition) == Some(true)
                 && condition.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT })
                     != Some(true)
         }).map(|(condition, _)| condition)

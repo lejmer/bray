@@ -193,6 +193,7 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         &BTreeMap::new(),
         &[(expression, joined.clone())],
         &BTreeSet::new(),
+        None,
         &mut facts,
     );
 
@@ -628,7 +629,7 @@ mod tests {
 
             let retained = super::super::witnesses::conditional_facts(
                 (&left_state, &left_values, &left_owners), (&right_state, &right_values, &right_owners),
-                &snapshots, &[], &Default::default(), &mut Vec::new());
+                &snapshots, &[], &Default::default(), None, &mut Vec::new());
 
             let mut unknown = left_state.clone();
 
@@ -636,7 +637,7 @@ mod tests {
 
             let rejected = super::super::witnesses::conditional_facts(
                 (&unknown, &left_values, &left_owners), (&right_state, &right_values, &right_owners),
-                &snapshots, &[], &Default::default(), &mut Vec::new());
+                &snapshots, &[], &Default::default(), None, &mut Vec::new());
 
             assert!(!rejected.iter().any(|(_, _, condition, available)| *available && *condition == whole_guarantee(joined.clone())),
                 "a live Unknown observation cannot supply the missing whole-object evidence");

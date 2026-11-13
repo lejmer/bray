@@ -12,6 +12,7 @@ enum BooleanKey {
     Not(BooleanId),
     And(BooleanId, BooleanId),
     Or(BooleanId, BooleanId),
+    Alias(BooleanId, BooleanId),
     Entry(bool, BooleanId),
     Observation(ExecutionObservationKind, BooleanId, BooleanId),
     Borrowed(BooleanId),
@@ -29,6 +30,7 @@ impl BooleanKey {
             ExecutionCondition::Observation { owner, contents, kind } => Self::Observation(*kind, child(owner)?, child(contents)?),
             ExecutionCondition::Borrowed(value) => Self::Borrowed(child(value)?),
             ExecutionCondition::Trusted(value) => Self::Trusted(child(value)?),
+            ExecutionCondition::ValueAlias(left, right) => Self::Alias(child(left)?, child(right)?),
             // Only opaque atoms retain structural keys. Boolean keys hash child identities once.
             atom => Self::Atom(atom.clone()),
         })
@@ -36,7 +38,7 @@ impl BooleanKey {
 
     fn children(&self) -> Vec<BooleanId> {
         match self {
-            Self::And(left, right) | Self::Or(left, right) => vec![*left, *right],
+            Self::And(left, right) | Self::Or(left, right) | Self::Alias(left, right) => vec![*left, *right],
             Self::Not(child) => vec![*child],
             Self::Entry(_, child) | Self::Borrowed(child) | Self::Observation(_, _, child) => vec![*child],
             Self::Trusted(_) | Self::Atom(_) => Vec::new(),
@@ -113,8 +115,23 @@ impl BooleanGraph {
             (ExecutionCondition::Entry { .. } | ExecutionCondition::Observation { .. } | ExecutionCondition::Borrowed(_), [child]) => value(*child),
             (ExecutionCondition::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), _), [left, right]) =>
                 prove_boolean(*operator, value(*left), || value(*right)),
+            (ExecutionCondition::ValueAlias(_, _), [left, right]) => alias_value(value(*left), || value(*right)),
             _ => None,
         }
+    }
+
+    pub(super) fn consequences(&self, id: BooleanId, held: bool, value: impl Fn(BooleanId) -> Option<bool>) -> [Option<(BooleanId, bool)>; 2] {
+        let term = &self.terms[id.0];
+        let [left, right] = term.children.as_slice() else { return [None, None]; };
+
+        if matches!(term.condition, ExecutionCondition::ValueAlias(_, _)) && held {
+            return [value(*left).map(|value| (*right, value)), value(*right).map(|value| (*left, value))];
+        }
+
+        [
+            (value(*left) == Some(!held)).then_some((*right, held)),
+            (value(*right) == Some(!held)).then_some((*left, held)),
+        ]
     }
 }
 
@@ -183,22 +200,7 @@ impl AlternativeProof {
         });
 
         for (condition, holds) in &contrary {
-            if !condition.contains_unknown() && let Some(id) = self.graph.find(condition) {
-                self.assert(id, *holds);
-            }
-
-            // Comparisons can depend on transitive ordering facts. Their raw proof receives
-            // the complete contrary, including every connecting edge and NaN restriction.
-            for subject in related_subjects(condition) {
-                if let Some(ids) = self.related.get(subject) {
-                    for id in ids {
-                        if !self.queued[id.0] {
-                            self.queued[id.0] = true;
-                            self.queue.push_back(*id);
-                        }
-                    }
-                }
-            }
+            self.seed(condition, *holds);
         }
 
         while let Some(id) = self.queue.pop_front() {
@@ -231,6 +233,27 @@ impl AlternativeProof {
             if let Some(held) = term.published && value == Some(!held) {
                 self.candidates.push(id);
             }
+
+            // Only an established ordinary data correspondence can extend the hypothesis.
+            // Never infer alias identity merely because two conditions have matching truth.
+            let copied = if matches!(term.condition, ExecutionCondition::ValueAlias(_, _)) && term.published == Some(true) {
+                self.graph.consequences(id, true, |child| self.value(child)).map(|copy| {
+                    copy.filter(|(child, _)| self.value(*child).is_none()).map(|(child, value)| {
+                        // The hypothesis owns these fact keys while operands stay shared with the graph.
+                        (self.graph.terms[child.0].condition.clone(), value)
+                    })
+                })
+            } else { [None, None] };
+
+            for (condition, held) in copied.into_iter().flatten() {
+                let mut derived = Vec::new();
+
+                condition.assume_proof(held, false, &mut |condition, value| {
+                    if contrary.insert((condition.clone(), value)) { derived.push((condition, value)); }
+                });
+
+                for (condition, held) in derived { self.seed(&condition, held); }
+            }
         }
 
         // The graph selects candidates. The owning bounded rule still decides the implication.
@@ -255,6 +278,24 @@ impl AlternativeProof {
         }
     }
 
+    fn seed(&mut self, condition: &ExecutionCondition, held: bool) {
+        if !condition.contains_unknown() && let Some(id) = self.graph.find(condition) {
+            self.assert(id, held);
+        }
+
+        // Include comparison and variant dependencies when a copied hypothesis changes too.
+        for subject in related_subjects(condition) {
+            if let Some(ids) = self.related.get(subject) {
+                for id in ids {
+                    if !self.queued[id.0] {
+                        self.queued[id.0] = true;
+                        self.queue.push_back(*id);
+                    }
+                }
+            }
+        }
+    }
+
     fn value(&self, id: BooleanId) -> Option<bool> {
         let (epoch, value) = self.values[id.0];
 
@@ -266,8 +307,15 @@ pub(super) fn alternative_value(condition: &ExecutionCondition) -> Option<bool> 
     match condition {
         ExecutionCondition::Operation(BoundOperator::LogicalOr, _) => Some(true),
         ExecutionCondition::Operation(BoundOperator::LogicalAnd, _) => Some(false),
+        ExecutionCondition::ValueAlias(_, _) => Some(true),
         _ => None,
     }
+}
+
+pub(super) fn alias_value(left: Option<bool>, right: impl FnOnce() -> Option<bool>) -> Option<bool> {
+    let left = left?;
+
+    (left != right()?).then_some(false)
 }
 
 pub(super) fn prove_boolean(operator: BoundOperator, left: Option<bool>, right: impl FnOnce() -> Option<bool>) -> Option<bool> {
