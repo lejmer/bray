@@ -1,10 +1,17 @@
 use super::{ExecutionCondition, ExecutionProof};
 use super::context::ProofMemo;
-use crate::execution_guarantees::boolean::prove_boolean;
+use crate::execution_guarantees::boolean::{alias_value, prove_boolean};
 use bray_bound_tree::BoundOperator;
 use std::collections::BTreeSet;
 
 impl ExecutionCondition {
+    pub(crate) fn prove_ordinary(&self, ordinary: &BTreeSet<(Self, bool)>) -> Option<bool> {
+        let trusted = BTreeSet::new();
+
+        self.prove_mixed_with_implications(&trusted, ordinary, &mut { Self::WORK_LIMIT }, None, None)
+            .or_else(|| ExecutionProof::new(&trusted, ordinary).prove_mixed(self, &mut { Self::WORK_LIMIT }))
+    }
+
     pub(crate) fn prove_trusted(
         &self,
         trusted: &BTreeSet<(Self, bool)>,
@@ -131,6 +138,10 @@ impl ExecutionCondition {
 
         if let Self::Entry { condition, .. } = self {
             return condition.prove_with_memo(assumptions, budget, memo);
+        }
+
+        if let Self::ValueAlias(left, right) = self {
+            return alias_value(left.prove_with_memo(assumptions, budget, memo), || right.prove_with_memo(assumptions, budget, memo));
         }
 
         if let Self::VariantTest(variant, subject) = self {

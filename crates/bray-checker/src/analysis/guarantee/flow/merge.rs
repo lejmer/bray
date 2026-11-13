@@ -9,25 +9,26 @@ use super::super::super::id::AnalysisBlockId;
 use super::super::state::ExecutionState;
 use super::super::current::{CurrentValue, ValueAvailability};
 
-/// Finite identity of the control-flow join that observes initialization.
+/// Control-flow identity and any actual selector supplied by a structured join.
 #[derive(Clone, Copy)]
-pub(in crate::analysis) enum ExecutionJoin {
+pub(in crate::analysis) enum ExecutionJoin<'a> {
     Boundary,
+    Selection(&'a ExecutionCondition),
     Block(AnalysisBlockId),
     Result(bray_bound_tree::BoundExpressionId),
 }
 
-impl From<Option<AnalysisBlockId>> for ExecutionJoin {
+impl From<Option<AnalysisBlockId>> for ExecutionJoin<'_> {
     fn from(block: Option<AnalysisBlockId>) -> Self {
         block.map_or(Self::Boundary, Self::Block)
     }
 }
 
-impl ExecutionJoin {
+impl ExecutionJoin<'_> {
     fn block(self) -> Option<AnalysisBlockId> {
         match self {
             Self::Block(block) => Some(block),
-            Self::Boundary | Self::Result(_) => None,
+            Self::Boundary | Self::Selection(_) | Self::Result(_) => None,
         }
     }
 
@@ -35,7 +36,7 @@ impl ExecutionJoin {
         match self {
             Self::Block(block) => joined_observation(block, place),
             Self::Result(expression) => ExecutionCondition::Expression(expression),
-            Self::Boundary => ExecutionCondition::Boolean(true),
+            Self::Boundary | Self::Selection(_) => ExecutionCondition::Boolean(true),
         }
     }
 }
@@ -368,6 +369,7 @@ fn join_observations<'a>(
             &joined_values,
             &results,
             &availability_guards,
+            match join { ExecutionJoin::Selection(condition) => Some(condition), _ => None },
             &mut joined_facts,
         );
 
@@ -491,7 +493,7 @@ pub(super) fn stable_observations(
 
 pub(super) fn resolved_availability(state: &ExecutionState, place: &crate::ExecutionPlace) -> ValueAvailability {
     match state.current.availability(place) {
-        ValueAvailability::Guarded(guard) => match guard.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) {
+        ValueAvailability::Guarded(guard) => match guard.prove_ordinary(&state.assumptions) {
             Some(true) => ValueAvailability::Present,
             Some(false) => ValueAvailability::Absent,
             None => ValueAvailability::Guarded(guard),
@@ -506,7 +508,7 @@ fn assume_availability(state: &mut ExecutionState, guard: &ExecutionCondition, a
         ValueAvailability::Absent => (guard.clone(), false),
         ValueAvailability::Guarded(previous) if &previous == guard => return,
         ValueAvailability::Guarded(previous) => (
-            ExecutionCondition::operation(bray_bound_tree::BoundOperator::Equal, vec![guard.clone(), previous]), true,
+            ExecutionCondition::value_alias(guard.clone(), previous), true,
         ),
         ValueAvailability::Unknown => return,
     };

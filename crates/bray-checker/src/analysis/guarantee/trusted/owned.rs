@@ -421,7 +421,7 @@ fn feasible_layout(
         DependencyOwnedResult::Case { condition, result } => {
             let condition = instantiate(*condition);
 
-            if condition.prove_trusted(&BTreeSet::new(), assumptions) == Some(false) {
+            if condition.prove_ordinary(assumptions) == Some(false) {
                 return false;
             }
 
