@@ -4,9 +4,9 @@ use super::interning::{ConditionIndex, ConditionMap};
 use super::ExecutionCondition;
 use std::sync::Mutex;
 
-pub(super) type ConditionMemo<T = bool> = Mutex<ConditionMap<T>>;
+pub(in crate::execution_guarantees) type ConditionMemo<T = bool> = Mutex<ConditionMap<T>>;
 
-pub(super) fn cached_condition<T: Clone>(memo: &ConditionMemo<T>, value: &ExecutionCondition, compute: impl FnOnce() -> T) -> T {
+pub(in crate::execution_guarantees) fn cached_condition<T: Clone>(memo: &ConditionMemo<T>, value: &ExecutionCondition, compute: impl FnOnce() -> T) -> T {
     if let Some(result) = memo.lock().expect("condition query memo lock is not poisoned").get(value) {
         return result.clone();
     }

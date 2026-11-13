@@ -25,3 +25,5 @@ pub(crate) use substitution::ExecutionSubstitution;
 pub(super) use interning::{ConditionId, ConditionIndex};
 
 pub use operands::ExecutionOperands;
+
+pub(super) use memo::{ConditionMemo, cached_condition};
