@@ -58,6 +58,26 @@ impl<'a> ExecutionSubstitution<'a> {
     }
 }
 
+/// Capture a forest against one immutable predecessor map without expanding inserted snapshots.
+pub(crate) struct SnapshotSubstitution<'a> {
+    snapshots: &'a BTreeMap<ExecutionCondition, ExecutionCondition>,
+    changed: bool,
+    mapped: ExecutionMemo<ExecutionCondition>,
+}
+
+impl<'a> SnapshotSubstitution<'a> {
+    pub(crate) fn new(snapshots: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
+        Self { snapshots, changed: ExecutionCondition::has_value_changes(snapshots), mapped: ExecutionMemo::default() }
+    }
+
+    pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
+        if !self.changed { return condition.clone(); }
+
+        condition.substitute_values(&|value| super::rewriting::snapshot_value(value, self.snapshots),
+            &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped))
+    }
+}
+
 /// One immutable ordinary guard environment owns all of its bounded DAG rewrites.
 pub(in crate::execution_guarantees::condition) struct GuardSubstitution {
     facts: ConditionMap<ExecutionCondition>,
@@ -99,6 +119,46 @@ mod tests {
 
     use super::ExecutionSubstitution;
     use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn snapshot_forests_preserve_capture_boundaries_and_each_original_budget() {
+        let input = |index| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(index)));
+        let owner = input(0);
+        let inserted = ExecutionCondition::Borrowed(Arc::new(owner.clone()));
+        let snapshots = BTreeMap::from([(owner.clone(), inserted.clone())]);
+        let scope = super::SnapshotSubstitution::new(&snapshots);
+        let captured = ExecutionCondition::Entry { condition: Arc::new(owner.clone()), captured: true };
+
+        let mut condition = ExecutionCondition::Operation(LogicalOr,
+            vec![ExecutionCondition::Trusted(Arc::new(owner.clone())), captured.clone()].into());
+
+        for _ in 0..8 {
+            condition = ExecutionCondition::Operation(LogicalAnd, vec![condition.clone(), condition].into());
+        }
+
+        let replace = |value: &ExecutionCondition| super::super::rewriting::snapshot_value(value, &snapshots);
+
+        for incoming in (0..=ExecutionCondition::WORK_LIMIT).chain([1, 2, ExecutionCondition::WORK_LIMIT]) {
+            let mut expected_budget = incoming;
+            let mut actual_budget = incoming;
+            let expected = condition.substitute_values(&replace, &mut expected_budget, None);
+            let actual = condition.substitute_values(&replace, &mut actual_budget, Some(&scope.mapped));
+
+            assert_eq!(actual, expected, "snapshot rewrite differs at budget {incoming}");
+            assert_eq!(actual_budget, expected_budget);
+        }
+
+        for _ in 0..2 {
+            assert_eq!(scope.apply(&owner), inserted, "inserted snapshots are not recursively expanded");
+            assert_eq!(scope.apply(&captured), captured, "captured entry contents remain opaque");
+        }
+
+        let changed = BTreeMap::from([(owner.clone(), input(1))]);
+        let other = super::SnapshotSubstitution::new(&changed);
+
+        assert_eq!(other.apply(&owner), input(1));
+        assert_eq!(scope.apply(&owner), inserted, "another map cannot replace this scope's answers");
+    }
 
     #[test]
     fn guard_rewriting_preserves_each_budget_and_does_not_rewrite_qualified_atoms() {

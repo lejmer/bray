@@ -32,13 +32,7 @@ impl ExecutionCondition {
     /// Inserts predecessor snapshots once. A snapshot can contain the same
     /// surviving owner, so recursively resolving it as an equality would cycle.
     pub(crate) fn with_snapshots(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
-        if !Self::has_value_changes(snapshots) { return self.clone(); }
-
-        self.substitute_values(
-            &|condition| snapshot_value(condition, snapshots),
-            &mut { Self::WORK_LIMIT },
-            None,
-        )
+        super::scope::SnapshotSubstitution::new(snapshots).apply(self)
     }
 
     /// Copy correlations apply to values. They cannot relocate borrowed observations.
@@ -277,7 +271,7 @@ impl ExecutionCondition {
     }
 }
 
-fn snapshot_value(
+pub(super) fn snapshot_value(
     condition: &ExecutionCondition,
     snapshots: &BTreeMap<ExecutionCondition, ExecutionCondition>,
 ) -> Option<ExecutionCondition> {

@@ -38,29 +38,32 @@ This correction changes representation/query work, not inference rules or state 
 
 ## Evidence and active work
 
-Checkpoint60bebc2bd established shared structural IDs and immutable operand properties. Its195 controls passed,
-tasks437-484ms/loop2657-2746ms, frozen29/1. Structural tree memo keys were slower than interned keys and removed.
+Pushed935f30535 removes AlternativeProof's shared epochs and enclosing proof mutex. The immutable graph/baselines
+are reused, each AlternativeQuery owns its scratch, and existing cache helpers synchronize completed answers.
+Local storage is dense up to1024 nodes and sparse above it, justified by measured81/129 average reached/total nodes.
+Large irrelevant-clause controls retain bounded reached-node work/storage. No pooled scratch or reconstruction.
+Its195 controls passed, tasks443-491ms/loop2727-2782ms, frozen29/1.
 
-Finalized correction: AlternativeProof owns immutable graph/baselines. AlternativeQuery owns its scratch.
-Shared epochs and the enclosing proof mutex are removed. Existing completed-answer cache helpers synchronize
-only lookup/publication. Queue order, positive assertion precedence, unknown handling, numeric/variant
-relations, alias propagation and the final bounded implication remain unchanged. No authority or inference changes.
-Local storage is dense up to1024 nodes, sparse above it. Initialization is bounded independently of large graphs.
-Measured queries visit81 of129 nodes on average. Large irrelevant-clause controls require storage/work proportional
-to reached nodes. No reconstruction or pooled shared scratch. Net32 nonblank production lines and14 test lines.
+Finalized snapshot correction: collect_observations finishes each predecessor map before any proof consumes it.
+One immutable SnapshotSubstitution now serves conditional_facts, inactive_guards, conditional_aliases and
+owned_alternatives. captured_facts and deferred argument forests reuse the same mechanism. Single-value callers
+use the existing convenience method. All delegate to substitute_values and ExecutionMemo. Identity scans run
+once per map. Inserted snapshots are never expanded recursively. Captured entries stay opaque. Projection-prefix
+lookup, unknowns, identity shields and exact budget results remain unchanged. Changed maps get separate scopes.
+This replaces repeated tree rewriting, adding13 nonblank production lines and31 test lines against935f30535.
 
-Final optimized build passes195 controls, including concurrent differing goals and original budget controls.
-Two fixed-five repetitions preserve outcomes and negative call locations: tasks443-491ms, loop2727-2782ms.
-The loop still misses500ms. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance,12.54s. Style applied
-fixes and reports only six prior errors: wildcard flow/invalidation and oversized flow/merge, storage_flow
-cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument. Source formatting passes.
-No temporary probes or backend switches remain. Maintainability review reuses the existing memo helper and finds
-no equivalent reusable dense/sparse Boolean query store outside this domain. No public API changed.
+Optimized build passes196 controls, including differential budgets0..128 and changed-map/captured-entry controls.
+Two fixed-five runs preserve outcomes and negative call locations: tasks397-480ms, loop2380-2427ms. Frozen30
+remains29 pass/1 known RawBuffer invalid acceptance,13.86s. No full matrices. Mutating style and source formatting
+used the unchanged retained xtask product. Formatting passes. Style reports its six prior errors: wildcard
+flow/invalidation and oversized flow/merge, storage_flow cleanup/core, execution_guarantees/portable and tooling
+output/diagnostic/json/argument. No probes or backend switches remain. Audit confirms existing rewrite/memo
+mechanisms are reused, no authority rules or public API changed, and growth stays below60 production lines.
 
-Next performance target is conditional-fact construction. Coarse profile: ConditionalFacts326ms exclusive,
-Snapshots279ms/55270 calls, Retire314ms, PrepareBoolean279ms, Alternative270ms, Observations265ms.
-Inspect repeated with_snapshots inputs before changing substitution. Keep snapshot capture opacity and exact
-immutable-map scope. proof-query-current.json retains this current profile, not historical experiments.
+The loop still misses500ms. Before snapshot reuse, coarse profiling showed costly conditional-fact construction,
+retirement, Boolean preparation and witness refinement. Reprofile before choosing the next optimization. In
+particular, establish how often the same immutable witness/evidence pair is refined before adding reuse there.
+Do not assume finer-grained proof caching removes repeated witness construction. Measure stable inputs first.
 
 ## Fixed gates and broader work
 

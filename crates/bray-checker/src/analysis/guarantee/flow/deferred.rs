@@ -410,9 +410,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ).assume(true, &mut entry.assumptions);
             } else {
                 let snapshots = [(value.clone(), captured.clone())].into();
+                let substitution = crate::execution_guarantees::SnapshotSubstitution::new(&snapshots);
 
                 for argument in entry.arguments.values_mut() {
-                    *argument = argument.with_snapshots(&snapshots);
+                    *argument = substitution.apply(argument);
                 }
 
                 entry.copy_sources.insert(place.clone(), source);

@@ -1,4 +1,4 @@
-use crate::execution_guarantees::ExecutionSubstitution;
+use crate::execution_guarantees::{ExecutionSubstitution, SnapshotSubstitution};
 use crate::execution_guarantees::{ExecutionObservationKind as ObservationKind, ExecutionProof};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -52,7 +52,7 @@ pub(super) fn conditional_facts(
         );
     }
 
-    let [left_inputs, right_inputs] = inputs;
+    let [left_inputs, right_inputs] = inputs.each_ref().map(SnapshotSubstitution::new);
 
     let ordinary = [left, right].map(|(state, substitution)| {
         state
@@ -146,7 +146,7 @@ pub(super) fn conditional_facts(
         // variant needs no trusted evidence, but another carrier cannot lend it.
         let predecessors =
             [(0, (left.0, &left_inputs)), (1, (right.0, &right_inputs))].map(|(index, (state, inputs))| {
-                let source = owner.with_snapshots(inputs);
+                let source = inputs.apply(&owner);
                 let mut evidence = BTreeSet::new();
 
                 for (_, witness) in state.owned_witnesses([source]) {
@@ -167,14 +167,14 @@ pub(super) fn conditional_facts(
 
         let proved = |clause: &ExecutionCondition| {
             predecessors.iter().zip(&proofs).all(|((_, inputs, _), proof)| {
-                proof.prove_trusted(&clause.with_snapshots(inputs)) == Some(true)
+                proof.prove_trusted(&inputs.apply(clause)) == Some(true)
             })
         };
 
         // A join preserves validity while the child owns execution. It must not
         // make any unavailable predecessor's authority usable in the caller.
         let available = predecessors.iter().all(|(state, inputs, _)| {
-            state.owned_witnesses([owner.with_snapshots(inputs)])
+            state.owned_witnesses([inputs.apply(&owner)])
                 .all(|(_, witness)| witness.available)
         });
 
@@ -221,7 +221,7 @@ pub(super) fn conditional_facts(
 fn inactive_guards(
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     paths: &BTreeSet<ExecutionCondition>,
-    inputs: [&BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
+    inputs: [&SnapshotSubstitution<'_>; 2],
     proofs: &[ExecutionProof<'_>; 2],
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> BTreeSet<ExecutionCondition> {
@@ -232,7 +232,7 @@ fn inactive_guards(
         let negated = ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]);
 
         if proofs.iter().zip(inputs).all(|(proof, inputs)| {
-            proof.prove_trusted(&negated.with_snapshots(inputs)) == Some(true)
+            proof.prove_trusted(&inputs.apply(&negated)) == Some(true)
         }) {
             // Both actual predecessors establish the ordinary fact, independently of any owner.
             // Keeping it once avoids manufacturing every vacuously guarded carrier promise.
@@ -249,7 +249,7 @@ fn conditional_aliases(
         &ExecutionState,
         &ExecutionSubstitution<'_>,
     ); 2],
-    inputs: [&BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
+    inputs: [&SnapshotSubstitution<'_>; 2],
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     paths: &BTreeSet<ExecutionCondition>,
     inactive: &BTreeSet<ExecutionCondition>,
@@ -262,7 +262,7 @@ fn conditional_aliases(
     let guards = availability.iter().map(|(_, guard)| guard).chain(paths).collect::<BTreeSet<_>>();
 
     let proved = |condition: &ExecutionCondition| proofs.iter().zip(inputs).all(|(proof, inputs)| {
-        proof.prove_trusted(&condition.with_snapshots(inputs)) == Some(true)
+        proof.prove_trusted(&inputs.apply(condition)) == Some(true)
     });
 
     for value in stable.into_iter().take(ExecutionCondition::WORK_LIMIT) {
@@ -422,6 +422,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     bray_symbols::DependencyOwnedResult::choice([(left, right.0), (right, left.0)].into_iter().zip(inputs).map(
         |(((state, source), other), inputs)| {
             let mut result = state.owned_result(source);
+            let snapshots = SnapshotSubstitution::new(&inputs);
 
             for (condition, holds) in state.assumptions.difference(&other.assumptions) {
                 if matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input()) {
@@ -432,8 +433,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
             }
 
             for (_, guard) in &guards {
-                if guard
-                    .with_snapshots(&inputs)
+                if snapshots.apply(guard)
                     .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
                     == Some(true)
                 {
