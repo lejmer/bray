@@ -1,6 +1,9 @@
 mod model;
+mod operands;
 mod hashing;
 mod memo;
+mod storage_key;
+mod interning;
 mod context;
 mod observations;
 mod retention;
@@ -16,8 +19,9 @@ mod tests;
 pub use model::{ExecutionCondition, ExecutionDescriptorKind, ExecutionObservationKind};
 
 pub(crate) use retention::Set as ObservationSet;
-pub(crate) use memo::memoize_condition;
 pub(crate) use context::{ExecutionProof, ExecutionProofCache};
 pub(crate) use substitution::ExecutionSubstitution;
 
-pub(super) use traversal::NodeIdentity;
+pub(super) use interning::{ConditionId, ConditionIndex};
+
+pub use operands::ExecutionOperands;

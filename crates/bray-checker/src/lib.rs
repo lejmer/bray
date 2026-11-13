@@ -72,7 +72,7 @@ pub use diagnostic::{diagnostic_borrow_kind, diagnostic_type};
 pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates, UnprovenExecutionCondition,
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
-    ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
+    ExecutionCompletionDependency, ExecutionCondition, ExecutionOperands, ExecutionDeclaration, ExecutionDependency,
     ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionVerificationFailure, ExecutionPlace,
     ExecutionProperty, declared_execution_properties, execution_condition_from_term,
     execution_condition_from_type_term, execution_condition_is_implied, execution_condition_term,

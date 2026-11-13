@@ -241,6 +241,7 @@ mod tests {
         state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), middle.clone())].into(), &[(middle.clone(), middle.clone())].into()));
 
         let unchanged = &state.deferred_invocations[&middle].producers[&expressions[0].into()];
+
         assert!(!unchanged.selection.contains(&(source.clone(), true)), "identity joins still prune stale selectors");
         assert!(unchanged.entry.copy_sources.is_empty(), "identity joins still revoke stale copy origins");
 

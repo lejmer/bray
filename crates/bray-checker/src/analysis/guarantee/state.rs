@@ -162,6 +162,7 @@ impl ExecutionState {
         let mut assumptions = entry.assumptions.clone();
 
         assumptions.extend(self.assumptions.iter().cloned());
+
         let proof = self.proofs.proof(&entry.trusted_assumptions, &assumptions);
 
         for owner in &entry.witness_inputs {
@@ -459,7 +460,8 @@ impl ExecutionState {
         admitted: Option<bray_bound_tree::BoundExecutionSite>,
     ) {
         self.refine_witnesses();
-        let retained_owner = crate::execution_guarantees::memoize_condition(|value| {
+
+        let retained_owner = self.proofs.memoize_condition(|value| {
             crate::execution_guarantees::ObservationSet::retains_owner(stable_owners, value)
         });
 

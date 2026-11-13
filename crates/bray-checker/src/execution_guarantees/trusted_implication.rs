@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use super::ExecutionCondition;
+use super::condition::ConditionIndex;
 use super::boolean::{BooleanGraph, BooleanId, alternative_value};
 
 #[derive(Default)]
@@ -15,38 +16,42 @@ pub(crate) fn trusted_condition_closure(
     known: BTreeSet<(ExecutionCondition, bool)>,
     ordinary: &BTreeSet<(ExecutionCondition, bool)>,
 ) -> BTreeSet<(ExecutionCondition, bool)> {
-    prepare_trusted_conditions(known, ordinary).0
+    prepare_trusted_conditions(known, ordinary, ConditionIndex::default()).0
 }
 
 pub(super) fn prepare_trusted_conditions(
     mut known: BTreeSet<(ExecutionCondition, bool)>,
     ordinary: &BTreeSet<(ExecutionCondition, bool)>,
+    index: ConditionIndex,
 ) -> (BTreeSet<(ExecutionCondition, bool)>, BooleanGraph) {
-    let mut graph = BooleanGraph::new(&known, ordinary);
+    let mut graph = BooleanGraph::new(&known, ordinary, index);
     let mut terms = (0..graph.terms.len()).map(|_| ProofTerm::default()).collect::<Vec<_>>();
     let mut queue = VecDeque::new();
 
     for (index, node) in graph.terms.iter().enumerate() {
         let condition = &node.condition;
+
         let explicit = |assumptions: &BTreeSet<_>| {
             [true, false].into_iter().find(|value| assumptions.contains(&(condition.clone(), *value)))
         };
 
         terms[index].asserted_alternative = alternative_value(condition).filter(|held| {
             explicit(&known) == Some(*held)
-                || (explicit(ordinary) == Some(*held) && !condition.contains_trusted())
+                || (explicit(ordinary) == Some(*held) && !node.condition.contains_trusted())
         });
+
         terms[index].asserted = match condition {
             ExecutionCondition::Unknown => None,
             ExecutionCondition::Boolean(value) => Some(*value),
             ExecutionCondition::Entry { .. } => None,
             ExecutionCondition::Trusted(_) => explicit(&known),
             _ if !node.children.is_empty() => explicit(&known).or_else(|| {
-                explicit(ordinary).filter(|_| !condition.contains_trusted())
+                explicit(ordinary).filter(|_| !node.condition.contains_trusted())
             }),
             _ => condition.prove(&known, &mut { ExecutionCondition::WORK_LIMIT })
                 .or_else(|| condition.prove(ordinary, &mut { ExecutionCondition::WORK_LIMIT })),
         };
+
         terms[index].value = terms[index].asserted;
         queue.push_back(BooleanId(index));
     }
@@ -58,10 +63,12 @@ pub(super) fn prepare_trusted_conditions(
         if let Some(value) = term.value && !node.condition.contains_trusted() {
             // Facts and graph retain the same immutable condition operands.
             known.insert((node.condition.clone(), value));
+
             if alternative_value(&node.condition) == Some(value) {
                 node.published = Some(value);
             }
         }
+
         if let Some(held) = term.asserted_alternative {
             node.published = Some(held);
         }
@@ -144,9 +151,11 @@ mod tests {
         let a = input(0);
         let b = input(1);
         let qualified = ExecutionCondition::Trusted(Arc::new(input(2)));
+
         let atoms = [a.clone(), b.clone(), qualified.clone(), not(a.clone()), not(b.clone()),
             and(a.clone(), b.clone()), not(and(a.clone(), b.clone())),
             or(not(a.clone()), not(b.clone())), ExecutionCondition::Unknown];
+
         let clauses = atoms.iter().flat_map(|left| atoms.iter().map(|right| or(left.clone(), right.clone()))).collect::<BTreeSet<_>>();
         let ordinary = BTreeSet::new();
 
@@ -411,6 +420,7 @@ mod tests {
                 (ExecutionCondition::value_alias(next.clone(), cycle.clone()), true),
                 (ExecutionCondition::value_alias(cycle.clone(), current.clone()), true),
             ]);
+
             if let Some(value) = selection { selected.clone().assume(value, &mut ordinary); }
 
             let trusted = BTreeSet::from([(promise.clone(), true)]);
@@ -427,8 +437,10 @@ mod tests {
 
         assert_eq!(required.prove_trusted(&trusted, &ordinary), Some(true));
         assert_eq!(claim.prove_trusted(&trusted, &ordinary), None, "an alias does not select an unknown guard");
+
         assert_eq!(alias.prove(&BTreeSet::from([(prior.clone(), true), (current.clone(), false)]),
             &mut { ExecutionCondition::WORK_LIMIT }), Some(false));
+
         assert_eq!(alias.prove(&BTreeSet::from([(prior, true), (current, true)]),
             &mut { ExecutionCondition::WORK_LIMIT }), None, "matching truth does not invent a stored alias");
     }

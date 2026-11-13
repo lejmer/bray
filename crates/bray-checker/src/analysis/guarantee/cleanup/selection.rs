@@ -121,6 +121,7 @@ mod tests {
             state.assign(place.clone(), ExecutionCondition::Input(place.clone()), None);
             prior.clone().assume(active, &mut state.assumptions);
             ExecutionCondition::value_alias(prior.clone(), current.clone()).assume(true, &mut state.assumptions);
+
             select_cleanup(&mut state, current.clone(), |state, conditional| {
                 assert!(!conditional, "known copied guards must not create another control-flow choice");
                 calls += 1;
@@ -159,6 +160,7 @@ mod tests {
 
         assert!(state.witnesses[&owner].conditions.len() <= 4,
             "derived copies of one selector must not multiply carrier clauses");
+
         assert_ne!(claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
 
         for selected in [false, true] {
