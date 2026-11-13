@@ -8,6 +8,8 @@ use super::substitution::GuardSubstitution;
 use super::interning::{ConditionIndex, ConditionMap};
 use super::memo::{ExecutionMemo, ConditionMemo, cached_condition, memoized};
 use crate::execution_guarantees::boolean::AlternativeProof;
+use crate::execution_guarantees::ExecutionWitness;
+use crate::execution_guarantees::witness::WitnessConditions;
 
 pub(super) struct ProofMemo {
     pub(super) queries: ExecutionMemo<Option<bool>>,
@@ -74,6 +76,7 @@ impl DerivedFacts {
 }
 
 struct PreparedFacts {
+    witnesses: Mutex<HashMap<usize, (Arc<ExecutionWitness>, Arc<WitnessConditions>)>>,
     index: ConditionIndex,
     trusted: BTreeSet<(ExecutionCondition, bool)>,
     ordinary: BTreeSet<(ExecutionCondition, bool)>,
@@ -86,7 +89,7 @@ struct PreparedFacts {
 impl PreparedFacts {
     fn new(trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: &BTreeSet<(ExecutionCondition, bool)>, index: &ConditionIndex) -> Self {
         // One exact snapshot owns all pure query memos and their lazy Boolean closure.
-        Self { index: index.clone(), trusted: trusted.clone(), ordinary: ordinary.clone(), raw: ProofMemo::new(index), requested: ProofMemo::new(index), trusted_results: Mutex::new(index.map()), derived: OnceLock::new() }
+        Self { witnesses: Mutex::default(), index: index.clone(), trusted: trusted.clone(), ordinary: ordinary.clone(), raw: ProofMemo::new(index), requested: ProofMemo::new(index), trusted_results: Mutex::new(index.map()), derived: OnceLock::new() }
     }
 
     fn derived(&self) -> &DerivedFacts {
@@ -136,6 +139,29 @@ impl ExecutionProofCache {
     pub(crate) fn closure(&self, trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: &BTreeSet<(ExecutionCondition, bool)>) -> BTreeSet<(ExecutionCondition, bool)> {
         // Publication needs an owned set because its destination can mutate the source evidence.
         self.prepare(trusted, ordinary).derived().conditions.clone()
+    }
+
+    pub(crate) fn refined_witness(
+        &self,
+        witness: &Arc<ExecutionWitness>,
+        trusted: &BTreeSet<(ExecutionCondition, bool)>,
+        ordinary: &BTreeSet<(ExecutionCondition, bool)>,
+    ) -> Arc<WitnessConditions> {
+        let proof = self.proof(trusted, ordinary);
+        let facts = proof.facts();
+        let key = Arc::as_ptr(witness).addr();
+
+        if let Some((_, result)) = facts.witnesses.lock().expect("witness refinement cache lock is not poisoned").get(&key) {
+            return Arc::clone(result);
+        }
+
+        let result = Arc::new(witness.derived_conditions(&proof, ordinary, self));
+
+        // Retaining the immutable source prevents address reuse and forces later changes onto another allocation.
+        facts.witnesses.lock().expect("witness refinement cache lock is not poisoned")
+            .insert(key, (Arc::clone(witness), Arc::clone(&result)));
+
+        result
     }
 
     fn prepare(&self, trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: &BTreeSet<(ExecutionCondition, bool)>) -> Arc<PreparedFacts> {
@@ -371,6 +397,38 @@ mod tests {
         assert!(observations.contains(&claim));
         assert!(Arc::ptr_eq(&observations, &same.refined_observations(&clause)));
 
+        let address = input(1);
+        let owner = ExecutionPlace::argument(SymbolOrdinal::new(20));
+
+        let guarantee = crate::execution_guarantees::ExecutionGuarantee {
+            witness: true,
+            addresses: [(address.clone(), BTreeSet::from([owner.clone()])),
+                (input(3), BTreeSet::from([owner.clone()]))].into(),
+        };
+
+        let witness = Arc::new(super::ExecutionWitness {
+            conditions: [(clause.clone(), guarantee)].into(),
+            ..Default::default()
+        });
+
+        let refined = cache.refined_witness(&witness, &facts, &ordinary);
+
+        assert!(refined[&claim].witness);
+        assert_eq!(refined[&claim].addresses, [(address.clone(), BTreeSet::from([owner.clone()]))].into());
+        assert!(Arc::ptr_eq(&refined, &cache.refined_witness(&witness, &copied, &ordinary)));
+
+        let mut changed = Arc::clone(&witness);
+        let metadata = Arc::make_mut(&mut changed).conditions.get_mut(&clause).expect("original carried clause");
+
+        metadata.witness = false;
+        metadata.addresses.clear();
+
+        let changed_result = cache.refined_witness(&changed, &facts, &ordinary);
+
+        assert!(!changed_result[&claim].witness);
+        assert!(changed_result[&claim].addresses.is_empty());
+        assert!(refined[&claim].witness, "changed witness metadata cannot mutate an earlier result");
+
         for incoming in [0, 1, 2, 8, ExecutionCondition::WORK_LIMIT, 1] {
             let mut actual_budget = incoming;
             let mut expected_budget = incoming;
@@ -410,6 +468,7 @@ mod tests {
                 let claim = &claim;
                 let guard = guard.clone();
                 let clause = &clause;
+                let witness = &witness;
 
                 threads.spawn(move || {
                     let ordinary = BTreeSet::from([(guard, active)]);
@@ -417,6 +476,7 @@ mod tests {
 
                     assert_eq!(proof.prove_trusted(claim) == Some(true), active);
                     assert_eq!(proof.refined_observations(clause).contains(claim), active);
+                    assert_eq!(cache.refined_witness(witness, facts, &ordinary).contains_key(claim), active);
                 });
             }
         });
@@ -424,6 +484,7 @@ mod tests {
         let empty = BTreeSet::new();
 
         assert_ne!(cache.proof(&empty, &ordinary).prove_trusted(&claim), Some(true), "removing qualified evidence revokes authority");
+        assert!(!cache.refined_witness(&witness, &empty, &ordinary).contains_key(&claim), "removed evidence cannot reuse a refinement");
         assert_ne!(cache.proof(&ordinary, &facts).prove_trusted(&claim), Some(true), "swapping evidence roles cannot qualify an ordinary occurrence");
         assert_ne!(cache.proof(&facts, &ordinary).prove_trusted(&ExecutionCondition::Trusted(Arc::new(input(2)))), Some(true), "another owner has no matching evidence");
 

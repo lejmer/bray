@@ -64,6 +64,18 @@ The loop still misses500ms. Before snapshot reuse, coarse profiling showed costl
 retirement, Boolean preparation and witness refinement. Reprofile before choosing the next optimization. In
 particular, establish how often the same immutable witness/evidence pair is refined before adding reuse there.
 Do not assume finer-grained proof caching removes repeated witness construction. Measure stable inputs first.
+Finalized witness result reuse: measured3257 repeated/1303 unique immutable witness/evidence pairs. Each exact
+PreparedFacts caches derived clauses and metadata by retained witness allocation. Retention prevents address reuse
+and forces changes onto new allocations. No lock spans computation. Publication preserves authority, ordinary
+facts and address filtering. No inference or budget change. Net30 nonblank production lines/26 test lines.
+196 controls pass, including changed evidence/metadata, irrelevant address filtering and concurrent guards.
+Two fixed-five runs retain outcomes/sites: tasks390-436ms, loop2286-2345ms. The gain is modest, not proportional
+to repeated-call count. Frozen30 remains29/1,13.24s. Style/format unchanged six prior errors/pass. Probes removed.
+
+Next: both measured Flow calls are required cleanup-feasibility rounds in body_semantics.rs. Do not remove or
+skip either. ExecutionFlowDomain is constructed before that loop. Trace whether exact immutable proof preparation
+can live with that body analysis instead of being recreated by each boundary state. Share pure results only,
+never mutable flow state, reachability, liveness or historical authority. Read the actual constructors first.
 
 ## Fixed gates and broader work
 
