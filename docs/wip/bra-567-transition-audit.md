@@ -45,7 +45,16 @@ with `deferred_completion::`. A row name selects that row in both modes. Existin
 Focused owned and deferred source/import probes pass. Their providers checked once per process in812ms and267ms,
 respectively. Both catalogue checks,6 runner tests and the8-row admission oracle pass. The optimized build succeeds
 with opt_level=3 and debug assertions disabled. This does not establish where the previous fifteen-minute stall occurred.
-Full owned/deferred matrices, fixed920 and issue-wide source/native gates remain unverified.
+The complete owned selection finishes in122s:484/496 matrix rows pass and12 fail, comprising six source/import pairs.
+The deferred selection reaches its900s bound:281/296 rows pass,10 fail and5 remain unfinished. Across both selections,
+15/16 additional related tests pass. These are observed outcomes, not newly established regressions against a full prior run.
+Deferred failures cover task address/frame and returned-future authority. Owned failures cover conditional result authority.
+The unfinished deferred rows are both modes of preformed_task_selected_after_completion and
+preformed_task_fabricated_after_completion, plus source same_site_independent_second. Provider checks finish below1s.
+Other slow same-site rows finish after555–794s, locating expensive analysis inside individual cases.
+The deferred case phase currently ends before its final aggregated assertion, so panicking=false in its progress log
+does not establish success. Use the final test report for outcomes. All runner-owned processes terminate at the bound.
+Fixed920 and issue-wide source/native gates remain unverified. No compiler fixes or second broad run follow this checkpoint.
 
 Frozen30 membership remains comparison.txt minus verification.json comparison_repairs, with fixed identities in
 correction-frozen30.json. correction-current.json preserves original-to-current mapping. Fixed920 is907 comparison.txt
