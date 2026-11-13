@@ -100,14 +100,39 @@ impl BoundCallReference {
     }
 }
 
+/// Prepared ordinary shape and completion conditions of one exact owning transfer.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct BoundReturnedValue {
+    conditions: Arc<[bray_symbols::ConstantTermId]>,
+    observations: Arc<[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)]>,
+}
+
+impl BoundReturnedValue {
+    /// Creates the checked description independently of whether its transfer is selected.
+    pub fn new(
+        conditions: impl Into<Arc<[bray_symbols::ConstantTermId]>>,
+        observations: impl Into<Arc<[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)]>>,
+    ) -> Self {
+        Self { conditions: conditions.into(), observations: observations.into() }
+    }
+
+    /// Ordinary presence facts implied by the transferred projection.
+    pub fn conditions(&self) -> &[bray_symbols::ConstantTermId] { &self.conditions }
+
+    /// Actual shallow observations, stopping at reference boundaries.
+    pub fn observations(&self) -> &[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)] {
+        &self.observations
+    }
+}
+
 /// The distinct invocation, returned-value and deferred requirements of one selected call.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundCallDependencyContracts {
     synchronous_cleanup: Arc<[bray_symbols::DependencyRequirement]>,
     input_count: usize,
     owned_result: bray_symbols::DependencyOwnedResult,
-    returned_value_conditions:
-        BTreeMap<bray_symbols::DependencyOwnedTransfer, Arc<[bray_symbols::ConstantTermId]>>,
+    returned_values:
+        BTreeMap<bray_symbols::DependencyOwnedTransfer, BoundReturnedValue>,
     carriers: Arc<[bray_symbols::DependencyWitnessCarrier]>,
     invocation: BoundDependencyContract,
     result: BoundDependencyContract,
@@ -143,27 +168,23 @@ impl BoundCallDependencyContracts {
         &self.owned_result
     }
 
-    /// Retains presence facts implied by successfully returning the checked input projection.
-    pub fn with_returned_value_conditions(
+    /// Retains the checked ordinary shape and conditions of each possible input transfer.
+    pub fn with_returned_values(
         mut self,
-        conditions: BTreeMap<
-            bray_symbols::DependencyOwnedTransfer,
-            Arc<[bray_symbols::ConstantTermId]>,
-        >,
+        values: BTreeMap<bray_symbols::DependencyOwnedTransfer, BoundReturnedValue>,
     ) -> Self {
-        self.returned_value_conditions = conditions;
+        self.returned_values = values;
 
         self
     }
 
-    /// Returns ordinary presence facts prepared from the selected input transfers.
-    pub fn returned_value_conditions(
+    /// Returns the actual checked shape and conditions for one selected transfer.
+    pub fn returned_value(
         &self,
         transfer: &bray_symbols::DependencyOwnedTransfer,
-    ) -> &[bray_symbols::ConstantTermId] {
-        self.returned_value_conditions
-            .get(transfer)
-            .map_or(&[], AsRef::as_ref)
+    ) -> &BoundReturnedValue {
+        self.returned_values.get(transfer)
+            .expect("selected owned transfer retains its checked value description")
     }
 
     /// Creates the instantiated phase contracts for a selected call.
@@ -177,7 +198,7 @@ impl BoundCallDependencyContracts {
             result,
             deferred_result: None,
             owned_result: bray_symbols::DependencyOwnedResult::default(),
-            returned_value_conditions: BTreeMap::new(),
+            returned_values: BTreeMap::new(),
             carriers: Arc::new([]),
             input_count: 0,
             synchronous_cleanup: Arc::new([]),

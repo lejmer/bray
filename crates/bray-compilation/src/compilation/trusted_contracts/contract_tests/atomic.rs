@@ -111,7 +111,14 @@ fn native_atomic_word_declarations_check_for_every_target() {
 #[test]
 #[ignore = "tier:proof"]
 fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
-    for (observation, valid) in [("marker", true), ("word", false), ("scalar", false)] {
+    let mut failures = Vec::new();
+    for transport in [false, true] {
+    for (observation, valid) in [("marker", true), ("word", false), ("scalar", true)] {
+        let transported = if transport {
+            "let (marker_view, word_view, scalar_view) = forward(forward((marker, word, scalar)));"
+        } else { "" };
+        let marker_argument = if transport { "marker_view" } else { "marker" };
+        let observation_argument = if transport { format!("{observation}_view") } else { observation.to_owned() };
         let source = format!(
             r#"
             trusted module app;
@@ -122,6 +129,7 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
             struct Marker
             {{
             }}
+            func forward<T>(pos value: T) -> T {{ return value; }}
             trusted predicate held(value: &Marker);
             trusted predicate ready(value: &core.atomic.Atomic<u32>);
             trusted predicate unchanged(value: &u32);
@@ -153,9 +161,10 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
                     trusted core.memory.finalization_pending<core.atomic.Atomic<u32>>(pointer = pointer))
                 uses(raw_memory, unchecked_alias)
             {{
-                let alias = trusted std.memory.borrow_from<core.atomic.Atomic<u32>, Marker>(marker, pointer);
+                {transported}
+                let alias = trusted std.memory.borrow_from<core.atomic.Atomic<u32>, Marker>({marker_argument}, pointer);
                 core.atomic.store<u32, 0>(alias, 1);
-                observe_{observation}({observation});
+                observe_{observation}({observation_argument});
             }}
         "#
         );
@@ -166,20 +175,17 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
             .lowered_unit(source_function_body_key(&application, "production_probe"))
             .expect("fixture callable must lower successfully");
 
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{observation}: {:?}",
-            checked.diagnostics()
-        );
-
-        if !valid {
+        if checked.diagnostics().has_errors() == valid {
+            failures.push(format!("{observation}, transport={transport}: {:?}", checked.diagnostics()));
+        } else if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
                 checked.diagnostics(),
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
     }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
