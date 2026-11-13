@@ -95,13 +95,15 @@ impl ExecutionGuarantee {
     }
 }
 
+pub(super) type WitnessConditions = BTreeMap<ExecutionCondition, ExecutionGuarantee>;
+
 /// Trusted evidence retained by one complete value identity.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ExecutionWitness {
     /// This run can use the evidence. Pending child execution retains validity separately.
     pub(crate) available: bool,
     /// A clause and the address permissions that bound its validity.
-    pub(crate) conditions: BTreeMap<ExecutionCondition, ExecutionGuarantee>,
+    pub(crate) conditions: WitnessConditions,
     /// Storage and scoped capabilities required by the complete carrier itself.
     pub(crate) dependencies: BTreeSet<ExecutionPlace>,
 }
@@ -136,8 +138,37 @@ impl ExecutionWitness {
             return;
         }
 
+        let derived = cache.refined_witness(self, trusted, assumptions);
+
+        // Publication owns fact keys while the cached result retains shared immutable operands.
+        for (condition, guarantee) in derived.iter() {
+            if condition.contains_trusted() {
+                condition.clone().assume(true, trusted);
+
+                if !self
+                    .conditions
+                    .get(condition)
+                    .is_some_and(|retained| retained.contains(guarantee))
+                {
+                    Arc::make_mut(self)
+                        .conditions
+                        .entry(condition.clone())
+                        .or_default()
+                        .extend(guarantee);
+                }
+            } else {
+                condition.clone().assume(true, assumptions);
+            }
+        }
+    }
+
+    pub(super) fn derived_conditions(
+        &self,
+        proof: &super::ExecutionProof<'_>,
+        assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+        cache: &super::ExecutionProofCache,
+    ) -> WitnessConditions {
         let mut evidence = BTreeSet::new();
-        let proof = cache.proof(trusted, assumptions);
 
         for condition in self.conditions.keys().filter(|condition| {
             proof.prove_mixed(condition, &mut {
@@ -149,8 +180,7 @@ impl ExecutionWitness {
 
         let proof = cache.proof(&evidence, assumptions);
 
-        let mut derived =
-            BTreeMap::<ExecutionCondition, crate::execution_guarantees::ExecutionGuarantee>::new();
+        let mut derived = WitnessConditions::new();
 
         for (condition, guarantee) in &self.conditions {
             for observation in proof.refined_observations(condition).iter() {
@@ -172,25 +202,7 @@ impl ExecutionWitness {
             }
         }
 
-        for (condition, guarantee) in derived {
-            if condition.contains_trusted() {
-                condition.clone().assume(true, trusted);
-
-                if !self
-                    .conditions
-                    .get(&condition)
-                    .is_some_and(|retained| retained.contains(&guarantee))
-                {
-                    Arc::make_mut(self)
-                        .conditions
-                        .entry(condition)
-                        .or_default()
-                        .extend(&guarantee);
-                }
-            } else {
-                condition.assume(true, assumptions);
-            }
-        }
+        derived
     }
 
     pub(crate) fn owning_conditions<'a>(
