@@ -89,8 +89,8 @@ impl ExecutionCondition {
             _ => {
                 let single = memo.map(ProofMemo::single_views);
 
-                self.prove_with_memo(trusted, budget, single.map(|[trusted, _]| trusted))
-                    .or_else(|| self.prove_with_memo(ordinary, budget, single.map(|[_, ordinary]| ordinary)))
+                self.prove_with_memo(trusted, budget, single.map(|[trusted, _]| trusted.as_ref()))
+                    .or_else(|| self.prove_with_memo(ordinary, budget, single.map(|[_, ordinary]| ordinary.as_ref())))
             }
         };
 
