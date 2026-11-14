@@ -78,6 +78,37 @@ fn observation_walks_visit_shared_nodes_without_expanding_the_tree() {
     assert!(!condition.observes_live_where(|_| true, |_| { visits.set(visits.get() + 1); false }));
     assert!(visits.get() <= 25, "live-value queries scale with the shared graph");
 
+    for depth in [4, 12, 20] {
+        let roots = std::iter::successors(Some(ExecutionCondition::boolean(false)), |previous| {
+            Some(ExecutionCondition::new(crate::ExecutionConditionKind::Operation(LogicalAnd, vec![previous.clone(), previous.clone()].into())))
+        }).take(depth + 1).collect::<Vec<_>>();
+
+        visits.set(0);
+
+        let query = super::observations::memoize_observations(|_| { visits.set(visits.get() + 1); false }, |_| false);
+        let walked = roots.iter().map(|root| root.observations().count()).sum::<usize>();
+
+        for root in &roots { assert!(!query(root)); }
+
+        assert_eq!(visits.get(), depth + 1, "shared subtrees are evaluated once across growing roots");
+        eprintln!("observation graph depth={depth} independent_visits={walked} shared_visits={}", visits.get());
+    }
+
+    let pruned = super::observations::memoize_observations(|_| panic!("excluded subtrees must not be inspected"), |_| true);
+
+    assert!(!pruned(&condition));
+
+    let selected = ExecutionCondition::new(crate::ExecutionConditionKind::Operation(LogicalAnd,
+        vec![ExecutionCondition::unknown(), ExecutionCondition::boolean(true)].into()));
+
+    let short_circuit = super::observations::memoize_observations(|value| {
+        assert!(!value.is_unknown(), "a successful right child must skip the left child");
+
+        matches!(value.kind(), crate::ExecutionConditionKind::Boolean(true))
+    }, |_| false);
+
+    assert!(short_circuit(&selected));
+
     let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
 
     let owned = || {

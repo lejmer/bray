@@ -2,17 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::state::ExecutionState;
 use crate::ExecutionCondition;
-use crate::execution_guarantees::memoize_condition;
+use crate::execution_guarantees::{memoize_condition, memoize_observations};
 
 /// Lazy answers share one condition lookup within an immutable retirement context.
 #[derive(Default)]
 struct RetirementQueries {
-    selection: std::sync::OnceLock<bool>,
-    borrowed_slot: std::sync::OnceLock<bool>,
     borrowed: std::sync::OnceLock<bool>,
     contents: std::sync::OnceLock<bool>,
     revoked: std::sync::OnceLock<bool>,
-    availability: std::sync::OnceLock<bool>,
 }
 
 impl ExecutionState {
@@ -108,46 +105,39 @@ impl ExecutionState {
             invalidated_observations.contains(value)
         };
 
-        let observes = |condition: &ExecutionCondition, selection: bool| {
-            condition
-                .observations_except(&retained_data)
-                .any(|observed| invalidated_observations.overlaps(observed)
-                    || selection && observed.selector_place().is_some_and(|place| place.overlaps_any(places)))
-        };
+        let observes = memoize_observations(|observed| invalidated_observations.overlaps(observed), &retained_data);
 
+        let observes_selection = memoize_observations(|observed| {
+            invalidated_observations.overlaps(observed)
+                || observed.selector_place().is_some_and(|place| place.overlaps_any(places))
+        }, &retained_data);
+
+        let borrowed_slot_changed = memoize_observations(|observed| {
+            let crate::ExecutionConditionKind::Borrowed(value) = observed.kind() else { return false; };
+
+            if retained_data(value) { return false; }
+
+            match (value.owner_identity()).kind() {
+                crate::ExecutionConditionKind::Input(place) | crate::ExecutionConditionKind::Joined(_, _, place) => place.overlaps_any(places),
+                crate::ExecutionConditionKind::PostState(_, identity) => matches!((identity.as_ref()).kind(),
+                    crate::ExecutionConditionKind::Input(place) if place.overlaps_any(places)),
+                _ => false,
+            }
+        }, &retained_data);
+
+        let preserved_observation = memoize_observations(|value| retained_observations.preserves(value), |_| false);
         let queries = memoize_condition(|_| std::sync::Arc::new(RetirementQueries::default()));
 
-        let observes_selection = |condition: &ExecutionCondition, memo: &RetirementQueries| {
-            *memo.selection.get_or_init(|| observes(condition, true))
-        };
-
-        let borrowed_slot_changed = |condition: &ExecutionCondition, memo: &RetirementQueries| *memo.borrowed_slot.get_or_init(|| {
-            condition.observations_except(&retained_data).any(|observed| {
-                let crate::ExecutionConditionKind::Borrowed(value) = observed.kind() else { return false; };
-
-                if retained_data(value) { return false; }
-
-                match (value.owner_identity()).kind() {
-                    crate::ExecutionConditionKind::Input(place) | crate::ExecutionConditionKind::Joined(_, _, place) => place.overlaps_any(places),
-                    crate::ExecutionConditionKind::PostState(_, identity) => matches!((identity.as_ref()).kind(),
-                        crate::ExecutionConditionKind::Input(place) if place.overlaps_any(places)),
-                    _ => false,
-                }
-            })
-        });
-
         let borrowed_changed = |condition: &ExecutionCondition, memo: &RetirementQueries| *memo.borrowed.get_or_init(|| condition.observes_live_where(|value| {
-            observes(value, false)
+            observes(value)
                 || unchanged.as_ref().is_some_and(|unchanged| retiring_observations.overlaps(value) && !unchanged(value))
-        }, &retained_data) || borrowed_slot_changed(condition, memo));
+        }, &retained_data) || borrowed_slot_changed(condition));
 
         let retained_contents = |condition: &ExecutionCondition, memo: &RetirementQueries| *memo.contents.get_or_init(|| {
             kind.is_write()
-                && !borrowed_slot_changed(condition, memo)
+                && !borrowed_slot_changed(condition)
                 && condition.observes_only(|value| retained_observations.preserves(value))
-                && condition
-                    .observations()
-                    .any(|value| retained_observations.preserves(value))
+                && preserved_observation(condition)
         });
 
         let stable = |condition: &ExecutionCondition, memo: &RetirementQueries| {
@@ -167,25 +157,22 @@ impl ExecutionState {
         // their former container ends. Borrowed observations and physical bounds
         // still expire. Writes also invalidate affected by-value observations.
         let revokes = |condition: &ExecutionCondition, memo: &RetirementQueries| *memo.revoked.get_or_init(|| {
-            (observes(condition, false) || borrowed_changed(condition, memo)) && !stable(condition, memo)
+            (observes(condition) || borrowed_changed(condition, memo)) && !stable(condition, memo)
         });
 
         let revokes_guarantee = |condition: &ExecutionCondition, memo: &RetirementQueries| {
             revokes(condition, memo) && (kind.is_write() || borrowed_changed(condition, memo))
         };
 
-        let availability_expired = |condition: &ExecutionCondition, memo: &RetirementQueries| *memo.availability.get_or_init(|| {
-            !kind.is_write() && condition.observations().any(|observed| {
-                matches!(observed.kind(), crate::ExecutionConditionKind::InitializedSnapshot(_, _, owner)
-                    if retired_owner(owner)
-                        && !retained_owner(owner))
-            })
-        });
+        let availability_expired = memoize_observations(|observed| {
+            matches!(observed.kind(), crate::ExecutionConditionKind::InitializedSnapshot(_, _, owner)
+                if retired_owner(owner) && !retained_owner(owner))
+        }, |_| kind.is_write());
 
         self.assumptions.retain(|(condition, _)| {
             let memo = queries(condition);
 
-            !availability_expired(condition, &memo)
+            !availability_expired(condition)
                 && (retained_contents(condition, &memo) || !borrowed_changed(condition, &memo))
         });
 
@@ -223,7 +210,7 @@ impl ExecutionState {
                     && (directly_changed.contains(carrier.owner_identity()) || !stable(condition, memo)))
                     || revokes_guarantee(condition, memo)
                     || address_expired
-                    || availability_expired(condition, memo)
+                    || availability_expired(condition)
                 {
                     condition.clone().assume(true, &mut retired_conditions);
 
@@ -259,12 +246,12 @@ impl ExecutionState {
         });
 
         self.retire_entry_context(&|condition| revokes(condition, &queries(condition)),
-            &|condition| observes_selection(condition, &queries(condition)), &retired_conditions);
+            &observes_selection, &retired_conditions);
 
         for entries in self.deferred_invocations.values_mut() {
             // Current branch selectors can outlive a slot's loop incarnation.
             // Frozen call-entry arguments remain owned by their captured frame.
-            entries.retire_selection(&|condition: &ExecutionCondition| observes_selection(condition, &queries(condition)));
+            entries.retire_selection(&observes_selection);
         }
 
         // A destroyed frame cannot participate in a later incarnation's ownership join.

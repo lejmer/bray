@@ -435,6 +435,34 @@ impl ExecutionCondition {
         true
     }
 
+    fn push_observations<'a>(&'a self, pending: &mut Vec<&'a Self>) {
+        match self.kind() {
+            crate::ExecutionConditionKind::ValueAlias(left, right) => pending.extend([left.as_ref(), right.as_ref()]),
+            crate::ExecutionConditionKind::Operation(_, operands)
+            | crate::ExecutionConditionKind::Predicate(_, _, operands)
+            | crate::ExecutionConditionKind::Call(_, _, _, operands, _) => {
+                pending.extend(operands.iter());
+            }
+            crate::ExecutionConditionKind::Tagged(_, subject)
+            | crate::ExecutionConditionKind::VariantTest(_, subject)
+            | crate::ExecutionConditionKind::Trusted(subject)
+            | crate::ExecutionConditionKind::Borrowed(subject)
+            | crate::ExecutionConditionKind::Present(subject) => {
+                pending.push(subject);
+            }
+            crate::ExecutionConditionKind::Entry {
+                condition,
+                captured: false,
+            } => pending.push(condition),
+            crate::ExecutionConditionKind::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
+            crate::ExecutionConditionKind::Constructed(base, fields) => {
+                pending.push(base);
+                pending.extend(fields.iter().map(|(_, value)| value));
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn observations(&self) -> impl Iterator<Item = &Self> {
         self.observations_except(|_| false)
     }
@@ -454,31 +482,7 @@ impl ExecutionCondition {
                     continue;
                 }
 
-                match condition.kind() {
-                    crate::ExecutionConditionKind::ValueAlias(left, right) => pending.extend([left.as_ref(), right.as_ref()]),
-                    crate::ExecutionConditionKind::Operation(_, operands)
-                    | crate::ExecutionConditionKind::Predicate(_, _, operands)
-                    | crate::ExecutionConditionKind::Call(_, _, _, operands, _) => {
-                        pending.extend(operands.iter());
-                    }
-                    crate::ExecutionConditionKind::Tagged(_, subject)
-                    | crate::ExecutionConditionKind::VariantTest(_, subject)
-                    | crate::ExecutionConditionKind::Trusted(subject)
-                    | crate::ExecutionConditionKind::Borrowed(subject)
-                    | crate::ExecutionConditionKind::Present(subject) => {
-                        pending.push(subject);
-                    }
-                    crate::ExecutionConditionKind::Entry {
-                        condition,
-                        captured: false,
-                    } => pending.push(condition),
-                    crate::ExecutionConditionKind::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
-                    crate::ExecutionConditionKind::Constructed(base, fields) => {
-                        pending.push(base);
-                        pending.extend(fields.iter().map(|(_, value)| value));
-                    }
-                    _ => {}
-                }
+                condition.push_observations(&mut pending);
 
                 return Some(condition);
             }
@@ -559,5 +563,67 @@ impl ExecutionCondition {
         }
 
         false
+    }
+}
+
+/// Shares completed subtree answers for pure predicates over one immutable observation context.
+pub(crate) fn memoize_observations(
+    matches: impl Fn(&ExecutionCondition) -> bool,
+    exclude: impl Fn(&ExecutionCondition) -> bool,
+) -> impl Fn(&ExecutionCondition) -> bool {
+    let memo = super::memo::ConditionMemo::default();
+
+    move |root| {
+        let remember = |value: &ExecutionCondition, result| {
+            // Retain the small immutable handle while this query scope owns its answer.
+            memo.lock().expect("observation query memo lock is not poisoned").insert(value.clone(), result);
+        };
+
+        let mut parents = Vec::new();
+        let mut current = root;
+
+        'descend: loop {
+            let cached = memo.lock().expect("observation query memo lock is not poisoned").get(current).copied();
+
+            let result = if let Some(result) = cached {
+                result
+            } else {
+                let result = if exclude(current) {
+                    false
+                } else if matches(current) {
+                    true
+                } else {
+                    let mut children = Vec::new();
+
+                    current.push_observations(&mut children);
+
+                    if let Some(child) = children.pop() {
+                        parents.push((current, children));
+                        current = child;
+
+                        continue;
+                    }
+
+                    false
+                };
+
+                remember(current, result);
+
+                result
+            };
+
+            while let Some((parent, mut children)) = parents.pop() {
+                if !result && let Some(child) = children.pop() {
+                    parents.push((parent, children));
+                    current = child;
+
+                    continue 'descend;
+                }
+
+                remember(parent, result);
+            }
+
+            return result;
+        }
     }
 }

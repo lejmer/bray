@@ -21,7 +21,7 @@ pub(crate) use snapshot::{common_components, owned_snapshot};
 
 pub use bray_symbols::ExecutionProperty;
 pub use condition::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionOperands, ExecutionObservationKind};
-pub(crate) use condition::{ ExecutionProof, ExecutionProofCache, ExecutionSubstitution, SnapshotSubstitution, ObservationSet, RetainedSnapshots, memoize_condition};
+pub(crate) use condition::{ ExecutionProof, ExecutionProofCache, ExecutionSubstitution, SnapshotSubstitution, ObservationSet, RetainedSnapshots, memoize_condition, memoize_observations};
 pub use declaration::declared_execution_properties;
 pub use implication::{
     execution_condition_is_implied, map_execution_condition_references,
