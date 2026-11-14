@@ -237,19 +237,19 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
             trusted func production_probe(
                 pos token: &bray.runtime.bootstrap.activation.Inactive,
                 pos other: &bray.runtime.bootstrap.activation.Inactive,
-            ) -> bray.runtime.bootstrap.activation.requirements.State?
+            ) -> bray.runtime.bootstrap.activation.requirements.Execution?
                 requires(
                     trusted bray.runtime.bootstrap.activation.producer(token = token),
                     trusted bray.runtime.bootstrap.pool.protocol_access(),
                 )
                 {ownership}
             {{
-                return trusted bray.runtime.bootstrap.activation.requirements.read(token, 0, 0, 0);
+                return trusted bray.runtime.bootstrap.activation.requirements.read(token, 0, 0, 0, 0);
             }}
             "#
         );
 
-        assert_production_probe(&caller, valid);
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return trusted bray.runtime.bootstrap.activation.requirements.read", "inactive_owner");
     }
 }
 

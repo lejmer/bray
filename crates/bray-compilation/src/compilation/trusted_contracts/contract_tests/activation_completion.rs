@@ -19,6 +19,7 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
                 requires(
                     trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
                     trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = cursor.pointer),
                 )
             {{
@@ -29,7 +30,7 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
             "#
         );
 
-        assert_production_probe(&caller, valid);
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke", "selected");
     }
 }
 
@@ -52,7 +53,8 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
             requires(
                 trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
                 trusted bray.runtime.bootstrap.entry.native_entry(),
-                    trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = cursor.pointer),
+                trusted bray.runtime.bootstrap.pool.protocol_access(),
+                trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = cursor.pointer),
             )
         {
             let (_, _, _, status, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 5, 0);
@@ -121,6 +123,7 @@ fn activation_retirement_requires_retained_native_destinations() {
                 requires(
                     trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
                     trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = pointer),
                     trusted bray.runtime.bootstrap.activation.execution.observed(pointer = pointer),
                     trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(pointer = callback),
@@ -137,7 +140,7 @@ fn activation_retirement_requires_retained_native_destinations() {
             "#
         );
 
-        assert_production_probe(&caller, valid);
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return trusted bray.runtime.bootstrap.activation.execution.execute", "destinations");
     }
 }
 
@@ -176,6 +179,7 @@ fn activation_completion_requires_the_exact_admitted_destination() {
                 requires(
                     trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
                 )
                 {requirement}
             {{
@@ -184,7 +188,7 @@ fn activation_completion_requires_the_exact_admitted_destination() {
         "#
         );
 
-        assert_production_probe(&caller, valid);
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "_ = trusted bray.runtime.bootstrap.activation.execution.invoke", "completion_destination");
     }
 }
 

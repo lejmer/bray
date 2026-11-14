@@ -5,27 +5,46 @@ use super::fixtures::{assert_production_probe, production_host_compilation};
 #[ignore = "tier:proof"]
 fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
     for (body, valid) in [
-        ("", true),
-        ("let moved = selected;", true),
-        ("selected.ready = true;", false),
-        ("selected.cleanup = none;", false),
+        ("trusted inspect(&selected);", true),
+        (r#"
+            let moved = selected;
+            trusted inspect(&moved);
+        "#, true),
+        (r#"
+            selected.cleanup = none;
+            trusted inspect(&selected);
+        "#, false),
         (
-            "let fake: AttachmentExit = { identity = selected.identity, native_thread = selected.native_thread, cleanup = none, ready = false, incidents = none };",
+            r#"
+                let fake: AttachmentExit =
+                {
+                    identity = selected.identity,
+                    native_thread = selected.native_thread,
+                    cleanup = none
+                };
+                trusted inspect(&fake);
+            "#,
             false,
         ),
     ] {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.host;
-            func production_probe(pos mut selected: AttachmentExit)
-                requires(!selected.ready, trusted attachment_exit_inactive(owner = &selected))
+
+            trusted func inspect(pos owner: &AttachmentExit)
+                requires(trusted attachment_exit_inactive(owner = owner))
+            {{
+            }}
+
+            trusted func production_probe(pos mut selected: AttachmentExit)
+                requires(trusted attachment_exit_inactive(owner = &selected))
             {{
                 {body}
             }}
         "#
         );
 
-        assert_production_probe(&caller, valid);
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "trusted inspect(", "attachment_exit_inactive");
     }
 }
 
@@ -55,7 +74,10 @@ fn activation_dispatch_requires_exact_native_ownership() {
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
                 pos ready: bray.runtime.bootstrap.activation.callback.Ready,
             ) -> bray.runtime.bootstrap.activation.Progress
-                requires(trusted bray.runtime.bootstrap.entry.native_entry())
+                requires(
+                    trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
+                )
                 {requirements}
             {{
                 let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 0, 0);
@@ -64,7 +86,7 @@ fn activation_dispatch_requires_exact_native_ownership() {
         "#
         );
 
-        assert_production_probe(&caller, valid);
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke", "selected");
     }
 }
 
@@ -110,6 +132,7 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
                 requires(
                     trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer),
                     trusted bray.runtime.bootstrap.entry.native_entry(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access(),
                     trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records, incidents = incidents),
                     trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = output),
@@ -123,7 +146,7 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
             "#
         );
 
-        assert_production_probe(&caller, valid);
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return trusted bray.runtime.bootstrap.activation.execution.execute", "callable_address_valid");
     }
 }
 
@@ -139,19 +162,25 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
         "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &other.acquisition)";
 
     let other_outputs = "trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &other.acquisition)";
-    let invoke = "_ = trusted callback(owner);";
+    let invoke = "_ = trusted bray.runtime.bootstrap.activation.callback.invoke(callback, owner);";
 
-    for (requirements, body, valid) in [
-        (String::new(), invoke, false),
-        (authorized.to_owned(), invoke, false),
-        (outputs.to_owned(), invoke, false),
-        (format!("{other_authorized}, {outputs}"), invoke, false),
-        (format!("{authorized}, {other_outputs}"), invoke, false),
-        (format!("{authorized}, {outputs}"), invoke, true),
+    use bray_diagnostics::DiagnosticKind;
+
+    let requirement = DiagnosticKind::CheckingTrustedObligationNotProven;
+    let separation = DiagnosticKind::CheckingTrustedWitnessTransferNotProven;
+
+    for (requirements, body, expected, site, predicate) in [
+        (String::new(), invoke, Some(requirement), invoke, "authorized"),
+        (authorized.to_owned(), invoke, Some(requirement), invoke, "outputs_owned"),
+        (outputs.to_owned(), invoke, Some(requirement), invoke, "authorized"),
+        (format!("{other_authorized}, {outputs}"), invoke, Some(requirement), invoke, "authorized"),
+        (format!("{authorized}, {other_outputs}"), invoke, Some(requirement), invoke, "outputs_owned"),
+        (format!("{authorized}, {outputs}"), invoke, None, invoke, ""),
         (
             format!("{authorized}, {outputs}"),
             r#"
-                let reconstructed: bray.runtime.bootstrap.activation.callback.Invocation = {
+                let reconstructed: bray.runtime.bootstrap.activation.callback.Invocation =
+                {
                     acquisition = owner.acquisition,
                     execution = other.execution,
                     descriptor = owner.descriptor,
@@ -159,16 +188,14 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
                     operation = owner.operation,
                     progress = owner.progress,
                     records = owner.records,
+                    admission = owner.admission
                 };
 
-                _ = trusted callback(reconstructed);
+                _ = trusted bray.runtime.bootstrap.activation.callback.invoke(callback, reconstructed);
             "#,
-            false,
-        ),
-        (
-            format!("{authorized}, {outputs}"),
-            "let returned = trusted callback(owner); _ = trusted callback(returned);",
-            false,
+            Some(separation),
+            "acquisition = owner.acquisition",
+            "authorized",
         ),
     ] {
         let requirements = if requirements.is_empty() {
@@ -195,8 +222,52 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             "#
         );
 
-        assert_production_probe(&caller, valid);
+        super::fixtures::assert_production_contract(&caller, expected, site, predicate);
     }
+
+    let caller = r#"
+        trusted internal module bray.runtime.bootstrap;
+
+        using internal bray.runtime.bootstrap.activation;
+        using internal bray.runtime.bootstrap.entry;
+        trusted func production_probe(
+            pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
+            pos owner: bray.runtime.bootstrap.activation.callback.Invocation,
+        )
+            requires(
+                trusted bray.runtime.bootstrap.entry.native_entry(),
+                trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
+                trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition),
+            )
+        {
+            _ = trusted bray.runtime.bootstrap.activation.callback.invoke(callback, owner);
+            _ = trusted bray.runtime.bootstrap.activation.callback.invoke(callback, owner);
+        }
+    "#;
+
+    let compilation = production_host_compilation(caller);
+
+    let checked = compilation
+        .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+        .expect("fixture callable must lower successfully");
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        checked.diagnostics(),
+        DiagnosticKind::CheckingUseOfMovedStorage,
+    );
+
+    let source = source_function_body_key(&compilation, "production_probe")
+        .source().syntax().source_id();
+
+    assert!(checked.diagnostics().iter().any(|diagnostic| {
+        diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage
+            && super::fixtures::diagnostic_at_call(
+                diagnostic,
+                source,
+                caller,
+                "_ = trusted bray.runtime.bootstrap.activation.callback.invoke",
+            )
+    }), "the attempted second invocation must reject the moved owner: {:?}", checked.diagnostics());
 }
 
 #[test]

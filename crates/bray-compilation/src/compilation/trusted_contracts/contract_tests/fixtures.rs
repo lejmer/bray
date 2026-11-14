@@ -226,6 +226,76 @@ pub(super) fn assert_production_probe(caller: &str, valid: bool) {
     );
 }
 
+pub(super) fn diagnostic_at_call(
+    diagnostic: &bray_diagnostics::Diagnostic,
+    source: bray_source::SourceId,
+    caller: &str,
+    call: &str,
+) -> bool {
+    let start = caller.rfind(call).expect("fixture contains the checked call");
+    let end = start + caller[start..].find(';').expect("checked call ends in a semicolon");
+
+    diagnostic.primary_span().is_some_and(|span| {
+        span.source_id() == source && (span.start().bytes() as usize) < end
+            && (span.end().bytes() as usize) > start
+    })
+}
+
+fn condition_contains_predicate(condition: &bray_diagnostics::DiagnosticCondition, predicate: &str) -> bool {
+    use bray_diagnostics::DiagnosticCondition;
+
+    match condition {
+        DiagnosticCondition::Application { path, arguments, .. } => {
+            path.last().is_some_and(|name| name == predicate)
+                || arguments.iter().any(|argument| condition_contains_predicate(argument, predicate))
+        }
+        DiagnosticCondition::Operation { operands, .. } => {
+            operands.iter().any(|operand| condition_contains_predicate(operand, predicate))
+        }
+        _ => false,
+    }
+}
+
+#[track_caller]
+pub(super) fn assert_production_contract(
+    caller: &str,
+    expected: Option<bray_diagnostics::DiagnosticKind>,
+    site: &str,
+    predicate: &str,
+) {
+    use bray_diagnostics::{
+        DiagnosticArgValue, DiagnosticContractObligationKind, DiagnosticKind, DiagnosticWitnessTransferKind,
+    };
+
+    let compilation = production_host_compilation(caller);
+    let key = crate::test_support::source_function_body_key(&compilation, "production_probe");
+    let source = key.source().syntax().source_id();
+    let checked = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let diagnostics = checked.diagnostics();
+
+    bray_testing::assert_goal_state_diagnostic_outcome(diagnostics, expected, caller);
+
+    let Some(expected) = expected else { return; };
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind() == expected
+            && diagnostic_at_call(diagnostic, source, caller, site)
+            && diagnostic.args().iter().any(|argument| match argument.value() {
+                DiagnosticArgValue::ContractObligation(obligation)
+                    if expected == DiagnosticKind::CheckingTrustedObligationNotProven => {
+                    obligation.kind == DiagnosticContractObligationKind::CallRequirement
+                        && condition_contains_predicate(&obligation.required, predicate)
+                }
+                DiagnosticArgValue::WitnessTransfer(transfer)
+                    if expected == DiagnosticKind::CheckingTrustedWitnessTransferNotProven => {
+                    transfer.kind == DiagnosticWitnessTransferKind::Separation
+                        && condition_contains_predicate(&transfer.guarantee, predicate)
+                }
+                _ => false,
+            })
+    }), "expected {predicate} at {site}: {diagnostics:#?}");
+}
+
 pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compilation {
     production_host_compilation_for_target(caller, crate::SelectedTarget::baseline())
 }

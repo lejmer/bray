@@ -33,16 +33,49 @@ uses the existing bounded GuardSubstitution to discharge only expiring initializ
 pre-retirement ordinary scope, then applies the original filters. Unknown guards still expire. Unaffected facts
 retain their shared representation. Qualified conditions cannot enter this ordinary rewrite. No value graph or
 layout reconstruction was introduced. One retirement control covers true/false/unknown selector truth, expired
-initialization and qualified-authority exclusion. No new Bray fixture or provider was added.
+initialization and qualified-authority exclusion. No new Bray fixture or provider was added. Pushed as 3bff3a3bc, net +36 production and +50 test lines.
 
-RawBuffer remains a separate invalid acceptance. Push/Pop omit stored-value transport. Exit publication drops
-allocation/owned-target slots. Mutation effects carry destination/type but no source and describe possible events,
-not final contents. Existing capture/weak-write/normal-completion machinery is the owner of the repair. Generic T
-needs whole-value source provenance in that graph and final normal-output relations anchored at mutable inputs or
-returned allocation backing. Exact ownership transfer and fabricated borrow relations are wrong substitutes.
-Close that representation before editing. Multiple/conditional stores retain all possible payloads, scalar storage
-stays independent, and pop/overwrite/retirement remove only proven obsolete contents. Resolve caller sources from
-captured actual values and replay only normal completion. No global input escape workaround.
+RawBuffer remains a separate invalid acceptance. Push/Pop omit stored-value transport and exit publication
+drops allocation/owned-target slots. Effects describe events without source values, so cannot summarize final
+contents. Repair belongs in existing stored values/Transfer and normal completion, not a parallel graph.
+Generic entry values need symbolic whole-value sources, separate from reference targets and ownership.
+The portable output must distinguish complete final possible sources from unknown contents. Exact overwrite
+removes old sources, branches retain surviving alternatives, AnyElement stores/pop retain possible remaining
+contents, and retirement follows actual storage incarnation. Source captures precede consumption and output
+allocation anchors precede payload replay. Scalar instantiations resolve to no reference edges.
+
+Representation decision: wrap existing reference descriptors and whole-source metadata in one stored-value
+slot record, shared by State.values/Transfer/ReferenceExit. Sources are evaluated snapshots, never reference
+Targets. Separate subtree completeness from direct reference unknownness. The portable per-destination
+normal-output record carries sources and completeness. Seed checked generic leaf paths and existing backing,
+not only root arguments. Preserve exact field projection, prior-entry alternatives for conditional writes,
+and explicit complete-empty output for proven clearing. Unknown effects downgrade coverage. AnyElement stays
+weak unless the entire backing replacement is proved. Do not infer initialized storage or ownership from this.
+Consumer inventory closed for the portable record: symbols dependency template/validation/substitution,
+bound call preparation including hidden/conversion/deferred calls, source recursion summary bottom/join,
+package export/codec/validation/selective decoding/remapping/interning, and specialization identity. Every
+endpoint uses existing subject/projection transforms. Proof and witness consumers must not use these records.
+Implement portable DependencyStoredValue(destination, sources, complete) first, with sorted source sets and
+explicit empty records. This adds one data-flow concept, no second persistent state index, new authority or
+projection schema. Growth must be measured separately from tests. Reconsider new forwarding layers or duplicated
+state rather than adding synchronization. Source replay still needs integration before claiming any repair. Oracles: source/import, scalar/reference payload, distinct sources, conditional store,
+pop/remaining contents, overwrite and retirement. No global input escape workaround.
+
+All nine affected activation controls pass in 24.38 s after updating stale APIs and asserting intended
+locations/conditions. Callback reconstruction rejects whole-carrier separation at acquisition extraction,
+and reuse rejects the second moved-owner invocation. No production runtime change was needed. Together with
+the prior unchanged 25 controls, this resolves the eight failures from fixture consolidation. The validated
+binary predates stored-value model edits and does not validate that ongoing work. Style retains six existing
+errors. Format/diff checks passed for the fixture checkpoint.
+
+Ongoing work: portable stored-value record/serialization is implemented but uncompiled. Bound-call ingress
+carries it, recursive summaries union possible sources and lose completeness for a missing normal outcome.
+The duplicated ordinary/lifecycle reference preparation now shares prepare_references, still unvalidated.
+Storage memory wrapper migration is assigned to invalidation_graph, no usable API yet. Its StoredValue must
+separate None direct descriptor from Some(empty), retain symbolic whole sources and separate completeness.
+Remaining integration: opaque generic entry paths, raw Push/Pop stores, output/allocation projection, atomic
+normal replay, defaults/composite/deferred paths, source/import tests and complete validation. No correctness
+claim for this batch until all these transitions cooperate.
 
 ## Acceptance contract
 
@@ -194,9 +227,8 @@ No lock spans inference. Count lookup, normalization and index construction, inc
 The completed b4b5a76f5..15380b43b growth audit found 9,512 net lines, about 1,921 production and 7,456 tests.
 The same 372 trusted-contract test names survive formatting/reorganization. Shared fixture declarations and
 outcome assertions remove 313 net test/infrastructure lines without removing scenarios. Of 33 affected tests,
-25 pass and 8 activation controls remain unresolved. Five require pool.protocol_access, three fail earlier
-type/call selection. All 19 source templates are byte-identical and extracted assertions equivalent. Details
-remain in proof-fixture-result.json. Preserve genuine bug regressions and distinct contracts, reuse fixtures,
+The earlier 25 passing controls are unchanged and the eight activation failures are now resolved as recorded
+above. All 19 extracted source templates were byte-identical and extracted assertions equivalent. Preserve genuine bug regressions and distinct contracts, reuse fixtures,
 and avoid adding tests for intermediate debugging history. Do not expand optimization into those fixture repairs.
 
 Evidence snapshots already preserve Arc identity for clones, duplicate insertions and no-op retention.
