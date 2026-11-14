@@ -189,7 +189,7 @@ impl ExecutionState {
         budget: &mut usize,
     ) -> Option<DependencyOwnedResult<StorageProjection, ExecutionCondition>> {
         self.owned_results.get(value).map(|layout| {
-            applicable_owned_cases(layout, &self.assumptions, budget).unwrap_or_default()
+            applicable_owned_cases(layout, &self.proofs.ordinary_proof(&self.assumptions), budget).unwrap_or_default()
         })
     }
 
@@ -210,7 +210,7 @@ impl ExecutionState {
         }
 
         if let Some(layout) = self.recorded_owned_result(value, budget) {
-            return layout_preservation(&layout, source, &self.assumptions, budget).unwrap_or_default();
+            return layout_preservation(&layout, source, &self.proofs.ordinary_proof(&self.assumptions), budget).unwrap_or_default();
         }
 
         if let Some(payload) = value.nullable_payload_snapshot() {
@@ -277,7 +277,7 @@ impl ExecutionState {
 /// remains an alternative and cannot establish an input transfer.
 fn applicable_owned_cases(
     layout: &DependencyOwnedResult<StorageProjection, ExecutionCondition>,
-    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    proof: &crate::execution_guarantees::ExecutionProof<'_>,
     budget: &mut usize,
 ) -> Option<DependencyOwnedResult<StorageProjection, ExecutionCondition>> {
     let Some(remaining) = budget.checked_sub(1) else { return Some(DependencyOwnedResult::default()); };
@@ -286,19 +286,19 @@ fn applicable_owned_cases(
 
     match layout {
         DependencyOwnedResult::Case { condition, result } => {
-            let known = condition.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT });
+            let known = proof.prove_mixed(condition, &mut { ExecutionCondition::WORK_LIMIT });
 
             if known == Some(false) { return None; }
 
-            let selected = applicable_owned_cases(result, assumptions, budget)?;
+            let selected = applicable_owned_cases(result, proof, budget)?;
 
             Some(if known == Some(true) { selected } else { DependencyOwnedResult::case(condition.clone(), selected) })
         }
         DependencyOwnedResult::All(values) => values.iter()
-            .map(|value| applicable_owned_cases(value, assumptions, budget))
+            .map(|value| applicable_owned_cases(value, proof, budget))
             .collect::<Option<Vec<_>>>().map(DependencyOwnedResult::all),
         DependencyOwnedResult::Choice(values) => {
-            let selected = values.iter().filter_map(|value| applicable_owned_cases(value, assumptions, budget)).collect::<Vec<_>>();
+            let selected = values.iter().filter_map(|value| applicable_owned_cases(value, proof, budget)).collect::<Vec<_>>();
 
             (!selected.is_empty()).then(|| DependencyOwnedResult::choice(selected))
         }
@@ -352,7 +352,7 @@ fn project_owned_result(
 fn layout_preservation(
     layout: &DependencyOwnedResult<StorageProjection, ExecutionCondition>,
     source: &ExecutionCondition,
-    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    proof: &crate::execution_guarantees::ExecutionProof<'_>,
     budget: &mut usize,
 ) -> Option<DependencyValuePreservation<StorageProjection>> {
     let remaining = budget.checked_sub(1)?;
@@ -363,16 +363,16 @@ fn layout_preservation(
         DependencyOwnedResult::Transfer(transfer) => (transfer.output().is_empty()
             && transfer.input() == *source
             && transfer.condition().is_none_or(|condition| {
-                condition.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true)
+                proof.prove_mixed(&condition, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true)
             })).then(|| transfer.preservation().clone()),
         DependencyOwnedResult::All(values) => values.iter()
-            .filter_map(|value| layout_preservation(value, source, assumptions, budget))
+            .filter_map(|value| layout_preservation(value, source, proof, budget))
             .reduce(|left, right| left.intersection(&right)),
         DependencyOwnedResult::Choice(values) => {
             let mut preserved: Option<DependencyValuePreservation<StorageProjection>> = None;
 
             for value in values.iter() {
-                let next = layout_preservation(value, source, assumptions, budget)?;
+                let next = layout_preservation(value, source, proof, budget)?;
 
                 preserved = Some(preserved.map_or_else(|| next.clone(), |previous| previous.intersection(&next)));
             }
@@ -380,9 +380,9 @@ fn layout_preservation(
             preserved
         }
         DependencyOwnedResult::Case { condition, result }
-            if condition.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true) =>
+            if proof.prove_mixed(condition, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true) =>
         {
-            layout_preservation(result, source, assumptions, budget)
+            layout_preservation(result, source, proof, budget)
         }
         _ => None,
     }
@@ -466,9 +466,12 @@ mod tests {
                 DependencyOwnedResult::case(not(take.clone()), DependencyOwnedResult::default()),
             ]));
 
+            let assumptions = state.assumptions.clone();
+
             state.refine_witnesses();
             assert!(state.witnesses.is_empty());
             assert!(state.trusted_assumptions.is_empty());
+            assert_eq!(state.assumptions, assumptions, "proof consequences must not become new flow assumptions");
 
             let actual = state.owned_result(&value);
 

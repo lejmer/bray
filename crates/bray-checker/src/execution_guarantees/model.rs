@@ -386,14 +386,14 @@ mod tests {
                 ..ExecutionCallEvidence::default()
             };
 
-            assert!(entry.intersect(&incoming));
+            assert!(entry.intersect(&incoming, &Default::default()));
             assert_eq!(entry.arguments[&input].owner_identity(), value(true).owner_identity());
 
             let component = entry.arguments[&input].clone().into_referent().project(field);
 
             assert_eq!(component.prove(&entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT }), None);
             assert_eq!(entry.owned_arguments().count(), usize::from(!borrowed));
-            assert!(!entry.intersect(&incoming));
+            assert!(!entry.intersect(&incoming, &Default::default()));
         }
     }
 }

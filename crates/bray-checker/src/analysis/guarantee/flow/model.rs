@@ -51,7 +51,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 }
 
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
-    pub(super) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
+    pub(in crate::analysis::guarantee) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
     pub(super) values: &'a crate::analysis::liveness::ValueRetention,
     pub(in crate::analysis::guarantee) dependencies:
         &'a bray_bound_tree::CheckedDependencyContracts,
@@ -198,7 +198,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .and_then(|flow| flow.condition_value(expression))
             .or_else(|| {
-                observed.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                observed.prove_ordinary(&state.assumptions, Some(&state.proofs))
             });
 
         // Preserve the evaluated condition across joins. Substitution can differ
@@ -248,7 +248,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let (condition, observed, known) = self.condition_evidence(state, expression);
 
             if known.is_some_and(|known| known != value)
-                || known.is_none() && !condition.can_assume(value, &state.assumptions)
+                || known.is_none() && !state.proofs.ordinary_proof(&state.assumptions).can_assume(&condition, value)
             {
                 return false;
             }
@@ -307,7 +307,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some((condition, value)) = self.branch_condition(state, edge) {
-            if !condition.can_assume(value, &state.assumptions) {
+            if !state.proofs.ordinary_proof(&state.assumptions).can_assume(&condition, value) {
                 return false;
             }
 
@@ -447,9 +447,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         }
 
         for assumption in self.input_invariants.iter().chain(self.assumptions) {
-            if assumption.prove(&state.assumptions, &mut {
-                ExecutionCondition::WORK_LIMIT
-            }) == Some(false)
+            if assumption.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(false)
             {
                 return None;
             }

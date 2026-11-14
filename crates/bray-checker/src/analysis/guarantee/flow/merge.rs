@@ -74,7 +74,7 @@ pub(in crate::analysis) fn merge(
             .deferred_invocations
             .entry(owner.clone())
             .or_default()
-            .merge(entries);
+            .merge(entries, &target.proofs);
     }
 
     for (expression, evidence) in &incoming.entries {
@@ -84,7 +84,7 @@ pub(in crate::analysis) fn merge(
                 changed = true;
             }
             std::collections::btree_map::Entry::Occupied(mut entry) => {
-                changed |= entry.get_mut().intersect(evidence);
+                changed |= entry.get_mut().intersect(evidence, &target.proofs);
             }
         }
     }
@@ -225,7 +225,7 @@ fn join_observations<'a>(
         availability.insert(place.clone(), available);
 
         needs_condition_proof |= join_current_truth(
-            (&value, &target.assumptions), (&other, &incoming.assumptions),
+            (&value, target), (&other, incoming),
             &joined, &mut joined_facts,
         );
 
@@ -324,7 +324,7 @@ fn join_observations<'a>(
             value,
             other,
             Some(ExecutionCondition::Expression(expression)),
-            (&target.assumptions, &incoming.assumptions),
+            (&target.proofs.ordinary_proof(&target.assumptions), &incoming.proofs.ordinary_proof(&incoming.assumptions)),
             &mut joined_facts,
             &mut { ExecutionCondition::WORK_LIMIT },
         );
@@ -440,7 +440,7 @@ fn join_current_value(
     } else if *left.1 == ExecutionCondition::Unknown || *right.1 == ExecutionCondition::Unknown {
         ExecutionCondition::Unknown
     } else {
-        common_components(left.1, right.1, result(), (&left.0.assumptions, &right.0.assumptions), facts,
+        common_components(left.1, right.1, result(), (&left.0.proofs.ordinary_proof(&left.0.assumptions), &right.0.proofs.ordinary_proof(&right.0.assumptions)), facts,
             &mut { ExecutionCondition::WORK_LIMIT })
     };
 
@@ -530,8 +530,8 @@ pub(super) fn joined_observation(block: AnalysisBlockId, place: &crate::Executio
 }
 
 fn join_current_truth(
-    left: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
-    right: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
+    left: (&ExecutionCondition, &ExecutionState),
+    right: (&ExecutionCondition, &ExecutionState),
     joined: &ExecutionCondition,
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> bool {
@@ -543,8 +543,8 @@ fn join_current_truth(
         matches!(value, ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_))
     });
 
-    let [Some(left), Some(right)] = [left, right].map(|(value, assumptions)| {
-        value.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+    let [Some(left), Some(right)] = [left, right].map(|(value, state)| {
+        value.prove_ordinary(&state.assumptions, Some(&state.proofs))
     }) else {
         return needs_proof;
     };
@@ -687,7 +687,7 @@ fn common_join_conditions(
                     let instantiated = condition.with_equalities(inputs);
 
                     let proven = instantiated
-                        .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT });
+                        .prove_ordinary(&state.assumptions, Some(&state.proofs));
 
                     proven == Some(*holds)
                 })

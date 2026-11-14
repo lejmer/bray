@@ -251,7 +251,7 @@ pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
 
     !potential.is_empty() && !parent.conditions.iter().any(|(condition, guarantee)| {
         guarantee.witness
-            && condition.prove(&entry.assumptions, &mut { crate::ExecutionCondition::WORK_LIMIT }) != Some(true)
+            && condition.prove_ordinary(&entry.assumptions, Some(&domain.proofs)) != Some(true)
             && proof.prove_trusted(condition) == Some(true)
     })
 }

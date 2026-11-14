@@ -283,7 +283,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut result = None;
 
         for condition in self.task_outcomes(state, expression) {
-            match condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) {
+            match condition.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
                 Some(false) => return Some(false),
                 None => return None,
                 Some(true) => result = Some(true),
@@ -366,7 +366,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let condition = ExecutionCondition::VariantTest(variant, Arc::new(result));
 
-            match condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) {
+            match condition.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
                 Some(false) => break,
                 Some(true) => continue,
                 None => {}

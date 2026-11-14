@@ -282,13 +282,13 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
             // this owner must still support the same current condition.
             previous.retain(|carrier| {
                 result.contains(carrier)
-                    || super::owned::activity(returned, carrier.path(), &state.assumptions).0
+                    || super::owned::activity(returned, carrier.path(), &state.assumptions, &state.proofs).0
                         == Some(false)
             });
 
             for carrier in result {
                 if !previous.contains(&carrier)
-                    && exits.iter().all(|exit| exit.excludes(carrier.path()))
+                    && exits.iter().all(|exit| exit.excludes(carrier.path(), &state.proofs))
                 {
                     previous.insert(carrier);
                 }
@@ -336,7 +336,7 @@ fn collect(
         );
 
         // A false success guard creates no authority and imposes no carrier requirement.
-        if guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+        if guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs))
             == Some(true)
         {
             continue;
@@ -491,12 +491,8 @@ pub(in crate::analysis) fn portable_path<C: crate::CheckerRequestContext + ?Size
 impl ExecutionState {
     /// Discharges ordinary guards while each original carrier still supplies its own evidence.
     pub(in crate::analysis::guarantee) fn refine_witnesses(&mut self) {
-        // Ownership guards also have meaning when no trusted carrier exists.
-        // Ordinary premises cannot introduce trusted occurrences into this closure.
-        let ordinary = self.proofs.closure(&Default::default(), &self.assumptions);
-
-        self.assumptions.extend(ordinary);
-
+        // Ordinary closure belongs to proof preparation. Publishing it as new
+        // assumptions makes joins multiply clauses by their own consequences.
         for witness in self
             .witnesses
             .values_mut()

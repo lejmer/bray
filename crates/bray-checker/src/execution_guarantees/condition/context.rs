@@ -136,11 +136,6 @@ impl ExecutionProofCache {
         proof
     }
 
-    pub(crate) fn closure(&self, trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: &BTreeSet<(ExecutionCondition, bool)>) -> BTreeSet<(ExecutionCondition, bool)> {
-        // Publication needs an owned set because its destination can mutate the source evidence.
-        self.prepare(trusted, ordinary).derived().conditions.clone()
-    }
-
     pub(crate) fn refined_witness(
         &self,
         witness: &Arc<ExecutionWitness>,
@@ -219,6 +214,30 @@ impl<'a> ExecutionProof<'a> {
             cache: None,
             prepared: OnceCell::new(),
         }
+    }
+
+    /// Read ordinary consequences without publishing them as new flow premises.
+    pub(crate) fn ordinary_facts(&self) -> impl Iterator<Item = &(ExecutionCondition, bool)> {
+        self.ordinary.union(&self.known().conditions)
+            .filter(|(condition, _)| !condition.contains_trusted())
+    }
+
+    pub(crate) fn can_assume(&self, condition: &ExecutionCondition, value: bool) -> bool {
+        if condition.is_unknown() { return true; }
+
+        if let Some(known) = self.prove_mixed(condition, &mut { ExecutionCondition::WORK_LIMIT }) {
+            return known == value;
+        }
+
+        let contrary = if value {
+            ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![condition.clone()])
+        } else { condition.clone() };
+
+        // Atomic feasibility also needs the indexed alternative relation.
+        // Disjunction queries already consult it during ordinary proof.
+        !(self.prove_trusted(&contrary) == Some(true)
+            || !matches!(contrary, ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, _))
+                && self.proves_alternative(&contrary))
     }
 
     pub(crate) fn prove_trusted(&self, condition: &ExecutionCondition) -> Option<bool> {

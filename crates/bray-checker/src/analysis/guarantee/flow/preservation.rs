@@ -743,6 +743,8 @@ mod tests {
 
         let framed = payload_mask.apply(&owner, Some(&place), mutation);
         let conditions = Default::default();
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let conditions = cache.ordinary_proof(&conditions);
 
         let joined = crate::execution_guarantees::common_components(&owner, &framed,
             Some(ExecutionCondition::Result), (&conditions, &conditions), &mut Vec::new(),

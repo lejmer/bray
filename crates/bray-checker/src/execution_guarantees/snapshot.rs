@@ -1,7 +1,5 @@
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
-use std::collections::BTreeSet;
-
-use super::ExecutionCondition;
+use super::{ExecutionCondition, ExecutionProof};
 use bray_bound_tree::BoundOperator;
 use bray_symbols::ConstantValueKind;
 
@@ -10,8 +8,8 @@ pub(crate) fn common_components(
     right: &ExecutionCondition,
     result: Option<ExecutionCondition>,
     conditions: (
-        &BTreeSet<(ExecutionCondition, bool)>,
-        &BTreeSet<(ExecutionCondition, bool)>,
+        &ExecutionProof<'_>,
+        &ExecutionProof<'_>,
     ),
     facts: &mut Vec<(ExecutionCondition, bool)>,
     budget: &mut usize,
@@ -24,7 +22,7 @@ pub(crate) fn common_components(
         if candidate.ownership_identity().is_none()
             && candidate.observation_kind().is_none_or(|kind| kind == ObservationKind::Scalar)
             && let ExecutionCondition::Boolean(value) = other
-            && !candidate.can_assume(!value, assumptions)
+            && !assumptions.can_assume(candidate, !value)
         {
             return candidate.clone();
         }
@@ -160,12 +158,12 @@ pub(crate) fn common_components(
         .into_iter()
         .map(|projection| {
             let inactive =
-                |value: &ExecutionCondition, conditions: &BTreeSet<(ExecutionCondition, bool)>| {
+                |value: &ExecutionCondition, conditions: &ExecutionProof<'_>| {
                     match projection {
                         bray_bound_tree::StorageProjection::NullableValue => {
                             matches!(value, ExecutionCondition::Literal(value)
                     if matches!(value.kind(), ConstantValueKind::NullableAbsent))
-                                || conditions.iter().any(|(condition, holds)| {
+                                || conditions.ordinary_facts().any(|(condition, holds)| {
                                     condition.nullable_absence(*holds).is_some_and(
                                         |(subject, _)| {
                                             subject == value || subject == value.owner_identity()
@@ -177,10 +175,7 @@ pub(crate) fn common_components(
                             variant,
                             ..
                         } => {
-                            value
-                                .clone()
-                                .matches_variant(variant)
-                                .prove(conditions, &mut { ExecutionCondition::WORK_LIMIT })
+                            conditions.prove_mixed(&value.clone().matches_variant(variant), &mut { ExecutionCondition::WORK_LIMIT })
                                 == Some(false)
                         }
                         _ => false,
@@ -250,7 +245,7 @@ fn common_scalar_components(
     left: &ExecutionCondition,
     right: &ExecutionCondition,
     result: Option<&ExecutionCondition>,
-    conditions: (&BTreeSet<(ExecutionCondition, bool)>, &BTreeSet<(ExecutionCondition, bool)>),
+    conditions: (&ExecutionProof<'_>, &ExecutionProof<'_>),
     facts: &mut Vec<(ExecutionCondition, bool)>,
     budget: &mut usize,
 ) -> Option<ExecutionCondition> {
@@ -296,7 +291,7 @@ fn mixed_role_components(
     left: &ExecutionCondition,
     right: &ExecutionCondition,
     result: Option<ExecutionCondition>,
-    conditions: (&BTreeSet<(ExecutionCondition, bool)>, &BTreeSet<(ExecutionCondition, bool)>),
+    conditions: (&ExecutionProof<'_>, &ExecutionProof<'_>),
     facts: &mut Vec<(ExecutionCondition, bool)>,
     budget: &mut usize,
 ) -> ExecutionCondition {

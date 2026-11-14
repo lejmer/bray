@@ -143,7 +143,7 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         left_value,
         right_value,
         Some(root.clone()),
-        (&target.assumptions, &incoming.assumptions),
+        (&target.proofs.ordinary_proof(&target.assumptions), &incoming.proofs.ordinary_proof(&incoming.assumptions)),
         &mut facts,
         &mut { ExecutionCondition::WORK_LIMIT },
     );
@@ -240,6 +240,8 @@ mod tests {
         right: &ExecutionCondition,
     ) -> ExecutionCondition {
         let conditions = Default::default();
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let conditions = cache.ordinary_proof(&conditions);
 
         common_components(
             left,
@@ -281,6 +283,8 @@ mod tests {
 
         let identity = input(9);
         let conditions = Default::default();
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let conditions = cache.ordinary_proof(&conditions);
 
         let join = |left: &ExecutionCondition, right: &ExecutionCondition| {
             let mut budget = 64;
@@ -337,6 +341,8 @@ mod tests {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let identity = |version| ExecutionCondition::Joined(BoundUnitId::new(0), version, place.clone());
         let conditions = Default::default();
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let conditions = cache.ordinary_proof(&conditions);
 
         let join = |left: &ExecutionCondition, right: &ExecutionCondition, version| {
             common_components(left, right, Some(identity(version)), (&conditions, &conditions),
@@ -393,6 +399,10 @@ mod tests {
 
             left.clone().assume(shortcut, &mut skipped);
             left.assume(!shortcut, &mut evaluated);
+
+            let cache = crate::execution_guarantees::ExecutionProofCache::default();
+            let skipped = cache.ordinary_proof(&skipped);
+            let evaluated = cache.ordinary_proof(&evaluated);
 
             for reversed in [false, true] {
                 let constant = ExecutionCondition::Boolean(shortcut);
@@ -520,6 +530,8 @@ mod tests {
         let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
         let current = ExecutionCondition::Joined(BoundUnitId::new(0), 2, place.clone());
         let conditions = Default::default();
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let conditions = cache.ordinary_proof(&conditions);
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
         let substitution = crate::test_support::empty_substitution(symbol.into());
 
