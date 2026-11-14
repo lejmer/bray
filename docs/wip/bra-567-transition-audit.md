@@ -1,8 +1,12 @@
-# BRA-567 active performance correction
+# BRA-567 active contract completion
 
 Read this record and the work-on-bray-issues contract gate after compaction. Continue after checkpoints.
 Work and pushes to feature/bra-567-async-root-orchestration are authorized. No full matrices.
 This is the single current task record and computation model. Replace superseded findings.
+Current user priority: finish contracts and guarantees with zero failures before more graph optimization.
+Keep the performance/scaling controls and full 10k/500ms objective intact, but resolve known compiler gaps first.
+Group failures by violated transition, freeze expectations and intended rejection sites, then repair coherent
+causes and stop on unexplained regressions. Finish the current checkpoint, then start RawBuffer invalid acceptance.
 
 ## Acceptance contract
 
@@ -32,15 +36,17 @@ independently retained data. BooleanGraph shares immutable condition children. O
 scan positions, DFS order, strictness, source precedence and budget charges. Its differential oracle covers
 128 graphs and budgets 0-64. Solved flow outputs and actual cleanup parts/phases remain retained.
 
-Current graph-query checkpoint: 556 checker tests pass, including the expanded scaling assertions. Fixed five
-pass at 195-235 ms for task cases and 266 ms for the loop. Three complementary loops pass at 417-437 ms
-while the checker test build runs. Counters were compiled but disabled for
-timing. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 25.87 s. No full matrices ran.
-The bounded loop records 1,500,384 comparisons, zero interner lookups, 748,276 key hashes, 79,235 nodes,
-143,504 child hashes, 1,053,189 pair lookups, 359,856 pair writes and 501,544 hash writes totaling 3,081,354 bytes.
-Against c5d1c3658, comparisons fall 22,432 and key hashes rise 125,926. These categories
-overlap and do not measure elapsed time. The 10,000 goal remains far from achieved. Style has the same six
-existing errors. Format/diff checks pass. Temporary hooks are removed after measurement.
+Current comparison-form checkpoint: all 556 checker tests pass. Fixed five pass at 214-232 ms for task
+cases and 266 ms for the loop. Three complementary loops pass at 272-332 ms. Counters were compiled but disabled
+for timing. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 24.71 s. No full matrices ran.
+The bounded loop records 1,471,543 comparisons, zero interner lookups, 748,276 key hashes, 38,058 nodes,
+61,150 child hashes, 1,053,189 pair lookups, 359,856 pair writes and 213,305 hash writes totaling 1,351,920 bytes.
+41,657 form lookups perform 480 normalizations. 111 lazy tables allocate 21,312 payload bytes and demanded forms
+57,600 bytes, excluding allocator overhead and the additional lazy field on each node. Against ca88f4d10,
+41,177 node constructions and 288,239 hash writes disappear. Comparisons fall about 29k. These are overlapping
+cost categories, not elapsed time. The 10k gate remains unmet. Style has the same six existing errors.
+Format/diff checks pass. Temporary hooks are removed. The compilation binary has disabled hooks, while the
+final checker-only test build omits them and includes the strengthened positive/reversed membership controls.
 
 ## Computation graph and cost model
 
@@ -128,9 +134,9 @@ The edge probe finds only 36 unchanged-source repetitions in 658 storage-flow pr
 their inclusive cost was at most 198,844 of 5,114,981 instrumented events, including merges that cannot be cached.
 Edge-result retention cannot be the main route to the gate. Do not implement it next.
 
-Caller-attributed construction still identifies implication::comparison_is_implied's known lookup as the largest
-site. These roots are now unpublished but normalization and hashing still cost work. Removing an allocation
-does not remove this computation. Substitution and equality rewriting also rebuild operations.
+Comparison probes now retain their derived forms with the immutable query root. The largest remaining
+construction sites are raw equality complements and substitution/equality rewriting. Further performance
+work waits for contract correctness, and must still account for cache lookups and memory as well as construction.
 
 Normalized Boolean shape is not sufficient for a no-op rewrite shortcut. For example, a balanced conjunction
 built from 128 flat leaves can fit the original 256-work limit but exhaust it when flattened and rebuilt again.
@@ -201,7 +207,25 @@ selected projections, overwritten contents, proof budgets and current-vs-entry b
 and retirement tests, fixed five and frozen30 are the oracles. The existing retention test also checks cached
 negative answers after insertion. No test identity was added. Count index maintenance and retained query memory.
 
-Next unresolved producer contract: join_values reconstructs whole ordinary/trusted evidence sets for any
+Comparison-form invariant: comparison_is_implied retains six operators in both operand orders lazily on
+the immutable source operation. Store
+PreparedCondition syntax only, never truth or membership. Each use still queries its exact raw proof scope
+and holds bit. Preserve noncomparison, malformed-operand and empty-scope early returns, reflexive ordering,
+known-query short circuits, collisions and all proof budget charges. First demand uses prepare_operation
+unchanged, including literal/nullable/unknown/NaN folding and normalization exhaustion. Results point only to
+descendants or fresh nodes, never to the source root. Eq/Ord/hash and observation edges exclude derived forms.
+Use a lazy table of boxed demanded forms to bound unused-slot memory. Count form lookups, table/slot creation
+and memory separately as well as all existing comparisons/hashes. Existing raw-membership/ordering/budget
+controls, fixed five and frozen30 are the oracles. No new fixture or test identity was added. The independent
+code review found no production defect. Its distinct-operand positive lookup test gap is covered.
+
+Deferred performance finding: the measured join_values batch rewrites only 66 ordinary and 66 trusted sets,
+360 total input facts. 26 ordinary sets/108 facts and 28 trusted sets/12 facts retain identical output handles.
+This is too little evidence for a persistent-tree redesign as the main next optimization. ExecutionFlowDomain
+and its proof cache are already created before the cleanup-feasibility loop, so those rounds share the cache.
+Do not move it again or skip rounds without proving identical complete inputs.
+
+join_values reconstructs whole ordinary/trusted evidence sets for any
 nonidentity substitution. conditional_facts builds another rewritten ordinary set, with different filtering
 and expansion rules. Then merge computes two ordered differences and an intersection separately. Trace which
 unchanged products can be retained before choosing a persistent ordered representation. Sharing must preserve

@@ -1,6 +1,6 @@
 use bray_bound_tree::BoundOperator;
 use bray_symbols::ConstantValueData;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::collections::{HashMap, HashSet};
 use std::cmp::Ordering;
 
@@ -136,17 +136,25 @@ pub enum ExecutionConditionKind {
 #[derive(Clone)]
 pub struct ExecutionCondition(Arc<ConditionNode>);
 
-#[derive(Debug)]
+type ComparisonForms = [[OnceLock<Box<PreparedCondition>>; 2]; 6];
+
 pub(in crate::execution_guarantees) struct ConditionNode {
     kind: ExecutionConditionKind,
     hash: u64,
+    comparisons: OnceLock<Box<ComparisonForms>>,
+}
+
+impl std::fmt::Debug for ConditionNode {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("ConditionNode").field("kind", &self.kind).field("hash", &self.hash).finish()
+    }
 }
 
 impl ConditionNode {
     fn new(kind: ExecutionConditionKind) -> Self {
         let hash = super::hashing::structural_hash(&kind);
 
-        Self { kind, hash }
+        Self { kind, hash, comparisons: OnceLock::new() }
     }
 }
 
@@ -179,7 +187,7 @@ impl PreparedCondition {
 
     #[cfg(test)]
     pub(super) fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
-        Self::Unpublished(ConditionNode { kind, hash })
+        Self::Unpublished(ConditionNode { kind, hash, comparisons: OnceLock::new() })
     }
 }
 
@@ -224,11 +232,41 @@ impl ExecutionCondition {
         RESULT.clone()
     }
 
+    /// Derived syntax belongs to the immutable operands, while proof truth belongs to its evidence scope.
+    pub(in crate::execution_guarantees) fn comparison_form(&self, operator: BoundOperator, reversed: bool) -> &PreparedCondition {
+        let index = match operator {
+            BoundOperator::Equal => 0,
+            BoundOperator::NotEqual => 1,
+            BoundOperator::Less => 2,
+            BoundOperator::LessEqual => 3,
+            BoundOperator::Greater => 4,
+            BoundOperator::GreaterEqual => 5,
+            _ => panic!("comparison form requires a comparison operator, found {operator:?}"),
+        };
+
+        let ExecutionConditionKind::Operation(_, operands) = self.kind() else {
+            panic!("comparison form requires operation operands, found {:?}", self.kind());
+        };
+
+        let [left, right] = operands.as_ref() else {
+            panic!("comparison form requires two operands, found {}", operands.len());
+        };
+
+        let forms = self.0.comparisons.get_or_init(|| Box::new(Default::default()));
+
+        forms[index][usize::from(reversed)].get_or_init(|| {
+            let (left, right) = if reversed { (right, left) } else { (left, right) };
+
+            // Fresh operand storage keeps this derived form from retaining its owning table.
+            Box::new(Self::prepare_operation(operator, vec![left.clone(), right.clone()]))
+        })
+    }
+
     pub(super) fn cached_hash(&self) -> u64 { self.0.hash }
 
     #[cfg(test)]
     pub(super) fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
-        Self(Arc::new(ConditionNode { kind, hash }))
+        Self(Arc::new(ConditionNode { kind, hash, comparisons: OnceLock::new() }))
     }
 }
 

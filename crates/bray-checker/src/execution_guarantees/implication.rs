@@ -5,20 +5,23 @@ use bray_bound_tree::BoundReferenceTarget;
 use super::ExecutionCondition;
 
 pub(super) fn comparison_is_implied(
-    operator: bray_bound_tree::BoundOperator,
-    operands: &[ExecutionCondition],
+    comparison: &ExecutionCondition,
     assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
     budget: &mut usize,
     memo: &super::condition::ProofMemo,
 ) -> Option<bool> {
     use bray_bound_tree::BoundOperator;
 
+    let crate::ExecutionConditionKind::Operation(operator, operands) = comparison.kind() else { return None; };
+
+    let operator = *operator;
+
     if !matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual
         | BoundOperator::Less | BoundOperator::LessEqual | BoundOperator::Greater | BoundOperator::GreaterEqual) {
         return None;
     }
 
-    let [left, right] = operands else {
+    let [left, right] = operands.as_ref() else {
         return None;
     };
 
@@ -36,16 +39,14 @@ pub(super) fn comparison_is_implied(
         };
     }
 
-    let known = |operator, left: &ExecutionCondition, right: &ExecutionCondition, holds| {
-        let condition = ExecutionCondition::prepare_operation(operator, vec![left.clone(), right.clone()]);
-
-        memo.raw_contains(&condition, holds, assumptions)
+    let known = |operator, reversed, holds| {
+        memo.raw_contains(comparison.comparison_form(operator, reversed), holds, assumptions)
     };
 
     if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
         let strictly_ordered = [BoundOperator::Less, BoundOperator::Greater]
             .into_iter()
-            .any(|operator| known(operator, left, right, true) || known(operator, right, left, true));
+            .any(|operator| known(operator, false, true) || known(operator, true, true));
 
         return (strictly_ordered
             || ordered().path(left, right, true, budget)
@@ -73,25 +74,25 @@ pub(super) fn comparison_is_implied(
         BoundOperator::GreaterEqual
     };
 
-    if known(strict, left, right, true) || known(reversed, right, left, true) {
+    if known(strict, false, true) || known(reversed, true, true) {
         return Some(true);
     }
 
-    let unequal = known(BoundOperator::NotEqual, left, right, true)
-        || known(BoundOperator::NotEqual, right, left, true)
-        || known(BoundOperator::Equal, left, right, false)
-        || known(BoundOperator::Equal, right, left, false);
+    let unequal = known(BoundOperator::NotEqual, false, true)
+        || known(BoundOperator::NotEqual, true, true)
+        || known(BoundOperator::Equal, false, false)
+        || known(BoundOperator::Equal, true, false);
 
-    if unequal && (known(weak, left, right, true) || known(reversed_weak, right, left, true))
+    if unequal && (known(weak, false, true) || known(reversed_weak, true, true))
         || allows_equal
-            && (known(BoundOperator::Equal, left, right, true)
-                || known(BoundOperator::Equal, right, left, true))
+            && (known(BoundOperator::Equal, false, true)
+                || known(BoundOperator::Equal, true, true))
     {
         return Some(true);
     }
 
     // Only positive ordering evidence is used. A false comparison can include NaN.
-    if known(reversed, left, right, true) || known(strict, right, left, true) {
+    if known(reversed, false, true) || known(strict, true, true) {
         return Some(false);
     }
 
@@ -108,10 +109,10 @@ pub(super) fn comparison_is_implied(
             BoundOperator::GreaterEqual
         };
 
-        if known(weak, left, right, true)
-            || known(reversed_weak, right, left, true)
-            || known(BoundOperator::Equal, left, right, true)
-            || known(BoundOperator::Equal, right, left, true)
+        if known(weak, false, true)
+            || known(reversed_weak, true, true)
+            || known(BoundOperator::Equal, false, true)
+            || known(BoundOperator::Equal, true, true)
         {
             return Some(false);
         }
@@ -467,8 +468,8 @@ mod tests {
         let mut budget = 128;
         let memo = crate::execution_guarantees::condition::ProofMemo::new();
 
-        assert_eq!(super::comparison_is_implied(BoundOperator::LogicalOr,
-            &[left.clone(), left.clone()], &known, &mut budget, &memo), None);
+        assert_eq!(super::comparison_is_implied(&ExecutionCondition::new(crate::ExecutionConditionKind::Operation(
+            BoundOperator::LogicalOr, vec![left.clone(), left.clone()].into())), &known, &mut budget, &memo), None);
 
         assert_eq!(budget, 128, "Boolean nodes must not spend comparison proof work");
 
@@ -484,8 +485,8 @@ mod tests {
 
         assert_eq!(
             super::comparison_is_implied(
-                BoundOperator::LessEqual,
-                &[right.clone(), left.clone()],
+                &ExecutionCondition::new(crate::ExecutionConditionKind::Operation(
+                    BoundOperator::LessEqual, vec![right.clone(), left.clone()].into())),
                 &known,
                 &mut 128,
                 &memo,
