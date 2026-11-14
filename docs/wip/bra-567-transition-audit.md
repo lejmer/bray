@@ -2,136 +2,154 @@
 
 Read this record and the work-on-bray-issues contract gate after compaction. Continue after checkpoints.
 Work and pushes to feature/bra-567-async-root-orchestration are authorized. No full matrices.
+This is the single current task record and computation model. Replace superseded findings.
 
 ## Acceptance contract
 
-All five fixed formerly unfinished fixtures must take less than 500 ms each for caller construction, checking
-and lowering, excluding provider preparation and Rust builds. same_site_independent_second must also stay
-at or below 10,000 combined condition comparisons and interner lookups, recursive work included. Never hide
-or relocate counted work. Timing passes. The operation-count gate remains unmet.
+All five fixed formerly unfinished fixtures must take less than 500 ms for caller construction, checking and
+lowering, excluding provider preparation and Rust builds. same_site_independent_second must also stay at or
+below 10,000 combined condition comparisons and interner lookups, recursive work included. Count newly moved
+producer, ingress and index-maintenance work too. Never meet the gate by relocating work outside measurement.
 
 Preserve outcomes and rejection at observe(&value), source/import behavior, exact owner, dependency, current-value
-and entry-snapshot scopes, qualified polarity and original budget behavior. Unknowns, overwritten contents,
-borrowed prefixes and unavailable carriers grant nothing. Preserve authoritative empty ownership alternatives
-and cleanup-feasibility rounds. Published structures remain immutable. No reconstruction when retained results
-can serve consumers. No cache lock spans recursive inference. Style only at completed-batch finalization.
+and entry-snapshot scopes, qualified polarity, deterministic ordering and original budget/exhaustion behavior.
+Unknowns, overwritten contents, borrowed prefixes and unavailable carriers grant nothing. Preserve authoritative
+empty ownership alternatives and cleanup-feasibility rounds. Published values remain immutable. Reconstruction
+is a last resort. No lock spans recursive inference. Style only at completed-batch finalization.
 
-## Current implementation and evidence
+## Current mechanisms and evidence
 
-ConditionIndex shares structural identity independently of authority. Each exact fact-ID/polarity vector owns
-one raw query memo. Its ordered trusted/ordinary pair identifies a mixed scope. Physical aliases retain every
-immutable allocation. Query memos retain original semantic work costs and exhausted-limit results. Owning queries receive a proof view pairing their exact trusted and ordinary
-inputs. Memo misses retain query IDs through computation. Budgeted memo indexing holds no result-map lock.
+ConditionIndex shares structural identity, never authority. Exact ordered fact-ID/polarity vectors own raw query
+memos. Their ordered trusted/ordinary pair identifies a mixed scope. Every physical alias is retained against
+address reuse. Requested, direct and closure-derived proof results remain distinct. Memos preserve original
+semantic costs and exact exhausted-budget results. Proof callers use their actual trusted and ordinary inputs.
 
-Solved flow outputs and actual cleanup parts/phases are retained. Wrapped futures preserve cancellation captures,
-part-specific mutation identity, report dependencies and lifecycle retirement. Keep these regression controls.
+RetainedSnapshots indexes actual roots and paths. Owner queries exclude loans. Contents queries can follow
+referents, but compare selected before/after contents and reject unknowns. Constructed bases are lineage, not
+independently retained data. BooleanGraph shares immutable condition children. OrderedFacts preserves original
+scan positions, DFS order, strictness, source precedence and budget charges. Its differential oracle covers
+128 graphs and budgets 0-64. Solved flow outputs and actual cleanup parts/phases remain retained.
 
-RetainedSnapshots now owns actual roots and one lazy candidate index. Insert invalidates it in one place.
-Owner matching and root/path indexing reuse the same definitions as direct comparison. Nodes reached through
-loans remain distinguishable from directly retained nodes. Owner queries exclude loan traversal. Data queries
-may follow actual referents. Prefix matching only selects actual components under the original WORK_LIMIT.
-The original role/contents predicate still decides retention. Unknown contents cannot prove survival.
-Constructed bases are lineage, not separately retained data. Before/after checks compare actual selected contents.
-Retirement, scalar preservation, private inputs, cleanup, mutation masks and borrowed carriers reuse these indexes.
-The old static query API and repeated graph walk are removed. No proof rule or authority publication changes.
+Current join batch groups clauses by owner and availability, and retains publication carrier-selection keys.
+The same owner/source predicates and clause order remain. Only evidence is read afresh for each clause.
+All 553 checker tests pass, including ordered publication with independent and unavailable carriers.
+The batch adds 14 nonblank production lines and 40 test lines. Existing join tests use the grouped result.
+Fixed five twice: task cases 121-130 ms, loop 169/172 ms. Extra source/import ownership controls pass at 175-183 ms.
+Latest count is 2,212,801: ordering 1,084,401, equality 543,243, identity 264,972, interning 320,185.
+This batch does not materially reduce total work. Do not iterate locally on it as the route to 10,000.
+Frozen30 is 29 pass and the same RawBuffer invalid acceptance, in 11.9 seconds. No full matrices ran.
+Style has the same six pre-existing errors. Format and diff checks pass. There are no production probe hooks after finalization.
 
-BooleanGraph consumes the ConditionIndex's existing child IDs and shares immutable nodes. It no longer recursively
-re-interns children. Node truth, published polarity, ordinary/trusted roles and query results stay scope-local.
-Child projection/order and relational fallbacks are unchanged. No index lock spans graph recursion.
+## Computation graph and cost model
 
-OrderedFacts now prepares ordered edges once per exact proof scope. Edge positions preserve every old scan budget
-charge, DFS order, strictness, reversed equality and integer shortcuts. False comparisons provide no ordered edges.
-False inequality can establish an ordered domain. Empty graphs retain the initial integer shortcut and original scan
-cost without interning endpoints. Trusted and ordinary baseline memos stay separate. An implication hypothesis shares
-its memo until actual alias consequences change its facts, then resets every result while retaining structural IDs.
-The production scan is removed. One differential test retains it as an independent oracle over 128 graphs and budgets
-0-64, checking results and remaining budgets, including cycles, missing edges, negative evidence and literal bounds.
-
-All 552 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 123-130 ms,
-loop 171/178 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 169-180 ms.
-Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.2 seconds. No full matrices ran.
-Style retains six existing errors: wildcard flow/invalidation and oversized flow/merge, storage_flow cleanup/core,
-execution_guarantees/portable and tooling output/diagnostic/json/argument. Format and diff checks pass.
-
-Complete count is 2,222,361: ordering 1,087,749, equality 543,442, identity 270,575, interning 320,595.
-Top-level comparisons are 850,288 ordering and 494,518 equality, with maximum depths 20 and 12. Recursive
-comparison tuning alone cannot approach the target. Repeated root operations dominate.
-The caller has 198 CFG blocks and two required storage solves with 271 transfers each. There are 6,219 indexed
-nodes across indices, 612 mixed scopes over 327 raw inputs and 13,032 public proof queries. Witness refinement
-performs 856 computations, usually over five claims. Only 12 new witness clauses result. Join publication adds
-344 clauses. Refinement costs 546K and Boolean derivation 286K operations. Stage costs overlap. Do not sum them.
-Raw input sharing cut ordered queries from 28,264 to 14,769 and ordered-index constructions from 2,896 to 1,599.
-The count target is not met. Correctness is unchanged, and more lookup tuning alone is insufficient.
-
-## Current optimization model
-
-Production baseline c043523c2 is pushed, with no probe hooks. A diagnostic-only bounded loop run passes in
-410 ms with counters enabled. It measures 2,213,955 operations. This is build variation, not an optimization.
-Retained timing and regression evidence still applies to unchanged production code.
-The Boolean prover already has parent edges and a change-driven queue. Optimize the enclosing dependencies.
-Code tracing gives this computation graph:
+Code tracing gives these dependencies:
 
 - incoming_state -> propagate -> merge -> join_observations -> conditional_facts -> witness/proof queries
 - transfer_block -> apply_operation -> current-value rewrites, witness refinement and retirement
-- refine_witnesses -> every available witness and pending deferred producer -> exact proof scopes
-- retire_values -> retirement_dependents plus scans of facts, witness clauses, private entries and selections
-- final block entries -> publication apply_operation replay -> diagnostics, effects and completion products
+- refine_witnesses -> available witnesses and pending deferred producers -> exact proof scopes
+- retire_values -> retirement_dependents plus facts, clauses, allocations, private entries and selections
+- final block entries -> publication operation replay -> diagnostics, effects and completion products
 
-ConditionIndex already shares structure. retirement_dependents already uses a worklist, but rebuilds reverse
-edges per mutation. Edge membership depends on current values, mutation kind and retained owners.
-Exclusive costs partition 2,222,361: proof/refinement 723,963, retirement/retention 663,517, rewriting 235,471,
-scope/reuse/normalization 144,633, joins 68,266, unclassified 386,511. Inclusive stage costs overlap.
-Eliminating recursive comparisons below the root saves at most 286,385, about 13 percent. Eliminating all caller
-publication saves at most 503,967, about 23 percent before replacement costs. The target requires over 99.5 percent.
-
-Model a typed dependency hypergraph because rules can require several inputs together. Separate structural
-conditions, qualified facts, carrier authority, contents snapshots, availability and query results. Contents
-equality never merges owners. Captured entries differ from current values. Lifetime support does not establish
-truth. Preserve predecessor/selector requirements and distinct loop incarnations at the same source expression.
-
-Minimize graph construction plus sum(evaluation count * exclusive evaluation cost), with bounded memory,
-unchanged results, rejection sites, budgets and determinism. All indexing and recursive work counts. Replace
-whole-collection discovery with producer-owned dependency edges. Lazily schedule affected consumers in stable
-order, retaining immutable results and the existing cyclic join/convergence rules. Reuse existing graph nodes.
-The candidate spans retirement selection, witness guards and join substitution. Remove their repeated scans.
-Do not add another truth representation, manual index repairs at every mutation, or a general incremental engine.
-
-Two inventories must close before edits. Dependencies include contents, ownership, addresses, borrowed paths,
-selectors, availability, private evidence and independent supporting carriers. Structural child IDs alone are
-insufficient. Also account for failed proofs and budget costs. New evidence can change an absent result, and
-ordered scan positions can change exhaustion without changing truth. Successful premises alone cannot justify
-reuse. Preserve costs through indexed accounting, as OrderedFacts does, rather than replaying unrelated scans.
-The dependency probe measures 88 indices, 6,219 structural nodes and 9,633 child edges. Outer index requests
-repeat heavily: scope preparation 21,318 requests/91 distinct nodes, proof queries 65,414/587, refinement
-21,682/153, rewriting 25,523/256, retirement 120,098/2,536. Distinct means index plus node, not proof scope.
+The inner Boolean prover already has a graph and change-driven queue. The repeated work spans its callers and
+scope versions. The caller has 198 CFG blocks, two storage solves of 271 transfers, 327 raw inputs, 612 mixed
+scopes, 13,032 public proof queries and 856 witness refinements. Only 12 new witness clauses result.
+The structural probe finds 88 indices, 6,219 nodes, 9,633 child edges and 15,408 physical storage aliases.
+Outer lookup repetition includes scope preparation 21,318 requests/91 distinct nodes, proof 65,414/587,
+refinement 21,682/153 and retirement 120,098/2,536. Distinct means index plus node, not evidence scope.
 Retirement has 92,546 pure-cache hits and 27,552 misses. It removes 142/1,864 ordinary facts, 276/716 trusted
-facts and 1,148/2,604 witness clauses. Thus many changes are real. Broad retirement skipping is unsound.
+facts and 1,148/2,604 witness clauses. Many changes are real. Broad retirement skipping is unsound.
 
-Next close the join rule contract in flow/witnesses.rs::conditional_facts. It enumerates proposed clauses and
-proves each against both predecessors. Trace whether actual incoming support and selectors can supply those
-transport edges directly, preserving inactive alternatives, unavailable carriers and exact source ownership.
-Combine that with direct traversal of retained condition nodes. Do not add per-query ID adapters or caches.
-Structural edges alone cannot encode this transport. Semantic changed-edge counts remain unresolved, and the
-current data does not predict a 10,000 result.
+Minimize construction and maintenance plus sum(evaluation count * exclusive evaluation cost), with bounded
+memory and the acceptance constraints above. Inclusive profile stages overlap and must not be summed.
+Eliminating recursive comparisons below the root saves at most about 13 percent. Eliminating caller publication
+replay saves at most about 23 percent before replacement costs. The target requires over 99.5 percent overall.
+No existing measurement proves a 10,000 solution or an optimal representation.
 
-Publication reuse is secondary. Its open contract includes intermediate checks, diagnostic deduplication,
-final-input identity, cancellation and publication-only computations. A final block output is insufficient.
-Keep fixed-five/source/import/checker/frozen30 controls. Do not repeat eager retirement fusion or witness-key
-experiments. Both increased work. Unchanged carriers or empty invalidation sets do not imply unchanged guards.
-Keep one current count report and probe patch. Remove hooks after bounded runs. Build without hooks for final
-acceptance, not every checkpoint. Retain the checker-only non-incremental override and shared Cargo storage.
+The join detail distinguishes fixed selection edges from changing evidence:
+
+```mermaid
+flowchart LR
+    P[Predecessor values and captures] --> S[Actual carrier selection]
+    S --> Q[Predecessor proof scopes]
+    Q --> J[Joined owner and ordered clauses]
+    J --> K[Retained carrier selection edges]
+    K --> C[Publish next clause]
+    V[Current witness evidence] --> C
+    C --> V
+```
+
+Publication keeps the ordered evidence cycle. It cannot change current values or deferred inputs. A newly
+inserted owner is an explicit potential endpoint, initially absent. Earlier owners' insertions are visible
+when selecting the next owner. A parent with unknown contents does not retain invented child authority.
+The current batch removes repeated discovery at this boundary, under 60 net production lines. The broader
+replacement must remove repeated computation across versions, not add another cache or eager traversal.
+
+## Typed dependency inventory
+
+The graph is a hypergraph because several inputs can be required together. The following edges came from
+parallel read-only source scans and parent inspection. They are semantic dependencies, not authority grants.
+
+| Producer/consumer | Required edges and invalidation rules |
+| --- | --- |
+| Condition nodes and traversal | Distinguish data, owner, component, operand, live borrow, selector, descriptor and capture roles. Captured entries and descriptors are traversal barriers for some consumers. Live traversal keys include the live/nonlive role. Structural children alone are insufficient. |
+| CurrentValues | Place -> current value, availability, ancestors/components and explicit descendant absence. Writes and retirement publish new bindings. Old terminal contents can remain readable without live authority. |
+| Joins | Separate value and owner substitutions. Actual predecessor snapshots are not their general inverse. Complete snapshots, nested active-case guards and reached reference data remain separate. Conflicting source mappings become Unknown. Per-value and combined collectors have different original budgets. |
+| Witness refinement | Each clause proof, including None, contributes to the whole proved-evidence set. That set plus ordinary facts determines guard discharge. Preserve carrier availability, owning bit, address-owner payload and original witness/producer order. Availability alone is not clause truth. |
+| Carrier retirement | Carrier -> ordered captured ancestors, actual owned components and dependency places. Retained owners cut ancestor paths. Place -> current value -> observed paths applies to nonwrites. Match ancestor/descendant overlap, exclude siblings, and never infer ownership from equal contents. |
+| Clause revocation | Clause -> address -> owner place -> current observation is distinct from carrier lifetime. Writes, retirement, raw referent mutation, root expiry and cleanup have different policies. Keep private-admission exceptions and all independent live supports for qualified facts. |
+| Deferred evidence | Key by owner, execution site and captured entry. Retain owned arguments, extracted evidence and report snapshots. Selection/copy origins can expire while captured arguments remain. Possibility depends on absence of proved opposite guards. Captured ordinary facts grant no public authority. |
+| Proof queries | Include exact and absent membership/complement probes, relational subjects, variants, ordered-path frontiers, alternatives and alias hypotheses. Changed hypotheses reset their results. Removed supports require rederivation, including conflicts and multiple independent supports. |
+| Proof budgets | Preserve trusted-before-ordinary precedence, ordered DFS and Boolean short circuits. Fact rank and total length affect exhaustion even when truth is unchanged. Retain exact partial answers for incoming limits. Successful premises alone never justify reuse. |
+| Substitution | Include failed exact hits and longer-prefix misses, replacement priority, value/owner role and capture barriers. Ordered children share one decreasing budget. Inserted snapshots are not recursively expanded. |
+| Cleanup/publication | Cleanup uses retained owner, stable observations and proved truth. Private evidence needs the exact admitted carrier and entry scope. Final publication still needs intermediate checks, diagnostic deduplication, cancellation and completion products. Final block output alone is insufficient. |
+
+Source owners are execution_guarantees/{condition,boolean,trusted_implication,ordered_facts,witness,evidence},
+analysis/guarantee/{state,current,deferred,retirement,trusted/carriers,flow/merge,flow/witnesses}, and storage_flow.
+Do not flatten these edges into a generic changed-owner test or cache resolved current values as immutable.
+
+## Representation direction and remaining design questions
+
+Repeated alias conversion itself exceeds the count target. Carry immutable node handles and structural IDs
+from producers through proofs, graphs, rewrites and fact memberships. One ExecutionConditionKind schema should
+replace the recursive public enum plus duplicate child-ID/alias indexing. Remove StorageKey/StorageLookup and
+per-query interning after migration. Retain structural order, never numeric ID or allocation order, for facts,
+budget precedence, serialization and diagnostics. Owner identity and proof authority stay separate from nodes.
+
+Prefer a factory owned by CompilationState, reachable through CheckerRequestContext and binding contexts.
+Both provider/input producers and body analysis can use it without per-body reconstruction or a crate cycle.
+Nodes must survive the factory through immutable ownership without a factory->node->factory cycle. Construct
+children before taking a short insertion lock. Factory calls, ingress and maintenance still count. Constant
+nodes can be retained directly. A compilation-wide strong table retaining transient nodes needs a memory bound.
+
+Snapshot reuse is unresolved: Compilation::updated reuses execution candidates containing old condition handles,
+while semantic stores fork. Investigate an inherited immutable node/index snapshot with independent new writes,
+following SemanticValueStore, before selecting identity/namespace policy. BoundUnitId alone does not establish
+snapshot-safe meaning. Portable package terms remain a genuine decode boundary, directly into final nodes.
+
+The existing exhaustive hash_parts child emitter can supply semantic slots/roles while hashing. Migrate duplicate
+traversal matches to that schema, not to a second manually maintained mirror. Node-local checks and traversal
+barriers remain explicit. A witness collection and CurrentValues must own their published dependency relations.
+Do not maintain a shadow reverse index by hand at mutation sites. Persistent ordered fact versions also need
+rank/length accounting, failed-query dependencies and independent supports before selective recomputation is safe.
+These contracts are not all closed. Do not start a speculative semantic rewrite or claim a complete model yet.
+
+Do not repeat eager retirement fusion, witness allocation-key caches, unchanged-carrier shortcuts or empty-
+invalidation shortcuts. Keep the fixed five, source/import ownership controls, checker suite and frozen30 fixed.
 
 ## Fixed evidence and broader work
 
-Use optimized tooling, shared target/cargo and pinned target/toolchains/llvm/active. Select products from successful
-proof-build.jsonl. Native runs stay outside the sandbox. Each fixed case is bounded to 10 seconds. Stop on changed
-outcomes. proof-unfinished.json freezes five identities. correction-frozen30.json freezes membership and
-correction-current.json maps names. Fixed 920 is comparison.txt plus verification.json additions. Keep one current
-counter, timing and regression result. Overwrite stale task-owned logs. Never clean shared Cargo storage.
+Use optimized tooling, shared target/cargo and pinned target/toolchains/llvm/active. Select products from a
+successful proof-build.jsonl. Native runs stay outside the sandbox. Fixed cases are bounded to 10 seconds.
+proof-unfinished.json freezes five identities. correction-frozen30.json freezes membership and correction-current.json
+maps names. Fixed 920 is comparison.txt plus verification.json additions. Keep one current count, timing and
+regression result plus one probe patch. Remove hooks and stale raw outputs after verification. Build without
+hooks for final goal evidence, not every checkpoint. Retain the checker-only non-incremental override. Never
+clean shared Cargo storage. Do not run full matrices under the current scope.
 
 BRA-567 still needs generic borrowed-field completion mappings, inactive conditional result shapes and RawBuffer
-payload dependencies. Keep d302124's deferred-admission control: exact private carrier and nonvacuous qualified
-clause through captured entry evidence, without publishing truth. Then finish maintainability, owned/deferred
-matrices, frozen 30, fixed 920 and source/native gates. Verify root/main authority, cleanup before publication,
-normal/panic/cancellation, rollback once, services through static disposal, synchronous control and native archive/
-link removal of Rust orchestration. Independent draft-PR review precedes ready/In Review. Closing follows merge.
+payload dependencies. Keep d302124's deferred-admission control. Then finish maintainability, owned/deferred
+matrices, frozen30, fixed920 and source/native gates. Verify root/main authority, cleanup before terminal
+publication, normal/panic/cancellation, rollback once, services through static disposal, synchronous control and
+native archive/link removal of Rust orchestration. Independent draft-PR review precedes ready/In Review. Close
+only after merge. Six existing style errors remain: wildcard flow/invalidation and oversized flow/merge,
+storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.

@@ -78,10 +78,7 @@ impl ExecutionState {
     ) -> BTreeSet<ExecutionCondition> {
         let Some(entry) = self.entries.get(&invocation) else { return BTreeSet::new(); };
 
-        let owners = entry.witness_sources().flat_map(|value| self.witness_values(&value))
-            .collect::<BTreeSet<_>>();
-
-        let owners = crate::execution_guarantees::RetainedSnapshots::from(owners);
+        let owners = self.witness_snapshots(entry.witness_sources());
 
         entry.witness_inputs.iter().filter(|carrier| {
             owners.retains_owner(carrier)
@@ -105,14 +102,11 @@ impl ExecutionState {
         invocation: Option<bray_bound_tree::BoundExecutionSite>,
         carriers: &BTreeSet<ExecutionCondition>,
     ) -> BTreeSet<ExecutionCondition> {
-        let owners = invocation.and_then(|invocation| self.entries.get(&invocation))
-            .into_iter().flat_map(|entry| entry.witness_sources())
-            .flat_map(|value| self.witness_values(&value)).collect::<BTreeSet<_>>();
+        let owners = self.witness_snapshots(invocation.and_then(|invocation| self.entries.get(&invocation))
+            .into_iter().flat_map(|entry| entry.witness_sources()));
 
         let conditions = carriers.iter().filter_map(|carrier| self.witnesses.get(carrier))
             .flat_map(|witness| witness.conditions.keys()).collect::<BTreeSet<_>>();
-
-        let owners = crate::execution_guarantees::RetainedSnapshots::from(owners);
 
         self.allocation_owners.iter().filter(|(condition, owner)| {
             conditions.contains(condition) && owners.retains_owner(owner)
@@ -259,23 +253,22 @@ impl ExecutionState {
             &std::sync::Arc<crate::execution_guarantees::ExecutionWitness>,
         ),
     > {
-        let mut owned = BTreeSet::new();
-
-        if !self.witnesses.is_empty() {
-            for value in values {
-                owned.extend(self.witness_values(&value));
-            }
-        }
-
-        let count = if owned.is_empty() {
-            0
+        let owned = if self.witnesses.is_empty() {
+            crate::execution_guarantees::RetainedSnapshots::default()
         } else {
-            self.witnesses.len()
+            self.witness_snapshots(values)
         };
 
-        let owned = crate::execution_guarantees::RetainedSnapshots::from(owned);
+        let count = if owned.is_empty() { 0 } else { self.witnesses.len() };
 
         self.witnesses.iter().take(count).filter(move |(carrier, _)| owned.retains_owner(carrier))
+    }
+
+    pub(super) fn witness_snapshots(
+        &self,
+        values: impl IntoIterator<Item = ExecutionCondition>,
+    ) -> crate::execution_guarantees::RetainedSnapshots {
+        values.into_iter().flat_map(|value| self.witness_values(&value)).collect()
     }
 
     pub(super) fn call_trusted_assumptions(
