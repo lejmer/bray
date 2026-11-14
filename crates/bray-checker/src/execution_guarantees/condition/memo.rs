@@ -7,13 +7,19 @@ use std::sync::Mutex;
 pub(in crate::execution_guarantees) type ConditionMemo<T = bool> = Mutex<ConditionMap<T>>;
 
 pub(in crate::execution_guarantees) fn cached_condition<T: Clone>(memo: &ConditionMemo<T>, value: &ExecutionCondition, compute: impl FnOnce() -> T) -> T {
-    if let Some(result) = memo.lock().expect("condition query memo lock is not poisoned").get(value) {
-        return result.clone();
-    }
+    let key = {
+        let values = memo.lock().expect("condition query memo lock is not poisoned");
+
+        let (key, cached) = values.lookup(value);
+
+        if let Some(result) = cached { return result.clone(); }
+
+        key
+    };
 
     let result = compute();
 
-    memo.lock().expect("condition query memo lock is not poisoned").insert(value, result.clone());
+    memo.lock().expect("condition query memo lock is not poisoned").entry(key).insert(result.clone());
 
     result
 }
@@ -71,10 +77,15 @@ pub(super) fn memoized<T: Clone>(
 ) -> T {
     let Some(memo) = memo else { return compute(budget); };
 
-    let cached = memo.values.lock().expect("execution query memo lock is not poisoned")
-        .get(key).and_then(|cached| cached.reuse(budget));
+    let key = {
+        let values = memo.values.lock().expect("execution query memo lock is not poisoned");
 
-    if let Some(value) = cached { return value; }
+        let (key, cached) = values.lookup(key);
+
+        if let Some(value) = cached.and_then(|cached| cached.reuse(budget)) { return value; }
+
+        key
+    };
 
     let initial = *budget;
     let value = compute(budget);
@@ -85,7 +96,7 @@ pub(super) fn memoized<T: Clone>(
 
     // Entries retain immutable shallow condition keys and reusable results, without
     // holding the memo lock during recursive inference or copying operand trees.
-    let entry = values.get_or_insert_with(key, Computation::default);
+    let entry = values.entry(key).or_default();
 
     if *budget > 0 {
         entry.completed = Some((initial - *budget, value.clone()));
