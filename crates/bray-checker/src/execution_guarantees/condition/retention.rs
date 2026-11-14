@@ -5,6 +5,7 @@ use super::memo::{ConditionMemo, cached_condition};
 #[derive(Default)]
 pub(crate) struct Set {
     preserved: ConditionMemo,
+    contained: ConditionMemo,
     discriminants: std::collections::BTreeSet<ExecutionCondition>,
     copies: RetainedSnapshots,
     values: RetainedSnapshots,
@@ -59,7 +60,10 @@ impl Set {
             self.paths.entry(root).or_default().insert(path);
         }
 
-        if self.values.insert(value) { self.clear_preserved(); }
+        if self.values.insert(value) {
+            self.contained.get_mut().expect("observation membership memo lock is not poisoned").clear();
+            self.clear_preserved();
+        }
     }
 
     /// A surviving scalar snapshot retains data without keeping its source slot alive.
@@ -72,22 +76,28 @@ impl Set {
     }
 
     pub(crate) fn contains(&self, value: &ExecutionCondition) -> bool {
-        if self.values.contains(value) {
-            return true;
-        }
+        if self.values.is_empty() { return false; }
 
-        let Some((root, path)) = Self::indexed_path(value) else {
-            return false;
-        };
+        cached_condition(&self.contained, value, || {
+            if self.values.contains(value) {
+                return true;
+            }
 
-        let Some(paths) = self.paths.get(&root) else {
-            return false;
-        };
+            let Some((root, path)) = Self::indexed_path(value) else {
+                return false;
+            };
 
-        (0..=path.len()).any(|length| paths.contains(&path[..length]))
+            let Some(paths) = self.paths.get(&root) else {
+                return false;
+            };
+
+            (0..=path.len()).any(|length| paths.contains(&path[..length]))
+        })
     }
 
     pub(crate) fn overlaps(&self, value: &ExecutionCondition) -> bool {
+        if self.values.is_empty() { return false; }
+
         if self.contains(value) {
             return true;
         }

@@ -1,4 +1,4 @@
-use crate::execution_guarantees::{ExecutionAssumptions, ExecutionSubstitution, memoize_condition};
+use crate::execution_guarantees::{ExecutionAssumptions, ExecutionSubstitution};
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::BoundExpressionId;
@@ -455,7 +455,7 @@ impl ExecutionState {
         self.refine_witnesses();
 
         let stable_owners = crate::execution_guarantees::RetainedSnapshots::from(stable_owners);
-        let retained_owner = memoize_condition(|value| stable_owners.retains_owner(value));
+        let retained_owner = |value: &ExecutionCondition| stable_owners.retains_owner(value);
 
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);

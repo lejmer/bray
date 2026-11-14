@@ -83,15 +83,15 @@ impl ExecutionState {
 
         self.refine_deferred_witnesses();
 
-        let retained_owner = memoize_condition(|value| retained_snapshots.as_ref().map_or_else(
+        let retained_owner = |value: &ExecutionCondition| retained_snapshots.as_ref().map_or_else(
             || retained_observations.contains(value),
             |snapshots| snapshots.retains_owner(value),
-        ));
+        );
 
-        let retained_data = memoize_condition(|value| retained_snapshots.as_ref().map_or_else(
+        let retained_data = |value: &ExecutionCondition| retained_snapshots.as_ref().map_or_else(
             || retained_observations.preserves(value),
             |snapshots| snapshots.retains_contents(value),
-        ));
+        );
 
         let invalidated = self.retired_owners(pending, kind, retained_snapshots.is_some(), &retained_owner);
 
@@ -940,19 +940,28 @@ mod tests {
         assert!(retained.retains_owner(&before));
         assert!(!retained.retains_contents(&before));
 
-        let prior = crate::execution_guarantees::RetainedSnapshots::from(BTreeSet::from([before.clone()]));
-        let owns = super::memoize_condition(|value| retained.retains_owner(value));
-        let contents = super::memoize_condition(|value| retained.retains_contents(value));
-        let unchanged = super::memoize_condition(|value| prior.retains_contents_between(&retained, value));
-        let same = super::memoize_condition(|value| retained.retains_contents_between(&retained, value));
+        let mut prior = crate::execution_guarantees::RetainedSnapshots::from(BTreeSet::from([before.clone()]));
 
-        for _ in 0..2 {
-            assert!(owns(&before));
-            assert!(!contents(&before));
-            assert!(contents(&after));
-            assert!(!unchanged(&before), "owner retention cannot preserve overwritten data");
-            assert!(same(&after), "a different predecessor has its own scoped answer");
+        assert!(!prior.retains_owner(&root));
+        assert!(!prior.retains_contents(&after));
+
+        {
+            let unchanged = super::memoize_condition(|value| prior.retains_contents_between(&retained, value));
+            let same = super::memoize_condition(|value| retained.retains_contents_between(&retained, value));
+
+            for _ in 0..2 {
+                assert!(retained.retains_owner(&before));
+                assert!(!retained.retains_contents(&before));
+                assert!(retained.retains_contents(&after));
+                assert!(!unchanged(&before), "owner retention cannot preserve overwritten data");
+                assert!(same(&after), "a different predecessor has its own scoped answer");
+            }
         }
+
+        prior.insert(root.clone());
+        prior.insert(after.clone());
+        assert!(prior.retains_owner(&root));
+        assert!(prior.retains_contents(&after));
 
         let mut stable = crate::execution_guarantees::ObservationSet::from_iter(retained.clone());
 
@@ -963,5 +972,11 @@ mod tests {
 
         stable.insert(before.clone());
         assert!(stable.preserves(&before), "a newly retained snapshot invalidates the earlier negative query");
+
+        let borrowed = root.borrowed();
+
+        assert!(!stable.contains(&borrowed));
+        stable.insert(borrowed.clone());
+        assert!(stable.contains(&borrowed));
     }
 }

@@ -32,18 +32,14 @@ independently retained data. BooleanGraph shares immutable condition children. O
 scan positions, DFS order, strictness, source precedence and budget charges. Its differential oracle covers
 128 graphs and budgets 0-64. Solved flow outputs and actual cleanup parts/phases remain retained.
 
-Current producer-reuse checkpoint: all 556 checker tests pass. Fixed five pass at 191-198 ms for task cases
-and 245 ms for the loop. Three complementary source/import loops pass at 235-254 ms. Timings are informational
-on the shared machine. Counters are compiled but disabled for timing. Frozen30 remains 29 pass and the same
-RawBuffer invalid acceptance in 17.26 s. No full matrices ran. Outcomes and intended rejection sites are fixed.
-
-The bounded loop probe records 1,556,510 comparisons: ordering 752,295, equality 757,904 and physical identity
-46,311. Interner lookups are zero. It records 613,156 key hashes, 82,899 prepared nodes, 147,168 child hashes,
-1,084,821 comparison-pair lookups, 362,616 pair writes and 508,872 hash writes totaling 3,139,978 bytes.
-These are overlapping cost categories, not time. Sharing immutable map change metadata and the join guard set
-removes 17,551 comparisons, about 1.1 percent against the preceding 1,574,061 probe. Net production growth is
-three lines, with no new tests or query-result caches. The 10,000 goal remains far from achieved. Style reports
-the same six existing errors. Format/diff checks pass. Temporary hooks are removed after measurement.
+Current retention checkpoint: 556 checker tests pass. Fixed five pass at 205-227 ms for task cases and
+262 ms for the loop. Three complementary loops pass at 256-284 ms. Counters were compiled but disabled for
+timing. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 19.03 s. No full matrices ran.
+The bounded loop records 1,522,816 comparisons, zero interner lookups, 622,350 key hashes, 80,157 nodes,
+144,426 child hashes, 1,057,060 pair lookups, 360,084 pair writes and 503,388 hash writes totaling 3,096,106 bytes.
+Against the unchanged detailed baseline, comparisons fall 33,480 and key hashes rise 9,194. These categories
+overlap and do not measure elapsed time. The 10,000 goal remains far from achieved. Style has the same six
+existing errors. Format/diff checks pass. Temporary hooks are removed after measurement.
 
 ## Computation graph and cost model
 
@@ -92,8 +88,8 @@ flowchart LR
 Publication keeps the ordered evidence cycle. It cannot change current values or deferred inputs. A newly
 inserted owner is an explicit potential endpoint, initially absent. Earlier owners' insertions are visible
 when selecting the next owner. A parent with unknown contents does not retain invented child authority.
-The current batch removes repeated discovery at this boundary, under 60 net production lines. The broader
-replacement must remove repeated computation across versions, not add another cache or eager traversal.
+Retained selection edges remove repeated discovery here. Further work must remove repeated computation
+across versions while preserving ordered publication and actual predecessor evidence.
 
 ## Typed dependency inventory
 
@@ -141,45 +137,18 @@ Preserve child traversal, normalization and exhaustion even when final children 
 formulas cannot silently become negative atom facts. Proving a normalized contrary is not generally equivalent
 to asking whether the original condition proves false under the original precedence and budgets.
 
-## Implemented direct-membership contract
+## Direct-membership invariants
 
-Use the existing ProofMemo evidence index for exact transient query membership. Replace its Boolean value with
-raw first-set membership for both signs and the existing filtered explicit answer. Ingest unknown-containing
-keys and contradictory signs into raw membership. Compute explicit answers with the same unknown exclusion,
-ordinary qualifier exclusion and true-before-false precedence. A raw query must use the exact single-view memo
-for its assumptions. Never reuse a mixed memo's first-set facts as its ordinary-set membership.
-
-Factor the operation normalizer once into a retained/folded ExecutionCondition or an unpublished condition node.
-Reuse the existing kind-plus-hash node representation. Existing operation construction materializes the result
-without normalizing again. Exact lookup hashes and compares that node using the same cached-hash and pair-aware
-comparison machinery as a published handle. Do not duplicate the kind/child hashing schema, create an operator
-cache or register transient query nodes in BooleanGraph, observations or ownership products.
-
-All normalization branches remain shared: computed-value operands, unknown checks, literals, nullable/tag
-recursion, Boolean equality, double negation, equality complement and bounded Boolean rebuilding. A normalized
-Boolean/Unknown/operand result still asks whether that exact fact and sign are stored. It is not an intrinsic
-truth query. Raw inverse probes bypass normalization and test true then false, as before.
-
-The no-memo proof path needs one scope-owned memo at the proof entry, shared by comparison, inverse and recursive
-queries. Do not build and discard a comparison-local index before the inverse query. Preserve the original
-one-unit entry charge and exact completed/exhausted results. A zero-budget raw proof remains None. Index
-construction and all new lookups count, including standalone proof. No lock spans recursive inference.
-
-Preserve operand slot creation for published operations. Sharing original operand storage is safe only for
-unpublished lookup when order and computed values match. Do not add borrowed hash logic for reversed operands
-or shortcut normalizing constructors merely to remove allocations. Initial scope is exact lookup without an
-outer node allocation, using hashbrown Equivalent and the existing structural schema. Reconsider if this needs
-more than 200 nonblank production lines, another fact index or a parallel normalization implementation.
-
-Regression oracles remain fixed: checker tests, five fixtures with observe rejection, source/import ownership
-controls and frozen30. Extend existing evidence/normalization tests for both raw signs, unknown keys, filtered
-ordinary Trusted facts, normalized literal membership, matching collision hashes and no-memo budgets. Preserve
-ordered relation rank/length/DFS costs. Measure comparison, root/child/key hashing, pair writes and ingress work.
-The lookup must not remove counted root work merely by moving it out of ExecutionCondition::new.
+ProofMemo retains raw membership for both signs separately from filtered explicit answers. Preserve unknown
+keys, ordinary qualifier exclusion and true-before-false precedence. Raw lookup uses its exact single-view
+scope. Operation construction and transient lookup share one normalizer and structural hash/compare schema.
+Transient queries are not published into BooleanGraph or ownership products. All normalization and budget
+branches remain shared, including the one-unit proof-entry charge. Published operand slots remain distinct.
+No lock spans inference. Count lookup, normalization and index construction, including standalone proofs.
 
 ## Next unresolved producer boundary
 
-Current steering is a growth and fixture-sharing audit across b4b5a76f5..15380b43b, not just the last diff.
+The completed growth/fixture audit covers b4b5a76f5..15380b43b.
 The range adds 9,512 net lines: about 1,921 production, 7,456 tests and 135 other. The same 372 trusted-contract
 test names survive reorganization, with about 3,300 extra lines from splitting and formatting existing code.
 Retain genuine bug regressions and distinct contracts. Intermediate debugging history alone does not justify
@@ -209,17 +178,28 @@ identity consumers reuse that metadata, including unscoped calls. Identity pins,
 value/owner memos and snapshot capture boundaries are unchanged. Inactive-guard and conditional-alias consumers
 share one ordered availability/path set and preserve their separate iteration limits.
 
-Next trace producer-to-consumer dependencies and identify which repeated evaluations can be eliminated.
-Close the exact transition contract before edits. Do not add edge caching or another local lookup cache.
-The previous edge measurement bounds its potential contribution, and fixed scope memos already exist.
+Next investigate shared retirement predicate evaluation across condition roots. Root-level RetirementQueries
+memoizes six answers, but their implementations repeatedly traverse shared subgraphs and query retained data.
+A scope-owned DAG evaluation must preserve observation/only/live traversal differences, pruning and live-role
+keys. Close that transition contract before edits. Replace repeated walks, without transitive descendant lists,
+recursive Rust stack growth or another parallel child schema. Existing NodeIdentity denotes a handle slot,
+not allocation identity. Do not change physical occurrence semantics globally. Reverse graph rebuilding and
+edge-result caching are ruled out as the next target by measured cost.
 
-Exclusive comparison attribution sums to 1,556,510: retirement 407,373, joins 243,485, substitution 236,097,
-scope keys 183,436, proof 88,268, deferred refinement 87,808, outside 78,503, witness derivation 67,971,
-Boolean structure 58,103, witness publication 53,771, closure 46,597 and fact indices 5,098. Retirement is now
-instrumented across retire_values, entry contexts, referents, contents, witness exclusion, roots and cleanup.
-It accounts for 26 percent of comparisons and 182,680 key hashes. Do not replace the Boolean prover again
-as the main route. Trace retirement's actual dependencies and repeated retention/admission production next.
-Do not skip broad retirement: earlier measurements show real fact and witness removals.
+The detailed retirement probe on unchanged 1b262f9bd records 1,556,296 comparisons. Retirement graph
+reconstruction is only 152, closure 14,846, snapshot-index construction 8,151, snapshot queries 112,634,
+observation queries 68,004, entry filtering 12,652 and remaining retirement 190,919 with 162,208 key hashes.
+Cleanup-retirement/private-admission are unused in this fixture. This rules out a reverse-graph rewrite as
+the next optimization. The raw parent total is about 407k. Other major costs remain joins 244k, substitution
+236k and scope keys 183k. Full exclusive counters are in proof-count-current.json.
+
+Retained root sets now own owner/content queries, replacing external memo wrappers. Empty-context answers
+return before hashing. Root insertion invalidates every derived answer through the existing index lifetime.
+Owner, contents and inline-contents modes stay distinct. Between-snapshot queries depend on both actual sets
+and keep a separate pair scope. Remove outer wrappers rather than stacking caches. Preserve loans, unknowns,
+selected projections, overwritten contents, proof budgets and current-vs-entry boundaries. Existing retention
+and retirement tests, fixed five and frozen30 are the oracles. The existing retention test also checks cached
+negative answers after insertion. No test identity was added. Count index maintenance and retained query memory.
 
 Join candidates remain unimplemented. One actual-value traversal could supply observation events to ownership
 and conditional-fact construction, but predecessor absence evidence and missing-vs-Unknown results differ.

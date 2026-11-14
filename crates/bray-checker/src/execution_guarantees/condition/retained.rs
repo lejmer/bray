@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::{ExecutionCondition, ExecutionObservationKind as ObservationKind};
 use super::retention::Set;
+use super::memo::{ConditionMemo, cached_condition};
 use super::traversal::NodeIdentity;
 
 /// Actual retained roots own their query index. Adding a root invalidates that index.
@@ -46,25 +47,29 @@ impl RetainedSnapshots {
 
         let Some((role, owner)) = value.ownership_identity() else { return false; };
 
-        self.matching(value, false, |selected| {
-            !selected.is_unknown() && selected.ownership_identity() == Some((role, owner))
+        cached_condition(&self.index().owned, value, || {
+            self.matching(value, false, |selected| {
+                !selected.is_unknown() && selected.ownership_identity() == Some((role, owner))
+            })
         })
     }
 
     pub(crate) fn retains_contents(&self, value: &ExecutionCondition) -> bool {
         if self.roots.is_empty() { return false; }
 
-        if let crate::ExecutionConditionKind::Observation { owner, contents, kind: ObservationKind::Reference } = value.kind()
-            && contents.ownership_identity().is_some_and(|(kind, _)| kind == ObservationKind::Owned)
-            && **owner == contents.owner_identity().clone().borrowed()
-            && self.matching(contents, false, |selected| {
-                selected.has_same_owner(contents) && Self::same_contents(selected, contents)
-            })
-        {
-            return true;
-        }
+        cached_condition(&self.index().preserved, value, || {
+            if let crate::ExecutionConditionKind::Observation { owner, contents, kind: ObservationKind::Reference } = value.kind()
+                && contents.ownership_identity().is_some_and(|(kind, _)| kind == ObservationKind::Owned)
+                && **owner == contents.owner_identity().clone().borrowed()
+                && self.matching(contents, false, |selected| {
+                    selected.has_same_owner(contents) && Self::same_contents(selected, contents)
+                })
+            {
+                return true;
+            }
 
-        self.matching(value, true, |selected| Self::same_contents(selected, value))
+            self.matching(value, true, |selected| Self::same_contents(selected, value))
+        })
     }
 
     pub(super) fn retains_inline_contents(&self, value: &ExecutionCondition) -> bool {
@@ -94,10 +99,14 @@ impl RetainedSnapshots {
         value
     }
 
+    fn index(&self) -> &SnapshotIndex {
+        self.index.get_or_init(|| SnapshotIndex::new(&self.roots))
+    }
+
     fn matching(&self, value: &ExecutionCondition, observe_referents: bool, matches: impl Fn(&ExecutionCondition) -> bool) -> bool {
         if self.roots.is_empty() { return false; }
 
-        let index = self.index.get_or_init(|| SnapshotIndex::new(&self.roots));
+        let index = self.index();
 
         let (borrowed, owner) = value.owner_match_key();
 
@@ -135,6 +144,8 @@ impl RetainedSnapshots {
 /// Candidate indexing never grants retention. Queries still check the selected actual snapshot.
 #[derive(Default)]
 struct SnapshotIndex {
+    owned: ConditionMemo,
+    preserved: ConditionMemo,
     nodes: Vec<(ExecutionCondition, bool)>,
     owners: BTreeMap<(bool, ExecutionCondition), Vec<usize>>,
     paths: BTreeMap<ExecutionCondition, Vec<(Vec<bray_symbols::ConstantProjectionKind>, usize)>>,
