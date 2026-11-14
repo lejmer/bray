@@ -39,24 +39,37 @@ BooleanGraph consumes the ConditionIndex's existing child IDs and shares immutab
 re-interns children. Node truth, published polarity, ordinary/trusted roles and query results stay scope-local.
 Child projection/order and relational fallbacks are unchanged. No index lock spans graph recursion.
 
-All 548 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 134-137 ms,
-loop 270/271 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 272-299 ms.
-Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.7 seconds. No full matrices ran.
-This batch adds six nonblank production lines, with no new tests. Existing graph, collision, authority, budget
-and parallel controls cover the changed representation. Style retains the same six errors: wildcard flow/invalidation
-and oversized flow/merge, storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.
-Format and diff checks pass.
+OrderedFacts now prepares ordered edges once per exact proof scope. Edge positions preserve every old scan budget
+charge, DFS order, strictness, reversed equality and integer shortcuts. False comparisons provide no ordered edges.
+False inequality can establish an ordered domain. Empty graphs retain the initial integer shortcut and original scan
+cost without interning endpoints. Trusted and ordinary baseline memos stay separate. An implication hypothesis shares
+its memo until actual alias consequences change its facts, then resets every result while retaining structural IDs.
+The production scan is removed. One differential test retains it as an independent oracle over 128 graphs and budgets
+0-64, checking results and remaining budgets, including cycles, missing edges, negative evidence and literal bounds.
 
-Complete count is 5,693,326: ordering 3,345,601, equality 1,115,814, identity 567,885, interning 664,026.
-Boolean derivation costs 1.08M. The caller has 198 CFG blocks and two required storage solves with 271 transfers
-each. It still has 11,453 indexed condition nodes, 836 evidence scopes and 24,482 proof queries. Witness refinement
-produces 9,528 queries. These stage costs overlap. Do not sum them. 8,065 indexed operation nodes remain far beyond
-the source operations. The count target is not met. Next investigate clause multiplication at joins and refinement.
+All 549 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 131-134 ms,
+loop 267/272 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 268-293 ms.
+Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.3 seconds. No full matrices ran.
+This batch adds 22 nonblank production lines and 154 test lines, mostly the old traversal oracle. It adds one test.
+Style retains the same six errors: wildcard flow/invalidation and oversized flow/merge, storage_flow cleanup/core,
+execution_guarantees/portable and tooling output/diagnostic/json/argument. Format and diff checks pass.
 
-Do not replace semantic query keys with physical-only keys. Equal rebuilt clauses then repeat inference.
-Do not intern every rewritten output merely to share representatives. Extra indexing exceeded the saved work.
-Before semantic changes, close the contract for guards, carrier authority, dependencies, availability and budget
-behavior. Skipping witness refinement solely because its carrier did not change is not sufficient.
+Complete count is 5,660,987: ordering 3,104,957, equality 1,188,468, identity 594,522, interning 773,040.
+The caller has 198 CFG blocks and two required storage solves with 271 transfers each. There are 12,801 indexed
+nodes across indices, 836 evidence scopes and 24,482 proof queries. Witness refinement performs 956 computations,
+usually over 9-21 claims, generating 9,528 proof queries. Joins publish up to 21 guarded claims for 1-2 witnesses.
+Refinement costs about 2M and Boolean derivation 1.07M operations. Stage costs overlap. Do not sum them.
+The count target is not met. More lookup tuning alone is insufficient.
+
+Next is read-only tracing of how witness clauses retain current validity separately from possible obligations.
+Current conditions plus one carrier-level availability flag force validity reconstruction through global proof queries.
+Trace creation, join, guard wrapping, renaming, suspension/resumption, current/entry retirement and address dependencies
+before changing this representation. Determine whether established evidence can travel with the actual carrier and
+replace repeated validity reconstruction, without a second stale truth representation. No semantic contract is closed yet.
+Do not prune unproved claims: they also retain suspended-execution and address-retirement obligations.
+Do not skip refinement merely because the carrier did not change. Guards and captured evidence may change.
+Do not replace semantic query keys with physical-only keys or intern every rewritten output to share representatives.
+Both experiments increased total work. Keep exact evidence roles, scopes and original semantic budgets.
 
 Temporary probes are removed. Complete counts are in proof-count-current.json and reusable hooks are in
 proof-counter.patch. Build with probes for performance batches, then build without them for final goal evidence.

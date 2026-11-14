@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use super::ExecutionCondition;
-use super::condition::ConditionIndex;
+use super::condition::{ConditionIndex, ProofMemo};
 use super::boolean::{BooleanGraph, BooleanId, alternative_value};
 
 #[derive(Default)]
@@ -24,6 +24,8 @@ pub(super) fn prepare_trusted_conditions(
     ordinary: &BTreeSet<(ExecutionCondition, bool)>,
     index: ConditionIndex,
 ) -> (BTreeSet<(ExecutionCondition, bool)>, BooleanGraph) {
+    let trusted_proof = ProofMemo::new(&index);
+    let ordinary_proof = ProofMemo::new(&index);
     let mut graph = BooleanGraph::new(&known, ordinary, index);
     let mut terms = (0..graph.terms.len()).map(|_| ProofTerm::default()).collect::<Vec<_>>();
     let mut queue = VecDeque::new();
@@ -52,9 +54,9 @@ pub(super) fn prepare_trusted_conditions(
             ExecutionCondition::Operation(..) | ExecutionCondition::VariantTest(..) => {
                 // Relational inference keeps its original source precedence and work budget.
                 trusted.filter(|_| !condition.contains_unknown())
-                    .or_else(|| condition.prove(&known, &mut { ExecutionCondition::WORK_LIMIT }))
+                    .or_else(|| condition.prove_with_memo(&known, &mut { ExecutionCondition::WORK_LIMIT }, Some(&trusted_proof)))
                     .or_else(|| unqualified.filter(|_| !condition.contains_unknown()))
-                    .or_else(|| condition.prove(ordinary, &mut { ExecutionCondition::WORK_LIMIT }))
+                    .or_else(|| condition.prove_with_memo(ordinary, &mut { ExecutionCondition::WORK_LIMIT }, Some(&ordinary_proof)))
             }
             // Other graph leaves have no inference rule beyond their explicit evidence.
             _ => trusted.or(unqualified).filter(|_| !condition.contains_unknown()),

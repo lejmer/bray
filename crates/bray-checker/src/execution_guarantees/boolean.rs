@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use bray_bound_tree::BoundOperator;
 
 use super::ExecutionCondition;
-use super::condition::{ConditionId, ConditionIndex, ConditionMemo, ConditionNode, cached_condition};
+use super::condition::{ConditionId, ConditionIndex, ConditionMemo, ConditionNode, ProofMemo, cached_condition};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct BooleanId(pub(super) usize);
@@ -249,6 +249,8 @@ impl<'a> AlternativeQuery<'a> {
             self.seed(condition, *holds);
         }
 
+        let mut memo = ProofMemo::new(&self.proof.graph.conditions);
+
         while let Some(id) = self.queue.pop_front() {
             let asserted = {
                 let node = self.nodes.entry(id);
@@ -270,7 +272,7 @@ impl<'a> AlternativeQuery<'a> {
                 Some(value)
             } else {
                 self.proof.graph.derived(id, |child| self.value(child)).or_else(|| {
-                    term.children.is_empty().then(|| term.condition.value.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT })).flatten()
+                    term.children.is_empty().then(|| term.condition.value.prove_with_memo(&contrary, &mut { ExecutionCondition::WORK_LIMIT }, Some(&memo))).flatten()
                 })
             };
 
@@ -302,6 +304,11 @@ impl<'a> AlternativeQuery<'a> {
                     if contrary.insert((condition.clone(), value)) { derived.push((condition, value)); }
                 });
 
+                if !derived.is_empty() {
+                    // Alias consequences change this hypothesis. Only structural identity survives.
+                    memo = ProofMemo::new(&self.proof.graph.conditions);
+                }
+
                 for (condition, held) in derived { self.seed(&condition, held); }
             }
         }
@@ -312,7 +319,7 @@ impl<'a> AlternativeQuery<'a> {
             let term = &self.proof.graph.terms[id.0];
             let held = term.published.expect("implication candidates have an asserted alternative");
 
-            term.condition.value.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT })
+            term.condition.value.prove_with_memo(&contrary, &mut { ExecutionCondition::WORK_LIMIT }, Some(&memo))
                 == Some(!held)
         })
     }
