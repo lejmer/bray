@@ -182,23 +182,41 @@ fn recursive_inactive_cleanup_report_dependencies_remain_finite() {
 
 #[test]
 fn inactive_generic_cleanup_reports_retain_capture_dependencies() {
-    for local in [false, true] {
+    for (local, wrapped) in [false, true].into_iter().flat_map(|local| [false, true].map(|wrapped| (local, wrapped))) {
         let source = r#"
             module app;
-            struct Incident { value: &bool; }
-            struct Resource {
+
+            struct Incident
+            {
                 value: &bool;
-                finalize() -> Result<unit, Incident> {
+            }
+
+            struct Resource
+            {
+                value: &bool;
+
+                finalize() -> Result<unit, Incident>
+                {
                     return Error(Incident { value = self.value });
                 }
             }
-            async func hold<T>(pos value: T) {}
-            func discard<T>(pos value: T) { let pending = hold<T>(value); }
-            func caller(pos input: &bool) {
+
+            async func hold<T>(pos value: T)
+            {
+            }
+
+            func discard<T>(pos value: T)
+            {
+                let pending: FutureType = hold<T>(value);
+            }
+
+            func caller(pos input: &bool)
+            {
                 Prologue
                 discard<Resource>(Resource { value = Argument });
             }
         "#
+        .replace("FutureType", if wrapped { "Future<unit>?" } else { "Future<unit>" })
         .replace(
             "Prologue",
             if local { "let local: bool = true;" } else { "" },

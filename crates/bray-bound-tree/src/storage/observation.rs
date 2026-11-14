@@ -56,6 +56,8 @@ pub enum StorageMutation {
         occurrence: crate::BoundExecutionSite,
         /// Owner receiving cancellation.
         access: crate::StorageAccessId,
+        /// Prepared component within that owner.
+        part: usize,
     },
     /// One opaque represented component within an ordered cleanup.
     Cleanup {

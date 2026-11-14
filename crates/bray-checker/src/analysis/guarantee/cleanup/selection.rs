@@ -5,21 +5,6 @@ use super::plan::Step;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    /// Cancellation visits only represented parts that exist on this execution path.
-    pub(super) fn cancellation_condition(
-        &self,
-        state: &ExecutionState,
-        access: bray_bound_tree::StorageAccessId,
-    ) -> ExecutionCondition {
-        self.disposal.plan.steps.get(&access)
-            .expect("selected cancellation has prepared cleanup parts")
-            .iter()
-            .map(|step| self.cleanup_part_condition(state, step))
-            .fold(ExecutionCondition::Boolean(false), |condition, part| {
-                ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![condition, part])
-            })
-    }
-
     pub(super) fn cleanup_part_condition(
         &self,
         state: &ExecutionState,

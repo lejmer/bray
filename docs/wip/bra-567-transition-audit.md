@@ -25,32 +25,36 @@ Proof closure remains in immutable preparation and never feeds derived consequen
 Indexed graph assertions avoid full fact-set searches per node. ExecutionAssumptions shares immutable roots,
 retaining identity on no-op updates. Proof-cache root aliases retain allocations and structural collision checks.
 
-Current batch uses existing NodeIdentity/visit_once for retained_snapshot's borrowed immutable graph. Pending
-order, exact owner/data predicates, projection budget and reference traversal policy are unchanged. Retirement's
-cloned semantic dependency worklist remains structurally keyed. FixedPointResult now publishes already computed
-outputs. ExecutionFlow consumers borrow them instead of rerunning transfers. Scheduling, convergence, cancellation,
-edge refinement and cleanup rounds are unchanged. No output crosses solver invocations. No new type or cache.
-Growth limit 25 production and 35 test lines. Existing graph and fixed-point controls were extended.
+Retained snapshots use borrowed graph identity for visitation. FixedPointResult retains solved outputs for
+ExecutionFlow consumers. No transfer is replayed by output lookup. These changes are checkpoint e72ebb80e.
 
-Uninstrumented tooling build passes all 548 checker tests. Fixed five twice: task cases 132-139 ms, loop 310/311 ms.
-Negative outcomes and observation sites are unchanged. Frozen 30 remains 29 pass/1 known RawBuffer invalid acceptance.
-Formatting passes. Mutating style has the same six existing errors: wildcard flow/invalidation and oversized
-flow/merge, storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.
-Temporary hooks are removed. Current reusable instrumentation is target/audit/proof-counter.patch.
+Current batch preserves full_cleanup_parts' phase, type and path in prepared cleanup steps. Cancellation and
+lifecycle both select the actual part. Cancellation mutations retain the part ordinal, so siblings cannot overwrite
+publication or expire each other's evaluations. Removed aggregate cancellation_condition and outer-type effect
+selection. Unknown producers remain conservative. Lifecycle retirement and report/address dependencies remain.
+Existing inactive generic capture-report control now covers direct and nullable futures, valid and escaping borrows.
+No new type/cache. Growth limit 50 production/50 test lines excluding fixture formatting.
 
-Full caller count is 7,354,938, including physical NodeIdentity comparisons omitted by older counters.
-Latest breakdown: 3,640,057 ordering, 2,378,712 equality, 541,314 identity, 794,855 recursive interner calls.
-Physical-identity comparisons account for 114,575 of that total. Hash-table collision counts vary across processes.
-Retention's physical visitation removes about half a million comparable operations. Output publication does not
-materially change this fixture's count. It removes redundant reconstruction for execution-guarantee consumers.
+Instrumented tooling: 197 authority/execution controls and seven selected source/import/capture-report controls pass.
+The loop preserves its intended rejection. All 92 wrapped broadcasts retain Future capture metadata and resolve
+empty capture effects, rather than outer-wrapper disposal. Full caller work is 6,615,914: ordering 3,178,399,
+equality 2,097,166, identity 539,538, recursive interning 800,811. Counts include physical comparisons. Hash
+collisions cause small process variation. Timing with probes is 418 ms. The operation target remains unmet.
+Uninstrumented tooling passes all 548 checker tests and both positive same-site loop controls in source/import.
+Fixed five twice: task cases 137-225 ms, loop 293/360 ms. Frozen30 remains 29 pass/same RawBuffer failure (13s).
+Timing ran alongside frozen30. All runs were bounded. No full matrices. This batch is ready for checkpoint.
+Mutating style has the same six existing errors: wildcard flow/invalidation and oversized flow/merge,
+storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument. Format passes.
 
-The caller has 198 CFG blocks. Two required storage solves perform 271 transfers each, costing 3.67 million and
-1.62 million operations. Demanded helper bodies contribute little. Remaining work includes publication outside
-those solves. There are 224 joins, 748 derived graphs, 38,302 retention searches and 45,322 substitutions.
-Normalization costs only about 63,000 comparisons. Do not add a normalization cache. Next: measure incoming-state
-joins, block transfers and publication separately, then repair the repeated processing at the owning boundary.
-Do not assume excessive iteration or provider checking explains these counts. Clause compression remains unresolved
-because guards and evidence can have different lifetimes. Do not prune on implication alone.
+The caller has 198 CFG blocks and two required storage solves, each 271 transfers. Latest overlapping stage costs:
+incoming 1.81M, transfer 3.36M, publication 1.45M, all joins 1.81M. Do not sum overlapping stages.
+Earlier measurement ruled out excessive fixed-point iterations and normalization as the main cost.
+An identity-action cleanup shortcut had no hits before the part repair and was removed.
+Next investigate repeated whole-state joins/publication and exact evidence preparation, with complete counts and
+unique-node/scope cardinalities. Do not add another cache without identifying which repeated work it removes.
+Retirement must still expire prior loop evaluations even when physical cleanup effects are empty.
+Guard/evidence lifetimes differ, so implication alone cannot justify deleting carrier clauses.
+Temporary probes are removed. Reusable current instrumentation is target/audit/proof-counter.patch.
 
 ## Fixed evidence and broader work
 
