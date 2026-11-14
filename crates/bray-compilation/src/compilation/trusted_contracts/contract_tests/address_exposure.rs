@@ -191,6 +191,8 @@ fn storing_address_bits_does_not_bind_destination_initialization_to_the_pointee(
 
 #[test]
 fn address_retirement_preserves_only_independent_returned_guarantees() {
+    let receipt_declarations = super::fixtures::RECEIPT_DECLARATIONS;
+
     for (after, valid) in [
         ("observe_marker(&receipt);", true),
         ("observe_address(&receipt);", false),
@@ -198,16 +200,7 @@ fn address_retirement_preserves_only_independent_returned_guarantees() {
         let source = format!(
             r#"
             trusted module app;
-            using core.memory;
-            struct Marker
-            {{
-            }}
-            struct Receipt
-            {{
-                marker: Marker;
-                pointer: DataPointer<u32>;
-            }}
-            trusted predicate held(owner: &Marker);
+            {receipt_declarations}
             trusted func produce(pos payload: &u32) -> Receipt
                 ensures(
                     trusted held(owner = &result.marker),
@@ -255,6 +248,8 @@ fn address_retirement_preserves_only_independent_returned_guarantees() {
 
 #[test]
 fn address_guarantees_follow_derived_values_without_revoking_independent_markers() {
+    let receipt_declarations = super::fixtures::RECEIPT_DECLARATIONS;
+
     for (body, valid) in [
         (
             "let payload: u32 = 0; let receipt = shifted(core.memory.address_of<u32>(&payload)); observe(receipt.pointer);",
@@ -276,16 +271,7 @@ fn address_guarantees_follow_derived_values_without_revoking_independent_markers
         let application = compilation(&format!(
             r#"
             trusted module app;
-            using core.memory;
-            struct Marker
-            {{
-            }}
-            struct Receipt
-            {{
-                marker: Marker;
-                pointer: DataPointer<u32>;
-            }}
-            trusted predicate held(owner: &Marker);
+            {receipt_declarations}
             trusted func shifted(pos pointer: DataPointer<u32>) -> Receipt
                 requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
                 ensures(

@@ -3,6 +3,35 @@ use crate::{Compilation, CompilationRequest};
 use crate::test_support::{ProductionFixtureCache, production_fixture, source_input};
 use std::sync::{OnceLock};
 
+/// Shared declarations for pointer-bound receipt fixtures.
+pub(super) const RECEIPT_DECLARATIONS: &str = r#"
+using core.memory;
+
+struct Marker
+{
+}
+
+struct Receipt
+{
+    marker: Marker;
+    pointer: DataPointer<u32>;
+}
+
+trusted predicate held(owner: &Marker);
+"#;
+
+/// A producer for tests that declare an Owner and its live predicate.
+pub(super) const LIVE_OWNER_PRODUCER: &str = r#"
+trusted func owner() -> Owner
+    ensures(trusted live(&result))
+{
+    return
+    {
+        epoch = 1
+    };
+}
+"#;
+
 pub(super) fn foreign_compilation(source: &str) -> Compilation {
     crate::test_support::compilation_with_options(source,
         crate::CompilationOptions::default().with_native_link_inputs([
@@ -177,6 +206,24 @@ pub(super) fn body_belongs_to(
     }
 
     false
+}
+
+#[track_caller]
+pub(super) fn assert_production_probe(caller: &str, valid: bool) {
+    let compilation = production_host_compilation(caller);
+
+    let checked = compilation
+        .lowered_unit(crate::test_support::source_function_body_key(
+            &compilation,
+            "production_probe",
+        ))
+        .expect("fixture callable must lower successfully");
+
+    bray_testing::assert_goal_state_diagnostic_outcome(
+        checked.diagnostics(),
+        (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+        caller,
+    );
 }
 
 pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compilation {

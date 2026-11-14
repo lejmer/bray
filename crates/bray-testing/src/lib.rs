@@ -22,7 +22,8 @@ pub use bound_unit::{
 };
 pub use command_help::assert_complete_command_help;
 pub use diagnostic::{
-    assert_goal_state_diagnostic, assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics,
+    assert_goal_state_diagnostic, assert_goal_state_diagnostic_kind,
+    assert_goal_state_diagnostic_outcome, assert_goal_state_diagnostics,
     diagnostic_at, diagnostics_of_kind, single_diagnostic,
 };
 #[cfg(feature = "mir-unit")]

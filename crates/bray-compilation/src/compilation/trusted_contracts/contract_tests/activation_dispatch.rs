@@ -1,6 +1,5 @@
-use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation};
+use super::fixtures::{assert_production_probe, production_host_compilation};
 
 #[test]
 #[ignore = "tier:proof"]
@@ -26,24 +25,7 @@ fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
         "#
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{body}: {checked:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -82,25 +64,7 @@ fn activation_dispatch_requires_exact_native_ownership() {
         "#
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{caller}: {:?}",
-            lowered.diagnostics()
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -159,25 +123,7 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
             "#
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{caller}: {:?}",
-            lowered.diagnostics()
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -249,25 +195,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             "#
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{caller}: {:?}",
-            lowered.diagnostics()
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -314,25 +242,7 @@ fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
             "#
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{caller}: {:?}",
-            lowered.diagnostics()
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 

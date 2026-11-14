@@ -258,18 +258,11 @@ fn mixed_boolean_requirements_preserve_trusted_occurrences_and_ordinary_guards()
 
         let compilation = compilation(&source);
 
-        if valid {
-            assert!(
-                !compilation.check_diagnostics().has_errors(),
-                "{source}: {:?}",
-                compilation.check_diagnostics()
-            );
-        } else {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                compilation.check_diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        bray_testing::assert_goal_state_diagnostic_outcome(
+            compilation.check_diagnostics(),
+            (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven),
+            &source,
+        );
     }
 }
 
@@ -391,18 +384,11 @@ fn ordinary_predicate_guards_select_trusted_conditional_guarantees() {
 
         let compilation = compilation(&source);
 
-        if valid {
-            assert!(
-                !compilation.check_diagnostics().has_errors(),
-                "{source}: {:?}",
-                compilation.check_diagnostics()
-            );
-        } else {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                compilation.check_diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        bray_testing::assert_goal_state_diagnostic_outcome(
+            compilation.check_diagnostics(),
+            (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven),
+            &source,
+        );
     }
 }
 

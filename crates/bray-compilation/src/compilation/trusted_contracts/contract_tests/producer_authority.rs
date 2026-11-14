@@ -242,36 +242,32 @@ fn a_vacuous_entry_obligation_does_not_make_the_owner_a_witness() {
 
 #[test]
 fn trusted_producers_establish_live_result_witnesses() {
-    let source = r#"
-        trusted module app;
+    let source = [
+        r#"
+            trusted module app;
 
-        struct Owner
-        {
-            mut epoch: u64;
-        }
-
-        trusted predicate live(owner: &Owner);
-
-        trusted func owner() -> Owner
-            ensures(trusted live(&result))
-        {
-            return
+            struct Owner
             {
-                epoch = 1
-            };
-        }
+                mut epoch: u64;
+            }
 
-        trusted func observe(pos value: &Owner)
-            requires(trusted live(value)) {}
+            trusted predicate live(owner: &Owner);
+        "#,
+        super::fixtures::LIVE_OWNER_PRODUCER,
+        r#"
+            trusted func observe(pos value: &Owner)
+                requires(trusted live(value)) {}
 
-        func caller()
-        {
-            let value = owner();
-            observe(&value);
-        }
-    "#;
+            func caller()
+            {
+                let value = owner();
+                observe(&value);
+            }
+        "#,
+    ]
+    .concat();
 
-    let compilation = compilation(source);
+    let compilation = compilation(&source);
 
     assert!(
         !compilation.check_diagnostics().has_errors(),
@@ -329,32 +325,30 @@ fn moving_raw_contents_preserves_allocation_ownership_until_deallocation() {
 #[test]
 fn moving_a_witness_preserves_the_new_owner() {
     let compilation = compilation(
-        r#"
-        trusted module app;
-        struct Owner
-        {
-            epoch: u64;
-        }
-        trusted predicate live(value: &Owner);
-        trusted func owner() -> Owner
-            ensures(trusted live(&result))
-        {
-            return
-            {
-                epoch = 1
-            };
-        }
-        trusted func observe(pos value: &Owner)
-            requires(trusted live(value))
-        {
-        }
-        func caller()
-        {
-            let value = owner();
-            let moved = value;
-            observe(&moved);
-        }
-    "#,
+        &[
+            r#"
+                trusted module app;
+                struct Owner
+                {
+                    epoch: u64;
+                }
+                trusted predicate live(value: &Owner);
+            "#,
+            super::fixtures::LIVE_OWNER_PRODUCER,
+            r#"
+                trusted func observe(pos value: &Owner)
+                    requires(trusted live(value))
+                {
+                }
+                func caller()
+                {
+                    let value = owner();
+                    let moved = value;
+                    observe(&moved);
+                }
+            "#,
+        ]
+        .concat(),
     );
 
     assert!(
@@ -405,36 +399,34 @@ fn an_acknowledged_producer_establishes_guarantees_when_its_obligation_is_expose
 #[test]
 fn safe_forwarders_preserve_existing_witnesses() {
     let compilation = compilation(
-        r#"
-        trusted module app;
-        struct Owner
-        {
-            epoch: u64;
-        }
-        trusted predicate live(value: &Owner);
-        trusted func owner() -> Owner
-            ensures(trusted live(&result))
-        {
-            return
-            {
-                epoch = 1
-            };
-        }
-        func forward(pos value: Owner) -> Owner
-            requires(trusted live(&value)) ensures(trusted live(&result))
-        {
-            return value;
-        }
-        trusted func observe(pos value: &Owner)
-            requires(trusted live(value))
-        {
-        }
-        func caller()
-        {
-            let value = forward(owner());
-            observe(&value);
-        }
-    "#,
+        &[
+            r#"
+                trusted module app;
+                struct Owner
+                {
+                    epoch: u64;
+                }
+                trusted predicate live(value: &Owner);
+            "#,
+            super::fixtures::LIVE_OWNER_PRODUCER,
+            r#"
+                func forward(pos value: Owner) -> Owner
+                    requires(trusted live(&value)) ensures(trusted live(&result))
+                {
+                    return value;
+                }
+                trusted func observe(pos value: &Owner)
+                    requires(trusted live(value))
+                {
+                }
+                func caller()
+                {
+                    let value = forward(owner());
+                    observe(&value);
+                }
+            "#,
+        ]
+        .concat(),
     );
 
     assert!(

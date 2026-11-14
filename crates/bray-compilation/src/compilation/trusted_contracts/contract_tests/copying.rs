@@ -364,34 +364,32 @@ fn output_authority_copy_checks_follow_current_completion_guards() {
 #[test]
 fn copying_a_structural_owner_cannot_duplicate_nested_authority() {
     let compilation = compilation(
-        r#"
-        trusted module app;
-        @copy struct Owner
-        {
-            epoch: u64;
-        }
-        @copy struct Holder
-        {
-            owner: Owner;
-        }
-        trusted predicate live(value: &Owner);
-        trusted func owner() -> Owner
-            ensures(trusted live(&result))
-        {
-            return
-            {
-                epoch = 1
-            };
-        }
-        func caller()
-        {
-            let holder: Holder =
-            {
-                owner = owner()
-            };
-            let copy = holder;
-        }
-    "#,
+        &[
+            r#"
+                trusted module app;
+                @copy struct Owner
+                {
+                    epoch: u64;
+                }
+                @copy struct Holder
+                {
+                    owner: Owner;
+                }
+                trusted predicate live(value: &Owner);
+            "#,
+            super::fixtures::LIVE_OWNER_PRODUCER,
+            r#"
+                func caller()
+                {
+                    let holder: Holder =
+                    {
+                        owner = owner()
+                    };
+                    let copy = holder;
+                }
+            "#,
+        ]
+        .concat(),
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
@@ -533,18 +531,11 @@ fn negative_trusted_guarantees_retain_witness_copy_obligations() {
 
         let compilation = compilation(&source);
 
-        if valid {
-            assert!(
-                !compilation.check_diagnostics().has_errors(),
-                "{source}: {:?}",
-                compilation.check_diagnostics()
-            );
-        } else {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                compilation.check_diagnostics(),
-                DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
-            );
-        }
+        bray_testing::assert_goal_state_diagnostic_outcome(
+            compilation.check_diagnostics(),
+            (!valid).then_some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
+            &source,
+        );
     }
 }
 
@@ -631,27 +622,25 @@ fn ordinary_field_copy_does_not_outlive_its_witness() {
 #[test]
 fn implicit_copy_cannot_duplicate_a_live_witness() {
     let compilation = compilation(
-        r#"
-        trusted module app;
-        @copy struct Owner
-        {
-            epoch: u64;
-        }
-        trusted predicate live(value: &Owner);
-        trusted func owner() -> Owner
-            ensures(trusted live(&result))
-        {
-            return
-            {
-                epoch = 1
-            };
-        }
-        func caller()
-        {
-            let value = owner();
-            let copied = value;
-        }
-    "#,
+        &[
+            r#"
+                trusted module app;
+                @copy struct Owner
+                {
+                    epoch: u64;
+                }
+                trusted predicate live(value: &Owner);
+            "#,
+            super::fixtures::LIVE_OWNER_PRODUCER,
+            r#"
+                func caller()
+                {
+                    let value = owner();
+                    let copied = value;
+                }
+            "#,
+        ]
+        .concat(),
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(

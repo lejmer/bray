@@ -1,6 +1,35 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{compilation};
 
+const SCALAR_BORROW_PREDICATES: &str = r#"
+trusted predicate live(value: &u8);
+trusted predicate live_bool(value: &bool);
+"#;
+
+const SCALAR_BORROW_FUNCTIONS: &str = r#"
+trusted func establish(pos value: &u8)
+    executes(pure, total)
+    ensures(trusted live(value))
+{
+}
+
+trusted func establish_bool(pos value: &bool)
+    executes(pure, total)
+    ensures(trusted live_bool(value))
+{
+}
+
+func observe(pos value: &u8)
+    requires(trusted live(value))
+{
+}
+
+func observe_bool(pos value: &bool)
+    requires(trusted live_bool(value))
+{
+}
+"#;
+
 #[test]
 fn completed_value_requirements_preserve_snapshots_without_restoring_mutated_borrows() {
     for (parameters, requirement, preparation, count, valid) in [
@@ -76,6 +105,9 @@ fn completed_value_requirements_preserve_snapshots_without_restoring_mutated_bor
 
 #[test]
 fn equal_aggregate_elements_cannot_share_borrowed_authority() {
+    let scalar_borrow_predicates = SCALAR_BORROW_PREDICATES;
+    let scalar_borrow_functions = SCALAR_BORROW_FUNCTIONS;
+
     for body in [
         "let first: [u8; 1] = [0]; let second: [u8; 1] = [0]; establish(&first[0]); observe(&second[0]);",
         "let value = (false, false); establish_bool(&value.0); observe_bool(&value.1);",
@@ -83,26 +115,8 @@ fn equal_aggregate_elements_cannot_share_borrowed_authority() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            trusted predicate live(value: &u8);
-            trusted predicate live_bool(value: &bool);
-            trusted func establish(pos value: &u8)
-                executes(pure, total)
-                ensures(trusted live(value))
-            {{
-            }}
-            trusted func establish_bool(pos value: &bool)
-                executes(pure, total)
-                ensures(trusted live_bool(value))
-            {{
-            }}
-            func observe(pos value: &u8)
-                requires(trusted live(value))
-            {{
-            }}
-            func observe_bool(pos value: &bool)
-                requires(trusted live_bool(value))
-            {{
-            }}
+            {scalar_borrow_predicates}
+            {scalar_borrow_functions}
             func caller()
             {{
                 {body}
@@ -119,6 +133,9 @@ fn equal_aggregate_elements_cannot_share_borrowed_authority() {
 
 #[test]
 fn repeated_borrows_of_one_scalar_component_preserve_authority() {
+    let scalar_borrow_predicates = SCALAR_BORROW_PREDICATES;
+    let scalar_borrow_functions = SCALAR_BORROW_FUNCTIONS;
+
     for body in [
         "let first: [u8; 1] = [0]; establish(&first[0]); observe(&first[0]);",
         "let value = (false, false); establish_bool(&value.0); observe_bool(&value.0);",
@@ -128,26 +145,8 @@ fn repeated_borrows_of_one_scalar_component_preserve_authority() {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
-            trusted predicate live(value: &u8);
-            trusted predicate live_bool(value: &bool);
-            trusted func establish(pos value: &u8)
-                executes(pure, total)
-                ensures(trusted live(value))
-            {{
-            }}
-            trusted func establish_bool(pos value: &bool)
-                executes(pure, total)
-                ensures(trusted live_bool(value))
-            {{
-            }}
-            func observe(pos value: &u8)
-                requires(trusted live(value))
-            {{
-            }}
-            func observe_bool(pos value: &bool)
-                requires(trusted live_bool(value))
-            {{
-            }}
+            {scalar_borrow_predicates}
+            {scalar_borrow_functions}
             func caller()
             {{
                 {body}
@@ -312,6 +311,9 @@ fn ordinary_borrowed_guards_select_the_producers_entry_domain() {
 
 #[test]
 fn scalar_component_mutation_revokes_only_overlapping_authority() {
+    let scalar_borrow_predicates = SCALAR_BORROW_PREDICATES;
+    let scalar_borrow_functions = SCALAR_BORROW_FUNCTIONS;
+
     for (body, valid) in [
         (
             "let mut values: [u8; 2] = [0, 0]; establish(&values[0]); values[1] = 1; observe(&values[0]);",
@@ -353,8 +355,7 @@ fn scalar_component_mutation_revokes_only_overlapping_authority() {
         let source = format!(
             r#"
             trusted module app;
-            trusted predicate live(value: &u8);
-            trusted predicate live_bool(value: &bool);
+            {scalar_borrow_predicates}
             struct Indexed
             {{
                 mut value: u8;
@@ -367,24 +368,7 @@ fn scalar_component_mutation_revokes_only_overlapping_authority() {
                     return &mut self.value;
                 }}
             }}
-            trusted func establish(pos value: &u8)
-                executes(pure, total)
-                ensures(trusted live(value))
-            {{
-            }}
-            trusted func establish_bool(pos value: &bool)
-                executes(pure, total)
-                ensures(trusted live_bool(value))
-            {{
-            }}
-            func observe(pos value: &u8)
-                requires(trusted live(value))
-            {{
-            }}
-            func observe_bool(pos value: &bool)
-                requires(trusted live_bool(value))
-            {{
-            }}
+            {scalar_borrow_functions}
             func caller(pos index: usize)
             {{
                 {body}
@@ -394,55 +378,44 @@ fn scalar_component_mutation_revokes_only_overlapping_authority() {
 
         let compilation = compilation(&source);
 
-        if valid {
-            assert!(
-                !compilation.check_diagnostics().has_errors(),
-                "{source}: {:?}",
-                compilation.check_diagnostics()
-            );
-        } else {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                compilation.check_diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        bray_testing::assert_goal_state_diagnostic_outcome(
+            compilation.check_diagnostics(),
+            (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven),
+            &source,
+        );
     }
 }
 
 #[test]
 fn mutation_invalidates_owner_witnesses() {
-    let source = r#"
-        trusted module app;
+    let source = [
+        r#"
+            trusted module app;
 
-        struct Owner
-        {
-            mut epoch: u64;
-        }
-        trusted predicate live(owner: &Owner);
-
-        trusted func owner() -> Owner
-            ensures(trusted live(&result))
-        {
-            return
+            struct Owner
             {
-                epoch = 1
-            };
-        }
+                mut epoch: u64;
+            }
+            trusted predicate live(owner: &Owner);
+        "#,
+        super::fixtures::LIVE_OWNER_PRODUCER,
+        r#"
+            trusted func observe(pos value: &Owner)
+                requires(trusted live(value))
+            {
+            }
 
-        trusted func observe(pos value: &Owner)
-            requires(trusted live(value))
-        {
-        }
+            func caller()
+            {
+                let mut value = owner();
+                value.epoch = 2;
+                observe(&value);
+            }
+        "#,
+    ]
+    .concat();
 
-        func caller()
-        {
-            let mut value = owner();
-            value.epoch = 2;
-            observe(&value);
-        }
-    "#;
-
-    let compilation = compilation(source);
+    let compilation = compilation(&source);
 
     bray_testing::assert_goal_state_diagnostic_kind(
         compilation.check_diagnostics(),
