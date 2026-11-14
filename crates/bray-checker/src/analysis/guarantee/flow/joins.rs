@@ -188,8 +188,8 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         .pending_results
         .insert(expression, right_value.clone());
 
-    let left_substitution = ExecutionSubstitution::new(&left, &left_ids);
-    let right_substitution = ExecutionSubstitution::new(&right, &right_ids);
+    let left_substitution = ExecutionSubstitution::new(&left, &left_ids, &target.proofs.conditions);
+    let right_substitution = ExecutionSubstitution::new(&right, &right_ids, &incoming.proofs.conditions);
 
     let conditions = super::witnesses::conditional_facts(
         (target, &left_substitution),
@@ -576,7 +576,7 @@ mod tests {
                 assert_eq!(joined.owned_components().count(), 0);
                 assert_eq!(joined.clone().borrowed(), joined);
 
-                let substituted = joined.with_snapshots(&Default::default());
+                let substituted = joined.with_snapshots(&Default::default(), &Default::default());
 
                 assert_eq!(substituted, joined);
                 assert_eq!(substituted.owned_components().count(), 0);
@@ -632,7 +632,7 @@ mod tests {
                 (retired.clone(), right_state.current.get(&retired).expect("retained terminal data").clone())].into();
 
             let retained = super::super::witnesses::conditional_facts(
-                (&left_state, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners)), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners)),
+                (&left_state, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners, &Default::default())), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners, &Default::default())),
                 &snapshots, &[], &Default::default(), None, &mut Vec::new());
 
             let mut unknown = left_state.clone();
@@ -640,7 +640,7 @@ mod tests {
             unknown.current.insert(place.clone(), ExecutionCondition::Unknown);
 
             let rejected = super::super::witnesses::conditional_facts(
-                (&unknown, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners)), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners)),
+                (&unknown, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners, &Default::default())), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners, &Default::default())),
                 &snapshots, &[], &Default::default(), None, &mut Vec::new());
 
             assert!(!rejected.iter().any(|(_, _, condition, available)| *available && *condition == whole_guarantee(joined.clone())),

@@ -22,7 +22,8 @@ pub(crate) use retention::Set as ObservationSet;
 pub(crate) use context::{ExecutionProof, ExecutionProofCache};
 pub(crate) use substitution::{ExecutionSubstitution, SnapshotSubstitution};
 
-pub(super) use interning::{ConditionId, ConditionIndex};
+pub(super) use interning::ConditionId;
+pub(crate) use interning::ConditionIndex;
 
 pub use operands::ExecutionOperands;
 

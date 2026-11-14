@@ -592,6 +592,7 @@ impl ExecutionState {
                 substitution,
                 &self.current,
                 (value != owner).then_some(&self.assumptions),
+                &self.proofs.conditions,
             );
 
             match computations.entry(value) {

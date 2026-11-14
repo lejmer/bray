@@ -1,4 +1,5 @@
 use std::hash::{Hash, Hasher};
+use hashbrown::Equivalent;
 
 use super::ExecutionCondition;
 
@@ -14,28 +15,39 @@ impl From<&ExecutionCondition> for StorageKey {
     }
 }
 
-impl Hash for StorageKey {
+/// Lookup borrows the source. Only an inserted key needs to retain its child allocations.
+pub(super) struct StorageLookup<'a>(pub(super) &'a ExecutionCondition);
+
+impl Hash for StorageLookup<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash_parts(state, &mut |child, _, state| std::ptr::hash(child, state));
     }
 }
 
-impl Eq for StorageKey {}
-
-impl PartialEq for StorageKey {
-    fn eq(&self, other: &Self) -> bool {
+impl Equivalent<StorageKey> for StorageLookup<'_> {
+    fn equivalent(&self, other: &StorageKey) -> bool {
         self.0.eq_parts(&other.0, &mut |left, right| std::ptr::eq(left, right))
     }
 }
 
+impl Hash for StorageKey {
+    fn hash<H: Hasher>(&self, state: &mut H) { StorageLookup(&self.0).hash(state); }
+}
+
+impl Eq for StorageKey {}
+
+impl PartialEq for StorageKey {
+    fn eq(&self, other: &Self) -> bool { StorageLookup(&self.0).equivalent(other) }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
     use std::sync::Arc;
 
     use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalOr};
 
-    use super::{ExecutionCondition as C, StorageKey};
+    use super::{ExecutionCondition as C, StorageKey, StorageLookup};
 
     #[test]
     fn shared_ordering_preserves_derived_field_precedence() {
@@ -82,14 +94,14 @@ mod tests {
 
         cache.insert(StorageKey(original.clone()), 7);
         drop(original);
-        assert_eq!(cache.get(&StorageKey(C::Operation(LogicalOr, operands.clone()))), Some(&7));
-        assert_eq!(cache.get(&StorageKey(C::Operation(LogicalAnd, operands.clone()))), None);
-        assert_eq!(cache.get(&StorageKey(C::Operation(LogicalOr, operands.to_vec().into()))), None);
+        assert_eq!(cache.get(&StorageLookup(&C::Operation(LogicalOr, operands.clone()))), Some(&7));
+        assert_eq!(cache.get(&StorageLookup(&C::Operation(LogicalAnd, operands.clone()))), None);
+        assert_eq!(cache.get(&StorageLookup(&C::Operation(LogicalOr, operands.to_vec().into()))), None);
 
         let condition = Arc::new(C::Unknown);
 
         cache.insert(StorageKey(C::Entry { condition: Arc::clone(&condition), captured: true }), 8);
-        assert_eq!(cache.get(&StorageKey(C::Entry { condition: Arc::clone(&condition), captured: true })), Some(&8));
-        assert_eq!(cache.get(&StorageKey(C::Entry { condition, captured: false })), None);
+        assert_eq!(cache.get(&StorageLookup(&C::Entry { condition: Arc::clone(&condition), captured: true })), Some(&8));
+        assert_eq!(cache.get(&StorageLookup(&C::Entry { condition, captured: false })), None);
     }
 }

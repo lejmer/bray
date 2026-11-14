@@ -73,6 +73,7 @@ impl ExecutionCallEvidence {
     pub(crate) fn captured_facts(
         &self,
         ordinary: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+        index: &super::ConditionIndex,
     ) -> std::collections::BTreeSet<(super::ExecutionCondition, bool)> {
         use super::ExecutionCondition as Condition;
 
@@ -83,7 +84,7 @@ impl ExecutionCallEvidence {
             return facts;
         }
 
-        let snapshots = super::SnapshotSubstitution::new(&bindings);
+        let snapshots = super::SnapshotSubstitution::new(&bindings, index);
 
         for (condition, holds) in ordinary {
             if condition.contains_trusted() || condition.observes_live(None) {

@@ -1,84 +1,77 @@
 # BRA-567 active performance correction
 
-Read this record and the work-on-bray-issues contract gate after compaction.
-Work and checkpoint pushes to feature/bra-567-async-root-orchestration are authorized. Continue the approved
-six-step performance plan. Do not run full matrices or mark BRA-567 complete. No Bray fixture bodies changed.
+Read this record and the work-on-bray-issues contract gate after compaction. Work and checkpoint pushes to
+feature/bra-567-async-root-orchestration are authorized. Keep working after checkpoints. No full matrices.
 
-## Contract
+## Acceptance contract
 
-All five formerly unfinished fixtures must take less than 500 ms each in separate bounded optimized runs.
-Measure caller construction, checking and lowering, excluding provider preparation and Rust builds.
-Preserve positive/negative outcomes and rejection at observe(&value), in source and import modes.
-Facts stay scoped to exact owners, dependencies, current values, entry snapshots and qualified polarity.
-Unknowns, overwritten contents, borrowed prefixes and unavailable carriers grant nothing. Keep authoritative
-empty records and cleanup-feasibility replay. Preserve inference order and every original work-budget result.
+All five fixed formerly unfinished fixtures must take less than500ms each, excluding provider preparation and
+Rust builds. Measure caller construction, checking and lowering in separate bounded optimized runs.
+The same_site_independent_second caller must also stay at or below10,000 combined condition comparisons and
+interner lookups, counting recursive work. This is a user acceptance gate. Do not hide work by renaming operations
+or moving it outside the measured phase. Both performance gates remain incomplete.
 
-Use tooling opt3, assertions off, shared target/cargo and the pinned LLVM prefix. Select products from
-proof-build.jsonl after successful completion. Native checks run outside the sandbox. Bound each fixed case
-to 10s and stop on timeout or changed outcome. No competing builds. Style runs only at batch finalization.
+Preserve fixed positive/negative outcomes and rejection at observe(&value), source and import behavior, exact
+owner/dependency/current-value/entry-snapshot scopes, qualified polarity and every original work-budget result.
+Unknowns, overwritten contents, borrowed prefixes and unavailable carriers grant nothing. Preserve authoritative
+empty ownership records and required cleanup-feasibility rounds. No reconstruction unless a robust alternative
+is impossible. Published structures stay immutable, scratch stays local, and no cache lock spans recursive work.
 
-## Current design
+Use tooling opt3/assertions off, the shared target/cargo and pinned LLVM prefix. Select binaries from successful
+proof-build.jsonl. Native checks run outside the sandbox. Bound each fixed case to10s. Stop on changed outcomes
+or timeout. No competing task builds. Style runs only at completed-batch finalization.
 
-Hash-cons exact root fields and canonical child IDs within the analysis. Physical keys retain allocations.
-Hash collisions compare exact structure. Boolean nodes, proof memos and retained-data queries share identity,
-never authority. Pure results belong to exact immutable evidence or substitution scopes. Completed budgeted
-queries charge their original cost. Exhausted limits retain separate answers. No locks span recursive work.
-Mixed fallback proofs have distinct trusted-only and ordinary-only memos. Alternative worklist evidence changes
-while it runs and remains outside those immutable memos. Alternative final answers belong to its fixed graph.
+## Implemented representation
 
-Shared operand lists own qualification/unknown properties, established at construction. Other variants retain
-their original opacity rules. BooleanTerm duplicate flags are removed. Ordering recognizes shared children and
-uses one field comparator with storage-key equality, preserving derived field precedence. Derived PartialOrd
-is the independent test oracle. Refinement indexes exact positive membership before qualification traversal.
-Guard rewriting reuses shared subexpressions within one immutable environment, keeping trusted atoms opaque.
+ConditionIndex hash-conses exact root fields and canonical child IDs. Physical keys retain allocations, collisions
+compare exact structure, and identity never shares authority. Borrowed physical lookup avoids cloning keys on hits.
+Only its tables use the already-locked hashbrown dependency. Structural hashing and inference ordering stay fixed.
 
-The earlier shared substitution forest, identity no-op handling, captured-entry opacity, DAG observation walks,
-context-sensitive live-borrow traversal and retained-content invalidation remain regression requirements.
-This correction changes representation/query work, not inference rules or state transitions.
+Body flow owns proof preparation across required cleanup-feasibility rounds. Reachability, liveness and mutable
+flow state are recomputed. Joins, deferred frame moves, captured-input projection and returned-owner snapshot
+forests now use the same body identity index. Their result memos remain separate for each immutable mapping.
+Existing different-map, capture, opacity and budget controls exercise that separation. This batch adds11 nonblank
+Rust production lines and2 test lines, plus the dependency declarations. No Bray fixture bodies changed.
 
-## Evidence and active work
+Immutable operands retain qualification/unknown properties. Ordering preserves derived field precedence and
+recognizes shared children. DAG walks preserve opacity and live-borrow context. Snapshot insertion happens once,
+without recursively expanding inserted values. Guard rewriting keeps trusted atoms opaque. Budgeted memo hits
+charge original cost, with separate exhausted-limit answers. Mixed fallback keeps trusted/ordinary views separate.
+AlternativeProof publishes immutable graph/baseline data. Each AlternativeQuery owns its dense/sparse scratch.
+Witness refinements belong to exact evidence and retained immutable source allocations. Publication preserves
+its original authority and address filtering. Current data and retained identity remain distinct.
 
-Immutable-publication correction is implemented. AlternativeProof's graph/baselines are immutable. Each
-AlternativeQuery owns scratch, dense up to1024 nodes and sparse above it. Measured queries visit81/129 nodes on
-average. Large irrelevant-clause controls demand reached-node storage/work. Shared epochs/enclosing mutex removed.
+## Current evidence and next decision
 
-SnapshotSubstitution borrows one immutable predecessor map across guards, aliases, owners and captured argument
-forests. It reuses substitute_values/ExecutionMemo. Identity scans run once. Inserted snapshots never expand
-recursively. Captured entries stay opaque. Prefix lookup, unknowns, identity shields and budgets are unchanged.
+Final uninstrumented build passes196 focused controls. Fixed-five twice: tasks303-343ms, loop1615-1666ms, preserving
+all outcomes and intended negative sites. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance,12.65s.
+Formatting passes. Mutating style reports only six prior errors: wildcard flow/invalidation and oversized flow/merge,
+storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.
+No temporary profiling hooks remain. No task process remains after these checks.
 
-PreparedFacts also caches immutable witness refinements by retained source allocation. Changed evidence or witness
-metadata cannot share answers. Retention prevents address reuse and forces copy-on-write. Derivation and publication
-are separate. Publication retains the original authority, ordinary-fact and address-filtering rules. No lock spans
-computation. Measured3257/4560 repeated pairs justified reuse, but the observed speed gain was modest.
+The latest sampled query-work baseline found about69.4M recursive comparisons,6.4M top-level interner lookups,
+330,782 budget-query keys,1,051 evidence scopes and22,581 alternative queries. Sharing join/deferred identity
+reduced node creation across indexes from245,947 to76,969 before the remaining capture/snapshot callers migrated.
+The largest index had8,161 nodes. Final operation counts need a fresh measurement after the next algorithmic change.
+Identity reuse alone cannot meet the goal. Witness refinement/Boolean preparation dominate comparison volume.
 
-ExecutionFlowDomain now owns proof preparation for the body. Fresh boundary states share that cache across required
-cleanup-feasibility rounds. Reachability, liveness and mutable flow state are recomputed. Exact evidence checks
-still govern reuse. No cross-body sharing, historical authority or skipped round. This final change adds6 production
-lines. Pushed corrections through9166d4d28 add75 nonblank production lines/71 test lines versus60bebc2bd.
-
-Latest optimized build passes196 focused controls. Two fixed-five runs preserve outcomes and negative observation
-sites: tasks341-359ms, loop1876-1901ms. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance,12.81s. No full
-matrices. Formatting passes. Mutating style reports only six prior errors: wildcard flow/invalidation and oversized
-flow/merge, storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.
-No probes or backend switches remain. Shared target/cargo is reused. target/audit holds24 current/baseline files,
-about577KB. No task process remains after the completed checks.
-
-The loop still misses500ms. Reprofile the current code before choosing another optimization. Earlier category
-timings are obsolete after the cache lifetime change. Keep measuring costly work, not merely repeated-call counts.
-Do not weaken cleanup-feasibility replay or replace it with historical state. Remaining non-proof work and exact
-cache misses need measurement. Use one bounded loop profile, never the full matrices, to choose the next batch.
+Next unresolved contract: conditional_facts collects source witness candidates, discards their source provenance,
+then reconstructs predecessor clauses and proves candidate/guard combinations. Trace direct forward transport
+through result_replacements, collect_observations, owned_alternatives and retain_conditional_guarantees before
+changing that mechanism. Cover both CFG joins and returned-value joins. Empty alternatives must remain empty,
+private unavailable witnesses must not publish caller truth, and borrowed-data mappings must not become ownership
+mappings. Determine which claims can be deduced from actual source transfers and where real implication remains
+necessary. Do not add another cache or widen inference as a substitute for closing this contract.
 
 ## Fixed gates and broader work
 
-proof-unfinished.json freezes the five identities and original48–50s task/117.5s loop baseline.
-correction-frozen 30.json fixes original membership. correction-current.json maps original/current names.
-Fixed920 is comparison.txt's907 names plus verification.json's13 comparison_added names. Keep these identities.
-Delete superseded logs and traces, retain only current evidence and fixed inputs.
+proof-unfinished.json freezes five identities and original timing. correction-frozen30.json fixes original membership,
+and correction-current.json maps names. Fixed920 is comparison.txt's907 names plus verification.json's13 additions.
+Keep these identities and current verification outputs. Remove superseded traces and profiles.
 
 BRA-567 still needs generic borrowed-field completion mappings, inactive conditional result shapes and RawBuffer
-payload dependencies. Preserve d302124's deferred-admission control: pending admission uses only its exact private
-carrier and nonvacuous qualified clause through captured entry evidence, without publishing truth.
-Then finish maintainability, owned/deferred matrices, frozen30, fixed920 and source/native gates. Verify root/main
-authority, cleanup before publication, normal/panic/cancellation, rollback once, services through static disposal,
-synchronous control and native archive/link removal of Rust orchestration. Independent PR review precedes
-ready/In Review. Closing follows merge. BRA-567 and the 500 ms performance gate remain incomplete.
+payload dependencies. Preserve d302124's deferred-admission control: exact private carrier and nonvacuous qualified
+clause through captured entry evidence, without publishing truth. Then finish maintainability, owned/deferred
+matrices, frozen30, fixed920 and source/native gates. Verify root/main authority, cleanup before publication,
+normal/panic/cancellation, rollback once, services through static disposal, synchronous control and native archive/
+link removal of Rust orchestration. Independent draft-PR review precedes ready/In Review. Closing follows merge.

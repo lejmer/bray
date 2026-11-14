@@ -52,7 +52,7 @@ pub(super) fn conditional_facts(
         );
     }
 
-    let [left_inputs, right_inputs] = inputs.each_ref().map(SnapshotSubstitution::new);
+    let [left_inputs, right_inputs] = inputs.each_ref().map(|inputs| SnapshotSubstitution::new(inputs, &left.0.proofs.conditions));
 
     let ordinary = [left, right].map(|(state, substitution)| {
         state
@@ -337,7 +337,7 @@ mod tests {
         let empty = BTreeMap::new();
         let mut facts = Vec::new();
 
-        let retained = conditional_facts((&left, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)), (&right, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)),
+        let retained = conditional_facts((&left, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty, &Default::default())), (&right, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty, &Default::default())),
             &BTreeMap::new(), &[], &availability, None, &mut facts);
 
         assert!(retained.is_empty());
@@ -422,7 +422,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     bray_symbols::DependencyOwnedResult::choice([(left, right.0), (right, left.0)].into_iter().zip(inputs).map(
         |(((state, source), other), inputs)| {
             let mut result = state.owned_result(source);
-            let snapshots = SnapshotSubstitution::new(&inputs);
+            let snapshots = SnapshotSubstitution::new(&inputs, &state.proofs.conditions);
 
             for (condition, holds) in state.assumptions.difference(&other.assumptions) {
                 if matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input()) {
