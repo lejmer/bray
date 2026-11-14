@@ -1,342 +1,146 @@
-# BRA-567 active contract completion
+# BRA-567 current work
 
-Read this record and the work-on-bray-issues contract gate after compaction. Continue after checkpoints.
-Work and pushes to feature/bra-567-async-root-orchestration are authorized. No full matrices.
-This is the single current task record and computation model. Replace superseded findings.
-Current user priority: finish contracts and guarantees with zero failures before more graph optimization.
-Keep the performance/scaling controls and full 10k/500ms objective intact, but resolve known compiler gaps first.
-Group failures by violated transition, freeze expectations and intended rejection sites, then repair coherent
-causes and stop on unexplained regressions. Performance checkpoint 0e5ff9bf1 is pushed.
+Read this record and the work-on-bray-issues contract gate after compaction. Update in place.
+Branch: feature/bra-567-async-root-orchestration. PR: https://github.com/lejmer/bray/pull/710.
+Commits and pushes are authorized. Continue after checkpoints. Do not run full matrices.
+Current priority: finish contracts and guarantees before resuming graph optimization.
 
-## Active correctness contract
+## Status and applicable evidence
 
-Current-reference repair prepares actual output borrow classification once in BoundReturnedValue. Storage flow
-stages descriptors only under the preservation mask common to every alternative, before input consumption and
-opaque result seeding. Adaptation prefixes are projected in formal coordinates and stripped for physical staging.
-Completion publishes exact current referents through the existing footprint, never historical contents or an
-unconditional relation for a possible transfer. No parallel graph or new type was added.
+The uncommitted stored-value batch is not validated. Earlier passing binaries do not validate it.
+The last completed correctness checkpoint has 48 borrowed-field controls, 12 conditional source/import
+controls and 557 checker tests passing. Frozen30 is 29 pass with one RawBuffer invalid acceptance.
+The nine affected activation controls also pass after fixture API corrections. Their assertions retain
+intended rejection locations. No runtime production change was needed for those fixture repairs.
 
-All 48 borrowed-field controls, 12 conditional source/import controls and 557 checker tests pass.
-Frozen30 remains 29 pass and the RawBuffer invalid acceptance, 11.84 s. Fixed five pass at 137-153 ms,
-including 153 ms for the loop. No full matrices ran. Style has the same six existing errors. Format/diff
-checks pass. The validated artifact contains no production probes. Counts were not remeasured.
+The frozen integration build passed in 3m58s. All 558 checker, 221 symbol and 216 package-interface tests pass.
+The RawBuffer scalar positive now incorrectly rejects at inspect. Its reference-bearing case was not reached.
+This regression blocks broader validation. Six existing style errors remain.
 
-Shape queries retain typed absence and current union tags through cleanup overlays. Common-components keeps
-equal known tags independently of shared physical tag identity. Equal tags never retain payload owners.
-The observation collector keeps the real owner and current contents in one frame, mapping both snapshots and
-visiting fields once. Reference data still grants no ownership. Nullable/union predecessor-order and
-stabilization controls pass. This checkpoint added 13 net production lines and 28 test lines.
+## Active stored-value contract
 
-Lifecycle retirement previously dropped the entire ordinary relation between input initialization and result
-variant when its InitializedSnapshot expired. The selected empty return then lost its guard. Retirement now
-uses the existing bounded GuardSubstitution to discharge only expiring initialization snapshots proved by the
-pre-retirement ordinary scope, then applies the original filters. Unknown guards still expire. Unaffected facts
-retain their shared representation. Qualified conditions cannot enter this ordinary rewrite. No value graph or
-layout reconstruction was introduced. One retirement control covers true/false/unknown selector truth, expired
-initialization and qualified-authority exclusion. No new Bray fixture or provider was added. Pushed as 3bff3a3bc, net +36 production and +50 test lines.
+RawBuffer Push/Pop must transport stored payload dependencies through generic calls and normal returns.
+Effects describe possible events, not final contents, so they cannot reconstruct this information.
+Use the existing State.values, Transfer and ReferenceExit graph. No parallel persistent graph.
+Whole sources are immutable entry Target snapshots, separate from reference targets and ownership.
+They are possible stored data, never equality, borrow, ownership or trusted-witness authority.
 
-RawBuffer remains a separate invalid acceptance. Push/Pop omit stored-value transport and exit publication
-drops allocation/owned-target slots. Effects describe events without source values, so cannot summarize final
-contents. Repair belongs in existing stored values/Transfer and normal completion, not a parallel graph.
-Generic entry values need symbolic whole-value sources, separate from reference targets and ownership.
-The portable output must distinguish complete final possible sources from unknown contents. Exact overwrite
-removes old sources, branches retain surviving alternatives, AnyElement stores/pop retain possible remaining
-contents, and retirement follows actual storage incarnation. Source captures precede consumption and output
-allocation anchors precede payload replay. Scalar instantiations resolve to no reference edges.
+- Complete output records describe all possible final sources. Incomplete records retain uncertainty.
+- Exact overwrite removes old contents. Conditional writes retain surviving entry alternatives.
+- AnyElement stores are weak. Pop retains possible remaining elements unless emptiness is established.
+- Explicit complete-empty differs from missing, unknown and uninitialized state.
+- Capture sources before mutation or consumption. Publish only on normal completion.
+- Resolve output allocations before replaying their payloads. Abnormal paths install nothing.
+- Actual scalar type information can establish reference freedom. Missing graph nodes cannot.
+- Unknown reachability uses the existing unknown_reference_may_reach rule. Private unexposed inline
+  storage remains independent. Stored sources never become alias edges merely because they exist.
+- Ordinary current tags and NoPayload records remain authoritative. No historical entry resurrection.
 
-Representation decision: wrap existing reference descriptors and whole-source metadata in one stored-value
-slot record, shared by State.values/Transfer/ReferenceExit. Sources are evaluated snapshots, never reference
-Targets. Separate subtree completeness from direct reference unknownness. The portable per-destination
-normal-output record carries sources and completeness. Seed checked generic leaf paths and existing backing,
-not only root arguments. Preserve exact field projection, prior-entry alternatives for conditional writes,
-and explicit complete-empty output for proven clearing. Unknown effects downgrade coverage. AnyElement stays
-weak unless the entire backing replacement is proved. Do not infer initialized storage or ownership from this.
-Consumer inventory closed for the portable record: symbols dependency template/validation/substitution,
-bound call preparation including hidden/conversion/deferred calls, source recursion summary bottom/join,
-package export/codec/validation/selective decoding/remapping/interning, and specialization identity. Every
-endpoint uses existing subject/projection transforms. Proof and witness consumers must not use these records.
-Implement portable DependencyStoredValue(destination, sources, complete) first, with sorted source sets and
-explicit empty records. This adds one data-flow concept, no second persistent state index, new authority or
-projection schema. Growth must be measured separately from tests. Reconsider new forwarding layers or duplicated
-state rather than adding synchronization. Source replay still needs integration before claiming any repair. Oracles: source/import, scalar/reference payload, distinct sources, conditional store,
-pop/remaining contents, overwrite and retirement. No global input escape workaround.
+DependencyStoredValuePath carries a subject and terminal borrow depth. Nonterminal loads come from
+checked StorageReferencePath preparation. Raw AddressTarget remains a raw-pointer operation.
+Entry.layer is a load ordinal at its reference prefix, not a global depth. Descriptor sources refer
+before the final load. Whole-value sources refer after it. Preserve this distinction across projections.
 
-All nine affected activation controls pass in 24.38 s after updating stale APIs and asserting intended
-locations/conditions. Callback reconstruction rejects whole-carrier separation at acquisition extraction,
-and reuse rejects the second moved-owner invocation. No production runtime change was needed. Together with
-the prior unchanged 25 controls, this resolves the eight failures from fixture consolidation. The validated
-binary predates stored-value model edits and does not validate that ongoing work. Style retains six existing
-errors. Format/diff checks passed for the fixture checkpoint.
+The portable per-destination record carries source endpoints and completeness. Normalize by full endpoint.
+Carry it through semantic validation/substitution, source recursion summaries, bound ordinary/hidden/
+conversion/deferred calls, lifecycle calls, export, codec, selective import/remap and specialization identity.
+CURRENT_FORMAT_REVISION stays 1. There are no released formats to preserve or increment for this work.
 
-Ongoing work: portable stored-value record/serialization is implemented but uncompiled. Bound-call ingress
-carries it, recursive summaries union possible sources and lose completeness for a missing normal outcome.
-The duplicated ordinary/lifecycle reference preparation now shares prepare_references, still unvalidated.
-Storage memory wrapper migration is assigned to invalidation_graph, no usable API yet. Its StoredValue must
-separate None direct descriptor from Some(empty), retain symbolic whole sources and separate completeness.
-Remaining integration: opaque generic entry paths, raw Push/Pop stores, output/allocation projection, atomic
-normal replay, defaults/composite/deferred paths, source/import tests and complete validation. No correctness
-claim for this batch until all these transitions cooperate.
+Per-exit publication maps actual allocation targets to observable output anchors before merging exits.
+Inactive NoPayload alternatives are neutral. Missing active outputs make the record incomplete.
+RawBuffer payload paths use owner.OwnedTarget.AnyElement. Replay must follow the actual owner pointer
+into its allocation. pointer.AddressTarget.AnyElement has the wrong typed shape.
+Ordinary descriptor relations retain their separate authority. Possible payload replay must not weaken
+an independently established exact descriptor or publish unobservable by-value input writes.
 
-## Acceptance contract
+## Integration state and next action
 
-All five fixed formerly unfinished fixtures must take less than 500 ms for caller construction, checking and
-lowering, excluding provider preparation and Rust builds. same_site_independent_second must also stay at or
-below 10,000 combined condition comparisons and interner lookups, recursive work included. Count newly moved
-producer, ingress and index-maintenance work too. Never meet the gate by relocating work outside measurement.
-While the user shares this computer, focus on counts and keep timings informational. Recheck the timing gate
-when the machine is idle. Bounded runs still apply.
+Drafted in the working tree:
 
-Preserve outcomes and rejection at observe(&value), source/import behavior, exact owner, dependency, current-value
-and entry-snapshot scopes, qualified polarity, deterministic ordering and original budget/exhaustion behavior.
-Unknowns, overwritten contents, borrowed prefixes and unavailable carriers grant nothing. Preserve authoritative
-empty ownership alternatives and cleanup-feasibility rounds. Published values remain immutable. Reconstruction
-is a last resort. No lock spans recursive inference. Style only at completed-batch finalization.
+- StoredValue wraps existing descriptors plus whole sources, tracked state and completeness.
+  Transfer, joins, clear, retirement and deferred relocation carry it. Source identities never relocate.
+- The existing observation shape walker records opaque/generic leaf paths. Entry seeding resolves those
+  actual paths and existing RawBuffer backing. Concrete scalar leaves receive no symbolic source.
+- Push/Pop capture backing before effects. Pop preserves possible remaining contents. Intrinsic attempts
+  reset their pending transition. Missing source capture downgrades completeness.
+- Portable transport and per-exit publication are implemented. Ordinary/lifecycle reference preparation
+  shares one helper. Composite conversions project endpoints, with conservative uniform-array handling.
+- Call/lifecycle stored replay resolves all pre-effect sources before staging. Missing routes preserve
+  uncertainty on the actual containing root. Concrete scalar destinations are skipped.
+- Reachability consumers now carry or discharge unknown contents at eligible actual targets, including
+  escape, ambient invalidation and terminal checks. Exported escape roots remain direct operands.
 
-## Current mechanisms and evidence
+OwnedTarget replay follows actual backing pointers. Its overlay retains the original result boundary,
+so staged physical slots take precedence without resurrecting old result storage. Next locate the first lost
+pointer origin and distinguish opaque address provenance from unknown stored contents. The scalar failure
+exports no borrow relation and complete-empty sources at result.pointer, which cannot establish pointer
+freshness. A bounded trace covers publication and unknown reachability together. Also separate weak-store
+multiplicity from incomplete source coverage. Do not compile per file. Check the checker suite,
+RawBuffer positive/negative source/import cases and fixed comparisons. No full matrices.
 
-The active migration uses immutable condition handles as exact proof keys. Raw query memos share exactly equal
-ordered fact/polarity vectors. Their trusted/ordinary pair identifies a mixed scope. Requested, direct and
-closure-derived proof results remain distinct. Memos preserve semantic costs and exhausted-budget results.
-The deleted per-query interner no longer owns or reconstructs condition identity.
+Regression oracles: scalar independence, reference-bearing payloads, multiple distinct referents,
+conditional stores, pop with remaining contents, overwrite and retirement. Negative cases must reject
+at the intended mutation/observation boundary. Preserve existing test identities and meaningful bug controls.
+Reuse fixtures and helpers. Inline Bray formatting is mandatory and is not fixed by Rust style commands.
 
-RetainedSnapshots indexes actual roots and paths. Owner queries exclude loans. Contents queries can follow
-referents, but compare selected before/after contents and reject unknowns. Constructed bases are lineage, not
-independently retained data. BooleanGraph shares immutable condition children. OrderedFacts preserves original
-scan positions, DFS order, strictness, source precedence and budget charges. Its differential oracle covers
-128 graphs and budgets 0-64. Solved flow outputs and actual cleanup parts/phases remain retained.
+After validation, run mutating style and format, audit the whole batch for duplicated/superseded machinery,
+measure production growth separately from tests, remove superseded outputs, then commit and push.
+Keep the batch unverified until all required evidence exists. Do not treat checkpoint completion as BRA-567 done.
 
-Current comparison-form checkpoint: all 556 checker tests pass. Fixed five pass at 214-232 ms for task
-cases and 266 ms for the loop. Three complementary loops pass at 272-332 ms. Counters were compiled but disabled
-for timing. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 24.71 s. No full matrices ran.
-The bounded loop records 1,471,543 comparisons, zero interner lookups, 748,276 key hashes, 38,058 nodes,
-61,150 child hashes, 1,053,189 pair lookups, 359,856 pair writes and 213,305 hash writes totaling 1,351,920 bytes.
-41,657 form lookups perform 480 normalizations. 111 lazy tables allocate 21,312 payload bytes and demanded forms
-57,600 bytes, excluding allocator overhead and the additional lazy field on each node. Against ca88f4d10,
-41,177 node constructions and 288,239 hash writes disappear. Comparisons fall about 29k. These are overlapping
-cost categories, not elapsed time. The 10k gate remains unmet. Style has the same six existing errors.
-Format/diff checks pass. Temporary hooks are removed. The compilation binary has disabled hooks, while the
-final checker-only test build omits them and includes the strengthened positive/reversed membership controls.
+## Performance objective and current graph
 
-## Computation graph and cost model
+All five fixed formerly unfinished fixtures must take under 500 ms for caller construction, checking and
+lowering, excluding provider/build time. same_site_independent_second must also reach at most 10,000 combined
+condition comparisons and interner lookups, including work moved to producers and maintenance.
+The last count is 1,471,543 comparisons and zero interner lookups. The count goal remains unmet.
+Last fixed-five times are 137-153 ms, including 153 ms for the loop. While the user shares the computer,
+prioritize counts and treat timing as informational. Larger-program scaling remains part of the objective.
 
-Code tracing gives these dependencies:
+The expensive dependency graph crosses scope versions:
 
-- incoming_state -> propagate -> merge -> join_observations -> conditional_facts -> witness/proof queries
-- transfer_block -> apply_operation -> current-value rewrites, witness refinement and retirement
-- refine_witnesses -> available witnesses and pending deferred producers -> exact proof scopes
-- retire_values -> retirement_dependents plus facts, clauses, allocations, private entries and selections
-- final block entries -> publication operation replay -> diagnostics, effects and completion products
+- predecessor values/captures -> carrier selection -> predecessor proof scopes -> joined ordered clauses
+- transfer/current-value rewrite -> witness refinement and retirement -> next proof scopes
+- final block entries -> publication replay -> diagnostics, effects and completion products
 
-The inner Boolean prover already has a graph and change-driven queue. The repeated work spans its callers and
-scope versions. The caller has 198 CFG blocks, two storage solves of 271 transfers, 327 raw inputs, 612 mixed
-scopes, 13,032 public proof queries and 856 witness refinements. Only 12 new witness clauses result.
-The structural probe finds 88 indices, 6,219 nodes, 9,633 child edges and 15,408 physical storage aliases.
-Exact cross-index deduplication finds only 464 caller-observed structural nodes and 773 child edges. Of these,
-446 are first encountered during the caller. The whole measured process registers 988 distinct indexed nodes.
-This uses exact root payloads plus global child IDs, with hash collisions checked. Probe bookkeeping is excluded
-from compiler counters. It observes indexed nodes, not every transient condition constructed outside an index.
-The bounded source loop still rejects at the intended observe call. Production is c407abd16. This measurement
-supports producer-owned handles but does not prove that handles alone reach the gate.
-Outer lookup repetition includes scope preparation 21,318 requests/91 distinct nodes, proof 65,414/587,
-refinement 21,682/153 and retirement 120,098/2,536. Distinct means index plus node, not evidence scope.
-Retirement has 92,546 pure-cache hits and 27,552 misses. It removes 142/1,864 ordinary facts, 276/716 trusted
-facts and 1,148/2,604 witness clauses. Many changes are real. Broad retirement skipping is unsound.
+The inner Boolean prover already uses a graph and change-driven queue. Preserve typed roles and barriers:
+owner/value substitutions differ, captured entries differ from current contents, and absence differs from
+unknown. Joins use actual predecessor evidence. Equal contents never imply ownership. Deferred evidence
+is keyed by owner, execution site and captured entry. Retirement considers writes, raw mutation, cleanup,
+root expiry and all independent qualified supports. Failed/absent probes and exhausted budgets are dependencies.
 
-Minimize construction and maintenance plus sum(evaluation count * exclusive evaluation cost), with bounded
-memory and the acceptance constraints above. Inclusive profile stages overlap and must not be summed.
-Eliminating recursive comparisons below the root saves at most about 13 percent. Eliminating caller publication
-replay saves at most about 23 percent before replacement costs. The target requires over 99.5 percent overall.
-No existing measurement proves a 10,000 solution or an optimal representation.
+Current retained representations:
 
-The join detail distinguishes fixed selection edges from changing evidence:
+- Immutable ExecutionCondition nodes own structural hashes. Child-slot identity preserves observation
+  occurrences. Pair memoization bounds shared-DAG comparisons. No condition interner or global factory.
+- ProofMemo uses exact ordered fact/polarity scopes. Raw membership and filtered answers remain separate.
+- BooleanGraph/OrderedFacts retain source precedence, ordered DFS, short circuits and original budget costs.
+- RetainedSnapshots keeps owner, contents and inline-contents queries separate. Insertion invalidates derived
+  answers. Between-snapshot queries depend on both actual sets. Unknowns and loans grant no ownership.
+- Comparison forms cache prepared syntax on immutable operations, never scope-dependent truth.
+- Retirement subtree queries share traversal/pruning rules. Their larger-DAG scaling benefit matters even
+  when a small fixture gains little. Count lookups, hashing, maintenance and memory as well as comparisons.
 
-```mermaid
-flowchart LR
-    P[Predecessor values and captures] --> S[Actual carrier selection]
-    S --> Q[Predecessor proof scopes]
-    Q --> J[Joined owner and ordered clauses]
-    J --> K[Retained carrier selection edges]
-    K --> C[Publish next clause]
-    V[Current witness evidence] --> C
-    C --> V
-```
+Optimization must remove repeated work across scope versions without changing publication order, assume
+expansion, branch limits, observation occurrences, capture boundaries or exhaustion behavior. Rebuilding an
+equal normalized formula can change budget consumption. Allocation IDs cannot replace semantic ordering.
+Existing measurements rule out edge-result caching or a retirement reverse-graph rewrite as the main next
+step. Joins, substitution, scope preparation and equality construction remain candidates, not proven solutions.
+Do not introduce another evidence representation or stack caches without removing superseded machinery.
 
-Publication keeps the ordered evidence cycle. It cannot change current values or deferred inputs. A newly
-inserted owner is an explicit potential endpoint, initially absent. Earlier owners' insertions are visible
-when selecting the next owner. A parent with unknown contents does not retain invented child authority.
-Retained selection edges remove repeated discovery here. Further work must remove repeated computation
-across versions while preserving ordered publication and actual predecessor evidence.
+## Fixed evidence and remaining BRA-567 gates
 
-## Typed dependency inventory
+Use optimized tooling, shared target/cargo and pinned target/toolchains/llvm/active. Keep checker compilation
+non-incremental. Native toolchain runs must be outside the sandbox. Never clean shared Cargo storage.
+Frozen identities live in proof-unfinished.json and correction-frozen30.json. Fixed920 comes from
+comparison.txt plus verification.json. Keep one current count, timing and regression result and the reusable
+counter patch. Remove stale logs and JSON streams once their useful result is retained. Final performance
+evidence must come from a build without temporary hooks.
 
-The graph is a hypergraph because several inputs can be required together. The following edges came from
-parallel read-only source scans and parent inspection. They are semantic dependencies, not authority grants.
+After contract correctness: fixed920 and relevant source/interface/native gates, maintainability review,
+and owned/deferred matrices only when authorized again. Verify root/main authority, cleanup before terminal
+publication, normal/panic/cancellation, rollback exactly once, services through static disposal, synchronous
+control and native archive/link evidence that Rust orchestration is removed. Preserve deferred-admission
+control d302124. Independent draft-PR review precedes ready/In Review. Close the issue only after merge.
 
-| Producer/consumer | Required edges and invalidation rules |
-| --- | --- |
-| Condition nodes and traversal | Distinguish data, owner, component, operand, live borrow, selector, descriptor and capture roles. Captured entries and descriptors are traversal barriers for some consumers. Live traversal keys include the live/nonlive role. Structural children alone are insufficient. |
-| CurrentValues | Place -> current value, availability, ancestors/components and explicit descendant absence. Writes and retirement publish new bindings. Old terminal contents can remain readable without live authority. |
-| Joins | Separate value and owner substitutions. Actual predecessor snapshots are not their general inverse. Complete snapshots, nested active-case guards and reached reference data remain separate. Conflicting source mappings become Unknown. Per-value and combined collectors have different original budgets. |
-| Witness refinement | Each clause proof, including None, contributes to the whole proved-evidence set. That set plus ordinary facts determines guard discharge. Preserve carrier availability, owning bit, address-owner payload and original witness/producer order. Availability alone is not clause truth. |
-| Carrier retirement | Carrier -> ordered captured ancestors, actual owned components and dependency places. Retained owners cut ancestor paths. Place -> current value -> observed paths applies to nonwrites. Match ancestor/descendant overlap, exclude siblings, and never infer ownership from equal contents. |
-| Clause revocation | Clause -> address -> owner place -> current observation is distinct from carrier lifetime. Writes, retirement, raw referent mutation, root expiry and cleanup have different policies. Keep private-admission exceptions and all independent live supports for qualified facts. |
-| Deferred evidence | Key by owner, execution site and captured entry. Retain owned arguments, extracted evidence and report snapshots. Selection/copy origins can expire while captured arguments remain. Possibility depends on absence of proved opposite guards. Captured ordinary facts grant no public authority. |
-| Proof queries | Include exact and absent membership/complement probes, relational subjects, variants, ordered-path frontiers, alternatives and alias hypotheses. Changed hypotheses reset their results. Removed supports require rederivation, including conflicts and multiple independent supports. |
-| Proof budgets | Preserve trusted-before-ordinary precedence, ordered DFS and Boolean short circuits. Fact rank and total length affect exhaustion even when truth is unchanged. Retain exact partial answers for incoming limits. Successful premises alone never justify reuse. |
-| Substitution | Include failed exact hits and longer-prefix misses, replacement priority, value/owner role and capture barriers. Ordered children share one decreasing budget. Inserted snapshots are not recursively expanded. |
-| Cleanup/publication | Cleanup uses retained owner, stable observations and proved truth. Private evidence needs the exact admitted carrier and entry scope. Final publication still needs intermediate checks, diagnostic deduplication, cancellation and completion products. Final block output alone is insufficient. |
-
-Source owners are execution_guarantees/{condition,boolean,trusted_implication,ordered_facts,witness,evidence},
-analysis/guarantee/{state,current,deferred,retirement,trusted/carriers,flow/merge,flow/witnesses}, and storage_flow.
-Do not flatten these edges into a generic changed-owner test or cache resolved current values as immutable.
-
-## Current representation and measured bottleneck
-
-ExecutionCondition retains an immutable node with one derived structural hash. Arc child slots and operand arrays
-preserve physical observation visits. NodeIdentity keys the borrowed handle slot, never the node allocation.
-Equality rejects unequal hashes then checks exact structure. Ordering preserves declaration/field/child order.
-Invocation-local node-pair memoization bounds shared-DAG comparison without merging independent occurrences.
-There is no condition interner, storage-key translation, global factory or second hashing schema. Keep these
-invariants and the collision, occurrence-slot and independent-DAG regression controls.
-
-The edge probe finds only 36 unchanged-source repetitions in 658 storage-flow propagations. Before this batch,
-their inclusive cost was at most 198,844 of 5,114,981 instrumented events, including merges that cannot be cached.
-Edge-result retention cannot be the main route to the gate. Do not implement it next.
-
-Comparison probes now retain their derived forms with the immutable query root. The largest remaining
-construction sites are raw equality complements and substitution/equality rewriting. Further performance
-work waits for contract correctness, and must still account for cache lookups and memory as well as construction.
-
-Normalized Boolean shape is not sufficient for a no-op rewrite shortcut. For example, a balanced conjunction
-built from 128 flat leaves can fit the original 256-work limit but exhaust it when flattened and rebuilt again.
-Preserve child traversal, normalization and exhaustion even when final children are unchanged. Published join
-formulas cannot silently become negative atom facts. Proving a normalized contrary is not generally equivalent
-to asking whether the original condition proves false under the original precedence and budgets.
-
-## Direct-membership invariants
-
-ProofMemo retains raw membership for both signs separately from filtered explicit answers. Preserve unknown
-keys, ordinary qualifier exclusion and true-before-false precedence. Raw lookup uses its exact single-view
-scope. Operation construction and transient lookup share one normalizer and structural hash/compare schema.
-Transient queries are not published into BooleanGraph or ownership products. All normalization and budget
-branches remain shared, including the one-unit proof-entry charge. Published operand slots remain distinct.
-No lock spans inference. Count lookup, normalization and index construction, including standalone proofs.
-
-## Next unresolved producer boundary
-
-The completed b4b5a76f5..15380b43b growth audit found 9,512 net lines, about 1,921 production and 7,456 tests.
-The same 372 trusted-contract test names survive formatting/reorganization. Shared fixture declarations and
-outcome assertions remove 313 net test/infrastructure lines without removing scenarios. Of 33 affected tests,
-The earlier 25 passing controls are unchanged and the eight activation failures are now resolved as recorded
-above. All 19 extracted source templates were byte-identical and extracted assertions equivalent. Preserve genuine bug regressions and distinct contracts, reuse fixtures,
-and avoid adding tests for intermediate debugging history. Do not expand optimization into those fixture repairs.
-
-Evidence snapshots already preserve Arc identity for clones, duplicate insertions and no-op retention.
-Fresh keys arise at state::join_values when any substitution changes, flow/merge's intersection plus
-alternative insertion, deferred refinement's entry/current/selection/projected-capture union, and per-carrier
-proved-evidence construction in witness::derived_conditions and flow/witnesses. These are distinct producers.
-
-BTree ordering governs insertion, difference/take limits, proof rank and semantic state equality.
-Hash membership removes query searches, not this ordered producer work. Restoring an older equal snapshot
-needs unchanged fact expansion, observation occurrences and budgets, not just equal keys. Entry/current
-scope reuse requires an established producer relation. Historical entry, retirement and copy projection
-can change either set, so do not infer a general superset or add a union cache.
-
-Substitution maps now retain their change predicate with immutable entries. Value, owner and recursive
-identity consumers reuse that metadata, including unscoped calls. Identity pins, per-root budgets, separate
-value/owner memos and snapshot capture boundaries are unchanged. Inactive-guard and conditional-alias consumers
-share one ordered availability/path set and preserve their separate iteration limits.
-
-Current graph-query batch retains completed existential subtree answers per immutable retirement context.
-It shares the iterator's child schema, preserves pruning, reverse DFS and short circuits, and uses iterative
-frames. Root selection/borrowed-slot/availability caches are removed. Live-role and observes_only rules remain
-separate. Address expiry still depends on each guarantee/current bindings. Full-condition keys grant no authority.
-Fixed inputs make callbacks pure. No budget or rejection behavior changes. Independent code review found no defect.
-
-The small fixture saves 22,432 comparisons but adds 125,926 key hashes. Its loop takes 266 ms. Do not reject
-this design from that single workload: across roots sharing growing DAGs it evaluates each distinct subtree
-once instead of rewalking it per root. The existing traversal test checks depths 4/12/20, alongside pruning and short circuit. Independent walks
-visit 25/169/441 nodes across growing roots, while the shared query evaluates 5/13/21 subtrees. These are
-callback counts, not total lookup/compare cost or real-program timing. Assess callback work, lookup cost and retained memory as source size and sharing vary.
-Keep both the 10k small-fixture gate and the larger-program scaling objective. No full matrices.
-
-The detailed retirement probe on unchanged 1b262f9bd records 1,556,296 comparisons. Retirement graph
-reconstruction is only 152, closure 14,846, snapshot-index construction 8,151, snapshot queries 112,634,
-observation queries 68,004, entry filtering 12,652 and remaining retirement 190,919 with 162,208 key hashes.
-Cleanup-retirement/private-admission are unused in this fixture. This rules out a reverse-graph rewrite as
-the next optimization. The raw parent total is about 407k. Other major costs remain joins 244k, substitution
-236k and scope keys 183k. Full exclusive counters are in proof-count-current.json.
-
-Retained root sets now own owner/content queries, replacing external memo wrappers. Empty-context answers
-return before hashing. Root insertion invalidates every derived answer through the existing index lifetime.
-Owner, contents and inline-contents modes stay distinct. Between-snapshot queries depend on both actual sets
-and keep a separate pair scope. Remove outer wrappers rather than stacking caches. Preserve loans, unknowns,
-selected projections, overwritten contents, proof budgets and current-vs-entry boundaries. Existing retention
-and retirement tests, fixed five and frozen30 are the oracles. The existing retention test also checks cached
-negative answers after insertion. No test identity was added. Count index maintenance and retained query memory.
-
-Comparison-form invariant: comparison_is_implied retains six operators in both operand orders lazily on
-the immutable source operation. Store
-PreparedCondition syntax only, never truth or membership. Each use still queries its exact raw proof scope
-and holds bit. Preserve noncomparison, malformed-operand and empty-scope early returns, reflexive ordering,
-known-query short circuits, collisions and all proof budget charges. First demand uses prepare_operation
-unchanged, including literal/nullable/unknown/NaN folding and normalization exhaustion. Results point only to
-descendants or fresh nodes, never to the source root. Eq/Ord/hash and observation edges exclude derived forms.
-Use a lazy table of boxed demanded forms to bound unused-slot memory. Count form lookups, table/slot creation
-and memory separately as well as all existing comparisons/hashes. Existing raw-membership/ordering/budget
-controls, fixed five and frozen30 are the oracles. No new fixture or test identity was added. The independent
-code review found no production defect. Its distinct-operand positive lookup test gap is covered.
-
-Deferred performance finding: the measured join_values batch rewrites only 66 ordinary and 66 trusted sets,
-360 total input facts. 26 ordinary sets/108 facts and 28 trusted sets/12 facts retain identical output handles.
-This is too little evidence for a persistent-tree redesign as the main next optimization. ExecutionFlowDomain
-and its proof cache are already created before the cleanup-feasibility loop, so those rounds share the cache.
-Do not move it again or skip rounds without proving identical complete inputs.
-
-join_values reconstructs whole ordinary/trusted evidence sets for any
-nonidentity substitution. conditional_facts builds another rewritten ordinary set, with different filtering
-and expansion rules. Then merge computes two ordered differences and an intersection separately. Trace which
-unchanged products can be retained before choosing a persistent ordered representation. Sharing must preserve
-assume expansion, per-root rewrite budgets, sorted branch limits, selected handles, entry/capture boundaries,
-negative dependencies and source roles. Identity-only joins still prune deferred captures before returning.
-Do not introduce a second evidence representation, canonicalization service or parallel dependency schema.
-A persistent library alone does not remove semantic reconstruction. The join/substitution/scope-key areas total
-about 662k comparisons, so even eliminating them leaves most of the gap to 10k unexplained.
-
-Join candidates remain unimplemented. One actual-value traversal could supply observation events to ownership
-and conditional-fact construction, but predecessor absence evidence and missing-vs-Unknown results differ.
-A shared ordered partition could replace ordinary left/right differences plus intersection after
-join_observations. Preserve left handles, both branch limits, exact order and unchanged snapshot identity.
-Count full partition/rebuild work, including imbalanced sets. Structural IDs alone save at most about 13 percent.
-Allocation order cannot replace semantic order because bounded selection and normalization depend on it.
-
-The scope-pair producer is ExecutionProofCache::prepare. Each new pair prepares DerivedFacts through
-prepare_trusted_conditions and BooleanGraph::new, then AlternativeProof builds subjects and an intrinsic
-baseline. Formula children, related subjects and intrinsic truth are structural. Active descendants,
-qualified roots, assertions, publication and propagation order belong to the scope. Registration includes
-observation owners and Trusted children even without Boolean edges. IDs follow child-first traversal of
-ordered qualifying roots. A shared potential graph cannot activate every node or change that order.
-
-Witness refinement has two proof scopes. First prove every clause, admitting only Some(true), then expand
-admitted clauses with assume. Second use that evidence plus ordinary facts to refine every original clause,
-including ones not admitted initially. Another admitted clause may establish them. Retain each source's
-owning bit and address supports. Guard replacement inserts closure facts before ordinary facts, with later
-entries winning, and preserves Trusted barriers. Static witness structure can be shared, but synthesized
-observations, failed/absent proofs, ordinary ordering and exhausted budgets remain dynamic dependencies.
-
-## Fixed evidence and broader work
-
-Use optimized tooling, shared target/cargo and pinned target/toolchains/llvm/active. Select products from a
-successful proof-build.jsonl. Native runs stay outside the sandbox. Fixed cases are bounded to 10 seconds.
-proof-unfinished.json freezes five identities. correction-frozen30.json freezes membership and correction-current.json
-maps names. Fixed 920 is comparison.txt plus verification.json additions. Keep one current count, timing and
-regression result plus one probe patch. Remove hooks and stale raw outputs after verification. Build without
-hooks for final goal evidence, not every checkpoint. Retain the checker-only non-incremental override. Never
-clean shared Cargo storage. Do not run full matrices under the current scope.
-
-BRA-567 still needs the remaining conditional result shapes and RawBuffer payload dependencies. Keep d302124's deferred-admission control. Then finish maintainability, owned/deferred
-matrices, frozen30, fixed920 and source/native gates. Verify root/main authority, cleanup before terminal
-publication, normal/panic/cancellation, rollback once, services through static disposal, synchronous control and
-native archive/link removal of Rust orchestration. Independent draft-PR review precedes ready/In Review. Close
-only after merge. Six existing style errors remain: wildcard flow/invalidation and oversized flow/merge,
-storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.
+Existing structural findings: wildcard flow/invalidation import and oversized flow/merge, storage_flow
+cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument functions.
