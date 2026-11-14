@@ -85,9 +85,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .and_then(|_| self.refinements.get(&operation.occurrence()));
 
         self.transfer_operation(state, operation, invalidation, assignment.as_ref());
+        self.replay_storage_moves(state, operation);
         self.complete_operation(state, operation, None);
 
         true
+    }
+
+    fn replay_storage_moves(
+        &self,
+        state: &mut ExecutionState,
+        operation: super::super::super::model::AnalysisOperationKind,
+    ) {
+        let flow = self.checked_body.expect("execution replay retains its checked storage transitions").storage_flow();
+
+        for plan in operation.storage_plans(self.storage) {
+            let decision = flow.operation(plan).expect("checked execution retains every planned storage decision");
+
+            if decision.purpose() != bray_bound_tree::StorageAccessPurpose::Move
+                || decision.status() != bray_bound_tree::StorageOperationStatus::Valid {
+                continue;
+            }
+
+            let path = flow.access_target(plan).and_then(bray_bound_tree::StorageTarget::storage_path)
+                .or_else(|| self.storage.logical_path(plan.access()));
+
+            if let Some(path) = path {
+                let ty = self.storage.access(plan.access()).expect("checked move retains its source access").reached_type();
+                let observed = self.value(state, plan.expression());
+
+                self.observe_move(state, path, ty, &observed);
+            }
+        }
     }
 
     pub(in crate::analysis) fn transfer_operation(

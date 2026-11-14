@@ -14,7 +14,12 @@ pub(super) struct Phase {
 
 impl Phase {
     pub(super) fn start(kind: &'static str, name: &str, imported: bool) -> Self {
-        let phase = Self { kind, name: name.to_owned(), imported, started: Instant::now() };
+        let phase = Self {
+            kind,
+            name: name.to_owned(),
+            imported,
+            started: Instant::now()
+        };
 
         phase.report("start");
 
@@ -25,7 +30,8 @@ impl Phase {
         let line = format!("[matrix] {}-{} name={} imported={} elapsed_ms={} pid={} panicking={}\n",
             self.kind, event, self.name, self.imported, self.started.elapsed().as_millis(),
             std::process::id(),
-            std::thread::panicking());
+            std::thread::panicking()
+        );
 
         eprint!("{line}");
 
@@ -65,8 +71,9 @@ macro_rules! cases {
     ($($name:ident = $index:literal,)*) => {
         #[test]
         fn registered_cases_match_catalogue() {
-            check_matrix_catalogue(&[$(stringify!($name)),*]);
+            check_matrix_catalogue(&[$(stringify!($name)),*])
         }
+
         mod source {
             $(#[test] fn $name() { super::check_matrix_case(false, $index, stringify!($name)); })*
         }

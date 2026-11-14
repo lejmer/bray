@@ -10,7 +10,9 @@ use bray_bound_tree::StorageMutation;
 pub(in crate::execution_guarantees) struct NodeIdentity<'a>(pub(in crate::execution_guarantees) &'a ExecutionCondition);
 
 impl PartialEq for NodeIdentity<'_> {
-    fn eq(&self, other: &Self) -> bool { std::ptr::eq(self.0, other.0) }
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.0, other.0)
+    }
 }
 
 impl Eq for NodeIdentity<'_> {}

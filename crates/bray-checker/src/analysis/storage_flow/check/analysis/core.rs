@@ -2614,10 +2614,8 @@ where
     fn decisions(&self) -> impl Iterator<Item = StorageOperationDecision> + '_ {
         self.storage.access_plans().iter().copied().map(|plan| {
             StorageOperationDecision::new(
-                plan.node(),
-                plan.expression(),
+                plan,
                 self.storage.effective_purpose(plan),
-                plan.access(),
                 self.storage.borrow_for_plan(plan),
                 self.statuses
                     .get(&plan)

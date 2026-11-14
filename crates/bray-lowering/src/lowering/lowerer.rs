@@ -2007,11 +2007,13 @@ mod tests {
             unit.unit(),
             unit.key().kind(),
             storage.access_plans().iter().map(|plan| bray_bound_tree::StorageOperationDecision::new(
-                plan.node(), plan.expression(),
+                *plan,
                 if plan.purpose() == bray_bound_tree::StorageAccessPurpose::ValueTransfer {
                     bray_bound_tree::StorageAccessPurpose::Move
-                } else { plan.purpose() },
-                plan.access(), None, bray_bound_tree::StorageOperationStatus::Valid)),
+                } else {
+                    plan.purpose()
+                },
+                None, bray_bound_tree::StorageOperationStatus::Valid)),
             [],
             unit.tree().blocks().map(|(block, _)| block),
             scope_exits

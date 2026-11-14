@@ -56,7 +56,7 @@ impl Lowerer<'_> {
             .occurrence_plans(occurrence)
             .find(|plan| accepts(*plan))?;
 
-        let decision = self.input.storage_operation(plan).unwrap_or_else(|| {
+        let decision = self.input.storage_flow().operation(plan).unwrap_or_else(|| {
             panic!(
                 "lowering contract violation: MissingStorageAccess {value:?}",
                 value = occurrence

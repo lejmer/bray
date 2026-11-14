@@ -5,7 +5,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use crate::{
     AnyBoundNodeId, BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId,
     BoundUnitKind, CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision,
-    StorageAccessId, StorageAccessPurpose, StorageIdentityId, StoragePlan, StorageScope,
+    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageIdentityId, StoragePlan, StorageScope,
 };
 
 /// An evaluated storage route whose exact origin is retained for functional state interpretation.
@@ -72,10 +72,8 @@ pub enum StorageOperationStatus {
 /// One source-correlated checked storage operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageOperationDecision {
-    node: AnyBoundNodeId,
-    expression: BoundExpressionId,
+    plan: StorageAccessPlan,
     purpose: StorageAccessPurpose,
-    access: StorageAccessId,
     borrow: Option<BorrowCapabilityId>,
     status: StorageOperationStatus,
 }
@@ -83,18 +81,14 @@ pub struct StorageOperationDecision {
 impl StorageOperationDecision {
     /// Creates one checked operation decision.
     pub const fn new(
-        node: AnyBoundNodeId,
-        expression: BoundExpressionId,
+        plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
-        access: StorageAccessId,
         borrow: Option<BorrowCapabilityId>,
         status: StorageOperationStatus,
     ) -> Self {
         Self {
-            node,
-            expression,
+            plan,
             purpose,
-            access,
             borrow,
             status,
         }
@@ -102,12 +96,12 @@ impl StorageOperationDecision {
 
     /// Returns the control-flow node where this operation takes effect.
     pub const fn node(self) -> AnyBoundNodeId {
-        self.node
+        self.plan.node()
     }
 
     /// Returns the source expression supplying the accessed value.
     pub const fn expression(self) -> BoundExpressionId {
-        self.expression
+        self.plan.expression()
     }
 
     /// Returns the semantic storage operation.
@@ -117,7 +111,12 @@ impl StorageOperationDecision {
 
     /// Returns the reached storage access.
     pub const fn access(self) -> StorageAccessId {
-        self.access
+        self.plan.access()
+    }
+
+    /// Returns the exact checked access, including its invocation occurrence.
+    pub const fn plan(self) -> StorageAccessPlan {
+        self.plan
     }
 
     /// Returns the capability established by a borrow operation.
@@ -341,6 +340,7 @@ pub struct StorageFlow {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     operations: Arc<[StorageOperationDecision]>,
+    operation_indices: Arc<[usize]>,
     suspensions: Arc<[StorageSuspensionState]>,
     reachable_blocks: Arc<[BoundBlockId]>,
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
@@ -380,6 +380,13 @@ impl StorageFlow {
         is_recovered: bool,
     ) -> Result<Self, StorageFlowBuildError> {
         let operations = operations.into_iter().collect::<Vec<_>>();
+        let mut operation_indices = (0..operations.len()).collect::<Vec<_>>();
+
+        operation_indices.sort_unstable_by_key(|index| operations[*index].plan());
+
+        assert!(operation_indices.windows(2).all(|pair| operations[pair[0]].plan() != operations[pair[1]].plan()),
+            "checked storage publishes one decision per exact access plan");
+
         let mut suspensions = suspensions.into_iter().collect::<Vec<_>>();
         let reachable_blocks = sorted_unique_shared_slice(reachable_blocks);
         let reachable_exits = sorted_unique_shared_slice(reachable_exits);
@@ -457,6 +464,7 @@ impl StorageFlow {
             unit,
             kind,
             operations: shared_slice(operations),
+            operation_indices: shared_slice(operation_indices),
             suspensions: shared_slice(suspensions),
             reachable_blocks,
             conditions: Default::default(),
@@ -677,6 +685,12 @@ impl StorageFlow {
         &self.operations
     }
 
+    /// Returns the checked decision for one exact planned operation.
+    pub fn operation(&self, plan: StorageAccessPlan) -> Option<StorageOperationDecision> {
+        self.operation_indices.binary_search_by_key(&plan, |index| self.operations[*index].plan())
+            .ok().map(|index| self.operations[self.operation_indices[index]])
+    }
+
     /// Returns direct-await storage states in expression identity order.
     pub fn suspensions(&self) -> &[StorageSuspensionState] {
         &self.suspensions
@@ -788,7 +802,7 @@ impl StorageFlow {
     }
 
     /// Returns an access's actual storage origin agreed across all reachable evaluations.
-    pub fn access_target(&self, plan: crate::StorageAccessPlan) -> Option<&crate::StorageTarget> {
+    pub fn access_target(&self, plan: StorageAccessPlan) -> Option<&crate::StorageTarget> {
         self.state_targets.get(&StorageStateTarget::Access {
             occurrence: plan.occurrence(),
             access: plan.access(),
@@ -892,7 +906,7 @@ mod tests {
     };
     use crate::{
         BoundBlockId, BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,
-        StorageAccessPurpose, StorageIdentityId,
+        StorageAccessPlan, StorageAccessPurpose, StorageIdentityId,
     };
 
     #[test]
@@ -904,10 +918,8 @@ mod tests {
         let scope = BoundBlockId::from_slot(unit, 0);
 
         let operation = StorageOperationDecision::new(
-            expression.into(),
-            expression,
+            StorageAccessPlan::new(expression.into(), expression, StorageAccessPurpose::Read, access),
             StorageAccessPurpose::Read,
-            access,
             None,
             StorageOperationStatus::Valid,
         );
@@ -1050,10 +1062,13 @@ mod tests {
         let foreign = BoundUnitId::new(5);
 
         let decision = StorageOperationDecision::new(
-            BoundExpressionId::from_slot(unit, 0).into(),
-            BoundExpressionId::from_slot(unit, 0),
+            StorageAccessPlan::new(
+                BoundExpressionId::from_slot(unit, 0).into(),
+                BoundExpressionId::from_slot(unit, 0),
+                StorageAccessPurpose::Read,
+                StorageAccessId::from_slot(foreign, 0),
+            ),
             StorageAccessPurpose::Read,
-            StorageAccessId::from_slot(foreign, 0),
             None,
             StorageOperationStatus::Recovered,
         );

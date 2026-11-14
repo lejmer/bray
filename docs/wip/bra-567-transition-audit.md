@@ -16,14 +16,17 @@ Checkpoint evidence in target/audit:
 - Owned matrix492/496, deferred292/296. Remaining patterns in both source/import modes:
   conditional_optional_join, select_nullable_inputs_join_both, task_frame_borrow_ends,
   task_returns_observation_future.
-- fixed-current.json: fixed916 has886 pass,19 fail,11 incomplete after240s batch bounds.
+- fixed-move.json: fixed916 has897 pass,11 fail,8 unverified. Eight earlier failures are repaired,
+  three previously incomplete cases pass, and no prior passing identity regressed. The first wrapper
+  lost four timeout outputs through a str/bytes error. Recovery ran only unsaved identities and wrote
+  directly to files. Keep doing that. The eight unverified cases still require bounded individual runs.
   Keep exact identities and negative failure locations. A passing subset is not final verification.
 - The full-provider report fixture exceeded240s. body-trace.log identifies serial production-body
   checking through entry/bridge::install, without identifying a particular hot transitive query.
 - Previous stored-value checkpoint:221 symbol and217 interface checks passed. Version alignment:
   tooling115, runtime interface29, runtime ABI35, test protocol23 and backend identity1 passed.
 
-Uncommitted semantic work:
+Checkpoint0b7f698d2, pushed:
 - Physical in-place framing should retain each visited component's existing owned role, including
   implicit input/projection representations. Standalone mask application keeps its narrower contract.
   Tag-only preservation cannot retain ownership. Extracted owners and unvisited children stay retired.
@@ -33,13 +36,12 @@ Uncommitted semantic work:
   attachment protocol and shutdown owner checks now pass. Frozen30 and checker559 also pass.
   Numeric domain normalization and intrinsic totality already exist. Do not duplicate those policies.
 
-All temporary hooks are removed. checkpoint-validation.json records the latest bounded checks:
-checker559 and two async composition controls pass. The four nullable, four deferred, two extracted
-owner checks and three scope composition checks still fail. production-total-checkpoint.log records
-the three --include-ignored production passes. range-trace.log motivated the storage_type fix.
-ledger-trace.log only observed guarantee replay and
-has not located the producer's witness removal. replacement-trace.log proves a scope-exit mismatch:
-storage production proves InitializedSnapshot false, while replay sees unconditional presence.
+All temporary hooks are removed. move-validation.json records checker559, frozen30 and all five
+composition checks passing. Owned501/505 and deferred294/298 include their helper tests. Their four
+failing cases each are unchanged. Bound-tree136 and lowering38 pass. production-total-checkpoint.log records
+the three --include-ignored production passes. The staged scalar Result had no observed range before
+the storage_type fix. The discarded witness probe observed replay rather than the producer and did
+not locate witness removal. Scope cleanup previously diverged because replay left moved sources live.
 
 ## Unresolved causes and fixed constraints
 
@@ -53,18 +55,18 @@ RunResult join in the two deferred failures. Capture logging describes future co
 completion. Locate the actual removal operation. Do not remove the admission availability filter:
 carrying dormant evidence must not grant authority before the owning completion.
 
-Scope cleanup in ownership_composition_* selects an already-consumed owner during replay. The
-mutation occurrence is Cleanup(Expression(exit)), not an assignment replacement. Storage production
-proves the initialized snapshot false, but replay never applies ordinary source Move transitions.
-Producer apply_valid_operation calls observe_move. Replay retires evaluated slots only, and staged
-reads of locals may have no evaluated slot. Repair actual move replay before changing cleanup selection.
-Use the checked operation's exact plan, status and access target at the same CFG phase. Preserve
+Move replay now uses the checked operation's exact plan, status and access target at the same CFG phase.
+Producer apply_valid_operation and replay both call observe_move. Previously replay retired evaluated
+slots only, and staged reads of locals could have no evaluated slot. This repairs all three scope controls.
+Preserve
 entry snapshots before vacating the source, and complete the destination afterward. Copy, rejected
 moves and failure-before-admission must not retire source storage. Scoped, projected and staged moves
 share this rule. Keep composition, fabrication, invalid-copy, loop and source/import controls fixed.
 Publish the exact plan instead of reconstructing operation identity from node/expression/access.
 Share its lookup with lowering, removing lowering's separate lookup machinery. No new authority or
 cleanup registry. Reconsider if any move is applied at a different producer phase or without a valid status.
+The existing lookup test now distinguishes node and call-input accesses with the same expression and
+storage access. Lowering's separate lookup/index was removed. Missing selected cleanup mutations still panic.
 
 Several production fixtures share one total diagnostic at SourceId370, bytes29439..29515. Rust path
 component ordering maps this to std/os/generated/x86_64_unknown_linux_gnu.bray, the write postcondition
@@ -109,8 +111,8 @@ same_site_independent_second, is the loop. Compare condition comparisons and con
 proof-count-current.json, and caller phase timing with proof-indexed-current.json. Keep provider time
 separate. Shared-machine timing is informational. Investigate large unexplained count regressions.
 Baseline: fixed five140-154ms, loop154ms,1,471,543 comparisons and zero interner lookups.
-Current performance-current.json: all five pass at154-165ms, loop165ms. Loop comparisons1,482,134
-(+0.72%), constructed nodes38,060 versus38,058. Counter patch retains only the four measured hooks.
+Current performance-current.json: all five pass at168-199ms, loop199ms. Loop comparisons1,481,729
+(+0.69%), constructed nodes38,060 versus38,058. Counter patch retains only the four measured hooks.
 Timing and counts use separate runs. No large regression. Production count hooks are removed.
 The remaining graph cost crosses joins, owner/capture substitution, proof scopes and publication replay.
 Retained models: immutable structurally hashed conditions, scope-keyed ProofMemo, ordered BooleanGraph,

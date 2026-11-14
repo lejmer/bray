@@ -1,19 +1,10 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundExpressionId, StorageAccessPlan, StorageFlow, StorageIdentityId,
-    StorageOperationDecision, StoragePlan,
+    BoundExpressionId, StorageIdentityId, StoragePlan,
 };
 
 use super::LoweringInput;
-
-pub(super) fn storage_operation_indices(flow: &StorageFlow) -> Arc<[usize]> {
-    let mut indices = (0..flow.operations().len()).collect::<Vec<_>>();
-
-    indices.sort_unstable_by_key(|index| (flow.operations()[*index].expression(), *index));
-
-    indices.into()
-}
 
 pub(super) fn temporary_storage_indices(
     storage: &StoragePlan,
@@ -22,27 +13,6 @@ pub(super) fn temporary_storage_indices(
 }
 
 impl LoweringInput<'_> {
-    pub(crate) fn storage_operation(
-        &self,
-        plan: StorageAccessPlan,
-    ) -> Option<StorageOperationDecision> {
-        let operations = self.storage_flow.operations();
-        let expression = plan.expression();
-
-        let start = self
-            .storage_operations
-            .partition_point(|index| operations[*index].expression() < expression);
-
-        self.storage_operations[start..]
-            .iter()
-            .map(|index| operations[*index])
-            .take_while(|decision| decision.expression() == expression)
-            .find(|decision| {
-                decision.access() == plan.access()
-                    && plan.purpose().matches_checked(decision.purpose())
-            })
-    }
-
     pub(crate) fn temporary_storage(
         &self,
         expression: BoundExpressionId,

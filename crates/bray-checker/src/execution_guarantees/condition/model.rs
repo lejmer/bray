@@ -334,12 +334,19 @@ impl ConditionNode {
 type ComparedPairs = HashMap<(*const ConditionNode, *const ConditionNode), Ordering>;
 
 fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: bool, pairs: &mut ComparedPairs) -> Ordering {
-    if std::ptr::eq(left, right) { return Ordering::Equal; }
-    if equality_only && left.hash != right.hash { return Ordering::Less; }
+    if std::ptr::eq(left, right) {
+        return Ordering::Equal;
+    }
+
+    if equality_only && left.hash != right.hash {
+        return Ordering::Less;
+    }
 
     let pair = (left as *const ConditionNode, right as *const ConditionNode);
 
-    if let Some(result) = pairs.get(&pair) { return *result; }
+    if let Some(result) = pairs.get(&pair) {
+        return *result;
+    }
 
     let mut descended = false;
 
@@ -350,7 +357,9 @@ fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: boo
     });
 
     // Leaf comparisons do no recursive work, so retain only recursive results.
-    if descended { pairs.insert(pair, result); }
+    if descended {
+        pairs.insert(pair, result);
+    }
 
     result
 }
@@ -503,7 +512,9 @@ mod tests {
 
         assert!(!shared.contains_trusted_in(&mut seen, false));
         assert!(seen.len() <= 41, "qualification work follows the graph rather than its expanded tree");
+
         seen.clear();
+
         assert!(!shared.contains_unknown_in(&mut seen, false));
         assert!(seen.len() <= 41, "unknown detection follows the graph rather than its expanded tree");
 
@@ -542,7 +553,9 @@ mod tests {
 
         assert!(super::compare_nodes(&left.0, &right.0, true, &mut pairs).is_eq());
         assert!(pairs.len() <= 20, "equality must compare shared node pairs once");
+
         pairs.clear();
+
         assert!(super::compare_nodes(&left.0, &right.0, false, &mut pairs).is_eq());
         assert!(pairs.len() <= 20, "ordering must compare shared node pairs once");
         assert_eq!(left, right);
@@ -586,5 +599,4 @@ mod tests {
             }
         }
     }
-
 }
