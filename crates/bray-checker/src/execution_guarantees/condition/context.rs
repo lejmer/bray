@@ -1,11 +1,10 @@
 use std::cell::OnceCell;
 use std::collections::{BTreeSet, HashMap};
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::ExecutionCondition;
 use super::substitution::GuardSubstitution;
-use super::interning::{ConditionIndex, ConditionMap};
+use super::interning::{ConditionId, ConditionIndex, ConditionMap};
 use super::memo::{ExecutionMemo, ConditionMemo, cached_condition, memoized};
 use crate::execution_guarantees::boolean::AlternativeProof;
 use crate::execution_guarantees::{ExecutionAssumptions, ExecutionWitness};
@@ -101,7 +100,7 @@ impl PreparedFacts {
 #[derive(Default)]
 pub(crate) struct ExecutionProofCache {
     pub(crate) conditions: ConditionIndex,
-    facts: Mutex<HashMap<u64, Vec<Arc<PreparedFacts>>>>,
+    facts: Mutex<HashMap<[Vec<(ConditionId, bool)>; 2], Arc<PreparedFacts>>>,
     scopes: Mutex<HashMap<(usize, usize), (ExecutionAssumptions, ExecutionAssumptions, Arc<PreparedFacts>)>>,
 }
 
@@ -167,34 +166,15 @@ impl ExecutionProofCache {
             return Arc::clone(prepared);
         }
 
-        let mut hash = std::hash::DefaultHasher::new();
-
-        // Bucket selection needs only a cheap shape. Full immutable sets below
-        // establish identity, without repeatedly hashing expanded operand trees.
-        for facts in [trusted, ordinary] {
-            facts.len().hash(&mut hash);
-
-            for (condition, holds) in facts {
-                std::mem::discriminant(condition).hash(&mut hash);
-                holds.hash(&mut hash);
-            }
-        }
-
-        let fingerprint = hash.finish();
+        // Both evidence roles and every polarity belong to this exact semantic key.
+        let inputs = [trusted, ordinary].map(|facts| facts.iter()
+            .map(|(condition, holds)| (self.conditions.intern(condition), *holds)).collect());
 
         let mut facts = self.facts.lock().expect("analysis proof cache lock is not poisoned");
-        let bucket = facts.entry(fingerprint).or_default();
 
-        let prepared = if let Some(cached) = bucket.iter().find(|cached| cached.trusted == *trusted && cached.ordinary == *ordinary) {
-            Arc::clone(cached)
-        } else {
-            let prepared = Arc::new(PreparedFacts::new(trusted.clone(), ordinary.clone(), &self.conditions));
-
-            // A fingerprint only selects the bucket. Complete snapshots establish semantic identity.
-            bucket.push(Arc::clone(&prepared));
-
-            prepared
-        };
+        let prepared = Arc::clone(facts.entry(inputs).or_insert_with(|| {
+            Arc::new(PreparedFacts::new(trusted.clone(), ordinary.clone(), &self.conditions))
+        }));
 
         drop(facts);
 
@@ -556,7 +536,7 @@ mod tests {
         let other_owner = cache.proof(&colliding, &ordinary);
 
         assert_eq!(other_owner.prove_trusted(&other_claim), Some(true));
-        assert_ne!(other_owner.prove_trusted(&claim), Some(true), "identical bucket shapes cannot merge owner evidence");
+        assert_ne!(other_owner.prove_trusted(&claim), Some(true), "same-shaped facts cannot merge owner evidence");
         assert!(!Arc::ptr_eq(prepared, other_owner.prepared.get().expect("another owner prepares distinct evidence")));
 
         let independent = ExecutionProofCache::default();
