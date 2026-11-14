@@ -2,7 +2,7 @@ use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use super::ExecutionCondition;
+use super::{ExecutionCondition, PreparedCondition};
 use super::substitution::GuardSubstitution;
 use super::memo::{ExecutionMemo, ConditionMemo, cached_condition, memoized};
 use crate::execution_guarantees::boolean::AlternativeProof;
@@ -11,9 +11,15 @@ use crate::execution_guarantees::witness::WitnessConditions;
 
 pub(in crate::execution_guarantees) struct ProofMemo {
     pub(super) queries: ExecutionMemo<Option<bool>>,
-    explicit: OnceLock<HashMap<ExecutionCondition, bool>>,
+    explicit: OnceLock<hashbrown::HashMap<ExecutionCondition, FactMembership>>,
     single: OnceLock<[Arc<ProofMemo>; 2]>,
     ordered: OnceLock<crate::execution_guarantees::ordered_facts::OrderedFacts>,
+}
+
+#[derive(Default)]
+struct FactMembership {
+    raw: [bool; 2],
+    explicit: Option<bool>,
 }
 
 impl ProofMemo {
@@ -34,19 +40,35 @@ impl ProofMemo {
         Self { single: OnceLock::from(single), ..Self::new() }
     }
 
-    pub(super) fn explicit_value(&self, condition: &ExecutionCondition, trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: Option<&BTreeSet<(ExecutionCondition, bool)>>) -> Option<bool> {
-        let facts = self.explicit.get_or_init(|| {
-            let mut facts = HashMap::new();
+    fn facts(&self, first: &BTreeSet<(ExecutionCondition, bool)>, ordinary: Option<&BTreeSet<(ExecutionCondition, bool)>>) -> &hashbrown::HashMap<ExecutionCondition, FactMembership> {
+        self.explicit.get_or_init(|| {
+            let mut facts = hashbrown::HashMap::<_, FactMembership>::new();
 
-            for (condition, holds) in trusted.iter().chain(ordinary.into_iter().flatten().filter(|(condition, _)| !condition.contains_trusted())) {
-                if condition.contains_unknown() { continue; }
-                *facts.entry(condition.clone()).or_insert(false) |= *holds;
+            let ordinary = ordinary.into_iter().flatten().filter(|(condition, _)| !condition.contains_trusted());
+
+            for ((condition, holds), raw) in first.iter().map(|fact| (fact, true)).chain(ordinary.map(|fact| (fact, false))) {
+                let known = !condition.contains_unknown();
+
+                if !raw && !known { continue; }
+
+                let membership = facts.entry(condition.clone()).or_default();
+
+                if raw { membership.raw[usize::from(*holds)] = true; }
+
+                if known { membership.explicit = Some(membership.explicit.unwrap_or(false) || *holds); }
             }
 
             facts
-        });
+        })
+    }
 
-        facts.get(condition).copied()
+    pub(super) fn explicit_value(&self, condition: &ExecutionCondition, trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: Option<&BTreeSet<(ExecutionCondition, bool)>>) -> Option<bool> {
+        self.facts(trusted, ordinary).get(condition).and_then(|membership| membership.explicit)
+    }
+
+    /// Exact membership in this raw scope, without explicit-value qualification or truth folding.
+    pub(in crate::execution_guarantees) fn raw_contains(&self, condition: &PreparedCondition, holds: bool, assumptions: &BTreeSet<(ExecutionCondition, bool)>) -> bool {
+        self.facts(assumptions, None).get(condition).is_some_and(|membership| membership.raw[usize::from(holds)])
     }
 }
 
@@ -423,6 +445,82 @@ mod tests {
 
     use super::{ExecutionCondition, ExecutionProofCache};
     use crate::ExecutionPlace;
+
+    #[test]
+    fn raw_membership_keeps_polarities_and_unknowns_when_explicit_truth_filters_them() {
+        use bray_bound_tree::BoundOperator::{Equal, Less};
+        use super::{PreparedCondition, ProofMemo};
+
+        let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let unknown = ExecutionCondition::unknown();
+        let false_value = ExecutionCondition::boolean(false);
+
+        let facts = BTreeSet::from([
+            (input.clone(), false), (input.clone(), true),
+            (unknown.clone(), true), (false_value, false),
+        ]);
+
+        let memo = ProofMemo::new();
+        let ordinary = BTreeSet::new();
+
+        for incoming in [0_usize, 1, 2] {
+            let mut raw_budget = incoming;
+            let mut mixed_budget = incoming;
+            let expected = (incoming > 0).then_some(true);
+
+            assert_eq!(input.prove_with_memo(&facts, &mut raw_budget, None), expected);
+            assert_eq!(input.prove_mixed_with_implications(&facts, &ordinary, &mut mixed_budget, None, None), expected);
+            assert_eq!(raw_budget, incoming.saturating_sub(1));
+            assert_eq!(mixed_budget, incoming.saturating_sub(1));
+        }
+
+        // Prepare explicit truth first so raw membership uses the same immutable input.
+        assert_eq!(memo.explicit_value(&input, &facts, None), Some(true));
+        assert_eq!(memo.explicit_value(&unknown, &facts, None), None);
+        assert!(memo.raw_contains(&PreparedCondition::Retained(input.clone()), false, &facts));
+        assert!(memo.raw_contains(&PreparedCondition::Retained(input.clone()), true, &facts));
+        assert!(memo.raw_contains(&PreparedCondition::Retained(unknown.clone()), true, &facts));
+        assert!(!memo.raw_contains(&PreparedCondition::Retained(unknown.clone()), false, &facts));
+
+        let folded_false = ExecutionCondition::prepare_operation(Less, vec![input.clone(), input.clone()]);
+        let folded_unknown = ExecutionCondition::prepare_operation(Equal, vec![input, unknown]);
+
+        assert!(memo.raw_contains(&folded_false, false, &facts));
+        assert!(!memo.raw_contains(&folded_false, true, &facts));
+        assert!(memo.raw_contains(&folded_unknown, true, &facts));
+        assert!(!memo.raw_contains(&folded_unknown, false, &facts));
+
+        let raw_first = ProofMemo::new();
+
+        assert!(raw_first.raw_contains(&folded_unknown, true, &facts));
+        assert_eq!(raw_first.explicit_value(&ExecutionCondition::unknown(), &facts, None), None);
+    }
+
+    #[test]
+    fn mixed_explicit_facts_do_not_import_ordinary_trusted_authority() {
+        use super::{PreparedCondition, ProofMemo};
+
+        let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input.clone())));
+        let trusted = BTreeSet::from([(input.clone(), false)]);
+        let ordinary = BTreeSet::from([(claim.clone(), true), (input.clone(), true)]);
+        let mixed = ProofMemo::new();
+
+        assert_eq!(mixed.explicit_value(&claim, &trusted, Some(&ordinary)), None);
+        assert_eq!(mixed.explicit_value(&input, &trusted, Some(&ordinary)), Some(true));
+
+        let [trusted_view, ordinary_view] = mixed.single_views();
+
+        let claim = PreparedCondition::Retained(claim);
+        let input = PreparedCondition::Retained(input);
+
+        assert!(!trusted_view.raw_contains(&claim, true, &trusted));
+        assert!(ordinary_view.raw_contains(&claim, true, &ordinary));
+        assert!(trusted_view.raw_contains(&input, false, &trusted));
+        assert!(!trusted_view.raw_contains(&input, true, &trusted));
+        assert!(ordinary_view.raw_contains(&input, true, &ordinary));
+        assert!(!ordinary_view.raw_contains(&input, false, &ordinary));
+    }
 
     #[test]
     fn equality_results_retain_exact_ordinary_scope_and_expiry_preference() {

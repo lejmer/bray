@@ -1,5 +1,6 @@
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::{ExecutionCondition, ExecutionConditionKind as K};
+use super::model::PreparedCondition;
 use bray_bound_tree::BoundOperator;
 use std::sync::Arc;
 
@@ -876,13 +877,17 @@ impl ExecutionCondition {
         level.pop().expect("nonempty Boolean terms retain their result")
     }
 
-    pub(crate) fn operation(operator: BoundOperator, mut operands: Vec<Self>) -> Self {
+    pub(crate) fn operation(operator: BoundOperator, operands: Vec<Self>) -> Self {
+        Self::prepare_operation(operator, operands).finish()
+    }
+
+    pub(in crate::execution_guarantees) fn prepare_operation(operator: BoundOperator, mut operands: Vec<Self>) -> PreparedCondition {
         for operand in &mut operands {
             *operand = operand.computed_value().clone();
         }
 
         if matches!(operator, BoundOperator::LogicalAnd | BoundOperator::LogicalOr) {
-            return Self::boolean_operation(operator, operands);
+            return Self::boolean_operation(operator, operands).into();
         }
 
         if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual)
@@ -898,7 +903,7 @@ impl ExecutionCondition {
                 && matches!(absent.kind(), bray_symbols::ConstantValueKind::NullableAbsent)
             {
                 if let Some(present) = value.known_presence() {
-                    return ExecutionCondition::boolean(present == (operator == BoundOperator::NotEqual));
+                    return ExecutionCondition::boolean(present == (operator == BoundOperator::NotEqual)).into();
                 }
 
                 let tag = match value.kind() {
@@ -907,7 +912,7 @@ impl ExecutionCondition {
                 };
 
                 if let Some(tag) = tag {
-                    return Self::operation(operator, vec![(**tag).clone(), ExecutionCondition::new(K::Literal(Arc::clone(absent)))]);
+                    return Self::prepare_operation(operator, vec![(**tag).clone(), ExecutionCondition::new(K::Literal(Arc::clone(absent)))]);
                 }
             }
         }
@@ -917,14 +922,14 @@ impl ExecutionCondition {
             BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr
         ) && operands.iter().any(Self::contains_unknown)
         {
-            return ExecutionCondition::unknown();
+            return ExecutionCondition::unknown().into();
         }
 
         if let [value] = operands.as_slice()
             && let K::Literal(value) = value.kind()
             && let Some(kind) = crate::constant::fold_numeric_sign(operator, value.kind())
         {
-            return ExecutionCondition::new(K::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            return PreparedCondition::new(K::Literal(Arc::new(bray_symbols::ConstantValueData::new(
                 value.ty(), kind,
             ))));
         }
@@ -937,7 +942,7 @@ impl ExecutionCondition {
                 operator, left.kind(), right.kind(), crate::ConstantEvaluationLimits::default().integer_bits(),
             )
         {
-            return ExecutionCondition::boolean(value);
+            return ExecutionCondition::boolean(value).into();
         }
 
         if operator == BoundOperator::LogicalNot
@@ -945,14 +950,14 @@ impl ExecutionCondition {
             && let K::Operation(comparison, inner) = value.kind()
             && let Some(complement) = comparison.equality_complement()
         {
-            return Self::operation(complement, inner.to_vec());
+            return Self::prepare_operation(complement, inner.to_vec());
         }
 
         match (operator, operands.as_slice()) {
             // Strict self-ordering is false even for NaN. Equality and weak ordering
             // require value-domain evidence that this untyped normalization does not carry.
             (BoundOperator::Less | BoundOperator::Greater, [left, right]) if left == right => {
-                ExecutionCondition::boolean(false)
+                ExecutionCondition::boolean(false).into()
             }
             (BoundOperator::Equal | BoundOperator::NotEqual, [left, right]) => {
                 let boolean = match (left.kind(), right.kind()) {
@@ -963,22 +968,22 @@ impl ExecutionCondition {
 
                 if let Some((condition, expected)) = boolean {
                     if expected == (operator == BoundOperator::Equal) {
-                        return condition.clone();
+                        return condition.clone().into();
                     }
 
-                    return Self::operation(BoundOperator::LogicalNot, vec![condition.clone()]);
+                    return Self::prepare_operation(BoundOperator::LogicalNot, vec![condition.clone()]);
                 }
 
-                ExecutionCondition::new(K::Operation(operator, operands.into()))
+                PreparedCondition::new(K::Operation(operator, operands.into()))
             }
             (BoundOperator::LogicalNot, [value]) => match value.kind() {
-                K::Boolean(value) => ExecutionCondition::boolean(!*value),
+                K::Boolean(value) => ExecutionCondition::boolean(!*value).into(),
                 K::Operation(BoundOperator::LogicalNot, inner) => {
-                    inner.first().cloned().unwrap_or_else(ExecutionCondition::unknown)
+                    inner.first().cloned().unwrap_or_else(ExecutionCondition::unknown).into()
                 }
-                _ => ExecutionCondition::new(K::Operation(operator, operands.into())),
+                _ => PreparedCondition::new(K::Operation(operator, operands.into())),
             },
-            _ => ExecutionCondition::new(K::Operation(operator, operands.into())),
+            _ => PreparedCondition::new(K::Operation(operator, operands.into())),
         }
     }
 }
@@ -1236,4 +1241,24 @@ mod tests {
         assert_ne!(before, after);
         assert_eq!(before.into_referent().component(ConstantProjectionKind::NullableValue).matches_variant(variant), ExecutionCondition::boolean(true));
     }
+
+    #[test]
+    fn prepared_boolean_normalization_preserves_exhaustion() {
+        use bray_bound_tree::BoundOperator::LogicalAnd;
+
+        let terms = (0..ExecutionCondition::WORK_LIMIT / 2)
+            .map(|ordinal| ExecutionCondition::new(K::Input(ExecutionPlace::argument(
+                SymbolOrdinal::new(u32::try_from(ordinal).expect("test ordinal fits")),
+            ))))
+            .collect::<Vec<_>>();
+
+        let balanced = ExecutionCondition::prepare_operation(LogicalAnd, terms).finish();
+
+        let K::Operation(LogicalAnd, operands) = balanced.kind() else {
+            panic!("the flat input fits the Boolean normalization budget");
+        };
+
+        assert_eq!(ExecutionCondition::prepare_operation(LogicalAnd, operands.to_vec()).finish(), ExecutionCondition::unknown());
+    }
+
 }

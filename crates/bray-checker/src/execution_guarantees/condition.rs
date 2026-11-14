@@ -16,6 +16,7 @@ mod tags;
 mod tests;
 
 pub use model::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionObservationKind};
+pub(in crate::execution_guarantees) use model::PreparedCondition;
 
 pub(crate) use retention::Set as ObservationSet;
 pub(crate) use retained::RetainedSnapshots;
