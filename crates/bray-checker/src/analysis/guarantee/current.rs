@@ -610,7 +610,7 @@ mod tests {
             let required = held(current.clone().project(marker));
 
             assert_eq!(required.prove_trusted(&state.trusted_assumptions, &state.assumptions) == Some(true), both_proven);
-            assert!(!crate::execution_guarantees::ObservationSet::retains_owner(&[current].into(), &owner));
+            assert!(!crate::execution_guarantees::RetainedSnapshots::from(&[current].into()).retains_owner(&owner));
 
             for _ in 0..4 {
                 merge_execution(&mut joined, &Some(right.clone()), Some(block).into());

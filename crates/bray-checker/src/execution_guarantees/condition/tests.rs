@@ -97,7 +97,7 @@ fn observation_walks_visit_shared_nodes_without_expanding_the_tree() {
         owner: Arc::new(input(ordinal)), contents: Arc::new(owned()), kind: super::ExecutionObservationKind::Owned,
     }).collect();
 
-    assert!(!super::ObservationSet::retains_owner(&snapshots, &input(99)),
+    assert!(!crate::execution_guarantees::RetainedSnapshots::from(&snapshots).retains_owner(&input(99)),
         "separately allocated equal DAGs must not expand into structural comparison trees");
 
 }
@@ -378,8 +378,7 @@ fn retained_scalar_data_does_not_preserve_its_original_storage_loan_or_owner() {
     assert!(!condition(data.clone().borrowed()).observes_only(|value| stable.preserves(value)));
     assert!(condition(copied.clone().borrowed()).observes_only(|value| stable.preserves(value)));
 
-    assert!(!crate::execution_guarantees::ObservationSet::retains_owner(
-        &BTreeSet::from([copied]), &data));
+    assert!(!crate::execution_guarantees::RetainedSnapshots::from(&BTreeSet::from([copied])).retains_owner(&data));
 
     let other = input(2);
 

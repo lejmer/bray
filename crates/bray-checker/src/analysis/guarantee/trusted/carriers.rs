@@ -77,14 +77,14 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
         // A live backing context retains its guarantees when a temporary loan
         // ends. This does not add an owned-result transfer for a borrowed input.
         let referent = condition.clone().into_referent();
-        let contexts = state.current.live_values().collect::<BTreeSet<_>>();
+        let contexts = state.current.live_values().collect::<crate::execution_guarantees::RetainedSnapshots>();
 
         // The loan and owning value share immutable completion data, but retain
         // distinct authority. Moving an owner cannot depend on its temporary loan.
         let mut carriers = vec![condition.clone()];
 
         if referent != *condition
-            && crate::execution_guarantees::ObservationSet::retains_owner(&contexts, &referent) {
+            && contexts.retains_owner(&referent) {
             carriers.push(referent);
         }
 

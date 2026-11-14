@@ -126,7 +126,9 @@ impl ValuePreservation {
         let moved = state.entries.get(&mutation.occurrence())
             .map_or(&empty, |entry| &entry.extracted_values);
 
-        let next = mask.apply_bounded(&source, place, mutation, owned_context, moved, &mut { ExecutionCondition::WORK_LIMIT });
+        let moved = crate::execution_guarantees::RetainedSnapshots::from(moved);
+
+        let next = mask.apply_bounded(&source, place, mutation, owned_context, &moved, &mut { ExecutionCondition::WORK_LIMIT });
 
         if source == next { return next; }
 
@@ -203,7 +205,7 @@ impl ValuePreservation {
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
         owned_context: bool,
-        moved: &std::collections::BTreeSet<ExecutionCondition>,
+        moved: &crate::execution_guarantees::RetainedSnapshots,
         budget: &mut usize,
     ) -> ExecutionCondition {
         let Some(remaining) = budget.checked_sub(1) else {
@@ -212,7 +214,7 @@ impl ValuePreservation {
 
         *budget = remaining;
 
-        let consumed = crate::execution_guarantees::ObservationSet::retains_owner(moved, source);
+        let consumed = moved.retains_owner(source);
         let retained = self.value && !consumed;
 
         if !retained && self.descriptor

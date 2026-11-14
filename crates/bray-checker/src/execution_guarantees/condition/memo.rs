@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
-use super::interning::{ConditionIndex, ConditionMap};
+use super::interning::{ConditionId, ConditionIndex, ConditionMap};
+use hashbrown::HashMap;
 
 use super::ExecutionCondition;
 use std::sync::Mutex;
@@ -58,15 +59,18 @@ impl<T: Clone> Computation<T> {
 
 /// Pure execution queries retain their original semantic work cost on a cache hit.
 pub(super) struct ExecutionMemo<T> {
-    values: Mutex<ConditionMap<Computation<T>>>,
+    conditions: ConditionIndex,
+    values: Mutex<HashMap<ConditionId, Computation<T>>>,
 }
 
 impl<T> Default for ExecutionMemo<T> {
-    fn default() -> Self { Self { values: Mutex::new(ConditionMap::default()) } }
+    fn default() -> Self { Self::new(&ConditionIndex::default()) }
 }
 
 impl<T> ExecutionMemo<T> {
-    pub(super) fn new(index: &ConditionIndex) -> Self { Self { values: Mutex::new(index.map()) } }
+    pub(super) fn new(index: &ConditionIndex) -> Self {
+        Self { conditions: index.clone(), values: Mutex::default() }
+    }
 }
 
 pub(super) fn memoized<T: Clone>(
@@ -77,15 +81,10 @@ pub(super) fn memoized<T: Clone>(
 ) -> T {
     let Some(memo) = memo else { return compute(budget); };
 
-    let key = {
-        let values = memo.values.lock().expect("execution query memo lock is not poisoned");
+    let key = memo.conditions.intern(key);
 
-        let (key, cached) = values.lookup(key);
-
-        if let Some(value) = cached.and_then(|cached| cached.reuse(budget)) { return value; }
-
-        key
-    };
+    if let Some(value) = memo.values.lock().expect("execution query memo lock is not poisoned")
+        .get(&key).and_then(|cached| cached.reuse(budget)) { return value; }
 
     let initial = *budget;
     let value = compute(budget);
@@ -94,8 +93,8 @@ pub(super) fn memoized<T: Clone>(
 
     let mut values = memo.values.lock().expect("execution query memo lock is not poisoned");
 
-    // Entries retain immutable shallow condition keys and reusable results, without
-    // holding the memo lock during recursive inference or copying operand trees.
+    // The analysis index retains query graphs. Result entries use their stable IDs
+    // without holding the memo lock during recursive inference.
     let entry = values.entry(key).or_default();
 
     if *budget > 0 {

@@ -207,11 +207,13 @@ impl ExecutionCondition {
 
     /// Whether current observations belong to the same owned value or loan.
     pub(crate) fn has_same_owner(&self, other: &Self) -> bool {
-        match (self.owner_identity(), other.owner_identity()) {
-            (Self::Borrowed(left), Self::Borrowed(right)) => {
-                left.owner_identity() == right.owner_identity()
-            }
-            (left, right) => left == right,
+        self.owner_match_key() == other.owner_match_key()
+    }
+
+    pub(super) fn owner_match_key(&self) -> (bool, &Self) {
+        match self.owner_identity() {
+            Self::Borrowed(referent) => (true, referent.owner_identity()),
+            owner => (false, owner),
         }
     }
 

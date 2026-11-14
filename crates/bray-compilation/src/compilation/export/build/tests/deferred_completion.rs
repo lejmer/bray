@@ -1,4 +1,4 @@
-use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
+use super::fixtures::execution_consumer;
 
 const API: &str = r"
     trusted module api;
