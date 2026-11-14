@@ -1,4 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet};
+use crate::execution_guarantees::ExecutionAssumptions;
+use std::collections::BTreeMap;
 
 use super::super::{flow::ExecutionFlowDomain, state::ExecutionState};
 use crate::{CheckerRequestContext, ExecutionCondition};
@@ -17,7 +18,7 @@ pub(in crate::analysis) enum OwnedReturnCondition {
 #[derive(Eq, PartialEq)]
 pub(super) struct OwnedReturn {
     value: ExecutionCondition,
-    assumptions: BTreeSet<(ExecutionCondition, bool)>,
+    assumptions: ExecutionAssumptions,
     transfers: DependencyOwnedResult<StorageProjection>,
 }
 
@@ -199,7 +200,7 @@ impl super::check::TrustedChecks {
                         domain,
                         &returned.transfers,
                         &transfer,
-                        &BTreeSet::new(),
+                        &Default::default(),
                     );
                 }
             }
@@ -268,7 +269,7 @@ impl super::check::TrustedChecks {
 pub(super) fn activity(
     result: &ExecutionCondition,
     path: &[StorageProjection],
-    assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+    assumptions: &ExecutionAssumptions,
     cache: &crate::execution_guarantees::ExecutionProofCache,
 ) -> (Option<bool>, bool) {
     let proof = cache.ordinary_proof(assumptions);
@@ -332,7 +333,7 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
     result: &DependencyOwnedResult<StorageProjection>,
     transfer: &DependencyOwnedTransfer<StorageProjection>,
-    assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+    assumptions: &ExecutionAssumptions,
 ) -> bool {
     if activity(&ExecutionCondition::Result, transfer.output(), assumptions, &domain.proofs).0 == Some(false) {
         return true;
@@ -371,7 +372,7 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn owned_normal_completion(
         &self,
-        assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+        assumptions: &ExecutionAssumptions,
         invocation: bray_bound_tree::BoundExecutionSite,
         entry: &crate::ExecutionCallEvidence,
         result: &ExecutionCondition,
@@ -408,7 +409,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
 fn feasible_layout(
     result: &DependencyOwnedResult,
-    assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+    assumptions: &ExecutionAssumptions,
     instantiate: &impl Fn(bray_symbols::ConstantTermId) -> ExecutionCondition,
 ) -> bool {
     match result {

@@ -47,8 +47,8 @@ pub struct ExecutionCallEvidence {
     pub(crate) pending_execution: bool,
     pub(crate) arguments:
         std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
-    pub(crate) assumptions: std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-    pub(crate) trusted_assumptions: std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+    pub(crate) assumptions: super::ExecutionAssumptions,
+    pub(crate) trusted_assumptions: super::ExecutionAssumptions,
 }
 
 impl ExecutionCallEvidence {

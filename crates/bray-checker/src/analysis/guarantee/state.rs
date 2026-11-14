@@ -1,4 +1,4 @@
-use crate::execution_guarantees::ExecutionSubstitution;
+use crate::execution_guarantees::{ExecutionAssumptions, ExecutionSubstitution};
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::BoundExpressionId;
@@ -12,10 +12,10 @@ pub(super) type DeferredInvocations = BTreeMap<ExecutionCondition, super::deferr
 pub(crate) struct ExecutionState {
     pub(super) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
     pub(super) trust_boundaries: BTreeSet<BoundExpressionId>,
-    pub(super) assumptions: BTreeSet<(ExecutionCondition, bool)>,
+    pub(super) assumptions: ExecutionAssumptions,
     pub(super) witnesses:
         BTreeMap<ExecutionCondition, std::sync::Arc<crate::execution_guarantees::ExecutionWitness>>,
-    pub(super) trusted_assumptions: BTreeSet<(ExecutionCondition, bool)>,
+    pub(super) trusted_assumptions: ExecutionAssumptions,
     pub(super) allocation_owners: BTreeMap<ExecutionCondition, ExecutionCondition>,
     pub(super) current: super::current::CurrentValues,
     pub(super) expressions: BTreeMap<BoundExpressionId, ExecutionCondition>,
@@ -34,9 +34,9 @@ impl Default for ExecutionState {
         Self {
             proofs: Default::default(),
             trust_boundaries: BTreeSet::new(),
-            assumptions: BTreeSet::new(),
+            assumptions: Default::default(),
             witnesses: BTreeMap::new(),
-            trusted_assumptions: BTreeSet::new(),
+            trusted_assumptions: Default::default(),
             allocation_owners: BTreeMap::new(),
             current: super::current::CurrentValues::default(),
             expressions: BTreeMap::new(),
@@ -281,7 +281,7 @@ impl ExecutionState {
     pub(super) fn call_trusted_assumptions(
         &self,
         transferred: impl IntoIterator<Item = ExecutionCondition>,
-    ) -> BTreeSet<(ExecutionCondition, bool)> {
+    ) -> ExecutionAssumptions {
         let mut transferred = transferred.into_iter().collect::<Vec<_>>();
         let mut owners = BTreeSet::new();
 
@@ -614,7 +614,7 @@ impl ExecutionState {
         }
 
         for facts in [&mut self.assumptions, &mut self.trusted_assumptions] {
-            let mut renamed = BTreeSet::new();
+            let mut renamed = ExecutionAssumptions::default();
 
             for (condition, value) in facts.iter() {
                 rename(condition).assume(*value, &mut renamed);
@@ -716,6 +716,7 @@ fn private_admission_facts(
 
 #[cfg(test)]
 mod tests {
+    use crate::execution_guarantees::ExecutionAssumptions;
     use std::collections::BTreeSet;
     use std::sync::Arc;
 
@@ -1722,7 +1723,7 @@ mod tests {
 
         assert_eq!(
             state.trusted_assumptions,
-            BTreeSet::from([(preserved.clone(), true)])
+            ExecutionAssumptions::from([(preserved.clone(), true)])
         );
 
         assert!(
@@ -1778,7 +1779,7 @@ mod tests {
 
         assert_eq!(
             state.trusted_assumptions,
-            BTreeSet::from([(spatial.clone(), true)])
+            ExecutionAssumptions::from([(spatial.clone(), true)])
         );
 
         assert!(!state.witnesses[&carrier].dependencies.is_empty());
@@ -1864,7 +1865,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(state.trusted_assumptions, BTreeSet::from([(spatial, true)]));
+        assert_eq!(state.trusted_assumptions, ExecutionAssumptions::from([(spatial, true)]));
         assert!(!state.witnesses[&input(1)].dependencies.is_empty());
 
         state.invalidate_trusted_roots(&BTreeSet::from([owner.root]));
@@ -1919,7 +1920,7 @@ mod tests {
 
         assert_eq!(
             moved.trusted_assumptions,
-            BTreeSet::from([(child.clone(), true)])
+            ExecutionAssumptions::from([(child.clone(), true)])
         );
 
         // Retaining a value cannot extend the storage required by its witness.
@@ -2023,7 +2024,7 @@ mod tests {
 
             assert_eq!(
                 state.trusted_assumptions,
-                BTreeSet::from([(independent.clone(), true)])
+                ExecutionAssumptions::from([(independent.clone(), true)])
             );
 
             assert!(
@@ -2099,10 +2100,10 @@ mod tests {
 
         assert_eq!(
             state.trusted_assumptions,
-            BTreeSet::from([(captured, true), (input(22), true)])
+            ExecutionAssumptions::from([(captured, true), (input(22), true)])
         );
 
-        assert_eq!(state.assumptions, BTreeSet::from([(changed, true)]));
+        assert_eq!(state.assumptions, ExecutionAssumptions::from([(changed, true)]));
 
         assert_eq!(
             state
@@ -2147,7 +2148,7 @@ mod tests {
 
         state.assumptions.clear();
 
-        state.trusted_assumptions = BTreeSet::from([(
+        state.trusted_assumptions = ExecutionAssumptions::from([(
             ExecutionCondition::Entry {
                 condition: Arc::new(parent.clone()),
                 captured: true,
@@ -2167,7 +2168,7 @@ mod tests {
         }
 
         state.carry_guarantee(child.clone(), live.clone());
-        state.trusted_assumptions = BTreeSet::from([(live, true)]);
+        state.trusted_assumptions = ExecutionAssumptions::from([(live, true)]);
 
         assert!(state.owns_witness(&child));
     }

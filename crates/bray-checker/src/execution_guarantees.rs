@@ -1,3 +1,4 @@
+mod assumptions;
 mod clause;
 mod boolean;
 mod condition;
@@ -12,6 +13,8 @@ mod references;
 mod snapshot;
 mod trusted_implication;
 mod witness;
+
+pub(crate) use assumptions::ExecutionAssumptions;
 
 pub(crate) use snapshot::{common_components, owned_snapshot};
 

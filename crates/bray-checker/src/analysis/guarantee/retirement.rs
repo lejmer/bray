@@ -897,7 +897,7 @@ mod tests {
         state.retire_trusted_values([root.clone()], &BTreeSet::from([retained]));
 
         assert_eq!(state.witnesses.keys().cloned().collect::<BTreeSet<_>>(), BTreeSet::from([root.clone(), right.clone()]));
-        assert_eq!(state.trusted_assumptions, BTreeSet::from([(root, true), (right, true)]));
+        assert_eq!(state.trusted_assumptions, [(root, true), (right, true)].into());
         assert!(!state.witnesses.contains_key(&left));
     }
 
