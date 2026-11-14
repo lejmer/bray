@@ -63,41 +63,50 @@ performs 856 computations, usually over five claims. Only 12 new witness clauses
 Raw input sharing cut ordered queries from 28,264 to 14,769 and ordered-index constructions from 2,896 to 1,599.
 The count target is not met. Correctness is unchanged, and more lookup tuning alone is insufficient.
 
-## Current repair contract
+## Current optimization model
 
-Implemented and verified: retirement shares one condition lookup and one record of lazy answers, replacing
-six separate condition memo maps in the same immutable mutation context. Preserve the original demand order, short circuits, observation
-traversals and WORK_LIMIT. The eager combined traversal experiment passed checker controls but raised work to 2.42M
-by computing unused answers. It is removed. Do not repeat eager fusion or claim its results as an improvement.
+Production baseline c043523c2 is pushed, with no probe hooks. Count and regression evidence remain unchanged.
+The Boolean prover already has parent edges and a change-driven queue. Optimize the enclosing dependencies.
+Code tracing gives this computation graph:
 
-The mutation inputs, retiring/retained snapshots, invalidated owner set, storage places and stable predicates are
-fixed before queries. No query reads changing flow facts. Consumers are ordinary assumption filtering, witness
-clause removal, trusted facts, allocation ownership, pending entry facts/copy sources and deferred selections.
-Private-admission exemptions, historical entries, independent owners and address/dependency expiry stay unchanged.
-The existing generic pure condition memo retains the lazy query record instead of six parallel lookup maps.
-Keep assessments scoped to the actual mutation. Nested queries receive the same record without re-interning it.
+- incoming_state -> propagate -> merge -> join_observations -> conditional_facts -> witness/proof queries
+- transfer_block -> apply_operation -> current-value rewrites, witness refinement and retirement
+- refine_witnesses -> every available witness and pending deferred producer -> exact proof scopes
+- retire_values -> retirement_dependents plus scans of facts, witness clauses, private entries and selections
+- final block entries -> publication apply_operation replay -> diagnostics, effects and completion products
 
-Existing retirement/cleanup/guard controls cover current contents versus identity, captured/borrowed inputs,
-siblings, address lifetimes, private admission, cycles and repeated cleanup. Checker controls, fixed five,
-source/import loops and frozen30 pass with the same known RawBuffer exclusion. The batch adds 17 nonblank production
-lines and no tests. It retains all original query bodies and demand order. Complete interner lookups fall by 12,126.
-There are no production probe hooks. Next investigate repeated whole-state work, not more allocation-key tuning.
-Trace the scheduling and consumers of public/private refinement and join publication before changing it. Captured
-guard truth can become useful before retirement, so no unchanged-carrier or empty-invalidated-set shortcut is valid.
+ConditionIndex already shares structure. retirement_dependents already uses a worklist, but rebuilds reverse
+edges per mutation. Edge membership depends on current values, mutation kind and retained owners.
+Exclusive costs partition 2,222,361: proof/refinement 723,963, retirement/retention 663,517, rewriting 235,471,
+scope/reuse/normalization 144,633, joins 68,266, unclassified 386,511. Inclusive stage costs overlap.
+Eliminating recursive comparisons below the root saves at most 286,385, about 13 percent. Eliminating all caller
+publication saves at most 503,967, about 23 percent before replacement costs. The target requires over 99.5 percent.
 
-The prior exact-input batch is verified and pushed in 1ef35124a. It adds 10 nonblank production lines and 26 test
-lines. Raw input identity is exact and mixed roles remain ordered. Closure-generated trusted facts get a separate
-raw memo. Reuse the unchanged ordinary input there. Requested and direct query answers remain separate.
+Model a typed dependency hypergraph because rules can require several inputs together. Separate structural
+conditions, qualified facts, carrier authority, contents snapshots, availability and query results. Contents
+equality never merges owners. Captured entries differ from current values. Lifetime support does not establish
+truth. Preserve predecessor/selector requirements and distinct loop incarnations at the same source expression.
 
-Boolean topology has 201 distinct root sets across 651 constructions. Topology caching alone cannot solve this.
-Do not repeat rejected witness-allocation key experiments. They reduced duplicate refinements but left work near
-2.6M. Do not skip refinement for unchanged carriers or prune unproved clauses. Witness maps retain possible lifetime
-obligations. A private-record redesign is not contract-closed. No approximate dependency scopes or new framework.
+Minimize graph construction plus sum(evaluation count * exclusive evaluation cost), with bounded memory,
+unchanged results, rejection sites, budgets and determinism. All indexing and recursive work counts. Replace
+whole-collection discovery with producer-owned dependency edges. Lazily schedule affected consumers in stable
+order, retaining immutable results and the existing cyclic join/convergence rules. Reuse existing graph nodes.
+The candidate spans retirement selection, witness guards and join substitution. Remove their repeated scans.
+Do not add another truth representation, manual index repairs at every mutation, or a general incremental engine.
 
-Temporary counters are removed after bounded verification. Keep one proof-count-current.json and one
-proof-counter.patch. Build without hooks for final goal evidence, not a second rebuild at every checkpoint.
-Use the checker-only non-incremental Cargo override after the interrupted-build Rust linker failure. Shared
-Cargo storage stays intact. Tooling optimization remains level 3 with debug assertions disabled.
+Two inventories must close before edits. Dependencies include contents, ownership, addresses, borrowed paths,
+selectors, availability, private evidence and independent supporting carriers. Structural child IDs alone are
+insufficient. Also account for failed proofs and budget costs. New evidence can change an absent result, and
+ordered scan positions can change exhaustion without changing truth. Successful premises alone cannot justify
+reuse. Preserve costs through indexed accounting, as OrderedFacts does, rather than replaying unrelated scans.
+These contracts and unique-node/changed-edge counts remain unresolved. No predicted 10,000 result yet.
+
+Publication reuse is secondary. Its open contract includes intermediate checks, diagnostic deduplication,
+final-input identity, cancellation and publication-only computations. A final block output is insufficient.
+Keep fixed-five/source/import/checker/frozen30 controls. Do not repeat eager retirement fusion or witness-key
+experiments. Both increased work. Unchanged carriers or empty invalidation sets do not imply unchanged guards.
+Keep one current count report and probe patch. Remove hooks after bounded runs. Build without hooks for final
+acceptance, not every checkpoint. Retain the checker-only non-incremental override and shared Cargo storage.
 
 ## Fixed evidence and broader work
 
