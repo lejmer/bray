@@ -272,6 +272,7 @@ mod tests {
     #[test]
     fn nullable_joins_preserve_payloads_and_normalization_makes_progress() {
         use crate::execution_guarantees::ExecutionObservationKind;
+        use bray_symbols::{SymbolId, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
 
         let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
         let payload = StorageProjection::NullableValue;
@@ -296,6 +297,33 @@ mod tests {
 
             value
         };
+
+        let variant = UnionVariantSymbolId::from_symbol_id(SymbolId::new(920));
+
+        let union_field = StorageProjection::ActiveUnionPayloadField {
+            variant, field: UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(921)),
+        };
+
+        for (tag, projection) in [
+            (absent.clone(), payload),
+            (input(0).present(), payload),
+            (ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(
+                variant, Arc::new(input(2)))), [(union_field, input(0))].into()), union_field),
+        ] {
+            let framed = ExecutionCondition::constructed(tag.discriminant(),
+                [(projection, input(1))].into());
+
+            for (left, right) in [(&tag, &framed), (&framed, &tag)] {
+                let joined = join(left, right);
+
+                assert_eq!(joined.known_presence(), tag.known_presence());
+                assert_eq!(joined.known_variant(), tag.known_variant());
+                assert_eq!(join(&joined, right), joined, "a retained known tag must stabilize");
+
+                assert!(!joined.clone().project(projection).has_same_owner(&input(0)),
+                    "equal tags cannot retain either predecessor's payload owner");
+            }
+        }
 
         for borrowed in [false, true] {
             let owner = ExecutionCondition::constructed(input(0), [(field, ExecutionCondition::boolean(true))].into());

@@ -27,6 +27,19 @@ impl ExecutionCondition {
         Some(Self::new(K::Discriminant(Arc::clone(original))))
     }
 
+    /// Equal tag values do not establish a shared payload or physical tag identity.
+    pub(crate) fn common_known_discriminant(&self, other: &Self) -> Option<Self> {
+        if self.known_presence().is_some() && self.known_presence() == other.known_presence() {
+            let tag = self.discriminant();
+
+            return (tag == other.discriminant()).then_some(tag);
+        }
+
+        let variant = self.known_variant()?;
+
+        (other.known_variant() == Some(variant)).then(|| self.discriminant())
+    }
+
     /// Select only the retained tag from the actual current snapshot.
     pub(crate) fn discriminant(&self) -> Self {
         match self.kind() {

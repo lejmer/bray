@@ -619,14 +619,14 @@ fn collect_observations(
         return;
     }
 
-    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } = joined.kind() {
-        let sources = sources.map(|source| source.map(|source| match source.kind() {
-            crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => contents.as_ref(),
-            _ => source,
-        }));
-
-        collect_observations(sources, contents, inputs, guards, absent, active, budget);
-        return;
+    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.kind()
+        && !matches!(contents.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_))
+    {
+        // Current contents need no independent owner. Keep this actual carrier
+        // while matching its data against the corresponding predecessor data.
+        for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
+            if let Some(source) = source { insert_snapshot(inputs, contents, source.computed_value()); }
+        }
     }
 
     // Payload authority is conditional on every enclosing active case. A test

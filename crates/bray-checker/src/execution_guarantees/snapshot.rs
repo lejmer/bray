@@ -140,7 +140,7 @@ pub(crate) fn common_components(
             }
         }
 
-        return match discriminant {
+        return match discriminant.or_else(|| left.common_known_discriminant(right)) {
             Some(tag) => tagged_join(joined, tag, [].into()),
             None => joined,
         };
@@ -224,7 +224,7 @@ pub(crate) fn common_components(
         })
         .collect();
 
-    match discriminant {
+    match discriminant.or_else(|| left.common_known_discriminant(right)) {
         Some(tag) => tagged_join(identity, tag, fields),
         None => ExecutionCondition::constructed(identity, fields),
     }
