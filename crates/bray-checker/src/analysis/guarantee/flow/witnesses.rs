@@ -8,6 +8,14 @@ use bray_bound_tree::{BoundExpressionId, BoundOperator};
 use super::super::state::ExecutionState;
 use crate::{ExecutionCondition, ExecutionPlace};
 
+/// Clauses retain one joined owner and its predecessor availability.
+#[derive(Debug)]
+pub(super) struct JoinedWitness {
+    pub(super) owner: ExecutionCondition,
+    pub(super) available: bool,
+    pub(super) clauses: Vec<(ExecutionCondition, ExecutionCondition)>,
+}
+
 /// Propose value-contract facts and prove each against both original predecessors.
 pub(super) fn conditional_facts(
     left: (
@@ -23,7 +31,7 @@ pub(super) fn conditional_facts(
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     selector: Option<&ExecutionCondition>,
     facts: &mut Vec<(ExecutionCondition, bool)>,
-) -> Vec<(ExecutionCondition, ExecutionCondition, ExecutionCondition, bool)> {
+) -> Vec<JoinedWitness> {
     let mut guards = availability.clone();
     let mut inputs = [BTreeMap::new(), BTreeMap::new()];
     let absent = [left.0, right.0].map(absent_observations);
@@ -148,8 +156,11 @@ pub(super) fn conditional_facts(
             [(0, (left.0, &left_inputs)), (1, (right.0, &right_inputs))].map(|(index, (state, inputs))| {
                 let source = inputs.apply(&owner);
                 let mut evidence = ExecutionAssumptions::default();
+                let mut available = true;
 
                 for (_, witness) in state.owned_witnesses([source]) {
+                    available &= witness.available;
+
                     for condition in witness.conditions.keys().filter(|condition| {
                         !witness.available || source_proofs[index].prove_trusted(condition)
                             == Some(true)
@@ -158,25 +169,23 @@ pub(super) fn conditional_facts(
                     }
                 }
 
-                (state, inputs, evidence)
+                (state, inputs, evidence, available)
             });
 
-        let proofs = predecessors.each_ref().map(|(state, _, evidence)| {
+        let proofs = predecessors.each_ref().map(|(state, _, evidence, _)| {
             state.proofs.proof(evidence, &state.assumptions)
         });
 
         let proved = |clause: &ExecutionCondition| {
-            predecessors.iter().zip(&proofs).all(|((_, inputs, _), proof)| {
+            predecessors.iter().zip(&proofs).all(|((_, inputs, _, _), proof)| {
                 proof.prove_trusted(&inputs.apply(clause)) == Some(true)
             })
         };
 
         // A join preserves validity while the child owns execution. It must not
         // make any unavailable predecessor's authority usable in the caller.
-        let available = predecessors.iter().all(|(state, inputs, _)| {
-            state.owned_witnesses([inputs.apply(&owner)])
-                .all(|(_, witness)| witness.available)
-        });
+        let available = predecessors.iter().all(|(_, _, _, available)| *available);
+        let mut clauses = Vec::new();
 
         for condition in conditions {
             if matches!(condition, ExecutionCondition::Unknown | ExecutionCondition::Boolean(true)) { continue; }
@@ -184,7 +193,7 @@ pub(super) fn conditional_facts(
             // An existing guarded claim can already hold on both paths without
             // discovering a new discriminant or adding a redundant outer guard.
             if proved(&condition) {
-                retained.push((owner.clone(), condition.clone(), condition, available));
+                clauses.push((condition.clone(), condition));
                 continue;
             }
 
@@ -209,10 +218,12 @@ pub(super) fn conditional_facts(
                 // These are actual predecessor snapshots of moved owners, not ordinary
                 // equal-content substitutions for borrowed observations.
                 if !matches!(clause, ExecutionCondition::Boolean(true)) && proved(&clause) {
-                    retained.push((owner.clone(), condition.clone(), clause, available));
+                    clauses.push((condition.clone(), clause));
                 }
             }
         }
+
+        if !clauses.is_empty() { retained.push(JoinedWitness { owner, available, clauses }); }
     }
 
     retained
@@ -313,6 +324,59 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
 
     #[test]
+    fn join_publication_retains_carrier_edges_but_reads_current_evidence() {
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let owner = input(0);
+        let address = input(1);
+        let claim = ExecutionCondition::Trusted(Arc::new(address.clone()));
+        let first = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(2), claim.clone()]);
+        let last = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(3), first.clone()]);
+        let dependency = ExecutionPlace::argument(SymbolOrdinal::new(1));
+        let unrelated = ExecutionPlace::argument(SymbolOrdinal::new(9));
+
+        for available in [false, true] {
+            let mut left = ExecutionState::default();
+            let mut right = ExecutionState::default();
+
+            left.carry_guarantee(owner.clone(), claim.clone());
+
+            let source = Arc::make_mut(left.witnesses.get_mut(&owner).expect("owner retains its guarantee"));
+
+            source.available = available;
+            source.dependencies.insert(dependency.clone());
+
+            source.conditions.get_mut(&claim).expect("carried clause exists")
+                .addresses.insert(address.clone(), BTreeSet::from([dependency.clone()]));
+
+            for state in [&mut left, &mut right] {
+                state.carry_guarantee(input(9), claim.clone());
+
+                let outside = Arc::make_mut(state.witnesses.get_mut(&input(9)).expect("independent carrier exists"));
+
+                outside.dependencies.insert(unrelated.clone());
+
+                outside.conditions.get_mut(&claim).expect("independent clause exists")
+                    .addresses.insert(address.clone(), BTreeSet::from([unrelated.clone()]));
+            }
+
+            super::retain_conditional_guarantees(&mut left, &mut right, &[super::JoinedWitness {
+                owner: owner.clone(), available,
+                clauses: vec![(claim.clone(), first.clone()), (first.clone(), last.clone())],
+            }]);
+
+            for state in [&left, &right] {
+                let witness = &state.witnesses[&owner];
+
+                assert_eq!(witness.available, available);
+                assert!(witness.conditions[&last].witness, "the earlier clause supplies current evidence on the new owner");
+                assert_eq!(witness.dependencies, BTreeSet::from([dependency.clone()]));
+                assert_eq!(witness.conditions[&last].addresses[&address], BTreeSet::from([dependency.clone()]));
+                assert_eq!(state.trusted_assumptions.contains(&(last.clone(), true)), available);
+            }
+        }
+    }
+
+    #[test]
     fn opposite_join_guards_do_not_manufacture_carrier_promises() {
         let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
@@ -385,56 +449,68 @@ mod tests {
 pub(super) fn retain_conditional_guarantees(
     left: &mut ExecutionState,
     right: &mut ExecutionState,
-    conditions: &[(ExecutionCondition, ExecutionCondition, ExecutionCondition, bool)],
+    conditions: &[JoinedWitness],
 ) {
-    for (owner, original, condition, available) in conditions {
-        let mut guarantee = crate::execution_guarantees::ExecutionGuarantee::default();
-        let mut dependencies = BTreeSet::new();
+    for JoinedWitness { owner, available, clauses } in conditions {
+        // Publication can insert this owner, but cannot change the retained value graph.
+        let carriers = [&*left, &*right].map(|state| {
+            let roots = state.witness_snapshots([owner.clone()]);
 
-        for state in [&*left, &*right] {
-            for (_, witness) in state.owned_witnesses([owner.clone()]) {
-                dependencies.extend(witness.dependencies.iter().cloned());
+            state.witnesses.keys().chain(std::iter::once(owner))
+                .filter(|carrier| roots.retains_owner(carrier))
+                .cloned().collect::<BTreeSet<_>>()
+        });
 
-                guarantee.witness |= witness
-                    .conditions
-                    .get(original)
-                    .is_some_and(|bound| bound.witness);
+        for (original, condition) in clauses {
+            let mut guarantee = crate::execution_guarantees::ExecutionGuarantee::default();
+            let mut dependencies = BTreeSet::new();
 
-                // A predecessor can prove the clause through a differently guarded
-                // premise. Preserve every matching address bound on that carrier.
-                for source in witness.conditions.values() {
-                    for (address, owners) in source
-                        .addresses
-                        .iter()
-                        .filter(|(address, _)| condition.observes_trusted(address))
-                    {
-                        guarantee
+            for (state, carriers) in [&*left, &*right].into_iter().zip(&carriers) {
+                // Read current evidence so earlier clauses keep their original publication effects.
+                for witness in carriers.iter().filter_map(|carrier| state.witnesses.get(carrier)) {
+                    dependencies.extend(witness.dependencies.iter().cloned());
+
+                    guarantee.witness |= witness
+                        .conditions
+                        .get(original)
+                        .is_some_and(|bound| bound.witness);
+
+                    // A predecessor can prove the clause through a differently guarded
+                    // premise. Preserve every matching address bound on that carrier.
+                    for source in witness.conditions.values() {
+                        for (address, owners) in source
                             .addresses
-                            .entry(address.clone())
-                            .or_default()
-                            .extend(owners.iter().cloned());
+                            .iter()
+                            .filter(|(address, _)| condition.observes_trusted(address))
+                        {
+                            guarantee
+                                .addresses
+                                .entry(address.clone())
+                                .or_default()
+                                .extend(owners.iter().cloned());
+                        }
                     }
                 }
             }
-        }
 
-        for state in [&mut *left, &mut *right] {
-            let witness = state.witnesses.entry(owner.clone()).or_default();
+            for state in [&mut *left, &mut *right] {
+                let witness = state.witnesses.entry(owner.clone()).or_default();
 
-            if !dependencies.is_subset(&witness.dependencies) {
-                std::sync::Arc::make_mut(witness)
-                    .dependencies
-                    .extend(dependencies.iter().cloned());
-            }
+                if !dependencies.is_subset(&witness.dependencies) {
+                    std::sync::Arc::make_mut(witness)
+                        .dependencies
+                        .extend(dependencies.iter().cloned());
+                }
 
-            witness.carry(condition, guarantee.witness, &guarantee.addresses);
+                witness.carry(condition, guarantee.witness, &guarantee.addresses);
 
-            if !available {
-                std::sync::Arc::make_mut(witness).available = false;
-            } else {
-                condition
-                    .clone()
-                    .assume(true, &mut state.trusted_assumptions);
+                if !available {
+                    std::sync::Arc::make_mut(witness).available = false;
+                } else {
+                    condition
+                        .clone()
+                        .assume(true, &mut state.trusted_assumptions);
+                }
             }
         }
     }
