@@ -38,6 +38,7 @@ pub(crate) struct Plan {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) enum Step {
     Opaque {
+        phases: bray_bound_tree::AsyncCleanupPhases,
         ty: TypeId,
         path: Option<bray_bound_tree::StoragePath>,
         guards: Vec<(
@@ -47,6 +48,7 @@ pub(super) enum Step {
         )>,
     },
     Lifecycle {
+        phases: bray_bound_tree::AsyncCleanupPhases,
         ty: TypeId,
         place: Option<ExecutionPlace>,
         path: Option<bray_bound_tree::StoragePath>,
@@ -57,6 +59,14 @@ pub(super) enum Step {
             ExecutionCondition,
         )>,
     },
+}
+
+impl Step {
+    pub(super) fn phases(&self) -> bray_bound_tree::AsyncCleanupPhases {
+        match self {
+            Self::Opaque { phases, .. } | Self::Lifecycle { phases, .. } => *phases,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -395,17 +405,21 @@ impl Plan {
             let mut steps: Vec<_> = parts
                 .into_iter()
                 .map(|(ty, part)| {
+                    let phases = part.as_ref().map_or(bray_bound_tree::AsyncCleanupPhases::CancellationThenLifecycle,
+                        bray_bound_tree::StorageCleanupPart::phases);
+
                     let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
                     let guards = cleanup_guards(request.semantic_values(), storage, access, part.as_ref());
 
                     if !has_source_lifecycle(cleanup_shapes, request, ty, part.as_ref())? {
-                        Ok(Step::Opaque { ty, path, guards })
+                        Ok(Step::Opaque { phases, ty, path, guards })
                     } else {
                         types.insert(ty);
 
                         let place = path.as_ref().and_then(|path| ExecutionPlace::storage_path(storage, path));
 
                         Ok(Step::Lifecycle {
+                            phases,
                             ty,
                             guards,
                             path,
@@ -421,6 +435,7 @@ impl Plan {
             if steps.is_empty() {
                 // Opaque native cleanup has no represented lifecycle whose effects we can apply.
                 steps.push(Step::Opaque {
+                    phases: bray_bound_tree::AsyncCleanupPhases::CancellationThenLifecycle,
                     ty,
                     path: storage.logical_path(access).cloned(),
                     guards: Vec::new(),

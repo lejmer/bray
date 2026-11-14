@@ -293,27 +293,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         operation: AnalysisOperationKind,
         mutate: &mut Option<&mut Mutation<'_>>,
     ) {
-        let condition = self.cancellation_condition(state, access);
+        let steps = self.disposal.plan.steps.get(&access)
+            .expect("selected cancellation has prepared cleanup parts");
 
-        super::selection::select_cleanup(state, condition, |state, conditional| {
-            let mutation = StorageMutation::Cancellation { occurrence: operation.occurrence(), access };
+        for (part, step) in steps.iter().enumerate().filter(|(_, step)| step.phases().includes_cancellation()) {
+            let condition = self.cleanup_part_condition(state, step);
 
-            if let Some(mutate) = mutate {
-                let effect = if self.cleanup_preserves_inputs(state, access) {
-                    CleanupMutation::Unchanged
+            let (ty, path) = match step {
+                Step::Opaque { ty, path, .. } | Step::Lifecycle { ty, path, .. } => (*ty, path.as_ref()),
+            };
+
+            super::selection::select_cleanup(state, condition, |state, conditional| {
+                let mutation = StorageMutation::Cancellation { occurrence: operation.occurrence(), access, part };
+
+                if let Some(mutate) = mutate {
+                    mutate(state, mutation, CleanupMutation::Opaque { ty, access, path }, conditional);
                 } else {
-                    CleanupMutation::Opaque {
-                        ty: self.storage.access(access).expect("cleanup retains its checked access").reached_type(),
-                        access,
-                        path: self.storage.logical_path(access),
-                    }
-                };
-
-                mutate(state, mutation, effect, conditional);
-            } else {
-                self.apply_published_cleanup(state, mutation);
-            }
-        });
+                    self.apply_published_cleanup(state, mutation);
+                }
+            });
+        }
     }
 
     fn dispose(
@@ -330,7 +329,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let absent = definitely_absent.collect::<Vec<_>>();
 
-        for (part, step) in steps.iter().enumerate() {
+        for (part, step) in steps.iter().enumerate().filter(|(_, step)| step.phases().includes_lifecycle()) {
             let path = match step {
                 Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
             };
