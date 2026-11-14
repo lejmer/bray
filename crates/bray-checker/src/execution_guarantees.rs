@@ -4,6 +4,7 @@ mod boolean;
 mod condition;
 mod declaration;
 mod implication;
+mod ordered_facts;
 mod evidence;
 mod model;
 mod normalize;

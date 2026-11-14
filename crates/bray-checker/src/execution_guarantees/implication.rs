@@ -9,6 +9,7 @@ pub(super) fn comparison_is_implied(
     operands: &[ExecutionCondition],
     assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
     budget: &mut usize,
+    memo: Option<&super::condition::ProofMemo>,
 ) -> Option<bool> {
     use bray_bound_tree::BoundOperator;
 
@@ -21,7 +22,14 @@ pub(super) fn comparison_is_implied(
         return None;
     };
 
-    if left == right && positively_ordered(left, assumptions, budget) {
+    let local = std::cell::OnceCell::new();
+
+    let ordered = || memo.map_or_else(
+        || local.get_or_init(|| super::ordered_facts::OrderedFacts::new(assumptions, &super::ConditionIndex::default())),
+        |memo| memo.ordered(assumptions),
+    );
+
+    if left == right && ordered().positively_ordered(left, budget) {
         return match operator {
             BoundOperator::Equal | BoundOperator::LessEqual | BoundOperator::GreaterEqual => {
                 Some(true)
@@ -56,8 +64,8 @@ pub(super) fn comparison_is_implied(
             .any(|operator| known(operator, left, right) || known(operator, right, left));
 
         return (strictly_ordered
-            || ordered_path(left, right, true, assumptions, budget)
-            || ordered_path(right, left, true, assumptions, budget))
+            || ordered().path(left, right, true, budget)
+            || ordered().path(right, left, true, budget))
         .then_some(operator == BoundOperator::NotEqual);
     }
 
@@ -124,139 +132,11 @@ pub(super) fn comparison_is_implied(
         (right, left)
     };
 
-    if ordered_path(lower, upper, !allows_equal && !unequal, assumptions, budget) {
+    if ordered().path(lower, upper, !allows_equal && !unequal, budget) {
         return Some(true);
     }
 
-    ordered_path(upper, lower, allows_equal, assumptions, budget).then_some(false)
-}
-
-fn positively_ordered(
-    value: &ExecutionCondition,
-    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
-    budget: &mut usize,
-) -> bool {
-    let limit = *budget;
-
-    assumptions.iter().take(limit).any(|(condition, holds)| {
-        let Some(remaining) = budget.checked_sub(1) else {
-            return false;
-        };
-
-        *budget = remaining;
-
-        let ExecutionCondition::Operation(operator, operands) = condition else {
-            return false;
-        };
-
-        // A held ordering or equality excludes NaN. A false ordering and a true
-        // inequality do not. This uses value evidence, without assuming total order.
-        matches!(
-            (operator, holds),
-            (
-                bray_bound_tree::BoundOperator::Equal
-                    | bray_bound_tree::BoundOperator::Less
-                    | bray_bound_tree::BoundOperator::LessEqual
-                    | bray_bound_tree::BoundOperator::Greater
-                    | bray_bound_tree::BoundOperator::GreaterEqual,
-                true
-            ) | (bray_bound_tree::BoundOperator::NotEqual, false)
-        ) && operands.iter().any(|operand| operand == value)
-    })
-}
-
-fn ordered_path(
-    lower: &ExecutionCondition,
-    upper: &ExecutionCondition,
-    requires_strict: bool,
-    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
-    budget: &mut usize,
-) -> bool {
-    use bray_bound_tree::BoundOperator;
-
-    if assumptions.len() < 2 {
-        return false;
-    }
-
-    let mut pending = vec![(lower, false)];
-    let mut visited = std::collections::BTreeSet::new();
-
-    while let Some((current, strict)) = pending.pop() {
-        if let (ExecutionCondition::Literal(current), ExecutionCondition::Literal(upper)) =
-            (current, upper)
-            && matches!(
-                (current.kind(), upper.kind()),
-                (
-                    bray_symbols::ConstantValueKind::Integer(_),
-                    bray_symbols::ConstantValueKind::Integer(_)
-                )
-            )
-            && matches!(
-                crate::constant::fold_binary(
-                    if requires_strict && !strict {
-                        BoundOperator::Less
-                    } else {
-                        BoundOperator::LessEqual
-                    },
-                    current.kind(),
-                    upper.kind(),
-                    crate::ConstantEvaluationLimits::default().integer_bits(),
-                ),
-                Ok(bray_symbols::ConstantValueKind::Boolean(true))
-            )
-        {
-            return true;
-        }
-
-        if !visited.insert((current, strict)) {
-            continue;
-        }
-
-        for (condition, value) in assumptions {
-            let Some(remaining) = budget.checked_sub(1) else {
-                return false;
-            };
-
-            *budget = remaining;
-
-            let ExecutionCondition::Operation(operator, operands) = condition else {
-                continue;
-            };
-
-            let [left, right] = operands.as_ref() else {
-                continue;
-            };
-
-            // Negative comparisons cannot supply ordered edges because of NaN.
-            if !value {
-                continue;
-            }
-
-            let (from, to, edge_strict) = match operator {
-                BoundOperator::Less => (left, right, true),
-                BoundOperator::LessEqual => (left, right, false),
-                BoundOperator::Greater => (right, left, true),
-                BoundOperator::GreaterEqual => (right, left, false),
-                BoundOperator::Equal if right == current => (right, left, false),
-                BoundOperator::Equal => (left, right, false),
-                _ => continue,
-            };
-
-            if from != current {
-                continue;
-            }
-
-            let strict = strict || edge_strict;
-
-            if to == upper && (strict || !requires_strict) {
-                return true;
-            }
-
-            pending.push((to, strict));
-        }
-    }
-
-    false
+    ordered().path(upper, lower, allows_equal, budget).then_some(false)
 }
 
 /// Checks whether entry assumptions establish a condition after matching callable inputs.
@@ -596,7 +476,7 @@ mod tests {
         let mut budget = 128;
 
         assert_eq!(super::comparison_is_implied(BoundOperator::LogicalOr,
-            &[left.clone(), left.clone()], &known, &mut budget), None);
+            &[left.clone(), left.clone()], &known, &mut budget, None), None);
 
         assert_eq!(budget, 128, "Boolean nodes must not spend comparison proof work");
 
@@ -616,6 +496,7 @@ mod tests {
                 &[right.clone(), left.clone()],
                 &known,
                 &mut 128,
+                None,
             ),
             Some(true)
         );

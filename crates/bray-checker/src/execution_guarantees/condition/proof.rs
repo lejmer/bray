@@ -116,7 +116,7 @@ impl ExecutionCondition {
         self.prove_with_memo(assumptions, budget, None)
     }
 
-    pub(super) fn prove_with_memo(
+    pub(in crate::execution_guarantees) fn prove_with_memo(
         &self,
         assumptions: &BTreeSet<(Self, bool)>,
         budget: &mut usize,
@@ -168,6 +168,7 @@ impl ExecutionCondition {
             operands,
             assumptions,
             budget,
+            memo,
         ) {
             return Some(value);
         }

@@ -25,6 +25,7 @@ pub(crate) use context::{ExecutionProof, ExecutionProofCache};
 pub(crate) use substitution::{ExecutionSubstitution, SnapshotSubstitution};
 
 pub(super) use interning::{ConditionId, ConditionNode};
+pub(super) use context::ProofMemo;
 pub(crate) use interning::ConditionIndex;
 
 pub use operands::ExecutionOperands;

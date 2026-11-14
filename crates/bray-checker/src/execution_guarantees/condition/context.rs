@@ -10,16 +10,21 @@ use crate::execution_guarantees::boolean::AlternativeProof;
 use crate::execution_guarantees::{ExecutionAssumptions, ExecutionWitness};
 use crate::execution_guarantees::witness::WitnessConditions;
 
-pub(super) struct ProofMemo {
+pub(in crate::execution_guarantees) struct ProofMemo {
     pub(super) queries: ExecutionMemo<Option<bool>>,
     index: ConditionIndex,
     explicit: OnceLock<ConditionMap<bool>>,
     single: OnceLock<Box<[ProofMemo; 2]>>,
+    ordered: OnceLock<crate::execution_guarantees::ordered_facts::OrderedFacts>,
 }
 
 impl ProofMemo {
-    fn new(index: &ConditionIndex) -> Self {
-        Self { queries: ExecutionMemo::new(index), index: index.clone(), explicit: OnceLock::new(), single: OnceLock::new() }
+    pub(in crate::execution_guarantees) fn new(index: &ConditionIndex) -> Self {
+        Self { queries: ExecutionMemo::new(index), index: index.clone(), explicit: OnceLock::new(), single: OnceLock::new(), ordered: OnceLock::new() }
+    }
+
+    pub(in crate::execution_guarantees) fn ordered(&self, facts: &BTreeSet<(ExecutionCondition, bool)>) -> &crate::execution_guarantees::ordered_facts::OrderedFacts {
+        self.ordered.get_or_init(|| crate::execution_guarantees::ordered_facts::OrderedFacts::new(facts, &self.index))
     }
 
     /// Mixed inference can consult each input separately without sharing their answers.
