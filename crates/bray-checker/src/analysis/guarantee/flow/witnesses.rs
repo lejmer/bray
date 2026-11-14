@@ -179,7 +179,7 @@ pub(super) fn conditional_facts(
         });
 
         for condition in conditions {
-            if condition == ExecutionCondition::Unknown { continue; }
+            if matches!(condition, ExecutionCondition::Unknown | ExecutionCondition::Boolean(true)) { continue; }
 
             // An existing guarded claim can already hold on both paths without
             // discovering a new discriminant or adding a redundant outer guard.
@@ -208,7 +208,7 @@ pub(super) fn conditional_facts(
 
                 // These are actual predecessor snapshots of moved owners, not ordinary
                 // equal-content substitutions for borrowed observations.
-                if proved(&clause) {
+                if !matches!(clause, ExecutionCondition::Boolean(true)) && proved(&clause) {
                     retained.push((owner.clone(), condition.clone(), clause, available));
                 }
             }
@@ -311,6 +311,42 @@ mod tests {
     use super::conditional_facts;
     use crate::analysis::guarantee::state::ExecutionState;
     use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn opposite_join_guards_do_not_manufacture_carrier_promises() {
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = input(0);
+        let guard = input(1);
+        let negated = ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]);
+
+        let claim = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
+            negated.clone(), ExecutionCondition::Trusted(Arc::new(input(2))),
+        ]);
+
+        let mut left = ExecutionState::default();
+        let mut right = ExecutionState::default();
+
+        for state in [&mut left, &mut right] {
+            state.assign(place.clone(), owner.clone(), None);
+        }
+
+        guard.clone().assume(false, &mut left.assumptions);
+        guard.clone().assume(true, &mut right.assumptions);
+        left.carry_guarantee(owner.clone(), claim.clone());
+        claim.assume(true, &mut left.trusted_assumptions);
+
+        let availability = BTreeSet::from([(owner.clone(), guard), (owner, negated)]);
+        let empty = BTreeMap::new();
+        let cache = Default::default();
+        let substitution = crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty, &cache);
+        let mut facts = Vec::new();
+
+        let retained = conditional_facts((&left, &substitution), (&right, &substitution),
+            &BTreeMap::new(), &[], &availability, None, &mut facts);
+
+        assert!(retained.is_empty(), "an ordinary tautology establishes no carrier authority");
+    }
 
     #[test]
     fn common_inactive_guards_publish_truth_without_phantom_carrier_promises() {
