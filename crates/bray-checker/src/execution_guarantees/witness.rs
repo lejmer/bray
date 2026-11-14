@@ -207,16 +207,10 @@ impl ExecutionWitness {
 
     pub(crate) fn owning_conditions<'a>(
         &'a self,
-        trusted: &'a BTreeSet<(ExecutionCondition, bool)>,
-        assumptions: &'a BTreeSet<(ExecutionCondition, bool)>,
-    ) -> impl Iterator<Item = &'a ExecutionCondition> + 'a {
-        let proof = super::ExecutionProof::new(trusted, assumptions);
-
+        proof: super::ExecutionProof<'_>,
+    ) -> impl Iterator<Item = &'a ExecutionCondition> {
         self.conditions.iter().filter(move |(condition, guarantee)| {
-            guarantee.witness
-                && proof.prove_trusted(condition) == Some(true)
-                && condition.prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                    != Some(true)
+            guarantee.witness && proof.owns_condition(condition)
         }).map(|(condition, _)| condition)
     }
 

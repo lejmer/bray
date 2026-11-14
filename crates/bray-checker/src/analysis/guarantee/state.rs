@@ -393,7 +393,7 @@ impl ExecutionState {
         self.witnesses
             .get(identity)
             .is_some_and(|witness| {
-                witness.available && witness.owning_conditions(&self.trusted_assumptions, &self.assumptions).next().is_some()
+                witness.available && witness.owning_conditions(self.proof()).next().is_some()
             })
     }
 
@@ -531,9 +531,12 @@ impl ExecutionState {
                     && retained_owner(owner))
         });
 
+        // Entry mutation keeps the analysis cache shared without borrowing the mutable state.
+        let proofs = std::sync::Arc::clone(&self.proofs);
+
         for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution && {
             let owners = entry.owned_arguments().collect::<BTreeSet<_>>();
-            let admission = private_admission_facts(entry, &private_witnesses);
+            let admission = private_admission_facts(entry, &private_witnesses, &proofs);
 
             entry.trusted_boundary
                 || entry
@@ -550,7 +553,7 @@ impl ExecutionState {
                     .any(|fact| !preserves_owned(fact, &owners, &admission))
         }) {
             let owners = entry.owned_arguments().collect::<BTreeSet<_>>();
-            let admission = private_admission_facts(entry, &private_witnesses);
+            let admission = private_admission_facts(entry, &private_witnesses, &proofs);
 
             entry
                 .copy_sources
@@ -700,13 +703,14 @@ impl ExecutionState {
 fn private_admission_facts(
     entry: &crate::ExecutionCallEvidence,
     private: &[(ExecutionCondition, std::sync::Arc<crate::execution_guarantees::ExecutionWitness>)],
+    proofs: &crate::execution_guarantees::ExecutionProofCache,
 ) -> BTreeSet<(ExecutionCondition, bool)> {
     let mut retained = BTreeSet::new();
 
     for (carrier, witness) in private {
         if !entry.witness_inputs.contains(carrier) { continue; }
 
-        for condition in witness.owning_conditions(&entry.trusted_assumptions, &entry.assumptions) {
+        for condition in witness.owning_conditions(proofs.proof(&entry.trusted_assumptions, &entry.assumptions)) {
             condition.clone().assume(true, &mut retained);
         }
     }
@@ -748,7 +752,7 @@ mod tests {
             if proved { condition.clone().assume(true, &mut entry.trusted_assumptions); }
             if let Some(selected) = selected { guard.clone().assume(selected, &mut entry.assumptions); }
 
-            let retained = super::private_admission_facts(&entry, &[(owner.clone(), witness)]);
+            let retained = super::private_admission_facts(&entry, &[(owner.clone(), witness)], &Default::default());
 
             assert_eq!(retained.contains(&(condition.clone(), true)), owning && proved && selected != Some(false));
 
