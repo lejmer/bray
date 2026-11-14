@@ -32,22 +32,18 @@ independently retained data. BooleanGraph shares immutable condition children. O
 scan positions, DFS order, strictness, source precedence and budget charges. Its differential oracle covers
 128 graphs and budgets 0-64. Solved flow outputs and actual cleanup parts/phases remain retained.
 
-Current direct-membership checkpoint: optimized tooling build and all 556 checker tests pass. Fixed five
-twice take 131-137 ms for task cases and 167/159 ms for the loop. Extra source/import controls pass at 169-176 ms.
-Counters are compiled but disabled for timings. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance
-in 11.6 s. No full matrices ran. Source fixtures and expected rejection sites are unchanged.
+Current producer-reuse checkpoint: all 556 checker tests pass. Fixed five pass at 191-198 ms for task cases
+and 245 ms for the loop. Three complementary source/import loops pass at 235-254 ms. Timings are informational
+on the shared machine. Counters are compiled but disabled for timing. Frozen30 remains 29 pass and the same
+RawBuffer invalid acceptance in 17.26 s. No full matrices ran. Outcomes and intended rejection sites are fixed.
 
-The latest bounded loop probe records 1,574,061 comparisons: ordering 753,313, equality 774,127 and physical identity
-46,621. The preceding probe of the same production code recorded 1,573,864. Interner lookups are zero.
-It also records 613,156 key hashes, 82,899 prepared nodes, 147,168 child hashes,
-1,087,729 comparison-pair lookups, 362,980 pair writes and 508,872 node-hash writes totaling 3,139,978 bytes.
-These are overlapping cost categories, not time. The 10,000 goal remains far from achieved.
-
-Direct membership removes 192,250 comparisons, about 11 percent against 2c4034a34. Prepared unpublished roots
-and their key hashes remain counted. Timings are comparable. The batch adds 59 nonblank production lines and
-86 test lines. Independent inspection confirms unchanged budgets and raw/mixed scope isolation. Regression
-oracles passed. Style has the same six pre-existing errors. Format and diff checks pass. Temporary hooks are
-removed after measurement. Further small lookup changes cannot establish the 10,000 goal.
+The bounded loop probe records 1,556,510 comparisons: ordering 752,295, equality 757,904 and physical identity
+46,311. Interner lookups are zero. It records 613,156 key hashes, 82,899 prepared nodes, 147,168 child hashes,
+1,084,821 comparison-pair lookups, 362,616 pair writes and 508,872 hash writes totaling 3,139,978 bytes.
+These are overlapping cost categories, not time. Sharing immutable map change metadata and the join guard set
+removes 17,551 comparisons, about 1.1 percent against the preceding 1,574,061 probe. Net production growth is
+three lines, with no new tests or query-result caches. The 10,000 goal remains far from achieved. Style reports
+the same six existing errors. Format/diff checks pass. Temporary hooks are removed after measurement.
 
 ## Computation graph and cost model
 
@@ -208,18 +204,29 @@ needs unchanged fact expansion, observation occurrences and budgets, not just eq
 scope reuse requires an established producer relation. Historical entry, retirement and copy projection
 can change either set, so do not infer a general superset or add a union cache.
 
+Substitution maps now retain their change predicate with immutable entries. Value, owner and recursive
+identity consumers reuse that metadata, including unscoped calls. Identity pins, per-root budgets, separate
+value/owner memos and snapshot capture boundaries are unchanged. Inactive-guard and conditional-alias consumers
+share one ordered availability/path set and preserve their separate iteration limits.
+
 Next trace producer-to-consumer dependencies and identify which repeated evaluations can be eliminated.
 Close the exact transition contract before edits. Do not add edge caching or another local lookup cache.
 The previous edge measurement bounds its potential contribution, and fixed scope memos already exist.
 
-Exclusive attribution of all existing counters sums back to their global totals. Comparisons are outside
-instrumented regions 486,246, joins 260,339, substitution 236,475, scope keys 183,391, proof 88,202, deferred
-refinement 87,814, witness derivation 67,915, Boolean structure 58,247, witness publication 53,771, closure
-46,577 and fact indices 5,084. Retirement is not instrumented separately and remains in outside.
-Boolean structural rebuilding is only 3.7 percent of comparisons. Joins, substitutions and scope keys account
-for 43 percent. Do not replace the Boolean prover again as the main route. Trace repeated producer work and
-the unassigned 31 percent before selecting the next coherent repair. The attribution run changes no production
-behavior and passes the fixed loop's intended rejection check. Its hooks are removed afterward.
+Exclusive comparison attribution sums to 1,556,510: retirement 407,373, joins 243,485, substitution 236,097,
+scope keys 183,436, proof 88,268, deferred refinement 87,808, outside 78,503, witness derivation 67,971,
+Boolean structure 58,103, witness publication 53,771, closure 46,597 and fact indices 5,098. Retirement is now
+instrumented across retire_values, entry contexts, referents, contents, witness exclusion, roots and cleanup.
+It accounts for 26 percent of comparisons and 182,680 key hashes. Do not replace the Boolean prover again
+as the main route. Trace retirement's actual dependencies and repeated retention/admission production next.
+Do not skip broad retirement: earlier measurements show real fact and witness removals.
+
+Join candidates remain unimplemented. One actual-value traversal could supply observation events to ownership
+and conditional-fact construction, but predecessor absence evidence and missing-vs-Unknown results differ.
+A shared ordered partition could replace ordinary left/right differences plus intersection after
+join_observations. Preserve left handles, both branch limits, exact order and unchanged snapshot identity.
+Count full partition/rebuild work, including imbalanced sets. Structural IDs alone save at most about 13 percent.
+Allocation order cannot replace semantic order because bounded selection and normalization depend on it.
 
 The scope-pair producer is ExecutionProofCache::prepare. Each new pair prepares DerivedFacts through
 prepare_trusted_conditions and BooleanGraph::new, then AlternativeProof builds subjects and an intrinsic

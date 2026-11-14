@@ -96,9 +96,10 @@ pub(super) fn conditional_facts(
         .collect::<BTreeSet<_>>() };
 
     let ordinary_proofs = [left.0, right.0].map(|state| state.proofs.ordinary_proof(&state.assumptions));
-    let inactive = inactive_guards(&guards, &path_guards, [&left_inputs, &right_inputs], &ordinary_proofs, facts);
+    let all_guards = guards.iter().map(|(_, guard)| guard).chain(&path_guards).collect::<BTreeSet<_>>();
+    let inactive = inactive_guards(&all_guards, [&left_inputs, &right_inputs], &ordinary_proofs, facts);
 
-    conditional_aliases([left, right], [&left_inputs, &right_inputs], &guards, &path_guards, &inactive, &ordinary_proofs, facts);
+    conditional_aliases([left, right], [&left_inputs, &right_inputs], &all_guards, &inactive, &ordinary_proofs, facts);
 
     if left.0.witnesses.is_empty() && right.0.witnesses.is_empty() {
         return Vec::new();
@@ -230,16 +231,14 @@ pub(super) fn conditional_facts(
 }
 
 fn inactive_guards(
-    availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
-    paths: &BTreeSet<ExecutionCondition>,
+    guards: &BTreeSet<&ExecutionCondition>,
     inputs: [&SnapshotSubstitution<'_>; 2],
     proofs: &[ExecutionProof<'_>; 2],
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> BTreeSet<ExecutionCondition> {
-    let guards = availability.iter().map(|(_, guard)| guard).chain(paths).collect::<BTreeSet<_>>();
     let mut inactive = BTreeSet::new();
 
-    for guard in guards {
+    for &guard in guards {
         let negated = ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]);
 
         if proofs.iter().zip(inputs).all(|(proof, inputs)| {
@@ -261,8 +260,7 @@ fn conditional_aliases(
         &ExecutionSubstitution<'_>,
     ); 2],
     inputs: [&SnapshotSubstitution<'_>; 2],
-    availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
-    paths: &BTreeSet<ExecutionCondition>,
+    guards: &BTreeSet<&ExecutionCondition>,
     inactive: &BTreeSet<ExecutionCondition>,
     proofs: &[ExecutionProof<'_>; 2],
     facts: &mut Vec<(ExecutionCondition, bool)>,
@@ -270,7 +268,6 @@ fn conditional_aliases(
     let (stable, _) = super::merge::stable_observations(sources[0].0, sources[1].0);
 
     let mut aliases = BTreeSet::new();
-    let guards = availability.iter().map(|(_, guard)| guard).chain(paths).collect::<BTreeSet<_>>();
 
     let proved = |condition: &ExecutionCondition| proofs.iter().zip(inputs).all(|(proof, inputs)| {
         proof.prove_trusted(&inputs.apply(condition)) == Some(true)
