@@ -172,8 +172,7 @@ impl ExecutionCondition {
         };
 
         if let Some(value) = crate::execution_guarantees::implication::comparison_is_implied(
-            *operator,
-            operands,
+            self,
             assumptions,
             budget,
             memo,

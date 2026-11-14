@@ -482,6 +482,38 @@ mod tests {
         assert!(memo.raw_contains(&PreparedCondition::Retained(unknown.clone()), true, &facts));
         assert!(!memo.raw_contains(&PreparedCondition::Retained(unknown.clone()), false, &facts));
 
+        let opposite = facts.iter().map(|(condition, holds)| (condition.clone(), !holds)).collect::<BTreeSet<_>>();
+
+        for operands in [vec![input.clone(), input.clone()], vec![input.clone(), unknown.clone()],
+            vec![input.clone(), ExecutionCondition::result()],
+            vec![ExecutionCondition::boolean(false), ExecutionCondition::boolean(true)]]
+        {
+            let comparison = ExecutionCondition::new(crate::ExecutionConditionKind::Operation(Equal, operands.clone().into()));
+
+            for operator in [Equal, bray_bound_tree::BoundOperator::NotEqual, Less, bray_bound_tree::BoundOperator::LessEqual,
+                bray_bound_tree::BoundOperator::Greater, bray_bound_tree::BoundOperator::GreaterEqual]
+            {
+                for reversed in [false, true] {
+                    let operands = if reversed { operands.iter().rev().cloned().collect() } else { operands.clone() };
+                    let expected = ExecutionCondition::prepare_operation(operator, operands).finish();
+                    let form = comparison.comparison_form(operator, reversed);
+
+                    assert!(std::ptr::eq(form, comparison.comparison_form(operator, reversed)), "immutable operands retain each demanded form");
+
+                    let provided = BTreeSet::from([(expected.clone(), reversed)]);
+
+                    for scope in [&facts, &opposite, &provided] {
+                        let memo = ProofMemo::new();
+
+                        for holds in [false, true] {
+                            assert_eq!(memo.raw_contains(form, holds, scope), scope.contains(&(expected.clone(), holds)),
+                                "cached syntax cannot cache scope truth: {operator:?}, reversed={reversed}, holds={holds}");
+                        }
+                    }
+                }
+            }
+        }
+
         let folded_false = ExecutionCondition::prepare_operation(Less, vec![input.clone(), input.clone()]);
         let folded_unknown = ExecutionCondition::prepare_operation(Equal, vec![input, unknown]);
 
