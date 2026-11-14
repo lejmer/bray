@@ -13,6 +13,14 @@ use crate::analysis::storage_flow::{
 };
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    fn cleanup_mutation_receiver(&self, memory: &State, mutation: &CleanupMutation<'_>) -> Option<Target> {
+        match mutation {
+            CleanupMutation::Opaque { access, path, .. } => self.cleanup_receiver(memory, *access, *path),
+            CleanupMutation::Lifecycle(call) => self.cleanup_receiver(memory, call.access, call.path),
+            CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
+        }
+    }
+
     pub(super) fn apply_cleanup(
         &mut self,
         state: &mut StorageFlowState,
@@ -59,15 +67,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => None,
                 };
 
-                let receiver = match &mutation {
-                    CleanupMutation::Opaque { access, path, .. } => {
-                        self.cleanup_receiver(&memory, *access, *path)
-                    }
-                    CleanupMutation::Lifecycle(call) => {
-                        self.cleanup_receiver(&memory, call.access, call.path)
-                    }
-                    CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
-                };
+                let receiver = self.cleanup_mutation_receiver(&memory, &mutation);
 
                 let task_path = match &mutation {
                     CleanupMutation::Opaque { path, .. } => *path,

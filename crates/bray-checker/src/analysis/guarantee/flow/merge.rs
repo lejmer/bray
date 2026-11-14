@@ -392,27 +392,41 @@ fn join_observations<'a>(
             condition.assume(holds, &mut incoming.assumptions);
         }
 
-        for (place, value) in joined_values {
-            let slot = CurrentValue {
-                value,
-                availability: availability.remove(&place).expect("joined place has availability"),
-            };
-
-            changed |= target.current.slot(&place).as_ref() != Some(&slot);
-            target.current.set_slot(place.clone(), slot.clone());
-            incoming.current.set_slot(place, slot);
-        }
-
-        for (expression, value) in results {
-            changed |= target.pending_results.get(&expression) != Some(&value);
-            target.pending_results.insert(expression, value.clone());
-            incoming.pending_results.insert(expression, value);
-        }
+        changed |= publish_joined_values(target, incoming, joined_values, availability, results);
     }
 
     changed |= publish_owned_results(target, &mut incoming_joined, owned_results);
 
     (incoming_joined, changed)
+}
+
+fn publish_joined_values(
+    target: &mut ExecutionState,
+    incoming: &mut ExecutionState,
+    joined_values: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    mut availability: BTreeMap<crate::ExecutionPlace, ValueAvailability>,
+    results: Vec<(bray_bound_tree::BoundExpressionId, ExecutionCondition)>,
+) -> bool {
+    let mut changed = false;
+
+    for (place, value) in joined_values {
+        let slot = CurrentValue {
+            value,
+            availability: availability.remove(&place).expect("joined place has availability"),
+        };
+
+        changed |= target.current.slot(&place).as_ref() != Some(&slot);
+        target.current.set_slot(place.clone(), slot.clone());
+        incoming.current.set_slot(place, slot);
+    }
+
+    for (expression, value) in results {
+        changed |= target.pending_results.get(&expression) != Some(&value);
+        target.pending_results.insert(expression, value.clone());
+        incoming.pending_results.insert(expression, value);
+    }
+
+    changed
 }
 
 /// Join possible contents over the initialized predecessors. Missing storage

@@ -48,55 +48,7 @@ fn encode(
             // The semantic store owns the immutable literal independently of this condition.
             ConstantTermData::Value(values.intern_constant_value(value.as_ref().clone())?)
         }
-        K::Input(place) => {
-            let mut term = if let Some(term) = place.constant_term() {
-                term
-            } else if let Some(BoundReferenceTarget::Surface(
-                bray_symbols::AnySymbolId::GenericConstParameter(parameter),
-            )) = place.reference()
-            {
-                values.intern_constant_term(ConstantTermData::Parameter(parameter))?
-            } else {
-                let Some(ordinal) = inputs
-                    .iter()
-                    .position(|input| Some(*input) == place.reference())
-                    .and_then(|index| u32::try_from(index).ok())
-                else {
-                    return Ok(None);
-                };
-
-                values.intern_constant_term(ConstantTermData::CallableArgument(
-                    SymbolOrdinal::new(ordinal),
-                ))?
-            };
-
-            for field in &*place.projections {
-                let kind = match *field {
-                    ConstantProjectionKind::ProductField(field) => {
-                        ConstantProjectionKind::ProductField(field)
-                    }
-                    ConstantProjectionKind::UnionPayloadField(field) => {
-                        ConstantProjectionKind::UnionPayloadField(field)
-                    }
-                    ConstantProjectionKind::NullableValue => ConstantProjectionKind::NullableValue,
-                    ConstantProjectionKind::TupleElement(index) => {
-                        ConstantProjectionKind::TupleElement(index)
-                    }
-                    ConstantProjectionKind::ArrayElementOrdinal(index) => {
-                        ConstantProjectionKind::ArrayElementOrdinal(index)
-                    }
-                    _ => return Ok(None),
-                };
-
-                let projected = values.intern_constant_term(ConstantTermData::Projection(
-                    ConstantProjection::new(term, kind),
-                ))?;
-
-                term = projected;
-            }
-
-            return Ok(Some(term));
-        }
+        K::Input(place) => return encode_input(values, place, inputs),
         K::Result => {
             let Ok(ordinal) = u32::try_from(inputs.len()) else {
                 return Ok(None);
@@ -275,6 +227,60 @@ fn encode(
     };
 
     values.intern_constant_term(data).map(Some)
+}
+
+fn encode_input(
+    values: &SemanticValueStore,
+    place: &super::ExecutionPlace,
+    inputs: &[BoundReferenceTarget],
+) -> Result<Option<ConstantTermId>, SemanticValueStoreError> {
+    let mut term = if let Some(term) = place.constant_term() {
+        term
+    } else if let Some(BoundReferenceTarget::Surface(
+        bray_symbols::AnySymbolId::GenericConstParameter(parameter),
+    )) = place.reference()
+    {
+        values.intern_constant_term(ConstantTermData::Parameter(parameter))?
+    } else {
+        let Some(ordinal) = inputs
+            .iter()
+            .position(|input| Some(*input) == place.reference())
+            .and_then(|index| u32::try_from(index).ok())
+        else {
+            return Ok(None);
+        };
+
+        values.intern_constant_term(ConstantTermData::CallableArgument(
+            SymbolOrdinal::new(ordinal),
+        ))?
+    };
+
+    for field in &*place.projections {
+        let kind = match *field {
+            ConstantProjectionKind::ProductField(field) => {
+                ConstantProjectionKind::ProductField(field)
+            }
+            ConstantProjectionKind::UnionPayloadField(field) => {
+                ConstantProjectionKind::UnionPayloadField(field)
+            }
+            ConstantProjectionKind::NullableValue => ConstantProjectionKind::NullableValue,
+            ConstantProjectionKind::TupleElement(index) => {
+                ConstantProjectionKind::TupleElement(index)
+            }
+            ConstantProjectionKind::ArrayElementOrdinal(index) => {
+                ConstantProjectionKind::ArrayElementOrdinal(index)
+            }
+            _ => return Ok(None),
+        };
+
+        let projected = values.intern_constant_term(ConstantTermData::Projection(
+            ConstantProjection::new(term, kind),
+        ))?;
+
+        term = projected;
+    }
+
+    Ok(Some(term))
 }
 
 /// Restores a portable condition using the supplied callable's semantic input identities.

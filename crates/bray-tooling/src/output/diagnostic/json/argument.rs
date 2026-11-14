@@ -1,3 +1,4 @@
+use bray_diagnostics::{DiagnosticRetainedGenerationProblem as RetainedProblem, DiagnosticNativeProductFailureKind as NativeFailureKind};
 use bray_diagnostics::DiagnosticArgValue;
 use serde::Serialize;
 
@@ -364,10 +365,7 @@ impl DiagnosticArgValueJson {
                 Self::CopyContractProblem(copy_contract_problem_json(*problem))
             }
             DiagnosticArgValue::StoredTypeProblem(problem) => {
-                Self::StoredTypeProblem(DiagnosticProblemJson {
-                    reason: problem.category(),
-                    context: Vec::new(),
-                })
+                Self::StoredTypeProblem(DiagnosticProblemJson::without_context(problem.category()))
             }
             DiagnosticArgValue::PropagationProblem(problem) => {
                 Self::PropagationProblem(propagation_problem_json(problem))
@@ -400,15 +398,13 @@ impl DiagnosticArgValueJson {
 fn retained_generation_problem_json(
     problem: &bray_diagnostics::DiagnosticRetainedGenerationProblem,
 ) -> DiagnosticArgValueJson {
-    use bray_diagnostics::DiagnosticRetainedGenerationProblem as Problem;
-
     let (expected_read_only, actual_read_only) = match problem {
-        Problem::ReadOnly { expected, actual } => (Some(*expected), Some(*actual)),
+        RetainedProblem::ReadOnly { expected, actual } => (Some(*expected), Some(*actual)),
         _ => (None, None),
     };
 
     let (expected_unix_mode, actual_unix_mode) = match problem {
-        Problem::UnixMode { expected, actual } => (*expected, *actual),
+        RetainedProblem::UnixMode { expected, actual } => (*expected, *actual),
         _ => (None, None),
     };
 
@@ -431,44 +427,42 @@ pub(in crate::output::diagnostic::json) struct DiagnosticNativeProductFailureJso
 
 impl DiagnosticNativeProductFailureJson {
     fn from_kind(kind: &bray_diagnostics::DiagnosticNativeProductFailureKind) -> Self {
-        use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
-
         let context = match kind {
-            Kind::EvaluationCycle(failure) => diagnostic_failure_context(failure.context()),
-            Kind::EvaluationRuntime(failure) => fact_runtime_failure_context(failure),
-            Kind::EvaluationSemanticQuery(failure) => {
+            NativeFailureKind::EvaluationCycle(failure) => diagnostic_failure_context(failure.context()),
+            NativeFailureKind::EvaluationRuntime(failure) => fact_runtime_failure_context(failure),
+            NativeFailureKind::EvaluationSemanticQuery(failure) => {
                 let mut context = vec![text_field("category", failure.category())];
 
                 context.extend(diagnostic_failure_context(failure.context()));
 
                 context
             }
-            Kind::EvaluationSemanticValue(failure) => semantic_value_failure_context(*failure),
-            Kind::EvaluationBinding(failure) => match failure.semantic_value_failure() {
+            NativeFailureKind::EvaluationSemanticValue(failure) => semantic_value_failure_context(*failure),
+            NativeFailureKind::EvaluationBinding(failure) => match failure.semantic_value_failure() {
                 Some(failure) => semantic_value_failure_context(failure),
                 None => diagnostic_failure_context(failure.context()),
             },
-            Kind::EvaluationProduct(failure) => product_query_failure_context(failure),
-            Kind::EvaluationForeign(failure) => foreign_query_failure_context(failure),
-            Kind::InvalidNativeLinkInput(failure) => native_link_input_failure_context(failure),
-            Kind::NativeResolution(detail)
-            | Kind::RuntimeSelectionIncompatible(detail)
-            | Kind::RuntimeSelectionMissingRoleOwner(detail)
-            | Kind::RuntimeSelectionMissingCapabilityOwner(detail)
-            | Kind::CodegenBackendUnsupportedArtifact(detail)
-            | Kind::CodegenBackendUnsupportedTargetDetail(detail)
-            | Kind::CodegenBackendInvalidConfigurationDetail(detail)
-            | Kind::CodegenBackendLibraryFailure(detail)
-            | Kind::CodegenBackendToolFailure(detail)
-            | Kind::CodegenBackendArtifactRead(detail)
-            | Kind::CodegenBackendArtifactConstruction(detail)
-            | Kind::CodegenBackendResourceLimit(detail)
-            | Kind::CodegenUnsupportedType(detail)
-            | Kind::CodegenLayoutOverflow(detail)
-            | Kind::CodegenInvalidAbiMapping(Some(detail)) => {
+            NativeFailureKind::EvaluationProduct(failure) => product_query_failure_context(failure),
+            NativeFailureKind::EvaluationForeign(failure) => foreign_query_failure_context(failure),
+            NativeFailureKind::InvalidNativeLinkInput(failure) => native_link_input_failure_context(failure),
+            NativeFailureKind::NativeResolution(detail)
+            | NativeFailureKind::RuntimeSelectionIncompatible(detail)
+            | NativeFailureKind::RuntimeSelectionMissingRoleOwner(detail)
+            | NativeFailureKind::RuntimeSelectionMissingCapabilityOwner(detail)
+            | NativeFailureKind::CodegenBackendUnsupportedArtifact(detail)
+            | NativeFailureKind::CodegenBackendUnsupportedTargetDetail(detail)
+            | NativeFailureKind::CodegenBackendInvalidConfigurationDetail(detail)
+            | NativeFailureKind::CodegenBackendLibraryFailure(detail)
+            | NativeFailureKind::CodegenBackendToolFailure(detail)
+            | NativeFailureKind::CodegenBackendArtifactRead(detail)
+            | NativeFailureKind::CodegenBackendArtifactConstruction(detail)
+            | NativeFailureKind::CodegenBackendResourceLimit(detail)
+            | NativeFailureKind::CodegenUnsupportedType(detail)
+            | NativeFailureKind::CodegenLayoutOverflow(detail)
+            | NativeFailureKind::CodegenInvalidAbiMapping(Some(detail)) => {
                 diagnostic_failure_context(detail.context())
             }
-            Kind::CodegenExactIntegerCapacity {
+            NativeFailureKind::CodegenExactIntegerCapacity {
                 minimum_bits,
                 maximum_bits,
             } => diagnostic_failure_context(&[
@@ -481,18 +475,18 @@ impl DiagnosticNativeProductFailureJson {
                     bray_diagnostics::DiagnosticFailureValue::Count(u64::from(*maximum_bits)),
                 ),
             ]),
-            Kind::CodegenBackendNotSelected
-            | Kind::MissingRuntime
-            | Kind::MissingStandardLibrary
-            | Kind::EvaluationCancelled
-            | Kind::EvaluationSemanticValueStoreCreate
-            | Kind::CodegenTargetUnsupportedProfile
-            | Kind::CodegenBackendUnsupportedTarget
-            | Kind::CodegenBackendInvalidConfiguration
-            | Kind::CodegenBackendResourceExhausted
-            | Kind::CodegenBackendUnavailable
-            | Kind::CodegenMirCapacityExceeded
-            | Kind::CodegenInvalidAbiMapping(None) => Vec::new(),
+            NativeFailureKind::CodegenBackendNotSelected
+            | NativeFailureKind::MissingRuntime
+            | NativeFailureKind::MissingStandardLibrary
+            | NativeFailureKind::EvaluationCancelled
+            | NativeFailureKind::EvaluationSemanticValueStoreCreate
+            | NativeFailureKind::CodegenTargetUnsupportedProfile
+            | NativeFailureKind::CodegenBackendUnsupportedTarget
+            | NativeFailureKind::CodegenBackendInvalidConfiguration
+            | NativeFailureKind::CodegenBackendResourceExhausted
+            | NativeFailureKind::CodegenBackendUnavailable
+            | NativeFailureKind::CodegenMirCapacityExceeded
+            | NativeFailureKind::CodegenInvalidAbiMapping(None) => Vec::new(),
         };
 
         Self {

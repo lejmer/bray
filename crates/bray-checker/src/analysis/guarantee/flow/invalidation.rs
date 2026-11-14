@@ -954,7 +954,7 @@ fn value_for_invalidation(state: &ExecutionState, place: &crate::ExecutionPlace)
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{ExecutionState, value_for_invalidation};
     use super::super::preservation::ValuePreservation;
     use crate::analysis::guarantee::current::{CurrentValue, ValueAvailability};
     use crate::{ExecutionCondition, ExecutionPlace};

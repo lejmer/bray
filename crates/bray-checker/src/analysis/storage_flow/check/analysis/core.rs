@@ -1077,6 +1077,21 @@ where
             self.retire_consumed_value_slots(state, kind);
         }
 
+        self.end_operation_uses(state, kind);
+
+        crate::analysis::refinement::transfer_operation(
+            &mut refinements,
+            operation,
+            universe,
+            self.storage,
+            invalidation.as_ref(),
+            &self.input.footprint.discriminants,
+        );
+
+        state.refinements = refinements;
+    }
+
+    fn end_operation_uses(&self, state: &mut StorageFlowState, kind: AnalysisOperationKind) {
         if !matches!(
             kind,
             AnalysisOperationKind::Call {
@@ -1090,17 +1105,6 @@ where
             self.end_last_use_borrows(state, kind.occurrence());
             self.end_last_use_storage(state, kind.occurrence());
         }
-
-        crate::analysis::refinement::transfer_operation(
-            &mut refinements,
-            operation,
-            universe,
-            self.storage,
-            invalidation.as_ref(),
-            &self.input.footprint.discriminants,
-        );
-
-        state.refinements = refinements;
     }
 
     fn retire_consumed_value_slots(&self, state: &mut StorageFlowState, kind: AnalysisOperationKind) {

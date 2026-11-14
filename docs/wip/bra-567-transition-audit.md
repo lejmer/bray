@@ -2,7 +2,8 @@
 
 Read this record and the work-on-bray-issues contract gate after compaction. Update in place.
 Branch: feature/bra-567-async-root-orchestration. PR: https://github.com/lejmer/bray/pull/710.
-Commits and pushes are authorized. Continue after checkpoints. Do not run full matrices.
+Commits and pushes are authorized. Continue after checkpoints. The user has now authorized the full owned
+and deferred source/import matrices for final verification, with bounded execution.
 Current priority: finish BRA-567 correctness, required verification and review. Further performance
 optimization is deferred to a separate PR at the user's request. It is not a gate for this PR.
 
@@ -12,10 +13,20 @@ The stored-value batch builds in optimized tooling. All 558 checker, 221 symbol 
 The four RawBuffer rows pass in both source and import modes, including copied scalar independence and
 projected-borrow rejection at inspect. The fixed 48 borrowed-field and 12 conditional-owner controls pass.
 Frozen30 passes all 30 cases in one final run, including the RawBuffer source/import fixture.
-The fixed five pass at 140-154 ms, with the loop at 154 ms. No full matrices ran.
+The fixed five pass at 140-154 ms, with the loop at 154 ms.
+Full comparison on the structural-cleanup build: 1,582 pass, 59 fail, 74 incomplete after one batch's
+180-second bound. This includes the 916 mapped fixed identities and all owned/deferred namespace tests.
+Thirty matrix failures concern guarded owned selection and six concern deferred result/frame transport,
+symmetrically in source/import modes. Another 23 failures include the owned aggregate and production
+contracts. Diagnose shared boundaries before semantic edits. comparison-result.json retains identities.
 Compact evidence: stored-validation.json, proof-frozen30.json and proof-indexed-current.json in the audit output.
 Earlier nine activation controls remain valid for their unchanged code. Final BRA-567 gates remain open.
-Mutating style has six existing errors and no new errors. Format and diff checks pass.
+Mutating style passes after seven-file structural cleanup. Its build and 558 checker tests pass.
+The ABI correction passes 203 checks: tooling 115, runtime interface 29, native ABI 35,
+test protocol 23 and backend identity 1. Native smoke execution remains pending.
+All unreleased compiler-owned ABI/protocol/backend versions stay at 1 or 1.0. Reset declarations and
+native fixtures together. Deliberately incompatible test versions and upstream versions remain distinct.
+Format and diff checks pass.
 Stored paths must name physical Receiver, Parameter, Result or
 static roots. Capability, witness and EvaluationStorage roots cannot be replayed. Reject them at import and
 assert the producer invariant, for destinations and sources. Result remains forbidden as an entry source.
@@ -83,10 +94,21 @@ initialization nor deferred-frame identity. Intrinsic Push/Pop retain actual val
 Exact element reads include overlapping AnyElement summaries without weakening exact writes.
 Imports belong at module scope by default, with test imports in test modules. Probes are removed.
 
-Next: checkpoint this batch, then finish remaining source-composition and broader verification gates.
+Stored-value checkpoint 51336bd5b is pushed. Next: finish version alignment, diagnose the failed groups,
+then verify the corrected composition and native gates. boundary-validation.json identifies the current
+optimized test build. Temporary probes have been removed and mutating style plus Bray format pass.
+
+Current boundary evidence, before semantic repairs:
+- Owned selection already has unconditional alternative inputs before portable publication. Inspect
+  current/pending-value joins and fixed-point replay. Export and caller pruning are not the first loss.
+- Deferred union loses the inner awaited producer before memory completion. Two other deferred cases
+  complete with known effects, so their witness loss is unresolved. OwnedTarget resolution was not involved.
+- Cancellation cleanup part 1 at the native-thread fixture is false in every reachable storage publication
+  and true in guarantee replay. Trace successful ordinary move replay before adding cleanup skip records.
+  A missing published mutation must still panic. Never replace it with empty effects.
 Conditional stores, multiple referents, pop/remaining contents, overwrite and retirement have memory-level
 controls. Real source/import composition for conditional stores and pop with another retained owner remains
-unverified. Keep that exclusion visible while closing the contract. No full matrices.
+unverified. Keep that exclusion visible while closing the contract.
 
 Regression oracles: scalar independence, reference-bearing payloads, multiple distinct referents,
 conditional stores, pop with remaining contents, overwrite and retirement. Negative cases must reject
@@ -147,11 +169,13 @@ comparison.txt plus verification.json. Keep one current count, timing and regres
 counter patch. Remove stale logs and JSON streams once their useful result is retained. Final performance
 evidence must come from a build without temporary hooks.
 
-After contract correctness: fixed920 and relevant source/interface/native gates, maintainability review,
-and owned/deferred matrices only when authorized again. Verify root/main authority, cleanup before terminal
+Final gates: fixed920, full owned/deferred source/import matrices, relevant source/interface/native checks
+and maintainability review. Verify root/main authority, cleanup before terminal
 publication, normal/panic/cancellation, rollback exactly once, services through static disposal, synchronous
 control and native archive/link evidence that Rust orchestration is removed. Preserve deferred-admission
 control d302124. Independent draft-PR review precedes ready/In Review. Close the issue only after merge.
 
-Existing structural findings: wildcard flow/invalidation import and oversized flow/merge, storage_flow
-cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument functions.
+Native coverage uses runtime-artifact smoke-test: runtime-root-smoke.c covers main-lane identity,
+suspension/resume, success/panic/cancel, cleanup-before-terminal, retirement and rejected admission.
+async-ownership-composition.bray covers real source await/child cancellation/cleanup/static disposal.
+The same gate audits native archive/link provenance and synchronous controls. It has not run on this code yet.
