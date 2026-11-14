@@ -97,11 +97,23 @@ The batch adds 29 nonblank production lines and 46 test lines. One memo field re
 one shared equality solver. The direct-vs-uncached budget checks and equality scope/expiry controls pass.
 
 Remaining refinement computations: 394 private deferred-entry, 328 public and 134 join-local. Private costs 469K,
-public 257K and join-local 99K. Only 12 new witness clauses result. This still reconstructs applicability from global
-scope facts even though the carrier and entry own retained evidence. Before further semantic changes, trace how
-admitted entries could retain their actual carrier evidence without reconstructing it from the global union of
-possible obligations. Preserve captured authority, live invalidation, joins, guarded ownership and retirement.
-No new representation contract is closed. Do not share answers across unequal scopes or prune possible obligations.
+public 257K and join-local 99K. Only 12 new witness clauses result. Allocation-key duplication is not the remaining
+cause: replacing it with exact value keys cut computations from 856 to 394 but did not reduce total work. Whole-value
+hash keys cost 2.60M, condition-ID keys 2.57M. Inner query memos already amortize duplicates. Both experiments and
+their extra test assertion were removed. Production remains the verified ordinary-proof/equality-reuse checkpoint.
+Do not repeat allocation-key tuning or add physical/semantic witness indexes to pursue this small cost.
+
+Next trace authoritative owned-result alternatives, admitted carrier evidence, guard changes and retirement to
+identify why each distinct scope requests full applicability reconstruction. A carrier's possible obligation union
+is not its current proven authority. Changing private-record representation is not yet contract-closed. Preserve
+captured authority, live invalidation, joins, guarded ownership, exact negative sites and original proof budgets.
+No skipping refinement on unchanged carriers, no scope sharing based on approximate dependencies, no new framework.
+
+Rejected-experiment outputs were removed. Retain the accepted fixed-five and frozen30 results. The next counter
+run requires a fresh successful build manifest. Do not reuse the rejected experiment binary as accepted evidence.
+
+Use the checker-only non-incremental Cargo override after the interrupted-build Rust linker failure. Shared
+dependency storage remains intact. The successful rebuild retains tooling optimization level 3 and no debug assertions.
 
 Temporary counters are removed after bounded verification. Keep one proof-count-current.json and one
 proof-counter.patch. Build without hooks for final goal evidence, not a second rebuild at every checkpoint.
