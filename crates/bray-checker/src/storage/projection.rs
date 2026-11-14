@@ -198,6 +198,26 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
     Ok(DiagnosticResult::new(ty, diagnostics))
 }
 
+/// Resolves an owning component without reconstructing an indexed value expression.
+pub(crate) fn projected_owned_type<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    owner: TypeId,
+    projection: bray_symbols::ConstantProjectionKind,
+) -> Result<DiagnosticResult<Option<TypeId>>, CheckerQueryError<C::UpstreamError>> {
+    use bray_symbols::ConstantProjectionKind;
+
+    let projection = match projection {
+        ConstantProjectionKind::ProductField(field) => DependencyProjection::ProductField(field),
+        ConstantProjectionKind::UnionPayloadField(field) => DependencyProjection::UnionPayloadField(field),
+        ConstantProjectionKind::TupleElement(index) => DependencyProjection::TupleElement(index),
+        ConstantProjectionKind::NullableValue => DependencyProjection::NullableValue,
+        ConstantProjectionKind::ArrayElementOrdinal(_) => DependencyProjection::AnyElement,
+        _ => unreachable!("checked ownership path contains only owning projections"),
+    };
+
+    projected_value_type(request, owner, projection)
+}
+
 /// Prepares the dereference steps of a checked projection path once for its consumers.
 /// A selected access can additionally require dereferencing the final value to its reached type.
 pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(

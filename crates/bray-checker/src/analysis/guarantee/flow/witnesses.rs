@@ -634,10 +634,8 @@ fn collect_observations(
     let presence = sources.into_iter().zip(absent).find_map(|(source, absent)| {
         let source = source?;
 
-        match source.kind() {
-            crate::ExecutionConditionKind::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) => Some(value),
-            _ => absent.get(source).or_else(|| absent.get(source.owner_identity())),
-        }
+        source.known_absence().or_else(|| absent.get(source))
+            .or_else(|| absent.get(source.owner_identity()))
     }).map(|absent| ExecutionCondition::operation(
         BoundOperator::LogicalAnd,
         vec![active.clone(), ExecutionCondition::operation(
@@ -651,19 +649,14 @@ fn collect_observations(
     let mut fields = BTreeSet::new();
 
     for source in sources.into_iter().flatten().map(ExecutionCondition::computed_value) {
-        match source.kind() {
-            crate::ExecutionConditionKind::Tagged(variant, _) => insert_guard(
-                guards, &owner, ExecutionCondition::operation(
-                    BoundOperator::LogicalAnd, vec![active.clone(), joined.clone().matches_variant(*variant)],
-                ),
-            ),
-            crate::ExecutionConditionKind::Constructed(base, components) => {
-                if let crate::ExecutionConditionKind::Tagged(variant, _) = (base.as_ref()).kind() {
-                    insert_guard(guards, &owner, ExecutionCondition::operation(
-                        BoundOperator::LogicalAnd, vec![active.clone(), joined.clone().matches_variant(*variant)],
-                    ));
-                }
+        if let Some(variant) = source.known_variant() {
+            insert_guard(guards, &owner, ExecutionCondition::operation(
+                BoundOperator::LogicalAnd, vec![active.clone(), joined.clone().matches_variant(variant)],
+            ));
+        }
 
+        match source.kind() {
+            crate::ExecutionConditionKind::Constructed(_, components) => {
                 fields.extend(components.iter().map(|(field, _)| *field));
             }
             crate::ExecutionConditionKind::Present(_) => { fields.insert(bray_bound_tree::StorageProjection::NullableValue); }

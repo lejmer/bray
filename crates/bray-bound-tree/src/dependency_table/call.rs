@@ -103,6 +103,7 @@ impl BoundCallReference {
 /// Prepared ordinary shape and completion conditions of one exact owning transfer.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundReturnedValue {
+    borrowed: bool,
     conditions: Arc<[bray_symbols::ConstantTermId]>,
     observations: Arc<[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)]>,
 }
@@ -110,11 +111,15 @@ pub struct BoundReturnedValue {
 impl BoundReturnedValue {
     /// Creates the checked description independently of whether its transfer is selected.
     pub fn new(
+        borrowed: bool,
         conditions: impl Into<Arc<[bray_symbols::ConstantTermId]>>,
         observations: impl Into<Arc<[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)]>>,
     ) -> Self {
-        Self { conditions: conditions.into(), observations: observations.into() }
+        Self { borrowed, conditions: conditions.into(), observations: observations.into() }
     }
+
+    /// Whether the instantiated output is a borrow rather than an extracted owner.
+    pub const fn is_borrowed(&self) -> bool { self.borrowed }
 
     /// Ordinary presence facts implied by the transferred projection.
     pub fn conditions(&self) -> &[bray_symbols::ConstantTermId] { &self.conditions }

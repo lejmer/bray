@@ -156,7 +156,9 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
 
     let receiver = input_type(&bray_symbols::DependencySubject::root(DependencySubjectRoot::Receiver))?.is_some();
 
-    let returned = returned_values(request, template.owned_result().transfers(), contracts.input_count(), |ordinal| {
+    let result_type = input_type(&bray_symbols::DependencySubject::root(DependencySubjectRoot::Result))?.map(|(ty, _)| ty);
+
+    let returned = returned_values(request, template.owned_result().transfers(), result_type, contracts.input_count(), |ordinal| {
         let root = if receiver && ordinal == 0 { DependencySubjectRoot::Receiver }
             else { DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(ordinal - u32::from(receiver))) };
 
@@ -293,6 +295,7 @@ pub(super) fn reference_subject_path<C: CheckerRequestContext + ?Sized>(
 fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     transfers: impl IntoIterator<Item = &'a bray_symbols::DependencyOwnedTransfer>,
+    result_type: Option<bray_symbols::TypeId>,
     input_count: usize,
     mut input_type: impl FnMut(
         u32,
@@ -310,6 +313,14 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
     let mut result = std::collections::BTreeMap::new();
 
     for transfer in transfers {
+        let mut output_type = result_type.expect("an owning return retains its instantiated result type");
+
+        for projection in transfer.output() {
+            output_type = crate::storage::projected_owned_type(request, output_type, *projection)?
+                .value().expect("checked owning return retains its output component type");
+        }
+
+        let borrowed = matches!(request.semantic_values().type_data(output_type).as_ref(), bray_symbols::TypeData::Borrow { .. });
         let mut conditions = Vec::new();
 
         let (transferred, ty) = returned_input_projection_conditions(
@@ -348,7 +359,7 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
         conditions.dedup();
 
         result.insert(transfer.clone(), bray_bound_tree::BoundReturnedValue::new(
-            conditions, crate::storage::observation::returned_observations(request, ty)?,
+            borrowed, conditions, crate::storage::observation::returned_observations(request, ty)?,
         ));
     }
 
@@ -368,7 +379,7 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
 ) -> Result<(Vec<bray_symbols::ConstantTermId>, bray_symbols::TypeId), CheckerQueryError<C::UpstreamError>> {
     use bray_symbols::{
         ConstantBinaryOperation, ConstantProjectionKind, ConstantTermData, ConstantValueData,
-        ConstantValueKind, DependencyProjection,
+        ConstantValueKind,
     };
 
     let values = request.semantic_values();
@@ -434,31 +445,7 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
             );
         }
 
-        let projection = match projection {
-            ConstantProjectionKind::ProductField(field) => {
-                DependencyProjection::ProductField(field)
-            }
-            ConstantProjectionKind::UnionPayloadField(field) => {
-                DependencyProjection::UnionPayloadField(field)
-            }
-            ConstantProjectionKind::TupleElement(index) => {
-                DependencyProjection::TupleElement(index)
-            }
-            ConstantProjectionKind::NullableValue => DependencyProjection::NullableValue,
-            ConstantProjectionKind::ArrayElementOrdinal(_) => {
-                let data = values.type_data(ty);
-
-                let bray_symbols::TypeData::Array { element, .. } = data.as_ref() else {
-                    unreachable!("checked owned element transport retains an array type");
-                };
-
-                ty = *element;
-                continue;
-            }
-            _ => unreachable!("checked transport projection is owned"),
-        };
-
-        ty = crate::storage::projected_value_type(request, ty, projection)?
+        ty = crate::storage::projected_owned_type(request, ty, projection)?
             .value()
             .unwrap_or_else(|| panic!(
                 "checked returned input has no projected type: unit={:?}, input={ordinal}, subject={:?}, type={:?}, projection={projection:?}",
