@@ -188,7 +188,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         // Branches inspect Boolean truth, not ownership identity. Use checked
         // equalities to observe a call result through its immutable input snapshot.
-        let equalities = ExecutionCondition::equalities(&state.assumptions, Some(expression));
+        let equalities = state.proofs.equalities(&state.assumptions, Some(expression));
         let observed = condition.with_equalities(&equalities);
 
         let value = self

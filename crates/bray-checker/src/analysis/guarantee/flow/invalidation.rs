@@ -56,7 +56,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let non_overlapping = predicate("NonOverlapping");
         let initialized = predicate("InitializedAs");
-        let equalities = ExecutionCondition::equalities(&state.assumptions, None);
+        let equalities = state.proofs.equalities(&state.assumptions, None);
 
         let normalize = |condition: &ExecutionCondition| condition.with_equalities(&equalities)
             .pointer_observations(&self.pointer_predicates);

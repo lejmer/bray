@@ -47,17 +47,17 @@ its memo until actual alias consequences change its facts, then resets every res
 The production scan is removed. One differential test retains it as an independent oracle over 128 graphs and budgets
 0-64, checking results and remaining budgets, including cycles, missing edges, negative evidence and literal bounds.
 
-All 551 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 129-147 ms,
-loop 191/201 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 194-201 ms.
+All 552 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 129-138 ms,
+loop 186/191 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 190-196 ms.
 Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.7 seconds. No full matrices ran.
 Style retains the same six errors: wildcard flow/invalidation and oversized flow/merge, storage_flow cleanup/core,
 execution_guarantees/portable and tooling output/diagnostic/json/argument. Format and diff checks pass.
 
-Complete count is 2,655,521: ordering 1,332,519, equality 640,088, identity 302,320, interning 380,594.
-The caller has 198 CFG blocks and two required storage solves with 271 transfers each. There are 11,170 indexed
-nodes across indices, 611 evidence scopes and 13,032 proof queries. Witness refinement performs 856 computations,
+Complete count is 2,564,611: ordering 1,293,995, equality 626,782, identity 273,364, interning 370,470.
+The caller has 198 CFG blocks and two required storage solves with 271 transfers each. There are 6,219 indexed
+nodes across indices, 612 evidence scopes and 13,032 proof queries. Witness refinement performs 856 computations,
 usually over five claims, with 3,330 guarded-clause proof queries. Join publication adds 344 clauses, down from
-1,208 before complement normalization. Refinement costs 831K and Boolean derivation 537K operations. Stage costs
+1,208 before complement normalization. Refinement costs 826K and Boolean derivation 535K operations. Stage costs
 overlap. Do not sum them. The count target is not met. More lookup tuning alone is insufficient.
 
 ## Current repair contract
@@ -83,9 +83,25 @@ Do not prune unproved claims or skip refinement based only on unchanged carriers
 on exact retained clause keys. Independent guards and captured scopes can expire differently.
 
 The normalization repair is implemented and verified. It adds 26 nonblank production lines and two focused tests.
-Next trace why five retained clauses require 856 refinement computations and 623 Boolean closures. Exact scope
-reuse cannot share truth across distinct ordinary facts. Determine the smallest necessary evidence dependency
-before changing cache scope or skipping refinement. No such semantic contract is closed yet.
+The latest verified batch closes two reconstruction paths found by the index-origin probe. Ordinary proof first runs the same
+unexpanded mixed algorithm and only then the same closure fallback. Retain its direct memo in the exact prepared
+scope, with separate raw trusted/ordinary children. Ownership's ordinary-only exclusion uses the raw ordinary
+child, never closure truth or qualified facts. Preserve query order, scope roles and original budget costs.
+Equality extraction retains the same ordered inputs, bounded alias solving and expiring-expression preference.
+Cache its immutable result by exact ordinary scope plus expiring expression. Reuse that scope's ordinary closure
+instead of constructing a new one. Current and captured-entry scopes remain separate. Replace available-cache
+callers in flow, invalidation, completion, requirements and loop analysis. Standalone callers keep the same solver.
+No dependency slicing, changed proof rules or new authority publication. Existing direct-vs-cached budget controls
+plus equality scope/expiry controls cover the owning APIs. Run fixed five, loop source/import controls and frozen30.
+The batch adds 29 nonblank production lines and 46 test lines. One memo field replaces the old raw field, one equality result map, one direct proof entry point and
+one shared equality solver. The direct-vs-uncached budget checks and equality scope/expiry controls pass.
+
+Remaining refinement computations: 394 private deferred-entry, 328 public and 134 join-local. Private costs 469K,
+public 257K and join-local 99K. Only 12 new witness clauses result. This still reconstructs applicability from global
+scope facts even though the carrier and entry own retained evidence. Before further semantic changes, trace how
+admitted entries could retain their actual carrier evidence without reconstructing it from the global union of
+possible obligations. Preserve captured authority, live invalidation, joins, guarded ownership and retirement.
+No new representation contract is closed. Do not share answers across unequal scopes or prune possible obligations.
 
 Temporary counters are removed after bounded verification. Keep one proof-count-current.json and one
 proof-counter.patch. Build without hooks for final goal evidence, not a second rebuild at every checkpoint.

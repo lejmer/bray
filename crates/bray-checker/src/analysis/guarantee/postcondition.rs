@@ -72,7 +72,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
         }
 
         let (equalities, known) = normalized.get_or_init(|| {
-            let equalities = ExecutionCondition::equalities(&state.assumptions, None);
+            let equalities = state.proofs.equalities(&state.assumptions, None);
 
             let known = state.assumptions.iter()
                 .map(|(condition, holds)| (condition.with_equalities(&equalities), *holds))

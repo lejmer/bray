@@ -47,7 +47,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .first()
             .expect("checked indexing has a receiver");
 
-        let equalities = ExecutionCondition::equalities(&state.assumptions, None);
+        let equalities = state.proofs.equalities(&state.assumptions, None);
 
         let assumptions = state
             .assumptions

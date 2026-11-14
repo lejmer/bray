@@ -202,14 +202,23 @@ impl ExecutionCondition {
         assumptions: &BTreeSet<(Self, bool)>,
         expiring: Option<bray_bound_tree::BoundExpressionId>,
     ) -> BTreeMap<Self, Self> {
+        Self::equalities_with(assumptions, expiring, || std::borrow::Cow::Owned(
+            crate::execution_guarantees::trusted_condition_closure(BTreeSet::new(), assumptions)))
+    }
+
+    pub(in crate::execution_guarantees) fn equalities_with<'a>(
+        assumptions: &'a BTreeSet<(Self, bool)>,
+        expiring: Option<bray_bound_tree::BoundExpressionId>,
+        derive: impl FnOnce() -> std::borrow::Cow<'a, BTreeSet<(Self, bool)>>,
+    ) -> BTreeMap<Self, Self> {
         let mut replacements = BTreeMap::new();
         let mut budget = Self::WORK_LIMIT;
 
         let derived = assumptions.iter().any(|(condition, _)| matches!(condition, Self::Operation(
             BoundOperator::LogicalAnd | BoundOperator::LogicalOr | BoundOperator::LogicalNot, _)) && condition.contains_equivalence())
-            .then(|| crate::execution_guarantees::trusted_condition_closure(BTreeSet::new(), assumptions));
+            .then(derive);
 
-        for (condition, value) in assumptions.iter().chain(derived.iter().flatten()
+        for (condition, value) in assumptions.iter().chain(derived.iter().flat_map(|facts| facts.iter())
             .filter(|(condition, _)| matches!(condition, Self::ValueAlias(_, _)
                 | Self::Operation(BoundOperator::Equal | BoundOperator::NotEqual, _)))).take(Self::WORK_LIMIT) {
             let (left, right) = match condition {

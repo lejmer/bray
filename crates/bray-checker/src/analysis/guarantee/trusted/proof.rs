@@ -49,7 +49,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return false;
         };
 
-        let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
+        let equalities = self.proofs.equalities(&entry.assumptions, None);
         let count = self.value(state, count).with_equalities(&equalities);
 
         matches!(count, ExecutionCondition::Literal(value)
@@ -122,7 +122,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return Ok(());
         }
 
-        let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
+        let equalities = self.proofs.equalities(&entry.assumptions, None);
 
         let normalize = |conditions: &BTreeSet<(ExecutionCondition, bool)>| {
             entry

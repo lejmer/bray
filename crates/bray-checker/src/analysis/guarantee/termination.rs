@@ -28,7 +28,7 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
 
             let ends = ends
                 .into_iter()
-                .map(|end| (end, ExecutionCondition::equalities(&end.assumptions, None)))
+                .map(|end| (end, end.proofs.equalities(&end.assumptions, None)))
                 .collect::<Vec<_>>();
 
             initial.current.keys().find_map(|place| {
@@ -163,7 +163,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
                     return false;
                 };
 
-                let equalities = ExecutionCondition::equalities(&state.assumptions, None);
+                let equalities = state.proofs.equalities(&state.assumptions, None);
 
                 let Some(step) = strict_step(&value, &base, &equalities) else {
                     return false;

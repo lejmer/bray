@@ -1,5 +1,5 @@
 use std::cell::OnceCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::ExecutionCondition;
@@ -84,7 +84,8 @@ struct PreparedFacts {
     index: ConditionIndex,
     trusted: ExecutionAssumptions,
     ordinary: ExecutionAssumptions,
-    raw: ProofMemo,
+    direct: ProofMemo,
+    equalities: Mutex<HashMap<Option<bray_bound_tree::BoundExpressionId>, Arc<BTreeMap<ExecutionCondition, ExecutionCondition>>>>,
     requested: ProofMemo,
     trusted_results: ConditionMemo<Option<bool>>,
     derived: OnceLock<DerivedFacts>,
@@ -93,7 +94,7 @@ struct PreparedFacts {
 impl PreparedFacts {
     fn new(trusted: ExecutionAssumptions, ordinary: ExecutionAssumptions, index: &ConditionIndex) -> Self {
         // One exact snapshot owns all pure query memos and their lazy Boolean closure.
-        Self { witnesses: Mutex::default(), index: index.clone(), trusted, ordinary, raw: ProofMemo::new(index), requested: ProofMemo::new(index), trusted_results: Mutex::new(index.map()), derived: OnceLock::new() }
+        Self { witnesses: Mutex::default(), index: index.clone(), trusted, ordinary, direct: ProofMemo::new(index), equalities: Mutex::default(), requested: ProofMemo::new(index), trusted_results: Mutex::new(index.map()), derived: OnceLock::new() }
     }
 
     fn derived(&self) -> &DerivedFacts {
@@ -139,6 +140,27 @@ impl ExecutionProofCache {
         proof.cache = Some((self, trusted, ordinary));
 
         proof
+    }
+
+    /// Equality bindings belong to this exact ordinary snapshot and expiry preference.
+    pub(crate) fn equalities(
+        &self,
+        ordinary: &ExecutionAssumptions,
+        expiring: Option<bray_bound_tree::BoundExpressionId>,
+    ) -> Arc<BTreeMap<ExecutionCondition, ExecutionCondition>> {
+        let proof = self.ordinary_proof(ordinary);
+        let facts = proof.facts();
+
+        if let Some(result) = facts.equalities.lock().expect("equality cache lock is not poisoned").get(&expiring) {
+            return Arc::clone(result);
+        }
+
+        let result = Arc::new(ExecutionCondition::equalities_with(ordinary, expiring,
+            || std::borrow::Cow::Borrowed(&proof.known().conditions)));
+
+        facts.equalities.lock().expect("equality cache lock is not poisoned").insert(expiring, Arc::clone(&result));
+
+        result
     }
 
     pub(crate) fn refined_witness(
@@ -244,7 +266,8 @@ impl<'a> ExecutionProof<'a> {
     /// Owning authority must require trusted evidence under this same ordinary scope.
     pub(crate) fn owns_condition(&self, condition: &ExecutionCondition) -> bool {
         self.prove_trusted(condition) == Some(true)
-            && condition.prove(self.ordinary, &mut { ExecutionCondition::WORK_LIMIT }) != Some(true)
+            && condition.prove_with_memo(self.ordinary, &mut { ExecutionCondition::WORK_LIMIT },
+                Some(&self.facts().direct.single_views()[1])) != Some(true)
     }
 
     pub(crate) fn prove_trusted(&self, condition: &ExecutionCondition) -> Option<bool> {
@@ -256,11 +279,11 @@ impl<'a> ExecutionProof<'a> {
     }
 
     fn prove_trusted_inner(&self, condition: &ExecutionCondition) -> Option<bool> {
-        if let Some(value) = condition.explicit_value(self.trusted, None, self.cache.map(|_| &self.facts().raw)) {
+        if let Some(value) = condition.explicit_value(self.trusted, None, self.cache.map(|_| &self.facts().direct.single_views()[0])) {
             return Some(value);
         }
 
-        if let Some(value) = condition.prove_with_memo(self.trusted, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.facts().raw)) {
+        if let Some(value) = condition.prove_with_memo(self.trusted, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.facts().direct.single_views()[0])) {
             return Some(value);
         }
 
@@ -277,6 +300,12 @@ impl<'a> ExecutionProof<'a> {
         }
 
         memoized(Some(&self.facts().requested.queries), condition, budget, |budget| self.prove_mixed_inner(condition, budget))
+    }
+
+    /// Evaluate the original inputs without Boolean closure or alternative inference.
+    pub(super) fn prove_direct(&self, condition: &ExecutionCondition, budget: &mut usize) -> Option<bool> {
+        condition.prove_mixed_with_implications(self.trusted, self.ordinary, budget, None,
+            self.cache.map(|_| &self.facts().direct))
     }
 
     fn prove_mixed_inner(&self, condition: &ExecutionCondition, budget: &mut usize) -> Option<bool> {
@@ -387,6 +416,49 @@ mod tests {
 
     use super::{ExecutionCondition, ExecutionProofCache};
     use crate::ExecutionPlace;
+
+    #[test]
+    fn equality_results_retain_exact_ordinary_scope_and_expiry_preference() {
+        let (_, expressions) = crate::test_support::expression_unit(bray_bound_tree::BoundUnitId::new(0), |tree, origin| {
+            (0..2).map(|_| crate::test_support::push_expression(tree,
+                crate::test_support::integer_literal_expression(origin, None))).collect()
+        });
+
+        let left = ExecutionCondition::Expression(expressions[0]);
+        let right = ExecutionCondition::Expression(expressions[1]);
+        let guard = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let alias = ExecutionCondition::value_alias(left.clone(), right.clone());
+
+        let clause = ExecutionCondition::operation(LogicalOr, vec![
+            ExecutionCondition::operation(LogicalNot, vec![guard.clone()]), alias,
+        ]);
+
+        let cache = ExecutionProofCache::default();
+        let mut ordinary = super::ExecutionAssumptions::from([(clause, true)]);
+        let inactive = cache.equalities(&ordinary, None);
+
+        assert!(inactive.is_empty());
+        guard.assume(true, &mut ordinary);
+
+        let active = cache.equalities(&ordinary, None);
+        let expiring = cache.equalities(&ordinary, Some(expressions[0]));
+
+        assert_eq!(right.with_equalities(&active), left);
+        assert_eq!(left.with_equalities(&expiring), right);
+        assert!(inactive.is_empty(), "later evidence cannot mutate an earlier result");
+
+        for expiry in [None, Some(expressions[0]), Some(expressions[1])] {
+            let expected = ExecutionCondition::equalities(&ordinary, expiry);
+            let actual = cache.equalities(&ordinary, expiry);
+            let copied = ordinary.iter().cloned().collect();
+
+            assert_eq!(*actual, expected);
+            assert!(Arc::ptr_eq(&actual, &cache.equalities(&copied, expiry)));
+        }
+
+        ordinary.retain(|(condition, _)| matches!(condition, ExecutionCondition::Operation(LogicalOr, _)));
+        assert!(cache.equalities(&ordinary, None).is_empty(), "removed guard truth cannot reuse active bindings");
+    }
 
     #[test]
     fn analysis_preparation_reuses_exact_inputs_without_reusing_changed_authority() {
@@ -507,6 +579,23 @@ mod tests {
                     "cached and uncached inference differ at budget{incoming}, goal={goal:?}");
 
                 assert_eq!(actual_budget, expected_budget, "semantic work cost differs at budget{incoming}");
+            }
+        }
+
+        let direct = cache.ordinary_proof(&ordinary);
+
+        for goal in [guard.clone(), clause.clone(), claim.clone(),
+            ExecutionCondition::operation(Less, vec![input(11), input(13)])]
+        {
+            for incoming in (0..=ExecutionCondition::WORK_LIMIT).chain([1, 2, ExecutionCondition::WORK_LIMIT]) {
+                let mut expected_budget = incoming;
+                let mut actual_budget = incoming;
+
+                let expected = goal.prove_mixed_with_implications(&BTreeSet::new(), &ordinary,
+                    &mut expected_budget, None, None);
+
+                assert_eq!(direct.prove_direct(&goal, &mut actual_budget), expected);
+                assert_eq!(actual_budget, expected_budget, "direct ordinary inference retains its original cost");
             }
         }
 

@@ -10,12 +10,10 @@ impl ExecutionCondition {
     pub(crate) fn prove_ordinary(&self, ordinary: &ExecutionAssumptions, cache: Option<&ExecutionProofCache>) -> Option<bool> {
         let trusted = BTreeSet::new();
 
-        self.prove_mixed_with_implications(&trusted, ordinary, &mut { Self::WORK_LIMIT }, None, None)
-            .or_else(|| {
-                let proof = cache.map_or_else(|| ExecutionProof::new(&trusted, ordinary), |cache| cache.ordinary_proof(ordinary));
+        let proof = cache.map_or_else(|| ExecutionProof::new(&trusted, ordinary), |cache| cache.ordinary_proof(ordinary));
 
-                proof.prove_mixed(self, &mut { Self::WORK_LIMIT })
-            })
+        proof.prove_direct(self, &mut { Self::WORK_LIMIT })
+            .or_else(|| proof.prove_mixed(self, &mut { Self::WORK_LIMIT }))
     }
 
     pub(crate) fn prove_trusted(
