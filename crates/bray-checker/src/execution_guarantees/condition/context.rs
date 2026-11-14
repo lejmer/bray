@@ -100,7 +100,7 @@ impl PreparedFacts {
 /// Analysis-local preparation, reusable only for two exactly equal immutable evidence sets.
 #[derive(Default)]
 pub(crate) struct ExecutionProofCache {
-    conditions: ConditionIndex,
+    pub(crate) conditions: ConditionIndex,
     facts: Mutex<HashMap<u64, Vec<Arc<PreparedFacts>>>>,
 }
 

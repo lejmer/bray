@@ -15,15 +15,14 @@ pub(super) struct RewriteMemo {
     pub(super) owners: ExecutionMemo<ExecutionCondition>,
 }
 
-impl Default for RewriteMemo {
-    fn default() -> Self {
-        let index = ConditionIndex::default();
-
-        Self { values: ExecutionMemo::new(&index), owners: ExecutionMemo::new(&index) }
+impl RewriteMemo {
+    fn new(index: &ConditionIndex) -> Self {
+        Self { values: ExecutionMemo::new(index), owners: ExecutionMemo::new(index) }
     }
 }
 
 /// Reuse pure bounded rewriting across one forest and one immutable pair of maps.
+/// Structural identity can be shared with the body, while results stay within these maps.
 pub(crate) struct ExecutionSubstitution<'a> {
     values: &'a BTreeMap<ExecutionCondition, ExecutionCondition>,
     owners: &'a BTreeMap<ExecutionCondition, ExecutionCondition>,
@@ -32,12 +31,12 @@ pub(crate) struct ExecutionSubstitution<'a> {
 }
 
 impl<'a> ExecutionSubstitution<'a> {
-    pub(crate) fn new(values: &'a BTreeMap<ExecutionCondition, ExecutionCondition>, owners: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
+    pub(crate) fn new(values: &'a BTreeMap<ExecutionCondition, ExecutionCondition>, owners: &'a BTreeMap<ExecutionCondition, ExecutionCondition>, index: &ConditionIndex) -> Self {
         Self {
             values,
             owners,
             changed: ExecutionCondition::has_value_changes(values) || ExecutionCondition::has_value_changes(owners),
-            mapped: RewriteMemo::default(),
+            mapped: RewriteMemo::new(index),
         }
     }
 
@@ -66,8 +65,8 @@ pub(crate) struct SnapshotSubstitution<'a> {
 }
 
 impl<'a> SnapshotSubstitution<'a> {
-    pub(crate) fn new(snapshots: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
-        Self { snapshots, changed: ExecutionCondition::has_value_changes(snapshots), mapped: ExecutionMemo::default() }
+    pub(crate) fn new(snapshots: &'a BTreeMap<ExecutionCondition, ExecutionCondition>, index: &ConditionIndex) -> Self {
+        Self { snapshots, changed: ExecutionCondition::has_value_changes(snapshots), mapped: ExecutionMemo::new(index) }
     }
 
     pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
@@ -126,7 +125,8 @@ mod tests {
         let owner = input(0);
         let inserted = ExecutionCondition::Borrowed(Arc::new(owner.clone()));
         let snapshots = BTreeMap::from([(owner.clone(), inserted.clone())]);
-        let scope = super::SnapshotSubstitution::new(&snapshots);
+        let index = Default::default();
+        let scope = super::SnapshotSubstitution::new(&snapshots, &index);
         let captured = ExecutionCondition::Entry { condition: Arc::new(owner.clone()), captured: true };
 
         let mut condition = ExecutionCondition::Operation(LogicalOr,
@@ -154,7 +154,7 @@ mod tests {
         }
 
         let changed = BTreeMap::from([(owner.clone(), input(1))]);
-        let other = super::SnapshotSubstitution::new(&changed);
+        let other = super::SnapshotSubstitution::new(&changed, &index);
 
         assert_eq!(other.apply(&owner), input(1));
         assert_eq!(scope.apply(&owner), inserted, "another map cannot replace this scope's answers");
@@ -206,7 +206,8 @@ mod tests {
         let input = |index| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(index)));
         let values = BTreeMap::from([(input(0), input(4))]);
         let owners = BTreeMap::from([(input(0), input(2))]);
-        let substitution = ExecutionSubstitution::new(&values, &owners);
+        let index = Default::default();
+        let substitution = ExecutionSubstitution::new(&values, &owners, &index);
         let claim = ExecutionCondition::Trusted(Arc::new(input(0)));
 
         assert_eq!(substitution.value(&input(0)), input(4));
@@ -224,7 +225,7 @@ mod tests {
         assert!(Arc::ptr_eq(first, second), "the same root is rewritten once within its forest");
 
         let other_values = BTreeMap::from([(input(0), input(5))]);
-        let other = ExecutionSubstitution::new(&other_values, &owners);
+        let other = ExecutionSubstitution::new(&other_values, &owners, &index);
 
         assert_eq!(other.value(&input(0)), input(5));
         assert_eq!(other.owner(&input(0)), input(2));

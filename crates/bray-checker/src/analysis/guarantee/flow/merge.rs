@@ -364,8 +364,8 @@ fn join_observations<'a>(
             joined_facts.extend(common_join_conditions(target, incoming, &joined_values));
         }
 
-        let left_substitution = ExecutionSubstitution::new(&left, &left_identities);
-        let right_substitution = ExecutionSubstitution::new(&right, &right_identities);
+        let left_substitution = ExecutionSubstitution::new(&left, &left_identities, &target.proofs.conditions);
+        let right_substitution = ExecutionSubstitution::new(&right, &right_identities, &incoming.proofs.conditions);
 
         let conditional = super::witnesses::conditional_facts(
             (target, &left_substitution),
@@ -425,7 +425,7 @@ fn join_current_value(
 ) -> CurrentValue {
     let result = || join.block().map(|block| {
         if let Some((_, owner)) = super::joins::common_current_owner(left.1, right.1) {
-            let shared = owner.with_snapshots(contents);
+            let shared = owner.with_snapshots(contents, &left.0.proofs.conditions);
 
             if shared != owner { return shared; }
         }

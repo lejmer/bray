@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use hashbrown::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
-use super::{ExecutionCondition, storage_key::StorageKey};
+use super::{ExecutionCondition, storage_key::{StorageKey, StorageLookup}};
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(in crate::execution_guarantees) struct ConditionId(usize);
@@ -25,9 +25,7 @@ struct Conditions {
 
 impl Conditions {
     fn intern(&mut self, condition: &ExecutionCondition) -> ConditionId {
-        let key = StorageKey::from(condition);
-
-        if let Some(value) = self.storage.get(&key) { return *value; }
+        if let Some(value) = self.storage.get(&StorageLookup(condition)) { return *value; }
 
         let mut hash = std::hash::DefaultHasher::new();
         let mut children = Vec::new();
@@ -60,7 +58,7 @@ impl Conditions {
             id
         });
 
-        self.storage.insert(key, id);
+        self.storage.insert(StorageKey::from(condition), id);
 
         id
     }
@@ -68,7 +66,7 @@ impl Conditions {
 
 /// One analysis shares structural identity independently of evidence scopes.
 #[derive(Clone, Default)]
-pub(in crate::execution_guarantees) struct ConditionIndex(Arc<Mutex<Conditions>>);
+pub(crate) struct ConditionIndex(Arc<Mutex<Conditions>>);
 
 impl ConditionIndex {
     pub(in crate::execution_guarantees) fn intern(&self, condition: &ExecutionCondition) -> ConditionId {

@@ -22,7 +22,7 @@ fn nonidentity_rewrites_keep_unchanged_structure_and_selected_subtrees_shared() 
     let ExecutionCondition::Operation(_, operands) = &choice else { unreachable!(); };
 
     for unchanged in [
-        choice.with_snapshots(&unrelated),
+        choice.with_snapshots(&unrelated, &Default::default()),
         choice.with_copy_origins(&unrelated),
         guard_facts(&unrelated).apply(&choice),
         choice.with_equalities(&unrelated),
@@ -43,7 +43,7 @@ fn nonidentity_rewrites_keep_unchanged_structure_and_selected_subtrees_shared() 
     let ExecutionCondition::Trusted(original) = &claim else { unreachable!(); };
 
     for rewritten in [
-        choice.with_snapshots(&selected),
+        choice.with_snapshots(&selected, &Default::default()),
         choice.with_copy_origins(&selected),
         guard_facts(&selected).apply(&choice),
         choice.with_equalities(&selected),
@@ -118,7 +118,7 @@ fn identity_substitutions_preserve_the_existing_shared_value_and_qualifiers() {
 
     for replacements in [BTreeMap::new(), BTreeMap::from([(unrelated.clone(), unrelated)])] {
         for unchanged in [
-            value.with_snapshots(&replacements),
+            value.with_snapshots(&replacements, &Default::default()),
             value.with_copy_origins(&replacements),
             guard_facts(&replacements).apply(&value),
             value.with_equalities(&replacements),
@@ -171,10 +171,10 @@ fn snapshot_substitution_keeps_one_current_component_overlay() {
     let joined = ExecutionCondition::constructed(input(0), [(field(0), ExecutionCondition::Boolean(true)), (field(1), input(2))].into());
     let snapshots = BTreeMap::from([(input(0), source.clone()), (input(2), input(1))]);
 
-    assert_eq!(joined.with_snapshots(&snapshots), source,
+    assert_eq!(joined.with_snapshots(&snapshots, &Default::default()), source,
         "a predecessor snapshot replaces the current overlay without retaining nested copies");
 
-    assert_eq!(joined.borrowed().with_snapshots(&snapshots), source.clone().borrowed());
+    assert_eq!(joined.borrowed().with_snapshots(&snapshots, &Default::default()), source.clone().borrowed());
 
     let changed = ExecutionCondition::constructed(source.clone(), [(field(1), ExecutionCondition::Boolean(false))].into());
 
@@ -696,7 +696,7 @@ fn structural_rewrites_preserve_initialized_nullable_contents() {
 
     let values = [(input(1), input(2))].into();
 
-    assert_eq!(captured.with_snapshots(&Default::default()), captured);
+    assert_eq!(captured.with_snapshots(&Default::default(), &Default::default()), captured);
     assert_eq!(captured.with_joined_values(&Default::default(), &Default::default()), captured);
     assert_eq!(captured.with_joined_values(&values, &values), moved);
 
@@ -1240,14 +1240,14 @@ fn predecessor_snapshots_do_not_expand_their_surviving_owner_recursively() {
 
     let snapshots = [(owner.clone(), snapshot.clone())].into();
 
-    assert_eq!(owner.clone().with_snapshots(&snapshots), snapshot);
+    assert_eq!(owner.clone().with_snapshots(&snapshots, &Default::default()), snapshot);
 
     assert_eq!(
-        owner.component(first).with_snapshots(&snapshots),
+        owner.component(first).with_snapshots(&snapshots, &Default::default()),
         ExecutionCondition::Boolean(true)
     );
 
-    assert_eq!(unchanged.with_snapshots(&snapshots), unchanged);
+    assert_eq!(unchanged.with_snapshots(&snapshots, &Default::default()), unchanged);
 }
 
 #[test]

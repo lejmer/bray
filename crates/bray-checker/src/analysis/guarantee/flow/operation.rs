@@ -688,7 +688,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             super::merge::result_replacements(&source, &target,
                 &Default::default(), &Default::default(), &mut values, &mut identities);
 
-            let substitution = ExecutionSubstitution::new(&values, &identities);
+            let substitution = ExecutionSubstitution::new(&values, &identities, &state.proofs.conditions);
 
             state.join_values(&substitution);
 

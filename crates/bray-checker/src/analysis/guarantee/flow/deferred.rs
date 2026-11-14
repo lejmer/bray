@@ -354,7 +354,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
-        let substitution = ExecutionSubstitution::new(&values, &identities);
+        let substitution = ExecutionSubstitution::new(&values, &identities, &state.proofs.conditions);
 
         if let Some(renamed) = entry.joined_values(&substitution) {
             entry = renamed;
@@ -399,7 +399,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     } else {
                         crate::execution_guarantees::owned_snapshot(&value, identity.clone(), &mut {
                             ExecutionCondition::WORK_LIMIT
-                        }).with_snapshots(&[(value.owner_identity().clone(), identity)].into())
+                        }).with_snapshots(&[(value.owner_identity().clone(), identity)].into(), &state.proofs.conditions)
                     }
                 });
 
@@ -410,7 +410,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ).assume(true, &mut entry.assumptions);
             } else {
                 let snapshots = [(value.clone(), captured.clone())].into();
-                let substitution = crate::execution_guarantees::SnapshotSubstitution::new(&snapshots);
+                let substitution = crate::execution_guarantees::SnapshotSubstitution::new(&snapshots, &state.proofs.conditions);
 
                 for argument in entry.arguments.values_mut() {
                     *argument = substitution.apply(argument);
@@ -422,7 +422,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             entry.arguments.insert(place, captured);
         }
 
-        let captured = entry.captured_facts(&entry.assumptions);
+        let captured = entry.captured_facts(&entry.assumptions, &state.proofs.conditions);
 
         state.assumptions.extend(captured.iter().cloned());
         entry.assumptions.extend(captured);

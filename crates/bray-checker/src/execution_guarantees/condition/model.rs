@@ -313,7 +313,6 @@ impl ExecutionCondition {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-use std::cmp::Ordering;
     use std::sync::Arc;
 
     use bray_bound_tree::BoundOperator::LogicalOr;

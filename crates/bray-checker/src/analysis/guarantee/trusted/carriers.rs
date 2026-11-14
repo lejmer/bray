@@ -545,7 +545,7 @@ impl ExecutionState {
             assumptions.extend(self.assumptions.iter().cloned());
             assumptions.extend(candidate.selection.iter().cloned());
 
-            let captured = entry.captured_facts(&assumptions);
+            let captured = entry.captured_facts(&assumptions, &self.proofs.conditions);
 
             assumptions.extend(captured.iter().cloned());
 
