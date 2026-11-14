@@ -64,8 +64,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &ExecutionCondition::unknown(), &mut { ExecutionCondition::WORK_LIMIT })
                     .prove_ordinary(assumptions, Some(&self.proofs)) != Some(false)))
             .map(|(transfer, _)| transfer)
-            .filter(|transfer| !self.returned_value_is_borrowed(dependencies,
-                &crate::storage::owned_storage_projections(self.dependencies, transfer.output())))
+            .filter(|transfer| !dependencies.returned_value(transfer).is_borrowed())
             .filter_map(|transfer| {
                 let decoded = crate::execution_condition_from_type_term(
                     self.request.semantic_values(), transfer.input(), dependencies.input_count(),
@@ -84,17 +83,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 value.ownership_identity().is_some_and(|(role, _)|
                     role == crate::execution_guarantees::ExecutionObservationKind::Owned).then_some(value)
             }).collect()
-    }
-
-    fn returned_value_is_borrowed(
-        &self,
-        dependencies: &bray_bound_tree::BoundCallDependencyContracts,
-        path: &[StorageProjection],
-    ) -> bool {
-        crate::storage::dependency_projections(path)
-            .and_then(|path| dependencies.reference_type(&DependencySubject::new(
-                DependencySubjectRoot::Result, path)))
-            .is_some_and(|ty| matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }))
     }
 
     pub(in crate::analysis::guarantee) fn returned_owned_values<'a>(
@@ -133,7 +121,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let path = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
-            let borrowed_result = self.returned_value_is_borrowed(dependencies, &path);
+            let borrowed_result = dependencies.returned_value(transfer).is_borrowed();
 
             // A checked ownership transfer can extract the value from a borrowed
             // slot. Returning a borrow instead retains its original loan identity.
@@ -539,8 +527,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let ownership = input.value_in(arguments)
                     .map(|value| {
-                        let extraction = value.is_reference() && !self.returned_value_is_borrowed(
-                            dependencies, &crate::storage::owned_storage_projections(self.dependencies, transfer.output()));
+                        let extraction = value.is_reference() && !dependencies.returned_value(transfer).is_borrowed();
 
                         let value = value.into_referent();
 

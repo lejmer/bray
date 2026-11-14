@@ -950,6 +950,111 @@ fn conditional_payloads_preserve_only_the_selected_owner() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+#[test]
+fn generic_borrowed_fields_observe_current_referents() {
+    let provider = compilation_from_sources([API, "module app;"]);
+    let mut failures = Vec::new();
+
+    for (transport, projection, asynchronous, await_call, nullable) in [
+        ("tuple", ".1", "", "", false),
+        ("array", "[0]", "", "", false),
+        ("deferred_tuple", ".1", "async ", "await ", false),
+        ("tuple", ".1", "", "", true),
+        ("array", "[0]", "", "", true),
+        ("deferred_tuple", ".1", "async ", "await ", true),
+    ] {
+        let argument = if nullable { "((&core.atomic.Atomic<u32>)?)" } else { "(&core.atomic.Atomic<u32>)" };
+
+        let observation = if nullable { format!(r#"match result{projection}
+                    {{
+                        case ?value
+                        {{
+                            inspect(value);
+                        }}
+                        case none
+                        {{
+                        }}
+                    }}"#) } else { format!("inspect(result{projection});") };
+
+        for (replace, mutation, valid) in [
+            (false, "", true),
+            (false, "core.atomic.store<u32, 0>(&word, 1);", false),
+            (true, "core.atomic.store<u32, 0>(&word, 1);", true),
+            (true, "core.atomic.store<u32, 0>(&other, 1);", false),
+        ] {
+            let replacement = if replace {
+                format!("result = {await_call}api.{transport}<{argument}>(&other);")
+            } else {
+                String::new()
+            };
+
+            let source = format!(r#"
+                trusted module app;
+
+                using api;
+                using core.atomic;
+
+                trusted predicate live(value: &core.atomic.Atomic<u32>);
+
+                trusted func make() -> core.atomic.Atomic<u32>
+                    ensures(trusted live(&result))
+                {{
+                    return core.atomic.initialize<u32>(0);
+                }}
+
+                func inspect(pos value: &core.atomic.Atomic<u32>)
+                    requires(trusted live(value))
+                    executes(pure, total)
+                {{
+                }}
+
+                {asynchronous}func caller()
+                {{
+                    let word = make();
+                    let other = make();
+                    let mut result = {await_call}api.{transport}<{argument}>(&word);
+                    {replacement}
+                    {observation}
+                    {mutation}
+                    {observation}
+                }}
+            "#);
+
+            for imported in [false, true] {
+                let consumer = if imported {
+                    execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                        .replace("api.", "example.package.api."))
+                } else {
+                    crate::test_support::with_fixture_caller(&provider, &source)
+                };
+
+                let checked = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, "caller"))
+                    .expect("borrowed transport caller reaches lowering");
+
+                let diagnostics = checked.diagnostics();
+                let expected = if nullable { "inspect(value)".into() } else { format!("inspect(result{projection})") };
+
+                let correct = !diagnostics.has_errors() == valid && diagnostics.iter().all(|diagnostic| {
+                    let span = diagnostic.primary_span().expect("rejected observation retains its source");
+                    let document = consumer.source(span.source_id()).expect("diagnostic belongs to the consumer");
+                    let boundary = document.text().rfind(&expected).expect("fixture retains its final observation");
+
+                    diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
+                        && usize::try_from(span.start().bytes()).expect("fixture offset fits host") >= boundary
+                        && usize::try_from(span.end().bytes()).expect("fixture offset fits host") <= boundary + expected.len()
+                });
+
+                if !correct {
+                    failures.push(format!("{transport}, nullable={nullable}, replace={replace}, mutation={mutation}, imported={imported}: {}",
+                        super::fixtures::diagnostic_messages(diagnostics)));
+                }
+            }
+        }
+    }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 fn owned_cases() -> Vec<(String, String, bool)> {
     let cases = [
         (

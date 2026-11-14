@@ -1097,7 +1097,10 @@ mod nested_guard_tests {
             left.carry_guarantee(present.clone(), claim.clone());
             claim.assume(true, &mut left.trusted_assumptions);
 
-            let joined = merge_returned(&mut left, &ExecutionState::default(), &present, &absent,
+            let inactive = ExecutionCondition::constructed(absent.clone(),
+                [(StorageProjection::NullableValue, ExecutionCondition::unknown())].into());
+
+            let joined = merge_returned(&mut left, &ExecutionState::default(), &present, &inactive,
                 &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0])), expressions[0]);
 
             let required = held(joined.clone());
@@ -1124,6 +1127,11 @@ mod nested_guard_tests {
         };
 
         let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+
+        let empty = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            error_type(), bray_symbols::ConstantValueKind::Union { variant: inactive, fields: [].into() },
+        ))));
+
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
 
@@ -1143,14 +1151,14 @@ mod nested_guard_tests {
         let alternatives = if nullable_outer { [
             ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(active, Arc::new(input(1)))),
                 [(field, input(0))].into()).present(),
-            ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(inactive, Arc::new(input(2)))).present(),
+            empty.clone().present(),
             absent.clone(),
         ] } else { [
             ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(active, Arc::new(input(1)))),
                 [(field, input(0).present())].into()),
             ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(active, Arc::new(input(1)))),
                 [(field, absent.clone())].into()),
-            ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(inactive, Arc::new(input(2)))),
+            empty.clone(),
         ] };
 
         for (order, valid, same_region) in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]

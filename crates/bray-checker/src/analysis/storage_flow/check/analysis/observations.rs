@@ -24,11 +24,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         for transfer in contracts.owned_result().guaranteed_transfers() {
-            let output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+            let original = contracts.owned_result().transfers()
+                .find(|original| original.same_identity(&transfer))
+                .expect("guaranteed return retains an original value route");
 
-            if crate::storage::dependency_projections(&output)
-                .and_then(|path| contracts.reference_type(&bray_symbols::DependencySubject::new(bray_symbols::DependencySubjectRoot::Result, path)))
-                .is_some_and(|ty| matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })) {
+            if contracts.returned_value(original).is_borrowed() {
                 continue;
             }
 
@@ -856,6 +856,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             observations.insert(observed, target.clone());
+        }
+
+        if let Some(result) = self.invocation_result(occurrence) {
+            for (path, kind) in self.input.footprint.observations(&result) {
+                let bray_bound_tree::StorageObservationKind::Reference(ty) = kind else { continue; };
+
+                if crate::representation::reference_kind(self.request, ty)
+                    != Some(bray_symbols::DependencyReferenceKind::Borrow)
+                    || state.definitely_absent.iter().any(|(absent, reason)| {
+                        *reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload && absent.contains(path)
+                    }) { continue; }
+
+                let Some(targets) = state.memory.value_targets(&Target::storage(path.clone())) else { continue; };
+
+                if let [target] = targets.as_slice() {
+                    observations.insert(path.clone(), target.clone());
+                }
+            }
         }
 
         let completion = bray_bound_tree::StorageCompletion::new(

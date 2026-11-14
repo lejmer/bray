@@ -6,7 +6,41 @@ This is the single current task record and computation model. Replace superseded
 Current user priority: finish contracts and guarantees with zero failures before more graph optimization.
 Keep the performance/scaling controls and full 10k/500ms objective intact, but resolve known compiler gaps first.
 Group failures by violated transition, freeze expectations and intended rejection sites, then repair coherent
-causes and stop on unexplained regressions. Finish the current checkpoint, then start RawBuffer invalid acceptance.
+causes and stop on unexplained regressions. Performance checkpoint 0e5ff9bf1 is pushed.
+
+## Active correctness contract
+
+Current-reference repair prepares actual output borrow classification once in BoundReturnedValue. Storage flow
+stages descriptors only under the preservation mask common to every alternative, before input consumption and
+opaque result seeding. Adaptation prefixes are projected in formal coordinates and stripped for physical staging.
+Completion publishes exact current referents through the existing footprint, never historical contents or an
+unconditional relation for a possible transfer. No parallel graph or new type was added.
+
+The shared fixture passes all 48 direct/adapted tuple/array/deferred routes in source/import, including replacement,
+pre-mutation observation and rejection only at the final observation after atomic mutation. All 556 checker tests
+pass. Frozen30 is unchanged at 29 pass and the RawBuffer invalid acceptance, 11.67 s. Fixed five pass at 129-155 ms,
+including 155 ms for the loop. No full matrices ran. Style has the same six existing errors. Format/diff checks pass.
+Production probes are absent. The test-only export print hook was removed after this run.
+
+Current shape queries replace partial tag/absence matching in collect_observations. A captured cleanup-wrapped
+Constructed(none, ...) previously produced no guards. Known absence now retains its typed literal, sharing the
+current tag traversal with known_presence/known_variant. Enclosing activation, both polarities, authoritative
+empty layouts and unknown-tag conservatism remain. Shape never establishes an owner or trusted fact.
+Existing nullable/nested predecessor-order unit tests now cover wrapped absence and literal empty unions.
+The source/import nullable_both control now passes. Nested_real and optional_real still fail in both modes.
+Published select_variant/select_nested layouts still contain an unguarded empty choice, while select_optional
+has only take/!take guards and no empty-result guard. Next locate the first loss from snapshot guard proof to
+portable return publication. Do not change root_layout blindly: it drops guards on discarded child mappings
+intentionally, and preserving every empty guard could constrain an unrelated complete owner.
+
+RawBuffer remains a separate invalid acceptance. Push/Pop omit stored-value transport. Exit publication drops
+allocation/owned-target slots. Mutation effects carry destination/type but no source and describe possible events,
+not final contents. Existing capture/weak-write/normal-completion machinery is the owner of the repair. Generic T
+needs whole-value source provenance in that graph and final normal-output relations anchored at mutable inputs or
+returned allocation backing. Exact ownership transfer and fabricated borrow relations are wrong substitutes.
+Close that representation before editing. Multiple/conditional stores retain all possible payloads, scalar storage
+stays independent, and pop/overwrite/retirement remove only proven obsolete contents. Resolve caller sources from
+captured actual values and replay only normal completion. No global input escape workaround.
 
 ## Acceptance contract
 
@@ -266,8 +300,7 @@ regression result plus one probe patch. Remove hooks and stale raw outputs after
 hooks for final goal evidence, not every checkpoint. Retain the checker-only non-incremental override. Never
 clean shared Cargo storage. Do not run full matrices under the current scope.
 
-BRA-567 still needs generic borrowed-field completion mappings, inactive conditional result shapes and RawBuffer
-payload dependencies. Keep d302124's deferred-admission control. Then finish maintainability, owned/deferred
+BRA-567 still needs the remaining conditional result shapes and RawBuffer payload dependencies. Keep d302124's deferred-admission control. Then finish maintainability, owned/deferred
 matrices, frozen30, fixed920 and source/native gates. Verify root/main authority, cleanup before terminal
 publication, normal/panic/cancellation, rollback once, services through static disposal, synchronous control and
 native archive/link removal of Rust orchestration. Independent draft-PR review precedes ready/In Review. Close

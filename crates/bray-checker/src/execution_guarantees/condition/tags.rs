@@ -46,28 +46,39 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn known_presence(&self) -> Option<bool> {
-        match self.kind() {
-            K::Observation { contents, .. } | K::Borrowed(contents)
-            | K::Constructed(contents, _) | K::Discriminant(contents) => contents.known_presence(),
+        match self.tag_source().kind() {
             K::Present(_) => Some(true),
             K::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) => Some(false),
             _ => None,
         }
     }
 
+    pub(crate) fn known_absence(&self) -> Option<&Arc<bray_symbols::ConstantValueData>> {
+        match self.tag_source().kind() {
+            K::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) => Some(value),
+            _ => None,
+        }
+    }
+
     pub(crate) fn known_variant(&self) -> Option<bray_symbols::UnionVariantSymbolId> {
+        match self.tag_source().kind() {
+            K::Tagged(variant, _) => Some(*variant),
+            K::Literal(literal) => match literal.kind() {
+                bray_symbols::ConstantValueKind::Union { variant, .. } => Some(*variant),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn tag_source(&self) -> &Self {
         let mut value = self;
 
         loop {
             match value.kind() {
-                K::Tagged(variant, _) => return Some(*variant),
                 K::Constructed(base, _) | K::Discriminant(base) => value = base,
                 K::Observation { contents, .. } | K::Borrowed(contents) => value = contents,
-                K::Literal(literal) => return match literal.kind() {
-                    bray_symbols::ConstantValueKind::Union { variant, .. } => Some(*variant),
-                    _ => None,
-                },
-                _ => return None,
+                _ => return value,
             }
         }
     }

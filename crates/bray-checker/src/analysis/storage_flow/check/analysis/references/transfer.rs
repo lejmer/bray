@@ -737,11 +737,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        self.prepare_result_references(state, occurrence);
-
         if let Some(destination) = self.invocation_result(occurrence) {
-            self.prepare_returned_frames(state, occurrence, contracts, &destination);
+            self.prepare_returned_values(state, occurrence, contracts, &destination);
         }
+
+        self.prepare_result_references(state, occurrence);
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn stage_independent_reference(
