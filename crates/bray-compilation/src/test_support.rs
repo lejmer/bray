@@ -934,27 +934,21 @@ pub(crate) fn production_standard_library_compilation(
     production_fixture(&FIXTURES, caller, target, build_production_standard_library)
 }
 
-fn build_production_standard_library(caller: &str, target: crate::SelectedTarget) -> Compilation {
-    let root =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../standard-library/std/src");
-
-    let mut pending = vec![root];
+/// Loads all Bray sources beneath the selected production roots in stable path order.
+pub(crate) fn production_source_inputs(roots: &[&str], caller: &str) -> Vec<SourceInput> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut pending = roots.iter().map(|path| root.join(path)).collect::<Vec<_>>();
     let mut paths = Vec::new();
 
-    while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(directory).expect("standard-library source directory exists")
-        {
-            let entry = entry.expect("standard-library source entry is readable");
-            let path = entry.path();
+    while let Some(path) = pending.pop() {
+        let metadata = path.metadata().expect("production source path exists");
 
-            if entry.file_type().expect("source entry has a type").is_dir() {
-                pending.push(path);
-            } else if path
-                .extension()
-                .is_some_and(|extension| extension == "bray")
-            {
-                paths.push(path);
-            }
+        if metadata.is_dir() {
+            pending.extend(std::fs::read_dir(path)
+                .expect("production source directory is readable")
+                .map(|entry| entry.expect("production source entry is readable").path()));
+        } else if path.extension().is_some_and(|extension| extension == "bray") {
+            paths.push(path);
         }
     }
 
@@ -976,22 +970,31 @@ fn build_production_standard_library(caller: &str, target: crate::SelectedTarget
         u32::try_from(paths.len()).expect("source count fits"),
     ));
 
+    sources
+}
+
+/// Supplies native declarations used by the production source fixtures.
+pub(crate) fn production_native_link_inputs(
+    extra: impl IntoIterator<Item = &'static str>,
+) -> impl Iterator<Item = bray_symbols::NativeLinkRequirement> {
+    ["c", "pthread", "dl", "Kernel32"].into_iter().chain(extra).map(|name| {
+        bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new(name).expect("production native library name is nonempty"),
+            if name == "dl" { bray_symbols::NativeLinkKind::Dynamic }
+            else { bray_symbols::NativeLinkKind::System },
+        )
+    })
+}
+
+fn build_production_standard_library(caller: &str, target: crate::SelectedTarget) -> Compilation {
+    let sources = production_source_inputs(&["standard-library/std/src"], caller);
+
     let options = crate::CompilationOptions::new(
         crate::WorkerBudget::serial(),
         bray_symbols::ProductKind::Library,
         target,
     )
-    .with_native_link_inputs(["c", "pthread", "dl", "Kernel32"].map(|name| {
-        bray_symbols::NativeLinkRequirement::new(
-            bray_base::NonEmptySharedStr::try_new(name)
-                .expect("fixture non empty shared str must be valid"),
-            if name == "dl" {
-                bray_symbols::NativeLinkKind::Dynamic
-            } else {
-                bray_symbols::NativeLinkKind::System
-            },
-        )
-    }));
+    .with_native_link_inputs(production_native_link_inputs([]));
 
     Compilation::load(
         CompilationRequest::with_options(

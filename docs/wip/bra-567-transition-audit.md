@@ -6,6 +6,14 @@ Commits and pushes are authorized. Continue after checkpoints. The user has now 
 and deferred source/import matrices for final verification, with bounded execution.
 Current priority: finish BRA-567 correctness, required verification and review. Further performance
 optimization is deferred to a separate PR at the user's request. It is not a gate for this PR.
+Paused for the user's application update. Resume only when requested.
+Version/structural checkpoint cf0bf217a is pushed. Pending fixture changes replace the host and sync
+file inventories with shared deterministic production-source discovery. Their behavioral checks are not run.
+The optimized build succeeded in 4m38s. Its binary contains BRA567_JOIN_TRACE for provider units 30852
+and 8964. proof-build.jsonl identifies the retained binary. join-probe.patch preserves the instrumentation,
+which is removed from source. Mutating style, Bray format and diff checks pass. No tests ran after this build.
+On resume, run bounded direct/nullable owner cases with that retained binary and trace flag. Also run
+the three formerly binding-blocked production fixture tests and sync/atomic controls with bounds.
 
 ## Status and applicable evidence
 
@@ -95,8 +103,8 @@ Exact element reads include overlapping AnyElement summaries without weakening e
 Imports belong at module scope by default, with test imports in test modules. Probes are removed.
 
 Stored-value checkpoint 51336bd5b is pushed. Next: finish version alignment, diagnose the failed groups,
-then verify the corrected composition and native gates. boundary-validation.json identifies the current
-optimized test build. Temporary probes have been removed and mutating style plus Bray format pass.
+then verify the corrected composition and native gates. boundary-validation.json identifies the earlier
+version checks and boundary traces. The current diagnostic build is recorded at the top of this record.
 
 Current boundary evidence, before semantic repairs:
 - Owned selection already has unconditional alternative inputs before portable publication. Inspect
@@ -106,6 +114,22 @@ Current boundary evidence, before semantic repairs:
 - Cancellation cleanup part 1 at the native-thread fixture is false in every reachable storage publication
   and true in guarantee replay. Trace successful ordinary move replay before adding cleanup skip records.
   A missing published mutation must still panic. Never replace it with empty effects.
+
+Move-replay contract under audit: the storage collector applies each valid effective Move after semantic
+transfer and before completion through observe_move. Independent guarantee operation replay must consume
+the same checked plan and physical/logical source at that phase, preserving its evaluated value for the
+destination. Copies, unreachable/invalid/recovered accesses and output definitions cannot become moves.
+Retain the producer's actual application phase and effective consumed path in checked decisions.
+An absent access_target can mean disagreeing physical targets, so it cannot justify a logical fallback.
+Do not reconstruct phase execution from storage_plans alone or vacate every alternative path at once.
+Use existing transition machinery and observe_move. Do not add a cleanup-skip registry,
+infer moves from effects or grant ownership from possible stored data. Check ordinary, call-input/admission,
+completion, pattern and suspension plans and avoid replaying a move twice in combined storage analysis.
+Oracles are the existing native-thread partial-move panic, owned source/import selection and fabrication
+controls, deferred frame/union controls, frozen30 and comparison-result.json. Reconsider if the two
+solvers already replay these moves or if their phase/path correspondence cannot be established.
+The storage solver does replay these moves and supplies owned-return publication. Therefore the
+independent solver's omission alone does not explain the earlier owned-layout broadening.
 Conditional stores, multiple referents, pop/remaining contents, overwrite and retirement have memory-level
 controls. Real source/import composition for conditional stores and pop with another retained owner remains
 unverified. Keep that exclusion visible while closing the contract.
