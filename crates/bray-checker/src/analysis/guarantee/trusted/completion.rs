@@ -184,7 +184,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let transfer_equalities = match invocation {
             bray_bound_tree::BoundExecutionSite::ScopedExit(expression) => Some(
-                ExecutionCondition::equalities(&entry.assumptions, Some(expression)),
+                self.proofs.equalities(&entry.assumptions, Some(expression)),
             ),
             _ => None,
         };
@@ -482,7 +482,7 @@ fn assume_normal_entry(
     requirements: &[ExecutionCondition],
     cache: &crate::execution_guarantees::ExecutionProofCache,
 ) -> Option<Vec<(ExecutionCondition, bray_symbols::PredicateDomain)>> {
-    let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
+    let equalities = cache.equalities(&entry.assumptions, None);
 
     let preconditions = preconditions
         .iter()

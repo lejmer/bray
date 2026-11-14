@@ -1047,7 +1047,7 @@ mod nested_guard_tests {
                 let required = permission(copied);
 
                 let prove = |state: &ExecutionState| {
-                    let aliases = ExecutionCondition::equalities(&state.assumptions, None);
+                    let aliases = state.proofs.equalities(&state.assumptions, None);
 
                     let trusted = state.trusted_assumptions.iter().map(|(condition, holds)|
                         (condition.with_equalities(&aliases), *holds)).collect();
