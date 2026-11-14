@@ -3,7 +3,6 @@ use super::super::state::ExecutionState;
 use crate::{CheckerRequestContext, CheckerUnitView};
 use crate::execution_guarantees::ExecutionAssumptions;
 use bray_bound_tree::{BoundExpressionId, StoragePlan};
-use std::collections::BTreeSet;
 
 pub(super) struct WitnessTransferFailure {
     pub(super) kind: bray_diagnostics::DiagnosticWitnessTransferKind,

@@ -49,13 +49,28 @@ derivation 1.23M and retirement 1.28M. Stages overlap, so do not sum them. These
 queries and rewrites, not another broad cache. Ordinary uncached proof costs only 35k. Retained-only query keys
 were rejected because equal generated clauses often have different allocations and then repeat inference.
 
-Next diagnosis identifies public proof call sites and generated term kinds. Join synthesis currently revisits
+Checkpoint 868d2a1d3 is pushed. Call-site profiling identifies witness refinement: 9,528 of 24,482 proof queries
+cost 1.09M operations. Candidate carrier proof follows at 4,100 queries and 215k operations. Join synthesis currently revisits
 carriers whenever any current value joins. Retaining unchanged carrier results is a hypothesis, not an established
 shortcut: guards, substitutions, availability, address dependencies and captured entry scopes must all survive.
 Publication also replays operations for diagnostics, so solved final outputs alone cannot replace intermediate
 states. Do not prune terminal snapshots or ordinary facts without tracing later contract and guard consumers.
 Keep fixed identities, original rejection sites and authority rules. Reconsider any design with outcome drift,
 more counted work, mutable published state or speculative cache layers. No semantic join/retirement edits yet.
+
+Current verified mechanical batch: both pure and budgeted memo misses intern the same query before and after
+recursive computation. Retain the immutable ConditionId across that computation, using the same ConditionMap
+for lookup and publication. Release every lock before computing. Preserve exact completed/exhausted-budget
+results, semantic collision handling and scope separation. Reuse the existing ID type, add no cache layer, and
+remove the redundant memo key reconstruction. Keep growth under 35 production lines and use existing cache,
+collision, budget and parallel controls plus fixed five/frozen30. This removes repeated indexing at a known
+boundary, but cannot by itself meet the total goal. Larger witness processing remains unresolved.
+All 548 checker controls pass. Complete count falls to 6,068,946, including 748,699 interner lookups.
+The same fixture creates 8,065 operation nodes across indices, far beyond its source operations.
+Fixed five twice with counters compiled but disabled: task cases 132-137 ms, loop 285/276 ms.
+Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.4 seconds. No new tests were added.
+The batch adds 24 production lines and removes an obsolete import. Style retains the same six errors.
+No full matrices. Final goal verification still needs a build without temporary probes.
 
 Temporary probes are removed. Complete current counts are in proof-count-current.json and reusable instrumentation
 is proof-counter.patch. No full matrices. Continue after checkpoints.

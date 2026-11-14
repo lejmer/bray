@@ -90,7 +90,18 @@ impl<T> Default for ConditionMap<T> {
 
 impl<T> ConditionMap<T> {
     pub(super) fn get(&self, condition: &ExecutionCondition) -> Option<&T> {
-        self.values.get(&self.conditions.intern(condition))
+        self.lookup(condition).1
+    }
+
+    /// Retain exact identity across recursive computation without holding this map's lock.
+    pub(super) fn lookup(&self, condition: &ExecutionCondition) -> (ConditionId, Option<&T>) {
+        let key = self.conditions.intern(condition);
+
+        (key, self.values.get(&key))
+    }
+
+    pub(super) fn entry(&mut self, key: ConditionId) -> hashbrown::hash_map::Entry<'_, ConditionId, T, hashbrown::DefaultHashBuilder> {
+        self.values.entry(key)
     }
 
     pub(super) fn insert(&mut self, condition: &ExecutionCondition, value: T) {
