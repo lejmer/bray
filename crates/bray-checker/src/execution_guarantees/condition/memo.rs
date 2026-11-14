@@ -26,7 +26,7 @@ pub(in crate::execution_guarantees) fn cached_condition<T: Clone>(memo: &Conditi
 }
 
 /// Captured immutable inputs establish the scope of each pure condition query.
-pub(super) fn memoize_condition(map: ConditionMap<bool>, query: impl Fn(&ExecutionCondition) -> bool) -> impl Fn(&ExecutionCondition) -> bool {
+pub(super) fn memoize_condition<T: Clone>(map: ConditionMap<T>, query: impl Fn(&ExecutionCondition) -> T) -> impl Fn(&ExecutionCondition) -> T {
     let memo = Mutex::new(map);
 
     move |value| cached_condition(&memo, value, || query(value))

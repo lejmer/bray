@@ -47,13 +47,15 @@ its memo until actual alias consequences change its facts, then resets every res
 The production scan is removed. One differential test retains it as an independent oracle over 128 graphs and budgets
 0-64, checking results and remaining budgets, including cycles, missing edges, negative evidence and literal bounds.
 
-All 552 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 134-150 ms,
-loop 179/183 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 182-207 ms.
-Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 13.1 seconds. No full matrices ran.
+All 552 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 123-130 ms,
+loop 171/178 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 169-180 ms.
+Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.2 seconds. No full matrices ran.
 Style retains six existing errors: wildcard flow/invalidation and oversized flow/merge, storage_flow cleanup/core,
 execution_guarantees/portable and tooling output/diagnostic/json/argument. Format and diff checks pass.
 
-Complete count is 2,239,953: ordering 1,087,749, equality 554,572, identity 264,911, interning 332,721.
+Complete count is 2,222,361: ordering 1,087,749, equality 543,442, identity 270,575, interning 320,595.
+Top-level comparisons are 850,288 ordering and 494,518 equality, with maximum depths 20 and 12. Recursive
+comparison tuning alone cannot approach the target. Repeated root operations dominate.
 The caller has 198 CFG blocks and two required storage solves with 271 transfers each. There are 6,219 indexed
 nodes across indices, 612 mixed scopes over 327 raw inputs and 13,032 public proof queries. Witness refinement
 performs 856 computations, usually over five claims. Only 12 new witness clauses result. Join publication adds
@@ -63,26 +65,34 @@ The count target is not met. Correctness is unchanged, and more lookup tuning al
 
 ## Current repair contract
 
-Implemented and verified: factor raw preparation by each complete immutable input set, then key mixed
-preparation by the two retained input identities. This removes repeated explicit indexes, ordered relations and
-budgeted query memos when one input participates in different pairs or Boolean closure. Raw single-set queries may share only on exactly equal facts and polarity. Mixed roles
-remain ordered. Changed authority, changed guards and removal must select different inputs. Physical aliases must
-retain their source allocations. No truth sharing by approximate dependencies or changing carrier metadata.
+Implemented and verified: retirement shares one condition lookup and one record of lazy answers, replacing
+six separate condition memo maps in the same immutable mutation context. Preserve the original demand order, short circuits, observation
+traversals and WORK_LIMIT. The eager combined traversal experiment passed checker controls but raised work to 2.42M
+by computing unused answers. It is removed. Do not repeat eager fusion or claim its results as an improvement.
 
-Consumers are direct mixed queries, raw trusted queries, ownership's ordinary-only exclusion, Boolean closure's
-initial relational queries, and the closure's mixed query fallback. Closure-generated trusted facts get a separate
-raw memo. Reuse the unchanged ordinary input there. Replace the duplicate requested explicit index with the existing
-direct explicit index, retaining separate requested and direct budgeted answers. No result-map lock spans inference.
+The mutation inputs, retiring/retained snapshots, invalidated owner set, storage places and stable predicates are
+fixed before queries. No query reads changing flow facts. Consumers are ordinary assumption filtering, witness
+clause removal, trusted facts, allocation ownership, pending entry facts/copy sources and deferred selections.
+Private-admission exemptions, historical entries, independent owners and address/dependency expiry stay unchanged.
+The existing generic pure condition memo retains the lazy query record instead of six parallel lookup maps.
+Keep assessments scoped to the actual mutation. Nested queries receive the same record without re-interning it.
 
-The existing scope-isolation and budget controls now cover pairs sharing one input, reversed roles, independently
-allocated equal inputs and changed polarity. The batch adds 10 nonblank production lines and 26 test lines, with no
-new types or proof rules. Fixed five, source/import loops and frozen30 retain their outcomes and rejection sites.
+Existing retirement/cleanup/guard controls cover current contents versus identity, captured/borrowed inputs,
+siblings, address lifetimes, private admission, cycles and repeated cleanup. Checker controls, fixed five,
+source/import loops and frozen30 pass with the same known RawBuffer exclusion. The batch adds 17 nonblank production
+lines and no tests. It retains all original query bodies and demand order. Complete interner lookups fall by 12,126.
+There are no production probe hooks. Next investigate repeated whole-state work, not more allocation-key tuning.
+Trace the scheduling and consumers of public/private refinement and join publication before changing it. Captured
+guard truth can become useful before retirement, so no unchanged-carrier or empty-invalidated-set shortcut is valid.
 
-Boolean topology has 201 distinct root sets across 651 constructions, so caching topology alone cannot solve this.
-Most remaining cost belongs to first queries in distinct scopes. Do not repeat rejected witness-allocation key
-experiments: whole-value and condition-ID keys cut duplicate refinements but left total work near 2.6M.
-Do not skip refinement for unchanged carriers or prune unproved clauses. Witness maps retain possible lifetime
-obligations, and private admission depends on exact retained keys. A private-record redesign is not contract-closed.
+The prior exact-input batch is verified and pushed in 1ef35124a. It adds 10 nonblank production lines and 26 test
+lines. Raw input identity is exact and mixed roles remain ordered. Closure-generated trusted facts get a separate
+raw memo. Reuse the unchanged ordinary input there. Requested and direct query answers remain separate.
+
+Boolean topology has 201 distinct root sets across 651 constructions. Topology caching alone cannot solve this.
+Do not repeat rejected witness-allocation key experiments. They reduced duplicate refinements but left work near
+2.6M. Do not skip refinement for unchanged carriers or prune unproved clauses. Witness maps retain possible lifetime
+obligations. A private-record redesign is not contract-closed. No approximate dependency scopes or new framework.
 
 Temporary counters are removed after bounded verification. Keep one proof-count-current.json and one
 proof-counter.patch. Build without hooks for final goal evidence, not a second rebuild at every checkpoint.

@@ -132,7 +132,7 @@ impl PartialEq for ExecutionProofCache {
 impl Eq for ExecutionProofCache {}
 
 impl ExecutionProofCache {
-    pub(crate) fn memoize_condition<Q: Fn(&ExecutionCondition) -> bool>(&self, query: Q) -> impl Fn(&ExecutionCondition) -> bool + use<Q> {
+    pub(crate) fn memoize_condition<T: Clone, Q: Fn(&ExecutionCondition) -> T>(&self, query: Q) -> impl Fn(&ExecutionCondition) -> T + use<T, Q> {
         super::memo::memoize_condition(self.conditions.map(), query)
     }
 
