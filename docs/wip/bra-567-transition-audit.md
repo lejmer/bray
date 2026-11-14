@@ -35,7 +35,7 @@ The same owner/source predicates and clause order remain. Only evidence is read 
 All 553 checker tests pass, including ordered publication with independent and unavailable carriers.
 The batch adds 14 nonblank production lines and 40 test lines. Existing join tests use the grouped result.
 Fixed five twice: task cases 121-130 ms, loop 169/172 ms. Extra source/import ownership controls pass at 175-183 ms.
-Latest count is 2,212,801: ordering 1,084,401, equality 543,243, identity 264,972, interning 320,185.
+Latest diagnostic count is 2,215,658: ordering 1,084,401, equality 548,100, identity 262,971, interning 320,186.
 This batch does not materially reduce total work. Do not iterate locally on it as the route to 10,000.
 Frozen30 is 29 pass and the same RawBuffer invalid acceptance, in 11.9 seconds. No full matrices ran.
 Style has the same six pre-existing errors. Format and diff checks pass. There are no production probe hooks after finalization.
@@ -54,6 +54,12 @@ The inner Boolean prover already has a graph and change-driven queue. The repeat
 scope versions. The caller has 198 CFG blocks, two storage solves of 271 transfers, 327 raw inputs, 612 mixed
 scopes, 13,032 public proof queries and 856 witness refinements. Only 12 new witness clauses result.
 The structural probe finds 88 indices, 6,219 nodes, 9,633 child edges and 15,408 physical storage aliases.
+Exact cross-index deduplication finds only 464 caller-observed structural nodes and 773 child edges. Of these,
+446 are first encountered during the caller. The whole measured process registers 988 distinct indexed nodes.
+This uses exact root payloads plus global child IDs, with hash collisions checked. Probe bookkeeping is excluded
+from compiler counters. It observes indexed nodes, not every transient condition constructed outside an index.
+The bounded source loop still rejects at the intended observe call. Production is c407abd16. This measurement
+supports producer-owned handles but does not prove that handles alone reach the gate.
 Outer lookup repetition includes scope preparation 21,318 requests/91 distinct nodes, proof 65,414/587,
 refinement 21,682/153 and retirement 120,098/2,536. Distinct means index plus node, not evidence scope.
 Retirement has 92,546 pure-cache hits and 27,552 misses. It removes 142/1,864 ordinary facts, 276/716 trusted
@@ -121,10 +127,23 @@ Nodes must survive the factory through immutable ownership without a factory->no
 children before taking a short insertion lock. Factory calls, ingress and maintenance still count. Constant
 nodes can be retained directly. A compilation-wide strong table retaining transient nodes needs a memory bound.
 
-Snapshot reuse is unresolved: Compilation::updated reuses execution candidates containing old condition handles,
-while semantic stores fork. Investigate an inherited immutable node/index snapshot with independent new writes,
-following SemanticValueStore, before selecting identity/namespace policy. BoundUnitId alone does not establish
-snapshot-safe meaning. Portable package terms remain a genuine decode boundary, directly into final nodes.
+Related compilation snapshots can share a weak structural interner. Preserve today's exact structural equality,
+including raw local IDs. Equal shapes may share allocation because context-dependent facts and authority remain
+outside nodes. No copied interner maps, new snapshot namespaces or routine body imports are needed. Reused
+execution candidates keep their original handles. Portable package terms decode directly into destination nodes.
+Weak buckets must not retain children through strong keys, and dead buckets need amortized reclamation. Keep
+structural ordering for budget-sensitive iteration. Node IDs and addresses never define ordering or serialization.
+
+Physical-sharing traversals mostly compute existential properties or sets. One unresolved consumer is bounds.rs:
+its observation iterator calls a prover sharing IntegerRanges. Partial range computations can warm later queries
+without charging their original cost. The selector precheck may prevent the proposed retry scenario. This is a
+code-derived risk, not a demonstrated source failure. Resolve it before canonical sharing changes visit multiplicity.
+
+The fixed-point graph retains block outputs but repeats incoming edge transformations before comparing joined
+inputs. Each edge refines witnesses, and applicable pattern refinements can trigger another pass. The two storage
+solves are required cleanup-feasibility rounds. The 856 witness computations are exact-scope cache misses, not
+all calls. A scheduling replacement must retain failed obligations and ordered publication dependencies as well
+as successful proofs. Reducing scan calls alone does not establish the operation-count gate.
 
 The existing exhaustive hash_parts child emitter can supply semantic slots/roles while hashing. Migrate duplicate
 traversal matches to that schema, not to a second manually maintained mirror. Node-local checks and traversal
