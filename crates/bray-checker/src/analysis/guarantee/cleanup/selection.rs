@@ -9,10 +9,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         step: &Step,
+        definitely_absent: &[bray_bound_tree::StoragePath],
     ) -> ExecutionCondition {
         let (path, guards) = match step {
             Step::Opaque { path, guards, .. } | Step::Lifecycle { path, guards, .. } => (path, guards),
         };
+
+        if path.as_ref().is_some_and(|path| definitely_absent.iter().any(|absent| absent.contains(path))) {
+            return ExecutionCondition::boolean(false);
+        }
 
         let available = path.as_ref().and_then(|path| ExecutionPlace::storage_path(self.storage, path))
             .map(|place| state.current.availability(&place));

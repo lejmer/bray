@@ -613,6 +613,23 @@ mod tests {
         let conditional = Layout::case(guard.clone(), Layout::Transfer(Transfer::new(input.clone(), [field])
             .with_preservation(Mask::all())));
 
+        let mut selected = ExecutionState::default();
+
+        selected.owned_results.insert(source.clone(), conditional.clone());
+        guard.clone().assume(true, &mut selected.assumptions);
+
+        let mut mask = ValuePreservation { descriptor: true, value: true, ..Default::default() };
+        let value = mask.frame(&mut selected, &source, &[], Some(&place), StorageMutation::Operation(sites[0].into()));
+
+        selected.assumptions.clear();
+
+        assert_eq!(selected.owned_result(&value), conditional,
+            "a branch-local proof cannot make selected ownership unconditional");
+
+        guard.clone().assume(false, &mut selected.assumptions);
+
+        assert!(selected.owned_result(&value).is_empty(), "the other branch cannot claim the selected input");
+
         let mut states = Vec::new();
 
         for (index, unchanged) in [true, false].into_iter().enumerate() {

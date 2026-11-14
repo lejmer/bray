@@ -59,10 +59,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .scope_exit_plan(scope, exit)
                         .map(|plan| (plan, flow))
                 }) {
+                    let exit_decision = || flow
+                        .exits()
+                        .iter()
+                        .find(|decision| decision.scope() == scope && decision.exit() == exit)
+                        .expect("selected scope cleanup retains its storage decision");
+
                     match phase {
                         AnalysisScopeExitPhase::TaskCancellationBroadcast => {
+                            let absent = exit_decision().definitely_absent();
+
                             for access in plan.cancellation_broadcast() {
-                                self.cancel_cleanup(state, *access, operation, &mut None);
+                                self.cancel_cleanup(state, *access, absent.iter().cloned(), operation, &mut None);
                             }
                         }
                         AnalysisScopeExitPhase::LifecycleResolution => {
@@ -74,19 +82,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 return;
                             }
 
-                            let exit = flow
-                                .exits()
-                                .iter()
-                                .find(|decision| {
-                                    decision.scope() == scope && decision.exit() == exit
-                                })
-                                .expect("selected scope cleanup retains its storage decision");
+                            let absent = exit_decision().definitely_absent();
 
                             for access in plan.lifecycle_resolution() {
                                 self.dispose(
                                     state,
                                     *access,
-                                    exit.definitely_absent().iter().cloned(),
+                                    absent.iter().cloned(),
                                     &mut observe,
                                     operation,
                                     &mut None,
@@ -178,7 +180,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             AnalysisScopeExitPhase::TaskCancellationBroadcast
                                 if phases.includes_cancellation() =>
                             {
-                                self.cancel_cleanup(state, access, operation, &mut Some(&mut *mutate));
+                                self.cancel_cleanup(state, access, storage_state.definitely_absent.keys().cloned(), operation, &mut Some(&mut *mutate));
                             }
                             AnalysisScopeExitPhase::LifecycleResolution
                                 if phases.includes_lifecycle() =>
@@ -290,14 +292,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         access: StorageAccessId,
+        definitely_absent: impl Iterator<Item = bray_bound_tree::StoragePath>,
         operation: AnalysisOperationKind,
         mutate: &mut Option<&mut Mutation<'_>>,
     ) {
         let steps = self.disposal.plan.steps.get(&access)
             .expect("selected cancellation has prepared cleanup parts");
 
+        let absent = definitely_absent.collect::<Vec<_>>();
+
         for (part, step) in steps.iter().enumerate().filter(|(_, step)| step.phases().includes_cancellation()) {
-            let condition = self.cleanup_part_condition(state, step);
+            let condition = self.cleanup_part_condition(state, step, &absent);
 
             let (ty, path) = match step {
                 Step::Opaque { ty, path, .. } | Step::Lifecycle { ty, path, .. } => (*ty, path.as_ref()),
@@ -330,13 +335,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let absent = definitely_absent.collect::<Vec<_>>();
 
         for (part, step) in steps.iter().enumerate().filter(|(_, step)| step.phases().includes_lifecycle()) {
-            let path = match step {
-                Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
-            };
-
-            if path.is_some_and(|path| absent.iter().any(|absent| absent.contains(path))) { continue; }
-
-            let condition = self.cleanup_part_condition(state, step);
+            let condition = self.cleanup_part_condition(state, step, &absent);
 
             super::selection::select_cleanup(state, condition, |state, conditional| {
                 self.dispose_part(state, access, part, step, observe, operation, conditional, mutate);

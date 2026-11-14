@@ -223,7 +223,7 @@ pub(crate) fn projected_owned_type<C: CheckerRequestContext + ?Sized>(
 pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     mut ty: TypeId,
-    projections: std::sync::Arc<[bray_bound_tree::StorageProjection]>,
+    projections: std::sync::Arc<[StorageProjection]>,
     reached: Option<TypeId>,
 ) -> Result<
     Option<(TypeId, bray_bound_tree::StorageReferencePath)>,
@@ -272,7 +272,7 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
 }
 
 pub(crate) fn resolve_storage_projections<C: CheckerRequestContext + ?Sized>(
-    request: crate::CheckerUnitView<'_, C>,
+    request: CheckerUnitView<'_, C>,
     projections: &[DependencyProjection],
 ) -> crate::CheckerQueryResult<Option<Vec<StorageProjection>>, C::UpstreamError> {
     convert_projections(request.semantic_values(), projections, |field| {
@@ -287,28 +287,33 @@ pub(crate) fn owned_storage_projections(
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     projections: &[bray_symbols::ConstantProjectionKind],
 ) -> Vec<StorageProjection> {
-    use bray_symbols::ConstantProjectionKind;
+    projections.iter().map(|projection| owned_storage_projection(dependencies, *projection)).collect()
+}
 
-    projections
-        .iter()
-        .map(|projection| match *projection {
-            ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(field),
-            ConstantProjectionKind::UnionPayloadField(field) => {
-                StorageProjection::ActiveUnionPayloadField {
-                    variant: dependencies.projection_variant(field),
-                    field,
-                }
-            }
-            ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
-            ConstantProjectionKind::TupleElement(ordinal) => {
-                StorageProjection::TupleElement(ordinal)
-            }
-            ConstantProjectionKind::ArrayElementOrdinal(ordinal) => {
-                StorageProjection::ElementFromStart(ordinal)
-            }
-            _ => unreachable!("checked transfer contains only owning projections"),
-        })
-        .collect()
+/// Resolves a retained-value mask against the checked ownership projection table.
+pub(crate) fn owned_storage_preservation(
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    preservation: &bray_symbols::DependencyValuePreservation<bray_symbols::ConstantProjectionKind>,
+) -> bray_symbols::DependencyValuePreservation<StorageProjection> {
+    preservation.try_map_projections(&mut |projection| {
+        Ok::<_, std::convert::Infallible>(owned_storage_projection(dependencies, *projection))
+    }).unwrap_or_else(|error| match error {})
+}
+
+fn owned_storage_projection(
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    projection: bray_symbols::ConstantProjectionKind,
+) -> StorageProjection {
+    match projection {
+        bray_symbols::ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(field),
+        bray_symbols::ConstantProjectionKind::UnionPayloadField(field) => StorageProjection::ActiveUnionPayloadField {
+            variant: dependencies.projection_variant(field), field,
+        },
+        bray_symbols::ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
+        bray_symbols::ConstantProjectionKind::TupleElement(ordinal) => StorageProjection::TupleElement(ordinal),
+        bray_symbols::ConstantProjectionKind::ArrayElementOrdinal(ordinal) => StorageProjection::ElementFromStart(ordinal),
+        _ => unreachable!("checked transfer contains only owning projections"),
+    }
 }
 
 pub(crate) fn storage_projections(
@@ -449,8 +454,8 @@ pub(super) fn element_projection<C: CheckerRequestContext + ?Sized>(
 }
 
 pub(crate) fn dependency_projections(
-    projections: &[bray_bound_tree::StorageProjection],
-) -> Option<Vec<bray_symbols::DependencyProjection>> {
+    projections: &[StorageProjection],
+) -> Option<Vec<DependencyProjection>> {
     projections
         .iter()
         .copied()
@@ -459,8 +464,8 @@ pub(crate) fn dependency_projections(
 }
 
 pub(crate) fn dependency_projection(
-    projection: bray_bound_tree::StorageProjection,
-) -> Option<bray_symbols::DependencyProjection> {
+    projection: StorageProjection,
+) -> Option<DependencyProjection> {
     use bray_bound_tree::StorageProjection;
     use bray_symbols::DependencyProjection;
 

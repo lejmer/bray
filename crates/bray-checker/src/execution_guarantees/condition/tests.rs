@@ -791,6 +791,36 @@ fn structural_rewrites_preserve_initialized_nullable_contents() {
 }
 
 #[test]
+fn tagged_snapshot_reanchors_only_known_owned_payloads() {
+    let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+    let variant = bray_symbols::UnionVariantSymbolId::from_symbol_id(bray_symbols::SymbolId::new(910));
+
+    let field = |ordinal| bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
+        variant, field: bray_symbols::UnionPayloadFieldSymbolId::from_symbol_id(bray_symbols::SymbolId::new(ordinal)),
+    };
+
+    let loan = input(2).borrowed();
+    let tag = ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(variant, Arc::new(ExecutionCondition::unknown())));
+
+    let source = ExecutionCondition::constructed(tag, [(field(911), input(1)), (field(912), loan.clone()),
+        (field(913), ExecutionCondition::unknown())].into());
+
+    let snapshot = |identity| crate::execution_guarantees::owned_snapshot(&source, identity, &mut { ExecutionCondition::WORK_LIMIT });
+    let moved = snapshot(input(0));
+
+    assert_eq!(moved.known_variant(), Some(variant));
+    assert_eq!(moved.clone().project(field(911)).owner_identity(), input(0).project(field(911)).owner_identity());
+    assert_eq!(moved.clone().project(field(912)), loan);
+    assert_eq!(moved.clone().project(field(913)), ExecutionCondition::unknown());
+    assert_eq!(moved.clone().project(field(914)), ExecutionCondition::unknown());
+
+    let unknown = snapshot(ExecutionCondition::unknown());
+
+    assert_eq!(unknown.clone().project(field(911)), ExecutionCondition::unknown());
+    assert_eq!(unknown.project(field(912)), loan);
+}
+
+#[test]
 fn republishing_a_nullable_payload_keeps_one_parent_snapshot() {
     let identity = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
     let payload = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));

@@ -812,11 +812,15 @@ pub(super) fn converted_argument(
     value: ExecutionCondition,
     conversion: &bray_bound_tree::SelectedConversion,
 ) -> ExecutionCondition {
-    match conversion.target() {
-        bray_bound_tree::ConversionTarget::Identity
-        | bray_bound_tree::ConversionTarget::CallableContract
-        | bray_bound_tree::ConversionTarget::NullablePresent => value.coerce(
-            values, conversion.source_type(), conversion.target_type()),
-        _ => ExecutionCondition::unknown(),
+    if conversion_transports_value(conversion) {
+        value.coerce(values, conversion.source_type(), conversion.target_type())
+    } else {
+        ExecutionCondition::unknown()
     }
+}
+
+pub(super) fn conversion_transports_value(conversion: &bray_bound_tree::SelectedConversion) -> bool {
+    matches!(conversion.target(), bray_bound_tree::ConversionTarget::Identity
+        | bray_bound_tree::ConversionTarget::CallableContract
+        | bray_bound_tree::ConversionTarget::NullablePresent)
 }

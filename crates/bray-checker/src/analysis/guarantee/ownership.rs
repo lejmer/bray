@@ -292,7 +292,9 @@ fn applicable_owned_cases(
 
             let selected = applicable_owned_cases(result, proof, budget)?;
 
-            Some(if known == Some(true) { selected } else { DependencyOwnedResult::case(condition.clone(), selected) })
+            // A branch-local proof selects this case but cannot erase its guard:
+            // the resulting layout may outlive that branch and join another path.
+            Some(DependencyOwnedResult::case(condition.clone(), selected))
         }
         DependencyOwnedResult::All(values) => values.iter()
             .map(|value| applicable_owned_cases(value, proof, budget))
@@ -311,42 +313,42 @@ fn project_owned_result(
     field: bray_symbols::ConstantProjectionKind,
 ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
     ownership
-                .try_map(
-                    &mut |transfer| {
-                        let Some((first, rest)) = transfer.output().split_first() else {
-                            let preservation = transfer.preservation().children().iter()
-                                .find(|(projection, _)| crate::ExecutionPlace::projection_kind(**projection) == Some(field))
-                                .map(|(_, preservation)| preservation.clone())
-                                .unwrap_or_else(|| bray_symbols::DependencyValuePreservation::new(
-                                    transfer.preservation().preserves_value(), Default::default()));
+        .try_map(
+            &mut |transfer| {
+                let Some((first, rest)) = transfer.output().split_first() else {
+                    let preservation = transfer.preservation().children().iter()
+                        .find(|(projection, _)| crate::ExecutionPlace::projection_kind(**projection) == Some(field))
+                        .map(|(_, preservation)| preservation.clone())
+                        .unwrap_or_else(|| bray_symbols::DependencyValuePreservation::new(
+                            transfer.preservation().preserves_value(), Default::default()));
 
-                            return Ok::<_, std::convert::Infallible>(
-                                DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
-                                    transfer.input().component(field),
-                                    [],
-                                ).with_preservation(preservation)
-                                    .with_condition(transfer.condition())),
-                            );
-                        };
+                    return Ok::<_, std::convert::Infallible>(
+                        DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
+                            transfer.input().component(field),
+                            [],
+                        ).with_preservation(preservation)
+                            .with_condition(transfer.condition())),
+                    );
+                };
 
-                        Ok(
-                            if crate::ExecutionPlace::projection_kind(*first) == Some(field) {
-                                DependencyOwnedResult::Transfer(
-                                    DependencyOwnedTransfer::new(
-                                        transfer.input(),
-                                        rest.iter().copied(),
-                                    )
-                                    .with_preservation(transfer.preservation().clone())
-                                    .with_condition(transfer.condition()),
-                                )
-                            } else {
-                                DependencyOwnedResult::default()
-                            },
+                Ok(
+                    if crate::ExecutionPlace::projection_kind(*first) == Some(field) {
+                        DependencyOwnedResult::Transfer(
+                            DependencyOwnedTransfer::new(
+                                transfer.input(),
+                                rest.iter().copied(),
+                            )
+                            .with_preservation(transfer.preservation().clone())
+                            .with_condition(transfer.condition()),
                         )
+                    } else {
+                        DependencyOwnedResult::default()
                     },
-                    &mut |condition| Ok(Some(condition.clone())),
                 )
-                .expect("ownership projection is infallible")
+            },
+            &mut |condition| Ok(Some(condition.clone())),
+        )
+        .expect("ownership projection is infallible")
 }
 
 fn layout_preservation(
@@ -476,7 +478,7 @@ mod tests {
             let actual = state.owned_result(&value);
 
             match selected {
-                Some(false) => assert_eq!(actual, transfer),
+                Some(false) => assert_eq!(actual, DependencyOwnedResult::case(take.clone(), transfer.clone())),
                 Some(true) => assert!(actual.is_empty()),
                 None => {
                     assert!(matches!(actual, DependencyOwnedResult::Choice(_)), "unknown selection retains the possible empty alternative");

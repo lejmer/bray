@@ -97,6 +97,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return fields;
         };
 
+        let transports_value = match invocation {
+            BoundExecutionSite::CallInput { expression, ordinal } => self.semantics.selections()
+                .expression(expression).and_then(|selection| selection.input(ordinal))
+                .is_some_and(|input| matches!(input, bray_bound_tree::SelectedInput::Receiver(_))
+                    || input.conversion().is_some_and(super::super::completion::conversion_transports_value)),
+            BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) =>
+                match self.semantics.selections().expression(expression) {
+                    Some(bray_bound_tree::SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Conversion(conversion))) =>
+                        super::super::completion::conversion_transports_value(conversion),
+                    _ => false,
+                },
+            _ => false,
+        };
+
         for transfer in transfers {
             let input = crate::execution_condition_from_type_term(
                 self.request.semantic_values(),
@@ -131,20 +145,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 unreachable!("a checked ownership source names an input projection");
             };
 
-            let preservation = transfer.preservation().try_map_projections(&mut |projection| {
-                Ok::<_, std::convert::Infallible>(crate::storage::owned_storage_projections(
-                    self.dependencies, &[*projection],
-                )[0])
-            }).expect("checked owned data projection mapping is infallible");
-
-            let contents = super::super::flow::ValuePreservation::returned(
-                &preservation, dependencies.returned_value(transfer).observations(),
-            ).apply(&value, Some(&input), bray_bound_tree::StorageMutation::Operation(invocation));
-
             let value = if borrowed_result || value.is_reference() {
                 ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::unknown())
+            } else if transports_value {
+                // These checked conversions execute no callee. Their source is the
+                // already-evaluated value, not an opaque call's post-state.
+                value
             } else {
-                ExecutionCondition::owned_value(value.owner_identity().clone(), contents)
+                let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
+
+                let contents = super::super::flow::ValuePreservation::returned(
+                    &preservation, dependencies.returned_value(transfer).observations(),
+                ).apply(&value, Some(&input), bray_bound_tree::StorageMutation::Operation(invocation));
+
+                value.with_current_contents(contents)
             };
 
             fields.push((path, value));
@@ -519,11 +533,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     unreachable!("a checked ownership source names an input projection");
                 };
 
-                let preservation = transfer.preservation().try_map_projections(&mut |projection| {
-                    Ok::<_, std::convert::Infallible>(crate::storage::owned_storage_projections(
-                        self.dependencies, &[*projection],
-                    )[0])
-                }).expect("checked owned data projection mapping is infallible");
+                let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
 
                 let ownership = input.value_in(arguments)
                     .map(|value| {

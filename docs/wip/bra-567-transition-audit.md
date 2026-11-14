@@ -6,14 +6,17 @@ Commits and pushes are authorized. Continue after checkpoints. The user has now 
 and deferred source/import matrices for final verification, with bounded execution.
 Current priority: finish BRA-567 correctness, required verification and review. Further performance
 optimization is deferred to a separate PR at the user's request. It is not a gate for this PR.
-Paused for the user's application update. Resume only when requested.
-Version/structural checkpoint cf0bf217a is pushed. Pending fixture changes replace the host and sync
-file inventories with shared deterministic production-source discovery. Their behavioral checks are not run.
-The optimized build succeeded in 4m38s. Its binary contains BRA567_JOIN_TRACE for provider units 30852
-and 8964. proof-build.jsonl identifies the retained binary. join-probe.patch preserves the instrumentation,
-which is removed from source. Mutating style, Bray format and diff checks pass. No tests ran after this build.
-On resume, run bounded direct/nullable owner cases with that retained binary and trace flag. Also run
-the three formerly binding-blocked production fixture tests and sync/atomic controls with bounds.
+Checkpoint c298e3b7a replaces manual host/sync source inventories with shared deterministic discovery.
+Current uncommitted batch preserves tagged payload owners, branch guards, returned nullable shape,
+compiler-only conversion values, and authoritative moved-path absence during cancellation selection.
+The shared owned-storage preservation mapper replaces both duplicated conversions without a temporary vector.
+Mutating style, Bray format and optimized build pass. Current bounded checks: checker559/559,
+frozen30/30, owned492/496, deferred292/296, production sync and native-thread ownership pass.
+Remaining matrix failures: conditional_optional_join, select_nullable_inputs_join_both,
+task_frame_borrow_ends and task_returns_observation_future, each in source/import mode.
+transition-validation.json records exact identities, binary hash and results. Production report is
+running with a 240s bound. A 90s timeout did not identify a regression because this full-provider
+fixture previously exceeded 60s. Namespace filters avoid Windows' argument-length limit.
 
 ## Status and applicable evidence
 
@@ -78,58 +81,59 @@ an independently established exact descriptor or publish unobservable by-value i
 
 ## Integration state and next action
 
-Implemented in the working tree:
+Stored-value transport and version alignment are pushed in 51336bd5b and cf0bf217a. No probe hooks
+remain in the verified source. Next: trace the four remaining matrix patterns before further semantic
+edits, then run fixed920 and native gates. Keep current positive and negative identities unchanged.
+The current batch removes duplicated forward preservation mapping and keeps reverse export validation
+separate. Independent inspection found no concrete authority widening. Matrix evidence remains the gate.
 
-- StoredValue wraps existing descriptors plus whole sources, tracked state and completeness.
-  Transfer, joins, clear, retirement and deferred relocation carry it. Source identities never relocate.
-- The existing observation shape walker records opaque/generic leaf paths. Entry seeding resolves those
-  actual paths and existing RawBuffer backing. Concrete scalar leaves receive no symbolic source.
-- Push/Pop capture backing before effects. Pop preserves possible remaining contents. Intrinsic attempts
-  reset their pending transition. Missing source capture downgrades completeness.
-- Portable transport and per-exit publication are implemented. Ordinary/lifecycle reference preparation
-  shares one helper. Composite conversions project endpoints, with conservative uniform-array handling.
-- Call/lifecycle stored replay resolves all pre-effect sources before staging. Missing routes preserve
-  uncertainty on the actual containing root. Concrete scalar destinations are skipped.
-- Reachability consumers now carry or discharge unknown contents at eligible actual targets, including
-  escape, ambient invalidation and terminal checks. Exported escape roots remain direct operands.
-
-OwnedTarget replay follows actual backing pointers. Its overlay retains the original result boundary,
-so staged physical slots take precedence without resurrecting old result storage. Concrete physical payload
-references use DependencyBorrowRelation/InputRegions, retaining projections without alias authority.
-Whole-source records carry actual value lineage only. Additive weak events differ from complete final source
-sets. Fresh backing supplies an explicit empty summary. Portable dependency replay imports neither
-initialization nor deferred-frame identity. Intrinsic Push/Pop retain actual value-transfer metadata.
-Exact element reads include overlapping AnyElement summaries without weakening exact writes.
-Imports belong at module scope by default, with test imports in test modules. Probes are removed.
-
-Stored-value checkpoint 51336bd5b is pushed. Next: finish version alignment, diagnose the failed groups,
-then verify the corrected composition and native gates. boundary-validation.json identifies the earlier
-version checks and boundary traces. The current diagnostic build is recorded at the top of this record.
-
-Current boundary evidence, before semantic repairs:
-- Owned selection already has unconditional alternative inputs before portable publication. Inspect
-  current/pending-value joins and fixed-point replay. Export and caller pruning are not the first loss.
-- Deferred union loses the inner awaited producer before memory completion. Two other deferred cases
-  complete with known effects, so their witness loss is unresolved. OwnedTarget resolution was not involved.
+Boundary contracts and unresolved evidence:
+- Initial direct/nullable joins retain precise guarded alternatives. selection-trace.log establishes
+  the first loss in conditional cleanup: frame stores a branch-simplified transfer, then selection
+  joins unconditional alternatives. Key collisions occur later. Preserve proven-true Case guards
+  at the ownership selector instead of reconstructing them downstream. False alternatives still
+  prune and explicit empty records remain authoritative. Existing selected-empty, overwrite, loop,
+  source/import selector and fabrication controls are mandatory. Nullable empty correlation remains
+  unresolved in the two named failing owned patterns. No new state representation is needed.
+- Deferred union now passes after tagged snapshot repair. Two other deferred cases complete with
+  known effects, but their first witness loss remains unresolved. OwnedTarget resolution was not involved.
 - Cancellation cleanup part 1 at the native-thread fixture is false in every reachable storage publication
-  and true in guarantee replay. Trace successful ordinary move replay before adding cleanup skip records.
-  A missing published mutation must still panic. Never replace it with empty effects.
+  and true in guarantee replay. Both cancellation and lifecycle now consult the existing definite-absence
+  exit decision. A missing selected mutation must still panic. No parallel move/skip registry.
 
-Move-replay contract under audit: the storage collector applies each valid effective Move after semantic
-transfer and before completion through observe_move. Independent guarantee operation replay must consume
-the same checked plan and physical/logical source at that phase, preserving its evaluated value for the
-destination. Copies, unreachable/invalid/recovered accesses and output definitions cannot become moves.
-Retain the producer's actual application phase and effective consumed path in checked decisions.
-An absent access_target can mean disagreeing physical targets, so it cannot justify a logical fallback.
-Do not reconstruct phase execution from storage_plans alone or vacate every alternative path at once.
-Use existing transition machinery and observe_move. Do not add a cleanup-skip registry,
-infer moves from effects or grant ownership from possible stored data. Check ordinary, call-input/admission,
-completion, pattern and suspension plans and avoid replaying a move twice in combined storage analysis.
-Oracles are the existing native-thread partial-move panic, owned source/import selection and fabrication
-controls, deferred frame/union controls, frozen30 and comparison-result.json. Reconsider if the two
-solvers already replay these moves or if their phase/path correspondence cannot be established.
-The storage solver does replay these moves and supplies owned-return publication. Therefore the
-independent solver's omission alone does not explain the earlier owned-layout broadening.
+Compiler-only conversion contract: Identity, CallableContract and NullablePresent execute no callee.
+Their selected input conversion already has an exact evaluated snapshot. Preserve that transferred
+source during completion instead of applying an opaque-call contents mask a second time. Keep call
+entry/ownership bookkeeping, nullable output paths and loan roles. Default providers, user conversions
+and ordinary calls still apply their checked masks. Empty effects alone do not authorize preservation.
+The sync trace shows initialized Uninit<T> evidence surviving, but input conversion changes its argument
+to PostState. Existing production sync and mutable/atomic/borrow rejection controls bound the repair.
+
+Returned-value shape contract: completion must preserve the actual source ownership role. A lifted
+Present payload is not a same-shaped whole nullable input. Use with_current_contents instead of
+recreating Owned from owner_identity, which strips the wrapper. True nullable formals keep root lineage,
+borrowed outputs keep their loan path, scalars cannot acquire owned authority, and changed payload masks
+remain effective. Existing nullable fabrication/overwrite controls and production create_execution
+exercise source/import transport and unwrap. Avoid a second ownership-composition implementation.
+
+Snapshot repair contract: a checked initialized aggregate keeps its supplied destination owner while
+reanchoring actual children. A tag-only constructed base describes contents and cannot erase that owner.
+Unknown children stay unknown, borrowed children retain their loans, and inactive alternatives contribute
+no fabricated ownership. RunResult/Stored currently loses the nested future at this transition before
+consume matching. Repair owned_snapshot using its existing identity, with no new state representation.
+The repair passes all 559 checker tests and the deferred union in source/import modes. Four other
+deferred positives still fail. Existing nullable and fabrication controls remain regression oracles.
+Reconsider if destination identity is not authoritative at any caller.
+
+Cleanup-selection contract: cancellation and lifecycle must consume the same checked definitely-absent
+paths. Lifecycle replay already uses StorageExitDecision.definitely_absent, but cancellation omitted it
+and reconstructed initialization from its weaker execution state. Exact moves populate those paths,
+joins intersect them, and broadcast preserves them before the directly following lifecycle snapshot.
+Share the part-presence check using live storage facts during collection and the published exit during
+replay. Unknown/maybe-moved paths must still select conditional cleanup. Preserve part identities,
+mutation lookup assertions, normal/abnormal paths, replacements and sibling cleanup. No new move-event
+registry, reconstructed path or missing-mutation fallback. Existing native-thread partial move,
+production storage, conditional cleanup and frozen source/import controls bound this change.
 Conditional stores, multiple referents, pop/remaining contents, overwrite and retirement have memory-level
 controls. Real source/import composition for conditional stores and pop with another retained owner remains
 unverified. Keep that exclusion visible while closing the contract.

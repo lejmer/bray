@@ -358,9 +358,12 @@ pub(crate) fn owned_snapshot(
             ExecutionCondition::owned_value(identity, data)
         }
         crate::ExecutionConditionKind::Constructed(base, fields) => {
-            let base = if **base == ExecutionCondition::unknown() { identity } else { owned_snapshot(base, identity, budget) };
+            let base = if **base == ExecutionCondition::unknown() { identity.clone() } else { owned_snapshot(base, identity.clone(), budget) };
 
+            // A tag describes contents. Its initialized fields still belong to the supplied owner.
             let parent = base.ownership_identity().filter(|(role, _)| *role == ObservationKind::Owned)
+                .or_else(|| matches!(base.kind(), crate::ExecutionConditionKind::Tagged(..))
+                    .then(|| identity.ownership_identity().filter(|(role, _)| *role == ObservationKind::Owned)).flatten())
                 .map(|(_, owner)| owner.clone()).unwrap_or_else(ExecutionCondition::unknown);
 
             let fields = fields
