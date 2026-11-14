@@ -109,18 +109,24 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
             continue;
         }
 
-        for (transfer, cases) in contract.owned_result().guarded_transfers() {
+        let decode_input = |term| {
             let decoded = crate::execution_condition_from_type_term(
-                    domain.request.semantic_values(),
-                    transfer.input(),
-                    contract.input_count(),
-                )
-                .expect("checked owned input decodes in the same semantic store");
+                domain.request.semantic_values(), term, contract.input_count(),
+            ).expect("checked owned input decodes in the same semantic store");
 
-            let crate::ExecutionConditionKind::Input(input) = decoded.kind()
-            else {
+            let crate::ExecutionConditionKind::Input(input) = decoded.kind() else {
                 unreachable!("checked ownership source contains only input projections");
             };
+
+            // The transfer walk retains the formal path after its decoded condition is released.
+            input.clone()
+        };
+
+        let complete = contract.owned_result().guaranteed_transfers().into_iter()
+            .map(|transfer| (decode_input(transfer.input()), transfer)).collect::<Vec<_>>();
+
+        for (transfer, cases) in contract.owned_result().guarded_transfers() {
+            let input = decode_input(transfer.input());
 
             let root = crate::ExecutionPlace {
                 root: input.root.clone(),
@@ -141,6 +147,12 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                     })
                     && input.projections[index..].iter().any(|projection| {
                         *projection != bray_symbols::ConstantProjectionKind::NullableValue
+                    })
+                    && !complete.iter().any(|(owner, returned)| {
+                        // A child annotation within the same complete returned carrier is not separation.
+                        owner.contains(&input) && owner.projections.len() <= index
+                            && transfer.output().strip_prefix(returned.output())
+                                == Some(&input.projections[owner.projections.len()..])
                     })
                     && !independent_result_owner(domain, invocation, entry, transfer,
                         &input, witness.expect("a partial witness retains its owning contract"))

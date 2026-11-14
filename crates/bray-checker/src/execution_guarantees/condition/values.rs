@@ -278,6 +278,12 @@ impl ExecutionCondition {
         // reference retains access to that context without acquiring ownership.
         let previous = self.clone().into_referent();
 
+        if previous.has_same_owner(&contents)
+            && super::retained::RetainedSnapshots::same_contents(&previous, &contents)
+        {
+            return self.clone();
+        }
+
         let contents = match previous.kind() {
             K::Observation { owner, kind: kind @ (ObservationKind::Owned | ObservationKind::Scalar), .. } => {
                 Self::observation(owner.as_ref().clone(), contents, *kind)

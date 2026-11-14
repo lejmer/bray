@@ -57,9 +57,13 @@ fn rewritten_raw_pointer_fields_publish_opaque_output_identities() {
 
 #[test]
 fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
-    for transport in [false, true] {
-    for (mutation, valid) in [("", true), ("carrier.payload.value = 1;", false)] {
-        let acquire = if transport { "forward(forward(make(&mut payload)))" } else { "make(&mut payload)" };
+    for (acquire, mutation, valid) in [
+        ("make(&mut payload)", "", true),
+        ("make(&mut payload)", "carrier.payload.value = 1;", false),
+        ("forward(forward(make(&mut payload)))", "", true),
+        ("forward(forward(make(&mut payload)))", "carrier.payload.value = 1;", false),
+        ("change(make(&mut payload))", "", false),
+    ] {
 
         let source = format!(
             r#"
@@ -72,7 +76,15 @@ fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
             {{
                 payload: &mut Payload;
             }}
-            func forward<T>(pos value: T) -> T {{ return value; }}
+            func forward<T>(pos value: T) -> T
+            {{
+                return value;
+            }}
+            func change(pos mut value: Carrier) -> Carrier
+            {{
+                value.payload.value = 1;
+                return value;
+            }}
             trusted predicate live(carrier: &Carrier);
             trusted func make(pos payload: &mut Payload) -> Carrier
                 ensures(trusted live(&result)) executes(pure, total)
@@ -83,7 +95,9 @@ fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
                 }};
             }}
             func observe(pos carrier: &Carrier)
-                requires(trusted live(carrier)) executes(pure, total) {{}}
+                requires(trusted live(carrier)) executes(pure, total)
+            {{
+            }}
             func caller()
             {{
                 let mut payload: Payload = {{ value = 0 }};
@@ -110,7 +124,6 @@ fn opaque_carrier_predicates_are_revoked_by_referent_mutation() {
             );
         }
     }
-}
 }
 
 #[test]

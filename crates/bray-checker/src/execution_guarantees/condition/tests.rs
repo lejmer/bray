@@ -681,7 +681,13 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
     let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
 
     assert_eq!(allocated.clone().project(bray_bound_tree::StorageProjection::OwnedTarget), backing);
-    assert_eq!(allocated.component(field), inline.component(field));
+    assert_eq!(allocated.clone().component(field), inline.clone().component(field));
+
+    let borrowed = allocated.clone().borrowed();
+    let stored = ExecutionCondition::owned_value(inline, allocated);
+
+    assert_eq!(borrowed.with_referent(stored), borrowed,
+        "refreshing unchanged reached contents must not invent a contents transition");
 
     let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
     let callable = crate::test_support::callable_instance(definition.into());

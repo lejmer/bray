@@ -9,6 +9,12 @@ use bray_symbols::{
 use super::super::flow::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
+/// Current returned values shared by every consumer of this completion's ownership layout.
+pub(super) type ReturnedValues = BTreeMap<
+    bray_symbols::DependencyOwnedTransfer,
+    (Vec<StorageProjection>, ExecutionCondition),
+>;
+
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis) fn reference_value_source(
         &self,
@@ -85,13 +91,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }).collect()
     }
 
-    pub(in crate::analysis::guarantee) fn returned_owned_values<'a>(
+    pub(super) fn prepare_returned_values(
         &self,
+        state: &mut super::super::state::ExecutionState,
         invocation: BoundExecutionSite,
+        output: Option<&ExecutionPlace>,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-        transfers: impl IntoIterator<Item = &'a bray_symbols::DependencyOwnedTransfer>,
-    ) -> Vec<(Vec<StorageProjection>, ExecutionCondition)> {
-        let mut fields = Vec::new();
+        completion: &bray_bound_tree::StorageCompletion,
+    ) -> ReturnedValues {
+        let mut fields = BTreeMap::new();
 
         let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
             return fields;
@@ -111,7 +119,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => false,
         };
 
-        for transfer in transfers {
+        for transfer in dependencies.owned_result().transfers() {
+            if fields.contains_key(transfer) { continue; }
+
             let input = crate::execution_condition_from_type_term(
                 self.request.semantic_values(),
                 transfer.input(),
@@ -145,11 +155,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 unreachable!("a checked ownership source names an input projection");
             };
 
+            // Whole inline preservation and absence of reached writes jointly retain
+            // this synchronous entry snapshot. A deferred entry can predate suspension.
+            let unchanged = !borrowed_result && !value.is_reference() && (transports_value
+                || dependencies.deferred_effects().is_none()
+                    && dependencies.preserves_storage_on_normal_return()
+                    && transfer.preservation() == &bray_symbols::DependencyValuePreservation::all());
+
             let value = if borrowed_result || value.is_reference() {
                 ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::unknown())
-            } else if transports_value {
-                // These checked conversions execute no callee. Their source is the
-                // already-evaluated value, not an opaque call's post-state.
+            } else if unchanged {
                 value
             } else {
                 let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
@@ -161,7 +176,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 value.with_current_contents(contents)
             };
 
-            fields.push((path, value));
+            // The selected child owns its output path while the enclosing completion keeps its root.
+            let destination = output.map(|output| output.clone().project(&path)
+                .expect("checked returned ownership has a portable output path"));
+
+            let value = if unchanged { value } else {
+                self.refresh_returned_references(state, destination.as_ref(), value, completion)
+            };
+
+            fields.insert(transfer.clone(), (path, value));
         }
 
         fields
@@ -173,6 +196,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut super::super::state::ExecutionState,
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        returned: &ReturnedValues,
         result: &ExecutionCondition,
     ) {
         use bray_bound_tree::BoundOperator;
@@ -209,8 +233,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![guard, condition])
                 });
 
-            for value in self.returned_owned_values(invocation, arguments, [transfer])
-                .iter().flat_map(|(_, value)| state.owned_values(value))
+            for value in returned.get(transfer).into_iter()
+                .flat_map(|(_, value)| state.owned_values(value))
             {
                 let owner = value.owner_identity().clone();
 
@@ -336,6 +360,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut super::super::state::ExecutionState,
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        returned: &ReturnedValues,
         result: &ExecutionCondition,
         outside: &std::collections::BTreeSet<ExecutionCondition>,
     ) {
@@ -346,19 +371,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let consumed = entry.retiring_witness_values().collect::<Vec<_>>();
 
-        let retained = self
-            .dependencies
-            .calls()
-            .get(&invocation)
-            .map(|dependencies| {
-                self.returned_owned_values(
-                    invocation,
-                    arguments,
-                    dependencies.owned_result().transfers(),
-                )
-            })
-            .unwrap_or_default()
-            .iter()
+        let retained = returned.values()
             .flat_map(|(_, value)| state.witness_values(value))
             .chain(state.witness_values(result))
             .chain(outside.iter().cloned())
@@ -462,6 +475,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut super::super::state::ExecutionState,
         mut result: ExecutionCondition,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        returned: &ReturnedValues,
         ownership: &bray_symbols::DependencyOwnedResult,
         outside: &std::collections::BTreeSet<ExecutionCondition>,
     ) -> Option<ExecutionCondition> {
@@ -496,7 +510,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 condition.assume(true, &mut state.assumptions);
 
-                self.complete_owned_result(invocation, state, result, arguments, layout, outside)
+                self.complete_owned_result(invocation, state, result, arguments, returned, layout, outside)
             }
             DependencyOwnedResult::Transfer(transfer) => {
                 let dependencies = &self.dependencies.calls()[&invocation];
@@ -523,7 +537,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 self.refine_witnesses(state);
 
-                let fields = self.returned_owned_values(invocation, arguments, [transfer]);
+                let fields = returned.get(transfer);
 
                 let decoded = crate::execution_condition_from_type_term(
                     self.request.semantic_values(), transfer.input(), dependencies.input_count(),
@@ -552,7 +566,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &mut |condition| Ok(Some(condition.clone())),
                     ).expect("returned ownership contents composition is infallible");
 
-                for (_, value) in &fields {
+                for (_, value) in fields {
                     let actual = DependencyOwnedResult::all([
                         ownership.clone(), state.owned_children_result(value),
                     ]);
@@ -561,7 +575,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     state.owned_results.insert(value.clone(), actual);
                 }
 
-                Some(construct(result, fields.into_iter().collect(), transfer.condition().is_none()))
+                Some(construct(result, fields.into_iter().cloned().collect(), transfer.condition().is_none()))
             }
             DependencyOwnedResult::All(values) => {
                 // Install containing owners first so explicit surviving child
@@ -580,18 +594,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .iter()
                             .enumerate()
                             .filter(|(other, _)| *other != index)
-                            .flat_map(|(_, sibling)| {
-                                self.returned_owned_values(
-                                    invocation,
-                                    arguments,
-                                    sibling.transfers(),
-                                )
-                            })
-                            .flat_map(|(_, value)| state.witness_values(&value).collect::<Vec<_>>()),
+                            .flat_map(|(_, sibling)| sibling.transfers())
+                            .filter_map(|transfer| returned.get(transfer))
+                            .flat_map(|(_, value)| state.witness_values(value)),
                     );
 
                     result = self.complete_owned_result(
-                        invocation, state, result, arguments, value, &retained,
+                        invocation, state, result, arguments, returned, value, &retained,
                     )?;
                 }
 
@@ -610,6 +619,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &mut branch,
                         root.clone(),
                         arguments,
+                        returned,
                         value,
                         outside,
                     ) else {
@@ -647,6 +657,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut super::super::state::ExecutionState,
         result: ExecutionCondition,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        returned: &ReturnedValues,
         outside: &std::collections::BTreeSet<ExecutionCondition>,
     ) -> ExecutionCondition {
         // Reference observations can add fields around this invocation's pending
@@ -689,6 +700,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state,
                 result,
                 arguments,
+                returned,
                 dependencies.owned_result(),
                 outside,
             )

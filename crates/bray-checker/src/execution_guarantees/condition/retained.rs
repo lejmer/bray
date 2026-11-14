@@ -84,7 +84,7 @@ impl RetainedSnapshots {
         })
     }
 
-    fn same_contents(left: &ExecutionCondition, right: &ExecutionCondition) -> bool {
+    pub(super) fn same_contents(left: &ExecutionCondition, right: &ExecutionCondition) -> bool {
         let left = Self::contents(left);
         let right = Self::contents(right);
 

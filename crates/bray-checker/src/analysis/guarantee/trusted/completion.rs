@@ -200,15 +200,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         completed.assumptions = entry.assumptions;
         completed.trusted_assumptions = entry.trusted_assumptions;
-        self.guard_returned_inputs(state, invocation, &entry.arguments, &result);
+
+        let returned = self.prepare_returned_values(state, invocation, output, &entry.arguments, observations);
+
+        self.guard_returned_inputs(state, invocation, &entry.arguments, &returned, &result);
 
         let outside = self.surviving_call_values(state, invocation);
 
-        self.retire_consumed_inputs(state, invocation, &entry.arguments, &result, &outside);
+        self.retire_consumed_inputs(state, invocation, &entry.arguments, &returned, &result, &outside);
 
         // Ownership leaves with the entry value. Borrowed completion clauses below
         // instead observe the storage contents left by the call.
-        let result = self.complete_returned_values(invocation, state, result, &entry.arguments, &outside);
+        let result = self.complete_returned_values(invocation, state, result, &entry.arguments, &returned, &outside);
 
         let mut arguments = entry.arguments;
 
@@ -359,23 +362,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        for guarantee in &guarantees {
-            let guarantee = instantiate(guarantee);
-
-            guarantee.assume_with(true, &mut |condition, holds| {
-                if condition.contains_trusted() {
-                    state.trusted_assumptions.insert((condition, holds));
-                } else {
-                    state.assumptions.insert((condition, holds));
-                }
-            });
-        }
-
-        for postcondition in &postconditions {
-            let condition = instantiate(postcondition);
-
-            condition.assume(true, &mut state.assumptions);
-        }
+        assume_completion(state, guarantees.iter().map(&instantiate), postconditions.iter().map(&instantiate));
 
         (result, Some(arguments))
     }
@@ -558,5 +545,25 @@ mod admission_tests {
 
         assert!(assume_normal_entry(&mut completed,
             &[(ExecutionCondition::boolean(false), bray_symbols::PredicateDomain::Value)], &[], &Default::default()).is_none());
+    }
+}
+
+fn assume_completion(
+    state: &mut ExecutionState,
+    guarantees: impl Iterator<Item = ExecutionCondition>,
+    postconditions: impl Iterator<Item = ExecutionCondition>,
+) {
+    for guarantee in guarantees {
+        guarantee.assume_with(true, &mut |condition, holds| {
+            if condition.contains_trusted() {
+                state.trusted_assumptions.insert((condition, holds));
+            } else {
+                state.assumptions.insert((condition, holds));
+            }
+        });
+    }
+
+    for condition in postconditions {
+        condition.assume(true, &mut state.assumptions);
     }
 }
