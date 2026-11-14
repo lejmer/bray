@@ -347,9 +347,11 @@ impl<'a> ExecutionProof<'a> {
             let normalized = ordinary.apply(condition);
             let normalized = (normalized != *condition && normalized.contains_trusted()).then_some(normalized);
 
-            normalized.iter().chain(condition.observations().filter(|observed| {
-                known.establishes(observed)
-                    && (!observed.contains_trusted() || matches!(observed.kind(), crate::ExecutionConditionKind::Trusted(_)))
+            let established = std::iter::once(condition).chain(
+                condition.observations().skip(1).filter(|observed| known.establishes(observed)));
+
+            normalized.iter().chain(established.filter(|observed| {
+                (!observed.contains_trusted() || matches!(observed.kind(), crate::ExecutionConditionKind::Trusted(_)))
                     && Some(*observed) != normalized.as_ref()
             })).cloned().collect::<Vec<_>>().into()
         })

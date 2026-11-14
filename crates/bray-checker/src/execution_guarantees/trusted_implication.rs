@@ -97,8 +97,7 @@ fn propagate(
 ) {
     while let Some(id) = queue.pop_front() {
         let node = &graph.terms[id.0];
-        let derived = graph.derived(id, |child| terms[child.0].value);
-        let next = terms[id.0].asserted.or(derived);
+        let next = terms[id.0].asserted.or_else(|| graph.derived(id, |child| terms[child.0].value));
 
         if terms[id.0].value != next {
             terms[id.0].value = next;

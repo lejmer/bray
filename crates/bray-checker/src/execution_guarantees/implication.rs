@@ -47,17 +47,6 @@ pub(super) fn comparison_is_implied(
         ))
     };
 
-    let unequal = known(BoundOperator::NotEqual, left, right)
-        || known(BoundOperator::NotEqual, right, left)
-        || assumptions.contains(&(
-            ExecutionCondition::operation(BoundOperator::Equal, vec![left.clone(), right.clone()]),
-            false,
-        ))
-        || assumptions.contains(&(
-            ExecutionCondition::operation(BoundOperator::Equal, vec![right.clone(), left.clone()]),
-            false,
-        ));
-
     if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
         let strictly_ordered = [BoundOperator::Less, BoundOperator::Greater]
             .into_iter()
@@ -89,9 +78,22 @@ pub(super) fn comparison_is_implied(
         BoundOperator::GreaterEqual
     };
 
-    if known(strict, left, right)
-        || known(reversed, right, left)
-        || unequal && (known(weak, left, right) || known(reversed_weak, right, left))
+    if known(strict, left, right) || known(reversed, right, left) {
+        return Some(true);
+    }
+
+    let unequal = known(BoundOperator::NotEqual, left, right)
+        || known(BoundOperator::NotEqual, right, left)
+        || assumptions.contains(&(
+            ExecutionCondition::operation(BoundOperator::Equal, vec![left.clone(), right.clone()]),
+            false,
+        ))
+        || assumptions.contains(&(
+            ExecutionCondition::operation(BoundOperator::Equal, vec![right.clone(), left.clone()]),
+            false,
+        ));
+
+    if unequal && (known(weak, left, right) || known(reversed_weak, right, left))
         || allows_equal
             && (known(BoundOperator::Equal, left, right)
                 || known(BoundOperator::Equal, right, left))
