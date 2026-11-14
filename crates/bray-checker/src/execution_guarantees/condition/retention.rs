@@ -1,3 +1,4 @@
+use super::traversal::{NodeIdentity, visit_once};
 use super::{ExecutionCondition, ExecutionObservationKind as ObservationKind};
 use super::memo::{ConditionMemo, cached_condition};
 
@@ -92,10 +93,10 @@ impl Set {
 
         // Actual snapshots form a finite shared graph. Visit each value once so
         // unrelated roots cannot spend another value's structural work budget.
-        let mut visited = std::collections::BTreeSet::new();
+        let mut visited = std::collections::HashSet::new();
 
         while let Some(snapshot) = pending.pop() {
-            if !visited.insert(snapshot) {
+            if !visit_once(&mut visited, NodeIdentity(snapshot), !pending.is_empty()) {
                 continue;
             }
 

@@ -77,6 +77,29 @@ fn observation_walks_visit_shared_nodes_without_expanding_the_tree() {
     visits.set(0);
     assert!(!condition.observes_live_where(|_| true, |_| { visits.set(visits.get() + 1); false }));
     assert!(visits.get() <= 25, "live-value queries scale with the shared graph");
+
+    let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+
+    let owned = || {
+        let mut value = input(0);
+
+        for _ in 0..18 {
+            value = ExecutionCondition::Constructed(Arc::new(input(0)), Arc::from([
+                (bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)), value.clone()),
+                (bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)), value),
+            ]));
+        }
+
+        value
+    };
+
+    let snapshots = [1, 2].into_iter().map(|ordinal| ExecutionCondition::Observation {
+        owner: Arc::new(input(ordinal)), contents: Arc::new(owned()), kind: super::ExecutionObservationKind::Owned,
+    }).collect();
+
+    assert!(!super::ObservationSet::retains_owner(&snapshots, &input(99)),
+        "separately allocated equal DAGs must not expand into structural comparison trees");
+
 }
 
 #[test]

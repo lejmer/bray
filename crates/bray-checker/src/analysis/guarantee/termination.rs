@@ -569,7 +569,7 @@ fn loop_members<C: CheckerRequestContext + ?Sized>(
 fn finite_prefix<C: CheckerRequestContext + ?Sized>(
     flow: &ExecutionFlow<'_, '_, C>,
     ranks: &BTreeMap<AnalysisBlockId, (ExecutionPlace, Ordering)>,
-    exits: &[ExecutionState],
+    exits: &[&ExecutionState],
     cursor: &bray_bound_tree::StoragePath,
     suffix: bray_bound_tree::BoundExecutionSite,
 ) -> bool {
