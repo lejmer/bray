@@ -35,26 +35,28 @@ Constructed bases are lineage, not separately retained data. Before/after checks
 Retirement, scalar preservation, private inputs, cleanup, mutation masks and borrowed carriers reuse these indexes.
 The old static query API and repeated graph walk are removed. No proof rule or authority publication changes.
 
-All 548 checker controls pass. The existing retained-owner/projected-contents test checks index invalidation after
-inserting a new actual snapshot. Fixed five twice with counters compiled but disabled: task cases 130-163 ms,
-loop 272/271 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 273-293 ms.
-Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.4 seconds.
-The batch adds 27 nonblank production lines and removes one test line, with no new test cases.
-Style retains the same six errors: wildcard flow/invalidation and oversized flow/merge, storage_flow cleanup/core,
-execution_guarantees/portable and tooling output/diagnostic/json/argument. Format and diff checks pass.
+BooleanGraph consumes the ConditionIndex's existing child IDs and shares immutable nodes. It no longer recursively
+re-interns children. Node truth, published polarity, ordinary/trusted roles and query results stay scope-local.
+Child projection/order and relational fallbacks are unchanged. No index lock spans graph recursion.
 
-Complete count is 5,843,928: ordering 3,324,995, equality 1,196,293, identity 573,941, interning 748,699.
-Retention falls from about 405k to 180k operations. Its 5,836 index preparations cost 8,755 comparisons.
-The caller has 198 CFG blocks and two required storage solves with 271 transfers each. It still has 11,453
-indexed condition nodes across indices, 836 evidence scopes and 24,482 proof queries. Witness refinement produces
-9,528 queries and about 1.09M operations. Boolean derivation costs 1.23M. These stage costs overlap.
-Do not sum them. 8,065 indexed operation nodes remain far beyond the source operations.
+All 548 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 134-137 ms,
+loop 270/271 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 272-299 ms.
+Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.7 seconds. No full matrices ran.
+This batch adds six nonblank production lines, with no new tests. Existing graph, collision, authority, budget
+and parallel controls cover the changed representation. Style retains the same six errors: wildcard flow/invalidation
+and oversized flow/merge, storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.
+Format and diff checks pass.
+
+Complete count is 5,693,326: ordering 3,345,601, equality 1,115,814, identity 567,885, interning 664,026.
+Boolean derivation costs 1.08M. The caller has 198 CFG blocks and two required storage solves with 271 transfers
+each. It still has 11,453 indexed condition nodes, 836 evidence scopes and 24,482 proof queries. Witness refinement
+produces 9,528 queries. These stage costs overlap. Do not sum them. 8,065 indexed operation nodes remain far beyond
+the source operations. The count target is not met. Next investigate clause multiplication at joins and refinement.
 
 Do not replace semantic query keys with physical-only keys. Equal rebuilt clauses then repeat inference.
 Do not intern every rewritten output merely to share representatives. Extra indexing exceeded the saved work.
-Next read-only boundary: BooleanGraph re-interns conditions while building each scope, although ConditionIndex
-already retains their exact identities and children. Trace all graph consumers before changing that representation.
-The remaining goal needs less repeated clause processing too, not only cheaper lookups.
+Before semantic changes, close the contract for guards, carrier authority, dependencies, availability and budget
+behavior. Skipping witness refinement solely because its carrier did not change is not sufficient.
 
 Temporary probes are removed. Complete counts are in proof-count-current.json and reusable hooks are in
 proof-counter.patch. Build with probes for performance batches, then build without them for final goal evidence.

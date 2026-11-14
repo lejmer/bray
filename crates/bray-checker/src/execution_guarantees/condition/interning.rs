@@ -7,9 +7,9 @@ use super::{ExecutionCondition, storage_key::{StorageKey, StorageLookup}};
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(in crate::execution_guarantees) struct ConditionId(usize);
 
-struct Node {
-    condition: ExecutionCondition,
-    children: Vec<ConditionId>,
+pub(in crate::execution_guarantees) struct ConditionNode {
+    pub(in crate::execution_guarantees) value: ExecutionCondition,
+    pub(in crate::execution_guarantees) children: Vec<ConditionId>,
 }
 
 /// Structural identity is prepared once per retained allocation, using already
@@ -18,7 +18,7 @@ struct Node {
 struct Conditions {
     storage: HashMap<StorageKey, ConditionId>,
     buckets: HashMap<u64, Vec<ConditionId>>,
-    nodes: Vec<Node>,
+    nodes: Vec<Arc<ConditionNode>>,
     #[cfg(test)]
     collide: bool,
 }
@@ -47,12 +47,12 @@ impl Conditions {
         let id = bucket.iter().copied().find(|id| {
             let candidate = &self.nodes[id.0];
 
-            candidate.children == children && candidate.condition.eq_parts(condition, &mut |_, _| true)
+            candidate.children == children && candidate.value.eq_parts(condition, &mut |_, _| true)
         }).unwrap_or_else(|| {
             let id = ConditionId(self.nodes.len());
 
             // The index owns root fields and shares immutable source operands.
-            self.nodes.push(Node { condition: condition.clone(), children });
+            self.nodes.push(Arc::new(ConditionNode { value: condition.clone(), children }));
             bucket.push(id);
 
             id
@@ -71,6 +71,10 @@ pub(crate) struct ConditionIndex(Arc<Mutex<Conditions>>);
 impl ConditionIndex {
     pub(in crate::execution_guarantees) fn intern(&self, condition: &ExecutionCondition) -> ConditionId {
         self.0.lock().expect("condition index lock is not poisoned").intern(condition)
+    }
+
+    pub(in crate::execution_guarantees) fn node(&self, id: ConditionId) -> Arc<ConditionNode> {
+        Arc::clone(&self.0.lock().expect("condition index lock is not poisoned").nodes[id.0])
     }
 
     pub(in crate::execution_guarantees) fn map<T>(&self) -> ConditionMap<T> {

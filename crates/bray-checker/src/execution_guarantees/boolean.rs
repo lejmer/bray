@@ -1,16 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use bray_bound_tree::BoundOperator;
 
 use super::ExecutionCondition;
-use super::condition::{ConditionId, ConditionIndex, ConditionMemo, cached_condition};
+use super::condition::{ConditionId, ConditionIndex, ConditionMemo, ConditionNode, cached_condition};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct BooleanId(pub(super) usize);
 
 pub(super) struct BooleanTerm {
-    pub(super) condition: ExecutionCondition,
+    pub(super) condition: Arc<ConditionNode>,
     pub(super) children: Vec<BooleanId>,
     pub(super) parents: Vec<BooleanId>,
     pub(super) published: Option<bool>,
@@ -33,7 +33,8 @@ impl BooleanGraph {
 
         for ((condition, holds), qualified) in trusted.iter().map(|fact| (fact, true)).chain(ordinary.iter().map(|fact| (fact, false))) {
             if alternative_value(condition) == Some(*holds) && (qualified || !condition.contains_trusted()) {
-                let id = graph.intern(condition);
+                let key = graph.conditions.intern(condition);
+                let id = graph.intern(key);
 
                 graph.terms[id.0].published = Some(*holds);
             }
@@ -42,24 +43,25 @@ impl BooleanGraph {
         graph
     }
 
-    fn intern(&mut self, condition: &ExecutionCondition) -> BooleanId {
-        let key = self.conditions.intern(condition);
-
+    fn intern(&mut self, key: ConditionId) -> BooleanId {
         if let Some(id) = self.indices.get(&key) { return *id; }
 
-        let children = match condition {
-            ExecutionCondition::Operation(BoundOperator::LogicalNot, operands) if let [value] = operands.as_ref() => vec![self.intern(value)],
-            ExecutionCondition::Operation(BoundOperator::LogicalAnd | BoundOperator::LogicalOr, operands)
-                if let [left, right] = operands.as_ref() => vec![self.intern(left), self.intern(right)],
-            ExecutionCondition::ValueAlias(left, right) => vec![self.intern(left), self.intern(right)],
-            ExecutionCondition::Entry { condition, .. } | ExecutionCondition::Borrowed(condition) => vec![self.intern(condition)],
-            ExecutionCondition::Observation { owner, contents, .. } => {
-                self.intern(owner);
+        let condition = self.conditions.node(key);
+        let children = &condition.children;
 
-                vec![self.intern(contents)]
+        let children = match &condition.value {
+            ExecutionCondition::Operation(BoundOperator::LogicalNot, _) if children.len() == 1 => vec![self.intern(children[0])],
+            ExecutionCondition::Operation(BoundOperator::LogicalAnd | BoundOperator::LogicalOr, _) if children.len() == 2 =>
+                vec![self.intern(children[0]), self.intern(children[1])],
+            ExecutionCondition::ValueAlias(..) => vec![self.intern(children[0]), self.intern(children[1])],
+            ExecutionCondition::Entry { .. } | ExecutionCondition::Borrowed(_) => vec![self.intern(children[0])],
+            ExecutionCondition::Observation { .. } => {
+                self.intern(children[0]);
+
+                vec![self.intern(children[1])]
             }
-            ExecutionCondition::Trusted(condition) => {
-                self.intern(condition);
+            ExecutionCondition::Trusted(_) => {
+                self.intern(children[0]);
 
                 Vec::new()
             }
@@ -72,9 +74,9 @@ impl BooleanGraph {
 
         self.indices.insert(key, id);
 
-        // Terms keep source operands while structural identity is shared with other queries.
+        // The immutable structural node is shared. Scope-specific facts stay on this graph.
         self.terms.push(BooleanTerm {
-            condition: condition.clone(), children, parents: Vec::new(), published: None,
+            condition, children, parents: Vec::new(), published: None,
         });
 
         id
@@ -101,7 +103,7 @@ impl BooleanGraph {
     pub(super) fn derived(&self, id: BooleanId, value: impl Fn(BooleanId) -> Option<bool>) -> Option<bool> {
         let term = &self.terms[id.0];
 
-        match (&term.condition, term.children.as_slice()) {
+        match (&term.condition.value, term.children.as_slice()) {
             (ExecutionCondition::Boolean(value), _) => Some(*value),
             (ExecutionCondition::Operation(BoundOperator::LogicalNot, _), [child]) => value(*child).map(|value| !value),
             (ExecutionCondition::Entry { .. } | ExecutionCondition::Observation { .. } | ExecutionCondition::Borrowed(_), [child]) => value(*child),
@@ -117,7 +119,7 @@ impl BooleanGraph {
 
         let [left, right] = term.children.as_slice() else { return [None, None]; };
 
-        if matches!(term.condition, ExecutionCondition::ValueAlias(_, _)) && held {
+        if matches!(term.condition.value, ExecutionCondition::ValueAlias(_, _)) && held {
             return [value(*left).map(|value| (*right, value)), value(*right).map(|value| (*left, value))];
         }
 
@@ -197,7 +199,7 @@ impl AlternativeProof {
 
         // Children precede parents. Intrinsic values need preparation only once per view.
         for (index, term) in graph.terms.iter().enumerate() {
-            for subject in related_subjects(&term.condition) {
+            for subject in related_subjects(&term.condition.value) {
                 // Subject identities share structure without sharing established facts.
                 related.entry(graph.conditions.intern(subject)).or_default().push(BooleanId(index));
             }
@@ -262,13 +264,13 @@ impl<'a> AlternativeQuery<'a> {
             let proof = self.proof;
             let term = &proof.graph.terms[id.0];
 
-            let value = if let ExecutionCondition::Boolean(value) = &term.condition {
+            let value = if let ExecutionCondition::Boolean(value) = &term.condition.value {
                 Some(*value)
             } else if let Some(value) = asserted {
                 Some(value)
             } else {
                 self.proof.graph.derived(id, |child| self.value(child)).or_else(|| {
-                    term.children.is_empty().then(|| term.condition.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT })).flatten()
+                    term.children.is_empty().then(|| term.condition.value.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT })).flatten()
                 })
             };
 
@@ -284,11 +286,11 @@ impl<'a> AlternativeQuery<'a> {
 
             // Only an established ordinary data correspondence can extend the hypothesis.
             // Never infer alias identity merely because two conditions have matching truth.
-            let copied = if matches!(term.condition, ExecutionCondition::ValueAlias(_, _)) && term.published == Some(true) {
+            let copied = if matches!(term.condition.value, ExecutionCondition::ValueAlias(_, _)) && term.published == Some(true) {
                 self.proof.graph.consequences(id, true, |child| self.value(child)).map(|copy| {
                     copy.filter(|(child, _)| self.value(*child).is_none()).map(|(child, value)| {
                         // The hypothesis owns these fact keys while operands stay shared with the graph.
-                        (self.proof.graph.terms[child.0].condition.clone(), value)
+                        (self.proof.graph.terms[child.0].condition.value.clone(), value)
                     })
                 })
             } else { [None, None] };
@@ -310,7 +312,7 @@ impl<'a> AlternativeQuery<'a> {
             let term = &self.proof.graph.terms[id.0];
             let held = term.published.expect("implication candidates have an asserted alternative");
 
-            term.condition.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT })
+            term.condition.value.prove(&contrary, &mut { ExecutionCondition::WORK_LIMIT })
                 == Some(!held)
         })
     }
@@ -323,7 +325,7 @@ impl<'a> AlternativeQuery<'a> {
     }
 
     fn seed(&mut self, condition: &ExecutionCondition, held: bool) {
-        if let Some(id) = self.proof.graph.find(condition) && !self.proof.graph.terms[id.0].condition.contains_unknown() {
+        if let Some(id) = self.proof.graph.find(condition) && !self.proof.graph.terms[id.0].condition.value.contains_unknown() {
             self.assert(id, held);
         }
 
