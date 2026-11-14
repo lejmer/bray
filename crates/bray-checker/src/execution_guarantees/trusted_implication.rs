@@ -16,16 +16,20 @@ pub(crate) fn trusted_condition_closure(
     known: BTreeSet<(ExecutionCondition, bool)>,
     ordinary: &BTreeSet<(ExecutionCondition, bool)>,
 ) -> BTreeSet<(ExecutionCondition, bool)> {
-    prepare_trusted_conditions(known, ordinary, ConditionIndex::default()).0
+    let index = ConditionIndex::default();
+    let memo = ProofMemo::new(&index);
+
+    prepare_trusted_conditions(known, ordinary, index, memo.single_views()).0
 }
 
 pub(super) fn prepare_trusted_conditions(
     mut known: BTreeSet<(ExecutionCondition, bool)>,
     ordinary: &BTreeSet<(ExecutionCondition, bool)>,
     index: ConditionIndex,
+    single: &[std::sync::Arc<ProofMemo>; 2],
 ) -> (BTreeSet<(ExecutionCondition, bool)>, BooleanGraph) {
-    let trusted_proof = ProofMemo::new(&index);
-    let ordinary_proof = ProofMemo::new(&index);
+    let [trusted_proof, ordinary_proof] = single;
+
     let mut graph = BooleanGraph::new(&known, ordinary, index);
     let mut terms = (0..graph.terms.len()).map(|_| ProofTerm::default()).collect::<Vec<_>>();
     let mut queue = VecDeque::new();
@@ -54,9 +58,9 @@ pub(super) fn prepare_trusted_conditions(
             ExecutionCondition::Operation(..) | ExecutionCondition::VariantTest(..) => {
                 // Relational inference keeps its original source precedence and work budget.
                 trusted.filter(|_| !condition.contains_unknown())
-                    .or_else(|| condition.prove_with_memo(&known, &mut { ExecutionCondition::WORK_LIMIT }, Some(&trusted_proof)))
+                    .or_else(|| condition.prove_with_memo(&known, &mut { ExecutionCondition::WORK_LIMIT }, Some(trusted_proof)))
                     .or_else(|| unqualified.filter(|_| !condition.contains_unknown()))
-                    .or_else(|| condition.prove_with_memo(ordinary, &mut { ExecutionCondition::WORK_LIMIT }, Some(&ordinary_proof)))
+                    .or_else(|| condition.prove_with_memo(ordinary, &mut { ExecutionCondition::WORK_LIMIT }, Some(ordinary_proof)))
             }
             // Other graph leaves have no inference rule beyond their explicit evidence.
             _ => trusted.or(unqualified).filter(|_| !condition.contains_unknown()),

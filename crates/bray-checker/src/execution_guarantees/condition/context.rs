@@ -14,7 +14,7 @@ pub(in crate::execution_guarantees) struct ProofMemo {
     pub(super) queries: ExecutionMemo<Option<bool>>,
     index: ConditionIndex,
     explicit: OnceLock<ConditionMap<bool>>,
-    single: OnceLock<Box<[ProofMemo; 2]>>,
+    single: OnceLock<[Arc<ProofMemo>; 2]>,
     ordered: OnceLock<crate::execution_guarantees::ordered_facts::OrderedFacts>,
 }
 
@@ -27,9 +27,13 @@ impl ProofMemo {
         self.ordered.get_or_init(|| crate::execution_guarantees::ordered_facts::OrderedFacts::new(facts, &self.index))
     }
 
-    /// Mixed inference can consult each input separately without sharing their answers.
-    pub(super) fn single_views(&self) -> &[Self; 2] {
-        self.single.get_or_init(|| Box::new([Self::new(&self.index), Self::new(&self.index)]))
+    /// Raw queries share only exactly equal input sets, independently of mixed proof roles.
+    pub(in crate::execution_guarantees) fn single_views(&self) -> &[Arc<Self>; 2] {
+        self.single.get_or_init(|| std::array::from_fn(|_| Arc::new(Self::new(&self.index))))
+    }
+
+    fn with_single(index: &ConditionIndex, single: [Arc<Self>; 2]) -> Self {
+        Self { single: OnceLock::from(single), ..Self::new(index) }
     }
 
     pub(super) fn explicit_value(&self, condition: &ExecutionCondition, trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: Option<&BTreeSet<(ExecutionCondition, bool)>>) -> Option<bool> {
@@ -58,11 +62,14 @@ struct DerivedFacts {
 }
 
 impl DerivedFacts {
-    fn new(trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: &BTreeSet<(ExecutionCondition, bool)>, index: &ConditionIndex) -> Self {
+    fn new(trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: &BTreeSet<(ExecutionCondition, bool)>, index: &ConditionIndex, single: &[Arc<ProofMemo>; 2]) -> Self {
         // Preparation owns expanded facts, sharing immutable condition operands with the inputs.
-        let (conditions, graph) = crate::execution_guarantees::trusted_implication::prepare_trusted_conditions(trusted.clone(), ordinary, index.clone());
+        let (conditions, graph) = crate::execution_guarantees::trusted_implication::prepare_trusted_conditions(trusted.clone(), ordinary, index.clone(), single);
 
-        Self { conditions, mixed: ProofMemo::new(index), alternatives: AlternativeProof::new(graph), guards: OnceLock::new(), positive: OnceLock::new(), refined: Mutex::new(index.map()) }
+        // Closure changes the trusted premises. Its ordinary input remains exactly the same.
+        let mixed = ProofMemo::with_single(index, [Arc::new(ProofMemo::new(index)), Arc::clone(&single[1])]);
+
+        Self { conditions, mixed, alternatives: AlternativeProof::new(graph), guards: OnceLock::new(), positive: OnceLock::new(), refined: Mutex::new(index.map()) }
     }
 
     fn establishes(&self, condition: &ExecutionCondition) -> bool {
@@ -86,19 +93,19 @@ struct PreparedFacts {
     ordinary: ExecutionAssumptions,
     direct: ProofMemo,
     equalities: Mutex<HashMap<Option<bray_bound_tree::BoundExpressionId>, Arc<BTreeMap<ExecutionCondition, ExecutionCondition>>>>,
-    requested: ProofMemo,
+    requested: ExecutionMemo<Option<bool>>,
     trusted_results: ConditionMemo<Option<bool>>,
     derived: OnceLock<DerivedFacts>,
 }
 
 impl PreparedFacts {
-    fn new(trusted: ExecutionAssumptions, ordinary: ExecutionAssumptions, index: &ConditionIndex) -> Self {
+    fn new(trusted: ExecutionAssumptions, ordinary: ExecutionAssumptions, index: &ConditionIndex, single: [Arc<ProofMemo>; 2]) -> Self {
         // One exact snapshot owns all pure query memos and their lazy Boolean closure.
-        Self { witnesses: Mutex::default(), index: index.clone(), trusted, ordinary, direct: ProofMemo::new(index), equalities: Mutex::default(), requested: ProofMemo::new(index), trusted_results: Mutex::new(index.map()), derived: OnceLock::new() }
+        Self { witnesses: Mutex::default(), index: index.clone(), trusted, ordinary, direct: ProofMemo::with_single(index, single), equalities: Mutex::default(), requested: ExecutionMemo::new(index), trusted_results: Mutex::new(index.map()), derived: OnceLock::new() }
     }
 
     fn derived(&self) -> &DerivedFacts {
-        self.derived.get_or_init(|| DerivedFacts::new(&self.trusted, &self.ordinary, &self.index))
+        self.derived.get_or_init(|| DerivedFacts::new(&self.trusted, &self.ordinary, &self.index, self.direct.single_views()))
     }
 }
 
@@ -106,8 +113,9 @@ impl PreparedFacts {
 #[derive(Default)]
 pub(crate) struct ExecutionProofCache {
     pub(crate) conditions: ConditionIndex,
-    facts: Mutex<HashMap<[Vec<(ConditionId, bool)>; 2], Arc<PreparedFacts>>>,
-    scopes: Mutex<HashMap<(usize, usize), (ExecutionAssumptions, ExecutionAssumptions, Arc<PreparedFacts>)>>,
+    facts: Mutex<HashMap<[usize; 2], Arc<PreparedFacts>>>,
+    inputs: Mutex<HashMap<Vec<(ConditionId, bool)>, Arc<ProofMemo>>>,
+    aliases: Mutex<HashMap<usize, (ExecutionAssumptions, Arc<ProofMemo>)>>,
 }
 
 impl std::fmt::Debug for ExecutionProofCache {
@@ -186,32 +194,35 @@ impl ExecutionProofCache {
         result
     }
 
-    fn prepare(&self, trusted: &ExecutionAssumptions, ordinary: &ExecutionAssumptions) -> Arc<PreparedFacts> {
-        let key = (trusted.storage_key(), ordinary.storage_key());
+    fn prepare_input(&self, input: &ExecutionAssumptions) -> Arc<ProofMemo> {
+        let storage = input.storage_key();
 
-        if let Some((_, _, prepared)) = self.scopes.lock().expect("proof scope index lock is not poisoned").get(&key) {
+        if let Some((_, prepared)) = self.aliases.lock().expect("proof input aliases lock is not poisoned").get(&storage) {
             return Arc::clone(prepared);
         }
 
-        // Both evidence roles and every polarity belong to this exact semantic key.
-        let inputs = [trusted, ordinary].map(|facts| facts.iter()
-            .map(|(condition, holds)| (self.conditions.intern(condition), *holds)).collect());
+        let key = input.iter().map(|(condition, holds)| (self.conditions.intern(condition), *holds)).collect();
 
-        let mut facts = self.facts.lock().expect("analysis proof cache lock is not poisoned");
+        let prepared = Arc::clone(self.inputs.lock().expect("proof input index lock is not poisoned")
+            .entry(key).or_insert_with(|| Arc::new(ProofMemo::new(&self.conditions))));
 
-        let prepared = Arc::clone(facts.entry(inputs).or_insert_with(|| {
-            Arc::new(PreparedFacts::new(trusted.clone(), ordinary.clone(), &self.conditions))
-        }));
-
-        drop(facts);
-
-        // Keep the exact roots alive. Updates detach from them, and their addresses cannot be reused.
-        // Different allocations with equal contents point to the same existing preparation.
-        self.scopes.lock().expect("proof scope index lock is not poisoned")
-            .insert(key, (trusted.clone(), ordinary.clone(), Arc::clone(&prepared)));
+        // Retain every physical alias, including equal independently allocated inputs.
+        self.aliases.lock().expect("proof input aliases lock is not poisoned")
+            .insert(storage, (input.clone(), Arc::clone(&prepared)));
 
         prepared
     }
+
+    fn prepare(&self, trusted: &ExecutionAssumptions, ordinary: &ExecutionAssumptions) -> Arc<PreparedFacts> {
+        let single = [trusted, ordinary].map(|input| self.prepare_input(input));
+        let key = single.each_ref().map(|input| Arc::as_ptr(input).addr());
+
+        // Canonical raw inputs carry no mixed result. Their ordered pair fixes both evidence roles.
+        Arc::clone(self.facts.lock().expect("analysis proof cache lock is not poisoned")
+            .entry(key).or_insert_with(|| Arc::new(PreparedFacts::new(
+                trusted.clone(), ordinary.clone(), &self.conditions, single))))
+    }
+
 }
 
 /// Proof preparation belongs to these exact immutable evidence sets.
@@ -279,7 +290,7 @@ impl<'a> ExecutionProof<'a> {
     }
 
     fn prove_trusted_inner(&self, condition: &ExecutionCondition) -> Option<bool> {
-        if let Some(value) = condition.explicit_value(self.trusted, None, self.cache.map(|_| &self.facts().direct.single_views()[0])) {
+        if let Some(value) = condition.explicit_value(self.trusted, None, self.cache.map(|_| self.facts().direct.single_views()[0].as_ref())) {
             return Some(value);
         }
 
@@ -299,7 +310,7 @@ impl<'a> ExecutionProof<'a> {
             return self.prove_mixed_inner(condition, budget);
         }
 
-        memoized(Some(&self.facts().requested.queries), condition, budget, |budget| self.prove_mixed_inner(condition, budget))
+        memoized(Some(&self.facts().requested), condition, budget, |budget| self.prove_mixed_inner(condition, budget))
     }
 
     /// Evaluate the original inputs without Boolean closure or alternative inference.
@@ -310,7 +321,7 @@ impl<'a> ExecutionProof<'a> {
 
     fn prove_mixed_inner(&self, condition: &ExecutionCondition, budget: &mut usize) -> Option<bool> {
 
-        if let Some(value) = condition.explicit_value(self.trusted, Some(self.ordinary), self.cache.map(|_| &self.facts().requested)) {
+        if let Some(value) = condition.explicit_value(self.trusted, Some(self.ordinary), self.cache.map(|_| &self.facts().direct)) {
             *budget -= 1;
 
             return Some(value);
@@ -358,7 +369,10 @@ impl<'a> ExecutionProof<'a> {
         self.prepared.get_or_init(|| {
             if let Some((cache, trusted, ordinary)) = self.cache { return cache.prepare(trusted, ordinary); }
 
-            Arc::new(PreparedFacts::new(self.trusted.clone().into(), self.ordinary.clone().into(), &ConditionIndex::default()))
+            let index = ConditionIndex::default();
+            let single = std::array::from_fn(|_| Arc::new(ProofMemo::new(&index)));
+
+            Arc::new(PreparedFacts::new(self.trusted.clone().into(), self.ordinary.clone().into(), &index, single))
         })
     }
 
@@ -512,6 +526,37 @@ mod tests {
         assert!(!changed_inputs.shares_storage(&ordinary));
         assert_ne!(cache.proof(&facts, &changed_inputs).prove_trusted(&claim), Some(true));
         assert_eq!(proof.prove_trusted(&claim), Some(true), "updating a clone cannot mutate cached authority");
+
+        let inactive = cache.proof(&facts, &changed_inputs);
+        let reversed = cache.proof(&ordinary, &facts);
+        let mut extra_facts = facts.clone();
+
+        extra_facts.insert((ExecutionCondition::Trusted(Arc::new(input(7))), true));
+
+        let extra = cache.proof(&extra_facts, &ordinary);
+        let raw = prepared.direct.single_views();
+
+        assert!(Arc::ptr_eq(&raw[0], &inactive.facts().direct.single_views()[0]), "unchanged trusted input shares its raw queries");
+        assert!(!Arc::ptr_eq(&raw[1], &inactive.facts().direct.single_views()[1]), "changed guard polarity creates a new raw input");
+        assert!(Arc::ptr_eq(&raw[1], &extra.facts().direct.single_views()[1]), "unchanged ordinary input shares its raw queries");
+        assert!(Arc::ptr_eq(&raw[0], &reversed.facts().direct.single_views()[1]));
+        assert_ne!(reversed.prove_trusted(&claim), Some(true), "raw input reuse cannot transfer mixed evidence roles");
+
+        for (trusted, ordinary) in [(&facts, &changed_inputs), (&extra_facts, &ordinary), (&ordinary, &facts)] {
+            let cached = cache.proof(trusted, ordinary);
+            let reference = super::ExecutionProof::new(trusted, ordinary);
+
+            for goal in [&clause, &claim, &guard] {
+                for incoming in (0..=ExecutionCondition::WORK_LIMIT).chain([1, 2]) {
+                    let mut expected_budget = incoming;
+                    let mut actual_budget = incoming;
+                    let expected = reference.prove_mixed(goal, &mut expected_budget);
+
+                    assert_eq!(cached.prove_mixed(goal, &mut actual_budget), expected);
+                    assert_eq!(actual_budget, expected_budget, "shared raw queries retain work costs in each mixed scope");
+                }
+            }
+        }
 
         let observations = proof.refined_observations(&clause);
 
