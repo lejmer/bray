@@ -30,30 +30,33 @@ Checkpoint d50c12d1f retains actual cleanup parts and phases through cancellatio
 part-specific mutation identity. Wrapped futures retain capture effects, report dependencies and lifecycle
 retirement. All fixed controls pass at that checkpoint, with the same known RawBuffer invalid acceptance.
 
-Current batch replaces coarse shape buckets and whole-tree scope comparisons with exact ConditionId vectors.
-Both evidence roles and every polarity remain in the key. Physical aliases retain immutable source sets.
-All proof rules, semantic query memos, inference budgets and publication remain unchanged. Production shrinks
-24 lines. Existing role, changed-input, structural-collision, budget and parallel controls cover the rule.
-All 548 checker controls pass. One bounded instrumented loop preserves the intended rejection.
+Checkpoint 3a82eeb3b uses exact ConditionId vectors for evidence scopes, preserving trusted/ordinary roles and
+polarity. Current batch passes one ExecutionProof view through owning_conditions, pairing trusted proof with
+ordinary-only exclusion. State queries use state.proof(), entry queries use the exact entry inputs, and pending
+transfer filtering uses the ordinary-only view. Private admission still requires complete private carriers and
+publishes no truth. Potential result authority keeps its synthesized input scope. Normalized requirement and
+postcondition proofs and standalone evidence APIs remain separate. Original proof budgets are unchanged.
+The batch replaces local proof reconstruction, adds two production lines and no test machinery. All 548 checker
+controls pass with probes. Complete count is 6,287,164, only 0.6% below 3a82eeb3b. Timing with probes is 405 ms.
+Final uninstrumented tooling passes all 548 checker controls. Fixed five twice: task cases 130-142 ms, loop
+280/278 ms. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.5 seconds. Style has the
+same six existing errors. Format and diff checks pass. No new API, authority rule, diagnostic or fixture was added.
 
-Current full count is 6,326,796: ordering 3,178,399, equality 1,686,781, identity 597,381, interning 864,235.
-Scope matching falls from 477k to 188k. Hash collisions cause small process variation. Timing with probes is 415 ms.
-The operation target remains unmet. Final uninstrumented tooling passes all 548 checker controls.
-Fixed five twice: task cases 131-139 ms, loop 307/279 ms. Frozen30 remains 29 pass/same RawBuffer failure (12.7s).
-Mutating style has the same six existing errors: wildcard flow/invalidation and oversized flow/merge,
-storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument. Format passes.
+The caller has 198 CFG blocks and two required storage solves with 271 transfers each. Current counts show
+11,453 condition nodes across indices, 836 distinct evidence scopes, 3,286 rebuilt equivalent scopes and 24,482
+proof queries. Incoming states cost 1.69M, transfers 3.24M, publication 1.35M, conditional-fact synthesis 1.07M,
+derivation 1.23M and retirement 1.28M. Stages overlap, so do not sum them. These costs require fewer repeated
+queries and rewrites, not another broad cache. Ordinary uncached proof costs only 35k. Retained-only query keys
+were rejected because equal generated clauses often have different allocations and then repeat inference.
 
-The caller has 198 CFG blocks, two required storage solves with 271 transfers each, 12,129 condition nodes across
-indices, 835 distinct evidence scopes, 3,281 equivalent rebuilt scopes and 24,482 proof queries. Incoming states
-cost 1.70M, transfers 3.24M and publication 1.38M. Conditional-fact synthesis costs 1.07M within joins. Derivation costs
-1.24M and retirement 1.28M across these stages. Stages overlap. Do not sum them.
-Ordinary uncached proof costs only 35k. Do not add a cache there. Retained-only query keys were rejected because
-equal generated clauses often have different storage and then repeat inference. Semantic reuse is required.
-Next trace uncached ExecutionWitness::owning_conditions and body-level ExecutionProof::new consumers.
-State and entry scopes must use their exact respective inputs. Also audit redundant join proof requests for
-unchanged claims carried by both predecessors. Do not assume common storage identity implies common authority. Exact owners, guards, availability,
-address dependencies, entry scopes and normal-return transfer must survive. Preserve unknown/absent alternatives
-and finite evaluation retirement. Close the producer/consumer contract before changing this algorithm.
+Next diagnosis identifies public proof call sites and generated term kinds. Join synthesis currently revisits
+carriers whenever any current value joins. Retaining unchanged carrier results is a hypothesis, not an established
+shortcut: guards, substitutions, availability, address dependencies and captured entry scopes must all survive.
+Publication also replays operations for diagnostics, so solved final outputs alone cannot replace intermediate
+states. Do not prune terminal snapshots or ordinary facts without tracing later contract and guard consumers.
+Keep fixed identities, original rejection sites and authority rules. Reconsider any design with outcome drift,
+more counted work, mutable published state or speculative cache layers. No semantic join/retirement edits yet.
+
 Temporary probes are removed. Complete current counts are in proof-count-current.json and reusable instrumentation
 is proof-counter.patch. No full matrices. Continue after checkpoints.
 

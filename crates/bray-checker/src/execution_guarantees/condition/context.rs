@@ -236,6 +236,12 @@ impl<'a> ExecutionProof<'a> {
                 && self.proves_alternative(&contrary))
     }
 
+    /// Owning authority must require trusted evidence under this same ordinary scope.
+    pub(crate) fn owns_condition(&self, condition: &ExecutionCondition) -> bool {
+        self.prove_trusted(condition) == Some(true)
+            && condition.prove(self.ordinary, &mut { ExecutionCondition::WORK_LIMIT }) != Some(true)
+    }
+
     pub(crate) fn prove_trusted(&self, condition: &ExecutionCondition) -> Option<bool> {
         if self.cache.is_none() || matches!(condition, ExecutionCondition::Boolean(_)) {
             return self.prove_trusted_inner(condition);
