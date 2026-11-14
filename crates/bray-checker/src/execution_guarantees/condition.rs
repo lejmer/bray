@@ -7,6 +7,7 @@ mod interning;
 mod context;
 mod observations;
 mod retention;
+mod retained;
 mod proof;
 mod substitution;
 mod traversal;
@@ -19,6 +20,7 @@ mod tests;
 pub use model::{ExecutionCondition, ExecutionDescriptorKind, ExecutionObservationKind};
 
 pub(crate) use retention::Set as ObservationSet;
+pub(crate) use retained::RetainedSnapshots;
 pub(crate) use context::{ExecutionProof, ExecutionProofCache};
 pub(crate) use substitution::{ExecutionSubstitution, SnapshotSubstitution};
 

@@ -14,66 +14,51 @@ Preserve outcomes and rejection at observe(&value), source/import behavior, exac
 and entry-snapshot scopes, qualified polarity and original budget behavior. Unknowns, overwritten contents,
 borrowed prefixes and unavailable carriers grant nothing. Preserve authoritative empty ownership alternatives
 and cleanup-feasibility rounds. Published structures remain immutable. No reconstruction when retained results
-can serve consumers. No cache lock spans recursive work. Style only at completed-batch finalization.
+can serve consumers. No cache lock spans recursive inference. Style only at completed-batch finalization.
 
 ## Current implementation and evidence
 
-ConditionIndex shares exact structural identity independently of authority. Physical keys retain allocations.
-Query memos belong to exact immutable inputs and charge original semantic work costs, including exhausted limits.
-Trusted/ordinary roles, source precedence and guard opacity remain separate. Snapshot insertion is nonrecursive.
-Proof closure remains in immutable preparation and never feeds derived consequences back as flow premises.
-Indexed graph assertions avoid full fact-set searches per node. ExecutionAssumptions shares immutable roots,
-retaining identity on no-op updates. Proof-cache root aliases retain allocations and structural collision checks.
+ConditionIndex shares structural identity independently of authority. Exact trusted/ordinary fact-ID vectors
+identify proof scopes. Physical aliases retain immutable allocations. Query memos retain original semantic work
+costs and exhausted-limit results. Owning queries receive a proof view pairing their exact trusted and ordinary
+inputs. Memo misses retain query IDs through computation. Budgeted memo indexing holds no result-map lock.
 
-Retained snapshots visit borrowed graph identities once. FixedPointResult publishes solved outputs.
-Checkpoint d50c12d1f retains actual cleanup parts and phases through cancellation/publication/replay, including
-part-specific mutation identity. Wrapped futures retain capture effects, report dependencies and lifecycle
-retirement. All fixed controls pass at that checkpoint, with the same known RawBuffer invalid acceptance.
+Solved flow outputs and actual cleanup parts/phases are retained. Wrapped futures preserve cancellation captures,
+part-specific mutation identity, report dependencies and lifecycle retirement. Keep these regression controls.
 
-Checkpoint 3a82eeb3b uses exact ConditionId vectors for evidence scopes, preserving trusted/ordinary roles and
-polarity. Current batch passes one ExecutionProof view through owning_conditions, pairing trusted proof with
-ordinary-only exclusion. State queries use state.proof(), entry queries use the exact entry inputs, and pending
-transfer filtering uses the ordinary-only view. Private admission still requires complete private carriers and
-publishes no truth. Potential result authority keeps its synthesized input scope. Normalized requirement and
-postcondition proofs and standalone evidence APIs remain separate. Original proof budgets are unchanged.
-The batch replaces local proof reconstruction, adds two production lines and no test machinery. All 548 checker
-controls pass with probes. Complete count is 6,287,164, only 0.6% below 3a82eeb3b. Timing with probes is 405 ms.
-Final uninstrumented tooling passes all 548 checker controls. Fixed five twice: task cases 130-142 ms, loop
-280/278 ms. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.5 seconds. Style has the
-same six existing errors. Format and diff checks pass. No new API, authority rule, diagnostic or fixture was added.
+RetainedSnapshots now owns actual roots and one lazy candidate index. Insert invalidates it in one place.
+Owner matching and root/path indexing reuse the same definitions as direct comparison. Nodes reached through
+loans remain distinguishable from directly retained nodes. Owner queries exclude loan traversal. Data queries
+may follow actual referents. Prefix matching only selects actual components under the original WORK_LIMIT.
+The original role/contents predicate still decides retention. Unknown contents cannot prove survival.
+Constructed bases are lineage, not separately retained data. Before/after checks compare actual selected contents.
+Retirement, scalar preservation, private inputs, cleanup, mutation masks and borrowed carriers reuse these indexes.
+The old static query API and repeated graph walk are removed. No proof rule or authority publication changes.
 
-The caller has 198 CFG blocks and two required storage solves with 271 transfers each. Current counts show
-11,453 condition nodes across indices, 836 distinct evidence scopes, 3,286 rebuilt equivalent scopes and 24,482
-proof queries. Incoming states cost 1.69M, transfers 3.24M, publication 1.35M, conditional-fact synthesis 1.07M,
-derivation 1.23M and retirement 1.28M. Stages overlap, so do not sum them. These costs require fewer repeated
-queries and rewrites, not another broad cache. Ordinary uncached proof costs only 35k. Retained-only query keys
-were rejected because equal generated clauses often have different allocations and then repeat inference.
+All 548 checker controls pass. The existing retained-owner/projected-contents test checks index invalidation after
+inserting a new actual snapshot. Fixed five twice with counters compiled but disabled: task cases 130-163 ms,
+loop 272/271 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 273-293 ms.
+Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.4 seconds.
+The batch adds 27 nonblank production lines and removes one test line, with no new test cases.
+Style retains the same six errors: wildcard flow/invalidation and oversized flow/merge, storage_flow cleanup/core,
+execution_guarantees/portable and tooling output/diagnostic/json/argument. Format and diff checks pass.
 
-Checkpoint 868d2a1d3 is pushed. Call-site profiling identifies witness refinement: 9,528 of 24,482 proof queries
-cost 1.09M operations. Candidate carrier proof follows at 4,100 queries and 215k operations. Join synthesis currently revisits
-carriers whenever any current value joins. Retaining unchanged carrier results is a hypothesis, not an established
-shortcut: guards, substitutions, availability, address dependencies and captured entry scopes must all survive.
-Publication also replays operations for diagnostics, so solved final outputs alone cannot replace intermediate
-states. Do not prune terminal snapshots or ordinary facts without tracing later contract and guard consumers.
-Keep fixed identities, original rejection sites and authority rules. Reconsider any design with outcome drift,
-more counted work, mutable published state or speculative cache layers. No semantic join/retirement edits yet.
+Complete count is 5,843,928: ordering 3,324,995, equality 1,196,293, identity 573,941, interning 748,699.
+Retention falls from about 405k to 180k operations. Its 5,836 index preparations cost 8,755 comparisons.
+The caller has 198 CFG blocks and two required storage solves with 271 transfers each. It still has 11,453
+indexed condition nodes across indices, 836 evidence scopes and 24,482 proof queries. Witness refinement produces
+9,528 queries and about 1.09M operations. Boolean derivation costs 1.23M. These stage costs overlap.
+Do not sum them. 8,065 indexed operation nodes remain far beyond the source operations.
 
-Current verified mechanical batch: both pure and budgeted memo misses intern the same query before and after
-recursive computation. Retain the immutable ConditionId across that computation, using the same ConditionMap
-for lookup and publication. Release every lock before computing. Preserve exact completed/exhausted-budget
-results, semantic collision handling and scope separation. Reuse the existing ID type, add no cache layer, and
-remove the redundant memo key reconstruction. Keep growth under 35 production lines and use existing cache,
-collision, budget and parallel controls plus fixed five/frozen30. This removes repeated indexing at a known
-boundary, but cannot by itself meet the total goal. Larger witness processing remains unresolved.
-All 548 checker controls pass. Complete count falls to 6,068,946, including 748,699 interner lookups.
-The same fixture creates 8,065 operation nodes across indices, far beyond its source operations.
-Fixed five twice with counters compiled but disabled: task cases 132-137 ms, loop 285/276 ms.
-Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.4 seconds. No new tests were added.
-The batch adds 24 production lines and removes an obsolete import. Style retains the same six errors.
-No full matrices. Final goal verification still needs a build without temporary probes.
+Do not replace semantic query keys with physical-only keys. Equal rebuilt clauses then repeat inference.
+Do not intern every rewritten output merely to share representatives. Extra indexing exceeded the saved work.
+Next read-only boundary: BooleanGraph re-interns conditions while building each scope, although ConditionIndex
+already retains their exact identities and children. Trace all graph consumers before changing that representation.
+The remaining goal needs less repeated clause processing too, not only cheaper lookups.
 
-Temporary probes are removed. Complete current counts are in proof-count-current.json and reusable instrumentation
-is proof-counter.patch. No full matrices. Continue after checkpoints.
+Temporary probes are removed. Complete counts are in proof-count-current.json and reusable hooks are in
+proof-counter.patch. Build with probes for performance batches, then build without them for final goal evidence.
+Do not add a second rebuild per checkpoint merely to remove measurement hooks.
 
 ## Fixed evidence and broader work
 

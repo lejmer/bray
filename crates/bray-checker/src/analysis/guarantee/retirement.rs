@@ -48,10 +48,11 @@ impl ExecutionState {
 
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);
-        let retiring_snapshots = retained_snapshots.map(|_| pending.iter().cloned().collect::<BTreeSet<_>>());
+        let retiring_snapshots = retained_snapshots.map(|_| pending.iter().cloned().collect::<crate::execution_guarantees::RetainedSnapshots>());
+        let retained_snapshots = retained_snapshots.map(crate::execution_guarantees::RetainedSnapshots::from);
 
-        let unchanged = retiring_snapshots.as_ref().zip(retained_snapshots).map(|(before, after)| {
-            self.proofs.memoize_condition(move |value| crate::execution_guarantees::ObservationSet::retains_contents_between(before, after, value))
+        let unchanged = retiring_snapshots.as_ref().zip(retained_snapshots.as_ref()).map(|(before, after)| {
+            self.proofs.memoize_condition(move |value| before.retains_contents_between(after, value))
         });
 
         let retiring_observations = pending.iter().flat_map(|value| value.observations().cloned())
@@ -70,14 +71,14 @@ impl ExecutionState {
 
         self.refine_deferred_witnesses();
 
-        let retained_owner = self.proofs.memoize_condition(|value| retained_snapshots.map_or_else(
+        let retained_owner = self.proofs.memoize_condition(|value| retained_snapshots.as_ref().map_or_else(
             || retained_observations.contains(value),
-            |snapshots| crate::execution_guarantees::ObservationSet::retains_owner(snapshots, value),
+            |snapshots| snapshots.retains_owner(value),
         ));
 
-        let retained_data = self.proofs.memoize_condition(|value| retained_snapshots.map_or_else(
+        let retained_data = self.proofs.memoize_condition(|value| retained_snapshots.as_ref().map_or_else(
             || retained_observations.preserves(value),
-            |snapshots| crate::execution_guarantees::ObservationSet::retains_contents(snapshots, value),
+            |snapshots| snapshots.retains_contents(value),
         ));
 
         let invalidated = self.retired_owners(pending, kind, retained_snapshots.is_some(), &retained_owner);
@@ -909,20 +910,20 @@ mod tests {
         let before = ExecutionCondition::owned_value(child.clone(), ExecutionCondition::Boolean(true));
         let after = ExecutionCondition::owned_value(child, ExecutionCondition::Boolean(false));
 
-        let retained = BTreeSet::from([ExecutionCondition::constructed(root.clone(), [(
+        let retained = crate::execution_guarantees::RetainedSnapshots::from(BTreeSet::from([ExecutionCondition::constructed(root.clone(), [(
             StorageProjection::TupleElement(SymbolOrdinal::new(0)), after.clone(),
-        )].into())]);
+        )].into())]));
 
-        assert!(crate::execution_guarantees::ObservationSet::retains_owner(&retained, &root));
-        assert!(crate::execution_guarantees::ObservationSet::retains_owner(&retained, &before));
-        assert!(!crate::execution_guarantees::ObservationSet::retains_contents(&retained, &before));
+        assert!(retained.retains_owner(&root));
+        assert!(retained.retains_owner(&before));
+        assert!(!retained.retains_contents(&before));
 
-        let prior = BTreeSet::from([before.clone()]);
+        let prior = crate::execution_guarantees::RetainedSnapshots::from(BTreeSet::from([before.clone()]));
         let cache = crate::execution_guarantees::ExecutionProofCache::default();
-        let owns = cache.memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_owner(&retained, value));
-        let contents = cache.memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents(&retained, value));
-        let unchanged = cache.memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents_between(&prior, &retained, value));
-        let same = cache.memoize_condition(|value| crate::execution_guarantees::ObservationSet::retains_contents_between(&retained, &retained, value));
+        let owns = cache.memoize_condition(|value| retained.retains_owner(value));
+        let contents = cache.memoize_condition(|value| retained.retains_contents(value));
+        let unchanged = cache.memoize_condition(|value| prior.retains_contents_between(&retained, value));
+        let same = cache.memoize_condition(|value| retained.retains_contents_between(&retained, value));
 
         for _ in 0..2 {
             assert!(owns(&before));
