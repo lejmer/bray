@@ -10,6 +10,8 @@ All five fixed formerly unfinished fixtures must take less than 500 ms for calle
 lowering, excluding provider preparation and Rust builds. same_site_independent_second must also stay at or
 below 10,000 combined condition comparisons and interner lookups, recursive work included. Count newly moved
 producer, ingress and index-maintenance work too. Never meet the gate by relocating work outside measurement.
+While the user shares this computer, focus on counts and keep timings informational. Recheck the timing gate
+when the machine is idle. Bounded runs still apply.
 
 Preserve outcomes and rejection at observe(&value), source/import behavior, exact owner, dependency, current-value
 and entry-snapshot scopes, qualified polarity, deterministic ordering and original budget/exhaustion behavior.
@@ -35,8 +37,9 @@ twice take 131-137 ms for task cases and 167/159 ms for the loop. Extra source/i
 Counters are compiled but disabled for timings. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance
 in 11.6 s. No full matrices ran. Source fixtures and expected rejection sites are unchanged.
 
-The bounded loop probe records 1,573,864 comparisons: ordering 753,313, equality 773,831 and physical identity
-46,720. Interner lookups are zero. It also records 613,156 key hashes, 82,899 prepared nodes, 147,168 child hashes,
+The latest bounded loop probe records 1,574,061 comparisons: ordering 753,313, equality 774,127 and physical identity
+46,621. The preceding probe of the same production code recorded 1,573,864. Interner lookups are zero.
+It also records 613,156 key hashes, 82,899 prepared nodes, 147,168 child hashes,
 1,087,729 comparison-pair lookups, 362,980 pair writes and 508,872 node-hash writes totaling 3,139,978 bytes.
 These are overlapping cost categories, not time. The 10,000 goal remains far from achieved.
 
@@ -194,6 +197,29 @@ can change either set, so do not infer a general superset or add a union cache.
 Next trace producer-to-consumer dependencies and identify which repeated evaluations can be eliminated.
 Close the exact transition contract before edits. Do not add edge caching or another local lookup cache.
 The previous edge measurement bounds its potential contribution, and fixed scope memos already exist.
+
+Exclusive attribution of all existing counters sums back to their global totals. Comparisons are outside
+instrumented regions 486,246, joins 260,339, substitution 236,475, scope keys 183,391, proof 88,202, deferred
+refinement 87,814, witness derivation 67,915, Boolean structure 58,247, witness publication 53,771, closure
+46,577 and fact indices 5,084. Retirement is not instrumented separately and remains in outside.
+Boolean structural rebuilding is only 3.7 percent of comparisons. Joins, substitutions and scope keys account
+for 43 percent. Do not replace the Boolean prover again as the main route. Trace repeated producer work and
+the unassigned 31 percent before selecting the next coherent repair. The attribution run changes no production
+behavior and passes the fixed loop's intended rejection check. Its hooks are removed afterward.
+
+The scope-pair producer is ExecutionProofCache::prepare. Each new pair prepares DerivedFacts through
+prepare_trusted_conditions and BooleanGraph::new, then AlternativeProof builds subjects and an intrinsic
+baseline. Formula children, related subjects and intrinsic truth are structural. Active descendants,
+qualified roots, assertions, publication and propagation order belong to the scope. Registration includes
+observation owners and Trusted children even without Boolean edges. IDs follow child-first traversal of
+ordered qualifying roots. A shared potential graph cannot activate every node or change that order.
+
+Witness refinement has two proof scopes. First prove every clause, admitting only Some(true), then expand
+admitted clauses with assume. Second use that evidence plus ordinary facts to refine every original clause,
+including ones not admitted initially. Another admitted clause may establish them. Retain each source's
+owning bit and address supports. Guard replacement inserts closure facts before ordinary facts, with later
+entries winning, and preserves Trusted barriers. Static witness structure can be shared, but synthesized
+observations, failed/absent proofs, ordinary ordering and exhausted budgets remain dynamic dependencies.
 
 ## Fixed evidence and broader work
 
