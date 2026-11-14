@@ -12,6 +12,16 @@ fn imported_requirement_diagnostics_retain_actual_fields_and_arguments() {
         struct Owner
         {
             token: Token;
+
+            construct() -> Self
+            {
+                return
+                {
+                    token = Token
+                    {
+                    },
+                };
+            }
         }
 
         trusted predicate live(owner: &Token, count: usize);
@@ -24,47 +34,57 @@ fn imported_requirement_diagnostics_retain_actual_fields_and_arguments() {
 
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
-    let consumer = execution_consumer(&provider, r#"
-        module app;
+    for operand in ["actual_owner", "example.package.api.Owner()"] {
+        let consumer = execution_consumer(&provider, &r#"
+            module app;
 
-        using example.package.api;
+            using example.package.api;
 
-        func caller(pos actual_owner: example.package.api.Owner)
-        {
-            example.package.api.inspect_owner(&actual_owner, 42);
-        }
-    "#);
+            func caller(pos actual_owner: example.package.api.Owner)
+            {
+                example.package.api.inspect_owner(&OPERAND, 42);
+            }
+        "#.replace("OPERAND", operand));
 
-    let diagnostics = consumer.check_diagnostics();
+        let diagnostics = consumer.check_diagnostics();
 
-    let failure = diagnostics.iter().find(|diagnostic| diagnostic.kind()
-        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
-        .unwrap_or_else(|| panic!("{diagnostics:#?}"));
+        let failure = diagnostics.iter().find(|diagnostic| diagnostic.kind()
+            == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+            .unwrap_or_else(|| panic!("{diagnostics:#?}"));
 
-    let obligation = failure.args().iter().find_map(|argument| match argument.value() {
-        bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
-        _ => None,
-    }).expect("imported proof failure retains its condition");
+        let obligation = failure.args().iter().find_map(|argument| match argument.value() {
+            bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+            _ => None,
+        }).expect("imported proof failure retains its condition");
 
-    assert!(failure.labels().iter().flat_map(|label| label.args()).any(|argument|
-        matches!(argument.value(), bray_diagnostics::DiagnosticArgValue::DeclarationName(name) if name == "inspect_owner")),
-        "the imported selected callable must retain its name: {failure:#?}");
+        assert!(failure.labels().iter().flat_map(|label| label.args()).any(|argument|
+            matches!(argument.value(), bray_diagnostics::DiagnosticArgValue::DeclarationName(name) if name == "inspect_owner")),
+            "the imported selected callable must retain its name: {failure:#?}");
 
-    assert_eq!(obligation.kind, bray_diagnostics::DiagnosticContractObligationKind::CallRequirement);
+        assert_eq!(obligation.kind, bray_diagnostics::DiagnosticContractObligationKind::CallRequirement);
 
-    let bray_diagnostics::DiagnosticCondition::Application { path, arguments, .. } = &obligation.actual else {
-        panic!("{obligation:#?}");
-    };
+        let bray_diagnostics::DiagnosticCondition::Application { path, arguments, .. } = &obligation.actual else {
+            panic!("{obligation:#?}");
+        };
 
-    assert_eq!(path.last().map(String::as_str), Some("live"));
+        assert_eq!(path.last().map(String::as_str), Some("live"));
 
-    assert_eq!(arguments, &[
-        bray_diagnostics::DiagnosticCondition::Projection {
-            value: Box::new(bray_diagnostics::DiagnosticCondition::Source("actual_owner".to_owned())),
-            projection: bray_diagnostics::DiagnosticConditionProjection::Field("token".to_owned()),
-        },
-        bray_diagnostics::DiagnosticCondition::Literal("42".to_owned()),
-    ]);
+        let owner = if operand == "actual_owner" {
+            bray_diagnostics::DiagnosticCondition::Source(operand.to_owned())
+        } else {
+            bray_diagnostics::DiagnosticCondition::Application {
+                path: vec!["example.package".to_owned(), "api".to_owned(), "Owner".to_owned()], types: Vec::new(), arguments: Vec::new(),
+            }
+        };
+
+        assert_eq!(arguments, &[
+            bray_diagnostics::DiagnosticCondition::Projection {
+                value: Box::new(owner),
+                projection: bray_diagnostics::DiagnosticConditionProjection::Field("token".to_owned()),
+            },
+            bray_diagnostics::DiagnosticCondition::Literal("42".to_owned()),
+        ]);
+    }
 }
 
 #[test]

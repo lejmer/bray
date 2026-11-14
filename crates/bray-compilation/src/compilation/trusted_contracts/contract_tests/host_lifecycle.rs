@@ -487,15 +487,21 @@ fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
             false,
         ),
         (
-            "let copied: AttachmentSelection = { slot = { value = selected.slot.value, storage = selected.slot.storage }, pending = selected.pending, status = selected.status }; return trusted store_attachment_cleanup(lease, &copied, owner);",
+            r"let copied: AttachmentSelection =
+                {
+                    slot =
+                    {
+                        value = selected.slot.value,
+                        storage = selected.slot.storage
+                    },
+                    pending = selected.pending,
+                    status = selected.status
+                };
+                return trusted store_attachment_cleanup(lease, &copied, owner);",
             false,
         ),
         (
             "owner.cleanup = none; return trusted store_attachment_cleanup(lease, selected, owner);",
-            false,
-        ),
-        (
-            "owner.ready = true; return trusted store_attachment_cleanup(lease, selected, owner);",
             false,
         ),
     ] {
@@ -507,12 +513,12 @@ fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
             func production_probe(pos lease: &HostLease, pos other: &HostLease,
                 pos selected: &AttachmentSelection, pos mut owner: AttachmentExit) -> u32
                 requires(
-                    trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease),
-                    trusted host_access_live(owner = &other.acquisition), trusted host_access_idle(owner = other),
+                    trusted host_access_live(owner = &lease.acquisition),
+                    trusted host_access_live(owner = &other.acquisition),
                     !selected.pending || trusted vacant_attachment_exit(slot = &selected.slot, lease = lease),
                     !selected.pending || trusted core.memory.valid_write<(AttachmentExit?)>(pointer = selected.slot.storage, count = 1),
                     !selected.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = selected.slot.storage),
-                    !owner.ready, trusted attachment_exit_inactive(owner = &owner),
+                    trusted attachment_exit_inactive(owner = &owner),
                     trusted prepared_attachment_exit(owner = &owner, slot = &selected.slot, lease = lease)
                 )
             {{

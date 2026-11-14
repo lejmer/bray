@@ -1,6 +1,7 @@
 use bray_bound_tree::{BoundExpressionId, BoundReferenceTarget};
 use bray_diagnostics::{DiagnosticCondition as Condition, DiagnosticConditionProjection as Projection, DiagnosticTypeArgument};
-use bray_symbols::{AnyLocalSymbolId, AnySymbolId, ConstantProjectionKind, ConstantValueKind, GenericArgument};
+use bray_symbols::{AnyLocalSymbolId, AnySymbolId, ConstantProjectionKind, ConstantValueKind, GenericArgument, SelfTypeContext, TypeData};
+use bray_syntax::SyntaxKind;
 
 use crate::analysis::guarantee::flow::ExecutionFlowDomain;
 use crate::execution_guarantees::ExecutionInput;
@@ -144,7 +145,49 @@ fn application<C: CheckerRequestContext + ?Sized>(
 
 fn symbol_path<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain<'_, '_, C>, symbol: AnySymbolId) -> CheckerQueryResult<Vec<String>, C::UpstreamError> {
     let context = domain.request.context();
-    let name = context.member_name(symbol)?.expect("checked named condition symbol retains its name");
+
+    let lifecycle = match symbol {
+        AnySymbolId::Constructor(_) => Some(None),
+        AnySymbolId::Finalizer(_) | AnySymbolId::TraitFinalizerRequirement(_) => Some(Some(SyntaxKind::FinalizeKeyword)),
+        AnySymbolId::Destructor(_) | AnySymbolId::TraitDestructorRequirement(_) => Some(Some(SyntaxKind::DestructKeyword)),
+        AnySymbolId::ScopeEnter(_) | AnySymbolId::TraitScopeEnterRequirement(_) | AnySymbolId::TraitScopeEnterFulfillment(_) => Some(Some(SyntaxKind::EnterKeyword)),
+        AnySymbolId::ScopeExit(_) | AnySymbolId::TraitScopeExitRequirement(_) | AnySymbolId::TraitScopeExitFulfillment(_) => Some(Some(SyntaxKind::ExitKeyword)),
+        _ => None,
+    };
+
+    if let Some(keyword) = lifecycle {
+        let owner = context.enclosing_self_type_context(symbol)?
+            .unwrap_or_else(|| panic!("condition lifecycle {symbol:?} retains its source/imported Self context"));
+
+        let owner = match owner {
+            SelfTypeContext::Implementation(implementation) => {
+                let subject = context.implementation_subject_type(implementation)?;
+
+                assert!(!subject.diagnostics().has_errors(), "checked lifecycle belongs to valid implementation {implementation:?}");
+
+                let subject = context.semantic_values().unborrowed_type(*subject.value());
+
+                let TypeData::Named { definition, .. } = *context.semantic_values().type_data(subject) else {
+                    panic!("checked implementation {implementation:?} retains a named subject");
+                };
+
+                definition.into_any()
+            }
+            owner => owner.symbol(),
+        };
+
+        let mut path = symbol_path(domain, owner)?;
+
+        if let Some(keyword) = keyword {
+            path.push(keyword.fixed_text().expect("lifecycle keyword has source spelling").to_owned());
+        }
+
+        return Ok(path);
+    }
+
+    let name = context.member_name(symbol)?
+        .unwrap_or_else(|| panic!("checked named condition symbol {symbol:?} retains its name"));
+
     let key = context.symbol_key(symbol)?.expect("checked named condition symbol retains its key");
 
     Ok(crate::diagnostic::diagnostic_symbol_path(key, name.as_str()))

@@ -7,10 +7,6 @@ Further performance optimization belongs in a separate PR. Keep compiler-owned v
 
 ## Current code and verification
 
-Pushed checkpoint 8992071f1 preserves ownership guards, tagged payload snapshots, returned nullable
-shape, compiler-only conversion values and definite absence during scope cancellation. It also shares
-the owned-storage preservation mapper. Source discovery uses all selected production roots.
-
 Checkpoint evidence in target/audit:
 - transition-validation.json: checker559, frozen30, sync and native-thread ownership pass.
 - Owned matrix492/496, deferred292/296. Remaining patterns in both source/import modes:
@@ -26,22 +22,18 @@ Checkpoint evidence in target/audit:
 - Previous stored-value checkpoint:221 symbol and217 interface checks passed. Version alignment:
   tooling115, runtime interface29, runtime ABI35, test protocol23 and backend identity1 passed.
 
-Checkpoint0b7f698d2, pushed:
-- Physical in-place framing should retain each visited component's existing owned role, including
-  implicit input/projection representations. Standalone mask application keeps its narrower contract.
-  Tag-only preservation cannot retain ownership. Extracted owners and unvisited children stay retired.
-  The mode distinction now passes the fixed retained_discriminants test and all559 checker tests. Extend the existing mutation test for nested physical framing.
-- Result observation typing uses PostconditionResult storage_type, including checked root accesses.
-  This is the produced value's type, not the Boolean clause type. Explicitly enabled inactive cleanup,
-  attachment protocol and shutdown owner checks now pass. Frozen30 and checker559 also pass.
-  Numeric domain normalization and intrinsic totality already exist. Do not duplicate those policies.
+Current checkpoints:0b7f698d2 fixes in-place framing and Result storage typing.92354d23c
+replays checked moves through the shared exact StorageAccessPlan lookup, removing lowering's
+reconstructed lookup. move-validation.json: checker559, frozen30 and composition5 pass.
+Owned501/505 and deferred294/298 include helpers, with the same four case failures each.
+Bound-tree136 and lowering38 pass. No probes are installed.
 
-All temporary hooks are removed. move-validation.json records checker559, frozen30 and all five
-composition checks passing. Owned501/505 and deferred294/298 include their helper tests. Their four
-failing cases each are unchanged. Bound-tree136 and lowering38 pass. production-total-checkpoint.log records
-the three --include-ignored production passes. The staged scalar Result had no observed range before
-the storage_type fix. The discarded witness probe observed replay rather than the producer and did
-not locate witness removal. Scope cleanup previously diverged because replay left moved sources live.
+diagnostic-validation.json: diagnostic9, imported constructor1, spin-lock negative control and
+three corrected host fixtures pass. The closing-owner fixture now exercises explicit completion,
+including rejected fabricated/mutated owners. Removed checks of deleted ready fields. Checker559 passes.
+Diagnostic paths use existing enclosing-Self metadata, including checked implementation subjects.
+The last full fixed916 remains897/11/8. These focused reruns repair four of its11 failures, with no
+semantic changes to authority. Do not silently count untouched/unverified cases as rerun.
 
 ## Unresolved causes and fixed constraints
 
@@ -68,14 +60,11 @@ cleanup registry. Reconsider if any move is applied at a different producer phas
 The existing lookup test now distinguishes node and call-input accesses with the same expression and
 storage access. Lowering's separate lookup/index was removed. Missing selected cleanup mutations still panic.
 
-Several production fixtures share one total diagnostic at SourceId370, bytes29439..29515. Rust path
-component ordering maps this to std/os/generated/x86_64_unknown_linux_gnu.bray, the write postcondition
-using truncate_to<usize>(result). The source-discovery change exposed this obligation. Negative source
-arithmetic must still reject unbounded intermediate values after any result-type repair.
-
-Other fixed failures include dormant/retired authority invalid acceptances, extracted-owned lineage,
-loop cleanup, a diagnostic name invariant and outdated fixture API/type usage. Group by actual cause
-before editing. Preserve fabrication, overwrite, raw/atomic mutation, imported contracts and loop controls.
+Remaining fixed failures: generic opaque-carrier forwarding rejects before mutation, extracted-owned
+lineage, nullable/loop cleanup, and three expected rejections around opaque completion, ambient host
+preparation and retirement access. Before changing invalidation, compare each oracle with the current
+contract: opaque predicates observe reachable permitted state, not unrelated ambient state. A shared
+loan preserves immutable inline contents. Do not weaken assertions or broaden authority based on names.
 
 ## Stored-value and transition contracts
 
@@ -111,9 +100,11 @@ same_site_independent_second, is the loop. Compare condition comparisons and con
 proof-count-current.json, and caller phase timing with proof-indexed-current.json. Keep provider time
 separate. Shared-machine timing is informational. Investigate large unexplained count regressions.
 Baseline: fixed five140-154ms, loop154ms,1,471,543 comparisons and zero interner lookups.
-Current performance-current.json: all five pass at168-199ms, loop199ms. Loop comparisons1,481,729
+Count checkpoint performance-current.json: all five pass at168-199ms, loop199ms. Loop comparisons1,481,729
 (+0.69%), constructed nodes38,060 versus38,058. Counter patch retains only the four measured hooks.
-Timing and counts use separate runs. No large regression. Production count hooks are removed.
+Latest diagnostic batch timing-current.json: fixed five148-185ms, loop173ms, all pass.
+Counts were not remeasured for diagnostic-only code. Timing and counts use separate runs.
+Production count hooks are removed.
 The remaining graph cost crosses joins, owner/capture substitution, proof scopes and publication replay.
 Retained models: immutable structurally hashed conditions, scope-keyed ProofMemo, ordered BooleanGraph,
 role-sensitive RetainedSnapshots and immutable prepared comparisons. Preserve source precedence,

@@ -157,34 +157,46 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
 #[ignore = "tier:proof"]
 fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
     for (body, valid) in [
-        ("", true),
-        ("let moved = selected;", true),
-        ("selected.ready = false;", false),
-        ("selected.cleanup = none;", false),
+        ("_ = trusted complete_attachment_exit(selected);", true),
+        ("let moved = selected; _ = trusted complete_attachment_exit(moved);", true),
+        ("selected.cleanup = none; _ = trusted complete_attachment_exit(selected);", false),
         (
-            "let fake: AttachmentExit = { identity = selected.identity, native_thread = selected.native_thread, cleanup = none, ready = selected.ready, incidents = none };",
+            r"let fake: AttachmentExit =
+                {
+                    identity = selected.identity,
+                    native_thread = selected.native_thread,
+                    cleanup = none
+                };
+                _ = trusted complete_attachment_exit(fake);",
             false,
         ),
         (
-            "let own_lease = trusted host_access(); let fake: AttachmentRetirement = { lease = own_lease, identity = selected.identity, native_thread = selected.native_thread, record = std.memory.null<Attachment>(), active = std.memory.null<usize>(), remaining_active = 0 }; let pointer = trusted completed_attachment_pointer(&fake);",
+            r"let own_lease = trusted host_access();
+                let fake: AttachmentRetirement =
+                {
+                    lease = own_lease,
+                    identity = selected.identity,
+                    native_thread = selected.native_thread,
+                    record = std.memory.null<Attachment>(),
+                    active = std.memory.null<usize>(),
+                    remaining_active = 0
+                };
+                let pointer = trusted completed_attachment_pointer(&fake);",
             false,
         ),
     ] {
         let caller = format!(
-            r#"trusted internal module bray.runtime.bootstrap.host;
+            r#"
+            trusted internal module bray.runtime.bootstrap.host;
 
-using core.atomic;
-            func production_probe(pos mut selected: AttachmentExit, pos lease: &HostLease, pos anchor: &mut HostAnchor, pos main: &core.atomic.Atomic<u64>)
-                requires(
-                    selected.ready,
-                    trusted attachment_exit_selected(owner = &selected),
-                    lease.active,
-                    trusted host_access_live(owner = &lease.acquisition),
-                    trusted host_anchor_matches(anchor = &anchor, lease = lease)
-                )
+            using std.memory;
+
+            func production_probe(pos mut selected: AttachmentExit)
+                requires(trusted attachment_exit_selected(owner = &selected))
             {{
                 {body}
-            }}"#
+            }}
+            "#
         );
 
         let compilation = production_host_compilation(&caller);
@@ -221,6 +233,8 @@ fn driver_view_keeps_its_source_acquisition_with_the_complete_owner() {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
+
+            using internal bray.runtime.bootstrap.execution;
 
             trusted func production_probe(
                 pos owner: bray.runtime.bootstrap.execution.Current,
