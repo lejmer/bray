@@ -602,6 +602,8 @@ pub(in crate::semantic::codec) fn decode_constant_projection(
 
 #[cfg(test)]
 mod tests {
+    use crate::{InterfaceDependencyProjection, InterfaceDependencySubject, InterfaceDependencySubjectRoot};
+    use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
     use bray_symbols::{
         CallableAbi, CallableConstness, CallableExecution, CallableParameterMode, CallablePosition,
         CallableTrust, ConstantField, ConstantSymbolId, ConstantTermData, ConstantValueKind,
@@ -719,12 +721,6 @@ mod tests {
 
     #[test]
     fn mutation_effects_round_trip_and_intern_entry_reference_targets() {
-        use crate::{
-            InterfaceDependencyContract, InterfaceDependencyProjection, InterfaceDependencySubject,
-            InterfaceDependencySubjectRoot,
-        };
-
-        use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 
         let (surface, mut semantics) = fixture();
 
@@ -1526,8 +1522,14 @@ mod tests {
                 Some(crate::InterfaceDependencySubject::new(
                     crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
                     [crate::InterfaceDependencyProjection::AddressTarget])),
-                result, bray_symbols::DependencyReferenceKind::Borrow),
-        ]);
+                result.clone(), bray_symbols::DependencyReferenceKind::Borrow),
+        ]).with_stored_values([bray_symbols::DependencyStoredValue::new(
+            bray_symbols::DependencyStoredValuePath::new(result, 1),
+            [0, 1].map(|depth| bray_symbols::DependencyStoredValuePath::new(crate::InterfaceDependencySubject::new(
+                crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)), [],
+            ), depth)),
+            true,
+        )]);
 
         let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
         let limits = InterfaceValidationLimits::default();
@@ -1543,6 +1545,14 @@ mod tests {
         let store = SemanticValueStore::try_new().expect("fixture semantic value store");
         let imported = semantics.intern(&store, &resolver(&surface)).expect("closed regions intern");
         let contract = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
+
+        assert_eq!(contract.stored_values(), &[bray_symbols::DependencyStoredValue::new(
+            bray_symbols::DependencyStoredValuePath::new(bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result), 1),
+            [0, 1].map(|depth| bray_symbols::DependencyStoredValuePath::new(bray_symbols::DependencySubject::root(
+                bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+            ), depth)),
+            true,
+        )]);
 
         assert!(contract.borrows().iter().any(|relation| relation.entry().is_some_and(|entry|
             entry.projections() == [bray_symbols::DependencyProjection::AddressTarget])));

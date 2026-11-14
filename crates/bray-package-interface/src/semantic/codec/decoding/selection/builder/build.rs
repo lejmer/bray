@@ -1,5 +1,7 @@
 // rust-style: allow(module-too-large, reason = "selective decoding shares one recursive dependency traversal and remapping state")
 
+use bray_symbols::DependencyStorageEffect;
+
 use std::collections::BTreeSet;
 
 use bray_symbols::InterfaceSymbolId;
@@ -1035,6 +1037,14 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.include_dependency_requirement(requirement);
         }
 
+        for stored in &*contract.stored_values {
+            self.include_dependency_subject(stored.destination().subject());
+
+            for source in stored.sources() {
+                self.include_dependency_subject(source.subject());
+            }
+        }
+
         for relation in &*contract.borrows {
             if let Some(entry) = relation.source_subject() {
                 self.include_dependency_subject(entry);
@@ -1062,7 +1072,6 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
         }
 
         for effect in &*contract.effects {
-            use bray_symbols::DependencyStorageEffect;
 
             for ty in effect.referenced_types() {
                 self.enqueue(PendingRecord::Type(ty.raw()));

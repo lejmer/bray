@@ -1,3 +1,4 @@
+use bray_bound_tree::MemoryReadKind;
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::Effect;
@@ -13,7 +14,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         bray_symbols::TypeId,
         StorageAccessPurpose,
     )> {
-        use bray_bound_tree::MemoryReadKind;
 
         let (index, element, purpose) = match *operation.kind() {
             CheckedMemoryOperationKind::Read {
@@ -75,20 +75,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         match *operation.kind() {
             CheckedMemoryOperationKind::RawBufferPush { element } => {
-                return self.buffer_prefix_effects(
+                let effects = self.buffer_prefix_effects(
                     state,
                     operation,
                     0,
                     Some(bray_symbols::DependencyMutationKind::Replace(element)),
                 );
+
+                self.stage_buffer_payload(state, operation);
+
+                return effects;
             }
             CheckedMemoryOperationKind::RawBufferPop { .. } => {
-                return self.buffer_prefix_effects(
+                let effects = self.buffer_prefix_effects(
                     state,
                     operation,
                     0,
                     Some(bray_symbols::DependencyMutationKind::Consume),
                 );
+
+                self.stage_buffer_payload(state, operation);
+
+                return effects;
             }
             CheckedMemoryOperationKind::RawBufferSetInitializedCount => {
                 return self.buffer_prefix_effects(state, operation, 0, None);

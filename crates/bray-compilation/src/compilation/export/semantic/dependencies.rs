@@ -1,3 +1,4 @@
+use bray_symbols::{DependencyStorageEffect, DependencyOwnedResult, DependencyOwnedTransfer};
 use bray_package_interface::{
     InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceDependencyContract,
     InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
@@ -76,7 +77,6 @@ impl<'a> SemanticExporter<'a> {
             })?
             .into_iter()
             .map(|effect| {
-                use bray_symbols::DependencyStorageEffect;
 
                 Ok(match effect {
                     DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
@@ -128,6 +128,15 @@ impl<'a> SemanticExporter<'a> {
 
         let contract = contract
             .with_borrows(borrows)
+            .with_stored_values(self.dependency_order(data.stored_values(), |encoder, stored| encoder.dependency_stored_value(stored))?
+                .into_iter().map(|stored| {
+                    let sources = self.dependency_order(stored.sources(), |encoder, source| encoder.dependency_stored_value_path(source))?
+                        .into_iter().map(|source| Ok(bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(source.subject())?, source.dereferences()))).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
+                    Ok(bray_symbols::DependencyStoredValue::new(
+                        bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(stored.destination().subject())?, stored.destination().dereferences()), sources, stored.is_complete(),
+                    ))
+                }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?)
             .with_carriers(carriers)
             .with_owned_result(owned_result)
             .with_observed_result(
@@ -159,7 +168,6 @@ impl<'a> SemanticExporter<'a> {
         >,
         PackageInterfaceExportError,
     > {
-        use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer};
 
         match result {
             DependencyOwnedResult::Case { condition, result } => Ok(DependencyOwnedResult::case(

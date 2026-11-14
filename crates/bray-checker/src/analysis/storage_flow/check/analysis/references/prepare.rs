@@ -1,3 +1,4 @@
+use crate::analysis::storage_flow::memory::{Origin, Source};
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::Place;
 
@@ -157,39 +158,23 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 }
             }
 
-            let mut references = Vec::new();
-            let mut incomplete = std::collections::BTreeSet::new();
-
-            for relation in
-                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].borrows()
-            {
-                let subject = if relation.provenance()
-                    == bray_symbols::DependencyReferenceProvenance::InputRegions
-                {
-                    relation.exit()
-                } else {
-                    relation.entry().unwrap_or_else(|| relation.exit())
-                };
-
-                if relation.entry().is_none_or(|entry| {
-                    self.lifecycle_paths
-                        .contains_key(&(lifecycle.call.callable, entry.clone()))
-                }) && let Some((ty, _)) = self
-                    .lifecycle_paths
-                    .get(&(lifecycle.call.callable, subject.clone()))
-                    && let Some(reference) =
-                        crate::dependency::prepare_reference(request, relation, *ty)?
-                {
-                    references.push(reference);
-                } else {
-                    incomplete.insert(relation.exit().clone());
-                }
-            }
-
-            references.retain(|reference| !incomplete.contains(reference.relation().exit()));
+            let references = crate::dependency::prepare_references(
+                request,
+                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].borrows(),
+                |subject| self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone()))
+                    .map(|(ty, _)| *ty),
+            )?;
 
             self.lifecycle_references
                 .insert(lifecycle.call.callable, references);
+
+            let stored = crate::dependency::prepare_stored_value_paths(
+                request.semantic_values(),
+                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].stored_values(),
+                |subject| self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone())).cloned(),
+            );
+
+            self.lifecycle_stored_paths.insert(lifecycle.call.callable, stored);
         }
 
         Ok(demands)
@@ -420,7 +405,6 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
         state: &mut crate::analysis::storage_flow::model::StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
     ) {
-        use crate::analysis::storage_flow::memory::Source;
 
         let Some(contracts) = self.dependencies.calls().get(&occurrence) else {
             return;
@@ -471,7 +455,6 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
         logical: Place,
         pointee: bray_symbols::TypeId,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        use crate::analysis::storage_flow::memory::Origin;
 
         if !location.is_exact() || memory.referenced_regions(&location).is_some() {
             return Ok(());

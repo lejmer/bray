@@ -3,19 +3,23 @@
 Read this record and the work-on-bray-issues contract gate after compaction. Update in place.
 Branch: feature/bra-567-async-root-orchestration. PR: https://github.com/lejmer/bray/pull/710.
 Commits and pushes are authorized. Continue after checkpoints. Do not run full matrices.
-Current priority: finish contracts and guarantees before resuming graph optimization.
+Current priority: finish BRA-567 correctness, required verification and review. Further performance
+optimization is deferred to a separate PR at the user's request. It is not a gate for this PR.
 
 ## Status and applicable evidence
 
-The uncommitted stored-value batch is not validated. Earlier passing binaries do not validate it.
-The last completed correctness checkpoint has 48 borrowed-field controls, 12 conditional source/import
-controls and 557 checker tests passing. Frozen30 is 29 pass with one RawBuffer invalid acceptance.
-The nine affected activation controls also pass after fixture API corrections. Their assertions retain
-intended rejection locations. No runtime production change was needed for those fixture repairs.
-
-The frozen integration build passed in 3m58s. All 558 checker, 221 symbol and 216 package-interface tests pass.
-The RawBuffer scalar positive now incorrectly rejects at inspect. Its reference-bearing case was not reached.
-This regression blocks broader validation. Six existing style errors remain.
+The stored-value batch builds in optimized tooling. All 558 checker, 221 symbol and 217 interface tests pass.
+The four RawBuffer rows pass in both source and import modes, including copied scalar independence and
+projected-borrow rejection at inspect. The fixed 48 borrowed-field and 12 conditional-owner controls pass.
+Frozen30 passes all 30 cases in one final run, including the RawBuffer source/import fixture.
+The fixed five pass at 140-154 ms, with the loop at 154 ms. No full matrices ran.
+Compact evidence: stored-validation.json, proof-frozen30.json and proof-indexed-current.json in the audit output.
+Earlier nine activation controls remain valid for their unchanged code. Final BRA-567 gates remain open.
+Mutating style has six existing errors and no new errors. Format and diff checks pass.
+Stored paths must name physical Receiver, Parameter, Result or
+static roots. Capability, witness and EvaluationStorage roots cannot be replayed. Reject them at import and
+assert the producer invariant, for destinations and sources. Result remains forbidden as an entry source.
+The final results include this validation repair and its external-input rejection control.
 
 ## Active stored-value contract
 
@@ -55,7 +59,7 @@ an independently established exact descriptor or publish unobservable by-value i
 
 ## Integration state and next action
 
-Drafted in the working tree:
+Implemented in the working tree:
 
 - StoredValue wraps existing descriptors plus whole sources, tracked state and completeness.
   Transfer, joins, clear, retirement and deferred relocation carry it. Source identities never relocate.
@@ -71,29 +75,36 @@ Drafted in the working tree:
   escape, ambient invalidation and terminal checks. Exported escape roots remain direct operands.
 
 OwnedTarget replay follows actual backing pointers. Its overlay retains the original result boundary,
-so staged physical slots take precedence without resurrecting old result storage. Next locate the first lost
-pointer origin and distinguish opaque address provenance from unknown stored contents. The scalar failure
-exports no borrow relation and complete-empty sources at result.pointer, which cannot establish pointer
-freshness. A bounded trace covers publication and unknown reachability together. Also separate weak-store
-multiplicity from incomplete source coverage. Do not compile per file. Check the checker suite,
-RawBuffer positive/negative source/import cases and fixed comparisons. No full matrices.
+so staged physical slots take precedence without resurrecting old result storage. Concrete physical payload
+references use DependencyBorrowRelation/InputRegions, retaining projections without alias authority.
+Whole-source records carry actual value lineage only. Additive weak events differ from complete final source
+sets. Fresh backing supplies an explicit empty summary. Portable dependency replay imports neither
+initialization nor deferred-frame identity. Intrinsic Push/Pop retain actual value-transfer metadata.
+Exact element reads include overlapping AnyElement summaries without weakening exact writes.
+Imports belong at module scope by default, with test imports in test modules. Probes are removed.
+
+Next: checkpoint this batch, then finish remaining source-composition and broader verification gates.
+Conditional stores, multiple referents, pop/remaining contents, overwrite and retirement have memory-level
+controls. Real source/import composition for conditional stores and pop with another retained owner remains
+unverified. Keep that exclusion visible while closing the contract. No full matrices.
 
 Regression oracles: scalar independence, reference-bearing payloads, multiple distinct referents,
 conditional stores, pop with remaining contents, overwrite and retirement. Negative cases must reject
 at the intended mutation/observation boundary. Preserve existing test identities and meaningful bug controls.
 Reuse fixtures and helpers. Inline Bray formatting is mandatory and is not fixed by Rust style commands.
 
-After validation, run mutating style and format, audit the whole batch for duplicated/superseded machinery,
-measure production growth separately from tests, remove superseded outputs, then commit and push.
-Keep the batch unverified until all required evidence exists. Do not treat checkpoint completion as BRA-567 done.
+The memory/staging and portable/publication reviews are complete. The batch adds about 1,700 production
+lines and 350 test lines, including import/style changes. It extends the existing stored graph and portable
+contract transport rather than adding a second state graph. Raw logs are removed after recording results.
+Do not treat checkpoint completion as BRA-567 done.
 
-## Performance objective and current graph
+## Deferred performance objective and current graph
 
-All five fixed formerly unfinished fixtures must take under 500 ms for caller construction, checking and
+For the later performance PR, all five fixed fixtures should take under 500 ms for caller construction, checking and
 lowering, excluding provider/build time. same_site_independent_second must also reach at most 10,000 combined
 condition comparisons and interner lookups, including work moved to producers and maintenance.
-The last count is 1,471,543 comparisons and zero interner lookups. The count goal remains unmet.
-Last fixed-five times are 137-153 ms, including 153 ms for the loop. While the user shares the computer,
+The last count is 1,471,543 comparisons and zero interner lookups. The count goal is paused, not achieved.
+Current fixed-five times are 140-154 ms, including 154 ms for the loop. While the user shares the computer,
 prioritize counts and treat timing as informational. Larger-program scaling remains part of the objective.
 
 The expensive dependency graph crosses scope versions:

@@ -115,10 +115,10 @@ impl State {
             // possible references instead of inventing a subtree at every possible address.
             let affected = self.affected_targets(references);
 
-            let mut incoming = References {
+            let mut incoming = super::model::StoredValue::from(References {
                 unknown: true,
                 ..References::default()
-            };
+            });
 
             if let (Some(source), Some(destination)) = (source.as_ref(), affected.first()) {
                 for value in self
@@ -133,7 +133,11 @@ impl State {
             self.write_targets(references, ty, origin, None);
 
             for target in affected {
-                self.values.entry(target).or_default().merge(&incoming);
+                let value = self.values.entry(target).or_default();
+
+                value.merge(&incoming);
+
+                value.complete = false;
             }
 
             return;
@@ -156,8 +160,13 @@ impl State {
                 self.commit_value(transfer);
             } else {
                 for (slot, mut value) in transfer.values {
-                    value.unknown = true;
-                    self.values.entry(slot).or_default().merge(&value);
+                    if let Some(references) = &mut value.references {
+                        references.unknown = true;
+                    }
+
+                    value.complete = false;
+
+                    self.values.entry(slot).and_modify(|previous| { previous.merge(&value); }).or_insert(value);
                 }
 
                 for (slot, mut contents) in transfer.payloads {
@@ -203,7 +212,11 @@ impl State {
                 .is_some_and(|invalidation| Self::stable_reference_slot(&target, invalidation))
                 && let Some(stored) = self.values.get_mut(&target)
             {
-                stored.unknown = true;
+                if let Some(references) = &mut stored.references {
+                    references.unknown = true;
+                }
+
+                stored.complete = false;
             }
 
             contents.pending.entry(ty).or_default().insert(origin);
@@ -283,7 +296,7 @@ impl State {
                 .or_insert_with(|| References {
                     unknown: true,
                     ..References::default()
-                });
+                }.into());
 
             if references.unknown
                 || references.displaced
@@ -291,7 +304,11 @@ impl State {
                 || references.targets.iter().any(|target| !target.is_exact())
             {
                 for value in transfer.values.values_mut() {
-                    value.unknown = true;
+                    if let Some(references) = &mut value.references {
+                        references.unknown = true;
+                    }
+
+                    value.complete = false;
                 }
 
                 for contents in transfer.payloads.values_mut() {

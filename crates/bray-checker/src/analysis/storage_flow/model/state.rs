@@ -334,12 +334,30 @@ impl StorageFlowState {
                     )
                     .expect("prepared buffer pointer entry retains its reached owner");
 
-                    memory.declare_owned_buffer(owner, target, fields.element);
+                    memory.declare_owned_buffer(owner.clone(), target, fields.element);
+
+                    if input.footprint.complete_reference_types.get(&fields.element) != Some(&true)
+                        && let Some(regions) = memory.owned_regions(&owner, bray_bound_tree::StorageProjection::ProductField(fields.pointer))
+                    {
+                        for region in regions {
+                            let element = region.project(&[bray_bound_tree::StorageProjection::AnyElement]);
+
+                            memory.seed_whole_source(element.clone(), element);
+                        }
+                    }
 
                     continue;
                 }
 
                 memory.entry_reference_at(slot.clone(), *layer, target, *ty, *kind);
+            }
+        }
+
+        for (root, path) in &input.entry_whole_sources {
+            if initialized.contains(root)
+                && let Some(target) = StorageFlowInput::reference_location(values, &memory, *root, path, None)
+            {
+                memory.seed_whole_source(target.clone(), target);
             }
         }
 

@@ -68,20 +68,15 @@ impl State {
     ) -> DeferredTransitions {
         // Output slots retain producer coordinates until completion. Referents and
         // effects already name physical inputs, independently of those output slots.
-        self.deferred
-            .range(source.clone()..)
-            .take_while(|(slot, _)| source.contains(slot))
-            .map(|(slot, entries)| {
-                let target = destination.project(&slot.projections()[source.projections().len()..]);
+        let mut result = DeferredTransitions::new();
 
-                let entries = entries
-                    .iter()
-                    .map(|(producer, entry)| (*producer, Arc::clone(entry)))
-                    .collect();
+        for (slot, entries) in super::slots::selected_subtree(&self.deferred, source) {
+            let target = destination.project(&slot.projections()[source.projections().len()..]);
 
-                (target, entries)
-            })
-            .collect()
+            merge_producers(result.entry(target).or_default(), entries);
+        }
+
+        result
     }
 
     pub(in crate::analysis::storage_flow) fn stage_deferred_values(
@@ -104,7 +99,7 @@ impl State {
                 // A deferred frame's reference entry describes its captures. It is
                 // immutable with that frame, independently of mutable sibling fields.
                 if let Some(captures) = self.values.get(slot) {
-                    pending.values.entry(target.clone()).or_default().merge(captures);
+                    pending.values.entry(target.clone()).and_modify(|value| { value.merge(captures); }).or_insert_with(|| captures.clone());
                 }
 
                 let retained = pending.deferred.entry(target).or_default();
@@ -285,14 +280,16 @@ impl Transfer {
 
         self.values = std::mem::take(&mut self.values)
             .into_iter()
-            .map(|(slot, mut references)| {
-                references.targets = references.targets.into_iter().map(&relocate).collect();
+            .map(|(slot, mut value)| {
+                if let Some(references) = &mut value.references {
+                    references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate).collect();
+                }
 
-                (relocate(slot), references)
+                (relocate(slot), value)
             })
             .collect();
 
-        for references in self.inputs.values_mut() {
+        for references in self.inputs.values_mut().filter_map(|value| value.references.as_mut()) {
             references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate).collect();
         }
 
@@ -329,6 +326,7 @@ impl Transfer {
         self.values
             .values()
             .chain(self.inputs.values())
+            .filter_map(|value| value.references.as_ref())
             .chain(self.returned_inputs.values())
             .any(|references| {
                 references
@@ -360,6 +358,7 @@ impl Transfer {
             .values
             .values_mut()
             .chain(self.inputs.values_mut())
+            .filter_map(|value| value.references.as_mut())
             .chain(self.returned_inputs.values_mut())
         {
             references.retire(current);

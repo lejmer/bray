@@ -1,10 +1,34 @@
 use super::super::model::{
-    Contents, Origin, Place, ReferenceExit, References, State, Target, Transfer,
+    Contents, Origin, Place, ReferenceExit, References, State, StoredValue, Target, Transfer,
 };
-use bray_bound_tree::StorageIdentityId;
+use bray_bound_tree::{StorageIdentityId, StorageProjection};
 use std::collections::{BTreeMap, BTreeSet};
 
 impl State {
+    pub(in crate::analysis::storage_flow) fn seed_empty_whole(&mut self, destination: Target) {
+        let value = self.values.entry(destination).or_default();
+
+        value.sources.clear();
+        value.tracked = true;
+        value.complete = true;
+    }
+
+    pub(in crate::analysis::storage_flow) fn seed_whole_source(&mut self, destination: Target, source: Target) {
+        let value = self.values.entry(destination).or_default();
+
+        value.sources.insert(source);
+
+        value.tracked = true;
+        value.complete = true;
+    }
+
+    #[cfg(test)]
+    pub(in crate::analysis::storage_flow) fn whole_sources(&self) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {
+        self.values.iter().filter(|(_, value)| value.tracked)
+            .map(|(target, value)| (target, &value.sources, value.complete))
+    }
+
+    #[cfg(test)]
     pub(super) fn slots_in<'a>(
         &'a self,
         place: &'a Place,
@@ -14,6 +38,7 @@ impl State {
             .range(Target::storage(place.clone())..)
             .map_while(|(target, value)| target.storage_path().map(|path| (path, value)))
             .take_while(move |(slot, _)| place.contains(slot))
+            .filter_map(|(slot, value)| Some((slot, value.references.as_ref()?)))
     }
 
     pub(in crate::analysis::storage_flow) fn observed_references(
@@ -21,7 +46,7 @@ impl State {
     ) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {
         self.values
             .iter()
-            .map(|(location, references)| (location, &references.targets, references.unknown))
+            .filter_map(|(location, value)| value.references.as_ref().map(|references| (location, &references.targets, references.unknown)))
     }
 
     pub(in crate::analysis::storage_flow) fn contained_regions<'a>(
@@ -31,7 +56,7 @@ impl State {
         self.values
             .range(location.clone()..)
             .take_while(|(slot, _)| location.contains(slot))
-            .flat_map(|(_, references)| references.targets.iter())
+            .flat_map(|(_, value)| value.references.iter().flat_map(|references| references.targets.iter()))
     }
 
     pub(in crate::analysis::storage_flow) fn raw_exposed_regions(&self) -> BTreeSet<Target> {
@@ -48,7 +73,8 @@ impl State {
         candidates: &'a [Place],
         roots: impl IntoIterator<Item = Target>,
     ) -> impl Iterator<Item = &'a Place> + 'a {
-        let reached = self.reachable_targets(roots);
+        let (reached, unknown) = self.reachable_regions(roots);
+
         let mut inline = BTreeMap::<StorageIdentityId, Vec<&Target>>::new();
 
         for target in &reached {
@@ -67,6 +93,10 @@ impl State {
                         == bray_bound_tree::StorageRelationship::Disjoint
                 };
 
+                if unknown && self.unknown_reference_may_reach(&candidate) {
+                    return false;
+                }
+
                 if self.is_owned_inline_storage(path) {
                     // Entry and allocation origins cannot reach owned inline storage.
                     // Returned origins use the same established roots as target_relationship.
@@ -83,10 +113,22 @@ impl State {
             .into_iter()
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn reachable_targets(
         &self,
         roots: impl IntoIterator<Item = Target>,
     ) -> BTreeSet<Target> {
+        let (mut targets, unknown) = self.reachable_regions(roots);
+
+        self.include_unknown_targets(&mut targets, unknown);
+
+        targets
+    }
+
+    pub(in crate::analysis::storage_flow) fn reachable_regions(
+        &self,
+        roots: impl IntoIterator<Item = Target>,
+    ) -> (BTreeSet<Target>, bool) {
         // Escaped addresses remain reachable after the local pointer's last use.
         let pending = roots
             .into_iter()
@@ -104,17 +146,33 @@ impl State {
             )
             .chain(
                 self.values
-                    .keys()
-                    .filter(|target| {
+                    .iter()
+                    .filter(|(target, value)| {
                         // Retired reference slots are history, not external roots. A surviving raw
                         // address can still reach them through the explicit exposure roots above.
-                        !target.previous && self.reference_slot_is_external(target)
+                        value.references.is_some() && !target.previous && self.reference_slot_is_external(target)
                     })
-                    .cloned(),
+                    .map(|(target, _)| target.clone()),
             )
             .collect::<Vec<_>>();
 
-        self.transitive_regions(pending, |_, _| true).0
+        self.transitive_regions(pending, |_, _| true)
+    }
+
+    pub(super) fn include_unknown_targets(&self, targets: &mut BTreeSet<Target>, unknown: bool) {
+        if !unknown { return; }
+
+        let candidates = self.contents.keys().chain(self.values.keys()).cloned()
+            .chain(self.values.values().flat_map(|value| value.sources.iter().cloned()))
+            .chain(self.values.values().flat_map(|value| {
+                value.references.iter().flat_map(|references| references.targets.iter().cloned())
+            }))
+            .chain(self.borrows.values().flat_map(|references| references.targets.iter().cloned()))
+            .chain(self.returned_inputs.values().flat_map(|references| references.targets.iter().cloned()))
+            .filter(|target| self.unknown_reference_may_reach(target))
+            .collect::<Vec<_>>();
+
+        targets.extend(self.transitive_regions(candidates, |_, _| true).0);
     }
 
     fn reference_slot_is_external(&self, target: &Target) -> bool {
@@ -167,6 +225,7 @@ impl State {
         // The caller expands the escaped raw address. Only a field still holding its
         // original incoming pointer is redundant. Writes and captured old copies differ.
         self.values.get(&region.project(&field.projections[prefix_len..]))
+            .and_then(|value| value.references.as_ref())
             .is_some_and(|references| references.targets.contains(target))
     }
 
@@ -174,7 +233,9 @@ impl State {
         &self,
         roots: impl IntoIterator<Item = Target>,
     ) -> BTreeSet<Target> {
-        let (targets, _) = self.transitive_regions(roots, |_, _| true);
+        let (mut targets, unknown) = self.transitive_regions(roots, |_, _| true);
+
+        self.include_unknown_targets(&mut targets, unknown);
 
         // Publishing a symbolic result also exposes each possible input allocation.
         // Keep its own identity for backing produced independently of those inputs.
@@ -223,7 +284,7 @@ impl State {
                         .is_some_and(|ty| self.complete_reference_types.get(&ty) == Some(&true))
             });
 
-            for (slot, references) in &self.values {
+            for (slot, value) in &self.values {
                 if follow(&target, slot)
                     // Typed scalars cannot load unrelated pointer slots. Explicit
                     // stored references and raw allocation views remain authoritative.
@@ -231,8 +292,12 @@ impl State {
                     && self.target_relationship(&target, slot)
                         != bray_bound_tree::StorageRelationship::Disjoint
                 {
-                    pending.extend(references.targets.iter().cloned());
-                    unknown |= references.unknown || references.displaced;
+                    unknown |= !reference_free && value.tracked && !value.complete;
+
+                    if let Some(references) = &value.references {
+                        pending.extend(references.targets.iter().cloned());
+                        unknown |= references.unknown || references.displaced;
+                    }
                 }
             }
         }
@@ -268,14 +333,16 @@ impl State {
                 slot.root == result
                     || !slot.projections.is_empty() && is_entry_slot(&self.contents, slot)
             })
-            .map(|(slot, references)| {
-                let mut exported = references.clone();
+            .map(|(slot, value)| {
+                let mut exported = value.clone();
 
-                for target in &references.targets {
+                if let Some(references) = &value.references { for target in &references.targets {
                     if let Origin::Returned { reference, .. } = &target.origin {
                         // Expand established origins without turning a region bound into
                         // exact forwarding or inventing an independent alternative.
-                        exported.inexact = true;
+                        let expanded = exported.references.as_mut().expect("copied reference slot");
+
+                        expanded.inexact = true;
 
                         let bounds = self.returned_reference_bounds(reference);
 
@@ -284,12 +351,12 @@ impl State {
                         }
 
                         if !bounds.unknown {
-                            exported.targets.remove(target);
+                            expanded.targets.remove(target);
                         }
 
-                        exported.targets.extend(bounds.targets.iter().cloned());
+                        expanded.targets.extend(bounds.targets.iter().cloned());
                     }
-                }
+                } }
 
                 (slot.clone(), exported)
             })
@@ -297,6 +364,8 @@ impl State {
 
         ReferenceExit {
             slots,
+            stored: self.values.iter().filter(|(target, _)| !target.previous)
+                .map(|(target, value)| (target.clone(), value.clone())).collect(),
             input_regions,
             absent: absent
                 .iter()
@@ -316,6 +385,7 @@ impl State {
             .range(Target::storage(Place::root(root))..)
             .map_while(|(target, value)| target.storage_path().map(|path| (path, value)))
             .take_while(move |(slot, _)| slot.root == root)
+            .filter_map(|(slot, value)| Some((slot, value.references.as_ref()?)))
             .flat_map(|(slot, references)| {
                 references
                     .targets
@@ -351,15 +421,14 @@ impl State {
         &'a self,
         source: &'a Target,
         destination: &'a Target,
-    ) -> impl Iterator<Item = (Target, References)> + 'a {
-        self.values
-            .range(source.clone()..)
-            .take_while(move |(target, _)| source.contains(target))
+    ) -> impl Iterator<Item = (Target, StoredValue, bool)> + 'a {
+        selected_subtree(&self.values, source)
             .map(move |(slot, references)| {
+                let overlap = slot.projections()[..source.projections().len()] != *source.projections();
                 let slot = destination.project(&slot.projections()[source.projections().len()..]);
 
                 // The receiver owns each copied value while target paths remain shared.
-                (slot, references.clone())
+                (slot, references.clone(), overlap)
             })
     }
 
@@ -397,7 +466,7 @@ impl State {
                     .borrows
                     .get(capability)
                     .map(|references| {
-                        [(destination.clone(), references.clone())]
+                        [(destination.clone(), StoredValue::from(references.clone()))]
                             .into_iter()
                             .collect()
                     })
@@ -412,30 +481,68 @@ impl State {
         source: &Target,
         destination: &Target,
     ) -> Transfer {
+        let inexact = selector_parent(source).is_some();
+        let complete = self.values.get(source).is_some_and(|value| value.tracked && value.complete);
+        let mut values = BTreeMap::<Target, StoredValue>::new();
+
+        for (slot, mut value, overlap) in self.transferred_slots(source, destination) {
+            if inexact || overlap {
+                if let Some(references) = &mut value.references { references.inexact = true; }
+
+                if inexact && value.tracked && !complete { value.complete = false; }
+            }
+
+            values.entry(slot).and_modify(|current| { current.merge(&value); }).or_insert(value);
+        }
+
+        if inexact && !complete {
+            let value = values.entry(destination.clone()).or_default();
+
+            value.tracked = true;
+            value.complete = false;
+        }
+
         let mut transfer = Transfer {
-            values: self.transferred_slots(source, destination).collect(),
+            values,
             payloads: Default::default(),
             deferred: self.capture_deferred_value(source, destination),
             ..Default::default()
         };
 
-        for (target, contents) in self
-            .contents
-            .range(source.clone()..)
-            .take_while(|(target, _)| source.contains(target))
-        {
+        for (target, contents) in selected_subtree(&self.contents, source) {
             let suffix = &target.projections()[source.projections().len()..];
 
             if suffix.contains(&bray_bound_tree::StorageProjection::UninitPayload) {
                 // Evaluated inline storage owns its contents after the source is consumed.
-                transfer.payloads.insert(
-                    destination.project(suffix),
-                    self.evaluated.get(target).unwrap_or(contents).clone(),
-                );
+                let slot = destination.project(suffix);
+                let mut contents = self.evaluated.get(target).unwrap_or(contents).clone();
+
+                if inexact || target.projections()[..source.projections().len()] != *source.projections() {
+                    contents.initialized.clear();
+                }
+
+                transfer.payloads.entry(slot.clone()).and_modify(|previous| { previous.merge(&contents, &slot); }).or_insert(contents);
             }
         }
 
         transfer
+    }
+
+    /// Select the element directly addressed by a buffer's base pointer.
+    pub(super) fn capture_base_element(&self, source: &Target, destination: &Target) -> Transfer {
+        let mut captured = self.capture_value(source, destination);
+        let depth = destination.projections().len();
+
+        let inline = |target: &Target| !matches!(target.projections().get(depth),
+            Some(StorageProjection::AnyElement | StorageProjection::Element(_)
+                | StorageProjection::ElementFromStart(_) | StorageProjection::ElementFromEnd(_)
+                | StorageProjection::SliceRange { .. }));
+
+        captured.values.retain(|target, _| inline(target));
+        captured.payloads.retain(|target, _| inline(target));
+        captured.deferred.retain(|target, _| inline(target));
+
+        captured
     }
 
     pub(in crate::analysis::storage_flow) fn finish_value_transfers(&mut self) {
@@ -461,8 +568,8 @@ impl State {
                 continue;
             }
 
-            for references in transfer.values.values_mut() {
-                references.retire(target);
+            for value in transfer.values.values_mut() {
+                if let Some(references) = &mut value.references { references.retire(target); }
             }
 
             enclosing = Some(target);
@@ -500,16 +607,18 @@ impl State {
         let mut references = self.references(source);
 
         references.displaced = true;
-        self.values.insert(Target::storage(destination), references);
+        self.values.insert(Target::storage(destination), references.into());
     }
 
     pub(in crate::analysis::storage_flow) fn forget(&mut self, identity: StorageIdentityId) {
         let root = Place::root(identity);
 
-        let removed = self
-            .slots_in(&root)
-            .filter(|(slot, _)| !is_entry_slot(&self.contents, slot))
-            .map(|(slot, _)| slot.clone())
+        let removed = self.values
+            .range(Target::storage(root.clone())..)
+            .map_while(|(target, _)| target.storage_path())
+            .take_while(|slot| root.contains(slot))
+            .filter(|slot| !is_entry_slot(&self.contents, slot))
+            .cloned()
             .collect::<Vec<_>>();
 
         for slot in removed {
@@ -547,7 +656,59 @@ impl State {
     }
 }
 
-fn is_entry_slot(contents: &std::collections::BTreeMap<Target, Contents>, slot: &Place) -> bool {
+/// The exact prefix before the first dynamic selector, retaining origin and epoch.
+pub(super) fn selector_parent(target: &Target) -> Option<Target> {
+    let length = target.projections().iter().position(|projection| !projection.is_exact())?;
+
+    Some(target_prefix(target, length))
+}
+
+fn target_prefix(target: &Target, length: usize) -> Target {
+    let mut prefix = target.clone();
+
+    match &mut prefix.origin {
+        Origin::Storage(path) => path.projections = path.projections[..length].into(),
+        Origin::Entry { projections, .. } | Origin::Returned { projections, .. }
+        | Origin::Allocation { projections, .. } | Origin::Static { projections, .. } => {
+            *projections = projections[..length].into();
+        }
+    }
+
+    prefix
+}
+
+pub(super) fn selected_subtree<'a, V>(
+    values: &'a BTreeMap<Target, V>,
+    source: &'a Target,
+) -> impl Iterator<Item = (&'a Target, &'a V)> + 'a {
+    let dynamic = selector_parent(source).is_some();
+
+    let prefix = source.projections().iter().position(|projection| {
+        !projection.is_exact() || matches!(projection, StorageProjection::ElementFromStart(_) | StorageProjection::ElementFromEnd(_))
+    }).map_or_else(|| source.clone(), |length| target_prefix(source, length));
+
+    let widened = prefix != *source;
+    let limit = prefix.clone();
+
+    values.range(prefix.clone()..)
+        .take_while(move |(slot, _)| limit.contains(slot))
+        .filter(move |(slot, _)| {
+            if !widened { return true; }
+
+            let length = source.projections().len();
+
+            slot.projections().len() >= length
+                && target_prefix(slot, prefix.projections().len()) == prefix
+                && bray_bound_tree::StorageProjection::relationship(
+                    source.projections(), &slot.projections()[..length],
+                ) != bray_bound_tree::StorageRelationship::Disjoint
+                && (dynamic || slot.projections()[..length].iter().zip(source.projections()).all(|(actual, requested)| {
+                    actual == requested || matches!(actual, StorageProjection::AnyElement)
+                }))
+        })
+}
+
+fn is_entry_slot(contents: &BTreeMap<Target, Contents>, slot: &Place) -> bool {
     // An entry value snapshot remains useful after its local slot's lifetime ends.
     // Keeping its value does not retain initialization or access authority.
     [bray_symbols::DependencyReferenceKind::Borrow, bray_symbols::DependencyReferenceKind::Address]
@@ -558,7 +719,7 @@ fn is_entry_slot(contents: &std::collections::BTreeMap<Target, Contents>, slot: 
 }
 
 pub(super) fn take_subtree<'a, V>(
-    values: &'a mut std::collections::BTreeMap<Target, V>,
+    values: &'a mut BTreeMap<Target, V>,
     root: &Target,
 ) -> impl Iterator<Item = (Target, V)> + 'a {
     // Only the selected subtree is visited. Keys share their immutable projection paths.

@@ -213,7 +213,7 @@ pub use value::{
     DependencyContractTemplateId, DependencyGuard, DependencyMutationKind, DependencyOwnedResult,
     DependencyOwnedTransfer, DependencyValuePreservation, DependencyProjection, DependencyReferenceKind,
     DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
-    DependencyStorageEffect, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
+    DependencyStorageEffect, DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
     GenericArgument, GenericArgumentKind, GenericBinding, GenericOwnerId, GenericSubstitutionData,
     GenericSubstitutionId, GenericSubstitutionShapeError, GuardedDependencyRequirement,
     ImplementationInstanceData, ImplementationInstanceId, IntegerConstant, IntegerSign,

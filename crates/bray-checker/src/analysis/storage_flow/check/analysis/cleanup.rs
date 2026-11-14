@@ -1,3 +1,4 @@
+use crate::analysis::guarantee::CleanupMutation;
 use crate::analysis::storage_flow::memory::Effect;
 use bray_bound_tree::{StorageAccessId, StorageInvalidation, StorageMutation, StoragePath};
 use bray_symbols::{DependencyMutationKind, DependencySubjectRoot};
@@ -46,7 +47,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
              identity: bray_bound_tree::StorageMutation,
              mutation: crate::analysis::guarantee::CleanupMutation<'_>,
              conditional: bool| {
-                use crate::analysis::guarantee::CleanupMutation;
 
                 let skipped = conditional.then(|| memory.clone());
 
@@ -315,7 +315,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         mutation: &crate::analysis::guarantee::CleanupMutation<'_>,
         effects: Option<&[Effect]>,
     ) -> bool {
-        use crate::analysis::guarantee::CleanupMutation;
 
         let (ty, access) = match mutation {
             CleanupMutation::Opaque { ty, access, .. } => (*ty, *access),
@@ -418,12 +417,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .lifecycle_paths
                     .get(&(call.lifecycle.call.callable, subject.clone()))?;
 
-                memory.reference_location(self.request.semantic_values(), receiver.clone(), path, None)
+                self.stored_locations(memory, occurrence, path, None, |prefix| {
+                    Some(vec![memory.reference_location(self.request.semantic_values(), receiver.clone(), prefix, None)?])
+                })
             };
 
-            let Some(destination) = location(relation.exit()) else {
+            let Some(destinations) = location(relation.exit()) else {
+                memory.stage_whole_sources(occurrence, receiver.clone(), [], false, false);
                 continue;
             };
+
+            let sources = relation.entry().and_then(location);
 
             let mut logical = call
                 .path
@@ -444,25 +448,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 )
                 .collect();
 
-            let Some(entry) = relation.entry() else {
-                self.stage_independent_reference(memory, occurrence, destination, logical, reference);
-
-                continue;
-            };
-
-            let Some(source) = location(entry) else {
-                continue;
-            };
-
-            self.stage_reference(
-                memory,
-                occurrence,
-                crate::analysis::storage_flow::memory::Source::Value(source),
-                destination,
-                &logical,
-                reference,
-            );
+            for destination in destinations {
+                if relation.entry().is_none() {
+                    self.stage_independent_reference(memory, occurrence, destination, logical.clone(), reference);
+                } else if let Some(sources) = &sources {
+                    for source in sources {
+                        // Each possible output owns a transfer from the same captured source path.
+                        self.stage_reference(memory, occurrence,
+                            crate::analysis::storage_flow::memory::Source::Value(source.clone()),
+                            destination.clone(), &logical, reference);
+                    }
+                } else {
+                    memory.stage_unknown(occurrence, destination);
+                }
+            }
         }
+
+        self.prepare_lifecycle_stored_values(memory, occurrence, call.lifecycle.call.callable, &receiver);
     }
 
     fn buffer_cleanup_effects(

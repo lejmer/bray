@@ -79,7 +79,32 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     .map(|effect| project_effect(effect, ordinal, shape.as_ref()))
                     .collect::<Vec<_>>();
 
-                let child = child.with_effects(effects);
+                let stored_values = child.stored_values().iter().map(|stored| {
+                    let project = |path: &bray_symbols::DependencyStoredValuePath| {
+                        let subject = path.subject();
+
+                        if !matches!(subject.subject_root(), DependencySubjectRoot::Receiver | DependencySubjectRoot::Result) {
+                            return path.clone();
+                        }
+
+                        match project_component(subject, ordinal, shape.as_ref()) {
+                            Some(subject) => bray_symbols::DependencyStoredValuePath::new(
+                                subject, path.dereferences(),
+                            ),
+                            None => bray_symbols::DependencyStoredValuePath::new(
+                                DependencySubject::root(subject.subject_root()), 0,
+                            ),
+                        }
+                    };
+
+                    bray_symbols::DependencyStoredValue::new(
+                        project(stored.destination()),
+                        stored.sources().iter().map(project),
+                        stored.is_complete() && !matches!(shape.as_ref(), TypeData::Array { .. }),
+                    )
+                }).collect::<Vec<_>>();
+
+                let child = child.with_effects(effects).with_stored_values(stored_values);
 
                 let child = if matches!(shape.as_ref(), TypeData::Nullable(_)) {
                     child
@@ -153,6 +178,14 @@ fn project_subject(
         return Some(subject.clone());
     }
 
+    project_component(subject, ordinal, shape)
+}
+
+fn project_component(
+    subject: &DependencySubject,
+    ordinal: usize,
+    shape: &TypeData,
+) -> Option<DependencySubject> {
     let prefix = match shape {
         TypeData::Tuple(_) => DependencyProjection::TupleElement(SymbolOrdinal::new(
             u32::try_from(ordinal).expect("tuple conversion has a finite component count"),
@@ -218,6 +251,7 @@ pub(super) fn sequence_dependencies(
         .cloned();
 
     let mut result = DependencyContractTemplateData::new(requirements)
+        .with_stored_values(first.stored_values().iter().chain(next.stored_values()).cloned())
         .with_effects(first.effects().iter().chain(next.effects()).cloned())
         .with_synchronous_cleanup(
             first

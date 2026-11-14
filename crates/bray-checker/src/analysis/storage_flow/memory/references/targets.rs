@@ -23,6 +23,7 @@ impl State {
         let references = self
             .values
             .get(source)
+            .and_then(|value| value.references.as_ref())
             .or_else(|| {
                 source
                     .storage_path()
@@ -48,7 +49,7 @@ impl State {
         if let Some(references) = self.borrows.get(&capability) {
             // The destination owns a reference value after the expression's capability expires.
             self.values
-                .insert(Target::storage(destination), references.clone());
+                .insert(Target::storage(destination), references.clone().into());
         }
     }
 
@@ -93,7 +94,7 @@ impl State {
         );
 
         self.values
-            .insert(Target::storage(destination.clone()), references);
+            .insert(Target::storage(destination.clone()), references.into());
 
         self.expose_address(&destination, ty, origin);
     }
@@ -129,7 +130,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_view(&mut self, slot: &Place, ty: TypeId) {
-        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())) else {
+        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())).and_then(|value| value.references.as_mut()) else {
             return;
         };
 
@@ -154,7 +155,7 @@ impl State {
     ) -> References {
         // Transfers and mutations need an owned snapshot while changing their reached targets.
         let mut references = if slot.is_exact() {
-            self.values.get(slot).cloned().unwrap_or_default()
+            self.values.get(slot).and_then(|value| value.references.clone()).unwrap_or_default()
         } else {
             References::default()
         };
@@ -165,7 +166,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn invalidated(&self, slot: &Target) -> bool {
-        self.values.get(slot).is_some_and(|references| {
+        self.values.get(slot).and_then(|value| value.references.as_ref()).is_some_and(|references| {
             references.targets.iter().any(|target| {
                 self.contents
                     .get(target)

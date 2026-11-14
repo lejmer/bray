@@ -8,7 +8,7 @@ impl State {
         self.clear(&destination);
 
         self.values
-            .insert(Target::storage(destination), References::default());
+            .insert(Target::storage(destination), References::default().into());
     }
 
     pub(in crate::analysis::storage_flow) fn begin_transition(
@@ -70,7 +70,7 @@ impl State {
             .or_insert_with(|| References {
                 unknown: true,
                 ..References::default()
-            });
+            }.into());
 
         let pending = self.pending.entry(call).or_default();
 
@@ -108,7 +108,8 @@ impl State {
                 let forwarded = self
                     .pending
                     .get(&call)
-                    .and_then(|pending| pending.values.get(&Target::storage(destination.clone())));
+                    .and_then(|pending| pending.values.get(&Target::storage(destination.clone())))
+                    .and_then(|value| value.references.as_ref());
 
                 if forwarded.is_some_and(|references| {
                     !references.unknown
@@ -141,7 +142,9 @@ impl State {
             };
 
             if let Some(pending) = self.pending.get_mut(&call) {
-                pending.values.remove(&Target::storage(destination.clone()));
+                if let Some(value) = pending.values.get_mut(&Target::storage(destination.clone())) {
+                    value.references = None;
+                }
             }
 
             self.stage_bounded_reference(
@@ -214,6 +217,41 @@ impl State {
         ty: TypeId,
         inputs: impl IntoIterator<Item = Target>,
     ) {
+        if let Some(parent) = super::slots::selector_parent(&destination) {
+            let affected = super::slots::selected_subtree(&self.values, &destination)
+                .map(|(slot, _)| slot.clone()).collect::<Vec<_>>();
+
+            let affected_payloads = super::slots::selected_subtree(&self.contents, &destination)
+                .map(|(slot, _)| slot.clone()).collect::<Vec<_>>();
+
+            let exact = self.pending.get(&call).into_iter().flat_map(|pending| pending.values.iter())
+                .filter(|(_, value)| value.references.as_ref().is_some_and(References::is_exact))
+                .map(|(slot, _)| slot.clone()).collect::<std::collections::BTreeSet<_>>();
+
+            let established_payloads = self.pending.get(&call).into_iter().flat_map(|pending| pending.payloads.keys())
+                .cloned().collect::<std::collections::BTreeSet<_>>();
+
+            self.stage_preserved_subtree(call, &parent);
+
+            let pending = self.pending.get_mut(&call).expect("preserved selection stages its transition");
+
+            for slot in affected {
+                if !exact.contains(&slot)
+                    && let Some(references) = pending.values.get_mut(&slot).and_then(|value| value.references.as_mut())
+                {
+                    references.inexact = true;
+                }
+            }
+
+            for slot in affected_payloads {
+                if !established_payloads.contains(&slot)
+                    && let Some(contents) = pending.payloads.get_mut(&slot)
+                {
+                    contents.initialized.clear();
+                }
+            }
+        }
+
         let mut bounds = self.expand_returned_regions(inputs);
 
         // Checked regions are closed physical bounds, not forwarded addresses.
@@ -233,13 +271,12 @@ impl State {
         // A bounded view reads its existing field values. Its container is not
         // an origin of the pointers stored in those fields.
         if let Some(contents) = self.bounded_reference_contents(request, &destination)? {
-            self.values.insert(destination, contents);
+            self.values.entry(destination).or_default().references = Some(contents);
 
             return Ok(());
         }
 
         let bounds = self.unbounded_reference_regions(inputs);
-
         let target = self.returned_reference(reference, &bounds);
 
         // A new read after replacement must not equal a pointer retained from the old value.
@@ -250,7 +287,7 @@ impl State {
             .or_default()
             .storage_type = Some(ty);
 
-        self.values.insert(destination, References::one(target));
+        self.values.entry(destination).or_default().references = Some(References::one(target));
 
         Ok(())
     }
@@ -302,6 +339,7 @@ impl State {
             .values
             .entry(destination)
             .or_default()
+            .references.get_or_insert_with(References::default)
             .merge(&References::one(target));
     }
 
@@ -311,7 +349,7 @@ impl State {
         captures: impl IntoIterator<Item = Target>,
     ) {
         // Opaque frames retain reachable inputs, without being references to those inputs.
-        let references = self.values.entry(Target::storage(destination)).or_default();
+        let references = self.values.entry(Target::storage(destination)).or_default().references.get_or_insert_with(References::default);
 
         references.unknown = true;
         references.targets.extend(captures);
@@ -326,6 +364,7 @@ impl State {
             .pending
             .get_mut(&call)
             .and_then(|pending| pending.values.get_mut(destination))
+            .and_then(|value| value.references.as_mut())
         {
             references.inexact = true;
         }
@@ -337,7 +376,7 @@ impl State {
         destination: Target,
     ) {
         // Empty alternatives contribute no target and cannot erase another origin.
-        self.pending.entry(call).or_default().values.entry(destination).or_default();
+        self.pending.entry(call).or_default().values.entry(destination).or_default().references.get_or_insert_with(References::default);
     }
 
     pub(in crate::analysis::storage_flow) fn stage_null(
@@ -350,7 +389,7 @@ impl State {
         take_subtree(&mut pending.values, &destination).for_each(drop);
         take_subtree(&mut pending.payloads, &destination).for_each(drop);
         take_subtree(&mut pending.deferred, &destination).for_each(drop);
-        pending.values.insert(destination, References::default());
+        pending.values.insert(destination, References::default().into());
     }
 
     pub(in crate::analysis::storage_flow) fn stage_unknown(
@@ -364,7 +403,7 @@ impl State {
             .values
             .entry(destination.clone())
             .or_default()
-            .unknown = true;
+            .references.get_or_insert_with(References::default).unknown = true;
 
         for (_, contents) in pending
             .payloads
@@ -391,6 +430,7 @@ impl State {
             .values
             .entry(destination)
             .or_default()
+            .references.get_or_insert_with(References::default)
             .merge(references);
     }
 
@@ -423,6 +463,7 @@ impl State {
             .values
             .entry(destination)
             .or_default()
+            .references.get_or_insert_with(References::default)
             .merge(&references);
     }
 
@@ -475,7 +516,7 @@ impl State {
         self.contents.insert(current.clone(), contents);
 
         self.values
-            .insert(Target::storage(slot), References::one(current.clone()));
+            .insert(Target::storage(slot), References::one(current.clone()).into());
 
         current
     }
@@ -495,6 +536,7 @@ impl State {
         pending.payloads.entry(target.clone()).or_default().allocations.extend(call.expression());
 
         pending.values.entry(destination).or_default()
+            .references.get_or_insert_with(References::default)
             .merge(&References::one(target.project(projections)));
     }
 
@@ -517,7 +559,8 @@ impl State {
     ) -> Option<&References> {
         self.values
             .get(&owner.project(&[pointer]))
-            .or_else(|| self.values.get(owner).filter(|references| !references.unknown))
+            .and_then(|value| value.references.as_ref())
+            .or_else(|| self.values.get(owner).and_then(|value| value.references.as_ref()).filter(|references| !references.unknown))
     }
 
     pub(in crate::analysis::storage_flow) fn stage_owned_buffer_reference(
@@ -541,10 +584,13 @@ impl State {
         pointer: Target,
         element: TypeId,
     ) {
-        if self.values.contains_key(&pointer) { return; }
+        if self.values.get(&pointer).is_some_and(|value| value.references.is_some()) {
+            return;
+        }
 
-        if let Some(recorded) = self.values.get(&owner) {
-            self.values.insert(pointer, recorded.clone());
+        if let Some(recorded) = self.values.get(&owner).and_then(|value| value.references.clone()) {
+            self.values.entry(pointer).or_default().references = Some(recorded);
+
             return;
         }
 
@@ -559,7 +605,7 @@ impl State {
 
         assert_eq!(*declared, element, "an owned buffer keeps its declared backing element type");
 
-        self.values.insert(pointer, References::one(backing));
+        self.values.entry(pointer).or_default().references = Some(References::one(backing));
     }
 
     pub(in crate::analysis::storage_flow) fn owned_regions(
@@ -574,7 +620,7 @@ impl State {
         &mut self,
         owners: &[Target],
         destination: Target,
-        ty: bray_symbols::TypeId,
+        ty: TypeId,
         pointer: bray_bound_tree::StorageProjection,
         inexact: bool,
     ) {
@@ -599,7 +645,7 @@ impl State {
                 .get_or_insert(ty);
         }
 
-        self.values.insert(destination, references);
+        self.values.insert(destination, references.into());
     }
 
     pub(in crate::analysis::storage_flow) fn point_at(
@@ -612,7 +658,7 @@ impl State {
         let references = self.addressed_target(target, ty, kind);
 
         self.clear(&destination);
-        self.values.insert(Target::storage(destination), references);
+        self.values.insert(Target::storage(destination), references.into());
     }
 
     pub(super) fn retire(&mut self, current: &Target) {
@@ -621,11 +667,13 @@ impl State {
             .range(current.clone()..)
             .next()
             .is_some_and(|(target, _)| current.contains(target))
+            && !self.values.range(current.clone()..).take_while(|(target, _)| current.contains(target))
+                .any(|(_, value)| value.tracked)
         {
             return;
         }
 
-        for references in self.values.values_mut().chain(self.borrows.values_mut()) {
+        for references in self.values.values_mut().filter_map(|value| value.references.as_mut()).chain(self.borrows.values_mut()) {
             references.retire(current);
         }
 
@@ -644,7 +692,11 @@ impl State {
         let values = take_subtree(&mut self.values, current).collect::<Vec<_>>();
 
         for (target, mut value) in values {
-            value.unknown = true;
+            if let Some(references) = &mut value.references {
+                references.unknown = true;
+            }
+
+            value.complete = false;
 
             self.values
                 .entry(Target {

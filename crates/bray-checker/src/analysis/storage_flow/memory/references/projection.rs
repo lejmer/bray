@@ -130,7 +130,7 @@ impl State {
                 return Ok(None);
             }
 
-            let Some(value) = self.values.get(&target.project(projections)) else { return Ok(None); };
+            let Some(value) = self.values.get(&target.project(projections)).and_then(|value| value.references.as_ref()) else { return Ok(None); };
 
             if value.unknown || value.displaced { return Ok(None); }
 
@@ -299,7 +299,7 @@ impl State {
         path: &bray_bound_tree::StorageReferencePath,
         root_borrow: Option<Target>,
     ) -> Option<Target> {
-        self.reference_location_in(values, target, path, root_borrow, |target| self.values.get(target))
+        self.reference_location_in(values, target, path, root_borrow, |target| self.values.get(target).and_then(|value| value.references.as_ref()))
     }
 
     pub(in crate::analysis::storage_flow) fn staged_reference_location(
@@ -307,12 +307,14 @@ impl State {
         invocation: bray_bound_tree::BoundExecutionSite,
         values: &bray_symbols::SemanticValueStore,
         root: &Target,
+        start: &Target,
         path: &bray_bound_tree::StorageReferencePath,
     ) -> Option<Target> {
         let staged = self.pending.get(&invocation)?;
 
-        self.reference_location_in(values, root.clone(), path, None, |target| {
-            if root.contains(target) { staged.values.get(target) } else { self.values.get(target) }
+        self.reference_location_in(values, start.clone(), path, None, |target| {
+            staged.values.get(target).or_else(|| (!root.contains(target)).then(|| self.values.get(target)).flatten())
+                .and_then(|value| value.references.as_ref())
         })
     }
 
@@ -326,7 +328,7 @@ impl State {
         let captured = &self.pending.get(&invocation)?.inputs;
 
         let lookup = |target: &Target| {
-            if root.contains(target) { captured.get(target) } else { self.values.get(target) }
+            (if root.contains(target) { captured.get(target) } else { self.values.get(target) }).and_then(|value| value.references.as_ref())
         };
 
         let location = self.reference_location_in(values, root.clone(), path, None, lookup)?;
@@ -343,11 +345,11 @@ impl State {
         root: &Target,
         location: &Target,
     ) -> Option<Vec<Target>> {
-        if root.contains(location) {
-            self.pending.get(&invocation)?.values.get(location)?.regions()
-        } else {
-            self.referenced_regions(location)
-        }
+        let staged = self.pending.get(&invocation)?;
+
+        staged.values.get(location)
+            .or_else(|| (!root.contains(location)).then(|| self.values.get(location)).flatten())?
+            .references.as_ref()?.regions()
     }
 
     pub(in crate::analysis::storage_flow) fn staged_contained_regions(
@@ -359,7 +361,7 @@ impl State {
         let mut targets = std::collections::BTreeSet::new();
         let mut unknown = false;
 
-        for (_, references) in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot)) {
+        for references in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot)).filter_map(|(_, value)| value.references.as_ref()) {
             targets.extend(references.targets.iter().cloned());
             unknown |= references.unknown || references.displaced;
         }
@@ -420,14 +422,14 @@ impl State {
         &self,
         location: &Target,
     ) -> Option<Vec<Target>> {
-        self.values.get(location)?.regions()
+        self.values.get(location)?.references.as_ref()?.regions()
     }
 
     pub(in crate::analysis::storage_flow) fn value_targets(
         &self,
         location: &Target,
     ) -> Option<Vec<Target>> {
-        let references = self.values.get(location)?;
+        let references = self.values.get(location)?.references.as_ref()?;
 
         (!references.unknown
             && !references.displaced
@@ -496,14 +498,14 @@ impl State {
             .or_default()
             .storage_type = ty;
 
-        self.values.insert(location, References::one(target));
+        self.values.insert(location, References::one(target).into());
     }
 
     pub(in crate::analysis::storage_flow) fn has_value(&self, target: &Target) -> bool {
         self.values
             .range(target.clone()..)
-            .next()
-            .is_some_and(|(candidate, _)| target.contains(candidate))
+            .take_while(|(candidate, _)| target.contains(candidate))
+            .any(|(_, value)| value.references.is_some() || value.tracked)
             || self
                 .deferred
                 .range(target.clone()..)
@@ -536,7 +538,7 @@ impl State {
             .storage_type = Some(ty);
 
         self.values
-            .insert(Target::storage(reference), References::one(target.clone()));
+            .insert(Target::storage(reference), References::one(target.clone()).into());
 
         self.borrows.insert(capability, References::one(target));
     }
@@ -554,7 +556,7 @@ impl State {
         location: &Target,
         ty: TypeId,
     ) -> Option<Target> {
-        self.typed_target(self.values.get(location)?, ty)
+        self.typed_target(self.values.get(location)?.references.as_ref()?, ty)
     }
 
     pub(in crate::analysis::storage_flow) fn declared_type(&self, target: &Target) -> Option<TypeId> {

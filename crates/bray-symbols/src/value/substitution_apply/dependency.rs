@@ -1,3 +1,4 @@
+use super::super::DependencyStorageEffect;
 use super::context::Substitution;
 
 use super::super::{
@@ -235,7 +236,6 @@ impl SemanticValueStore {
             .effects()
             .iter()
             .map(|effect| {
-                use super::super::DependencyStorageEffect;
 
                 Ok(match effect {
                     DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
@@ -278,6 +278,13 @@ impl SemanticValueStore {
 
         self.intern_dependency_contract_template(
             substituted
+                .with_stored_values(template.stored_values().iter().map(|stored| {
+                    Ok(super::super::DependencyStoredValue::new(
+                        super::super::DependencyStoredValuePath::new(self.substitute_dependency_subject(stored.destination().subject(), substitution)?, stored.destination().dereferences()),
+                        stored.sources().iter().map(|source| Ok(super::super::DependencyStoredValuePath::new(self.substitute_dependency_subject(source.subject(), substitution)?, source.dereferences()))).collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
+                        stored.is_complete(),
+                    ))
+                }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?)
                 .with_borrows(borrows)
                 .with_carriers(carriers)
                 .with_observed_result(

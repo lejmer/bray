@@ -1,3 +1,4 @@
+use bray_symbols::{DependencyOwnedResult, DependencyMutationKind, DependencyStorageEffect};
 use super::encoding::StructuralValueEncoder;
 use crate::fact::FactQueryError;
 use bray_base::StableDigestHasher;
@@ -164,6 +165,7 @@ impl StructuralValueEncoder<'_, '_> {
             self.constant_term(term)?;
         }
 
+        self.dependency_set(data.stored_values(), Self::dependency_stored_value)?;
         self.dependency_set(data.borrows(), Self::dependency_borrow)?;
         self.dependency_set(data.carriers(), Self::dependency_carrier)?;
 
@@ -176,7 +178,6 @@ impl StructuralValueEncoder<'_, '_> {
         &mut self,
         result: &bray_symbols::DependencyOwnedResult,
     ) -> Result<(), FactQueryError> {
-        use bray_symbols::DependencyOwnedResult;
 
         match result {
             DependencyOwnedResult::Case { condition, result } => {
@@ -200,6 +201,24 @@ impl StructuralValueEncoder<'_, '_> {
                 self.dependency_set(values, Self::dependency_owned_result)
             }
         }
+    }
+
+    pub(in crate::compilation) fn dependency_stored_value(
+        &mut self, stored: &bray_symbols::DependencyStoredValue,
+    ) -> Result<(), FactQueryError> {
+        self.dependency_stored_value_path(stored.destination())?;
+        self.boolean(stored.is_complete());
+
+        self.dependency_set(stored.sources(), Self::dependency_stored_value_path)
+    }
+
+    pub(in crate::compilation) fn dependency_stored_value_path(
+        &mut self, path: &bray_symbols::DependencyStoredValuePath,
+    ) -> Result<(), FactQueryError> {
+        self.dependency_subject(path.subject())?;
+        self.digest.write_u32(path.dereferences());
+
+        Ok(())
     }
 
     pub(in crate::compilation) fn dependency_borrow(
@@ -281,7 +300,6 @@ impl StructuralValueEncoder<'_, '_> {
         &mut self,
         effect: &bray_symbols::DependencyStorageEffect,
     ) -> Result<(), FactQueryError> {
-        use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 
         let (kind, access_type) = match effect {
             DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
@@ -530,7 +548,7 @@ impl StructuralValueEncoder<'_, '_> {
         Ok(())
     }
 
-    fn dependency_subject(&mut self, subject: &DependencySubject) -> Result<(), FactQueryError> {
+    pub(in crate::compilation) fn dependency_subject(&mut self, subject: &DependencySubject) -> Result<(), FactQueryError> {
         match subject.subject_root() {
             DependencySubjectRoot::Receiver => self.tag(0),
             DependencySubjectRoot::Parameter(ordinal) => {

@@ -1,5 +1,7 @@
 // rust-style: allow(module-too-large, reason = "storage flow collection is one transition engine whose diagnostics require the same plan, state, and decision context")
 
+use crate::analysis::model::AnalysisResultPhase;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
@@ -394,6 +396,7 @@ where
     pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) has_normal_effects: bool,
     pub(super) references: Option<crate::analysis::storage_flow::memory::ReferenceExit>,
+    pub(super) stored_exits: Vec<(crate::analysis::storage_flow::memory::ReferenceExit, BTreeSet<crate::analysis::storage_flow::memory::Place>)>,
     pub(super) cleanup_mutations:
         BTreeMap<bray_bound_tree::StorageMutation, bray_bound_tree::StorageInvalidation>,
     pub(super) completions:
@@ -520,6 +523,7 @@ where
             reporting_completions: BTreeSet::new(),
             has_normal_effects: false,
             references: None,
+            stored_exits: Vec::new(),
             memory_decisions: BTreeMap::new(),
             diagnostics: DiagnosticBag::new(),
             reported_diagnostics: BTreeSet::new(),
@@ -1957,7 +1961,6 @@ where
         state: &mut StorageFlowState,
         operation: AnalysisOperationKind,
     ) {
-        use crate::analysis::model::AnalysisResultPhase;
 
         let completes = !matches!(
             operation,

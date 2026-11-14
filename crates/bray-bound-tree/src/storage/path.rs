@@ -117,6 +117,18 @@ impl StorageReferencePath {
         &self.borrows
     }
 
+    /// Appends checked terminal borrow loads while retaining the component route.
+    pub fn with_terminal_borrows(&self, targets: &[bray_symbols::TypeId]) -> Self {
+        if targets.is_empty() { return self.clone(); }
+
+        Self {
+            projections: Arc::clone(&self.projections),
+            borrows: self.borrows.iter().copied()
+                .chain(targets.iter().map(|ty| (self.projections.len(), *ty)))
+                .collect::<Vec<_>>().into(),
+        }
+    }
+
     /// Whether this load follows an explicit raw address rather than a language borrow.
     pub fn is_address_load(&self, step: usize) -> bool {
         let (index, _) = self.borrows.get(step).expect("reference load belongs to its prepared route");

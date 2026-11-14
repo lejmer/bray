@@ -1,3 +1,5 @@
+use bray_symbols::DependencyMutationKind;
+use bray_bound_tree::StorageProjection;
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Effect, Place, Source, Target};
@@ -35,6 +37,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         // Formation binds the descriptor to the allocator's actual target.
+        if self.input.footprint.complete_reference_types.get(&fields.element) != Some(&true) {
+            state.memory.seed_empty_whole(allocation.clone());
+            state.memory.seed_empty_whole(allocation.project(&[bray_bound_tree::StorageProjection::AnyElement]));
+        }
+
         state.memory.point_at(
             allocation,
             pointer,
@@ -91,7 +98,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         index: usize,
         transition: Option<bray_symbols::DependencyMutationKind>,
     ) -> Option<Vec<Effect>> {
-        use bray_symbols::DependencyMutationKind;
 
         let (_, fields, source) = self.buffer_argument(state, operation, index)?;
 
@@ -119,6 +125,69 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         Some(effects)
+    }
+
+    pub(super) fn stage_buffer_payload(
+        &self,
+        state: &mut StorageFlowState,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+    ) {
+
+        let element = match operation.kind() {
+            CheckedMemoryOperationKind::RawBufferPush { element }
+            | CheckedMemoryOperationKind::RawBufferPop { element } => *element,
+            _ => return,
+        };
+
+        if self.input.footprint.complete_reference_types.get(&element) == Some(&true) { return; }
+
+        let call = operation.expression().into();
+
+        // Each intrinsic attempt owns a fresh staged output. A rejected prior
+        // attempt must not contribute payloads to a later loop incarnation.
+        state.memory.begin_transition(call);
+
+        let unknown_result = |state: &mut StorageFlowState| {
+            if matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferPop { .. })
+                && let Some(result) = self.expression_result_storage(operation.expression())
+            {
+                state.memory.stage_whole_sources(call, Target::storage(result), [], false, false);
+            }
+        };
+
+        let Some((_, fields, source)) = self.buffer_argument(state, operation, 0) else { unknown_result(state); return; };
+
+        let Some(owners) = source.regions(&state.memory) else { unknown_result(state); return; };
+
+        let Some(regions) = owners.iter().map(|owner| {
+            state.memory.owned_regions(owner, StorageProjection::ProductField(fields.pointer))
+        }).collect::<Option<Vec<_>>>() else { unknown_result(state); return; };
+
+        let regions = regions.into_iter().flatten().collect::<Vec<_>>();
+
+        match operation.kind() {
+            CheckedMemoryOperationKind::RawBufferPush { .. } => {
+                for region in regions {
+                    state.memory.stage_preserved_subtree(call, &region);
+
+                    let destination = region.project(&[StorageProjection::AnyElement]);
+                    let source = self.memory_argument_reference(state, operation, operation.arguments()[1]);
+                    let complete = source.is_some();
+
+                    state.memory.stage_buffer_push(call, destination, source, complete);
+                }
+            }
+            CheckedMemoryOperationKind::RawBufferPop { .. } => {
+                for region in &regions {
+                    state.memory.stage_preserved_subtree(call, region);
+                }
+
+                if let Some(result) = self.expression_result_storage(operation.expression()) {
+                    state.memory.stage_buffer_elements(call, Target::storage(result), &regions);
+                }
+            }
+            _ => unreachable!("checked buffer payload operation"),
+        }
     }
 
     fn buffer_argument(
@@ -156,8 +225,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
     ) -> Option<Vec<Effect>> {
-        use bray_bound_tree::StorageProjection;
-        use bray_symbols::DependencyMutationKind;
 
         let relocate = matches!(
             operation.kind(),
@@ -272,7 +339,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
     ) -> Option<Vec<Effect>> {
-        use bray_symbols::DependencyMutationKind;
 
         let (_, fields, source) = self.buffer_argument(state, operation, 0)?;
 

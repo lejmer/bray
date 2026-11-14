@@ -1,3 +1,5 @@
+use crate::compilation::binder::binding_query_error;
+use bray_symbols::{CallableParameterDefaultQuery, CallableParameterDefaultValue, StructFieldDefaultQuery, StructFieldDefaultValue, UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery};
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
@@ -271,7 +273,6 @@ fn infer_component(
     component: &[ResultDependencyOwner],
     cancellation: &crate::fact::CancellationToken,
 ) -> Result<DiagnosticResult<Component>, crate::fact::FactQueryError> {
-    use crate::compilation::binder::binding_query_error;
 
     let context = compilation.binding_context(cancellation)?;
 
@@ -430,6 +431,7 @@ fn body_result_dependencies(
             .cloned(),
     )
     .with_borrows(combined_result_borrows(checked, previous))
+    .with_stored_values(combined_result_stored_values(checked, previous))
     .with_carriers(
         (if !previous.normal_completion() {
             checked.carriers()
@@ -500,6 +502,37 @@ fn body_result_dependencies(
     }
 
     result
+}
+
+fn combined_result_stored_values(
+    checked: &bray_symbols::DependencyContractTemplateData,
+    previous: &bray_symbols::DependencyContractTemplateData,
+) -> Vec<bray_symbols::DependencyStoredValue> {
+    if !previous.normal_completion() {
+        return checked.stored_values().to_vec();
+    }
+
+    if !checked.normal_completion() {
+        return previous.stored_values().to_vec();
+    }
+
+    let destinations = |summary: &bray_symbols::DependencyContractTemplateData| {
+        summary.stored_values().iter().map(|stored| stored.destination().clone())
+            .collect::<BTreeSet<_>>()
+    };
+
+    let checked_destinations = destinations(checked);
+    let previous_destinations = destinations(previous);
+
+    previous.stored_values().iter().chain(checked.stored_values()).map(|stored| {
+        // A missing record on a reachable outcome leaves unknown contents, not an empty value.
+        if checked_destinations.contains(stored.destination())
+            && previous_destinations.contains(stored.destination()) {
+            stored.clone()
+        } else {
+            stored.clone().incomplete()
+        }
+    }).collect()
 }
 
 fn combined_result_borrows(
@@ -687,10 +720,6 @@ fn summary(
     context: &CompilationBindingContext<'_>,
     owner: &ResultDependencyOwner,
 ) -> BindingQueryResult<DiagnosticResult<DependencyContractTemplateId>> {
-    use bray_symbols::{
-        CallableParameterDefaultQuery, CallableParameterDefaultValue, StructFieldDefaultQuery,
-        StructFieldDefaultValue, UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery,
-    };
 
     let owner = match owner {
         ResultDependencyOwner::Declaration(symbol) => *symbol,

@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use bray_bound_tree::BoundOperator;
 

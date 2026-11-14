@@ -146,6 +146,9 @@ pub struct BoundCallDependencyContracts {
     reports: BoundCallReports,
     deferred_reports: Option<BoundCallReports>,
     references: Vec<BoundCallReference>,
+    stored_values: Arc<[bray_symbols::DependencyStoredValue]>,
+    stored_value_paths: BTreeMap<bray_symbols::DependencyStoredValuePath,
+        (bray_symbols::TypeId, crate::StorageReferencePath)>,
     effects: Arc<[bray_symbols::DependencyStorageEffect]>,
     retained_inputs: Option<BTreeSet<crate::BoundExecutionSite>>,
     reference_subjects: BTreeMap<
@@ -211,6 +214,8 @@ impl BoundCallDependencyContracts {
             reports: BoundCallReports::default(),
             deferred_reports: None,
             references: Vec::new(),
+            stored_values: Arc::new([]),
+            stored_value_paths: BTreeMap::new(),
             effects: Arc::new(bray_symbols::DependencyStorageEffect::opaque_call()),
             retained_inputs: None,
             reference_subjects: BTreeMap::new(),
@@ -233,6 +238,32 @@ impl BoundCallDependencyContracts {
     /// Returns the ordinal reserved for the completion result.
     pub const fn input_count(&self) -> usize {
         self.input_count
+    }
+
+    /// Retains normal-output data origins without granting reference or ownership authority.
+    pub fn with_stored_values(
+        mut self,
+        values: &[bray_symbols::DependencyStoredValue],
+        paths: BTreeMap<bray_symbols::DependencyStoredValuePath,
+            (bray_symbols::TypeId, crate::StorageReferencePath)>,
+    ) -> Self {
+        self.stored_values = values.into();
+        self.stored_value_paths = paths;
+
+        self
+    }
+
+    /// Returns possible stored sources in formal invocation coordinates.
+    pub fn stored_values(&self) -> &[bray_symbols::DependencyStoredValue] {
+        &self.stored_values
+    }
+
+    /// Returns the actual type and route of a stored-value endpoint, including terminal loads.
+    pub fn stored_value_path(
+        &self,
+        endpoint: &bray_symbols::DependencyStoredValuePath,
+    ) -> Option<(bray_symbols::TypeId, &crate::StorageReferencePath)> {
+        self.stored_value_paths.get(endpoint).map(|(ty, path)| (*ty, path))
     }
 
     /// Retains the returned carrier paths established by the selected callable.

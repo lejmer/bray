@@ -1,3 +1,5 @@
+use bray_symbols::DependencyMutationKind;
+use bray_symbols::DependencyStorageEffect;
 use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
@@ -87,6 +89,23 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 }
             }
 
+            write_count(encoder, contract.stored_values.len());
+
+            for value in &*contract.stored_values {
+                encode_dependency_subject(encoder, value.destination().subject());
+
+                encoder.write_u32(value.destination().dereferences());
+                encoder.write_u32(u32::from(value.is_complete()));
+
+                write_count(encoder, value.sources().len());
+
+                for source in value.sources() {
+                    encode_dependency_subject(encoder, source.subject());
+
+                    encoder.write_u32(source.dereferences());
+                }
+            }
+
             super::super::ownership::encode_owned_result(encoder, &contract.owned_result);
 
             write_optional_u32(encoder, contract.observed_result.map(|term| term.raw()));
@@ -100,7 +119,6 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             write_count(encoder, contract.effects.len());
 
             for effect in &*contract.effects {
-                use bray_symbols::DependencyStorageEffect;
 
                 match effect {
                     DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
@@ -507,7 +525,6 @@ fn encode_mutation(
     encoder: &mut WireEncoder,
     kind: bray_symbols::DependencyMutationKind<crate::InterfaceTypeId>,
 ) {
-    use bray_symbols::DependencyMutationKind;
 
     encoder.write_u32(match kind {
         DependencyMutationKind::Write => 1,

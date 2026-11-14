@@ -48,7 +48,7 @@ impl State {
 
     /// Normal ambient effects share external roots and this call's escaped inputs.
     /// A whole invocation escape has no finite reachability bound.
-    pub(in crate::analysis::storage_flow) fn ambient_regions(&self, effects: &[Effect]) -> Option<std::collections::BTreeSet<Target>> {
+    pub(in crate::analysis::storage_flow) fn ambient_regions(&self, effects: &[Effect]) -> Option<(std::collections::BTreeSet<Target>, bool)> {
         if effects.contains(&Effect::Escape) { return None; }
 
         let escaped = effects.iter().filter_map(|effect| match effect {
@@ -56,7 +56,7 @@ impl State {
             _ => None,
         });
 
-        Some(self.reachable_targets(self.escaped_regions(escaped)))
+        Some(self.reachable_regions(self.escaped_regions(escaped)))
     }
 
     pub(in crate::analysis::storage_flow) fn apply_effects(
@@ -78,7 +78,9 @@ impl State {
             match effect {
                 Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
                 Effect::Mutation(target, DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _) => {
-                    let (targets, _) = self.transitive_regions([target.clone()], |_, _| true);
+                    let (mut targets, unknown) = self.transitive_regions([target.clone()], |_, _| true);
+
+                    self.include_unknown_targets(&mut targets, unknown);
 
                     self.invalidate(invalidation, storage, DependencyMutationKind::Retire);
 
@@ -98,7 +100,9 @@ impl State {
                         _ => DependencyMutationKind::Retire,
                     };
 
-                    if let Some(targets) = self.ambient_regions(effects) {
+                    if let Some((mut targets, unknown)) = self.ambient_regions(effects) {
+                        self.include_unknown_targets(&mut targets, unknown);
+
                         for target in targets {
                             self.invalidate_target(
                                 &target,
@@ -141,7 +145,12 @@ impl State {
             if kind != DependencyMutationKind::Atomic
                 && !Self::stable_reference_slot(&affected, invalidation)
             {
-                self.values.remove(&affected);
+                if complete_cell && target.is_exact() && *target == affected {
+                    self.values.remove(&affected);
+                } else if let Some(value) = self.values.get_mut(&affected) {
+                    value.references = None;
+                    value.complete = false;
+                }
             }
 
             if let Some(contents) = self.contents.get_mut(&affected) {
@@ -177,8 +186,8 @@ impl State {
             StorageInvalidation::All { .. }
         );
 
-        self.values.retain(|target, _| {
-            kind == DependencyMutationKind::Atomic
+        self.values.retain(|target, value| {
+            let retained = kind == DependencyMutationKind::Atomic
                 || unknown && Self::unaddressed_inline_slot(unaddressed, target)
                 || Self::stable_reference_slot(target, invalidation)
                 || match target.observation_path() {
@@ -187,7 +196,16 @@ impl State {
                         invalidation,
                         StorageInvalidation::All { .. }
                     ),
-                }
+                };
+
+            if !retained && value.tracked {
+                value.references = None;
+                value.complete = false;
+
+                true
+            } else {
+                retained
+            }
         });
 
         for (target, contents) in &mut self.contents {

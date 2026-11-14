@@ -92,6 +92,74 @@ impl DependencySubject {
     }
 }
 
+/// A formal stored-value subtree and terminal borrow layers after its projections.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DependencyStoredValuePath<Subject = DependencySubject> {
+    subject: Subject,
+    dereferences: u32,
+}
+
+impl<Subject> DependencyStoredValuePath<Subject> {
+    /// Creates a subtree endpoint with its terminal borrow depth.
+    pub const fn new(subject: Subject, dereferences: u32) -> Self { Self { subject, dereferences } }
+
+    /// Returns the formal subject before terminal dereferences.
+    pub const fn subject(&self) -> &Subject { &self.subject }
+
+    /// Returns the number of terminal borrow layers.
+    pub const fn dereferences(&self) -> u32 { self.dereferences }
+}
+
+/// Possible input-derived values retained within one normal-output subtree.
+/// This describes physical dependencies, not equality or authority.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DependencyStoredValue<Subject = DependencySubject> {
+    destination: DependencyStoredValuePath<Subject>,
+    sources: Arc<[DependencyStoredValuePath<Subject>]>,
+    complete: bool,
+}
+
+impl<Subject: Ord> DependencyStoredValue<Subject> {
+    /// Creates a canonical possible-source bound for one output subtree.
+    pub fn new(destination: DependencyStoredValuePath<Subject>, sources: impl IntoIterator<Item = DependencyStoredValuePath<Subject>>, complete: bool) -> Self {
+        Self { destination, sources: sorted_unique_shared_slice(sources), complete }
+    }
+}
+
+impl<Subject: Clone + Ord> DependencyStoredValue<Subject> {
+    /// Merges alternative summaries by destination.
+    pub fn normalize(values: impl IntoIterator<Item = Self>) -> Arc<[Self]> {
+        let mut destinations = std::collections::BTreeMap::<DependencyStoredValuePath<Subject>, (std::collections::BTreeSet<DependencyStoredValuePath<Subject>>, bool)>::new();
+
+        for value in values {
+            let entry = destinations.entry(value.destination).or_insert_with(|| (Default::default(), true));
+
+            entry.0.extend(value.sources.iter().cloned());
+            entry.1 &= value.complete;
+        }
+
+        destinations.into_iter().map(|(destination, (sources, complete))| Self::new(destination, sources, complete)).collect::<Vec<_>>().into()
+    }
+}
+
+impl<Subject> DependencyStoredValue<Subject> {
+    /// Returns the output subtree.
+    pub const fn destination(&self) -> &DependencyStoredValuePath<Subject> { &self.destination }
+
+    /// Returns the possible captured input sources.
+    pub fn sources(&self) -> &[DependencyStoredValuePath<Subject>] { &self.sources }
+
+    /// Whether the listed sources and separate reference relations cover the subtree.
+    pub const fn is_complete(&self) -> bool { self.complete }
+
+    /// Retains known sources when another possible outcome has unknown contents.
+    pub fn incomplete(mut self) -> Self {
+        self.complete = false;
+
+        self
+    }
+}
+
 /// A portable lifecycle obligation retained by a dependency contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum LifecycleObligationKind {
@@ -296,7 +364,7 @@ impl DependencyRequirement {
         result: impl IntoIterator<Item = DependencyRequirement>,
     ) -> Self {
         Self::FixedPoint {
-            definitions: bray_base::shared_slice(
+            definitions: shared_slice(
                 definitions.into_iter().map(sorted_unique_shared_slice),
             ),
             result: sorted_unique_shared_slice(result),
@@ -402,7 +470,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     /// Records storage allocated during this invocation. References with the same
     /// allocation subject share one allocation identity, including aliased outputs.
     pub fn new_allocation(allocation: Subject, exit: Subject, kind: DependencyReferenceKind) -> Self {
-        assert!(kind == DependencyReferenceKind::Address, "a raw allocation does not establish a borrowed lifetime");
+        assert_eq!(kind, DependencyReferenceKind::Address, "a raw allocation does not establish a borrowed lifetime");
 
         Self {
             source: ReferenceSource::Allocation(allocation),
@@ -592,15 +660,26 @@ pub struct DependencyContractTemplateData {
     abnormal_reports: Option<Arc<[DependencyRequirement]>>,
     borrows: Arc<[DependencyBorrowRelation]>,
     owned_result: DependencyOwnedResult,
+    stored_values: Arc<[DependencyStoredValue]>,
     observed_result: Option<ConstantTermId>,
     carriers: Arc<[DependencyWitnessCarrier]>,
-    effects: Arc<[super::DependencyStorageEffect]>,
+    effects: Arc<[DependencyStorageEffect]>,
     synchronous_cleanup: Arc<[DependencyRequirement]>,
     normal_completion: bool,
     normal_storage_preserved: bool,
 }
 
 impl DependencyContractTemplateData {
+    /// Records possible captured values stored in normal-output subtrees.
+    pub fn with_stored_values(mut self, values: impl IntoIterator<Item = DependencyStoredValue>) -> Self {
+        self.stored_values = DependencyStoredValue::normalize(values);
+
+        self
+    }
+
+    /// Returns normal-output stored-value bounds.
+    pub fn stored_values(&self) -> &[DependencyStoredValue] { &self.stored_values }
+
     /// Records a value observation shared by every mutation-free normal completion.
     /// This carries no ownership, storage identity or trusted authority.
     pub fn with_observed_result(mut self, result: Option<ConstantTermId>) -> Self {
@@ -715,7 +794,8 @@ impl DependencyContractTemplateData {
             .chain(self.synchronous_cleanup.iter())
     }
 
-    /// Enumerates formal reference paths required by exact relations and mutation effects.
+    /// Enumerates paths needed to prepare references, effects and stored-value bounds.
+    /// A stored-value path does not itself establish reference authority.
     pub fn reference_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
         self.borrows()
             .iter()
@@ -726,6 +806,9 @@ impl DependencyContractTemplateData {
                     .chain(std::iter::once(relation.exit()))
             })
             .chain(self.effects().iter().filter_map(DependencyStorageEffect::subject))
+            .chain(self.stored_values().iter().flat_map(|stored| {
+                std::iter::once(stored.destination().subject()).chain(stored.sources().iter().map(DependencyStoredValuePath::subject))
+            }))
     }
 
     /// Returns requirements for one selected output.
@@ -747,9 +830,10 @@ impl DependencyContractTemplateData {
             abnormal_reports: None,
             borrows: Arc::new([]),
             owned_result: DependencyOwnedResult::default(),
+            stored_values: Arc::new([]),
             observed_result: None,
             carriers: Arc::new([]),
-            effects: Arc::new(super::DependencyStorageEffect::opaque_call()),
+            effects: Arc::new(DependencyStorageEffect::opaque_call()),
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
             normal_storage_preserved: false,
@@ -769,6 +853,7 @@ impl DependencyContractTemplateData {
             // Transformations own a new contract while retaining the immutable checked summary.
             borrows: Arc::clone(&self.borrows),
             owned_result: self.owned_result.clone(),
+            stored_values: Arc::clone(&self.stored_values),
             observed_result: self.observed_result,
             carriers: Arc::clone(&self.carriers),
             effects: Arc::clone(&self.effects),
@@ -854,9 +939,9 @@ impl DependencyContractTemplateData {
     /// Attaches the complete may-mutation summary proved by the owning body analysis.
     pub fn with_effects(
         mut self,
-        effects: impl IntoIterator<Item = super::DependencyStorageEffect>,
+        effects: impl IntoIterator<Item = DependencyStorageEffect>,
     ) -> Self {
-        self.effects = super::DependencyStorageEffect::normalize(effects);
+        self.effects = DependencyStorageEffect::normalize(effects);
 
         self
     }
@@ -878,7 +963,7 @@ impl DependencyContractTemplateData {
     }
 
     /// Returns possible mutations. An empty slice proves storage is unchanged.
-    pub fn effects(&self) -> &[super::DependencyStorageEffect] {
+    pub fn effects(&self) -> &[DependencyStorageEffect] {
         &self.effects
     }
 

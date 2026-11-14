@@ -42,6 +42,10 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     >,
     pub(in crate::analysis::storage_flow) lifecycle_references:
         BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_bound_tree::BoundCallReference>>,
+    pub(in crate::analysis::storage_flow) lifecycle_stored_paths: BTreeMap<
+        bray_symbols::CallableInstanceData,
+        BTreeMap<bray_symbols::DependencyStoredValuePath, (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
+    >,
     pub(in crate::analysis::storage_flow) raw_buffers:
         BTreeMap<bray_symbols::TypeId, (crate::representation::RawBufferFields, bool)>,
     pub(in crate::analysis::storage_flow) reference_paths:
@@ -58,6 +62,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
             bray_symbols::DependencyReferenceKind,
         ),
     >,
+    pub(super) entry_whole_sources: Vec<(StorageIdentityId, bray_bound_tree::StorageReferencePath)>,
     pub(in crate::analysis::storage_flow) reference_constructions: BTreeMap<
         BoundExpressionId,
         Vec<(
@@ -131,6 +136,13 @@ impl StorageFlowInput {
             demands
                 .entry(request.semantic_values().unborrowed_type(owner))
                 .or_default()
+                .insert((std::sync::Arc::clone(&path.projections), *ty));
+        }
+
+        for (path, ty) in &footprint.whole_sources {
+            let owner = storage.storage_type(path.root).expect("whole-value source retains its storage type");
+
+            demands.entry(request.semantic_values().unborrowed_type(owner)).or_default()
                 .insert((std::sync::Arc::clone(&path.projections), *ty));
         }
 
@@ -232,6 +244,14 @@ impl StorageFlowInput {
         input.prepare_buffer_fields(request, cleanup_shapes, buffer_types, &mut demands)?;
 
         input.prepare_entry_references(request, storage, selections, dependencies, demands)?;
+
+        for (path, ty) in &input.footprint.whole_sources {
+            let root = storage.storage_type(path.root).expect("whole-value source retains its entry type");
+
+            if let Some((_, prepared)) = crate::storage::reference_path(request, root, std::sync::Arc::clone(&path.projections), Some(*ty))? {
+                input.entry_whole_sources.push((path.root, prepared));
+            }
+        }
 
         input.prepare_terminal_ownership(cleanup_shapes, request, storage, dependencies, memory)?;
 

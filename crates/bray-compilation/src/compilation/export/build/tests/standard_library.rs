@@ -3893,66 +3893,117 @@ fn raw_buffer_reachability_preserves_reference_bearing_payload_dependencies() {
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
     ];
 
-    for (element, value, valid) in [("u8", "1", true), ("(&mut Owner)", "anchor", false)] {
-        let source = format!(
+    for (element, value, valid) in [
+        ("u8", "1", true),
+        ("u8", "anchor.value", true),
+        ("(&mut std.buffer_fixture.Owner)", "anchor", false),
+        ("(&mut u8)", "&mut anchor.value", false),
+    ] {
+        let declarations = format!(
             r#"
-            trusted module app;
+            trusted module std.buffer_fixture;
             using core.memory;
             using internal std.memory;
 
-            struct Owner {{ mut value: u8; }}
-            trusted predicate live(value: &Owner);
-            trusted func make() -> Owner ensures(trusted live(&result))
+            struct Owner
             {{
-                return {{ value = 0 }};
+                mut value: u8;
             }}
-            extern trusted func accept(pos buffer: std.memory.RawBuffer<{element}>);
-            extern trusted func opaque();
-            func inspect(pos owner: &Owner) requires(trusted live(owner)) executes(pure, total) {{}}
+
+            trusted predicate live(value: &Owner);
+
+            trusted func make() -> Owner
+                ensures(trusted live(&result))
+            {{
+                return
+                {{
+                    value = 0
+                }};
+            }}
 
             trusted func create_buffer(pos anchor: &mut Owner) -> std.memory.RawBuffer<{element}>
             {{
                 let mut storage: std.memory.RawBuffer<{element}> = match trusted std.memory.RawBuffer<{element}>(capacity = 1)
                 {{
-                    case Ok(buffer) {{ yield buffer; }}
-                    case Error(_) {{ panic("buffer layout failed"); }}
+                    case Ok(buffer)
+                    {{
+                        yield buffer;
+                    }}
+                    case Error(_)
+                    {{
+                        panic("buffer layout failed");
+                    }}
                 }};
                 trusted internal std.memory.initialize_spare<{element}>(&mut storage, {value});
                 return storage;
             }}
+        "#
+        );
+
+        let caller = format!(
+            r#"
+            trusted module app;
+
+            using std.buffer_fixture;
+            using std.memory;
+
+            extern trusted func accept(pos buffer: std.memory.RawBuffer<{element}>);
+            extern trusted func opaque();
+
+            func inspect(pos owner: &std.buffer_fixture.Owner)
+                requires(trusted std.buffer_fixture.live(owner))
+                executes(pure, total)
+            {{
+            }}
 
             trusted func caller()
             {{
-                let mut owner = make();
-                accept(create_buffer(&mut owner));
+                let mut owner = std.buffer_fixture.make();
+                accept(std.buffer_fixture.create_buffer(&mut owner));
                 opaque();
                 inspect(&owner);
             }}
         "#
         );
 
-        let compilation =
-            standard_library_compilation(sources.into_iter().chain([source.as_str()]));
+        let provider = standard_library_compilation(sources.into_iter().chain([declarations.as_str()]));
 
-        let diagnostics = compilation.check_diagnostics();
+        assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
 
         let summary = crate::compilation::result_dependencies::source_function_dependencies(
-            &compilation,
+            &provider,
             "create_buffer",
         );
 
-        assert_eq!(
-            !diagnostics.has_errors(),
-            valid,
-            "element={element}: {diagnostics:#?}, summary={summary:#?}"
-        );
+        let local = standard_library_compilation(sources.into_iter().chain([declarations.as_str(), caller.as_str()]));
+        let imported = super::fixtures::execution_consumer(&provider, &caller);
 
-        if !valid {
-            assert!(
-                diagnostics.iter().any(|diagnostic| diagnostic.kind()
-                    == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
-                "{diagnostics:#?}"
+        for (mode, compilation) in [("source", &local), ("import", &imported)] {
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "mode={mode}, element={element}, value={value}: {diagnostics:#?}, summary={summary:#?}"
             );
+
+            if !valid {
+                let kind = bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven;
+
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, kind);
+
+                assert!(diagnostics.iter().any(|diagnostic| {
+                    if diagnostic.kind() != kind { return false; }
+
+                    let Some(span) = diagnostic.primary_span() else { return false; };
+                    let document = compilation.source(span.source_id())
+                        .expect("diagnostic source belongs to the compilation");
+                    let Some(start) = document.text().find("inspect(&owner)") else { return false; };
+                    let end = start + "inspect(&owner)".len();
+
+                    (span.start().bytes() as usize) < end && (span.end().bytes() as usize) > start
+                }), "the escaped borrow must invalidate the later inspect call: {diagnostics:#?}");
+            }
         }
     }
 }

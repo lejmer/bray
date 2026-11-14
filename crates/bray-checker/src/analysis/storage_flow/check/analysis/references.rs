@@ -4,4 +4,5 @@ mod places;
 mod ownership;
 mod prepare;
 mod publication;
+mod stored;
 mod transfer;

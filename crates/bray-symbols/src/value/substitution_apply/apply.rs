@@ -767,11 +767,13 @@ mod tests {
         assert_eq!(value.kind(), &ConstantValueKind::Error);
     }
 
-    #[test]
-    fn substitutions_apply_type_and_constant_arguments_through_arrays() {
-        let store = SemanticValueStore::try_new()
-            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
-
+    fn open_type_and_constant_substitution(
+        store: &SemanticValueStore,
+    ) -> (
+        GenericSubstitutionData,
+        (crate::TypeId, crate::ConstantTermId),
+        (crate::TypeId, crate::ConstantTermId),
+    ) {
         let source_type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
 
         let source_const_parameter =
@@ -798,13 +800,6 @@ mod tests {
             .intern_constant_term(ConstantTermData::Parameter(target_const_parameter))
             .unwrap_or_else(|error| panic!("target constant interning failed: {error:?}"));
 
-        let subject = store
-            .intern_type(TypeData::Array {
-                element: source_type,
-                length: source_const,
-            })
-            .unwrap_or_else(|error| panic!("subject type interning failed: {error:?}"));
-
         let function = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
 
         let owner = GenericOwnerId::try_new(function)
@@ -822,6 +817,24 @@ mod tests {
             ],
         )
         .unwrap_or_else(|error| panic!("substitution construction failed: {error:?}"));
+
+        (substitution, (source_type, source_const), (target_type, target_const))
+    }
+
+    #[test]
+    fn substitutions_apply_type_and_constant_arguments_through_arrays() {
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
+        let (substitution, (source_type, source_const), (target_type, target_const)) =
+            open_type_and_constant_substitution(&store);
+
+        let subject = store
+            .intern_type(TypeData::Array {
+                element: source_type,
+                length: source_const,
+            })
+            .unwrap_or_else(|error| panic!("subject type interning failed: {error:?}"));
 
         let substitution = store
             .intern_generic_substitution(substitution)
@@ -847,31 +860,8 @@ mod tests {
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
 
-        let source_type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
-
-        let source_const_parameter =
-            GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(3));
-
-        let target_type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(4));
-
-        let target_const_parameter =
-            GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(5));
-
-        let source_type = store
-            .intern_type(TypeData::TypeParameter(source_type_parameter))
-            .unwrap_or_else(|error| panic!("source type interning failed: {error:?}"));
-
-        let source_const = store
-            .intern_constant_term(ConstantTermData::Parameter(source_const_parameter))
-            .unwrap_or_else(|error| panic!("source constant interning failed: {error:?}"));
-
-        let target_type = store
-            .intern_type(TypeData::TypeParameter(target_type_parameter))
-            .unwrap_or_else(|error| panic!("target type interning failed: {error:?}"));
-
-        let target_const = store
-            .intern_constant_term(ConstantTermData::Parameter(target_const_parameter))
-            .unwrap_or_else(|error| panic!("target constant interning failed: {error:?}"));
+        let (substitution, (source_type, source_const), (target_type, target_const)) =
+            open_type_and_constant_substitution(&store);
 
         let conversion = store
             .intern_constant_term(ConstantTermData::Conversion {
@@ -879,24 +869,6 @@ mod tests {
                 target: source_type,
             })
             .unwrap_or_else(|error| panic!("conversion interning failed: {error:?}"));
-
-        let owner = GenericOwnerId::try_new(AnySymbolId::from(FunctionSymbolId::from_symbol_id(
-            SymbolId::new(1),
-        )))
-        .unwrap_or_else(|| panic!("function must support generic substitutions"));
-
-        let substitution = GenericSubstitutionData::try_new(
-            owner,
-            [
-                GenericParameterSymbolId::Type(source_type_parameter),
-                GenericParameterSymbolId::Const(source_const_parameter),
-            ],
-            [
-                GenericArgument::Type(target_type),
-                GenericArgument::Constant(target_const),
-            ],
-        )
-        .unwrap_or_else(|error| panic!("substitution construction failed: {error:?}"));
 
         let substituted = store
             .substitute_constant_term_data(conversion, &super::Substitution::Generic(&substitution))
@@ -951,13 +923,24 @@ mod tests {
             .with_exactness(false)
         };
 
+        let stored_value = |index| {
+            let source = DependencySubject::new(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)), [DependencyProjection::Element(index)]);
+
+            crate::DependencyStoredValue::new(
+                crate::DependencyStoredValuePath::new(DependencySubject::new(DependencySubjectRoot::Result, [DependencyProjection::Element(index)]), 1),
+                [crate::DependencyStoredValuePath::new(source.clone(), 0), crate::DependencyStoredValuePath::new(source, 1)],
+                true,
+            )
+        };
+
         let invocation = store
             .intern_dependency_contract_template(
                 DependencyContractTemplateData::new([DependencyRequirement::direct(
                     source_subject.clone(),
                     DependencyRequirementKind::StorageAlive,
                 )])
-                .with_borrows([projected_reference(source_term)]),
+                .with_borrows([projected_reference(source_term)])
+                .with_stored_values([stored_value(source_term)]),
             )
             .unwrap_or_else(|error| panic!("invocation contract interning failed: {error:?}"));
 
@@ -1015,7 +998,6 @@ mod tests {
         };
 
         let contracts = callable.dependency_contracts();
-
         let invocation = store.dependency_contract_template_data(contracts.invocation());
 
         let deferred = contracts
@@ -1031,6 +1013,7 @@ mod tests {
                 DependencyRequirementKind::StorageAlive,
             )])
             .with_borrows([projected_reference(target_term)])
+            .with_stored_values([stored_value(target_term)])
         );
 
         assert_eq!(

@@ -1,3 +1,6 @@
+use bray_compiler_known::RepresentationRole;
+use bray_bound_tree::CheckedMemoryOperationKind as Operation;
+use bray_symbols::{DependencyMutationKind as Mutation, DependencyStorageEffect as Effect};
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{StorageInvalidation, StoragePath, StoragePlan, StorageProjection};
@@ -10,6 +13,7 @@ use bray_bound_tree::StorageObservationKind as Observation;
 #[derive(Debug)]
 struct Shape {
     observations: Vec<(Vec<StorageProjection>, Observation)>,
+    whole_sources: Vec<(Vec<StorageProjection>, TypeId)>,
     complete_value: bool,
     inline_only: bool,
     complete_references: bool,
@@ -19,6 +23,17 @@ struct Shape {
 }
 
 impl Shape {
+    fn merge_observations(&self, observations: &mut BTreeSet<(Vec<StorageProjection>, Observation)>) {
+        observations.retain(|observation| {
+            !matches!(observation.1, Observation::Value | Observation::Identity | Observation::Marker(_))
+                || self.observations.contains(observation)
+        });
+
+        observations.extend(self.observations.iter().filter(|(_, observation)| {
+            !matches!(observation, Observation::Value | Observation::Identity | Observation::Marker(_))
+        }).cloned());
+    }
+
     fn is_reference_free(&self) -> bool {
         self.complete_references
             && !self
@@ -27,10 +42,11 @@ impl Shape {
                 .any(|(_, observation)| matches!(observation, Observation::Reference(_)))
     }
 
-    fn unknown() -> Self {
+    fn unknown(ty: TypeId) -> Self {
         // Opaque reachable state does not expose this value's inline storage.
         Self {
             observations: vec![(Vec::new(), Observation::Identity), (Vec::new(), Observation::InlineBits), (Vec::new(), Observation::Mutable)],
+            whole_sources: vec![(Vec::new(), ty)],
             complete_value: false,
             inline_only: false,
             complete_references: false,
@@ -77,11 +93,11 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
     visiting: &mut BTreeSet<NamedTypeSymbolId>,
     complete_reference_types: &mut BTreeMap<TypeId, bool>,
 ) -> Result<Shape, CheckerQueryError<C::UpstreamError>> {
-    use bray_compiler_known::RepresentationRole;
 
     if matches!(role, RepresentationRole::Unit | RepresentationRole::Never) {
         return Ok(Shape {
             observations: Vec::new(),
+            whole_sources: Vec::new(),
             complete_value: !reference,
             inline_only: true,
             complete_references: true,
@@ -104,6 +120,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
 
     let mut shape = Shape {
         observations: vec![(Vec::new(), observation)],
+        whole_sources: Vec::new(),
         complete_value: (scalar || role == RepresentationRole::FunctionPointer) && !reference,
         inline_only: scalar,
         complete_references: scalar || matches!(observation, Observation::Address),
@@ -122,6 +139,12 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
 
         let element = paths(request, element, visiting, complete_reference_types)?;
 
+        if role == RepresentationRole::Uninit {
+            shape.whole_sources = element.whole_sources.iter().map(|(path, ty)| {
+                (std::iter::once(StorageProjection::UninitPayload).chain(path.iter().copied()).collect(), *ty)
+            }).collect();
+        }
+
         shape.complete_references = element.is_reference_free();
         shape.inline_carriers = element.inline_carriers;
 
@@ -138,6 +161,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
 pub(crate) struct Footprint {
     pub(crate) atomic: Option<StorageInvalidation>,
     pub(crate) references: Vec<(StoragePath, TypeId)>,
+    pub(crate) whole_sources: Vec<(StoragePath, TypeId)>,
     pub(crate) complete_reference_types: std::sync::Arc<BTreeMap<TypeId, bool>>,
     pub(crate) owned_observations: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<(StoragePath, Observation)>>,
     pub(crate) borrowed_observations: BTreeMap<StoragePath, (bray_symbols::BorrowKind, TypeId, Vec<(StoragePath, Observation)>)>,
@@ -256,7 +280,6 @@ impl Footprint {
         // Extend the existing closed-operation preparation. Each concrete pointee
         // shares the same cached shape used by ordinary assignment observations.
         for operation in memory.operations() {
-            use bray_bound_tree::CheckedMemoryOperationKind as Operation;
 
             atomic |= matches!(
                 operation.kind(),
@@ -421,6 +444,12 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
         let shape = cached_shape(request, ty, &mut footprint.shapes, complete_reference_types)?;
 
+        if identity.is_initialized_at_entry() {
+            footprint.whole_sources.extend(shape.whole_sources.iter().map(|(projections, ty)| {
+                (StoragePath { root, projections: projections.clone().into() }, *ty)
+            }));
+        }
+
         let mut observations = shape.observations.iter().cloned().collect::<BTreeSet<_>>();
 
         let mut complete_value = shape.complete_value;
@@ -437,20 +466,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
             complete_value &= shape.complete_value;
 
-            observations.retain(|observation| {
-                !matches!(observation.1, Observation::Value | Observation::Identity | Observation::Marker(_))
-                    || shape.observations.contains(observation)
-            });
-
-            observations.extend(
-                shape
-                    .observations
-                    .iter()
-                    .filter(|(_, observation)| {
-                        !matches!(observation, Observation::Value | Observation::Identity | Observation::Marker(_))
-                    })
-                    .cloned(),
-            );
+            shape.merge_observations(&mut observations);
         }
 
         if complete_value {
@@ -605,7 +621,6 @@ fn prepare_effects<'a, C: CheckerRequestContext + ?Sized>(
     complete_reference_types: &mut BTreeMap<TypeId, bool>,
     reference_type: impl Fn(&bray_symbols::DependencySubject) -> Option<TypeId>,
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
-    use bray_symbols::{DependencyMutationKind as Mutation, DependencyStorageEffect as Effect};
 
     let mut atomic = false;
 
@@ -772,7 +787,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
             // A recursive reference widens only that component, not its siblings.
             if !visiting.insert(*definition) {
-                return Ok(Shape::unknown());
+                return Ok(Shape::unknown(ty));
             }
 
             if let Some(element) = buffer_element {
@@ -822,7 +837,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
                 let Some(projection) = projection else {
                     visiting.remove(definition);
 
-                    return Ok(Shape::unknown());
+                    return Ok(Shape::unknown(ty));
                 };
 
                 let checked =
@@ -831,7 +846,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
                 let Some(ty) = *checked.value() else {
                     visiting.remove(definition);
 
-                    return Ok(Shape::unknown());
+                    return Ok(Shape::unknown(ty));
                 };
 
                 fields.push((projection, ty));
@@ -841,30 +856,8 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         }
         TypeData::Array { element, .. } => {
             let element = paths(request, *element, visiting, complete_reference_types)?;
-            let mut shape = Shape::unknown();
 
-            // Element shape proves this without enumerating the array extent.
-            shape.complete_references = element.is_reference_free();
-            shape.complete_value = !reference && element.complete_value;
-            shape.inline_only = !nested_borrow && element.inline_only && element.is_reference_free();
-            shape.inline_carriers = element.inline_carriers;
-
-            if shape.inline_only {
-                shape.observations.push((Vec::new(), Observation::Value));
-            } else if let Some(length) = crate::constant::known_array_length(request.semantic_values(), ty)
-                && length.checked_mul(element.observations.len()).is_some_and(|work| work <= crate::ExecutionCondition::WORK_LIMIT)
-            {
-                for index in 0..length {
-                    let index = bray_symbols::SymbolOrdinal::new(u32::try_from(index)
-                        .expect("bounded array observation index fits an ordinal"));
-
-                    shape.observations.extend(element.observations.iter().map(|(path, kind)| {
-                        (std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect(), *kind)
-                    }));
-                }
-            }
-
-            return Ok(shape);
+            return Ok(array_shape(request, ty, element, reference, nested_borrow));
         }
         TypeData::Nullable(element) => {
             fields.push((StorageProjection::NullableValue, *element));
@@ -885,10 +878,11 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
             None
         }
-        _ => return Ok(Shape::unknown()),
+        _ => return Ok(Shape::unknown(ty)),
     };
 
     let mut result = vec![(Vec::new(), Observation::Identity)];
+    let mut whole_sources = Vec::new();
 
     if definition.is_some() && let Some(carriers) = &mut inline_carriers {
         carriers.insert(ty);
@@ -916,6 +910,10 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
     for (field, ty) in fields {
         let shape = paths(request, ty, visiting, complete_reference_types)?;
+
+        whole_sources.extend(shape.whole_sources.iter().map(|(path, ty)| {
+            (std::iter::once(field).chain(path.iter().copied()).collect(), *ty)
+        }));
 
         complete_value &= shape.complete_value;
         inline_only &= shape.inline_only && shape.is_reference_free();
@@ -945,11 +943,49 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
     Ok(Shape {
         observations: result,
+        whole_sources,
         complete_value,
         inline_only,
         complete_references,
         inline_carriers,
     })
+}
+
+fn array_shape<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+    element: Shape,
+    reference: bool,
+    nested_borrow: bool,
+) -> Shape {
+    let mut shape = Shape::unknown(ty);
+
+    shape.whole_sources = element.whole_sources.iter().map(|(path, ty)| {
+        (std::iter::once(StorageProjection::AnyElement).chain(path.iter().copied()).collect(), *ty)
+    }).collect();
+
+    // Element shape proves this without enumerating the array extent.
+    shape.complete_references = element.is_reference_free();
+    shape.complete_value = !reference && element.complete_value;
+    shape.inline_only = !nested_borrow && element.inline_only && element.is_reference_free();
+    shape.inline_carriers = element.inline_carriers;
+
+    if shape.inline_only {
+        shape.observations.push((Vec::new(), Observation::Value));
+    } else if let Some(length) = crate::constant::known_array_length(request.semantic_values(), ty)
+        && length.checked_mul(element.observations.len()).is_some_and(|work| work <= crate::ExecutionCondition::WORK_LIMIT)
+    {
+        for index in 0..length {
+            let index = bray_symbols::SymbolOrdinal::new(u32::try_from(index)
+                .expect("bounded array observation index fits an ordinal"));
+
+            shape.observations.extend(element.observations.iter().map(|(path, kind)| {
+                (std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect(), *kind)
+            }));
+        }
+    }
+
+    shape
 }
 
 /// Intersects physical may-alias observations with the atomic operation's closed write domain.

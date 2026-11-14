@@ -27,7 +27,7 @@ pub use dependency::{
     DependencyBorrowRelation, DependencyCallInput, DependencyCallOutput,
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyReferenceKind,
     DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
-    DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
+    DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
     GuardedDependencyRequirement, LifecycleObligationKind,
 };
 pub use error::{SemanticValueStoreCreateError, SemanticValueStoreError};

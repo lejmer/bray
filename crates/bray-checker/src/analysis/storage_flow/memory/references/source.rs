@@ -1,4 +1,5 @@
 use super::super::model::{Place, State, Target};
+#[derive(Clone)]
 pub(in crate::analysis::storage_flow) enum Source {
     Value(Target),
     Borrow(bray_bound_tree::BorrowCapabilityId),
@@ -7,7 +8,7 @@ pub(in crate::analysis::storage_flow) enum Source {
 impl Source {
     pub(in crate::analysis::storage_flow) fn is_exact(&self, state: &State) -> bool {
         match self {
-            Self::Value(source) => state.values.get(source),
+            Self::Value(source) => state.values.get(source).and_then(|value| value.references.as_ref()),
             Self::Borrow(capability) => state.borrows.get(capability),
         }
         .is_some_and(super::super::model::References::is_exact)

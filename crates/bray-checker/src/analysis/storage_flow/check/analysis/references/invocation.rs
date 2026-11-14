@@ -1,3 +1,5 @@
+use crate::analysis::storage_flow::memory::Effect;
+use bray_symbols::DependencyMutationKind;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -122,8 +124,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         retain_inputs: bool,
         normal_effects: bool,
     ) -> BTreeSet<Target> {
-        use crate::analysis::storage_flow::memory::Effect;
-        use bray_symbols::DependencyMutationKind;
 
         let all_inputs = retain_inputs
             || effects.is_none_or(|effects| {
@@ -893,6 +893,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .calls()
             .get(&occurrence)?
             .reference_path(subject)?;
+
+        self.invocation_path_locations(state, occurrence, subject, path)
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_path_locations(
+        &self,
+        state: &StorageFlowState,
+        occurrence: BoundExecutionSite,
+        subject: &bray_symbols::DependencySubject,
+        path: &bray_bound_tree::StorageReferencePath,
+    ) -> Option<Vec<Target>> {
+        if let Some(start) = self.static_location(&bray_symbols::DependencySubject::root(subject.subject_root())) {
+            return Some(vec![state.memory.reference_location(self.request.semantic_values(), start, path, None)?]);
+        }
 
         let path = self.invocation_reference_path(occurrence, subject.subject_root(), path)?;
 

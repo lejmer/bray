@@ -1,3 +1,4 @@
+use bray_symbols::DependencyStorageEffect;
 use crate::validation::is_strictly_sorted;
 use crate::{
     InterfaceLimit, InterfaceSemantics, InterfaceTypeId, InterfaceValidationError,
@@ -138,6 +139,26 @@ impl InterfaceSemantics {
                 )?;
             }
 
+            for stored in &*contract.stored_values {
+                for (endpoint, destination) in std::iter::once((stored.destination(), true))
+                    .chain(stored.sources().iter().map(|source| (source, false))) {
+                    let root = endpoint.subject().subject_root();
+
+                    if !(matches!(root, crate::InterfaceDependencySubjectRoot::Receiver | crate::InterfaceDependencySubjectRoot::Parameter(_)
+                            | crate::InterfaceDependencySubjectRoot::ProductStatic(_) | crate::InterfaceDependencySubjectRoot::ExactThreadStatic(_))
+                        || destination && matches!(root, crate::InterfaceDependencySubjectRoot::Result)) {
+                        return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+                    }
+
+                    self.validate_dependency_subject(endpoint.subject(), symbol_count, dependency_count)?;
+                    limits.check(InterfaceLimit::SemanticTypeDepth, u64::from(endpoint.dereferences()))?;
+
+                    if u64::from(endpoint.dereferences()) > bray_symbols::EXECUTION_CONDITION_WORK_LIMIT as u64 {
+                        return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+                    }
+                }
+            }
+
             for relation in &*contract.borrows {
                 if let Some(entry) = relation.source_subject() {
                     self.validate_dependency_subject(entry, symbol_count, dependency_count)?;
@@ -153,7 +174,6 @@ impl InterfaceSemantics {
             }
 
             for effect in &*contract.effects {
-                use bray_symbols::DependencyStorageEffect;
 
                 for ty in effect.referenced_types() {
                     validate_index(ty.to_index(), self.types.len())?;
@@ -625,7 +645,7 @@ impl InterfaceSemantics {
     fn validate_dependency_callee(
         &self,
         callable: crate::InterfaceCallableInstanceId,
-        requirement: Option<(crate::InterfaceTypeId, crate::InterfaceTraitApplicationId)>,
+        requirement: Option<(InterfaceTypeId, crate::InterfaceTraitApplicationId)>,
     ) -> Result<(), InterfaceValidationError> {
         validate_index(callable.to_index(), self.callable_instances.len())?;
 
@@ -974,15 +994,40 @@ fn direct_type_children(ty: &InterfaceType) -> Vec<InterfaceTypeId> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDependencyProjection, InterfaceType, InterfaceTypeId};
+    use bray_symbols::{DependencyWitnessCarrier, IntegerConstant};
     use crate::{
         InterfaceDependencyContract, InterfaceDependencyRequirement, InterfaceSemantics,
         InterfaceValidationLimits,
     };
-    use bray_symbols::SymbolOrdinal;
+    use bray_symbols::{DependencyStoredValue, DependencyStoredValuePath, SymbolOrdinal};
+    use crate::{InterfaceDependencySubject, InterfaceDependencySubjectRoot as Root};
+
+    #[test]
+    fn stored_values_require_physical_input_and_output_roots() {
+        for (destination, source, valid) in [
+            (Root::Result, Root::Parameter(SymbolOrdinal::new(0)), true),
+            (Root::EvaluationStorage, Root::Parameter(SymbolOrdinal::new(0)), false),
+            (Root::Result, Root::ScopedCapability(SymbolOrdinal::new(0)), false),
+            (Root::Result, Root::Result, false),
+        ] {
+            let path = |root| DependencyStoredValuePath::new(InterfaceDependencySubject::new(root, []), 0);
+
+            let semantics = InterfaceSemantics {
+                dependency_contracts: vec![InterfaceDependencyContract::new([])
+                    .with_stored_values([DependencyStoredValue::new(path(destination), [path(source)], true)])].into(),
+                ..InterfaceSemantics::default()
+            };
+
+            let result = semantics.validate_value_graph(0, 0, InterfaceValidationLimits::default());
+
+            if valid { assert_eq!(result, Ok(())); }
+            else { assert_eq!(result, Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency))); }
+        }
+    }
 
     #[test]
     fn owned_transfer_outputs_reject_computation_even_without_a_callable() {
-        use crate::{InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId};
 
         let input = InterfaceConstantTermId::new(0);
 
@@ -1030,13 +1075,6 @@ mod tests {
 
     #[test]
     fn carrier_array_paths_require_fixed_unsigned_ordinals() {
-        use crate::{
-            InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
-            InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDependencyProjection,
-            InterfaceType, InterfaceTypeId,
-        };
-
-        use bray_symbols::{DependencyWitnessCarrier, IntegerConstant};
 
         for (kind, dynamic, valid) in [
             (

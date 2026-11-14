@@ -32,7 +32,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if subject.subject_root() != DependencySubjectRoot::Result { return None; }
 
             let path = contracts.reference_path(subject)?;
-            let location = state.memory.staged_reference_location(invocation, self.request.semantic_values(), &output, path)?;
+            let location = state.memory.staged_reference_location(invocation, self.request.semantic_values(), &output, &output, path)?;
 
             if indirect { state.memory.staged_reference_regions(invocation, &output, &location) } else { Some(vec![location]) }
         });

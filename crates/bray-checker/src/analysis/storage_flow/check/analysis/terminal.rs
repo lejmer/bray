@@ -241,11 +241,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             })
         });
 
-        let reached = memory.reachable_targets(roots.into_iter().filter(|_| inputs));
+        let (reached, unknown_inputs) = memory.reachable_regions(roots.into_iter().filter(|_| inputs));
 
         let unproved = effects.into_iter().flatten().any(|effect| {
             matches!(effect, Effect::Mutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _) if overlaps(target))
         }) || opaque && (unknown || reached.iter().any(overlaps)
+            || unknown_inputs && protected.iter().any(|part| memory.unknown_reference_may_reach(part))
             || unbounded_overlap && effects.into_iter().flatten().any(|effect| matches!(effect, Effect::UnboundedMutation { .. })));
 
         if introduced.is_some() || unproved {

@@ -1,3 +1,4 @@
+use bray_bound_tree::{SelectedPropagation, SelectedPropagationBoundary, StorageProjection};
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Place, Source, Target};
@@ -240,9 +241,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         expression: bray_bound_tree::BoundExpressionId,
     ) {
-        use bray_bound_tree::{
-            SelectedPropagation, SelectedPropagationBoundary, StorageProjection,
-        };
 
         let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) =
             self.execution.semantics.selections().expression(expression)
@@ -638,45 +636,57 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        // Seed independent alternatives before merging reference transfers from inputs.
-        for reference in contracts
-            .references()
-            .iter()
-            .filter(|reference| reference.relation().entry().is_none())
-            .chain(
-                contracts
-                    .references()
-                    .iter()
-                    .filter(|reference| reference.relation().entry().is_some()),
-            )
-        {
+        // Install allocation anchors before their payloads, and independent
+        // alternatives before input alternatives at the same physical depth.
+        let mut references = contracts.references().iter().collect::<Vec<_>>();
+
+        references.sort_by_key(|reference| {
             let relation = reference.relation();
 
-            let output = if relation.exit().subject_root() == DependencySubjectRoot::Result {
-                self.invocation_result(occurrence)
-                    .map(Target::storage)
-                    .and_then(|target| {
-                        Some(target.project(&storage_projections(
-                            self.request.semantic_values(),
-                            self.dependencies,
-                            relation.exit().projections(),
-                        )?))
-                    })
-            } else if contracts
-                .reference_path(relation.exit())
-                .is_some_and(|path| !path.borrows().is_empty())
-            {
-                self.invocation_locations(state, occurrence, relation.exit())
-                    .and_then(|mut targets| {
-                        (targets.len() == 1).then(|| targets.pop().expect("one output target"))
-                    })
-            } else {
-                None
-            };
+            let depth = contracts.reference_path(relation.exit()).map_or(0, |path| {
+                path.borrows().len() + path.projections().iter()
+                    .filter(|projection| **projection == bray_bound_tree::StorageProjection::OwnedTarget).count()
+            });
 
-            let Some(destination) = output else {
-                continue;
-            };
+            (depth, relation.entry().is_some())
+        });
+
+        for reference in references {
+            self.prepare_call_reference(state, occurrence, reference);
+        }
+
+        if let Some(destination) = self.invocation_result(occurrence) {
+            self.prepare_returned_values(state, occurrence, contracts, &destination);
+        }
+
+        self.prepare_result_references(state, occurrence);
+        self.prepare_stored_values(state, occurrence);
+    }
+
+    fn prepare_call_reference(
+        &self,
+        state: &mut StorageFlowState,
+        occurrence: BoundExecutionSite,
+        reference: &bray_bound_tree::BoundCallReference,
+    ) {
+        let contracts = &self.dependencies.calls()[&occurrence];
+        let relation = reference.relation();
+
+        let Some(path) = contracts.reference_path(relation.exit()) else { return; };
+
+        if relation.exit().subject_root() != DependencySubjectRoot::Result && path.borrows().is_empty() {
+            return;
+        }
+
+        let Some(destinations) = self.invocation_stored_locations(state, occurrence, relation.exit(), path, true) else {
+            if let Some(root) = self.invocation_stored_root(occurrence, relation.exit().subject_root()) {
+                state.memory.stage_whole_sources(occurrence, root, [], false, false);
+            }
+
+            return;
+        };
+
+        for destination in destinations {
 
             let logical = self
                 .invocation_logical_path(occurrence, relation.exit())
@@ -737,11 +747,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        if let Some(destination) = self.invocation_result(occurrence) {
-            self.prepare_returned_values(state, occurrence, contracts, &destination);
-        }
-
-        self.prepare_result_references(state, occurrence);
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn stage_independent_reference(

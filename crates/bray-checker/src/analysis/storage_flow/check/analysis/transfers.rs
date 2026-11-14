@@ -116,7 +116,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let retained = match effect {
                     Effect::Mutation(reached, _, _) => memory.target_relationship(reached, target) == StorageRelationship::Disjoint,
                     Effect::UnboundedMutation { ambient: true, .. } | Effect::Ambient => ambient.as_ref()
-                        .is_some_and(|regions| regions.iter().all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint)),
+                        .is_some_and(|(regions, unknown)| {
+                            (!*unknown || !memory.unknown_reference_may_reach(target))
+                                && regions.iter().all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint)
+                        }),
                     _ => false,
                 };
 

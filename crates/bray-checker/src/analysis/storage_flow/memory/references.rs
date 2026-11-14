@@ -1,6 +1,7 @@
 mod effects;
 mod deferred;
 mod slots;
+mod stored;
 mod targets;
 mod transition;
 

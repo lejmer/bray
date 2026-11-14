@@ -1,3 +1,4 @@
+use bray_symbols::DependencyStorageEffect;
 use bray_symbols::{
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencySubject, DependencySubjectRoot, SemanticValueStore,
@@ -85,6 +86,34 @@ impl InternState {
                 continue;
             }
 
+            let mut stored_values = Vec::with_capacity(input.stored_values.len());
+
+            for stored in input.stored_values.iter() {
+                let Some(destination) = self.convert_dependency_subject(stored.destination().subject(), symbols)? else { break; };
+
+                let destination = bray_symbols::DependencyStoredValuePath::new(destination, stored.destination().dereferences());
+                let mut sources = Vec::with_capacity(stored.sources().len());
+
+                for source in stored.sources() {
+                    let Some(subject) = self.convert_dependency_subject(source.subject(), symbols)?
+                    else {
+                        break;
+                    };
+
+                    sources.push(bray_symbols::DependencyStoredValuePath::new(subject, source.dereferences()));
+                }
+
+                if sources.len() != stored.sources().len() {
+                    break;
+                }
+
+                stored_values.push(bray_symbols::DependencyStoredValue::new(destination, sources, stored.is_complete()));
+            }
+
+            if stored_values.len() != input.stored_values.len() {
+                continue;
+            }
+
             let mut carriers = Vec::with_capacity(input.carriers.len());
 
             for carrier in &*input.carriers {
@@ -164,6 +193,7 @@ impl InternState {
                 store.intern_dependency_contract_template(
                     contract
                         .with_borrows(borrows)
+                        .with_stored_values(stored_values)
                         .with_carriers(carriers)
                         .with_owned_result(owned_result)
                         .with_observed_result(observed_result)
@@ -467,7 +497,6 @@ impl InternState {
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Option<Vec<bray_symbols::DependencyStorageEffect>>, InterfaceSemanticInternError>
     {
-        use bray_symbols::DependencyStorageEffect;
 
         let mut effects = Vec::with_capacity(input.len());
 

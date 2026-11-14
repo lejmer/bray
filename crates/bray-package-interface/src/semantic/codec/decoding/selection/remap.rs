@@ -1,3 +1,4 @@
+use bray_symbols::DependencyStorageEffect;
 use std::sync::Arc;
 
 use super::mapping::RecordMaps;
@@ -256,6 +257,24 @@ fn remap_dependency_contract(
         }
     }
 
+    let stored_values = contract.stored_values.iter().map(|stored| {
+        let mut subject = stored.destination().subject().clone();
+
+        remap_dependency_subject(&mut subject, maps)?;
+
+        let destination = bray_symbols::DependencyStoredValuePath::new(subject, stored.destination().dereferences());
+
+        let sources = stored.sources().iter().map(|source| {
+            let mut subject = source.subject().clone();
+
+            remap_dependency_subject(&mut subject, maps)?;
+
+            Ok(bray_symbols::DependencyStoredValuePath::new(subject, source.dereferences()))
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+        Ok(bray_symbols::DependencyStoredValue::new(destination, sources, stored.is_complete()))
+    }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
     let borrows = contract
         .borrows
         .iter()
@@ -321,7 +340,6 @@ fn remap_dependency_contract(
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
     for effect in Arc::make_mut(&mut contract.effects) {
-        use bray_symbols::DependencyStorageEffect;
 
         if let DependencyStorageEffect::Direct { kind, access_type, .. }
         | DependencyStorageEffect::Indirect { kind, access_type, .. }
@@ -355,6 +373,7 @@ fn remap_dependency_contract(
 
     Ok(contract
         .with_borrows(borrows)
+        .with_stored_values(stored_values)
         .with_carriers(carriers)
         .with_effects(effects.iter().cloned()))
 }
@@ -656,7 +675,7 @@ fn remap_dependency_requirement(
         InterfaceDependencyRequirementValue::CleanupDependencies { ty, requirements } => {
             *ty = maps.type_id(*ty)?;
 
-            for nested in std::sync::Arc::make_mut(requirements) {
+            for nested in Arc::make_mut(requirements) {
                 remap_dependency_requirement(nested, maps)?;
             }
         }

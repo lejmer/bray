@@ -1,3 +1,4 @@
+use bray_symbols::{ConstantBinaryOperation, ConstantProjectionKind, ConstantTermData, ConstantValueData, ConstantValueKind};
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
     BoundCallDependencyContracts, BoundCallReference, BoundExpressionId, SelectedCall,
@@ -165,10 +166,55 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
         Ok(input_type(&bray_symbols::DependencySubject::root(root))?.map(|(ty, _)| ty))
     })?;
 
-    let mut references = Vec::with_capacity(template.borrows().len());
+    let references = prepare_references(request, template.borrows(), |subject| {
+        inputs.get(subject).map(|(ty, _)| *ty)
+    })?;
+
+    let stored_paths = prepare_stored_value_paths(
+        request.semantic_values(), template.stored_values(), |subject| inputs.get(subject).cloned(),
+    );
+
+    Ok(contracts
+        .with_returned_values(returned)
+        .with_stored_values(template.stored_values(), stored_paths)
+        .with_reference_subjects(inputs)
+        .with_references(references, retained_inputs))
+}
+
+pub(crate) fn prepare_stored_value_paths(
+    values: &bray_symbols::SemanticValueStore,
+    stored: &[bray_symbols::DependencyStoredValue],
+    input: impl Fn(&bray_symbols::DependencySubject) -> Option<(bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
+) -> std::collections::BTreeMap<bray_symbols::DependencyStoredValuePath,
+    (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)> {
+    stored.iter().flat_map(|stored| std::iter::once(stored.destination()).chain(stored.sources()))
+        .collect::<std::collections::BTreeSet<_>>().into_iter().filter_map(|endpoint| {
+            let (mut ty, path) = input(endpoint.subject())?;
+
+            let mut targets = Vec::new();
+
+            for _ in 0..endpoint.dereferences() {
+                let data = values.type_data(ty);
+
+                let bray_symbols::TypeData::Borrow { target, .. } = data.as_ref() else { return None; };
+
+                ty = *target;
+                targets.push(ty);
+            }
+
+            Some((endpoint.clone(), (ty, path.with_terminal_borrows(&targets))))
+        }).collect()
+}
+
+pub(crate) fn prepare_references<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    relations: &[bray_symbols::DependencyBorrowRelation],
+    input_type: impl Fn(&bray_symbols::DependencySubject) -> Option<bray_symbols::TypeId>,
+) -> Result<Vec<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
+    let mut references = Vec::with_capacity(relations.len());
     let mut incomplete = std::collections::BTreeSet::new();
 
-    for relation in template.borrows() {
+    for relation in relations {
         let subject =
             if relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions {
                 relation.exit()
@@ -178,9 +224,9 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
 
         if relation
             .entry()
-            .is_none_or(|entry| inputs.contains_key(entry))
-            && let Some((ty, _)) = inputs.get(subject)
-            && let Some(reference) = prepare_reference(request, relation, *ty)?
+            .is_none_or(|entry| input_type(entry).is_some())
+            && let Some(ty) = input_type(subject)
+            && let Some(reference) = prepare_reference(request, relation, ty)?
         {
             references.push(reference);
         } else {
@@ -190,13 +236,10 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
 
     references.retain(|reference| !incomplete.contains(reference.relation().exit()));
 
-    Ok(contracts
-        .with_returned_values(returned)
-        .with_reference_subjects(inputs)
-        .with_references(references, retained_inputs))
+    Ok(references)
 }
 
-pub(crate) fn prepare_reference<C: CheckerRequestContext + ?Sized>(
+fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     relation: &bray_symbols::DependencyBorrowRelation,
     mut ty: bray_symbols::TypeId,
@@ -377,10 +420,6 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
         CheckerQueryError<C::UpstreamError>,
     >,
 ) -> Result<(Vec<bray_symbols::ConstantTermId>, bray_symbols::TypeId), CheckerQueryError<C::UpstreamError>> {
-    use bray_symbols::{
-        ConstantBinaryOperation, ConstantProjectionKind, ConstantTermData, ConstantValueData,
-        ConstantValueKind,
-    };
 
     let values = request.semantic_values();
     let mut projections = Vec::new();
