@@ -19,7 +19,7 @@ pub(super) fn unproven_postcondition<C: CheckerRequestContext + ?Sized>(
             continue;
         };
 
-        check_postconditions(&flow.domain, &state, postconditions, &mut failed);
+        check_postconditions(&flow.domain, state, postconditions, &mut failed);
     }
 
     postconditions

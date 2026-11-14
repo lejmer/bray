@@ -37,16 +37,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         let edge = self.domain.graph.edge(edge)?;
         let state = self.output(edge.source())?;
 
-        self.domain.edge_state(&state, edge)
+        self.domain.edge_state(state, edge)
     }
 
     pub(in crate::analysis::guarantee) fn output(
         &self,
         block: AnalysisBlockId,
-    ) -> Option<ExecutionState> {
-        let state = self.states.state(block)?;
-
-        self.domain.transfer(self.domain.graph.block(block)?, state)
+    ) -> Option<&ExecutionState> {
+        self.states.output(block)?.as_ref()
     }
 }
 
