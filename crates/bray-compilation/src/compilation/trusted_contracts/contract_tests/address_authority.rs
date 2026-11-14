@@ -173,18 +173,11 @@ fn copied_callable_addresses_preserve_validity_without_creating_it() {
             "#
         ));
 
-        if valid {
-            assert!(
-                !compilation.check_diagnostics().has_errors(),
-                "{:?}",
-                compilation.check_diagnostics()
-            );
-        } else {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                compilation.check_diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        bray_testing::assert_goal_state_diagnostic_outcome(
+            compilation.check_diagnostics(),
+            (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven),
+            producer,
+        );
     }
 }
 

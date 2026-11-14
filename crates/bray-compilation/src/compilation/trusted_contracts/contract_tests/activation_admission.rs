@@ -1,6 +1,4 @@
-use bray_diagnostics::{DiagnosticKind};
-use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation};
+use super::fixtures::assert_production_probe;
 
 #[test]
 #[ignore = "tier:proof"]
@@ -23,7 +21,7 @@ fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
             false,
         ),
     ] {
-        let compilation = production_host_compilation(&format!(
+        let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
 
@@ -38,24 +36,9 @@ fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
                 {body}
             }}
             "#
-        ));
-
-        let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{body}: {checked:#?}"
         );
 
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -91,24 +74,7 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
         "#
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{caller}: {lowered:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -146,24 +112,7 @@ fn activation_publication_requires_the_exact_producer_witness() {
             "#,
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{caller}: {lowered:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -217,25 +166,7 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
         "#
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{caller}: {:?}",
-            lowered.diagnostics()
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -281,25 +212,7 @@ fn inactive_inspection_requires_retained_exact_owner_and_output() {
             "#
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{caller}: {:?}",
-            lowered.diagnostics()
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -336,25 +249,7 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
             "#
         );
 
-        let compilation = production_host_compilation(&caller);
-
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{caller}: {:?}",
-            lowered.diagnostics()
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&caller, valid);
     }
 }
 
@@ -398,23 +293,6 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
             "#,
         );
 
-        let compilation = production_host_compilation(&source);
-
-        let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{source}: {checked:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
+        assert_production_probe(&source, valid);
     }
 }

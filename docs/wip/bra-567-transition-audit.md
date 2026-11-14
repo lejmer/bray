@@ -183,6 +183,20 @@ The lookup must not remove counted root work merely by moving it out of Executio
 
 ## Next unresolved producer boundary
 
+Current steering is a growth and fixture-sharing audit across b4b5a76f5..15380b43b, not just the last diff.
+The range adds 9,512 net lines: about 1,921 production, 7,456 tests and 135 other. The same 372 trusted-contract
+test names survive reorganization, with about 3,300 extra lines from splitting and formatting existing code.
+Retain genuine bug regressions and distinct contracts. Intermediate debugging history alone does not justify
+another test. Consolidate repeated fixture setup instead of removing distinct scenarios or compressing Bray.
+Fixture consolidation shares exact scalar-borrow, receipt and owner-producer declarations, activation checks
+and diagnostic outcome assertions. It removes 313 net test/infrastructure lines without removing cases.
+Optimized build passes. The bounded 33 affected tests finish in 39.15 s: 25 pass, 8 activation failures.
+Five require pool.protocol_access, three fail earlier type/call selection. Their 19 source templates are
+byte-identical and extracted assertions are equivalent, indicating existing failures rather than changed
+expectations. Compact details are in proof-fixture-result.json. These controls remain unresolved. Style has
+the same six existing errors, format/diff checks pass. No compiler behavior or fixed-five/frozen30 cases changed.
+Resume producer graph optimization. Do not expand this test consolidation into fixing unrelated fixtures.
+
 Evidence snapshots already preserve Arc identity for clones, duplicate insertions and no-op retention.
 Fresh keys arise at state::join_values when any substitution changes, flow/merge's intersection plus
 alternative insertion, deferred refinement's entry/current/selection/projected-capture union, and per-carrier

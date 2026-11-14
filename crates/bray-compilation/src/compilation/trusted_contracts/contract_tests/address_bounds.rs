@@ -167,6 +167,8 @@ fn independent_returned_address_does_not_inherit_unused_input_bounds() {
 
 #[test]
 fn address_bounds_survive_owned_inputs_forwarders_and_runtime_defaults() {
+    let receipt_declarations = super::fixtures::RECEIPT_DECLARATIONS;
+
     for (helper, expression, observed) in [
         (
             r#"
@@ -254,16 +256,7 @@ fn address_bounds_survive_owned_inputs_forwarders_and_runtime_defaults() {
             let application = compilation(&format!(
                 r#"
                 trusted module app;
-                using core.memory;
-                struct Marker
-                {{
-                }}
-                struct Receipt
-                {{
-                    marker: Marker;
-                    pointer: DataPointer<u32>;
-                }}
-                trusted predicate held(owner: &Marker);
+                {receipt_declarations}
                 trusted func produce(pos payload: &u32) -> Receipt
                     ensures(trusted held(owner = &result.marker), trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
                 {{
@@ -313,6 +306,8 @@ fn address_bounds_survive_owned_inputs_forwarders_and_runtime_defaults() {
 
 #[test]
 fn awaited_address_guarantees_keep_their_original_storage_bounds() {
+    let receipt_declarations = super::fixtures::RECEIPT_DECLARATIONS;
+
     for (body, valid) in [
         (
             "let payload: u32 = 0; let receipt = await shifted(core.memory.address_of<u32>(&payload)); observe(receipt.pointer);",
@@ -330,16 +325,7 @@ fn awaited_address_guarantees_keep_their_original_storage_bounds() {
         let application = compilation(&format!(
             r#"
             trusted module app;
-            using core.memory;
-            struct Marker
-            {{
-            }}
-            struct Receipt
-            {{
-                marker: Marker;
-                pointer: DataPointer<u32>;
-            }}
-            trusted predicate held(owner: &Marker);
+            {receipt_declarations}
             trusted async func shifted(pos pointer: DataPointer<u32>) -> Receipt
                 requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
                 ensures(trusted held(owner = &result.marker), trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
