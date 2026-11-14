@@ -794,6 +794,25 @@ impl ExecutionCondition {
         Self::constructed(self.clone(), Arc::from([(*projection, child)]))
     }
 
+    fn has_ordinary_complement(&self, terms: &std::collections::BTreeSet<Self>) -> bool {
+        let Self::Operation(operator, operands) = self else { return false; };
+
+        if !matches!(operator, BoundOperator::LogicalNot | BoundOperator::NotEqual)
+            || operands.contains_trusted() || operands.contains_unknown()
+        {
+            return false;
+        }
+
+        match (operator, operands.as_ref()) {
+            (BoundOperator::LogicalNot, [operand]) => terms.contains(operand),
+            (BoundOperator::NotEqual, [_, _]) => terms.contains(&Self::Operation(
+                operator.equality_complement().expect("inequality has an exact equality complement"),
+                operands.clone(),
+            )),
+            _ => false,
+        }
+    }
+
     fn boolean_operation(operator: BoundOperator, operands: Vec<Self>) -> Self {
         let conjunction = operator == BoundOperator::LogicalAnd;
         let mut remaining = Self::WORK_LIMIT;
@@ -819,6 +838,15 @@ impl ExecutionCondition {
                 }
                 value => { terms.insert(value); }
             }
+        }
+
+        // Folding must not bypass the work limit of the original binary rebuild.
+        if terms.len().saturating_sub(1) > remaining {
+            return Self::Unknown;
+        }
+
+        if terms.iter().any(|term| term.has_ordinary_complement(&terms)) {
+            return Self::Boolean(!conjunction);
         }
 
         let mut level = terms.into_iter().collect::<Vec<_>>();
@@ -1108,6 +1136,52 @@ mod tests {
 
             assert_eq!(ExecutionCondition::operation(operator,
                 vec![first.clone(); ExecutionCondition::WORK_LIMIT + 1]), ExecutionCondition::Unknown);
+        }
+    }
+
+    #[test]
+    fn ordinary_complements_fold_without_manufacturing_qualified_truth() {
+        use bray_bound_tree::BoundOperator;
+
+        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let negate = |value| ExecutionCondition::operation(BoundOperator::LogicalNot, vec![value]);
+        let compare = |operator| ExecutionCondition::operation(operator, vec![input(0), input(1)]);
+        let trusted = ExecutionCondition::Trusted(Arc::new(input(2)));
+
+        for operator in [BoundOperator::LogicalAnd, BoundOperator::LogicalOr] {
+            let absorbing = ExecutionCondition::Boolean(operator == BoundOperator::LogicalOr);
+
+            for (positive, negative) in [
+                (input(0), negate(input(0))),
+                (compare(BoundOperator::Equal), compare(BoundOperator::NotEqual)),
+            ] {
+                assert_eq!(ExecutionCondition::operation(operator, vec![
+                    positive.clone(), trusted.clone(), negative.clone(),
+                ]), absorbing);
+
+                assert_eq!(ExecutionCondition::operation(operator, vec![
+                    negative, ExecutionCondition::operation(operator, vec![trusted.clone(), positive]),
+                ]), absorbing);
+            }
+
+            for (positive, negative) in [
+                (trusted.clone(), negate(trusted.clone())),
+                (input(2), negate(trusted.clone())),
+                (ExecutionCondition::Unknown, negate(ExecutionCondition::Unknown)),
+                (compare(BoundOperator::Less), compare(BoundOperator::GreaterEqual)),
+            ] {
+                assert!(!matches!(ExecutionCondition::operation(operator, vec![positive, negative]),
+                    ExecutionCondition::Boolean(_)), "qualified, unknown and unordered pairs need evidence");
+            }
+
+            let mut terms = (0..ExecutionCondition::WORK_LIMIT / 2)
+                .map(|ordinal| input(u32::try_from(ordinal).unwrap()))
+                .collect::<Vec<_>>();
+
+            terms.push(negate(input(0)));
+
+            assert_eq!(ExecutionCondition::operation(operator, terms), ExecutionCondition::Unknown,
+                "a complement cannot bypass the original binary rebuild budget");
         }
     }
 

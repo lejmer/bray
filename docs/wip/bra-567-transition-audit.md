@@ -47,33 +47,48 @@ its memo until actual alias consequences change its facts, then resets every res
 The production scan is removed. One differential test retains it as an independent oracle over 128 graphs and budgets
 0-64, checking results and remaining budgets, including cycles, missing edges, negative evidence and literal bounds.
 
-All 549 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 131-134 ms,
-loop 267/272 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 268-293 ms.
-Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.3 seconds. No full matrices ran.
-This batch adds 22 nonblank production lines and 154 test lines, mostly the old traversal oracle. It adds one test.
+All 551 checker controls pass. Fixed five twice with counters compiled but disabled: task cases 129-147 ms,
+loop 191/201 ms. Additional source/import real-owner loops and imported fabricated-owner loop pass at 194-201 ms.
+Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 12.7 seconds. No full matrices ran.
 Style retains the same six errors: wildcard flow/invalidation and oversized flow/merge, storage_flow cleanup/core,
 execution_guarantees/portable and tooling output/diagnostic/json/argument. Format and diff checks pass.
 
-Complete count is 5,660,987: ordering 3,104,957, equality 1,188,468, identity 594,522, interning 773,040.
-The caller has 198 CFG blocks and two required storage solves with 271 transfers each. There are 12,801 indexed
-nodes across indices, 836 evidence scopes and 24,482 proof queries. Witness refinement performs 956 computations,
-usually over 9-21 claims, generating 9,528 proof queries. Joins publish up to 21 guarded claims for 1-2 witnesses.
-Refinement costs about 2M and Boolean derivation 1.07M operations. Stage costs overlap. Do not sum them.
-The count target is not met. More lookup tuning alone is insufficient.
+Complete count is 2,655,521: ordering 1,332,519, equality 640,088, identity 302,320, interning 380,594.
+The caller has 198 CFG blocks and two required storage solves with 271 transfers each. There are 11,170 indexed
+nodes across indices, 611 evidence scopes and 13,032 proof queries. Witness refinement performs 856 computations,
+usually over five claims, with 3,330 guarded-clause proof queries. Join publication adds 344 clauses, down from
+1,208 before complement normalization. Refinement costs 831K and Boolean derivation 537K operations. Stage costs
+overlap. Do not sum them. The count target is not met. More lookup tuning alone is insufficient.
 
-Next is read-only tracing of how witness clauses retain current validity separately from possible obligations.
-Current conditions plus one carrier-level availability flag force validity reconstruction through global proof queries.
-Trace creation, join, guard wrapping, renaming, suspension/resumption, current/entry retirement and address dependencies
-before changing this representation. Determine whether established evidence can travel with the actual carrier and
-replace repeated validity reconstruction, without a second stale truth representation. No semantic contract is closed yet.
-Do not prune unproved claims: they also retain suspended-execution and address-retirement obligations.
-Do not skip refinement merely because the carrier did not change. Guards and captured evidence may change.
-Do not replace semantic query keys with physical-only keys or intern every rewritten output to share representatives.
-Both experiments increased total work. Keep exact evidence roles, scopes and original semantic budgets.
+## Current repair contract
 
-Temporary probes are removed. Complete counts are in proof-count-current.json and reusable hooks are in
-proof-counter.patch. Build with probes for performance batches, then build without them for final goal evidence.
-Do not add a second rebuild per checkpoint merely to remove measurement hooks.
+The growth probe found 1,208 changed carried clauses, mostly from joins, but only 24 refinement additions.
+At least 788 join additions contain exact complementary ordinary guards and are tautologies. conditional_facts
+qualifies existing guarded claims with opposite guards, then retains these vacuous promises on carriers.
+
+Normalize exact ordinary A/!A and Equal/NotEqual complements in the existing Boolean constructor. Do not fold
+qualified or unknown complements, or ordered comparison pairs that fail for NaN. Preserve flattening limits and
+require the original binary rebuild budget before folding. No proof budget, role or authority scope changes.
+All construction, substitution and retirement rebuilds use this constructor. Joins omit constant-true candidates
+before proving or publishing them. Original witness maps and dependencies still merge unchanged, so omitting
+a newly vacuous promise cannot discard the carrier's actual lifetime obligations. conditional_aliases shares the
+same ordinary normalization. No private evidence representation change is authorized by this diagnosis.
+
+Controls: Boolean truth tables, qualified/unknown exclusions, unordered comparisons, exhausted normalization
+budget, and a join with opposite ordinary guards that must not manufacture a carrier promise. Existing checker
+controls, fixed five, source/import loop controls and frozen30 must retain outcomes and rejection sites.
+Growth limit: one local complement predicate, small constructor/join changes and focused controls. Reconsider
+if normalization loses valid evidence, changes negative outcomes or does not reduce generated join work.
+Do not prune unproved claims or skip refinement based only on unchanged carriers. Private admission depends
+on exact retained clause keys. Independent guards and captured scopes can expire differently.
+
+The normalization repair is implemented and verified. It adds 26 nonblank production lines and two focused tests.
+Next trace why five retained clauses require 856 refinement computations and 623 Boolean closures. Exact scope
+reuse cannot share truth across distinct ordinary facts. Determine the smallest necessary evidence dependency
+before changing cache scope or skipping refinement. No such semantic contract is closed yet.
+
+Temporary counters are removed after bounded verification. Keep one proof-count-current.json and one
+proof-counter.patch. Build without hooks for final goal evidence, not a second rebuild at every checkpoint.
 
 ## Fixed evidence and broader work
 
