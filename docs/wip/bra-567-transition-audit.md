@@ -65,7 +65,9 @@ The count target is not met. Correctness is unchanged, and more lookup tuning al
 
 ## Current optimization model
 
-Production baseline c043523c2 is pushed, with no probe hooks. Count and regression evidence remain unchanged.
+Production baseline c043523c2 is pushed, with no probe hooks. A diagnostic-only bounded loop run passes in
+410 ms with counters enabled. It measures 2,213,955 operations. This is build variation, not an optimization.
+Retained timing and regression evidence still applies to unchanged production code.
 The Boolean prover already has parent edges and a change-driven queue. Optimize the enclosing dependencies.
 Code tracing gives this computation graph:
 
@@ -99,7 +101,18 @@ selectors, availability, private evidence and independent supporting carriers. S
 insufficient. Also account for failed proofs and budget costs. New evidence can change an absent result, and
 ordered scan positions can change exhaustion without changing truth. Successful premises alone cannot justify
 reuse. Preserve costs through indexed accounting, as OrderedFacts does, rather than replaying unrelated scans.
-These contracts and unique-node/changed-edge counts remain unresolved. No predicted 10,000 result yet.
+The dependency probe measures 88 indices, 6,219 structural nodes and 9,633 child edges. Outer index requests
+repeat heavily: scope preparation 21,318 requests/91 distinct nodes, proof queries 65,414/587, refinement
+21,682/153, rewriting 25,523/256, retirement 120,098/2,536. Distinct means index plus node, not proof scope.
+Retirement has 92,546 pure-cache hits and 27,552 misses. It removes 142/1,864 ordinary facts, 276/716 trusted
+facts and 1,148/2,604 witness clauses. Thus many changes are real. Broad retirement skipping is unsound.
+
+Next close the join rule contract in flow/witnesses.rs::conditional_facts. It enumerates proposed clauses and
+proves each against both predecessors. Trace whether actual incoming support and selectors can supply those
+transport edges directly, preserving inactive alternatives, unavailable carriers and exact source ownership.
+Combine that with direct traversal of retained condition nodes. Do not add per-query ID adapters or caches.
+Structural edges alone cannot encode this transport. Semantic changed-edge counts remain unresolved, and the
+current data does not predict a 10,000 result.
 
 Publication reuse is secondary. Its open contract includes intermediate checks, diagnostic deduplication,
 final-input identity, cancellation and publication-only computations. A final block output is insufficient.
