@@ -24,7 +24,7 @@ pub(crate) use retained::RetainedSnapshots;
 pub(crate) use context::{ExecutionProof, ExecutionProofCache};
 pub(crate) use substitution::{ExecutionSubstitution, SnapshotSubstitution};
 
-pub(super) use interning::ConditionId;
+pub(super) use interning::{ConditionId, ConditionNode};
 pub(crate) use interning::ConditionIndex;
 
 pub use operands::ExecutionOperands;

@@ -31,7 +31,7 @@ pub(super) fn prepare_trusted_conditions(
     let ordinary_assertions = graph.assertions(ordinary);
 
     for (index, node) in graph.terms.iter().enumerate() {
-        let condition = &node.condition;
+        let condition = &node.condition.value;
 
         let trusted = trusted_assertions[index];
         let unqualified = ordinary_assertions[index];
@@ -68,11 +68,11 @@ pub(super) fn prepare_trusted_conditions(
 
     // Refinement needs both positive guard facts and exclusions of inactive alternatives.
     for (node, term) in graph.terms.iter_mut().zip(terms) {
-        if let Some(value) = term.value && !node.condition.contains_trusted() {
+        if let Some(value) = term.value && !node.condition.value.contains_trusted() {
             // Facts and graph retain the same immutable condition operands.
-            known.insert((node.condition.clone(), value));
+            known.insert((node.condition.value.clone(), value));
 
-            if alternative_value(&node.condition) == Some(value) {
+            if alternative_value(&node.condition.value) == Some(value) {
                 node.published = Some(value);
             }
         }
@@ -106,11 +106,11 @@ fn propagate(
 
             for (child, held) in established.into_iter().flatten() {
                 // Normal assumptions retain qualified predicates and negation polarity.
-                graph.terms[child.0].condition.clone().assume_with(held, &mut |condition, value| {
+                graph.terms[child.0].condition.value.clone().assume_with(held, &mut |condition, value| {
                     if !known.insert((condition.clone(), value)) { return; }
 
                     if let Some(id) = graph.find(&condition) {
-                        if matches!(graph.terms[id.0].condition, ExecutionCondition::Boolean(_)) { return; }
+                        if matches!(graph.terms[id.0].condition.value, ExecutionCondition::Boolean(_)) { return; }
 
                         let term = &mut terms[id.0];
 
