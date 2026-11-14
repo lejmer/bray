@@ -32,12 +32,13 @@ independently retained data. BooleanGraph shares immutable condition children. O
 scan positions, DFS order, strictness, source precedence and budget charges. Its differential oracle covers
 128 graphs and budgets 0-64. Solved flow outputs and actual cleanup parts/phases remain retained.
 
-Current retention checkpoint: 556 checker tests pass. Fixed five pass at 205-227 ms for task cases and
-262 ms for the loop. Three complementary loops pass at 256-284 ms. Counters were compiled but disabled for
-timing. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 19.03 s. No full matrices ran.
-The bounded loop records 1,522,816 comparisons, zero interner lookups, 622,350 key hashes, 80,157 nodes,
-144,426 child hashes, 1,057,060 pair lookups, 360,084 pair writes and 503,388 hash writes totaling 3,096,106 bytes.
-Against the unchanged detailed baseline, comparisons fall 33,480 and key hashes rise 9,194. These categories
+Current graph-query checkpoint: 556 checker tests pass, including the expanded scaling assertions. Fixed five
+pass at 195-235 ms for task cases and 266 ms for the loop. Three complementary loops pass at 417-437 ms
+while the checker test build runs. Counters were compiled but disabled for
+timing. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance in 25.87 s. No full matrices ran.
+The bounded loop records 1,500,384 comparisons, zero interner lookups, 748,276 key hashes, 79,235 nodes,
+143,504 child hashes, 1,053,189 pair lookups, 359,856 pair writes and 501,544 hash writes totaling 3,081,354 bytes.
+Against c5d1c3658, comparisons fall 22,432 and key hashes rise 125,926. These categories
 overlap and do not measure elapsed time. The 10,000 goal remains far from achieved. Style has the same six
 existing errors. Format/diff checks pass. Temporary hooks are removed after measurement.
 
@@ -148,19 +149,13 @@ No lock spans inference. Count lookup, normalization and index construction, inc
 
 ## Next unresolved producer boundary
 
-The completed growth/fixture audit covers b4b5a76f5..15380b43b.
-The range adds 9,512 net lines: about 1,921 production, 7,456 tests and 135 other. The same 372 trusted-contract
-test names survive reorganization, with about 3,300 extra lines from splitting and formatting existing code.
-Retain genuine bug regressions and distinct contracts. Intermediate debugging history alone does not justify
-another test. Consolidate repeated fixture setup instead of removing distinct scenarios or compressing Bray.
-Fixture consolidation shares exact scalar-borrow, receipt and owner-producer declarations, activation checks
-and diagnostic outcome assertions. It removes 313 net test/infrastructure lines without removing cases.
-Optimized build passes. The bounded 33 affected tests finish in 39.15 s: 25 pass, 8 activation failures.
-Five require pool.protocol_access, three fail earlier type/call selection. Their 19 source templates are
-byte-identical and extracted assertions are equivalent, indicating existing failures rather than changed
-expectations. Compact details are in proof-fixture-result.json. These controls remain unresolved. Style has
-the same six existing errors, format/diff checks pass. No compiler behavior or fixed-five/frozen30 cases changed.
-Resume producer graph optimization. Do not expand this test consolidation into fixing unrelated fixtures.
+The completed b4b5a76f5..15380b43b growth audit found 9,512 net lines, about 1,921 production and 7,456 tests.
+The same 372 trusted-contract test names survive formatting/reorganization. Shared fixture declarations and
+outcome assertions remove 313 net test/infrastructure lines without removing scenarios. Of 33 affected tests,
+25 pass and 8 activation controls remain unresolved. Five require pool.protocol_access, three fail earlier
+type/call selection. All 19 source templates are byte-identical and extracted assertions equivalent. Details
+remain in proof-fixture-result.json. Preserve genuine bug regressions and distinct contracts, reuse fixtures,
+and avoid adding tests for intermediate debugging history. Do not expand optimization into those fixture repairs.
 
 Evidence snapshots already preserve Arc identity for clones, duplicate insertions and no-op retention.
 Fresh keys arise at state::join_values when any substitution changes, flow/merge's intersection plus
@@ -178,13 +173,18 @@ identity consumers reuse that metadata, including unscoped calls. Identity pins,
 value/owner memos and snapshot capture boundaries are unchanged. Inactive-guard and conditional-alias consumers
 share one ordered availability/path set and preserve their separate iteration limits.
 
-Next investigate shared retirement predicate evaluation across condition roots. Root-level RetirementQueries
-memoizes six answers, but their implementations repeatedly traverse shared subgraphs and query retained data.
-A scope-owned DAG evaluation must preserve observation/only/live traversal differences, pruning and live-role
-keys. Close that transition contract before edits. Replace repeated walks, without transitive descendant lists,
-recursive Rust stack growth or another parallel child schema. Existing NodeIdentity denotes a handle slot,
-not allocation identity. Do not change physical occurrence semantics globally. Reverse graph rebuilding and
-edge-result caching are ruled out as the next target by measured cost.
+Current graph-query batch retains completed existential subtree answers per immutable retirement context.
+It shares the iterator's child schema, preserves pruning, reverse DFS and short circuits, and uses iterative
+frames. Root selection/borrowed-slot/availability caches are removed. Live-role and observes_only rules remain
+separate. Address expiry still depends on each guarantee/current bindings. Full-condition keys grant no authority.
+Fixed inputs make callbacks pure. No budget or rejection behavior changes. Independent code review found no defect.
+
+The small fixture saves 22,432 comparisons but adds 125,926 key hashes. Its loop takes 266 ms. Do not reject
+this design from that single workload: across roots sharing growing DAGs it evaluates each distinct subtree
+once instead of rewalking it per root. The existing traversal test checks depths 4/12/20, alongside pruning and short circuit. Independent walks
+visit 25/169/441 nodes across growing roots, while the shared query evaluates 5/13/21 subtrees. These are
+callback counts, not total lookup/compare cost or real-program timing. Assess callback work, lookup cost and retained memory as source size and sharing vary.
+Keep both the 10k small-fixture gate and the larger-program scaling objective. No full matrices.
 
 The detailed retirement probe on unchanged 1b262f9bd records 1,556,296 comparisons. Retirement graph
 reconstruction is only 152, closure 14,846, snapshot-index construction 8,151, snapshot queries 112,634,
@@ -200,6 +200,16 @@ and keep a separate pair scope. Remove outer wrappers rather than stacking cache
 selected projections, overwritten contents, proof budgets and current-vs-entry boundaries. Existing retention
 and retirement tests, fixed five and frozen30 are the oracles. The existing retention test also checks cached
 negative answers after insertion. No test identity was added. Count index maintenance and retained query memory.
+
+Next unresolved producer contract: join_values reconstructs whole ordinary/trusted evidence sets for any
+nonidentity substitution. conditional_facts builds another rewritten ordinary set, with different filtering
+and expansion rules. Then merge computes two ordered differences and an intersection separately. Trace which
+unchanged products can be retained before choosing a persistent ordered representation. Sharing must preserve
+assume expansion, per-root rewrite budgets, sorted branch limits, selected handles, entry/capture boundaries,
+negative dependencies and source roles. Identity-only joins still prune deferred captures before returning.
+Do not introduce a second evidence representation, canonicalization service or parallel dependency schema.
+A persistent library alone does not remove semantic reconstruction. The join/substitution/scope-key areas total
+about 662k comparisons, so even eliminating them leaves most of the gap to 10k unexplained.
 
 Join candidates remain unimplemented. One actual-value traversal could supply observation events to ownership
 and conditional-fact construction, but predecessor absence evidence and missing-vs-Unknown results differ.

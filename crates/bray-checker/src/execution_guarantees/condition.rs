@@ -29,3 +29,5 @@ pub use operands::ExecutionOperands;
 
 pub(super) use memo::{ConditionMemo, cached_condition};
 pub(crate) use memo::memoize_condition;
+
+pub(crate) use observations::memoize_observations;
