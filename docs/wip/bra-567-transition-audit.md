@@ -30,24 +30,22 @@ independently retained data. BooleanGraph shares immutable condition children. O
 scan positions, DFS order, strictness, source precedence and budget charges. Its differential oracle covers
 128 graphs and budgets 0-64. Solved flow outputs and actual cleanup parts/phases remain retained.
 
-Native-handle checkpoint: optimized tooling build and all 552 checker tests pass. Fixed five twice take
-127-136 ms for task cases and 169/171 ms for the loop. Extra source/import controls pass at 165-178 ms.
-These final timings have temporary counters compiled but disabled. Frozen30 remains 29 pass and the same
-RawBuffer invalid acceptance, in 11.7 s. No full matrices ran. The prior uninstrumented pre-finalization batch
-was 105-149 ms, so do not claim a final production speedup from those earlier timings.
+Current demand-driven proof checkpoint: optimized tooling build and all 552 checker tests pass. Fixed five
+twice take 128-136 ms for task cases and 164/165 ms for the loop. Extra source/import controls pass at 159-169 ms.
+Counters are compiled but disabled for timings. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance
+in 11.6 s. No full matrices ran. Source fixtures and expected rejection sites are unchanged.
 
-The final bounded loop probe records 1,844,579 comparisons: ordering 1,035,376, equality 762,573 and physical
-identity 46,630. Interner lookups are zero because the interner is removed. Additional work is 561,908 native
-key hashes, 104,612 constructed nodes, 190,594 child hashes and 1,357,450 comparison-pair lookups. Node hashing
-writes 660,863 payload chunks totaling 4,051,924 bytes. Comparison-pair memoization also performs 394,975 writes. These
-categories overlap in cost and must not be summed as time. The 10,000 gate is nowhere near satisfied.
+The bounded loop probe records 1,766,114 comparisons: ordering 958,010, equality 761,465 and physical identity
+46,639. Interner lookups are zero. It also records 561,077 key hashes, 83,611 prepared nodes, 148,592 child hashes,
+1,280,802 comparison-pair lookups, 380,918 pair writes and 513,856 node-hash writes totaling 3,169,882 bytes.
+These are overlapping cost categories, not time. The 10,000 goal remains far from achieved.
 
-Compared with the prior 2,215,658 comparison/interner count, this removes one reconstruction mechanism but
-leaves extensive repeated production and querying. Construction counts include transient unindexed nodes,
-so they cannot be divided by the old 464-node indexed cardinality to claim an exact duplication factor.
-The batch removes 179 nonblank production lines and 43 test lines. It removes obsolete interner-only tests,
-retains the ordering/scalability oracles and adds native collision/child-slot checks. Inline Bray literals are
-unchanged. Style has the same six pre-existing errors. Format and diff checks pass. Probe hooks are removed.
+Moving unused unequal probes below equality and direct strict-result branches removes 21,001 constructions and
+about 4 percent of comparisons against cefd3f958. Boolean derivation now skips already
+asserted values. Refinement reuses the established root without repeating its positive-fact lookup. The batch
+adds one nonblank production line and no tests. Independent inspection confirms unchanged budgets, precedence,
+NaN rules, qualification and observation order. Existing regression oracles passed. Style has the same six
+pre-existing errors. Format and diff checks pass. Temporary hooks are removed after measurement.
 
 ## Computation graph and cost model
 
@@ -122,71 +120,65 @@ Source owners are execution_guarantees/{condition,boolean,trusted_implication,or
 analysis/guarantee/{state,current,deferred,retirement,trusted/carriers,flow/merge,flow/witnesses}, and storage_flow.
 Do not flatten these edges into a generic changed-owner test or cache resolved current values as immutable.
 
-## Active native-handle migration contract
+## Current representation and measured bottleneck
 
-Replace the recursive public enum with ExecutionCondition wrapping an immutable node. One public
-ExecutionConditionKind retains every existing root field, Arc-wrapped child slot, operand slice and field array.
-The node derives its structural hash once from the kind and already prepared child hashes. No factory,
-canonical-ID registry, weak table, per-body import or snapshot namespace is needed. Raw constructors preserve
-independent occurrences. Clone preserves existing child sharing. NodeIdentity remains the address of the
-borrowed handle slot, never the node pointer or hash. This avoids changing budget-sensitive observation visits.
+ExecutionCondition retains an immutable node with one derived structural hash. Arc child slots and operand arrays
+preserve physical observation visits. NodeIdentity keys the borrowed handle slot, never the node allocation.
+Equality rejects unequal hashes then checks exact structure. Ordering preserves declaration/field/child order.
+Invocation-local node-pair memoization bounds shared-DAG comparison without merging independent occurrences.
+There is no condition interner, storage-key translation, global factory or second hashing schema. Keep these
+invariants and the collision, occurrence-slot and independent-DAG regression controls.
 
-Equality first accepts the same node, rejects unequal hashes, then compares exact structure. Invocation-local node-pair memoization bounds repeated shared-DAG comparisons.
-Leaf comparisons allocate no memo entries. Hash collisions
-never establish equality. Ordering keeps the original declaration, field and child order. Hash values feed
-compilation fingerprints, so they must remain deterministic across equivalent nodes and reused snapshots.
-Constants may share immutable node allocations while callers retain their own wrapper slots. Published nodes
-never mutate. Portable Typed/Call decoding must construct its final immutable value rather than edit a field.
+The edge probe finds only 36 unchanged-source repetitions in 658 storage-flow propagations. Before this batch,
+their inclusive cost was at most 198,844 of 5,114,981 instrumented events, including merges that cannot be cached.
+Edge-result retention cannot be the main route to the gate. Do not implement it next.
 
-Remove ConditionIndex, StorageKey/StorageLookup and per-query interning. Memos and ordered relations use
-native handles as exact hash keys. Boolean graphs retain only their own local vector/queue IDs and preserve
-child registration order, fact order, polarity, DFS and all budget charges. Do not schedule from hash iteration.
-Retain unchanged producer results instead of rebuilding them. Do not introduce forwarding factories or a second
-child schema. Target net production reduction, with at most 200 added nonblank production lines if unavoidable.
-Reconsider if migration needs context threading, duplicate occurrence graphs or new mutable identity machinery.
+Caller-attributed construction now identifies implication::comparison_is_implied's known lookup as the largest
+site, with 38,294 operation roots. Raw inverse lookup in condition/proof constructs 5,400 more. Substitution and
+equality rewrite operation rebuilding contributes 4,868 and 4,228. Scalar/projection paths are smaller. The
+remaining dominant query construction has an actual consumer, not merely a factory-site attribution.
 
-Regression oracles remain fixed: checker tests, fixed five with intended observe rejection, source/import owner
-controls and frozen30. Extend existing structural hashing/identity checks for independent equal DAGs, forced
-collisions, shared versus copied child slots, Eq/Ord consistency and existing budget results. Count all producer
-hash/edge work alongside comparisons and removed interner work. No performance success until measured. The old independent shared-DAG scalability and derived-order
-oracles remain, together with collision and physical child-slot observation controls.
+Normalized Boolean shape is not sufficient for a no-op rewrite shortcut. For example, a balanced conjunction
+built from 128 flat leaves can fit the original 256-work limit but exhaust it when flattened and rebuilt again.
+Preserve child traversal, normalization and exhaustion even when final children are unchanged. Published join
+formulas cannot silently become negative atom facts. Proving a normalized contrary is not generally equivalent
+to asking whether the original condition proves false under the original precedence and budgets.
 
-The small 464-node indexed graph supports this representation change, not a claim that it alone reaches 10,000.
-Subsequent scheduling must retain actual typed dependencies, failed obligations, budget rank/length effects and
-ordered witness publication. Existing witness refinement already keys the exact witness and both full scopes.
-The 856 misses cannot be skipped from the 12 new-clause count, because refinement can still publish new facts.
-No narrower sufficient identity has been established.
+## Next direct-membership contract
 
-The fixed-point solver retains block outputs but repeats edge transforms before comparing merged inputs.
-The bounded probe now measures 658 storage-flow propagations across eight solves. Only 36 repeat the same
-edge/source-output version. Their inclusive cost is 198,844 counted events, including target-dependent merges
-that caching cannot remove. That is at most 3.9 percent of the 5,114,981 instrumented events, not a wall-time
-estimate. Solve-local edge retention cannot be the main route to the gate. Do not implement it next.
+Use the existing ProofMemo evidence index for exact transient query membership. Replace its Boolean value with
+raw first-set membership for both signs and the existing filtered explicit answer. Ingest unknown-containing
+keys and contradictory signs into raw membership. Compute explicit answers with the same unknown exclusion,
+ordinary qualifier exclusion and true-before-false precedence. A raw query must use the exact single-view memo
+for its assumptions. Never reuse a mixed memo's first-set facts as its ordinary-set membership.
 
-Construction provenance identifies 36,346 Equal/NotEqual nodes and 30,302 LogicalNot nodes from operation
-normalization, plus 8,418 Boolean binary rebuild nodes. Raw inverse proof lookup constructs another 5,400 and
-ordinary-complement lookup 2,932. These are factory sites, not yet exact calling-consumer attribution.
-The dominant next contract is normalization and negated-query production. Trace those callers before choosing
-an implementation. Do not substitute another memo table for repeated production by default.
+Factor the operation normalizer once into a retained/folded ExecutionCondition or an unpublished condition node.
+Reuse the existing kind-plus-hash node representation. Existing operation construction materializes the result
+without normalizing again. Exact lookup hashes and compares that node using the same cached-hash and pair-aware
+comparison machinery as a published handle. Do not duplicate the kind/child hashing schema, create an operator
+cache or register transient query nodes in BooleanGraph, observations or ownership products.
 
-Raw unchanged wrappers can retain their input after traversing children and charging the same budgets.
-Normalizing constructors need stronger guarantees. Even an already normalized Boolean tree can exceed the old
-work limit when flattened again, so equal children or canonical shape alone cannot justify skipping that work.
-Preserve exact shape, qualifier, current/entry scope, NaN handling and exhaustion semantics in any replacement.
-The scalar/projection reconstruction paths are smaller and should not distract from the dominant operation path.
+All normalization branches remain shared: computed-value operands, unknown checks, literals, nullable/tag
+recursion, Boolean equality, double negation, equality complement and bounded Boolean rebuilding. A normalized
+Boolean/Unknown/operand result still asks whether that exact fact and sign are stored. It is not an intrinsic
+truth query. Raw inverse probes bypass normalization and test true then false, as before.
 
-Concrete callers: implication::comparison_is_implied constructs normalized positive/negative comparison probes
-in both operand orders. condition/proof builds a separate raw inverse probe. context::can_assume constructs a
-normalized contrary only after mixed proof is unknown. Join/witness paths also create negations that become
-published formulas. A signed borrowed query could serve transient probes, but false proof of the original is
-not equivalent to proof of its normalized contrary under the original precedence and budgets. Published joins
-cannot silently become negative atom facts. Caller attribution remains unresolved, so do not claim measured
-savings for a polarity change yet. Native BTreeSet membership does not accept arbitrary virtual roots directly.
+The no-memo proof path needs one scope-owned memo at the proof entry, shared by comparison, inverse and recursive
+queries. Do not build and discard a comparison-local index before the inverse query. Preserve the original
+one-unit entry charge and exact completed/exhausted results. A zero-budget raw proof remains None. Index
+construction and all new lookups count, including standalone proof. No lock spans recursive inference.
 
-For parent retention, run existing child rewrites and all normalization decisions first. At the final raw-result
-boundary, an exactly equal operator and ordered operands can reuse the original parent. Equality rewriting
-must still resolve the normalized result afterward. This is narrower than skipping normalization for unchanged
-children, and any added comparisons must be charged. It does not by itself establish the 10,000 solution.
+Preserve operand slot creation for published operations. Sharing original operand storage is safe only for
+unpublished lookup when order and computed values match. Do not add borrowed hash logic for reversed operands
+or shortcut normalizing constructors merely to remove allocations. Initial scope is exact lookup without an
+outer node allocation, using hashbrown Equivalent and the existing structural schema. Reconsider if this needs
+more than 200 nonblank production lines, another fact index or a parallel normalization implementation.
+
+Regression oracles remain fixed: checker tests, five fixtures with observe rejection, source/import ownership
+controls and frozen30. Extend existing evidence/normalization tests for both raw signs, unknown keys, filtered
+ordinary Trusted facts, normalized literal membership, matching collision hashes and no-memo budgets. Preserve
+ordered relation rank/length/DFS costs. Measure comparison, root/child/key hashing, pair writes and ingress work.
+The lookup must not remove counted root work merely by moving it out of ExecutionCondition::new.
 
 ## Fixed evidence and broader work
 
