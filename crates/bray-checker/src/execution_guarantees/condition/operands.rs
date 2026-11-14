@@ -4,10 +4,10 @@ use std::ops::Deref;
 use super::ExecutionCondition;
 
 /// Immutable operands retain their derived properties with the values that establish them.
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd)]
 pub struct ExecutionOperands(Arc<Operands>);
 
-#[derive(Debug, Eq, PartialEq, PartialOrd)]
+#[derive(Debug, Eq, Hash, PartialEq, PartialOrd)]
 struct Operands {
     values: Box<[ExecutionCondition]>,
     contains_trusted: bool,

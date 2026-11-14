@@ -40,12 +40,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let value = if panicked {
-            ExecutionCondition::Unknown
+            ExecutionCondition::unknown()
         } else {
             operation
                 .operands()
                 .last()
-                .map_or(ExecutionCondition::Unknown, |operand| {
+                .map_or(ExecutionCondition::unknown(), |operand| {
                     self.value(state, *operand)
                 })
         };
@@ -53,10 +53,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let projection =
             bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field };
 
-        let result = ExecutionCondition::constructed(ExecutionCondition::Tagged(
+        let result = ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(
                 variant,
-                Arc::new(ExecutionCondition::Expression(expression)),
-            ),
+                Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))),
+            )),
             [(projection, value)].into(),
         );
 
@@ -142,7 +142,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             &state.deferred_invocations,
             state.proofs.ordinary_proof(&state.assumptions),
             value,
-            ExecutionCondition::Unknown,
+            ExecutionCondition::unknown(),
         )
         .enumerate()
         .last()
@@ -256,7 +256,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Some(bray_bound_tree::BoundExpression::Await(awaited)) => {
                 self.value(state, awaited.operand())
             }
-            _ => ExecutionCondition::Unknown,
+            _ => ExecutionCondition::unknown(),
         };
 
         let (variant, _) = crate::representation::union_payload(
@@ -269,10 +269,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             &state.deferred_invocations,
             state.proofs.ordinary_proof(&state.assumptions),
             value,
-            ExecutionCondition::Expression(expression),
+            ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
         )
         .take_while(|(source, _, _)| self.is_task_observation(*source))
-        .map(move |(_, _, result)| ExecutionCondition::VariantTest(variant, Arc::new(result)))
+        .map(move |(_, _, result)| ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(variant, Arc::new(result))))
     }
 
     pub(in crate::analysis) fn task_completion(
@@ -347,7 +347,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &state.deferred_invocations,
                 state.proofs.ordinary_proof(&formation),
                 value,
-                ExecutionCondition::Expression(expression),
+                ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
             )
             .peekable();
 
@@ -364,7 +364,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 break;
             }
 
-            let condition = ExecutionCondition::VariantTest(variant, Arc::new(result));
+            let condition = ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(variant, Arc::new(result)));
 
             match condition.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
                 Some(false) => break,
@@ -399,7 +399,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         incoming: &ExecutionState,
         expression: BoundExpressionId,
     ) {
-        let root = ExecutionCondition::Expression(expression);
+        let root = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
         let left = self.value(target, expression);
         let right = self.value(incoming, expression);
         let value = super::merge_returned(target, incoming, &left, &right, &root, expression);

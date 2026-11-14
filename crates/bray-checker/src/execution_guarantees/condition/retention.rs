@@ -38,15 +38,15 @@ impl Set {
     fn preserves_uncached(&self, value: &ExecutionCondition) -> bool {
         if self.copies.contains(value)
             || self.values.retains_contents(value)
-            || matches!(value, ExecutionCondition::Borrowed(referent) if self.values.retains_contents(referent))
+            || matches!(value.kind(), crate::ExecutionConditionKind::Borrowed(referent) if self.values.retains_contents(referent))
             || self.copies.retains_inline_contents(value)
         {
             return true;
         }
 
-        let subject = match value {
-            ExecutionCondition::VariantTest(_, subject) => Some(subject.as_ref()),
-            value => value.nullable_absence(true).or_else(|| value.nullable_absence(false)).map(|(subject, _)| subject),
+        let subject = match value.kind() {
+            crate::ExecutionConditionKind::VariantTest(_, subject) => Some(subject.as_ref()),
+            _ => value.nullable_absence(true).or_else(|| value.nullable_absence(false)).map(|(subject, _)| subject),
         };
 
         subject.is_some_and(|subject| self.discriminants.contains(&subject.discriminant()))
@@ -110,18 +110,18 @@ impl Set {
         ExecutionCondition,
         Vec<bray_symbols::ConstantProjectionKind>,
     )> {
-        match value {
+        match value.kind() {
             // Retaining a borrow preserves that view and its projections. It
             // cannot retain or retire the referent's ownership on its own.
-            ExecutionCondition::Borrowed(referent) => {
+            crate::ExecutionConditionKind::Borrowed(referent) => {
                 let (root, path) = referent.observation_path()?;
 
                 Some((root.borrowed(), path))
             }
-            value if matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) => {
+            _ if matches!(value.owner_identity().kind(), crate::ExecutionConditionKind::Borrowed(_)) => {
                 Self::indexed_path(value.owner_identity())
             }
-            value => value.observation_path(),
+            _ => value.observation_path(),
         }
     }
 }

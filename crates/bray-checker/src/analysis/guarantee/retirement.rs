@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::state::ExecutionState;
 use crate::ExecutionCondition;
+use crate::execution_guarantees::memoize_condition;
 
 /// Lazy answers share one condition lookup within an immutable retirement context.
 #[derive(Default)]
@@ -63,7 +64,7 @@ impl ExecutionState {
         let retained_snapshots = retained_snapshots.map(crate::execution_guarantees::RetainedSnapshots::from);
 
         let unchanged = retiring_snapshots.as_ref().zip(retained_snapshots.as_ref()).map(|(before, after)| {
-            self.proofs.memoize_condition(move |value| before.retains_contents_between(after, value))
+            memoize_condition(move |value| before.retains_contents_between(after, value))
         });
 
         let retiring_observations = pending.iter().flat_map(|value| value.observations().cloned())
@@ -82,12 +83,12 @@ impl ExecutionState {
 
         self.refine_deferred_witnesses();
 
-        let retained_owner = self.proofs.memoize_condition(|value| retained_snapshots.as_ref().map_or_else(
+        let retained_owner = memoize_condition(|value| retained_snapshots.as_ref().map_or_else(
             || retained_observations.contains(value),
             |snapshots| snapshots.retains_owner(value),
         ));
 
-        let retained_data = self.proofs.memoize_condition(|value| retained_snapshots.as_ref().map_or_else(
+        let retained_data = memoize_condition(|value| retained_snapshots.as_ref().map_or_else(
             || retained_observations.preserves(value),
             |snapshots| snapshots.retains_contents(value),
         ));
@@ -114,7 +115,7 @@ impl ExecutionState {
                     || selection && observed.selector_place().is_some_and(|place| place.overlaps_any(places)))
         };
 
-        let queries = self.proofs.memoize_condition(|_| std::sync::Arc::new(RetirementQueries::default()));
+        let queries = memoize_condition(|_| std::sync::Arc::new(RetirementQueries::default()));
 
         let observes_selection = |condition: &ExecutionCondition, memo: &RetirementQueries| {
             *memo.selection.get_or_init(|| observes(condition, true))
@@ -122,14 +123,14 @@ impl ExecutionState {
 
         let borrowed_slot_changed = |condition: &ExecutionCondition, memo: &RetirementQueries| *memo.borrowed_slot.get_or_init(|| {
             condition.observations_except(&retained_data).any(|observed| {
-                let ExecutionCondition::Borrowed(value) = observed else { return false; };
+                let crate::ExecutionConditionKind::Borrowed(value) = observed.kind() else { return false; };
 
                 if retained_data(value) { return false; }
 
-                match value.owner_identity() {
-                    ExecutionCondition::Input(place) | ExecutionCondition::Joined(_, _, place) => place.overlaps_any(places),
-                    ExecutionCondition::PostState(_, identity) => matches!(identity.as_ref(),
-                        ExecutionCondition::Input(place) if place.overlaps_any(places)),
+                match (value.owner_identity()).kind() {
+                    crate::ExecutionConditionKind::Input(place) | crate::ExecutionConditionKind::Joined(_, _, place) => place.overlaps_any(places),
+                    crate::ExecutionConditionKind::PostState(_, identity) => matches!((identity.as_ref()).kind(),
+                        crate::ExecutionConditionKind::Input(place) if place.overlaps_any(places)),
                     _ => false,
                 }
             })
@@ -150,15 +151,15 @@ impl ExecutionState {
         });
 
         let stable = |condition: &ExecutionCondition, memo: &RetirementQueries| {
-            let predicate = match condition {
-                ExecutionCondition::Trusted(value) => value.as_ref(),
-                value => value,
+            let predicate = match condition.kind() {
+                crate::ExecutionConditionKind::Trusted(value) => value.as_ref(),
+                _ => condition,
             };
 
             // Spatial facts describe the captured pointer value and its allocation, not
             // the slot that supplied that value. Contents writes neither free nor resize
             // allocations. A changed slot receives a new observation below its caller.
-            matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
+            matches!(predicate.kind(), crate::ExecutionConditionKind::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
                 || retained_contents(condition, memo)
         };
 
@@ -175,7 +176,7 @@ impl ExecutionState {
 
         let availability_expired = |condition: &ExecutionCondition, memo: &RetirementQueries| *memo.availability.get_or_init(|| {
             !kind.is_write() && condition.observations().any(|observed| {
-                matches!(observed, ExecutionCondition::InitializedSnapshot(_, _, owner)
+                matches!(observed.kind(), crate::ExecutionConditionKind::InitializedSnapshot(_, _, owner)
                     if retired_owner(owner)
                         && !retained_owner(owner))
             })
@@ -205,11 +206,11 @@ impl ExecutionState {
                     && guarantee.addresses.values().flatten().any(|owner| {
                         owner.value_in(&self.current).is_some_and(|value| {
                             value.observations().any(|observed| {
-                                !matches!(
-                                    observed,
-                                    ExecutionCondition::Literal(_)
-                                        | ExecutionCondition::Boolean(_)
-                                        | ExecutionCondition::Variant(_)
+                                !matches!((
+                                    observed).kind(),
+                                    crate::ExecutionConditionKind::Literal(_)
+                                        | crate::ExecutionConditionKind::Boolean(_)
+                                        | crate::ExecutionConditionKind::Variant(_)
                                 ) && invalidated_observations.overlaps(observed)
                             })
                         })
@@ -308,8 +309,8 @@ impl ExecutionState {
 
         while let Some(value) = pending.pop() {
             // A write changes storage observations, not an independently held constant.
-            if kind.is_write() && matches!(value,
-                ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_) | ExecutionCondition::Variant(_))
+            if kind.is_write() && matches!(value.kind(),
+                crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_) | crate::ExecutionConditionKind::Variant(_))
                 || !select_descendants && retained_owner(&value)
                 || !visited.insert(value.clone())
             {
@@ -335,7 +336,7 @@ impl ExecutionState {
 
             invalidated.insert(value.clone());
 
-            if let ExecutionCondition::Input(place) = &value {
+            if let crate::ExecutionConditionKind::Input(place) = (&value).kind() {
                 for length in 0..place.projections.len() {
                     let mut prefix = place.clone();
 
@@ -380,12 +381,12 @@ impl ExecutionState {
             for owner in carrier
                 .ownership_ancestors()
                 .take_while(|value| !retained_owner(value))
-                .filter_map(|value| match value {
-                    ExecutionCondition::CapturedInput { owner, .. } => Some(owner.owner_identity()),
+                .filter_map(|value| match value.kind() {
+                    crate::ExecutionConditionKind::CapturedInput { owner, .. } => Some(owner.owner_identity()),
                     _ => None,
                 })
             {
-                if let ExecutionCondition::Input(place) = owner {
+                if let crate::ExecutionConditionKind::Input(place) = owner.kind() {
                     input_dependents
                         .entry(place.clone())
                         .or_default()
@@ -408,7 +409,7 @@ impl ExecutionState {
                 .filter_map(|place| place.value_in(&self.current))
             {
                 for observed in dependency.observations() {
-                    if let ExecutionCondition::Input(place) = observed {
+                    if let crate::ExecutionConditionKind::Input(place) = observed.kind() {
                         input_dependents
                             .entry(place.clone())
                             .or_default()
@@ -422,7 +423,7 @@ impl ExecutionState {
                                 .or_default()
                                 .insert(carrier.clone());
 
-                            let ExecutionCondition::Projection(_, parent) = owner else {
+                            let crate::ExecutionConditionKind::Projection(_, parent) = owner.kind() else {
                                 break;
                             };
 
@@ -482,24 +483,24 @@ impl ExecutionState {
 
         let stable_contents = |value: &ExecutionCondition| {
             // Stable address bits do not certify unchanged pointee contents.
-            stable_values.preserves(value) && (matches!(value, ExecutionCondition::Borrowed(_))
+            stable_values.preserves(value) && (matches!(value.kind(), crate::ExecutionConditionKind::Borrowed(_))
                 || !address_slots.contains(value.owner_identity()))
         };
 
         let revokes = |condition: &ExecutionCondition| {
-            let predicate = match condition {
-                ExecutionCondition::Trusted(predicate) => predicate.as_ref(),
-                condition => condition,
+            let predicate = match condition.kind() {
+                crate::ExecutionConditionKind::Trusted(predicate) => predicate.as_ref(),
+                _ => condition,
             };
 
             !preserved.contains(condition)
                 && !condition.observes_only(&stable_contents)
-                && !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
+                && !matches!(predicate.kind(), crate::ExecutionConditionKind::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
                 && condition
                     .observations_except(|observation| {
                         // A borrow of an address slot observes the descriptor itself.
                         // Pointee mutation still revokes claims on the unborrowed address.
-                        matches!(observation, ExecutionCondition::Borrowed(value)
+                        matches!(observation.kind(), crate::ExecutionConditionKind::Borrowed(value)
                         if address_slots.contains(value.owner_identity()))
                     })
                     .any(|observation| referents.overlaps(observation))
@@ -515,13 +516,13 @@ impl ExecutionState {
 
             condition.observations_except(|observation| {
                 preserved.contains(observation)
-                    || matches!(observation, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
+                    || matches!(observation.kind(), crate::ExecutionConditionKind::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
             }).any(|observation| {
-                matches!(
-                    observation,
-                    ExecutionCondition::Borrowed(_)
-                        | ExecutionCondition::Predicate(_, _, _)
-                        | ExecutionCondition::Call(_, _, _, _, _)
+                matches!((
+                    observation).kind(),
+                    crate::ExecutionConditionKind::Borrowed(_)
+                        | crate::ExecutionConditionKind::Predicate(_, _, _)
+                        | crate::ExecutionConditionKind::Call(_, _, _, _, _)
                 ) && revokes(observation)
             })
         };
@@ -665,7 +666,7 @@ impl ExecutionState {
         roots: &BTreeSet<crate::execution_guarantees::ExecutionInput>,
     ) {
         self.assumptions.retain(|(condition, _)| !condition.observes_live_where(|value| {
-            value.observations().any(|observed| matches!(observed, ExecutionCondition::Input(place) if roots.contains(&place.root)))
+            value.observations().any(|observed| matches!(observed.kind(), crate::ExecutionConditionKind::Input(place) if roots.contains(&place.root)))
         }, |_| false));
 
         self.retire_witness_roots(roots);
@@ -707,18 +708,18 @@ mod tests {
         });
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let selector = ExecutionCondition::ScalarValue(Arc::new(ExecutionCondition::Joined(BoundUnitId::new(91), 6, place.clone())));
+        let selector = ExecutionCondition::new(crate::ExecutionConditionKind::ScalarValue(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(91), 6, place.clone())))));
 
-        let unrelated = ExecutionCondition::ScalarValue(Arc::new(ExecutionCondition::Joined(BoundUnitId::new(91), 6,
-            ExecutionPlace::argument(SymbolOrdinal::new(1)))));
+        let unrelated = ExecutionCondition::new(crate::ExecutionConditionKind::ScalarValue(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(91), 6,
+            ExecutionPlace::argument(SymbolOrdinal::new(1)))))));
 
-        let captured = ExecutionCondition::CapturedInput {
-            owner: Arc::new(ExecutionCondition::Result), invocation: expressions[0].into(), ordinal: SymbolOrdinal::new(0),
-        };
+        let captured = ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
+            owner: Arc::new(ExecutionCondition::result()), invocation: expressions[0].into(), ordinal: SymbolOrdinal::new(0),
+        });
 
         let mut state = ExecutionState::default();
 
-        state.deferred_invocations.insert(ExecutionCondition::Result, DeferredValue {
+        state.deferred_invocations.insert(ExecutionCondition::result(), DeferredValue {
             producers: [(expressions[0].into(), DeferredInvocation {
                 entry: Arc::new(crate::ExecutionCallEvidence {
                     arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), captured.clone())].into(),
@@ -733,13 +734,13 @@ mod tests {
 
         state.invalidate_contents(&[place].into(), [], &Default::default(), &Default::default(), None);
 
-        let selection = &state.deferred_invocations[&ExecutionCondition::Result].unknown.as_ref().unwrap().selection;
+        let selection = &state.deferred_invocations[&ExecutionCondition::result()].unknown.as_ref().unwrap().selection;
 
         assert!(!selection.contains(&(selector, true)));
         assert!(selection.contains(&(unrelated, false)));
         assert!(selection.contains(&(captured, true)));
 
-        let entry = &state.deferred_invocations[&ExecutionCondition::Result].producers[&expressions[0].into()].entry;
+        let entry = &state.deferred_invocations[&ExecutionCondition::result()].producers[&expressions[0].into()].entry;
 
         assert!(entry.copy_sources.is_empty());
         assert!(!entry.assumptions.is_empty());
@@ -749,9 +750,9 @@ mod tests {
     fn retirement_revokes_owners_beyond_the_proof_budget() {
         for count in [1, ExecutionCondition::WORK_LIMIT + 1] {
             let owners = (0..count).map(|index| {
-                ExecutionCondition::Input(ExecutionPlace::argument(
+                ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(
                     SymbolOrdinal::new(u32::try_from(index).expect("test owner index fits ordinal")),
-                ))
+                )))
             }).collect::<BTreeSet<_>>();
 
             let first = owners.first().expect("test has an owner").clone();
@@ -767,32 +768,32 @@ mod tests {
 
     #[test]
     fn retained_parent_identity_does_not_republish_changed_borrowed_data() {
-        let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let root = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let sibling = StorageProjection::TupleElement(SymbolOrdinal::new(1));
 
         let old = ExecutionCondition::owned_value(root.clone(), ExecutionCondition::constructed(root.clone(), [
-            (field, ExecutionCondition::Boolean(true)),
+            (field, ExecutionCondition::boolean(true)),
         ].into()));
 
         let changed = ExecutionCondition::owned_value(root.clone(), ExecutionCondition::constructed(root.clone(), [
-            (field, ExecutionCondition::Boolean(false)), (sibling, ExecutionCondition::Boolean(true)),
+            (field, ExecutionCondition::boolean(false)), (sibling, ExecutionCondition::boolean(true)),
         ].into()));
 
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
 
-        let condition = ExecutionCondition::Trusted(std::sync::Arc::new(ExecutionCondition::predicate(
+        let condition = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(ExecutionCondition::predicate(
             symbol.into(), crate::test_support::empty_substitution(symbol.into()),
             vec![ExecutionCondition::reference_value(root.clone().project(field).borrowed(), old.clone().project(field))],
-        )));
+        ))));
 
         for (returned, preserved) in [
             (old.clone(), true),
             (old.with_storage_component(&[field], ExecutionCondition::scalar_observation(
-                ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))),
+                ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)))),
                 old.clone().project(field),
             )), true),
-            (ExecutionCondition::owned_value(root.clone(), ExecutionCondition::Unknown), false),
+            (ExecutionCondition::owned_value(root.clone(), ExecutionCondition::unknown()), false),
             (changed, false),
         ] {
             let mut state = ExecutionState::default();
@@ -816,11 +817,11 @@ mod tests {
 
     #[test]
     fn copying_or_retiring_a_loan_does_not_own_or_retire_its_source() {
-        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
 
         for (condition, retained) in [
             (owner.clone(), BTreeSet::new()),
-            (ExecutionCondition::Trusted(std::sync::Arc::new(owner.clone().borrowed())), BTreeSet::from([owner.clone()])),
+            (ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(owner.clone().borrowed()))), BTreeSet::from([owner.clone()])),
         ] {
             let mut state = ExecutionState::default();
 
@@ -842,7 +843,7 @@ mod tests {
 
             let scope = ExecutionPlace::argument(SymbolOrdinal::new(1));
 
-            state.current.insert(scope.clone(), ExecutionCondition::Input(scope.clone()));
+            state.current.insert(scope.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(scope.clone())));
             state.carry_guarantee(loan.clone(), condition.clone());
 
             std::sync::Arc::make_mut(state.witnesses.get_mut(&loan).expect("the scoped view has its own evidence"))
@@ -877,8 +878,8 @@ mod tests {
             push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))
         }).collect::<Vec<_>>());
 
-        let result = ExecutionCondition::Expression(expressions[0]);
-        let child = ExecutionCondition::Expression(expressions[1]);
+        let result = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0]));
+        let child = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[1]));
         let field = StorageProjection::ElementFromStart(SymbolOrdinal::new(0));
         let mut state = ExecutionState::default();
 
@@ -893,11 +894,11 @@ mod tests {
 
     #[test]
     fn retained_aggregate_identity_does_not_retain_its_replaced_child() {
-        let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let root = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
         let left = root.clone().component(field);
         let right = root.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
-        let replacement = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let replacement = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let mut state = ExecutionState::default();
 
         for value in [&root, &left, &right] {
@@ -925,11 +926,11 @@ mod tests {
 
     #[test]
     fn retained_owner_and_retained_projected_contents_are_distinct() {
-        let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let root = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
         let child = root.clone().component(field);
-        let before = ExecutionCondition::owned_value(child.clone(), ExecutionCondition::Boolean(true));
-        let after = ExecutionCondition::owned_value(child, ExecutionCondition::Boolean(false));
+        let before = ExecutionCondition::owned_value(child.clone(), ExecutionCondition::boolean(true));
+        let after = ExecutionCondition::owned_value(child, ExecutionCondition::boolean(false));
 
         let retained = crate::execution_guarantees::RetainedSnapshots::from(BTreeSet::from([ExecutionCondition::constructed(root.clone(), [(
             StorageProjection::TupleElement(SymbolOrdinal::new(0)), after.clone(),
@@ -940,11 +941,10 @@ mod tests {
         assert!(!retained.retains_contents(&before));
 
         let prior = crate::execution_guarantees::RetainedSnapshots::from(BTreeSet::from([before.clone()]));
-        let cache = crate::execution_guarantees::ExecutionProofCache::default();
-        let owns = cache.memoize_condition(|value| retained.retains_owner(value));
-        let contents = cache.memoize_condition(|value| retained.retains_contents(value));
-        let unchanged = cache.memoize_condition(|value| prior.retains_contents_between(&retained, value));
-        let same = cache.memoize_condition(|value| retained.retains_contents_between(&retained, value));
+        let owns = super::memoize_condition(|value| retained.retains_owner(value));
+        let contents = super::memoize_condition(|value| retained.retains_contents(value));
+        let unchanged = super::memoize_condition(|value| prior.retains_contents_between(&retained, value));
+        let same = super::memoize_condition(|value| retained.retains_contents_between(&retained, value));
 
         for _ in 0..2 {
             assert!(owns(&before));

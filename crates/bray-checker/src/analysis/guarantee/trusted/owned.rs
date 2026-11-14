@@ -63,22 +63,21 @@ impl super::check::TrustedChecks {
                 .filter(|(condition, holds)| {
                     condition.nullable_absence(*holds).is_some()
                         || condition.nullable_absence(!*holds).is_some()
-                        || matches!(condition, ExecutionCondition::VariantTest(_, _))
+                        || matches!(condition.kind(), crate::ExecutionConditionKind::VariantTest(_, _))
                 })
                 .cloned()
                 .collect(),
             transfers: super::super::flow::owned_alternatives(
                 (state, result),
                 (state, result),
-                &ExecutionCondition::Result,
+                &ExecutionCondition::result(),
             )
             .try_map(
                 &mut |transfer| {
-                    let ExecutionCondition::Input(place) = transfer.input() else {
-                        unreachable!("owned input lineage retains its formal place");
-                    };
+                    let source = transfer.input();
 
-                    let source = ExecutionCondition::Input(place);
+                    assert!(matches!(source.kind(), crate::ExecutionConditionKind::Input(_)),
+                        "owned input lineage retains its formal place");
 
                     let input = super::carriers::portable(domain.request, &source);
 
@@ -94,7 +93,7 @@ impl super::check::TrustedChecks {
                     )
                 },
                 &mut |condition| {
-                    if *condition == ExecutionCondition::Boolean(true) {
+                    if *condition == ExecutionCondition::boolean(true) {
                         return Ok(None);
                     }
 
@@ -107,7 +106,7 @@ impl super::check::TrustedChecks {
         };
 
         for (condition, holds) in state.assumptions.difference(&self.owned_entry_conditions) {
-            let formal = matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input());
+            let formal = matches!(condition.kind(), crate::ExecutionConditionKind::Input(place) if place.is_callable_input());
 
             let condition = if formal { condition.clone() } else {
                 if condition.contains_trusted() { continue; }
@@ -119,7 +118,7 @@ impl super::check::TrustedChecks {
 
                     // Mapping each atom keeps one clause's unrelated local terms
                     // from consuming the current-snapshot rewrite budget.
-                    let actual = mapped.substitute(&|place| ExecutionCondition::Input(place.clone()), result,
+                    let actual = mapped.substitute(&|place| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())), result,
                         &mut { ExecutionCondition::WORK_LIMIT });
 
                     (actual == *atom).then_some(mapped)
@@ -335,7 +334,7 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
     transfer: &DependencyOwnedTransfer<StorageProjection>,
     assumptions: &ExecutionAssumptions,
 ) -> bool {
-    if activity(&ExecutionCondition::Result, transfer.output(), assumptions, &domain.proofs).0 == Some(false) {
+    if activity(&ExecutionCondition::result(), transfer.output(), assumptions, &domain.proofs).0 == Some(false) {
         return true;
     }
 
@@ -392,7 +391,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &|place| {
                     place
                         .value_in(&entry.arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
+                        .unwrap_or_else(ExecutionCondition::unknown)
                 },
                 result,
                 &mut { ExecutionCondition::WORK_LIMIT },

@@ -34,13 +34,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .expect("owned return retains its selected invocation");
 
         let transfers = contracts.owned_result().transfers().filter_map(|transfer| {
-            let crate::ExecutionCondition::Input(input) =
-                crate::execution_condition_from_type_term(
+            let decoded = crate::execution_condition_from_type_term(
                     self.request.semantic_values(),
                     transfer.input(),
                     contracts.input_count(),
                 )
-                .expect("checked ownership source decodes in the same store")
+                .expect("checked ownership source decodes in the same store");
+
+            let crate::ExecutionConditionKind::Input(input) = decoded.kind()
             else {
                 unreachable!("checked ownership source contains only input projections");
             };
@@ -317,7 +318,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .storage_type(result)
             .expect("checked normal result retains its type");
 
-        let mut subject = ExecutionCondition::Result;
+        let mut subject = ExecutionCondition::result();
         let mut guard = None;
 
         for projection in path
@@ -347,9 +348,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         BoundOperator::NotEqual,
                         vec![
                             subject.clone(),
-                            ExecutionCondition::Literal(std::sync::Arc::new(
+                            ExecutionCondition::new(crate::ExecutionConditionKind::Literal(std::sync::Arc::new(
                                 ConstantValueData::new(ty, ConstantValueKind::NullableAbsent),
-                            )),
+                            ))),
                         ],
                     ))
                 }

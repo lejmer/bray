@@ -211,14 +211,14 @@ pub(crate) fn selected_call_condition(
             },
         );
 
-        return if condition == ExecutionCondition::Unknown {
-            ExecutionCondition::Expression(expression)
+        return if condition == ExecutionCondition::unknown() {
+            ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
         } else {
             condition
         };
     }
 
-    ExecutionCondition::Expression(expression)
+    ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
 }
 
 #[expect(
@@ -306,7 +306,7 @@ fn call_argument_conditions(
             }
             bray_bound_tree::SelectedArgument::Explicit { ordinal, .. }
             | bray_bound_tree::SelectedArgument::Default { ordinal, .. } => {
-                (*ordinal, ExecutionCondition::Unknown)
+                (*ordinal, ExecutionCondition::unknown())
             }
         })
         .collect::<Vec<_>>();
@@ -350,9 +350,9 @@ fn call_argument_conditions(
                     &|place| {
                         place
                             .value_in(&inputs)
-                            .unwrap_or(ExecutionCondition::Unknown)
+                            .unwrap_or_else(ExecutionCondition::unknown)
                     },
-                    &ExecutionCondition::Unknown,
+                    &ExecutionCondition::unknown(),
                     budget,
                 );
             }

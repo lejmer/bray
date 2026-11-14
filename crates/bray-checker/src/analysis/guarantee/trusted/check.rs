@@ -59,7 +59,7 @@ impl TrustedChecks {
                             &|place| {
                                 place
                                     .value_in(&boundary.current)
-                                    .unwrap_or(ExecutionCondition::Unknown)
+                                    .unwrap_or_else(ExecutionCondition::unknown)
                             },
                             &boundary.trusted_assumptions,
                             &boundary.assumptions,
@@ -72,7 +72,7 @@ impl TrustedChecks {
             .collect::<Vec<_>>();
 
         Self {
-            owned_entry_conditions: boundary.as_ref().into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input())).cloned().collect(),
+            owned_entry_conditions: boundary.as_ref().into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition.kind(), crate::ExecutionConditionKind::Input(place) if place.is_callable_input())).cloned().collect(),
             guarantee_failures: vec![None; guarantees.len()],
             carriers: vec![None; guarantees.len()],
             guarantees,
@@ -145,7 +145,7 @@ impl TrustedChecks {
             let active = condition.is_none_or(|condition| {
                 let condition = condition
                     .substitute(
-                        &|place| ExecutionCondition::Input(place.clone()),
+                        &|place| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())),
                         &domain.invocation_value(state, invocation),
                         &mut { ExecutionCondition::WORK_LIMIT },
                     );
@@ -362,8 +362,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // Conditions share their immutable operand trees with the call contract.
             let initialization = contract.requirements.iter().filter(|condition| {
-                matches!(condition, ExecutionCondition::Trusted(value)
-                    if matches!(value.as_ref(), ExecutionCondition::Predicate(predicate, _, _)
+                matches!(condition.kind(), crate::ExecutionConditionKind::Trusted(value)
+                    if matches!(value.as_ref().kind(), crate::ExecutionConditionKind::Predicate(predicate, _, _)
                         if predicates.contains(&Some(*predicate))))
             }).cloned().collect::<Vec<_>>();
 

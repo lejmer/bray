@@ -25,7 +25,7 @@ pub(super) fn comparison_is_implied(
     let local = std::cell::OnceCell::new();
 
     let ordered = || memo.map_or_else(
-        || local.get_or_init(|| super::ordered_facts::OrderedFacts::new(assumptions, &super::ConditionIndex::default())),
+        || local.get_or_init(|| super::ordered_facts::OrderedFacts::new(assumptions)),
         |memo| memo.ordered(assumptions),
     );
 
@@ -169,7 +169,7 @@ pub fn remap_execution_condition_inputs(
                 .reference()
                 .and_then(|reference| inputs.get(&reference))
             else {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             let mut mapped = super::ExecutionPlace::from(*root);
@@ -178,9 +178,9 @@ pub fn remap_execution_condition_inputs(
                 mapped = mapped.component(*field);
             }
 
-            ExecutionCondition::Input(mapped)
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(mapped))
         },
-        &ExecutionCondition::Result,
+        &ExecutionCondition::result(),
         &mut { ExecutionCondition::WORK_LIMIT },
     )
 }
@@ -201,46 +201,46 @@ pub fn map_execution_condition_references<E>(
         Option<bray_symbols::TypeId>,
     ) -> Result<ExecutionCondition, E>,
 ) -> Result<ExecutionCondition, E> {
-    Ok(match condition {
-        ExecutionCondition::Discriminant(value) => map_execution_condition_references(value, map, input, literal, call)?.discriminant(),
-        ExecutionCondition::Descriptor(kind, value) => map_execution_condition_references(value, map, input, literal, call)?.descriptor(*kind),
-        ExecutionCondition::ValueAlias(left, right) => ExecutionCondition::value_alias(
+    Ok(match condition.kind() {
+        crate::ExecutionConditionKind::Discriminant(value) => map_execution_condition_references(value, map, input, literal, call)?.discriminant(),
+        crate::ExecutionConditionKind::Descriptor(kind, value) => map_execution_condition_references(value, map, input, literal, call)?.descriptor(*kind),
+        crate::ExecutionConditionKind::ValueAlias(left, right) => ExecutionCondition::value_alias(
             map_execution_condition_references(left, map, input, literal, call)?,
             map_execution_condition_references(right, map, input, literal, call)?,
         ),
-        ExecutionCondition::Input(place) => input(place)?,
-        ExecutionCondition::Literal(value) => ExecutionCondition::Literal(literal(value)?),
-        ExecutionCondition::Trusted(value) => ExecutionCondition::Trusted(std::sync::Arc::new(
+        crate::ExecutionConditionKind::Input(place) => input(place)?,
+        crate::ExecutionConditionKind::Literal(value) => ExecutionCondition::new(crate::ExecutionConditionKind::Literal(literal(value)?)),
+        crate::ExecutionConditionKind::Trusted(value) => ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(
             map_execution_condition_references(value, map, input, literal, call)?,
-        )),
-        ExecutionCondition::VariantTest(variant, value) => {
+        ))),
+        crate::ExecutionConditionKind::VariantTest(variant, value) => {
             map_execution_condition_references(value, map, input, literal, call)?
                 .matches_variant(*variant)
         }
-        ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
+        crate::ExecutionConditionKind::Tagged(variant, value) => ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(
             *variant,
             std::sync::Arc::new(map_execution_condition_references(
                 value, map, input, literal, call,
             )?),
-        ),
-        ExecutionCondition::Present(value) => {
-            ExecutionCondition::Present(std::sync::Arc::new(map_execution_condition_references(
+        )),
+        crate::ExecutionConditionKind::Present(value) => {
+            ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(map_execution_condition_references(
                 value, map, input, literal, call,
-            )?))
+            )?)))
         }
-        ExecutionCondition::Borrowed(value) => {
+        crate::ExecutionConditionKind::Borrowed(value) => {
             map_execution_condition_references(value, map, input, literal, call)?.borrowed()
         }
-        ExecutionCondition::Entry {
+        crate::ExecutionConditionKind::Entry {
             condition,
             captured,
-        } => ExecutionCondition::Entry {
+        } => ExecutionCondition::new(crate::ExecutionConditionKind::Entry {
             condition: std::sync::Arc::new(map_execution_condition_references(
                 condition, map, input, literal, call,
             )?),
             captured: *captured,
-        },
-        ExecutionCondition::Predicate(predicate, substitution, operands) => {
+        }),
+        crate::ExecutionConditionKind::Predicate(predicate, substitution, operands) => {
             ExecutionCondition::predicate(
                 *predicate,
                 map(*substitution)?,
@@ -252,7 +252,7 @@ pub fn map_execution_condition_references<E>(
                     .collect::<Result<_, _>>()?,
             )
         }
-        ExecutionCondition::Operation(operator, operands) => ExecutionCondition::operation(
+        crate::ExecutionConditionKind::Operation(operator, operands) => ExecutionCondition::operation(
             *operator,
             operands
                 .iter()
@@ -261,7 +261,7 @@ pub fn map_execution_condition_references<E>(
                 })
                 .collect::<Result<_, _>>()?,
         ),
-        ExecutionCondition::Call(callable, implementation, witnesses, operands, reference_type) => {
+        crate::ExecutionConditionKind::Call(callable, implementation, witnesses, operands, reference_type) => {
             let callable = bray_symbols::CallableInstanceData::new(
                 callable.definition(),
                 map(callable.substitution())?,
@@ -295,26 +295,26 @@ pub fn map_execution_condition_references<E>(
 
             call(callable, implementation, witnesses, operands, *reference_type)?
         }
-        ExecutionCondition::CapturedInput {
+        crate::ExecutionConditionKind::CapturedInput {
             owner,
             invocation,
             ordinal,
-        } => ExecutionCondition::CapturedInput {
+        } => ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
             owner: std::sync::Arc::new(map_execution_condition_references(
                 owner, map, input, literal, call,
             )?),
             invocation: *invocation,
             ordinal: *ordinal,
-        },
-        ExecutionCondition::Projection(field, value) => {
+        }),
+        crate::ExecutionConditionKind::Projection(field, value) => {
             map_execution_condition_references(value, map, input, literal, call)?.component(*field)
         }
-        ExecutionCondition::Observation { owner, contents, kind } => ExecutionCondition::observation(
+        crate::ExecutionConditionKind::Observation { owner, contents, kind } => ExecutionCondition::observation(
             map_execution_condition_references(owner, map, input, literal, call)?,
             map_execution_condition_references(contents, map, input, literal, call)?,
             *kind,
         ),
-        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::constructed(map_execution_condition_references(
+        crate::ExecutionConditionKind::Constructed(base, fields) => ExecutionCondition::constructed(map_execution_condition_references(
                 base, map, input, literal, call,
             )?,
             fields
@@ -358,7 +358,7 @@ pub fn substitute_execution_condition(
             )) = place.reference()
             else {
                 // The instantiated condition retains the same immutable runtime input path.
-                return Ok(ExecutionCondition::Input(place.clone()));
+                return Ok(ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())));
             };
 
             let term = values
@@ -401,16 +401,16 @@ mod tests {
 
     #[test]
     fn mixed_boolean_proof_visits_each_clause_with_one_shared_budget() {
-        let mut condition = ExecutionCondition::Boolean(true);
+        let mut condition = ExecutionCondition::boolean(true);
         let mut ordinary = Default::default();
 
         for index in 1..33 {
-            let input = ExecutionCondition::Input(
+            let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
                 BoundReferenceTarget::Surface(
                     CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
                 )
                 .into(),
-            );
+            ));
 
             input.clone().assume(true, &mut ordinary);
 
@@ -452,19 +452,19 @@ mod tests {
 
     #[test]
     fn comparison_implication_uses_positive_ordering_without_assuming_total_order() {
-        let left = ExecutionCondition::Input(
+        let left = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             BoundReferenceTarget::Surface(
                 CallableParameterSymbolId::from_symbol_id(SymbolId::new(1)).into(),
             )
             .into(),
-        );
+        ));
 
-        let right = ExecutionCondition::Input(
+        let right = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             BoundReferenceTarget::Surface(
                 CallableParameterSymbolId::from_symbol_id(SymbolId::new(2)).into(),
             )
             .into(),
-        );
+        ));
 
         let comparison =
             |operator| ExecutionCondition::operation(operator, vec![left.clone(), right.clone()]);
@@ -557,12 +557,12 @@ mod tests {
     #[test]
     fn positive_ordering_composes_strict_and_weak_edges_with_a_shared_budget() {
         let input = |index| {
-            ExecutionCondition::Input(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(
                 BoundReferenceTarget::Surface(
                     CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
                 )
                 .into(),
-            )
+            ))
         };
 
         let relation = |operator, left, right| {
@@ -620,16 +620,16 @@ mod tests {
             )
         };
 
-        let source = ExecutionCondition::Input(input(1).into());
-        let target = ExecutionCondition::Input(input(2).into());
+        let source = ExecutionCondition::new(crate::ExecutionConditionKind::Input(input(1).into()));
+        let target = ExecutionCondition::new(crate::ExecutionConditionKind::Input(input(2).into()));
         let mapping = [(input(1), input(2))].into();
 
         assert!(execution_condition_is_implied(&source, &[target], &mapping));
         assert!(!execution_condition_is_implied(&source, &[], &mapping));
 
         assert!(!execution_condition_is_implied(
-            &ExecutionCondition::Unknown,
-            &[ExecutionCondition::Unknown],
+            &ExecutionCondition::unknown(),
+            &[ExecutionCondition::unknown()],
             &mapping,
         ));
 
@@ -646,11 +646,11 @@ mod tests {
             CallableParameterSymbolId::from_symbol_id(SymbolId::new(1)).into(),
         );
 
-        let condition = ExecutionCondition::Input(input.into());
+        let condition = ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.into()));
 
         let conjunction = ExecutionCondition::operation(
             BoundOperator::LogicalAnd,
-            vec![condition.clone(), ExecutionCondition::Boolean(true)],
+            vec![condition.clone(), ExecutionCondition::boolean(true)],
         );
 
         assert!(execution_condition_is_implied(
@@ -663,12 +663,12 @@ mod tests {
     #[test]
     fn equality_complements_do_not_assume_ordered_operands() {
         let input = |index| {
-            ExecutionCondition::Input(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(
                 BoundReferenceTarget::Surface(
                     CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
                 )
                 .into(),
-            )
+            ))
         };
 
         for (operator, complement) in [
@@ -708,12 +708,12 @@ mod tests {
     #[test]
     fn failed_inequality_retains_scalar_equality_for_contract_matching() {
         let input = |index| {
-            ExecutionCondition::Input(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(
                 BoundReferenceTarget::Surface(
                     CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
                 )
                 .into(),
-            )
+            ))
         };
 
         let mut assumptions = Default::default();

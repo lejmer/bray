@@ -117,7 +117,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
 
             (
                 place.clone(),
-                bray_checker::ExecutionCondition::Input(place),
+                bray_checker::ExecutionCondition::new(bray_checker::ExecutionConditionKind::Input(place)),
             )
         }));
 

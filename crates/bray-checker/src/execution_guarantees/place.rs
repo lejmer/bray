@@ -11,7 +11,7 @@ pub(crate) trait ExecutionValues {
     /// Declaration normalization may introduce an unbound formal once. An
     /// execution-state reader must not recover an entry after losing its value.
     fn formal_input(&self, place: &ExecutionPlace) -> Option<super::ExecutionCondition> {
-        Some(super::ExecutionCondition::Input(place.clone()))
+        Some(super::ExecutionCondition::new(super::ExecutionConditionKind::Input(place.clone())))
     }
 }
 
@@ -390,10 +390,10 @@ impl ExecutionPlace {
 
 fn literal_array_extent(mut value: &super::ExecutionCondition) -> Option<usize> {
     for _ in 0..super::ExecutionCondition::WORK_LIMIT {
-        match value {
-            super::ExecutionCondition::Observation { contents, kind: super::ExecutionObservationKind::Owned | super::ExecutionObservationKind::Scalar, .. } => value = contents,
-            super::ExecutionCondition::Constructed(base, _) => value = base,
-            super::ExecutionCondition::Literal(value) => return match value.kind() {
+        match value.kind() {
+            super::ExecutionConditionKind::Observation { contents, kind: super::ExecutionObservationKind::Owned | super::ExecutionObservationKind::Scalar, .. } => value = contents,
+            super::ExecutionConditionKind::Constructed(base, _) => value = base,
+            super::ExecutionConditionKind::Literal(value) => return match value.kind() {
                 bray_symbols::ConstantValueKind::Array(elements) => Some(elements.len()),
                 _ => None,
             },

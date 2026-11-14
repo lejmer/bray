@@ -209,7 +209,7 @@ impl ValuePreservation {
         budget: &mut usize,
     ) -> ExecutionCondition {
         let Some(remaining) = budget.checked_sub(1) else {
-            return ExecutionCondition::Unknown;
+            return ExecutionCondition::unknown();
         };
 
         *budget = remaining;
@@ -218,9 +218,9 @@ impl ValuePreservation {
         let retained = self.value && !consumed;
 
         if !retained && self.descriptor
-            && let Some(referent) = match source {
-                ExecutionCondition::Borrowed(referent)
-                | ExecutionCondition::Observation { contents: referent, kind: crate::execution_guarantees::ExecutionObservationKind::Reference, .. } => Some(referent.as_ref()),
+            && let Some(referent) = match source.kind() {
+                crate::ExecutionConditionKind::Borrowed(referent)
+                | crate::ExecutionConditionKind::Observation { contents: referent, kind: crate::execution_guarantees::ExecutionObservationKind::Reference, .. } => Some(referent.as_ref()),
                 _ => None,
             }
         {
@@ -243,7 +243,7 @@ impl ValuePreservation {
         let identity = if reached.ownership_identity().is_some() || reached.storage_contents().is_some() {
             reached.owner_identity().clone()
         } else {
-            place.cloned().map_or(ExecutionCondition::Unknown, ExecutionCondition::Input)
+            place.cloned().map_or(ExecutionCondition::unknown(), |place| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place)))
         };
 
         let mut contents = if retained { source.clone() }
@@ -286,9 +286,9 @@ mod tests {
         use super::super::super::state::ExecutionState;
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let input = ExecutionCondition::Input(place.clone());
+        let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let layout = Layout::Transfer(Transfer::new(input.clone(), []).with_preservation(Mask::all()));
-        let source = ExecutionCondition::Present(std::sync::Arc::new(input.clone()));
+        let source = ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(input.clone())));
         let mut state = ExecutionState::default();
 
         state.owned_results.insert(input.clone(), layout.clone());
@@ -332,7 +332,7 @@ mod tests {
 
         state.owned_results.insert(borrowed.clone(), layout);
         assert!(state.owned_result(&borrowed).is_empty());
-        assert!(state.owned_result(&ExecutionCondition::Unknown).is_empty());
+        assert!(state.owned_result(&ExecutionCondition::unknown()).is_empty());
     }
 
     #[test]
@@ -340,13 +340,13 @@ mod tests {
         use bray_symbols::DependencyValuePreservation as Mask;
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(place.clone());
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let retained = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let changed = StorageProjection::TupleElement(SymbolOrdinal::new(1));
 
         let source = ExecutionCondition::constructed(owner.clone(), [
-            (retained, ExecutionCondition::Boolean(true)),
-            (changed, ExecutionCondition::Boolean(false)),
+            (retained, ExecutionCondition::boolean(true)),
+            (changed, ExecutionCondition::boolean(false)),
         ].into());
 
         let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
@@ -371,8 +371,8 @@ mod tests {
             assert_eq!(current, expected);
         }
 
-        assert_eq!(current.clone().project(retained), ExecutionCondition::Boolean(true));
-        assert_ne!(current.project(changed), ExecutionCondition::Boolean(false));
+        assert_eq!(current.clone().project(retained), ExecutionCondition::boolean(true));
+        assert_ne!(current.project(changed), ExecutionCondition::boolean(false));
     }
     #[test]
     fn shallow_transport_keeps_ordinary_bits_without_freezing_protected_or_reached_data() {
@@ -380,15 +380,15 @@ mod tests {
         use bray_symbols::DependencyValuePreservation as Mask;
 
         let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let input = ExecutionCondition::Input(root.clone());
+        let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone()));
         let fields = [0, 1, 2, 3].map(|index| StorageProjection::TupleElement(SymbolOrdinal::new(index)));
-        let referent = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let referent = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
 
         let source = ExecutionCondition::constructed(input.clone(), [
-            (fields[0], ExecutionCondition::Boolean(true)),
-            (fields[1], ExecutionCondition::Boolean(true)),
-            (fields[2], ExecutionCondition::reference_value(referent.clone().borrowed(), ExecutionCondition::Boolean(true))),
-            (fields[3], ExecutionCondition::Boolean(true)),
+            (fields[0], ExecutionCondition::boolean(true)),
+            (fields[1], ExecutionCondition::boolean(true)),
+            (fields[2], ExecutionCondition::reference_value(referent.clone().borrowed(), ExecutionCondition::boolean(true))),
+            (fields[3], ExecutionCondition::boolean(true)),
         ].into());
 
         let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
@@ -415,11 +415,11 @@ mod tests {
         let mask = ValuePreservation::returned(&Mask::all(), &observations);
         let actual = mask.apply(&source, Some(&root), mutation);
 
-        assert_eq!(actual.clone().project(fields[0]), ExecutionCondition::Boolean(true));
-        assert_ne!(actual.clone().project(fields[1]).computed_value(), &ExecutionCondition::Boolean(true));
+        assert_eq!(actual.clone().project(fields[0]), ExecutionCondition::boolean(true));
+        assert_ne!(actual.clone().project(fields[1]).computed_value(), &ExecutionCondition::boolean(true));
         assert_eq!(actual.clone().project(fields[2]).owner_identity(), source.clone().project(fields[2]).owner_identity());
-        assert_ne!(actual.clone().project(fields[2]).into_referent().computed_value(), &ExecutionCondition::Boolean(true));
-        assert_eq!(actual.project(fields[3]), ExecutionCondition::Boolean(true));
+        assert_ne!(actual.clone().project(fields[2]).into_referent().computed_value(), &ExecutionCondition::boolean(true));
+        assert_eq!(actual.project(fields[3]), ExecutionCondition::boolean(true));
 
         let opaque = [(std::sync::Arc::from([]), Kind::InlineBits)];
         let mask = ValuePreservation::returned(&Mask::all(), &opaque);
@@ -431,16 +431,16 @@ mod tests {
         let partial = Mask::new(true, [(fields[0], Mask::none())].into());
         let actual = ValuePreservation::returned(&partial, &ordinary).apply(&source, Some(&root), mutation);
 
-        assert_ne!(actual.clone().project(fields[0]).computed_value(), &ExecutionCondition::Boolean(true));
-        assert_eq!(actual.project(fields[3]), ExecutionCondition::Boolean(true));
+        assert_ne!(actual.clone().project(fields[0]).computed_value(), &ExecutionCondition::boolean(true));
+        assert_eq!(actual.project(fields[3]), ExecutionCondition::boolean(true));
     }
 
     #[test]
     fn retained_owner_descriptors_keep_inline_reference_slots_without_freezing_referents() {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(place.clone());
-        let referent = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-        let other = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
+        let referent = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let other = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let data = StorageProjection::TupleElement(SymbolOrdinal::new(1));
 
@@ -448,7 +448,7 @@ mod tests {
             ExecutionCondition::constructed(referent, [(field, other.clone().borrowed())].into()));
 
         let source = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::constructed(owner,
-            [(field, reference.clone()), (data, ExecutionCondition::Boolean(true))].into()));
+            [(field, reference.clone()), (data, ExecutionCondition::boolean(true))].into()));
 
         let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
             vec![push_expression(tree, integer_literal_expression(origin, None))]
@@ -483,7 +483,7 @@ mod tests {
             assert_ne!(retained.into_referent().project(field).ownership_identity(), other.clone().borrowed().ownership_identity(),
                 "descriptor preservation stops at the stored reference boundary");
 
-            assert_ne!(updated.clone().project(data).computed_value(), &ExecutionCondition::Boolean(true));
+            assert_ne!(updated.clone().project(data).computed_value(), &ExecutionCondition::boolean(true));
 
             assert_eq!(mask.frame(&mut state, &updated, &[], Some(&place), mutation), updated,
                 "repeated framing must stabilize");
@@ -502,9 +502,9 @@ mod tests {
         let marker = StorageProjection::TupleElement(SymbolOrdinal::new(1));
         let operation = StorageProjection::TupleElement(SymbolOrdinal::new(2));
         let payload = StorageProjection::NullableValue;
-        let nested = ExecutionCondition::Expression(sites[0]);
+        let nested = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(sites[0]));
         let retained_marker = nested.clone().project(operation).project(payload).project(marker);
-        let container = ExecutionCondition::Expression(sites[1]);
+        let container = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(sites[1]));
         let source = ExecutionCondition::owned_value(container.clone(), ExecutionCondition::constructed(container, [(scope, nested)].into()));
 
         assert_eq!(crate::execution_guarantees::owned_snapshot(&source, source.owner_identity().clone(),
@@ -527,17 +527,17 @@ mod tests {
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
 
-        let absent = ExecutionCondition::Literal(std::sync::Arc::new(bray_symbols::ConstantValueData::new(
+        let absent = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(std::sync::Arc::new(bray_symbols::ConstantValueData::new(
             crate::test_support::error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
-        )));
+        ))));
 
         let held = |value: ExecutionCondition| {
             let selected = value.project(operation);
 
             ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![
                 ExecutionCondition::operation(bray_bound_tree::BoundOperator::Equal, vec![selected.clone(), absent.clone()]),
-                ExecutionCondition::Trusted(std::sync::Arc::new(ExecutionCondition::predicate(predicate.into(), substitution,
-                    vec![selected.project(payload).project(marker).borrowed()]))),
+                ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(ExecutionCondition::predicate(predicate.into(), substitution,
+                    vec![selected.project(payload).project(marker).borrowed()])))),
             ])
         };
 
@@ -602,10 +602,10 @@ mod tests {
         });
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(2));
-        let input = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let guard = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let guard = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
-        let origin = ExecutionCondition::Expression(sites[0]);
+        let origin = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(sites[0]));
 
         let source = ExecutionCondition::owned_value(origin.clone(), ExecutionCondition::constructed(origin,
             [(field, input.clone())].into()));
@@ -645,7 +645,7 @@ mod tests {
         assert!(current.owned_result(&value).is_empty(), "current-value join retains explicit no-transfer information");
 
         let returned = super::super::joins::merge_returned(&mut current, &states[1].0, &value, &states[1].1,
-            &ExecutionCondition::Expression(sites[2]), sites[2]);
+            &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(sites[2])), sites[2]);
 
         assert!(current.owned_result(&returned).is_empty(), "result publication retains explicit no-transfer information");
     }
@@ -654,7 +654,7 @@ mod tests {
     fn framing_joined_ownership_keeps_only_retained_actual_components() {
         use bray_symbols::{DependencyOwnedResult as Layout, DependencyOwnedTransfer as Transfer, DependencyValuePreservation as Mask};
 
-        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
         let kept = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let changed = StorageProjection::TupleElement(SymbolOrdinal::new(1));
         let origin = input(3);
@@ -714,8 +714,8 @@ mod tests {
         use std::sync::Arc;
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(place.clone());
-        let absent = ExecutionCondition::Literal(Arc::new(ConstantValueData::new(crate::test_support::error_type(), ConstantValueKind::NullableAbsent)));
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
+        let absent = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(Arc::new(ConstantValueData::new(crate::test_support::error_type(), ConstantValueKind::NullableAbsent))));
         let payload = bray_bound_tree::StorageProjection::NullableValue;
 
         let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
@@ -749,24 +749,24 @@ mod tests {
         let conditions = cache.ordinary_proof(&conditions);
 
         let joined = crate::execution_guarantees::common_components(&owner, &framed,
-            Some(ExecutionCondition::Result), (&conditions, &conditions), &mut Vec::new(),
+            Some(ExecutionCondition::result()), (&conditions, &conditions), &mut Vec::new(),
             &mut { ExecutionCondition::WORK_LIMIT });
 
         let moved = crate::execution_guarantees::owned_snapshot(&framed,
-            ExecutionCondition::Result, &mut { ExecutionCondition::WORK_LIMIT });
+            ExecutionCondition::result(), &mut { ExecutionCondition::WORK_LIMIT });
 
         for value in [joined, moved] {
             assert_eq!(presence(value.clone()), presence(owner.clone()), "retained nullable tags survive joins and owner transfer");
 
             let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
 
-            assert_ne!(value.clone().project(payload).project(marker), ExecutionCondition::Unknown, "joining a framed nullable owner preserves its retained payload marker");
+            assert_ne!(value.clone().project(payload).project(marker), ExecutionCondition::unknown(), "joining a framed nullable owner preserves its retained payload marker");
             assert_ne!(value.project(payload), owner.clone().project(payload), "retaining a tag does not restore old payload contents");
         }
 
         for source in [owner.clone(), ExecutionCondition::owned_value(owner.clone(), owner.clone())] {
             let join = |left: &ExecutionCondition, right: &ExecutionCondition| crate::execution_guarantees::common_components(
-                left, right, Some(ExecutionCondition::Result), (&conditions, &conditions), &mut Vec::new(),
+                left, right, Some(ExecutionCondition::result()), (&conditions, &conditions), &mut Vec::new(),
                 &mut { ExecutionCondition::WORK_LIMIT });
 
             let mut joined = join(&source, &payload_mask.apply(&source, Some(&place), mutation));
@@ -779,7 +779,7 @@ mod tests {
 
                 let marker = joined.clone().project(payload).project(StorageProjection::TupleElement(SymbolOrdinal::new(0)));
 
-                assert_ne!(marker, ExecutionCondition::Unknown, "repeated framing and joining cannot erase a physically retained payload marker: {joined:?}");
+                assert_ne!(marker, ExecutionCondition::unknown(), "repeated framing and joining cannot erase a physically retained payload marker: {joined:?}");
             }
 
             assert_eq!(join(&joined, &payload_mask.apply(&joined, Some(&place), mutation)), joined, "retained payload analysis stabilizes");
@@ -787,7 +787,7 @@ mod tests {
 
         let variant = bray_symbols::UnionVariantSymbolId::from_symbol_id(bray_symbols::SymbolId::new(902));
 
-        for source in [ExecutionCondition::Tagged(variant, Arc::new(owner.clone())), owner.clone()] {
+        for source in [ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(variant, Arc::new(owner.clone()))), owner.clone()] {
             let updated = mask.apply(&source, Some(&place), mutation);
 
             assert_eq!(updated.clone().matches_variant(variant), source.clone().matches_variant(variant));
@@ -799,13 +799,13 @@ mod tests {
             assert_eq!(mask.apply(&updated, Some(&place), mutation), updated);
 
             let moved = crate::execution_guarantees::owned_snapshot(&updated,
-                ExecutionCondition::Result, &mut { ExecutionCondition::WORK_LIMIT });
+                ExecutionCondition::result(), &mut { ExecutionCondition::WORK_LIMIT });
 
             assert_eq!(moved.matches_variant(variant), source.clone().matches_variant(variant));
 
-            if matches!(updated, ExecutionCondition::Discriminant(_)) {
+            if matches!(updated.kind(), crate::ExecutionConditionKind::Discriminant(_)) {
                 let joined = crate::execution_guarantees::common_components(&source, &updated,
-                    Some(ExecutionCondition::Result), (&conditions, &conditions), &mut Vec::new(),
+                    Some(ExecutionCondition::result()), (&conditions, &conditions), &mut Vec::new(),
                     &mut { ExecutionCondition::WORK_LIMIT });
 
                 assert_eq!(joined.matches_variant(variant), source.clone().matches_variant(variant),
@@ -813,7 +813,7 @@ mod tests {
             }
         }
 
-        let replaced = ExecutionCondition::PostState(mutation, Arc::new(owner.clone()));
+        let replaced = ExecutionCondition::new(crate::ExecutionConditionKind::PostState(mutation, Arc::new(owner.clone())));
 
         assert_eq!(owner.common_retained_discriminant(&replaced.discriminant()), None,
             "a different snapshot cannot preserve an older tag");
@@ -825,7 +825,7 @@ mod tests {
         use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer};
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let input = ExecutionCondition::Input(place.clone());
+        let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let mut state = super::super::super::state::ExecutionState::default();
 
         state.owned_results.insert(input.clone(), DependencyOwnedResult::Transfer(
@@ -858,8 +858,8 @@ mod tests {
     #[test]
     fn mutation_retains_an_existing_owned_context_without_retaining_joined_contents() {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(place.clone());
-        let previous = ExecutionCondition::Joined(BoundUnitId::new(0), 1, place.clone());
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
+        let previous = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(0), 1, place.clone()));
 
         let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
             (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
@@ -867,12 +867,12 @@ mod tests {
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let mut mask = ValuePreservation::default();
-        let fresh = ExecutionCondition::Expression(sites[1]);
+        let fresh = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(sites[1]));
 
         for source in [owner.clone(), ExecutionCondition::owned_value(owner.clone(), previous.clone()), fresh] {
             let mut state = super::super::super::state::ExecutionState::default();
 
-            let layout = if matches!(source, ExecutionCondition::Expression(_)) {
+            let layout = if matches!(source.kind(), crate::ExecutionConditionKind::Expression(_)) {
                 bray_symbols::DependencyOwnedResult::default()
             } else {
                 bray_symbols::DependencyOwnedResult::Transfer(
@@ -915,7 +915,7 @@ mod tests {
 
     #[test]
     fn same_owner_mutation_observations_agree_across_alias_places_without_retaining_old_contents() {
-        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
         let owner = input(0);
         let source = owner.clone().borrowed();
         let aliases = [1, 2].map(|ordinal| ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
@@ -949,8 +949,8 @@ mod tests {
     #[test]
     fn preserving_a_copied_descriptor_keeps_its_value_origin_without_old_contents() {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let origin = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-        let context = ExecutionCondition::Input(place.clone());
+        let origin = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let context = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let copied = ExecutionCondition::scalar_observation(context.clone(), origin.clone());
 
         let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
@@ -973,14 +973,14 @@ mod tests {
     #[test]
     fn repeated_effects_keep_actual_nested_owners_and_only_unchanged_data() {
         let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-        let marker = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let marker = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
         let child = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let progress = StorageProjection::TupleElement(SymbolOrdinal::new(1));
 
-        let mut value = ExecutionCondition::constructed(ExecutionCondition::Input(root.clone()), [
+        let mut value = ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone())), [
             (child, ExecutionCondition::constructed(owner.clone(), [(child, marker.clone())].into())),
-            (progress, ExecutionCondition::Boolean(true)),
+            (progress, ExecutionCondition::boolean(true)),
         ].into());
 
         let mut mask = ValuePreservation::default();
@@ -1001,13 +1001,13 @@ mod tests {
 
             assert_eq!(retained.owner_identity(), &owner);
             assert_eq!(retained.project(child), marker);
-            assert_ne!(value.clone().project(progress), ExecutionCondition::Boolean(true));
+            assert_ne!(value.clone().project(progress), ExecutionCondition::boolean(true));
         }
     }
     #[test]
     fn framing_a_loan_retains_field_data_without_storing_a_field_loan() {
         let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(root.clone());
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone()));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let source = owner.clone().borrowed();
         let mut mask = ValuePreservation { descriptor: true, ..Default::default() };

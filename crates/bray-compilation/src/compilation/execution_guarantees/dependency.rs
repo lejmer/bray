@@ -249,7 +249,7 @@ impl Compilation {
                                     .transpose()
                                     .map(|condition| {
                                         condition
-                                            .unwrap_or(bray_checker::ExecutionCondition::Unknown)
+                                            .unwrap_or(bray_checker::ExecutionCondition::unknown())
                                     })
                             })
                             .collect::<Result<Vec<_>, _>>()

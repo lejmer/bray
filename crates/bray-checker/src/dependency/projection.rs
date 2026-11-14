@@ -524,14 +524,14 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
 
     for call in contracts.calls().values() {
         for transfer in call.owned_result().transfers() {
-            let crate::ExecutionCondition::Input(input) =
-                crate::execution_condition_from_type_term(
-                    request.semantic_values(),
-                    transfer.input(),
-                    call.input_count(),
-                )
-                .expect("checked ownership source decodes in the same semantic store")
-            else {
+            let condition = crate::execution_condition_from_type_term(
+                request.semantic_values(),
+                transfer.input(),
+                call.input_count(),
+            )
+            .expect("checked ownership source decodes in the same semantic store");
+
+            let crate::ExecutionConditionKind::Input(input) = condition.kind() else {
                 unreachable!("checked ownership source contains only input projections");
             };
 

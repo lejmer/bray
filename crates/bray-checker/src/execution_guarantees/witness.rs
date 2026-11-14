@@ -13,7 +13,7 @@ pub(crate) fn rename_witnesses(
     for (carrier, witness) in witnesses.iter() {
         let carrier = rename_identity(carrier);
 
-        if carrier == ExecutionCondition::Unknown {
+        if carrier == ExecutionCondition::unknown() {
             continue;
         }
 
@@ -22,7 +22,7 @@ pub(crate) fn rename_witnesses(
         for (condition, guarantee) in &witness.conditions {
             let condition = rename(condition);
 
-            if condition == ExecutionCondition::Unknown {
+            if condition == ExecutionCondition::unknown() {
                 continue;
             }
 
@@ -33,7 +33,7 @@ pub(crate) fn rename_witnesses(
             for (address, owners) in &guarantee.addresses {
                 let address = rename(address);
 
-                if address != ExecutionCondition::Unknown {
+                if address != ExecutionCondition::unknown() {
                     retained
                         .addresses
                         .entry(address)
@@ -121,9 +121,9 @@ impl Default for ExecutionWitness {
 impl ExecutionWitness {
     pub(crate) fn has_guards(&self) -> bool {
         self.conditions.keys().any(|condition| {
-            matches!(
-                condition,
-                ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, _)
+            matches!((
+                condition).kind(),
+                crate::ExecutionConditionKind::Operation(bray_bound_tree::BoundOperator::LogicalOr, _)
             )
         })
     }
@@ -425,12 +425,12 @@ mod tests {
     fn refinement_discharges_a_known_outer_guard_without_assuming_the_remaining_guard() {
         use bray_bound_tree::BoundOperator;
 
-        let outer = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let inner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let outer = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let inner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
 
-        let claim = ExecutionCondition::Trusted(std::sync::Arc::new(ExecutionCondition::Input(
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             ExecutionPlace::argument(SymbolOrdinal::new(2)),
-        )));
+        )))));
 
         let guarded = |guard: ExecutionCondition, value: ExecutionCondition| {
             ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
@@ -444,9 +444,9 @@ mod tests {
 
         witness.carry(&original, true, &Default::default());
 
-        let unproved = ExecutionCondition::Trusted(std::sync::Arc::new(ExecutionCondition::Input(
+        let unproved = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             ExecutionPlace::argument(SymbolOrdinal::new(3)),
-        )));
+        )))));
 
         let unproved_residual = guarded(inner.clone(), unproved.clone());
 
@@ -473,8 +473,8 @@ mod tests {
 
     #[test]
     fn merging_witnesses_retains_all_possible_address_owners_and_reports_new_edges() {
-        let carrier_condition = ExecutionCondition::Boolean(true);
-        let address = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let carrier_condition = ExecutionCondition::boolean(true);
+        let address = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let mut target = std::sync::Arc::new(ExecutionWitness::default());
 
         for ordinal in [1, 2] {

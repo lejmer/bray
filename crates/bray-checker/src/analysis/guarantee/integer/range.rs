@@ -22,7 +22,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         condition: &ExecutionCondition,
         ranges: &mut IntegerRanges,
     ) -> Option<bool> {
-        let ExecutionCondition::Operation(operator, operands) = condition else {
+        let crate::ExecutionConditionKind::Operation(operator, operands) = condition.kind() else {
             return None;
         };
 
@@ -87,12 +87,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let value = value.computed_value();
 
-        let range = match value {
-            ExecutionCondition::Literal(_) => {
+        let range = match value.kind() {
+            crate::ExecutionConditionKind::Literal(_) => {
                 integer_constant(value, &mut { ExecutionCondition::WORK_LIMIT })
                     .map(|value| (value.clone(), value))
             }
-            ExecutionCondition::Expression(expression)
+            crate::ExecutionConditionKind::Expression(expression)
                 if self.request.unit().key().kind().uses_machine_arithmetic() =>
             {
                 // An opaque produced value retains its checked representation.
@@ -102,10 +102,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .expression(*expression)
                     .and_then(|ty| self.integer_type_range(ty.ty()))
             }
-            ExecutionCondition::Expression(expression) => {
+            crate::ExecutionConditionKind::Expression(expression) => {
                 self.integer_range(state, *expression, ranges, budget)
             }
-            ExecutionCondition::Operation(operator, operands) => match operands.as_ref() {
+            crate::ExecutionConditionKind::Operation(operator, operands) => match operands.as_ref() {
                 [operand] => {
                     let (lower, upper) =
                         self.observed_integer_range(state, operand, ranges, budget)?;
@@ -159,7 +159,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             ))
             .expect("integer condition satisfies its checked scalar representation");
 
-        ExecutionCondition::Literal(self.request.semantic_values().constant_value_data(value))
+        ExecutionCondition::new(crate::ExecutionConditionKind::Literal(self.request.semantic_values().constant_value_data(value)))
     }
 
     pub(in crate::analysis::guarantee) fn scalar_integer_range(
@@ -400,7 +400,7 @@ pub(in crate::analysis::guarantee) fn refined_arithmetic_range(
         let sum = ExecutionCondition::operation(operator, vec![left.clone(), right.clone()]);
 
         for (condition, holds) in &known {
-            let ExecutionCondition::Operation(comparison, operands) = condition else {
+            let crate::ExecutionConditionKind::Operation(comparison, operands) = condition.kind() else {
                 continue;
             };
 
@@ -413,9 +413,13 @@ pub(in crate::analysis::guarantee) fn refined_arithmetic_range(
 
             let [
                 _,
-                ExecutionCondition::Operation(BoundOperator::Subtract, difference),
+                difference,
             ] = operands.as_ref()
             else {
+                continue;
+            };
+
+            let crate::ExecutionConditionKind::Operation(BoundOperator::Subtract, difference) = difference.kind() else {
                 continue;
             };
 
@@ -456,7 +460,7 @@ pub(in crate::analysis::guarantee) fn unsigned_arithmetic_is_bounded(
 ) -> bool {
     use bray_bound_tree::BoundOperator;
 
-    let ExecutionCondition::Operation(BoundOperator::LessEqual, operands) = condition else {
+    let crate::ExecutionConditionKind::Operation(BoundOperator::LessEqual, operands) = condition.kind() else {
         return false;
     };
 
@@ -464,7 +468,7 @@ pub(in crate::analysis::guarantee) fn unsigned_arithmetic_is_bounded(
         return false;
     };
 
-    if let ExecutionCondition::Operation(BoundOperator::Subtract, difference) = value
+    if let crate::ExecutionConditionKind::Operation(BoundOperator::Subtract, difference) = value.kind()
         && let [end, start] = difference.as_ref()
         && [end, start, limit].into_iter().all(unsigned)
     {
@@ -481,16 +485,16 @@ pub(in crate::analysis::guarantee) fn unsigned_arithmetic_is_bounded(
             });
     }
 
-    if let ExecutionCondition::Operation(BoundOperator::Multiply, factors) = value
+    if let crate::ExecutionConditionKind::Operation(BoundOperator::Multiply, factors) = value.kind()
         && let [left, right] = factors.as_ref()
         && [left, right, limit].into_iter().all(unsigned)
-        && let ExecutionCondition::Literal(bound) = limit
+        && let crate::ExecutionConditionKind::Literal(bound) = limit.kind()
     {
         let zero =
-            ExecutionCondition::Literal(std::sync::Arc::new(bray_symbols::ConstantValueData::new(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Literal(std::sync::Arc::new(bray_symbols::ConstantValueData::new(
                 bound.ty(),
                 ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(0)),
-            )));
+            ))));
 
         // For nonzero unsigned a, a*b <= limit iff b <= floor(limit/a).
         // The rejected branch is short-circuited, so zero never requires division.
@@ -519,7 +523,7 @@ pub(in crate::analysis::guarantee) fn unsigned_arithmetic_is_bounded(
             });
     }
 
-    let ExecutionCondition::Operation(BoundOperator::Add, sum) = value else {
+    let crate::ExecutionConditionKind::Operation(BoundOperator::Add, sum) = value.kind() else {
         return false;
     };
 
@@ -562,12 +566,12 @@ pub(in crate::analysis::guarantee) fn unsigned_arithmetic_is_bounded(
 fn integer_constant(value: &ExecutionCondition, budget: &mut usize) -> Option<BigInt> {
     *budget = budget.checked_sub(1)?;
 
-    match value {
-        ExecutionCondition::Literal(value) => match value.kind() {
+    match value.kind() {
+        crate::ExecutionConditionKind::Literal(value) => match value.kind() {
             ConstantValueKind::Integer(value) => Some(crate::constant::to_big_integer(value)),
             _ => None,
         },
-        ExecutionCondition::Operation(operator, operands) => match operands.as_ref() {
+        crate::ExecutionConditionKind::Operation(operator, operands) => match operands.as_ref() {
             [operand] => {
                 let value = integer_constant(operand, budget)?;
 
@@ -649,7 +653,7 @@ fn refine_integer_range_with(
     let mut excluded = std::collections::BTreeSet::new();
 
     for (condition, holds) in assumptions {
-        let ExecutionCondition::Operation(operator, operands) = condition else {
+        let crate::ExecutionConditionKind::Operation(operator, operands) = condition.kind() else {
             continue;
         };
 
@@ -757,7 +761,7 @@ mod tests {
 
     #[test]
     fn bounded_sums_use_captured_scalar_data() {
-        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
         let capacity = input(0);
         let initialized = input(1);
         let count = input(2);
@@ -786,7 +790,7 @@ mod tests {
 
     #[test]
     fn scalar_range_constraints_follow_captured_data() {
-        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
         let original = input(0);
         let captured = ExecutionCondition::scalar_observation(input(1), original.clone());
         let limit = input(2);
@@ -807,13 +811,13 @@ mod tests {
 
     #[test]
     fn excluded_endpoints_refine_the_completed_interval() {
-        let value = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let zero = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-        let one = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
-        let two = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(3)));
-        let eight = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(4)));
-        let nine = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(5)));
-        let ten = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(6)));
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let zero = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let one = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
+        let two = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(3))));
+        let eight = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(4))));
+        let nine = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(5))));
+        let ten = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(6))));
 
         let assumptions = BTreeSet::from([
             (
@@ -883,9 +887,9 @@ mod tests {
 
     #[test]
     fn relational_bounds_follow_live_intervals_without_assuming_unsigned_values() {
-        let length = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let count = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-        let zero = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        let length = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let count = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let zero = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
 
         for (positive, expected) in [(true, 1), (false, 0)] {
             let assumptions = BTreeSet::from([
@@ -928,8 +932,8 @@ mod tests {
 
     #[test]
     fn completed_integer_bounds_require_both_endpoints() {
-        let value = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let other = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let other = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
 
         let lower = ExecutionCondition::operation(
             BoundOperator::GreaterEqual,
@@ -978,8 +982,8 @@ mod tests {
 
     #[test]
     fn typed_relational_bounds_cover_every_admitted_integer_pair() {
-        let value = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let other = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let other = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
 
         for operator in [
             BoundOperator::Equal,

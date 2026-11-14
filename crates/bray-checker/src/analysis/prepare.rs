@@ -404,11 +404,11 @@ impl PreparedBodyAnalysis {
             }
 
             let field = |field| {
-                crate::ExecutionCondition::Input(
+                crate::ExecutionCondition::new(crate::ExecutionConditionKind::Input(
                     place
                         .clone()
                         .component(bray_symbols::ConstantProjectionKind::ProductField(field)),
-                )
+                ))
             };
 
             self.input_invariants
@@ -529,13 +529,13 @@ impl PreparedBodyAnalysis {
 fn input_invariant_subject(place: &crate::ExecutionPlace) -> Option<crate::ExecutionCondition> {
     if place.is_callable_input() {
         // Each invariant shares its immutable formal input and projection path.
-        return Some(crate::ExecutionCondition::Input(place.clone()));
+        return Some(crate::ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())));
     }
 
     if matches!(place.reference(), Some(bray_bound_tree::BoundReferenceTarget::Local(
         bray_symbols::AnyLocalSymbolId::PostconditionResult(_))))
     {
-        return Some(place.projections.iter().copied().fold(crate::ExecutionCondition::Result,
+        return Some(place.projections.iter().copied().fold(crate::ExecutionCondition::result(),
             crate::ExecutionCondition::component));
     }
 

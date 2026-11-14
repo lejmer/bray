@@ -50,7 +50,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             &|input| {
                 input
                     .value_in(&state.current)
-                    .unwrap_or(ExecutionCondition::Unknown)
+                    .unwrap_or_else(ExecutionCondition::unknown)
             },
             &domain.returned_value(state),
             &mut { ExecutionCondition::WORK_LIMIT },
@@ -115,10 +115,10 @@ fn reflexive_comparison<C: CheckerRequestContext + ?Sized>(
 ) -> bool {
     use bray_bound_tree::BoundOperator;
 
-    let ExecutionCondition::Operation(
+    let crate::ExecutionConditionKind::Operation(
         BoundOperator::Equal | BoundOperator::LessEqual | BoundOperator::GreaterEqual,
         operands,
-    ) = condition
+    ) = condition.kind()
     else {
         return false;
     };
@@ -133,11 +133,11 @@ fn reflexive_comparison<C: CheckerRequestContext + ?Sized>(
 
     // Untyped normalization cannot assume IEEE equality or weak ordering for NaN.
     // Boolean operations and established integer values have reflexive comparisons.
-    matches!(
-        left,
-        ExecutionCondition::Boolean(_)
-            | ExecutionCondition::Predicate(_, _, _)
-            | ExecutionCondition::Operation(
+    matches!((
+        left).kind(),
+        crate::ExecutionConditionKind::Boolean(_)
+            | crate::ExecutionConditionKind::Predicate(_, _, _)
+            | crate::ExecutionConditionKind::Operation(
                 BoundOperator::LogicalNot
                     | BoundOperator::LogicalAnd
                     | BoundOperator::LogicalOr

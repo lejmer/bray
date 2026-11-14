@@ -607,7 +607,7 @@ fn lifecycle(
                     .map(|term| crate::execution_condition_from_term(values, term, &references))
                     .transpose()?;
 
-                condition.unwrap_or(ExecutionCondition::Unknown)
+                condition.unwrap_or_else(ExecutionCondition::unknown)
             };
 
             match (completion, predicate.is_trusted()) {

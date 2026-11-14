@@ -172,15 +172,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     // outcome edge publishes the completed Boolean.
                     Some(BoundExpression::Binary(binary)) if matches!(binary.operator(),
                         bray_bound_tree::BoundOperator::LogicalAnd | bray_bound_tree::BoundOperator::LogicalOr) => {
-                        ExecutionCondition::Expression(expression)
+                        ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
                     }
                     Some(BoundExpression::Unary(unary))
                         if unary.operator() == bray_bound_tree::BoundOperator::LogicalNot => {
-                        ExecutionCondition::Expression(expression)
+                        ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
                     }
                     Some(BoundExpression::Structured(condition))
                         if condition.kind() == bray_bound_tree::BoundStructuredExpressionKind::Condition => {
-                        ExecutionCondition::Expression(expression)
+                        ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
                     }
                     _ => self.value(state, expression),
                 }
@@ -264,7 +264,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .and_then(bray_compiler_known::RepresentationRole::integer_representation)
                         .is_some()
                 })
-                && let ExecutionCondition::Operation(operator, operands) = &condition
+                && let crate::ExecutionConditionKind::Operation(operator, operands) = (&condition).kind()
                 && let Some(complement) = match operator {
                     bray_bound_tree::BoundOperator::Less => {
                         Some(bray_bound_tree::BoundOperator::GreaterEqual)
@@ -290,7 +290,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // The latter exposes conjunctions carried by completion observations.
             observed.assume(value, &mut state.assumptions);
 
-            let prospective = condition == ExecutionCondition::Expression(expression);
+            let prospective = condition == ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
 
             condition.assume(value, &mut state.assumptions);
 
@@ -300,7 +300,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             {
                 // A prospective Boolean has no owner or initialized storage.
                 // This outcome is its first actual value, published by Result Completion.
-                state.pending_results.insert(expression, ExecutionCondition::Boolean(value));
+                state.pending_results.insert(expression, ExecutionCondition::new(crate::ExecutionConditionKind::Boolean(value)));
             }
         }
 
@@ -363,7 +363,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 })
             {
                 // Entry places and their immutable snapshots retain the shared field path.
-                let input = ExecutionCondition::Input(place.clone());
+                let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
                 state.current.observe_input(place);
 
@@ -397,9 +397,9 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                         bray_bound_tree::BoundOperator::GreaterEqual,
                         vec![
                             input,
-                            ExecutionCondition::Literal(
+                            ExecutionCondition::new(crate::ExecutionConditionKind::Literal(
                                 self.request.semantic_values().constant_value_data(zero),
-                            ),
+                            )),
                         ],
                     )
                     .assume(true, &mut state.assumptions);
@@ -419,7 +419,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             ) {
                 if let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, identity) {
                     state.current.set_slot(place, super::super::current::CurrentValue {
-                        value: ExecutionCondition::Unknown,
+                        value: ExecutionCondition::unknown(),
                         availability: super::super::current::ValueAvailability::Absent,
                     });
                 }
@@ -429,7 +429,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
                 // The caller's produced result is an input to this clause. Its
                 // symbolic contents exist at entry without creating an owner.
-                state.current.insert(place, ExecutionCondition::Result);
+                state.current.insert(place, ExecutionCondition::result());
             }
         }
 
@@ -457,7 +457,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         if let Some(contracts) = self.request.trusted_contracts() {
             for (selection, carriers) in self.dependencies.static_carriers() {
                 let place = crate::ExecutionPlace::static_instance(selection.clone());
-                let value = ExecutionCondition::Input(place.clone());
+                let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
                 state.current.insert(place.clone(), value.clone());
 
@@ -469,7 +469,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                     )
                     .expect("checked initializer condition belongs to the same semantic store")
                     .substitute(
-                        &|_| ExecutionCondition::Unknown,
+                        &|_| ExecutionCondition::unknown(),
                         &value,
                         &mut { ExecutionCondition::WORK_LIMIT },
                     ).pointer_observations(&self.pointer_predicates);
@@ -480,7 +480,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                         carrier.path(),
                     )
                     .substitute(
-                        &|_| ExecutionCondition::Unknown,
+                        &|_| ExecutionCondition::unknown(),
                         &value,
                         &mut { ExecutionCondition::WORK_LIMIT },
                     );
@@ -519,12 +519,12 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             for (condition, subject, containing_value) in &contracts.required_witnesses {
                 for subject in subject.carrier_inputs(self.request.semantic_values(), self.dependencies, *containing_value) {
                     state.current.observe_input(&subject);
-                    state.carry_guarantee(ExecutionCondition::Input(subject), condition.pointer_observations(&self.pointer_predicates));
+                    state.carry_guarantee(ExecutionCondition::new(crate::ExecutionConditionKind::Input(subject)), condition.pointer_observations(&self.pointer_predicates));
                 }
             }
 
             for (condition, owner) in self.allocation_subjects(&contracts.requirements) {
-                let owner = ExecutionCondition::Input(owner);
+                let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner));
 
                 state
                     .allocation_owners

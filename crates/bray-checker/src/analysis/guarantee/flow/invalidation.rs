@@ -76,8 +76,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             matches!(substitution.bindings(), [binding] if binding.argument() == bray_symbols::GenericArgument::Type(pointee))
         };
 
-        let count = |value: &ExecutionCondition| match value {
-            ExecutionCondition::Literal(value) => match value.kind() {
+        let count = |value: &ExecutionCondition| match value.kind() {
+            crate::ExecutionConditionKind::Literal(value) => match value.kind() {
                 bray_symbols::ConstantValueKind::Integer(value) => value.to_u64(),
                 _ => None,
             },
@@ -94,12 +94,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let ExecutionCondition::Trusted(condition) = normalize(original) else {
+            let normalized = normalize(original);
+
+            let crate::ExecutionConditionKind::Trusted(condition) = normalized.kind() else {
                 continue;
             };
 
-            let ExecutionCondition::Predicate(identity, substitution, arguments) =
-                condition.as_ref()
+            let crate::ExecutionConditionKind::Predicate(identity, substitution, arguments) =
+                (condition.as_ref()).kind()
             else {
                 continue;
             };
@@ -147,12 +149,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         return None;
                     }
 
-                    let ExecutionCondition::Trusted(condition) = normalize(original) else {
+                    let normalized = normalize(original);
+
+                    let crate::ExecutionConditionKind::Trusted(condition) = normalized.kind() else {
                         return None;
                     };
 
-                    let ExecutionCondition::Predicate(identity, substitution, arguments) =
-                        condition.as_ref()
+                    let crate::ExecutionConditionKind::Predicate(identity, substitution, arguments) =
+                        (condition.as_ref()).kind()
                     else {
                         return None;
                     };
@@ -237,7 +241,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<ExecutionCondition> {
         let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
 
-        if state.current.live_value(&place).is_some_and(|value| value != ExecutionCondition::Unknown) {
+        if state.current.live_value(&place).is_some_and(|value| value != ExecutionCondition::unknown()) {
             return None;
         }
 
@@ -432,7 +436,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .filter(|(_, kind)| kind.is_immutable_inline())
             .flat_map(|(path, _)| self.storage_path_values(state, path.clone(), mutation))
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
-            .filter(|value| *value != ExecutionCondition::Unknown)
+            .filter(|value| *value != ExecutionCondition::unknown())
             .flat_map(|value| {
                 // An unchanged storage value also retains observations through
                 // its existing loans. The loan does not establish ownership.
@@ -741,7 +745,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let mut empty = super::preservation::ValuePreservation::default();
             let mask = masks.get_mut(&root).unwrap_or(&mut empty);
 
-            let next = if transfers { ExecutionCondition::Unknown } else {
+            let next = if transfers { ExecutionCondition::unknown() } else {
                 mask.frame(state, &source, path, Some(&place), mutation)
             };
 
@@ -888,7 +892,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let previous = self.storage_path_value(state, path);
                 let value = self.current_storage_value(state, &target)?;
 
-                let value = if matches!(previous.owner_identity(), ExecutionCondition::Borrowed(_)) || path.projections.is_empty()
+                let value = if matches!((previous.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_)) || path.projections.is_empty()
                     && self.storage.storage_type(path.root).is_some_and(|ty| {
                         matches!(
                             self.request.semantic_values().type_data(ty).as_ref(),
@@ -964,12 +968,12 @@ mod tests {
         });
 
         let place = |ordinal| ExecutionPlace::argument(SymbolOrdinal::new(ordinal));
-        let left = ExecutionCondition::Input(place(3));
-        let right = ExecutionCondition::Input(place(4));
-        let owner = ExecutionCondition::Expression(expressions[0]);
-        let current = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::Unknown);
-        let unknown = ExecutionCondition::Input(place(5));
-        let guard = ExecutionCondition::Input(place(6));
+        let left = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place(3)));
+        let right = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place(4)));
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0]));
+        let current = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::unknown());
+        let unknown = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place(5)));
+        let guard = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place(6)));
         let transfer = |input| Layout::Transfer(Transfer::new(input, []).with_preservation(Preservation::all()));
         let mutation = StorageMutation::Operation(expressions[1].into());
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));

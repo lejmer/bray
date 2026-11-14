@@ -648,10 +648,10 @@ impl Compilation {
             });
 
             if let Some(variant) = variant {
-                let condition = bray_checker::ExecutionCondition::VariantTest(
+                let condition = bray_checker::ExecutionCondition::new(bray_checker::ExecutionConditionKind::VariantTest(
                     variant,
-                    std::sync::Arc::new(bray_checker::ExecutionCondition::Result),
-                );
+                    std::sync::Arc::new(bray_checker::ExecutionCondition::result()),
+                ));
 
                 let term = execution_condition_term(values, &condition, &inputs, boolean)
                     .map_err(FactQueryError::SemanticValueStore)?

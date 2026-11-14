@@ -66,47 +66,47 @@ fn condition<C: CheckerRequestContext + ?Sized>(
 
     *budget = remaining;
 
-    Ok(match value {
-        ExecutionCondition::Boolean(value) => Condition::Boolean(*value),
-        ExecutionCondition::Literal(value) => literal(domain, value.kind(), budget)?,
-        ExecutionCondition::Input(value)
-            | ExecutionCondition::Joined(_, _, value) => place(domain, value, budget)?,
-        ExecutionCondition::Result => Condition::Result,
-        ExecutionCondition::Expression(value) | ExecutionCondition::ScopedCapability(value) => expression(domain, *value, budget)?,
-        ExecutionCondition::CapturedInput { owner, invocation, ordinal } =>
+    Ok(match value.kind() {
+        crate::ExecutionConditionKind::Boolean(value) => Condition::Boolean(*value),
+        crate::ExecutionConditionKind::Literal(value) => literal(domain, value.kind(), budget)?,
+        crate::ExecutionConditionKind::Input(value)
+            | crate::ExecutionConditionKind::Joined(_, _, value) => place(domain, value, budget)?,
+        crate::ExecutionConditionKind::Result => Condition::Result,
+        crate::ExecutionConditionKind::Expression(value) | crate::ExecutionConditionKind::ScopedCapability(value) => expression(domain, *value, budget)?,
+        crate::ExecutionConditionKind::CapturedInput { owner, invocation, ordinal } =>
             captured_input(domain, owner, *invocation, *ordinal, budget)?,
-        ExecutionCondition::Present(value) => Condition::Present(Box::new(condition(domain, value, budget)?)),
-        ExecutionCondition::Constructed(base, _) | ExecutionCondition::ScalarValue(base) | ExecutionCondition::PostState(_, base)
-            | ExecutionCondition::Trusted(base) | ExecutionCondition::Borrowed(base)
-            | ExecutionCondition::Entry { condition: base, .. }
-            | ExecutionCondition::InitializedSnapshot(_, base, _) => condition(domain, base, budget)?,
-        ExecutionCondition::Observation { owner, .. } => condition(domain, owner, budget)?,
-        ExecutionCondition::Predicate(predicate, substitution, arguments) => {
+        crate::ExecutionConditionKind::Present(value) => Condition::Present(Box::new(condition(domain, value, budget)?)),
+        crate::ExecutionConditionKind::Constructed(base, _) | crate::ExecutionConditionKind::ScalarValue(base) | crate::ExecutionConditionKind::PostState(_, base)
+            | crate::ExecutionConditionKind::Trusted(base) | crate::ExecutionConditionKind::Borrowed(base)
+            | crate::ExecutionConditionKind::Entry { condition: base, .. }
+            | crate::ExecutionConditionKind::InitializedSnapshot(_, base, _) => condition(domain, base, budget)?,
+        crate::ExecutionConditionKind::Observation { owner, .. } => condition(domain, owner, budget)?,
+        crate::ExecutionConditionKind::Predicate(predicate, substitution, arguments) => {
             application(domain, predicate.into_any(), *substitution, arguments, budget)?
         }
-        ExecutionCondition::Call(callable, _, _, arguments, _) => {
+        crate::ExecutionConditionKind::Call(callable, _, _, arguments, _) => {
             application(domain, callable.definition().symbol(), callable.substitution(), arguments, budget)?
         }
-        ExecutionCondition::Operation(operation, operands) => Condition::Operation {
+        crate::ExecutionConditionKind::Operation(operation, operands) => Condition::Operation {
             operation: crate::constant::diagnostic_operation(*operation),
             operands: operands.iter().map(|value| condition(domain, value, budget)).collect::<Result<_, _>>()?,
         },
-        ExecutionCondition::Projection(projection, value) => Condition::Projection {
+        crate::ExecutionConditionKind::Projection(projection, value) => Condition::Projection {
             value: Box::new(condition(domain, value, budget)?),
             projection: projection_value(domain, *projection, budget)?,
         },
-        ExecutionCondition::Variant(variant) => Condition::Source(symbol_path(domain, (*variant).into())?.join(".")),
-        ExecutionCondition::Tagged(variant, value) => Condition::Application {
+        crate::ExecutionConditionKind::Variant(variant) => Condition::Source(symbol_path(domain, (*variant).into())?.join(".")),
+        crate::ExecutionConditionKind::Tagged(variant, value) => Condition::Application {
             path: symbol_path(domain, (*variant).into())?, types: Vec::new(),
             arguments: vec![condition(domain, value, budget)?],
         },
-        ExecutionCondition::VariantTest(variant, value) => Condition::VariantTest {
+        crate::ExecutionConditionKind::VariantTest(variant, value) => Condition::VariantTest {
             value: Box::new(condition(domain, value, budget)?),
             variant: symbol_path(domain, (*variant).into())?.join("."),
         },
-        ExecutionCondition::Unknown => Condition::Unknown,
-        ExecutionCondition::Discriminant(value) | ExecutionCondition::Descriptor(_, value) => condition(domain, value, budget)?,
-        ExecutionCondition::ValueAlias(_, _) => panic!("internal data alias reached source diagnostic rendering: {value:?}"),
+        crate::ExecutionConditionKind::Unknown => Condition::Unknown,
+        crate::ExecutionConditionKind::Discriminant(value) | crate::ExecutionConditionKind::Descriptor(_, value) => condition(domain, value, budget)?,
+        crate::ExecutionConditionKind::ValueAlias(_, _) => panic!("internal data alias reached source diagnostic rendering: {value:?}"),
     })
 }
 
@@ -161,7 +161,7 @@ fn expression<C: CheckerRequestContext + ?Sized>(
         && let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
     {
         let arguments = selection.inputs().filter_map(|input| input.expression())
-            .map(ExecutionCondition::Expression).collect::<Vec<_>>();
+            .map(|expression| ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))).collect::<Vec<_>>();
 
         return application(domain, callable.definition().symbol(), callable.substitution(), &arguments, budget);
     }

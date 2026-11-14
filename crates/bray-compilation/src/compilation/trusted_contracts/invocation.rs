@@ -250,7 +250,7 @@ impl Compilation {
                 .condition()
                 .map(|term| bray_checker::execution_condition_from_term(values, term, &inputs))
                 .transpose()?
-                .unwrap_or(ExecutionCondition::Unknown);
+                .unwrap_or_else(ExecutionCondition::unknown);
 
             self.instantiate_execution_condition_calls(&condition, &[], cancellation, diagnostics)
         };

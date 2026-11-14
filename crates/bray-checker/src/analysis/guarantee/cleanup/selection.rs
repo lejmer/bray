@@ -18,10 +18,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .map(|place| state.current.availability(&place));
 
         let initialized = match available {
-            Some(ValueAvailability::Absent) => ExecutionCondition::Boolean(false),
+            Some(ValueAvailability::Absent) => ExecutionCondition::boolean(false),
             Some(ValueAvailability::Guarded(guard)) => guard,
-            Some(ValueAvailability::Present) => ExecutionCondition::Boolean(true),
-            Some(ValueAvailability::Unknown) | None => ExecutionCondition::Unknown,
+            Some(ValueAvailability::Present) => ExecutionCondition::boolean(true),
+            Some(ValueAvailability::Unknown) | None => ExecutionCondition::unknown(),
         };
 
         guards.iter().fold(initialized, |condition, (path, operator, expected)| {
@@ -68,10 +68,10 @@ mod tests {
     #[test]
     fn unknown_cleanup_cannot_publish_unconditional_completion_or_retirement() {
         let place = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
-        let value = ExecutionCondition::Input(place.clone());
-        let fact = ExecutionCondition::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1)));
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
+        let fact = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1))));
 
-        for condition in [ExecutionCondition::Boolean(false), ExecutionCondition::Boolean(true), ExecutionCondition::Unknown] {
+        for condition in [ExecutionCondition::boolean(false), ExecutionCondition::boolean(true), ExecutionCondition::unknown()] {
             let mut state = ExecutionState::default();
 
             state.assign(place.clone(), value.clone(), None);
@@ -80,14 +80,14 @@ mod tests {
 
             select_cleanup(&mut state, condition.clone(), |state, conditional| {
                 calls += 1;
-                assert_eq!(conditional, condition == ExecutionCondition::Unknown);
+                assert_eq!(conditional, condition == ExecutionCondition::unknown());
                 fact.clone().assume(true, &mut state.assumptions);
                 state.current.retire(&place);
             });
 
-            let definite = condition == ExecutionCondition::Boolean(true);
+            let definite = condition == ExecutionCondition::boolean(true);
 
-            assert_eq!(calls, usize::from(condition != ExecutionCondition::Boolean(false)));
+            assert_eq!(calls, usize::from(condition != ExecutionCondition::boolean(false)));
             assert_eq!(fact.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }), definite.then_some(true));
             assert_eq!(state.current.availability(&place) == ValueAvailability::Absent, definite);
         }
@@ -96,14 +96,14 @@ mod tests {
     #[test]
     fn established_guard_alias_selects_cleanup_without_forking() {
         let place = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
-        let prior = ExecutionCondition::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1)));
-        let current = ExecutionCondition::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2)));
+        let prior = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1))));
+        let current = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2))));
 
         for active in [false, true] {
             let mut state = ExecutionState::default();
             let mut calls = 0;
 
-            state.assign(place.clone(), ExecutionCondition::Input(place.clone()), None);
+            state.assign(place.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())), None);
             prior.clone().assume(active, &mut state.assumptions);
             ExecutionCondition::value_alias(prior.clone(), current.clone()).assume(true, &mut state.assumptions);
 
@@ -120,12 +120,12 @@ mod tests {
 
     #[test]
     fn selected_cleanup_keeps_one_choice_and_its_carrier_authority() {
-        let input = |index| ExecutionCondition::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(index)));
+        let input = |index| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(index))));
         let place = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
         let owner = input(0);
         let selector = input(1);
-        let claim = ExecutionCondition::Trusted(Arc::new(input(2)));
-        let unrelated = ExecutionCondition::Trusted(Arc::new(input(3)));
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(2))));
+        let unrelated = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(3))));
         let mut state = ExecutionState::default();
 
         state.assign(place.clone(), owner.clone(), None);

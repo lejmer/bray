@@ -129,7 +129,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&expression)
             .or_else(|| self.literals.get(&expression))
             .cloned()
-            .unwrap_or(ExecutionCondition::Unknown)
+            .unwrap_or_else(ExecutionCondition::unknown)
     }
 
     fn index_value_in_bounds(
@@ -171,12 +171,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     bray_compiler_known::RepresentationRole::ScalarUsize,
                 );
 
-                ExecutionCondition::Literal(std::sync::Arc::new(
+                ExecutionCondition::new(crate::ExecutionConditionKind::Literal(std::sync::Arc::new(
                     bray_symbols::ConstantValueData::new(
                         ty,
                         bray_symbols::ConstantValueKind::Integer(length),
                     ),
-                ))
+                )))
             } else {
                 crate::execution_guarantees::execution_condition_from_term(values, *length, &[])
                     .expect("checked array extent belongs to this semantic store")
@@ -197,7 +197,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let index = bounds.lower().map_or(index.clone(), |lower| {
                 let lower = self.evaluated_index_input(state, lower);
 
-                if matches!(&index, ExecutionCondition::Literal(value)
+                if matches!((&index).kind(), crate::ExecutionConditionKind::Literal(value)
                     if value.kind() == &bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(0))) {
                     lower
                 } else {
@@ -222,7 +222,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let receiver = self.evaluated_index_input(state, receiver).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference);
 
-        if receiver == ExecutionCondition::Unknown {
+        if receiver == ExecutionCondition::unknown() {
             return false;
         }
 
@@ -231,7 +231,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .iter()
             .flat_map(|(condition, _)| condition.observations())
             .any(|length| {
-                let ExecutionCondition::Call(instance, _, _, arguments, _) = length else {
+                let crate::ExecutionConditionKind::Call(instance, _, _, arguments, _) = length.kind() else {
                     return false;
                 };
 

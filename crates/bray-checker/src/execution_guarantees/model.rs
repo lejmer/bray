@@ -365,10 +365,10 @@ mod tests {
     fn input_join_loses_contents_without_losing_the_common_owner() {
         let ordinal = SymbolOrdinal::new(0);
         let input = ExecutionPlace::argument(ordinal);
-        let owner = ExecutionCondition::Input(input.clone());
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone()));
         let field = StorageProjection::TupleElement(ordinal);
 
-        let snapshot = |value| ExecutionCondition::constructed(owner.clone(), [(field, ExecutionCondition::Boolean(value))].into(),
+        let snapshot = |value| ExecutionCondition::constructed(owner.clone(), [(field, ExecutionCondition::new(crate::ExecutionConditionKind::Boolean(value)))].into(),
         );
 
         for borrowed in [false, true] {

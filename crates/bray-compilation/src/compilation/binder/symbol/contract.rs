@@ -1493,10 +1493,10 @@ mod tests {
         )
         .expect("fixture `bray_checker::execution_condition_from_type_term` call must succeed");
 
-        let bray_checker::ExecutionCondition::Operation(
+        let bray_checker::ExecutionConditionKind::Operation(
             bray_bound_tree::BoundOperator::LogicalAnd,
             operands,
-        ) = condition
+        ) = condition.kind()
         else {
             panic!("the contract retains its conjunction");
         };
@@ -1504,13 +1504,13 @@ mod tests {
         assert_eq!(operands.len(), 2);
 
         assert!(!matches!(
-            operands[0],
-            bray_checker::ExecutionCondition::Trusted(_)
+            operands[0].kind(),
+            bray_checker::ExecutionConditionKind::Trusted(_)
         ));
 
         assert!(
-            matches!(&operands[1], bray_checker::ExecutionCondition::Trusted(condition)
-            if matches!(condition.as_ref(), bray_checker::ExecutionCondition::Predicate(..)))
+            matches!(operands[1].kind(), bray_checker::ExecutionConditionKind::Trusted(condition)
+            if matches!(condition.as_ref().kind(), bray_checker::ExecutionConditionKind::Predicate(..)))
         );
     }
 

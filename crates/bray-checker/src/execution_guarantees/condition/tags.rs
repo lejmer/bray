@@ -1,52 +1,56 @@
 use std::sync::Arc;
 
-use super::ExecutionCondition;
+use super::{ExecutionCondition, ExecutionConditionKind as K};
 
 impl ExecutionCondition {
     /// Retain the same physical tag snapshot independently of changed payload data.
     pub(crate) fn common_retained_discriminant(&self, other: &Self) -> Option<Self> {
         fn source(mut value: &ExecutionCondition) -> &ExecutionCondition {
             loop {
-                match value.computed_value() {
-                    ExecutionCondition::Constructed(base, _) => value = base,
-                    value => return value,
+                let current = value.computed_value();
+
+                match current.kind() {
+                    K::Constructed(base, _) => value = base,
+                    _ => return current,
                 }
             }
         }
 
         let (left, right) = (source(self), source(other));
 
-        match (left, right) {
-            (Self::Discriminant(original), value) | (value, Self::Discriminant(original))
-                if original.as_ref() == value || left == right => Some(Self::Discriminant(Arc::clone(original))),
-            _ => None,
-        }
+        let original = match (left.kind(), right.kind()) {
+            (K::Discriminant(original), _) if original.as_ref() == right || left == right => original,
+            (_, K::Discriminant(original)) if original.as_ref() == left || left == right => original,
+            _ => return None,
+        };
+
+        Some(Self::new(K::Discriminant(Arc::clone(original))))
     }
 
     /// Select only the retained tag from the actual current snapshot.
     pub(crate) fn discriminant(&self) -> Self {
-        match self {
-            Self::Observation { contents, .. } | Self::Borrowed(contents)
-            | Self::Constructed(contents, _) => contents.discriminant(),
-            Self::Present(_) => Self::Present(Arc::new(Self::Unknown)),
-            Self::Tagged(variant, _) => Self::Tagged(*variant, Arc::new(Self::Unknown)),
-            Self::Literal(value) => match value.kind() {
+        match self.kind() {
+            K::Observation { contents, .. } | K::Borrowed(contents)
+            | K::Constructed(contents, _) => contents.discriminant(),
+            K::Present(_) => Self::new(K::Present(Arc::new(Self::unknown()))),
+            K::Tagged(variant, _) => Self::new(K::Tagged(*variant, Arc::new(Self::unknown()))),
+            K::Literal(value) => match value.kind() {
                 bray_symbols::ConstantValueKind::NullableAbsent => self.clone(),
                 bray_symbols::ConstantValueKind::Union { variant, .. } =>
-                    Self::Tagged(*variant, Arc::new(Self::Unknown)),
+                    Self::new(K::Tagged(*variant, Arc::new(Self::unknown()))),
                 _ => panic!("discriminant requires a nullable or union value: {self:?}"),
             },
-            Self::Discriminant(_) | Self::Unknown => self.clone(),
-            value => Self::Discriminant(Arc::new(value.clone())),
+            K::Discriminant(_) | K::Unknown => self.clone(),
+            _ => Self::new(K::Discriminant(Arc::new(self.clone()))),
         }
     }
 
     pub(crate) fn known_presence(&self) -> Option<bool> {
-        match self {
-            Self::Observation { contents, .. } | Self::Borrowed(contents)
-            | Self::Constructed(contents, _) | Self::Discriminant(contents) => contents.known_presence(),
-            Self::Present(_) => Some(true),
-            Self::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) => Some(false),
+        match self.kind() {
+            K::Observation { contents, .. } | K::Borrowed(contents)
+            | K::Constructed(contents, _) | K::Discriminant(contents) => contents.known_presence(),
+            K::Present(_) => Some(true),
+            K::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent) => Some(false),
             _ => None,
         }
     }
@@ -55,11 +59,11 @@ impl ExecutionCondition {
         let mut value = self;
 
         loop {
-            match value {
-                Self::Tagged(variant, _) => return Some(*variant),
-                Self::Constructed(base, _) | Self::Discriminant(base) => value = base,
-                Self::Observation { contents, .. } | Self::Borrowed(contents) => value = contents,
-                Self::Literal(literal) => return match literal.kind() {
+            match value.kind() {
+                K::Tagged(variant, _) => return Some(*variant),
+                K::Constructed(base, _) | K::Discriminant(base) => value = base,
+                K::Observation { contents, .. } | K::Borrowed(contents) => value = contents,
+                K::Literal(literal) => return match literal.kind() {
                     bray_symbols::ConstantValueKind::Union { variant, .. } => Some(*variant),
                     _ => None,
                 },
@@ -69,23 +73,23 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn matches_variant(self, variant: bray_symbols::UnionVariantSymbolId) -> Self {
-        match self {
-            Self::Unknown => Self::Unknown,
-            Self::Borrowed(value) | Self::Observation { contents: value, .. } => value.as_ref().clone().matches_variant(variant),
-            Self::Literal(ref value)
+        match self.kind() {
+            K::Unknown => self,
+            K::Borrowed(value) | K::Observation { contents: value, .. } => value.as_ref().clone().matches_variant(variant),
+            K::Literal(value)
                 if let bray_symbols::ConstantValueKind::Union {
                     variant: active, ..
                 } = value.kind() =>
             {
-                Self::Boolean(*active == variant)
+                Self::boolean(*active == variant)
             }
-            Self::Tagged(active, _) => Self::Boolean(active == variant),
-            Self::Constructed(base, _) | Self::Discriminant(base) => base.as_ref().clone().matches_variant(variant),
-            value => {
-                if let Some(snapshot) = value.nullable_payload_snapshot() {
+            K::Tagged(active, _) => Self::boolean(*active == variant),
+            K::Constructed(base, _) | K::Discriminant(base) => base.as_ref().clone().matches_variant(variant),
+            _ => {
+                if let Some(snapshot) = self.nullable_payload_snapshot() {
                     snapshot.clone().matches_variant(variant)
                 } else {
-                    Self::VariantTest(variant, Arc::new(value))
+                    Self::new(K::VariantTest(variant, Arc::new(self)))
                 }
             }
         }

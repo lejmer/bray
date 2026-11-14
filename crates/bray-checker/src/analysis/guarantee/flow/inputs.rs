@@ -20,12 +20,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         // This transition defines one actual output in the planned protocol slot.
         let result = match invocation {
-            BoundExecutionSite::ScopedEnter(expression) => ExecutionCondition::ScopedCapability(expression),
+            BoundExecutionSite::ScopedEnter(expression) => ExecutionCondition::new(crate::ExecutionConditionKind::ScopedCapability(expression)),
             BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) => ExecutionCondition::post_state(
                 bray_bound_tree::StorageMutation::Operation(invocation),
-                ExecutionCondition::Input(self.input_place(invocation).expect("completed protocol invocation retains its result slot")),
+                ExecutionCondition::new(crate::ExecutionConditionKind::Input(self.input_place(invocation).expect("completed protocol invocation retains its result slot"))),
             ),
-            BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
+            BoundExecutionSite::ScopedExit(_) => ExecutionCondition::unknown(),
             _ => unreachable!("implicit completion has a protocol invocation"),
         };
 
@@ -160,7 +160,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .value_in(&entry.arguments)
                 .expect("checked compare-exchange retains its evaluated expected value");
 
-            let result = ExecutionCondition::Expression(expression);
+            let result = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
 
             let observed =
                 result
@@ -236,20 +236,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             &mut { ExecutionCondition::WORK_LIMIT },
         );
 
-        if matches!(result, ExecutionCondition::Call(..))
+        if matches!(result.kind(), crate::ExecutionConditionKind::Call(..))
             && let bray_bound_tree::BoundCallResult::Immediate(ty) = call.resolution().result()
             && !crate::representation::type_representation(self.request, ty)
                 .is_some_and(crate::representation::is_scalar_value)
         {
             if matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
                 return Some(ExecutionCondition::reference_value(
-                    ExecutionCondition::Expression(expression).borrowed(), result,
+                    ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)).borrowed(), result,
                 ));
             }
 
             // Const computation describes data, not the identity of an owner
             // produced by this invocation. Returned transfers refine this slot.
-            return Some(ExecutionCondition::Expression(expression));
+            return Some(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)));
         }
 
         Some(result)
@@ -488,10 +488,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .input_place(invocation)
             .expect("input slot has an execution place");
 
-        let value = if value == ExecutionCondition::Unknown {
+        let value = if value == ExecutionCondition::unknown() {
             ExecutionCondition::post_state(
                 bray_bound_tree::StorageMutation::Operation(invocation),
-                ExecutionCondition::Input(place.clone()),
+                ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())),
             )
         } else {
             value
@@ -508,7 +508,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) -> ExecutionCondition {
         let Some(term) = self.request.default_observed_result(provider) else {
-            return ExecutionCondition::Unknown;
+            return ExecutionCondition::unknown();
         };
 
         let values = self.request.semantic_values();
@@ -545,9 +545,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &|place| {
                     place
                         .value_in(arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
+                        .unwrap_or_else(ExecutionCondition::unknown)
                 },
-                &ExecutionCondition::Unknown,
+                &ExecutionCondition::unknown(),
                 &mut { ExecutionCondition::WORK_LIMIT },
             )
     }

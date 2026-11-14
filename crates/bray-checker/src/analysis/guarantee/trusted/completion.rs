@@ -20,7 +20,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let root = place
             .value_in(&state.current)
-            .unwrap_or(ExecutionCondition::Unknown);
+            .unwrap_or_else(ExecutionCondition::unknown);
 
         let arguments = BTreeMap::from([(lifecycle.receiver.into(), root)]);
 
@@ -33,7 +33,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &|place| {
                         place
                             .value_in(&entry.arguments)
-                            .unwrap_or(ExecutionCondition::Unknown)
+                            .unwrap_or_else(ExecutionCondition::unknown)
                     },
                     &entry.trusted_assumptions,
                     &entry.assumptions,
@@ -44,9 +44,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &|input| {
                         input
                             .value_in(&arguments)
-                            .unwrap_or(ExecutionCondition::Unknown)
+                            .unwrap_or_else(ExecutionCondition::unknown)
                     },
-                    &ExecutionCondition::Unknown,
+                    &ExecutionCondition::unknown(),
                     &mut { ExecutionCondition::WORK_LIMIT },
                 ).pointer_observations(&self.pointer_predicates);
 
@@ -160,7 +160,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &|place| {
                     place
                         .value_in(&entry.arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
+                        .unwrap_or_else(ExecutionCondition::unknown)
                 },
                 &entry.trusted_assumptions,
                 &entry.assumptions,
@@ -243,7 +243,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &|place| {
                     place
                         .value_in(&arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
+                        .unwrap_or_else(ExecutionCondition::unknown)
                 },
                 &result,
                 &mut { ExecutionCondition::WORK_LIMIT },
@@ -289,7 +289,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let condition = instantiate(subject);
 
             // A guarantee discharged solely by its ordinary guard carries no trusted authority.
-            if condition == ExecutionCondition::Unknown
+            if condition == ExecutionCondition::unknown()
                 || guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true)
             {
                 continue;
@@ -413,10 +413,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut pending = vec![guarantee];
 
         while let Some(predicate) = pending.pop() {
-            match predicate {
-                ExecutionCondition::Trusted(predicate) => pending.push(predicate),
-                ExecutionCondition::Operation(_, operands) => pending.extend(operands.iter()),
-                ExecutionCondition::Predicate(symbol, _, _)
+            match predicate.kind() {
+                crate::ExecutionConditionKind::Trusted(predicate) => pending.push(predicate),
+                crate::ExecutionConditionKind::Operation(_, operands) => pending.extend(operands.iter()),
+                crate::ExecutionConditionKind::Predicate(symbol, _, _)
                     if Some(*symbol) == self.owned_allocation
                         && (predicate.observes(carrier) || transferred) =>
                 {
@@ -454,7 +454,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if entry.pending_execution
             || !contract.completes
-                && matches!(result, ExecutionCondition::Expression(expression) if invocation == (*expression).into())
+                && matches!(result.kind(), crate::ExecutionConditionKind::Expression(expression) if invocation == (*expression).into())
         {
             return None;
         }
@@ -465,7 +465,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // A completed runtime check establishes its captured value, not a new
             // capability or a claim about mutable borrowed storage after the call.
             if domain == bray_symbols::PredicateDomain::Value
-                && condition != ExecutionCondition::Unknown
+                && condition != ExecutionCondition::unknown()
                 && !condition.observes_live(None)
             {
                 condition.assume(true, &mut state.assumptions);
@@ -494,9 +494,9 @@ fn assume_normal_entry(
                     &|place| {
                         place
                             .value_in(&entry.arguments)
-                            .unwrap_or(ExecutionCondition::Unknown)
+                            .unwrap_or_else(ExecutionCondition::unknown)
                     },
-                    &ExecutionCondition::Unknown,
+                    &ExecutionCondition::unknown(),
                     &mut { ExecutionCondition::WORK_LIMIT },
                 )
                 .with_equalities(&equalities);
@@ -535,13 +535,13 @@ mod admission_tests {
     #[test]
     fn completed_admission_keeps_checked_requirements_out_of_pre_entry_evidence() {
         let input = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1)));
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1))));
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
 
-        let requirement = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
-            predicate.into(), substitution, vec![ExecutionCondition::Input(input.clone()).borrowed()],
-        )));
+        let requirement = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::predicate(
+            predicate.into(), substitution, vec![ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())).borrowed()],
+        ))));
 
         let mut before = ExecutionCallEvidence::default();
 
@@ -555,6 +555,6 @@ mod admission_tests {
         assert!(before.prove_trusted_requirements(std::slice::from_ref(&requirement)).is_err());
 
         assert!(assume_normal_entry(&mut completed,
-            &[(ExecutionCondition::Boolean(false), bray_symbols::PredicateDomain::Value)], &[], &Default::default()).is_none());
+            &[(ExecutionCondition::boolean(false), bray_symbols::PredicateDomain::Value)], &[], &Default::default()).is_none());
     }
 }

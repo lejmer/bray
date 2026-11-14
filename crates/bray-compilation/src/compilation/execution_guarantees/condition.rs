@@ -125,7 +125,7 @@ impl Compilation {
 
                 let condition = value
                     .map(|value| ExecutionCondition::from_constant(values, value))
-                    .unwrap_or_else(|| ExecutionCondition::Input(place.clone()));
+                    .unwrap_or_else(|| ExecutionCondition::new(bray_checker::ExecutionConditionKind::Input(place.clone())));
 
                 constants.insert(place, condition);
                 continue;
@@ -148,9 +148,9 @@ impl Compilation {
 
                 constants.insert(
                     bray_bound_tree::BoundReferenceTarget::Surface(symbol).into(),
-                    ExecutionCondition::Input(bray_checker::ExecutionPlace::constant_reference(
+                    ExecutionCondition::new(bray_checker::ExecutionConditionKind::Input(bray_checker::ExecutionPlace::constant_reference(
                         term,
-                    )),
+                    ))),
                 );
 
                 continue;
@@ -518,7 +518,7 @@ impl Compilation {
 
             if clause_diagnostics.has_errors() {
                 conditions.push((
-                    ExecutionCondition::Unknown,
+                    ExecutionCondition::unknown(),
                     bray_symbols::PredicateDomain::Value,
                     span,
                 ));

@@ -35,7 +35,7 @@ pub(crate) fn expression_condition(
     >,
 ) -> ExecutionCondition {
     let Some(next) = budget.checked_sub(1) else {
-        return ExecutionCondition::Unknown;
+        return ExecutionCondition::unknown();
     };
 
     *budget = next;
@@ -45,7 +45,7 @@ pub(crate) fn expression_condition(
         .expression(expression)
         .filter(|bound| !bound.is_recovered())
     else {
-        return ExecutionCondition::Unknown;
+        return ExecutionCondition::unknown();
     };
 
     if let Some(value) = evaluated(expression) {
@@ -66,7 +66,7 @@ pub(crate) fn expression_condition(
         return current
             .get_value(&place)
             .cloned()
-            .unwrap_or(ExecutionCondition::Input(place));
+            .unwrap_or_else(|| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place)));
     }
 
     if let Some(condition) = selected_condition(
@@ -118,11 +118,11 @@ pub(crate) fn expression_condition(
         semantics.selections().expression(expression),
         Some(SemanticSelection::CallableReference(_))
     ) {
-        return ExecutionCondition::Expression(expression);
+        return ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
     }
 
     match bound {
-        BoundExpression::AnonymousCallable(_) => ExecutionCondition::Expression(expression),
+        BoundExpression::AnonymousCallable(_) => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
         BoundExpression::Name(name) => name_condition(
             name.target(),
             semantics.selections().expression(expression),
@@ -131,7 +131,7 @@ pub(crate) fn expression_condition(
         BoundExpression::PatternReference(reference) => current
             .get_value(&BoundReferenceTarget::Local(reference.binding().into()).into())
             .cloned()
-            .unwrap_or(ExecutionCondition::Unknown),
+            .unwrap_or_else(ExecutionCondition::unknown),
         BoundExpression::MemberAccess(member) => {
             if let Some(bray_bound_tree::BoundMemberSelector::TupleElement(index)) =
                 member.selector()
@@ -158,7 +158,7 @@ pub(crate) fn expression_condition(
             let Some(SemanticSelection::Operation(SelectedOperation::Member(target))) =
                 semantics.selections().expression(expression)
             else {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             if let Some(value) = current.get_value(&BoundReferenceTarget::Surface(target.member()).into())
@@ -176,7 +176,7 @@ pub(crate) fn expression_condition(
                 target.member(),
                 AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_)
             ) {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             }
 
             let receiver = expression_condition(
@@ -200,7 +200,7 @@ pub(crate) fn expression_condition(
             let (operator, operands) = match bound {
                 BoundExpression::Unary(operation) => (operation.operator(), operation.operands()),
                 BoundExpression::Binary(operation) => (operation.operator(), operation.operands()),
-                _ => return ExecutionCondition::Unknown,
+                _ => return ExecutionCondition::unknown(),
             };
 
             let Some(SemanticSelection::Operation(SelectedOperation::Operator {
@@ -208,7 +208,7 @@ pub(crate) fn expression_condition(
                 ..
             })) = semantics.selections().expression(expression)
             else {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             if unit.key().kind().uses_machine_arithmetic()
@@ -224,7 +224,7 @@ pub(crate) fn expression_condition(
                     | bray_bound_tree::BoundOperator::Less | bray_bound_tree::BoundOperator::LessEqual
                     | bray_bound_tree::BoundOperator::Greater | bray_bound_tree::BoundOperator::GreaterEqual)
             {
-                return ExecutionCondition::Expression(expression);
+                return ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
             }
 
             let operands = operands
@@ -255,7 +255,7 @@ pub(crate) fn expression_condition(
                 )
             },
         ),
-        _ => ExecutionCondition::Unknown,
+        _ => ExecutionCondition::unknown(),
     }
 }
 
@@ -423,14 +423,14 @@ fn name_condition(
         )
         | BoundReferenceTarget::Local(AnyLocalSymbolId::AnonymousCallableParameter(_)) => {
             if matches!(target, BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(_))) {
-                ExecutionCondition::Input(target.into())
+                ExecutionCondition::new(crate::ExecutionConditionKind::Input(target.into()))
             } else {
-                current.formal_input(&place).unwrap_or(ExecutionCondition::Unknown)
+                current.formal_input(&place).unwrap_or_else(ExecutionCondition::unknown)
             }
         }
         BoundReferenceTarget::Local(AnyLocalSymbolId::PostconditionResult(_)) => {
-            ExecutionCondition::Result
+            ExecutionCondition::result()
         }
-        _ => ExecutionCondition::Unknown,
+        _ => ExecutionCondition::unknown(),
     }
 }

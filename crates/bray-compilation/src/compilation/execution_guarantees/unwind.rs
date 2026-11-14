@@ -154,7 +154,7 @@ impl Compilation {
         let entry = inputs
             .into_iter()
             .filter_map(|(condition, domain, _)| {
-                let bray_checker::ExecutionCondition::Predicate(_, _, arguments) = &condition
+                let bray_checker::ExecutionConditionKind::Predicate(_, _, arguments) = (&condition).kind()
                 else {
                     return None;
                 };

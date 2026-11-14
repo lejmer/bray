@@ -90,7 +90,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         matches!(
             self.request.semantic_values().type_data(ty).as_ref(),
             bray_symbols::TypeData::Nullable(_)
-        ) && matches!(self.execution.value(execution, expression), crate::ExecutionCondition::Literal(value)
+        ) && matches!((self.execution.value(execution, expression)).kind(), crate::ExecutionConditionKind::Literal(value)
                 if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
     }
 

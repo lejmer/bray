@@ -19,10 +19,10 @@ is a last resort. No lock spans recursive inference. Style only at completed-bat
 
 ## Current mechanisms and evidence
 
-ConditionIndex shares structural identity, never authority. Exact ordered fact-ID/polarity vectors own raw query
-memos. Their ordered trusted/ordinary pair identifies a mixed scope. Every physical alias is retained against
-address reuse. Requested, direct and closure-derived proof results remain distinct. Memos preserve original
-semantic costs and exact exhausted-budget results. Proof callers use their actual trusted and ordinary inputs.
+The active migration uses immutable condition handles as exact proof keys. Raw query memos share exactly equal
+ordered fact/polarity vectors. Their trusted/ordinary pair identifies a mixed scope. Requested, direct and
+closure-derived proof results remain distinct. Memos preserve semantic costs and exhausted-budget results.
+The deleted per-query interner no longer owns or reconstructs condition identity.
 
 RetainedSnapshots indexes actual roots and paths. Owner queries exclude loans. Contents queries can follow
 referents, but compare selected before/after contents and reject unknowns. Constructed bases are lineage, not
@@ -30,15 +30,24 @@ independently retained data. BooleanGraph shares immutable condition children. O
 scan positions, DFS order, strictness, source precedence and budget charges. Its differential oracle covers
 128 graphs and budgets 0-64. Solved flow outputs and actual cleanup parts/phases remain retained.
 
-Current join batch groups clauses by owner and availability, and retains publication carrier-selection keys.
-The same owner/source predicates and clause order remain. Only evidence is read afresh for each clause.
-All 553 checker tests pass, including ordered publication with independent and unavailable carriers.
-The batch adds 14 nonblank production lines and 40 test lines. Existing join tests use the grouped result.
-Fixed five twice: task cases 121-130 ms, loop 169/172 ms. Extra source/import ownership controls pass at 175-183 ms.
-Latest diagnostic count is 2,215,658: ordering 1,084,401, equality 548,100, identity 262,971, interning 320,186.
-This batch does not materially reduce total work. Do not iterate locally on it as the route to 10,000.
-Frozen30 is 29 pass and the same RawBuffer invalid acceptance, in 11.9 seconds. No full matrices ran.
-Style has the same six pre-existing errors. Format and diff checks pass. There are no production probe hooks after finalization.
+Native-handle checkpoint: optimized tooling build and all 552 checker tests pass. Fixed five twice take
+127-136 ms for task cases and 169/171 ms for the loop. Extra source/import controls pass at 165-178 ms.
+These final timings have temporary counters compiled but disabled. Frozen30 remains 29 pass and the same
+RawBuffer invalid acceptance, in 11.7 s. No full matrices ran. The prior uninstrumented pre-finalization batch
+was 105-149 ms, so do not claim a final production speedup from those earlier timings.
+
+The final bounded loop probe records 1,844,487 comparisons: ordering 1,035,376, equality 762,556 and physical
+identity 46,555. Interner lookups are zero because the interner is removed. Additional work is 561,908 native
+key hashes, 104,612 constructed nodes, 190,594 child hashes and 1,357,450 comparison-pair lookups. Node hashing
+writes 660,863 payload chunks totaling 4,051,924 bytes. Pair-map writes are not separately counted. These
+categories overlap in cost and must not be summed as time. The 10,000 gate is nowhere near satisfied.
+
+Compared with the prior 2,215,658 comparison/interner count, this removes one reconstruction mechanism but
+leaves extensive repeated production and querying. Construction counts include transient unindexed nodes,
+so they cannot be divided by the old 464-node indexed cardinality to claim an exact duplication factor.
+The batch removes 179 nonblank production lines and 43 test lines. It removes obsolete interner-only tests,
+retains the ordering/scalability oracles and adds native collision/child-slot checks. Inline Bray literals are
+unchanged. Style has the same six pre-existing errors. Format and diff checks pass. Probe hooks are removed.
 
 ## Computation graph and cost model
 
@@ -113,47 +122,53 @@ Source owners are execution_guarantees/{condition,boolean,trusted_implication,or
 analysis/guarantee/{state,current,deferred,retirement,trusted/carriers,flow/merge,flow/witnesses}, and storage_flow.
 Do not flatten these edges into a generic changed-owner test or cache resolved current values as immutable.
 
-## Representation direction and remaining design questions
+## Active native-handle migration contract
 
-Repeated alias conversion itself exceeds the count target. Carry immutable node handles and structural IDs
-from producers through proofs, graphs, rewrites and fact memberships. One ExecutionConditionKind schema should
-replace the recursive public enum plus duplicate child-ID/alias indexing. Remove StorageKey/StorageLookup and
-per-query interning after migration. Retain structural order, never numeric ID or allocation order, for facts,
-budget precedence, serialization and diagnostics. Owner identity and proof authority stay separate from nodes.
+Replace the recursive public enum with ExecutionCondition wrapping an immutable node. One public
+ExecutionConditionKind retains every existing root field, Arc-wrapped child slot, operand slice and field array.
+The node derives its structural hash once from the kind and already prepared child hashes. No factory,
+canonical-ID registry, weak table, per-body import or snapshot namespace is needed. Raw constructors preserve
+independent occurrences. Clone preserves existing child sharing. NodeIdentity remains the address of the
+borrowed handle slot, never the node pointer or hash. This avoids changing budget-sensitive observation visits.
 
-Prefer a factory owned by CompilationState, reachable through CheckerRequestContext and binding contexts.
-Both provider/input producers and body analysis can use it without per-body reconstruction or a crate cycle.
-Nodes must survive the factory through immutable ownership without a factory->node->factory cycle. Construct
-children before taking a short insertion lock. Factory calls, ingress and maintenance still count. Constant
-nodes can be retained directly. A compilation-wide strong table retaining transient nodes needs a memory bound.
+Equality first accepts the same node, rejects unequal hashes, then compares exact structure. Invocation-local node-pair memoization bounds repeated shared-DAG comparisons.
+Leaf comparisons allocate no memo entries. Hash collisions
+never establish equality. Ordering keeps the original declaration, field and child order. Hash values feed
+compilation fingerprints, so they must remain deterministic across equivalent nodes and reused snapshots.
+Constants may share immutable node allocations while callers retain their own wrapper slots. Published nodes
+never mutate. Portable Typed/Call decoding must construct its final immutable value rather than edit a field.
 
-Related compilation snapshots can share a weak structural interner. Preserve today's exact structural equality,
-including raw local IDs. Equal shapes may share allocation because context-dependent facts and authority remain
-outside nodes. No copied interner maps, new snapshot namespaces or routine body imports are needed. Reused
-execution candidates keep their original handles. Portable package terms decode directly into destination nodes.
-Weak buckets must not retain children through strong keys, and dead buckets need amortized reclamation. Keep
-structural ordering for budget-sensitive iteration. Node IDs and addresses never define ordering or serialization.
+Remove ConditionIndex, StorageKey/StorageLookup and per-query interning. Memos and ordered relations use
+native handles as exact hash keys. Boolean graphs retain only their own local vector/queue IDs and preserve
+child registration order, fact order, polarity, DFS and all budget charges. Do not schedule from hash iteration.
+Retain unchanged producer results instead of rebuilding them. Do not introduce forwarding factories or a second
+child schema. Target net production reduction, with at most 200 added nonblank production lines if unavoidable.
+Reconsider if migration needs context threading, duplicate occurrence graphs or new mutable identity machinery.
 
-Physical-sharing traversals mostly compute existential properties or sets. One unresolved consumer is bounds.rs:
-its observation iterator calls a prover sharing IntegerRanges. Partial range computations can warm later queries
-without charging their original cost. The selector precheck may prevent the proposed retry scenario. This is a
-code-derived risk, not a demonstrated source failure. Resolve it before canonical sharing changes visit multiplicity.
+Regression oracles remain fixed: checker tests, fixed five with intended observe rejection, source/import owner
+controls and frozen30. Extend existing structural hashing/identity checks for independent equal DAGs, forced
+collisions, shared versus copied child slots, Eq/Ord consistency and existing budget results. Count all producer
+hash/edge work alongside comparisons and removed interner work. No performance success until measured. The old independent shared-DAG scalability and derived-order
+oracles remain, together with collision and physical child-slot observation controls.
 
-The fixed-point graph retains block outputs but repeats incoming edge transformations before comparing joined
-inputs. Each edge refines witnesses, and applicable pattern refinements can trigger another pass. The two storage
-solves are required cleanup-feasibility rounds. The 856 witness computations are exact-scope cache misses, not
-all calls. A scheduling replacement must retain failed obligations and ordered publication dependencies as well
-as successful proofs. Reducing scan calls alone does not establish the operation-count gate.
+The small 464-node indexed graph supports this representation change, not a claim that it alone reaches 10,000.
+Subsequent scheduling must retain actual typed dependencies, failed obligations, budget rank/length effects and
+ordered witness publication. Existing witness refinement already keys the exact witness and both full scopes.
+The 856 misses cannot be skipped from the 12 new-clause count, because refinement can still publish new facts.
+No narrower sufficient identity has been established.
 
-The existing exhaustive hash_parts child emitter can supply semantic slots/roles while hashing. Migrate duplicate
-traversal matches to that schema, not to a second manually maintained mirror. Node-local checks and traversal
-barriers remain explicit. A witness collection and CurrentValues must own their published dependency relations.
-Do not maintain a shadow reverse index by hand at mutation sites. Persistent ordered fact versions also need
-rank/length accounting, failed-query dependencies and independent supports before selective recomputation is safe.
-These contracts are not all closed. Do not start a speculative semantic rewrite or claim a complete model yet.
+The fixed-point solver retains block outputs but repeats edge transforms before comparing merged inputs.
+A possible next correction is one edge contribution per retained source-output generation, including rejected
+edges. Edge transforms read the whole source state and fixed solve inputs. Target-dependent merges must still
+run in original order, followed by the cyclic previous approximation. Slots must belong to one solve because
+cleanup rounds change reachability, liveness and lifetime ends. The generic propagate API currently combines
+transformation and target merge. Its contract must be separated or optimization confined to storage flow.
+This needs a bounded transform-count measurement and memory accounting before implementation.
 
-Do not repeat eager retirement fusion, witness allocation-key caches, unchanged-carrier shortcuts or empty-
-invalidation shortcuts. Keep the fixed five, source/import ownership controls, checker suite and frozen30 fixed.
+Next bounded experiment must measure construction provenance and unchanged-source edge-transform reuse
+potential together before another production change. Count producer call sites/variants, edge/source-output
+versions and the work inside repeated transformations. Charge comparison-pair maintenance too. This will
+choose between redundant value production and solve-local edge products without another local repair loop.
 
 ## Fixed evidence and broader work
 

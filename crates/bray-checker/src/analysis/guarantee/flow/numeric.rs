@@ -24,9 +24,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &|place| {
                     place
                         .value_in(&entry.arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
+                        .unwrap_or_else(ExecutionCondition::unknown)
                 },
-                &ExecutionCondition::Unknown,
+                &ExecutionCondition::unknown(),
                 &mut { ExecutionCondition::WORK_LIMIT },
             );
 
@@ -40,12 +40,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 budget = remaining;
 
-                if let ExecutionCondition::Operation(
+                if let crate::ExecutionConditionKind::Operation(
                     BoundOperator::LogicalAnd
                     | BoundOperator::LogicalOr
                     | BoundOperator::LogicalNot,
                     operands,
-                ) = &condition
+                ) = (&condition).kind()
                 {
                     pending.extend(operands.iter().cloned());
                 } else if let Some(value) =
@@ -92,7 +92,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let Some((minimum, maximum)) = ty.and_then(|ty| self.integer_type_range(ty)) {
             let value = self.value(state, expression);
 
-            if component && !matches!(value.computed_value(), ExecutionCondition::Projection(..)) {
+            if component && !matches!((value.computed_value()).kind(), crate::ExecutionConditionKind::Projection(..)) {
                 return;
             }
 
@@ -260,9 +260,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .intern_constant_value(ConstantValueData::new(ty, kind))
                     .expect("machine observation retains a value in its semantic store");
 
-                return Some(ExecutionCondition::Literal(
+                return Some(ExecutionCondition::new(crate::ExecutionConditionKind::Literal(
                     values.constant_value_data(value),
-                ));
+                )));
             }
         }
 
@@ -293,7 +293,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         || operands.iter().any(|operand| {
                             // The captured value keeps the checked operand's unsigned type,
                             // including deterministic call identities without an embedded type.
-                            self.unsigned_value(&ExecutionCondition::Expression(*operand))
+                            self.unsigned_value(&ExecutionCondition::new(crate::ExecutionConditionKind::Expression(*operand)))
                                 && self.value(state, *operand).computed_value() == value.computed_value()
                         })
                 },
@@ -343,9 +343,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.request.view().expression(expression),
                     Some(BoundExpression::Assignment(_))
                 ) {
-                    ExecutionCondition::Unknown
+                    ExecutionCondition::unknown()
                 } else {
-                    ExecutionCondition::Expression(expression)
+                    ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
                 },
             )
         }

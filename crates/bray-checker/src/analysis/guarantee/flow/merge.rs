@@ -36,8 +36,8 @@ impl ExecutionJoin<'_> {
     fn snapshot(self, place: &crate::ExecutionPlace) -> ExecutionCondition {
         match self {
             Self::Block(block) => joined_observation(block, place),
-            Self::Result(expression) => ExecutionCondition::Expression(expression),
-            Self::Boundary | Self::Selection(_) => ExecutionCondition::Boolean(true),
+            Self::Result(expression) => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
+            Self::Boundary | Self::Selection(_) => ExecutionCondition::boolean(true),
         }
     }
 }
@@ -104,7 +104,7 @@ pub(in crate::analysis) fn merge(
         .assumptions
         .retain(|condition| incoming.assumptions.contains(condition));
 
-    if !matches!(alternatives, ExecutionCondition::Boolean(_) | ExecutionCondition::Unknown) {
+    if !matches!(alternatives.kind(), crate::ExecutionConditionKind::Boolean(_) | crate::ExecutionConditionKind::Unknown) {
         alternatives.assume(true, &mut target.assumptions);
     }
 
@@ -134,9 +134,9 @@ pub(in crate::analysis) fn merge(
     // Conflicting provenance cannot become an unbound allocation proof at a merge.
     for (condition, owner) in &mut target.allocation_owners {
         if incoming.allocation_owners.get(condition) != Some(owner)
-            && *owner != ExecutionCondition::Unknown
+            && *owner != ExecutionCondition::unknown()
         {
-            *owner = ExecutionCondition::Unknown;
+            *owner = ExecutionCondition::unknown();
             changed = true;
         }
     }
@@ -145,7 +145,7 @@ pub(in crate::analysis) fn merge(
         if let std::collections::btree_map::Entry::Vacant(entry) =
             target.allocation_owners.entry(condition.clone())
         {
-            entry.insert(ExecutionCondition::Unknown);
+            entry.insert(ExecutionCondition::unknown());
             changed = true;
         }
     }
@@ -192,11 +192,11 @@ fn join_observations<'a>(
     for place in observed {
         let value = place
             .value_in(&target.current)
-            .unwrap_or(ExecutionCondition::Unknown);
+            .unwrap_or_else(ExecutionCondition::unknown);
 
         let other = place
             .value_in(&incoming.current)
-            .unwrap_or(ExecutionCondition::Unknown);
+            .unwrap_or_else(ExecutionCondition::unknown);
 
         let left_available = resolved_availability(target, place);
         let right_available = resolved_availability(incoming, place);
@@ -251,7 +251,7 @@ fn join_observations<'a>(
     }
 
     for (place, joined) in &joined_values {
-        if *joined == ExecutionCondition::Unknown { continue; }
+        if *joined == ExecutionCondition::unknown() { continue; }
 
         let left_available = resolved_availability(target, place);
         let right_available = resolved_availability(incoming, place);
@@ -264,11 +264,11 @@ fn join_observations<'a>(
 
         let left = place
             .value_in(&target.current)
-            .unwrap_or(ExecutionCondition::Unknown);
+            .unwrap_or_else(ExecutionCondition::unknown);
 
         let right = place
             .value_in(&incoming.current)
-            .unwrap_or(ExecutionCondition::Unknown);
+            .unwrap_or_else(ExecutionCondition::unknown);
 
         if left != right
             || target.owned_results.get(&left) != incoming.owned_results.get(&right)
@@ -310,20 +310,22 @@ fn join_observations<'a>(
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter().filter(|_| join.block().is_some())
     {
+        let unknown = ExecutionCondition::unknown();
+
         let value = target
             .pending_results
             .get(&expression)
-            .unwrap_or(&ExecutionCondition::Unknown);
+            .unwrap_or(&unknown);
 
         let other = incoming
             .pending_results
             .get(&expression)
-            .unwrap_or(&ExecutionCondition::Unknown);
+            .unwrap_or(&unknown);
 
         let joined = common_components(
             value,
             other,
-            Some(ExecutionCondition::Expression(expression)),
+            Some(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))),
             (&target.proofs.ordinary_proof(&target.assumptions), &incoming.proofs.ordinary_proof(&incoming.assumptions)),
             &mut joined_facts,
             &mut { ExecutionCondition::WORK_LIMIT },
@@ -364,8 +366,8 @@ fn join_observations<'a>(
             joined_facts.extend(common_join_conditions(target, incoming, &joined_values));
         }
 
-        let left_substitution = ExecutionSubstitution::new(&left, &left_identities, &target.proofs.conditions);
-        let right_substitution = ExecutionSubstitution::new(&right, &right_identities, &incoming.proofs.conditions);
+        let left_substitution = ExecutionSubstitution::new(&left, &left_identities);
+        let right_substitution = ExecutionSubstitution::new(&right, &right_identities);
 
         let conditional = super::witnesses::conditional_facts(
             (target, &left_substitution),
@@ -425,7 +427,7 @@ fn join_current_value(
 ) -> CurrentValue {
     let result = || join.block().map(|block| {
         if let Some((_, owner)) = super::joins::common_current_owner(left.1, right.1) {
-            let shared = owner.with_snapshots(contents, &left.0.proofs.conditions);
+            let shared = owner.with_snapshots(contents);
 
             if shared != owner { return shared; }
         }
@@ -437,8 +439,8 @@ fn join_current_value(
         right.1.clone()
     } else if *right.2 == ValueAvailability::Absent || left.1 == right.1 {
         left.1.clone()
-    } else if *left.1 == ExecutionCondition::Unknown || *right.1 == ExecutionCondition::Unknown {
-        ExecutionCondition::Unknown
+    } else if *left.1 == ExecutionCondition::unknown() || *right.1 == ExecutionCondition::unknown() {
+        ExecutionCondition::unknown()
     } else {
         common_components(left.1, right.1, result(), (&left.0.proofs.ordinary_proof(&left.0.assumptions), &right.0.proofs.ordinary_proof(&right.0.assumptions)), facts,
             &mut { ExecutionCondition::WORK_LIMIT })
@@ -449,10 +451,10 @@ fn join_current_value(
     } else if matches!(left.2, ValueAvailability::Unknown) || matches!(right.2, ValueAvailability::Unknown) {
         ValueAvailability::Unknown
     } else {
-        ValueAvailability::Guarded(ExecutionCondition::InitializedSnapshot(
+        ValueAvailability::Guarded(ExecutionCondition::new(crate::ExecutionConditionKind::InitializedSnapshot(
             place.clone(), std::sync::Arc::new(join.snapshot(place)),
             std::sync::Arc::new(value.owner_identity().clone()),
-        ))
+        )))
     };
 
     CurrentValue { value, availability }
@@ -521,12 +523,12 @@ fn assume_availability(state: &mut ExecutionState, guard: &ExecutionCondition, a
 }
 
 pub(super) fn joined_observation(block: AnalysisBlockId, place: &crate::ExecutionPlace) -> ExecutionCondition {
-    ExecutionCondition::Joined(
+    ExecutionCondition::new(crate::ExecutionConditionKind::Joined(
         block.unit(),
         u32::try_from(block.to_index().expect("flow block has an index"))
             .expect("flow block index fits"),
         place.clone(),
-    )
+    ))
 }
 
 fn join_current_truth(
@@ -535,12 +537,12 @@ fn join_current_truth(
     joined: &ExecutionCondition,
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> bool {
-    if left.0 == right.0 || *joined == ExecutionCondition::Unknown {
+    if left.0 == right.0 || *joined == ExecutionCondition::unknown() {
         return false;
     }
 
     let needs_proof = [left.0, right.0].into_iter().any(|value| {
-        matches!(value, ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_))
+        matches!(value.kind(), crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_))
     });
 
     let [Some(left), Some(right)] = [left, right].map(|(value, state)| {
@@ -598,7 +600,7 @@ fn current_replacements(
 
         let value = place
             .value_in(&state.current)
-            .unwrap_or(ExecutionCondition::Unknown);
+            .unwrap_or_else(ExecutionCondition::unknown);
 
         let value = &value;
 
@@ -635,7 +637,7 @@ fn common_join_conditions(
     let mut right_candidates = BTreeMap::new();
 
     for (place, value) in joined {
-        if value == &ExecutionCondition::Unknown {
+        if value == &ExecutionCondition::unknown() {
             continue;
         }
 
@@ -645,7 +647,7 @@ fn common_join_conditions(
         ] {
             let input = place
                 .value_in(&state.current)
-                .unwrap_or(ExecutionCondition::Unknown);
+                .unwrap_or_else(ExecutionCondition::unknown);
 
             if input == *value {
                 continue;
@@ -653,11 +655,11 @@ fn common_join_conditions(
 
             insert_replacement(inputs, value, &input);
 
-            if !matches!(
-                input,
-                ExecutionCondition::Literal(_)
-                    | ExecutionCondition::Boolean(_)
-                    | ExecutionCondition::Unknown
+            if !matches!((
+                input).kind(),
+                crate::ExecutionConditionKind::Literal(_)
+                    | crate::ExecutionConditionKind::Boolean(_)
+                    | crate::ExecutionConditionKind::Unknown
             ) {
                 insert_replacement(candidates, &input, value);
             }
@@ -715,19 +717,19 @@ pub(super) fn result_replacements(
         return;
     }
 
-    if value == joined.owner_identity() && !matches!(joined, ExecutionCondition::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. })
-        || joined == &ExecutionCondition::Unknown
-        || matches!(
-            value,
-            ExecutionCondition::Literal(_)
-                | ExecutionCondition::Boolean(_)
-                | ExecutionCondition::Unknown
+    if value == joined.owner_identity() && !matches!(joined.kind(), crate::ExecutionConditionKind::Observation { kind: ObservationKind::Owned | ObservationKind::Reference, .. })
+        || joined == &ExecutionCondition::unknown()
+        || matches!((
+            value).kind(),
+            crate::ExecutionConditionKind::Literal(_)
+                | crate::ExecutionConditionKind::Boolean(_)
+                | crate::ExecutionConditionKind::Unknown
         )
     {
         return;
     }
 
-    if let ExecutionCondition::Present(payload) = value {
+    if let crate::ExecutionConditionKind::Present(payload) = value.kind() {
         if !stable_values.contains(value) {
             insert_replacement(values, value, joined);
         }
@@ -777,13 +779,13 @@ pub(super) fn result_replacements(
         }
     }
 
-    match value {
-        ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => {
+    match value.kind() {
+        crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => {
             let source = value.current_referent().unwrap_or(contents);
 
-            let joined = joined.current_referent().unwrap_or_else(|| match joined {
-                ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => contents.as_ref(),
-                value => value,
+            let joined = joined.current_referent().unwrap_or_else(|| match joined.kind() {
+                crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => contents.as_ref(),
+                _ => joined,
             });
 
             result_replacements(source, joined, stable_values, stable_identities, values, identities);
@@ -814,12 +816,12 @@ fn reference_data_replacements(
 
     *budget = remaining;
 
-    if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = source {
+    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = source.kind() {
         reference_data_replacements(contents, joined, stable_values, values, budget);
         return;
     }
 
-    if let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } = joined {
+    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.kind() {
         reference_data_replacements(source, contents, stable_values, values, budget);
         return;
     }
@@ -832,7 +834,7 @@ fn reference_data_replacements(
     }
 
     if !stable_values.contains(source)
-        && !matches!(source, ExecutionCondition::Unknown | ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_))
+        && !matches!(source.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_))
     {
         // Rebase actual reached data, without replacing any carrier identity.
         insert_replacement(values, source, joined);
@@ -855,8 +857,8 @@ fn merge_values<K: Ord + Clone>(
     let mut changed = false;
 
     for (key, value) in target.iter_mut() {
-        if incoming.get(key) != Some(value) && *value != ExecutionCondition::Unknown {
-            *value = ExecutionCondition::Unknown;
+        if incoming.get(key) != Some(value) && *value != ExecutionCondition::unknown() {
+            *value = ExecutionCondition::unknown();
             changed = true;
         }
     }
@@ -864,7 +866,7 @@ fn merge_values<K: Ord + Clone>(
     for key in incoming.keys() {
         // Join keys are small identities or share immutable field paths.
         if let std::collections::btree_map::Entry::Vacant(entry) = target.entry(key.clone()) {
-            entry.insert(ExecutionCondition::Unknown);
+            entry.insert(ExecutionCondition::unknown());
             changed = true;
         }
     }
@@ -882,7 +884,7 @@ fn insert_replacement(
         .entry(value.clone())
         .and_modify(|prior| {
             if prior != joined {
-                *prior = ExecutionCondition::Unknown;
+                *prior = ExecutionCondition::unknown();
             }
         })
         .or_insert_with(|| joined.clone());
@@ -898,7 +900,7 @@ mod tests {
         use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation, SymbolOrdinal};
 
         let place = crate::ExecutionPlace::argument(SymbolOrdinal::new(1));
-        let value = ExecutionCondition::Input(crate::ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(crate::ExecutionPlace::argument(SymbolOrdinal::new(0))));
 
         let layout = DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(value.clone(), [])
             .with_preservation(DependencyValuePreservation::all()));
@@ -912,7 +914,7 @@ mod tests {
             }
 
             left.current.set_slot(place.clone(), CurrentValue {
-                value: ExecutionCondition::Unknown,
+                value: ExecutionCondition::unknown(),
                 availability: ValueAvailability::Absent,
             });
 
@@ -932,7 +934,7 @@ mod tests {
         use std::sync::Arc;
 
         let place = crate::ExecutionPlace::argument(SymbolOrdinal::new(2));
-        let origin = ExecutionCondition::Input(crate::ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let origin = ExecutionCondition::new(crate::ExecutionConditionKind::Input(crate::ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let updated = StorageProjection::TupleElement(SymbolOrdinal::new(1));
 
@@ -945,14 +947,14 @@ mod tests {
 
         let refreshed = loan.with_referent(ExecutionCondition::owned_value(origin.clone(),
             ExecutionCondition::constructed(ExecutionCondition::post_state(mutation, origin),
-                [(updated, ExecutionCondition::Boolean(false))].into())));
+                [(updated, ExecutionCondition::boolean(false))].into())));
 
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
 
-        let held = |value: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(
+        let held = |value: ExecutionCondition| ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), substitution, vec![value.project(marker).borrowed()]),
-        ));
+        )));
 
         let boundary = super::ExecutionJoin::Block(crate::analysis::id::AnalysisBlockId::from_slot(BoundUnitId::new(0), 1));
 
@@ -991,7 +993,7 @@ mod tests {
     fn ordinary_branch_constraints_compose_without_reviving_forgotten_paths() {
         use bray_bound_tree::BoundOperator;
 
-        let input = |ordinal| ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)));
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal))));
         let first = input(0);
         let second = input(1);
         let rejected = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![first.clone(), second.clone()]);
@@ -1017,7 +1019,7 @@ mod tests {
 
     #[test]
     fn unchanged_scalar_observations_do_not_follow_an_overwritten_copy() {
-        let input = |id| ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(id)));
+        let input = |id| ExecutionCondition::new(crate::ExecutionConditionKind::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(id))));
         let field = |id| bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(id));
         let scalar = ExecutionCondition::scalar_observation(input(1), input(2));
         let source = ExecutionCondition::constructed(input(0), [(field(0), scalar.clone()), (field(1), input(2))].into());
@@ -1037,12 +1039,12 @@ mod tests {
     #[test]
     fn retired_snapshots_cannot_rename_live_loan_data() {
         let place = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1)));
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1))));
         let source = owner.clone().borrowed();
         let field = bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
         let joined = source.with_referent(ExecutionCondition::constructed(owner,
-            [(field, ExecutionCondition::Boolean(false))].into()));
+            [(field, ExecutionCondition::boolean(false))].into()));
 
         for retired in [false, true] {
             let mut state = ExecutionState::default();
@@ -1067,11 +1069,11 @@ mod tests {
             vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
         });
 
-        let source = ExecutionCondition::Expression(expressions[0]);
+        let source = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0]));
         let field = bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
         let marker = source.clone().project(field).project(field).project(field);
 
-        let data = ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(9)))
+        let data = ExecutionCondition::new(crate::ExecutionConditionKind::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(9))))
             .with_component(&[bray_symbols::ConstantProjectionKind::TupleElement(bray_symbols::SymbolOrdinal::new(0)); 3], marker.clone(), None);
 
         let joined = ExecutionCondition::owned_value(source.clone(), data);
@@ -1091,12 +1093,12 @@ mod tests {
         use crate::ExecutionPlace;
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let root = ExecutionCondition::Input(place.clone());
+        let root = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let nested = StorageProjection::TupleElement(SymbolOrdinal::new(1));
         let child = root.clone().project(field);
         let original = child.clone().project(nested);
-        let version = ExecutionCondition::Joined(BoundUnitId::new(0), 1, place.clone());
+        let version = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(0), 1, place.clone()));
 
         for unchanged in [true, false] {
             let current = if unchanged { original.clone() } else { version.clone().project(field).project(nested) };

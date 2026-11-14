@@ -332,11 +332,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            let identity = ExecutionCondition::CapturedInput {
+            let identity = ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
                 owner: Arc::new(result.owner_identity().clone()),
                 invocation,
                 ordinal: *ordinal,
-            };
+            });
 
             let captured = crate::execution_guarantees::owned_snapshot(&value, identity, &mut {
                 ExecutionCondition::WORK_LIMIT
@@ -354,7 +354,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
-        let substitution = ExecutionSubstitution::new(&values, &identities, &state.proofs.conditions);
+        let substitution = ExecutionSubstitution::new(&values, &identities);
 
         if let Some(renamed) = entry.joined_values(&substitution) {
             entry = renamed;
@@ -373,7 +373,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if !place.projections.is_empty()
                 || entry.owned_inputs.contains(&ordinal)
                 || value.observes_live(None)
-                || matches!(value, ExecutionCondition::Variant(_) | ExecutionCondition::Unknown)
+                || matches!(value.kind(), crate::ExecutionConditionKind::Variant(_) | crate::ExecutionConditionKind::Unknown)
             {
                 continue;
             }
@@ -386,31 +386,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .find(|(_, candidate)| **candidate == source)
                 .and_then(|(previous, _)| previous.value_in(&entry.arguments))
                 .unwrap_or_else(|| {
-                    let identity = ExecutionCondition::CapturedInput {
+                    let identity = ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
                         owner: Arc::new(result.owner_identity().clone()),
                         invocation,
                         ordinal,
-                    };
+                    });
 
-                    if matches!(source, ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_))
-                        || matches!(source, ExecutionCondition::ScalarValue(_))
+                    if matches!(source.kind(), crate::ExecutionConditionKind::Boolean(_) | crate::ExecutionConditionKind::Literal(_))
+                        || matches!(source.kind(), crate::ExecutionConditionKind::ScalarValue(_))
                     {
                         identity
                     } else {
                         crate::execution_guarantees::owned_snapshot(&value, identity.clone(), &mut {
                             ExecutionCondition::WORK_LIMIT
-                        }).with_snapshots(&[(value.owner_identity().clone(), identity)].into(), &state.proofs.conditions)
+                        }).with_snapshots(&[(value.owner_identity().clone(), identity)].into())
                     }
                 });
 
-            if matches!(source, ExecutionCondition::Boolean(_) | ExecutionCondition::Literal(_)) {
+            if matches!(source.kind(), crate::ExecutionConditionKind::Boolean(_) | crate::ExecutionConditionKind::Literal(_)) {
                 ExecutionCondition::operation(
                     bray_bound_tree::BoundOperator::Equal,
                     vec![captured.clone(), source],
                 ).assume(true, &mut entry.assumptions);
             } else {
                 let snapshots = [(value.clone(), captured.clone())].into();
-                let substitution = crate::execution_guarantees::SnapshotSubstitution::new(&snapshots, &state.proofs.conditions);
+                let substitution = crate::execution_guarantees::SnapshotSubstitution::new(&snapshots);
 
                 for argument in entry.arguments.values_mut() {
                     *argument = substitution.apply(argument);
@@ -422,7 +422,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             entry.arguments.insert(place, captured);
         }
 
-        let captured = entry.captured_facts(&entry.assumptions, &state.proofs.conditions);
+        let captured = entry.captured_facts(&entry.assumptions);
 
         state.assumptions.extend(captured.iter().cloned());
         entry.assumptions.extend(captured);
@@ -513,7 +513,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let value = self.value(state, expression);
 
-        if value != ExecutionCondition::Unknown {
+        if value != ExecutionCondition::unknown() {
             state
                 .deferred_invocations
                 .entry(value.owner_identity().clone())
@@ -547,7 +547,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return false;
         }
 
-        let root = ExecutionCondition::Expression(expression);
+        let root = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
 
         let (mut completed, value) = self.complete_producers(state, &root, expression, &deferred, observations)
             .unwrap_or_else(|| panic!("reachable deferred completion has no feasible producer: {expression:?}, producers={:?}", deferred.producers.iter().map(|(source, candidate)| (*source,
@@ -672,7 +672,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let projection =
             bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field };
 
-        let completed = ExecutionCondition::VariantTest(variant, Arc::new(root.clone()));
+        let completed = ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(variant, Arc::new(root.clone())));
 
         match completed.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
             Some(false) => return root,

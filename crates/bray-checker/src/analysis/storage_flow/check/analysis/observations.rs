@@ -32,9 +32,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let crate::ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+            let decoded = crate::execution_condition_from_type_term(
                 self.request.semantic_values(), transfer.input(), contracts.input_count(),
-            ).expect("checked ownership source decodes in the same semantic store") else {
+            ).expect("checked ownership source decodes in the same semantic store");
+
+            let crate::ExecutionConditionKind::Input(input) = decoded.kind() else {
                 unreachable!("an ownership source names an input projection");
             };
 

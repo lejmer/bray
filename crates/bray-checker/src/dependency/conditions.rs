@@ -20,7 +20,7 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
 
     for condition in conditions {
         crate::map_execution_condition_references(condition, &Ok,
-            &|place| Ok(ExecutionCondition::Input(place.clone())),
+            &|place| Ok(ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()))),
             &|value| Ok(Arc::clone(value)),
             &mut |callable, dispatch, witnesses, operands, reference_type| {
                 let witnesses: Arc<[_]> = witnesses.into();
@@ -39,7 +39,7 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
                     }
                 }
 
-                Ok(ExecutionCondition::Call(callable, dispatch, witnesses, operands.into(), reference_type))
+                Ok(ExecutionCondition::new(crate::ExecutionConditionKind::Call(callable, dispatch, witnesses, operands.into(), reference_type)))
             })?;
     }
 

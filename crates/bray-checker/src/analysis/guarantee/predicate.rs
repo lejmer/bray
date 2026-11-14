@@ -328,9 +328,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .or_else(|| {
                 // An opaque completed provider has its declared result type. Its
                 // normal completion is certified independently at the input site.
-                matches!(
-                    value,
-                    ExecutionCondition::Call(..) | ExecutionCondition::PostState(_, _)
+                matches!((
+                    value).kind(),
+                    crate::ExecutionConditionKind::Call(..) | crate::ExecutionConditionKind::PostState(_, _)
                 )
                 .then(|| self.integer_type_range(target))
                 .flatten()
@@ -627,7 +627,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .intern_constant_value(bray_symbols::ConstantValueData::new(ty, kind))
             .expect("typed numeric zero belongs to this store");
 
-        let zero = ExecutionCondition::Literal(values.constant_value_data(zero));
+        let zero = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(values.constant_value_data(zero)));
         let value = self.value(state, expression);
 
         ExecutionCondition::operation(BoundOperator::NotEqual, vec![value, zero])

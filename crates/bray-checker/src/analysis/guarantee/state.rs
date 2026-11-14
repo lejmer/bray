@@ -1,4 +1,4 @@
-use crate::execution_guarantees::{ExecutionAssumptions, ExecutionSubstitution};
+use crate::execution_guarantees::{ExecutionAssumptions, ExecutionSubstitution, memoize_condition};
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::BoundExpressionId;
@@ -279,7 +279,7 @@ impl ExecutionState {
         let mut owners = BTreeSet::new();
 
         while let Some(value) = transferred.pop() {
-            if value == ExecutionCondition::Unknown {
+            if value == ExecutionCondition::unknown() {
                 continue;
             }
 
@@ -300,9 +300,9 @@ impl ExecutionState {
                         return false;
                     }
 
-                    match condition {
-                        ExecutionCondition::Trusted(condition) => pending.push(condition),
-                        ExecutionCondition::Operation(_, operands) => {
+                    match condition.kind() {
+                        crate::ExecutionConditionKind::Trusted(condition) => pending.push(condition),
+                        crate::ExecutionConditionKind::Operation(_, operands) => {
                             pending.extend(operands.iter())
                         }
                         _ => {}
@@ -455,7 +455,7 @@ impl ExecutionState {
         self.refine_witnesses();
 
         let stable_owners = crate::execution_guarantees::RetainedSnapshots::from(stable_owners);
-        let retained_owner = self.proofs.memoize_condition(|value| stable_owners.retains_owner(value));
+        let retained_owner = memoize_condition(|value| stable_owners.retains_owner(value));
 
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);
@@ -500,7 +500,7 @@ impl ExecutionState {
             retained.contains(fact) || fact.0.observes_only(|_| false)
                 || (fact.0.observes_only(|value| stable_values.preserves(value))
                     && fact.0.observations().all(|value| {
-                        !matches!(value, ExecutionCondition::Predicate(_, _, _) | ExecutionCondition::Call(_, _, _, _, _))
+                        !matches!(value.kind(), crate::ExecutionConditionKind::Predicate(_, _, _) | crate::ExecutionConditionKind::Call(_, _, _, _, _))
                             || value.observes_only(|_| false)
                     }))
         };
@@ -579,7 +579,7 @@ impl ExecutionState {
         for (owner, mut entries) in std::mem::take(&mut self.deferred_invocations) {
             let value = rename_identity(&owner);
 
-            if value == ExecutionCondition::Unknown {
+            if value == ExecutionCondition::unknown() {
                 continue;
             }
 
@@ -587,7 +587,6 @@ impl ExecutionState {
                 substitution,
                 &self.current,
                 (value != owner).then_some(&self.assumptions),
-                &self.proofs.conditions,
             );
 
             match computations.entry(value) {
@@ -628,7 +627,7 @@ impl ExecutionState {
             .allocation_owners
             .iter()
             .map(|(condition, owner)| (rename(condition), rename_identity(owner)))
-            .filter(|(condition, _)| *condition != ExecutionCondition::Unknown)
+            .filter(|(condition, _)| *condition != ExecutionCondition::unknown())
             .collect();
 
         let mut ownership = BTreeMap::new();
@@ -636,7 +635,7 @@ impl ExecutionState {
         for (value, result) in std::mem::take(&mut self.owned_results) {
             let value = rename(&value);
 
-            if value != ExecutionCondition::Unknown {
+            if value != ExecutionCondition::unknown() {
                 ownership
                     .entry(value)
                     .and_modify(
@@ -685,7 +684,7 @@ impl ExecutionState {
 
     pub(super) fn vacate(&mut self, place: crate::ExecutionPlace) {
         self.current.replace(place, super::current::CurrentValue {
-            value: ExecutionCondition::Unknown, availability: super::current::ValueAvailability::Absent,
+            value: ExecutionCondition::unknown(), availability: super::current::ValueAvailability::Absent,
         }, None);
     }
 
@@ -777,11 +776,11 @@ mod tests {
         );
 
         let condition = |value| {
-            ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::predicate(
                 symbol.into(),
                 crate::test_support::empty_substitution(symbol.into()),
                 vec![value],
-            )))
+            ))))
         };
 
         for scalar in [false, true] {
@@ -809,7 +808,7 @@ mod tests {
 
         state.invalidate_contents(
             &[ExecutionPlace::argument(SymbolOrdinal::new(0))].into(),
-            [ExecutionCondition::Boolean(true)],
+            [ExecutionCondition::boolean(true)],
             &BTreeSet::new(),
             &crate::execution_guarantees::ObservationSet::default(),
             None,
@@ -829,9 +828,9 @@ mod tests {
         let owner = input(0);
         let observed = owner.clone().borrowed();
 
-        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+        let absent = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             crate::test_support::error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
-        )));
+        ))));
 
         let guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual, vec![observed.clone(), absent.clone()]);
         let payload = observed.clone().component(ConstantProjectionKind::NullableValue).borrowed();
@@ -878,9 +877,9 @@ mod tests {
 
         let substitution = crate::test_support::empty_substitution(symbol.into());
 
-        let predicate = |arguments: Vec<_>| ExecutionCondition::Trusted(Arc::new(
-            ExecutionCondition::Predicate(symbol.into(), substitution, arguments.into()),
-        ));
+        let predicate = |arguments: Vec<_>| ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(symbol.into(), substitution, arguments.into())),
+        )));
 
         let guard = input(0);
         let independent = predicate(Vec::new());
@@ -912,7 +911,7 @@ mod tests {
     }
 
     fn input(ordinal: u32) -> ExecutionCondition {
-        ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)))
+        ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))))
     }
 
     #[test]
@@ -921,11 +920,11 @@ mod tests {
         let marker = owner.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
 
-        let condition = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+        let condition = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
             symbol.into(),
             crate::test_support::empty_substitution(symbol.into()),
             [marker.clone().borrowed()].into(),
-        )));
+        )))));
 
         for complete in [false, true] {
             let mut state = ExecutionState::default();
@@ -1004,11 +1003,11 @@ mod tests {
             "ValidRead",
         );
 
-        ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+        ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
             symbol.into(),
             crate::test_support::empty_substitution(symbol.into()),
-            [input(ordinal), ExecutionCondition::Boolean(true)].into(),
-        )))
+            [input(ordinal), ExecutionCondition::boolean(true)].into(),
+        )))))
     }
 
     #[test]
@@ -1125,12 +1124,12 @@ mod tests {
         let owner = ExecutionPlace::argument(SymbolOrdinal::new(30));
         let carrier = input(2);
 
-        let address = ExecutionCondition::Projection(
+        let address = ExecutionCondition::new(crate::ExecutionConditionKind::Projection(
             ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)),
             Arc::new(carrier.clone()),
-        );
+        ));
 
-        let access = ExecutionCondition::Trusted(Arc::new(address.clone()));
+        let access = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(address.clone())));
         let mut state = ExecutionState::default();
 
         Arc::make_mut(state.witnesses.entry(carrier).or_default())
@@ -1157,7 +1156,7 @@ mod tests {
         assert_eq!(state.address_dependencies(&borrowed), state.address_dependencies(&address));
         assert!(state.owned_result(&borrowed).is_empty(), "an observed address bound grants no ownership");
 
-        let cleared = object.with_storage_component(&[field], ExecutionCondition::Boolean(false)).borrowed();
+        let cleared = object.with_storage_component(&[field], ExecutionCondition::boolean(false)).borrowed();
 
         assert!(state.address_dependencies(&cleared).is_empty(), "the old field snapshot is no longer current");
         state.trusted_assumptions.clear();
@@ -1257,7 +1256,7 @@ mod tests {
 
             state
                 .current
-                .insert(owner.clone(), ExecutionCondition::Boolean(false));
+                .insert(owner.clone(), ExecutionCondition::boolean(false));
 
             state.carry_guarantee(carrier.clone(), access.clone());
             access.clone().assume(true, &mut state.trusted_assumptions);
@@ -1280,7 +1279,7 @@ mod tests {
         )
         .root]));
 
-        state.invalidate_trusted(&ExecutionCondition::Boolean(false));
+        state.invalidate_trusted(&ExecutionCondition::boolean(false));
         assert!(!state.trusted_assumptions.contains(&(permission(30), true)));
         assert!(state.trusted_assumptions.contains(&(permission(31), true)));
     }
@@ -1300,10 +1299,10 @@ mod tests {
         let address =
             payload.component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
 
-        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+        let absent = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             crate::test_support::error_type(),
             bray_symbols::ConstantValueKind::NullableAbsent,
-        )));
+        ))));
 
         let guard = ExecutionCondition::operation(
             bray_bound_tree::BoundOperator::Equal,
@@ -1352,10 +1351,10 @@ mod tests {
         let marker = payload.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
         let pointer = payload.component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
 
-        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+        let absent = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(Arc::new(bray_symbols::ConstantValueData::new(
             crate::test_support::error_type(),
             bray_symbols::ConstantValueKind::NullableAbsent,
-        )));
+        ))));
 
         let guard = ExecutionCondition::operation(
             bray_bound_tree::BoundOperator::Equal,
@@ -1367,7 +1366,7 @@ mod tests {
             vec![guard.clone(), permission(1).with_equalities(&[(input(1), subject)].into())],
         );
 
-        let ownership = guarded(ExecutionCondition::Borrowed(Arc::new(marker)));
+        let ownership = guarded(ExecutionCondition::new(crate::ExecutionConditionKind::Borrowed(Arc::new(marker))));
         let access = guarded(pointer.clone());
         let mut state = ExecutionState::default();
 
@@ -1504,11 +1503,11 @@ mod tests {
 
         let substitution = crate::test_support::empty_substitution(symbol.into());
 
-        let predicate = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+        let predicate = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
             symbol.into(),
             substitution,
-            [input(2).borrowed(), ExecutionCondition::Boolean(true)].into(),
-        )));
+            [input(2).borrowed(), ExecutionCondition::boolean(true)].into(),
+        )))));
 
         let guard = input(3);
 
@@ -1610,8 +1609,8 @@ mod tests {
         };
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let old = ExecutionCondition::post_state(mutation(0), ExecutionCondition::Input(place.clone()));
-        let sibling = ExecutionCondition::post_state(mutation(1), ExecutionCondition::Input(place.clone()));
+        let old = ExecutionCondition::post_state(mutation(0), ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())));
+        let sibling = ExecutionCondition::post_state(mutation(1), ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())));
         let mut state = ExecutionState::default();
 
         state.carry_guarantee(old.clone(), old.clone());
@@ -1667,7 +1666,7 @@ mod tests {
             .expect("retired value retains known components");
 
         assert_eq!(current.clone().project(marker), unchanged);
-        assert_eq!(current.project(payload), ExecutionCondition::Unknown);
+        assert_eq!(current.project(payload), ExecutionCondition::unknown());
 
         state.assign(place, old.clone(), None);
 
@@ -1742,11 +1741,11 @@ mod tests {
         let owner = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let carrier = input(1);
 
-        let spatial = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+        let spatial = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
             symbol.into(),
             substitution,
-            [carrier.clone(), ExecutionCondition::Boolean(true)].into(),
-        )));
+            [carrier.clone(), ExecutionCondition::boolean(true)].into(),
+        )))));
 
         let observed = input(0).borrowed();
         let mut state = ExecutionState::default();
@@ -1833,11 +1832,11 @@ mod tests {
         let intermediate = ExecutionPlace::argument(SymbolOrdinal::new(1));
         let carrier = input(2);
 
-        let spatial = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+        let spatial = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
             symbol.into(),
             substitution,
-            [carrier.clone(), ExecutionCondition::Boolean(true)].into(),
-        )));
+            [carrier.clone(), ExecutionCondition::boolean(true)].into(),
+        )))));
 
         let mut state = ExecutionState::default();
 
@@ -1886,13 +1885,13 @@ mod tests {
             .clone()
             .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
 
-        let child = ExecutionCondition::Input(left);
+        let child = ExecutionCondition::new(crate::ExecutionConditionKind::Input(left));
         let mut state = ExecutionState::default();
 
         for value in [
-            ExecutionCondition::Input(root.clone()),
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone())),
             child.clone(),
-            ExecutionCondition::Input(right),
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(right)),
         ] {
             state.carry_guarantee(value.clone(), value.clone());
             state.trusted_assumptions.insert((value, true));
@@ -1901,7 +1900,7 @@ mod tests {
         let retained = BTreeSet::from([child.clone()]);
         let mut moved = state.clone();
 
-        moved.retire_trusted_values([ExecutionCondition::Input(root.clone())], &retained);
+        moved.retire_trusted_values([ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone()))], &retained);
 
         assert_eq!(
             moved
@@ -1924,7 +1923,7 @@ mod tests {
             BTreeSet::from([root.clone()]);
 
         state.invalidate_trusted_roots(&BTreeSet::from([root.root.clone()]));
-        state.retire_trusted_values([ExecutionCondition::Input(root)], &retained);
+        state.retire_trusted_values([ExecutionCondition::new(crate::ExecutionConditionKind::Input(root))], &retained);
 
         assert!(
             state
@@ -2048,17 +2047,17 @@ mod tests {
             .clone()
             .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
 
-        let changed = ExecutionCondition::Input(left);
+        let changed = ExecutionCondition::new(crate::ExecutionConditionKind::Input(left));
 
-        let captured = ExecutionCondition::Entry {
+        let captured = ExecutionCondition::new(crate::ExecutionConditionKind::Entry {
             condition: Arc::new(changed.clone()),
             captured: true,
-        };
+        });
 
-        let live = ExecutionCondition::Entry {
+        let live = ExecutionCondition::new(crate::ExecutionConditionKind::Entry {
             condition: Arc::new(changed.clone()),
             captured: false,
-        };
+        });
 
         let mut state = ExecutionState::default();
 
@@ -2068,7 +2067,7 @@ mod tests {
 
             state
                 .current
-                .insert(dependency.clone(), ExecutionCondition::Input(place));
+                .insert(dependency.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(place)));
 
             Arc::make_mut(state.witnesses.entry(carrier.clone()).or_default())
                 .dependencies = BTreeSet::from([dependency]);
@@ -2115,17 +2114,17 @@ mod tests {
     fn witness_lookup_preserves_component_overlap_and_entry_snapshots() {
         let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
 
-        let child = ExecutionCondition::Input(
+        let child = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             root.clone()
                 .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0))),
-        );
+        ));
 
-        let sibling = ExecutionCondition::Input(
+        let sibling = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             root.clone()
                 .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1))),
-        );
+        ));
 
-        let parent = ExecutionCondition::Input(root);
+        let parent = ExecutionCondition::new(crate::ExecutionConditionKind::Input(root));
         let mut state = ExecutionState::default();
 
         for value in (1..=512).map(input) {
@@ -2145,19 +2144,19 @@ mod tests {
         state.assumptions.clear();
 
         state.trusted_assumptions = ExecutionAssumptions::from([(
-            ExecutionCondition::Entry {
+            ExecutionCondition::new(crate::ExecutionConditionKind::Entry {
                 condition: Arc::new(parent.clone()),
                 captured: true,
-            },
+            }),
             true,
         )]);
 
         assert!(!state.owns_witness(&child));
 
-        let live = ExecutionCondition::Entry {
+        let live = ExecutionCondition::new(crate::ExecutionConditionKind::Entry {
             condition: Arc::new(parent),
             captured: false,
-        };
+        });
 
         for witness in state.witnesses.values_mut() {
             std::sync::Arc::make_mut(witness).conditions.clear();
@@ -2218,9 +2217,9 @@ mod tests {
         let temporary = ExecutionCondition::constructed(input(1), [(field, before)].into());
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
 
-        let condition = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+        let condition = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
             symbol.into(), crate::test_support::empty_substitution(symbol.into()), [marker.clone().borrowed()].into(),
-        )));
+        )))));
 
         for noise in [0, 256] {
             for unchanged in [true, false] {
@@ -2243,9 +2242,9 @@ mod tests {
             }
         }
 
-        let before = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::Boolean(false));
-        let current = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::Boolean(true));
-        let other = ExecutionCondition::owned_value(input(4), ExecutionCondition::Boolean(true));
+        let before = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::boolean(false));
+        let current = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::boolean(true));
+        let other = ExecutionCondition::owned_value(input(4), ExecutionCondition::boolean(true));
         let temporary = ExecutionCondition::constructed(input(1), [(field, before.clone().borrowed())].into());
         let retained = BTreeSet::from([current.clone()]);
         let borrowed_slot = ExecutionCondition::reference_value(input(5).borrowed(), current.clone().borrowed());
@@ -2258,9 +2257,9 @@ mod tests {
             (before, current.clone(), false),
             (current, other, false),
         ] {
-            let condition = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+            let condition = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
                 symbol.into(), crate::test_support::empty_substitution(symbol.into()), [observed.clone().borrowed()].into(),
-            )));
+            )))));
 
             let mut state = ExecutionState::default();
 

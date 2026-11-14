@@ -1,4 +1,4 @@
-use crate::execution_guarantees::{ConditionIndex, ExecutionSubstitution};
+use crate::execution_guarantees::ExecutionSubstitution;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -120,10 +120,9 @@ impl DeferredValue {
         substitution: &ExecutionSubstitution<'_>,
         current: &super::current::CurrentValues,
         context: Option<&Selection>,
-        index: &ConditionIndex,
     ) {
         let current_fact = |condition: &ExecutionCondition| {
-            !condition.observations().any(|observed| matches!(observed, ExecutionCondition::ScalarValue(_))
+            !condition.observations().any(|observed| matches!(observed.kind(), crate::ExecutionConditionKind::ScalarValue(_))
                 && observed.selector_place().is_some_and(|place| current.live_value(place)
                     .is_none_or(|value| value.copied_value() != observed)))
         };
@@ -160,7 +159,7 @@ impl DeferredValue {
         }
 
         for candidate in self.producers.values_mut() {
-            let captured = context.as_ref().map(|context| candidate.entry.captured_facts(context, index)).unwrap_or_default();
+            let captured = context.as_ref().map(|context| candidate.entry.captured_facts(context)).unwrap_or_default();
 
             let stale = candidate.entry.copy_sources.values().any(|source| !current_fact(source))
                 || candidate.entry.assumptions.iter().chain(&candidate.entry.trusted_assumptions)
@@ -208,13 +207,13 @@ mod tests {
             [0, 1].map(|_| push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))).to_vec()
         });
 
-        let owner = ExecutionCondition::Expression(expressions[0]);
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0]));
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let source = ExecutionCondition::ScalarValue(Arc::new(ExecutionCondition::Joined(BoundUnitId::new(92), 6, place.clone())));
+        let source = ExecutionCondition::new(crate::ExecutionConditionKind::ScalarValue(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(92), 6, place.clone())))));
 
-        let captured = |owner| ExecutionCondition::CapturedInput {
+        let captured = |owner| ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
             owner: Arc::new(owner), invocation: expressions[0].into(), ordinal: SymbolOrdinal::new(0),
-        };
+        });
 
         let mut state = ExecutionState::default();
 
@@ -231,24 +230,24 @@ mod tests {
             unknown: Some(DeferredInvocation { entry: (), reports: Default::default(), selection: [(source.clone(), true)].into() }),
         });
 
-        let middle = ExecutionCondition::Result;
+        let middle = ExecutionCondition::result();
 
-        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(owner.clone(), middle.clone())].into(), &[(owner, middle.clone())].into(), &Default::default()));
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(owner.clone(), middle.clone())].into(), &[(owner, middle.clone())].into()));
         assert!(state.deferred_invocations[&middle].producers[&expressions[0].into()].entry.assumptions.contains(&(captured(middle.clone()), true)));
         assert!(state.deferred_invocations[&middle].producers[&expressions[0].into()].selection.contains(&(source.clone(), true)));
 
-        state.current.insert(place, ExecutionCondition::Boolean(false));
+        state.current.insert(place, ExecutionCondition::boolean(false));
 
-        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), middle.clone())].into(), &[(middle.clone(), middle.clone())].into(), &Default::default()));
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), middle.clone())].into(), &[(middle.clone(), middle.clone())].into()));
 
         let unchanged = &state.deferred_invocations[&middle].producers[&expressions[0].into()];
 
         assert!(!unchanged.selection.contains(&(source.clone(), true)), "identity joins still prune stale selectors");
         assert!(unchanged.entry.copy_sources.is_empty(), "identity joins still revoke stale copy origins");
 
-        let target = ExecutionCondition::Expression(expressions[1]);
+        let target = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[1]));
 
-        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), target.clone())].into(), &[(middle, target.clone())].into(), &Default::default()));
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), target.clone())].into(), &[(middle, target.clone())].into()));
 
         let moved = &state.deferred_invocations[&target].producers[&expressions[0].into()];
 
@@ -304,7 +303,7 @@ mod tests {
 
         let source = source[0].into();
         let argument = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let value = ExecutionCondition::Input(argument.clone());
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone()));
 
         let entry = Arc::new(ExecutionCallEvidence {
             arguments: [(argument.clone(), value.clone())].into(),
@@ -313,7 +312,7 @@ mod tests {
             ..ExecutionCallEvidence::default()
         });
 
-        let owner = ExecutionCondition::Result;
+        let owner = ExecutionCondition::result();
         let mut state = ExecutionState::default();
 
         state.deferred_invocations.insert(
@@ -332,18 +331,18 @@ mod tests {
             },
         );
 
-        let unrelated = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let unrelated = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
 
         state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(
-            &[(unrelated, ExecutionCondition::Boolean(true))].into(),
-            &Default::default(), &Default::default()));
+            &[(unrelated, ExecutionCondition::boolean(true))].into(),
+            &Default::default()));
 
         assert!(Arc::ptr_eq(
             &entry,
             &state.deferred_invocations[&owner].producers[&source].entry
         ));
 
-        let renamed = ExecutionCondition::Boolean(false);
+        let renamed = ExecutionCondition::boolean(false);
 
         assert!(!state.owned_values(&owner).any(|owned| owned == value),
             "capturing extraction evidence does not make the future own its borrowed source");
@@ -353,7 +352,7 @@ mod tests {
 
         state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(
             &[(value.clone(), renamed.clone())].into(),
-            &[(value.clone(), renamed.clone())].into(), &Default::default()));
+            &[(value.clone(), renamed.clone())].into()));
 
         let completed = &state.deferred_invocations[&owner].producers[&source].entry;
 

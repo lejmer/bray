@@ -5,7 +5,7 @@ use bray_symbols::{
     SymbolOrdinal, TypeId,
 };
 
-use super::ExecutionCondition;
+use super::{ExecutionCondition, ExecutionConditionKind as K};
 use crate::constant::operator::{
     binary_operator, binary_term_operation, unary_operator, unary_term_operation,
 };
@@ -37,18 +37,18 @@ fn encode(
 
     *budget = remaining;
 
-    let data = match condition {
-        ExecutionCondition::Boolean(value) => {
+    let data = match condition.kind() {
+        K::Boolean(value) => {
             ConstantTermData::Value(values.intern_constant_value(ConstantValueData::new(
                 boolean_type,
                 ConstantValueKind::Boolean(*value),
             ))?)
         }
-        ExecutionCondition::Literal(value) => {
+        K::Literal(value) => {
             // The semantic store owns the immutable literal independently of this condition.
             ConstantTermData::Value(values.intern_constant_value(value.as_ref().clone())?)
         }
-        ExecutionCondition::Input(place) => {
+        K::Input(place) => {
             let mut term = if let Some(term) = place.constant_term() {
                 term
             } else if let Some(BoundReferenceTarget::Surface(
@@ -97,14 +97,14 @@ fn encode(
 
             return Ok(Some(term));
         }
-        ExecutionCondition::Result => {
+        K::Result => {
             let Ok(ordinal) = u32::try_from(inputs.len()) else {
                 return Ok(None);
             };
 
             ConstantTermData::CallableArgument(SymbolOrdinal::new(ordinal))
         }
-        ExecutionCondition::VariantTest(variant, subject) => {
+        K::VariantTest(variant, subject) => {
             let Some(subject) = encode(values, subject, inputs, boolean_type, budget)? else {
                 return Ok(None);
             };
@@ -114,14 +114,14 @@ fn encode(
                 variant: *variant,
             }
         }
-        ExecutionCondition::Present(value) => {
+        K::Present(value) => {
             let Some(value) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
             };
 
             ConstantTermData::NullablePresent(value)
         }
-        ExecutionCondition::Descriptor(kind, value) => {
+        K::Descriptor(kind, value) => {
             let Some(operand) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
             };
@@ -134,7 +134,7 @@ fn encode(
                 operand,
             }
         }
-        ExecutionCondition::Borrowed(value) => {
+        K::Borrowed(value) => {
             let Some(operand) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
             };
@@ -144,7 +144,7 @@ fn encode(
                 operand,
             }
         }
-        ExecutionCondition::Entry {
+        K::Entry {
             condition,
             captured: false,
         } => {
@@ -157,8 +157,8 @@ fn encode(
                 operand,
             }
         }
-        ExecutionCondition::Entry { captured: true, .. } => return Ok(None),
-        ExecutionCondition::Trusted(value) => {
+        K::Entry { captured: true, .. } => return Ok(None),
+        K::Trusted(value) => {
             let Some(operand) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
             };
@@ -168,7 +168,7 @@ fn encode(
                 operand,
             }
         }
-        ExecutionCondition::Operation(operator, operands) => {
+        K::Operation(operator, operands) => {
             let terms = operands
                 .iter()
                 .map(|operand| encode(values, operand, inputs, boolean_type, budget))
@@ -203,7 +203,7 @@ fn encode(
                 _ => return Ok(None),
             }
         }
-        ExecutionCondition::Call(callable, implementation, witnesses, arguments, reference_type) => {
+        K::Call(callable, implementation, witnesses, arguments, reference_type) => {
             let Some(arguments) = arguments
                 .iter()
                 .map(|argument| encode(values, argument, inputs, boolean_type, budget))
@@ -232,7 +232,7 @@ fn encode(
 
             call
         }
-        ExecutionCondition::Predicate(predicate, substitution, arguments) => {
+        K::Predicate(predicate, substitution, arguments) => {
             let terms = arguments
                 .iter()
                 .map(|argument| encode(values, argument, inputs, boolean_type, budget))
@@ -247,7 +247,7 @@ fn encode(
                 arguments: arguments.into(),
             }
         }
-        ExecutionCondition::Projection(field, value) => {
+        K::Projection(field, value) => {
             let Some(value) = encode(values, value, inputs, boolean_type, budget)? else {
                 return Ok(None);
             };
@@ -258,20 +258,20 @@ fn encode(
                 )))
                 .map(Some);
         }
-        ExecutionCondition::Unknown
-        | ExecutionCondition::ValueAlias(_, _)
-        | ExecutionCondition::Tagged(_, _)
-        | ExecutionCondition::Variant(_)
-        | ExecutionCondition::Constructed(_, _)
-        | ExecutionCondition::Observation { .. }
-        | ExecutionCondition::Expression(_)
-        | ExecutionCondition::CapturedInput { .. }
-        | ExecutionCondition::ScopedCapability(_)
-        | ExecutionCondition::PostState(_, _)
-        | ExecutionCondition::InitializedSnapshot(_, _, _)
-        | ExecutionCondition::Joined(_, _, _)
-        | ExecutionCondition::Discriminant(_)
-        | ExecutionCondition::ScalarValue(_) => return Ok(None),
+        K::Unknown
+        | K::ValueAlias(_, _)
+        | K::Tagged(_, _)
+        | K::Variant(_)
+        | K::Constructed(_, _)
+        | K::Observation { .. }
+        | K::Expression(_)
+        | K::CapturedInput { .. }
+        | K::ScopedCapability(_)
+        | K::PostState(_, _)
+        | K::InitializedSnapshot(_, _, _)
+        | K::Joined(_, _, _)
+        | K::Discriminant(_)
+        | K::ScalarValue(_) => return Ok(None),
     };
 
     values.intern_constant_term(data).map(Some)
@@ -287,7 +287,7 @@ pub fn execution_condition_from_term(
     let inputs = inputs
         .iter()
         .copied()
-        .map(|input| ExecutionCondition::Input(super::ExecutionPlace::from(input)))
+        .map(|input| ExecutionCondition::new(crate::ExecutionConditionKind::Input(super::ExecutionPlace::from(input))))
         .collect::<Vec<_>>();
 
     decode(values, term, &inputs, &mut {
@@ -303,9 +303,9 @@ pub fn execution_condition_from_type_term(
 ) -> Result<ExecutionCondition, SemanticValueStoreError> {
     let inputs = (0..parameter_count)
         .map(|index| {
-            ExecutionCondition::Input(super::ExecutionPlace::argument(SymbolOrdinal::new(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(super::ExecutionPlace::argument(SymbolOrdinal::new(
                 u32::try_from(index).expect("checked callable parameter count must fit ordinals"),
-            )))
+            ))))
         })
         .collect::<Vec<_>>();
 
@@ -321,61 +321,64 @@ pub(crate) fn decode(
     budget: &mut usize,
 ) -> Result<ExecutionCondition, SemanticValueStoreError> {
     let Some(remaining) = budget.checked_sub(1) else {
-        return Ok(ExecutionCondition::Unknown);
+        return Ok(ExecutionCondition::unknown());
     };
 
     *budget = remaining;
 
     Ok(match values.constant_term_data(term).as_ref() {
         ConstantTermData::Typed { term, ty } => {
-            let mut condition = decode(values, *term, inputs, budget)?;
+            let condition = decode(values, *term, inputs, budget)?;
 
             if matches!(values.type_data(*ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
-                && let ExecutionCondition::Call(_, _, _, _, reference_type) = &mut condition {
-                *reference_type = Some(*ty);
+                && let K::Call(callable, implementation, witnesses, operands, reference_type) = condition.kind()
+                && *reference_type != Some(*ty)
+            {
+                ExecutionCondition::new(K::Call(*callable, *implementation,
+                    std::sync::Arc::clone(witnesses), operands.clone(), Some(*ty)))
+            } else {
+                condition
             }
-
-            condition
         }
         ConstantTermData::Parameter(parameter) => {
-            ExecutionCondition::Input(BoundReferenceTarget::Surface((*parameter).into()).into())
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(BoundReferenceTarget::Surface((*parameter).into()).into()))
         }
         ConstantTermData::DefinitionApplication { .. } | ConstantTermData::TraitConstant { .. } => {
-            ExecutionCondition::Input(super::ExecutionPlace::constant_reference(term))
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(super::ExecutionPlace::constant_reference(term)))
         }
         ConstantTermData::Value(value) => {
             let value = values.constant_value_data(*value);
 
             match value.kind() {
-                ConstantValueKind::Boolean(value) => ExecutionCondition::Boolean(*value),
-                ConstantValueKind::Error => ExecutionCondition::Unknown,
-                _ => ExecutionCondition::Literal(value),
+                ConstantValueKind::Boolean(value) => ExecutionCondition::boolean(*value),
+                ConstantValueKind::Error => ExecutionCondition::unknown(),
+                _ => ExecutionCondition::new(crate::ExecutionConditionKind::Literal(value)),
             }
         }
         ConstantTermData::VariantTest { subject, variant } => {
             decode(values, *subject, inputs, budget)?.matches_variant(*variant)
         }
         ConstantTermData::NullablePresent(value) => {
-            ExecutionCondition::Present(std::sync::Arc::new(decode(values, *value, inputs, budget)?))
+            ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(decode(values, *value, inputs, budget)?)))
         }
         ConstantTermData::CallableArgument(ordinal) => {
             let index = usize::try_from(ordinal.raw()).ok();
 
             match index {
-                Some(index) if index == inputs.len() => ExecutionCondition::Result,
+                Some(index) if index == inputs.len() => ExecutionCondition::result(),
                 Some(index) => inputs
                     .get(index)
                     .cloned()
-                    .unwrap_or(ExecutionCondition::Unknown),
-                None => ExecutionCondition::Unknown,
+                    .unwrap_or_else(ExecutionCondition::unknown),
+                None => ExecutionCondition::unknown(),
             }
         }
         ConstantTermData::Unary {
             operation: bray_symbols::ConstantUnaryOperation::PredicateTrust,
             operand,
-        } => ExecutionCondition::Trusted(std::sync::Arc::new(decode(
+        } => ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(decode(
             values, *operand, inputs, budget,
-        )?)),
+        )?))),
         ConstantTermData::Unary {
             operation: bray_symbols::ConstantUnaryOperation::BorrowObservation,
             operand,
@@ -391,10 +394,10 @@ pub(crate) fn decode(
         ConstantTermData::Unary {
             operation: bray_symbols::ConstantUnaryOperation::EntryCondition,
             operand,
-        } => ExecutionCondition::Entry {
+        } => ExecutionCondition::new(crate::ExecutionConditionKind::Entry {
             condition: std::sync::Arc::new(decode(values, *operand, inputs, budget)?),
             captured: false,
-        },
+        }),
         ConstantTermData::Unary { operation, operand } => ExecutionCondition::operation(
             unary_operator(*operation),
             vec![decode(values, *operand, inputs, budget)?],
@@ -441,7 +444,7 @@ pub(crate) fn decode(
         ConstantTermData::Projection(projection) => {
             decode(values, projection.subject(), inputs, budget)?.component(projection.kind())
         }
-        _ => ExecutionCondition::Unknown,
+        _ => ExecutionCondition::unknown(),
     })
 }
 
@@ -472,7 +475,7 @@ mod tests {
         let callable = callable_instance(FunctionSymbolId::from_symbol_id(SymbolId::new(905)).into());
 
         let condition = ExecutionCondition::call(callable, None, [],
-            vec![ExecutionCondition::Input(parameter.into()).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None);
+            vec![ExecutionCondition::new(crate::ExecutionConditionKind::Input(parameter.into())).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None);
 
         let term = execution_condition_term(values, &condition, &[parameter], boolean_type)
             .expect("descriptor call encodes").expect("descriptor call is portable");
@@ -481,15 +484,15 @@ mod tests {
 
         assert_eq!(decoded, condition);
 
-        let owner = ExecutionCondition::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)));
-        let actual = ExecutionCondition::reference_value(owner.clone().borrowed(), ExecutionCondition::Unknown);
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))));
+        let actual = ExecutionCondition::reference_value(owner.clone().borrowed(), ExecutionCondition::unknown());
 
-        let substituted = decoded.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
+        let substituted = decoded.substitute(&|_| actual.clone(), &ExecutionCondition::unknown(),
             &mut { ExecutionCondition::WORK_LIMIT });
 
         assert_eq!(substituted, ExecutionCondition::call(callable, None, [], vec![owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None));
 
-        let raw = ExecutionCondition::Input(parameter.into()).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Value);
+        let raw = ExecutionCondition::new(crate::ExecutionConditionKind::Input(parameter.into())).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Value);
 
         let term = execution_condition_term(values, &raw, &[parameter], boolean_type)
             .expect("raw descriptor encodes").expect("raw descriptor is portable");
@@ -498,8 +501,8 @@ mod tests {
 
         assert_eq!(decoded, raw);
 
-        assert_eq!(decoded.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
-            &mut { ExecutionCondition::WORK_LIMIT }), ExecutionCondition::Unknown,
+        assert_eq!(decoded.substitute(&|_| actual.clone(), &ExecutionCondition::unknown(),
+            &mut { ExecutionCondition::WORK_LIMIT }), ExecutionCondition::unknown(),
             "a known view descriptor cannot invent the unknown raw pointer stored through it");
     }
 
@@ -528,7 +531,7 @@ mod tests {
             CallableParameterSymbolId::from_symbol_id(SymbolId::new(903)).into(),
         );
 
-        let argument = ExecutionCondition::Input(parameter.into());
+        let argument = ExecutionCondition::new(crate::ExecutionConditionKind::Input(parameter.into()));
 
         let condition = ExecutionCondition::call(
             callable,
@@ -555,8 +558,8 @@ mod tests {
         let mut budget = ExecutionCondition::WORK_LIMIT;
 
         let substituted = decoded.substitute(
-            &|_| ExecutionCondition::Boolean(true),
-            &ExecutionCondition::Unknown,
+            &|_| ExecutionCondition::boolean(true),
+            &ExecutionCondition::unknown(),
             &mut budget,
         );
 
@@ -564,7 +567,7 @@ mod tests {
             callable,
             Some(witnesses[0]),
             [witnesses[1]],
-            vec![ExecutionCondition::Boolean(true)],
+            vec![ExecutionCondition::boolean(true)],
             None,
         );
 
@@ -575,7 +578,7 @@ mod tests {
         }).expect("checked borrowed result type");
 
         let borrowed = ExecutionCondition::call(callable, Some(witnesses[0]), [witnesses[1]],
-            vec![ExecutionCondition::Input(parameter.into())], Some(reference_type)).borrowed();
+            vec![ExecutionCondition::new(crate::ExecutionConditionKind::Input(parameter.into()))], Some(reference_type)).borrowed();
 
         let term = execution_condition_term(values, &borrowed, &[parameter], boolean_type)
             .expect("typed reference computation encodes").expect("typed reference computation is portable");

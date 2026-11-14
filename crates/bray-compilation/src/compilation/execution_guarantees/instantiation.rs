@@ -24,7 +24,7 @@ impl Compilation {
         bray_checker::map_execution_condition_references(
             condition,
             &Ok,
-            &|place| Ok(ExecutionCondition::Input(place.clone())),
+            &|place| Ok(ExecutionCondition::new(bray_checker::ExecutionConditionKind::Input(place.clone()))),
             &|value| Ok(Arc::clone(value)),
             &mut |callable, dispatch, witnesses, operands, reference_type| {
                 let values = self.semantic_value_store()?;
@@ -64,7 +64,7 @@ impl Compilation {
                     diagnostics,
                 )?;
 
-                Ok(ExecutionCondition::Call(
+                Ok(ExecutionCondition::new(bray_checker::ExecutionConditionKind::Call(
                     callable,
                     dispatch,
                     witnesses
@@ -74,7 +74,7 @@ impl Compilation {
                         .into(),
                     operands.into(),
                     reference_type.map(|ty| normalizer.normalize_type(ty)).transpose()?,
-                ))
+                )))
             },
         )
     }

@@ -29,7 +29,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 // The successful move owns this transition. A current post-state
                 // or another slot's snapshot cannot invent original input ownership.
-                if value == ExecutionCondition::Input(place.clone()) && place.is_callable_input() {
+                if value == ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())) && place.is_callable_input() {
                     state.owned_results.entry(value.clone()).or_insert_with(|| bray_symbols::DependencyOwnedResult::Transfer(
                         bray_symbols::DependencyOwnedTransfer::new(value, [])
                             .with_preservation(bray_symbols::DependencyValuePreservation::all()),
@@ -127,7 +127,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     let value = self.produce_value(state, expression);
 
                     state.pending_results.insert(expression, ExecutionCondition::scalar_observation(
-                        ExecutionCondition::Expression(expression), value.computed_value().clone(),
+                        ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)), value.computed_value().clone(),
                     ));
                 }
                 super::super::super::model::AnalysisResultPhase::Completion => {
@@ -432,9 +432,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         let mut actual = self.value(state, expression);
 
                         for _ in 0..ExecutionCondition::WORK_LIMIT {
-                            match actual {
-                                ExecutionCondition::Observation { contents, kind: crate::execution_guarantees::ExecutionObservationKind::Owned | crate::execution_guarantees::ExecutionObservationKind::Scalar, .. } => actual = contents.as_ref().clone(),
-                                ExecutionCondition::Literal(value) => {
+                            match actual.kind() {
+                                crate::ExecutionConditionKind::Observation { contents, kind: crate::execution_guarantees::ExecutionObservationKind::Owned | crate::execution_guarantees::ExecutionObservationKind::Scalar, .. } => actual = contents.as_ref().clone(),
+                                crate::ExecutionConditionKind::Literal(value) => {
                                     let bray_symbols::ConstantValueKind::Integer(value) = value.kind() else { return None; };
 
                                     let index = crate::constant::integer_to_usize(value)?;
@@ -556,7 +556,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Copy)
                 .fold(result, |result, plan| {
                     self.copied_access_value(ExecutionCondition::post_state(
-                        bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::Input(place.clone()),
+                        bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())),
                     ), result, plan)
                 });
 
@@ -669,12 +669,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .filter(|plan| plan.expression() == expression)
             .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Copy)
             .fold(value, |value, plan| {
-                self.copied_access_value(ExecutionCondition::Expression(expression), value, plan)
+                self.copied_access_value(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)), value, plan)
             });
 
         let transfer = self
             .started_future(state, expression)
-            .filter(|_| value != ExecutionCondition::Unknown)
+            .filter(|_| value != ExecutionCondition::unknown())
             .map(|source| (source, value.clone()));
 
         state.expressions.insert(expression, value);
@@ -688,7 +688,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             super::merge::result_replacements(&source, &target,
                 &Default::default(), &Default::default(), &mut values, &mut identities);
 
-            let substitution = ExecutionSubstitution::new(&values, &identities, &state.proofs.conditions);
+            let substitution = ExecutionSubstitution::new(&values, &identities);
 
             state.join_values(&substitution);
 
@@ -718,10 +718,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .cloned()
                             .unwrap_or_else(|| self.value(state, *source))
                     } else {
-                        match machine_value.clone().unwrap_or(ExecutionCondition::Unknown) {
-                            ExecutionCondition::Unknown => ExecutionCondition::post_state(
+                        match machine_value.clone().unwrap_or_else(ExecutionCondition::unknown) {
+                            value if value.is_unknown() => ExecutionCondition::post_state(
                                 bray_bound_tree::StorageMutation::Operation(expression.into()),
-                                ExecutionCondition::Input(assignment_place.unwrap_or(&place).clone()),
+                                ExecutionCondition::new(crate::ExecutionConditionKind::Input(assignment_place.unwrap_or(&place).clone())),
                             ),
                             value => value,
                         }
@@ -774,7 +774,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     .expect("return retains its callable result type"),
                             )
                     })
-                    .unwrap_or(ExecutionCondition::Unknown);
+                    .unwrap_or_else(ExecutionCondition::unknown);
 
                 self.publish_return(state, value);
             }
@@ -802,7 +802,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     .ty(),
                             )
                         })
-                        .unwrap_or(ExecutionCondition::Unknown);
+                        .unwrap_or_else(ExecutionCondition::unknown);
 
                     // Yield has produced the private destination before its source
                     // is consumed and before enclosing scope cleanup can run.
@@ -829,7 +829,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .expect("checked pattern binding has an execution place");
 
             for plan in self.storage.node_plans(pattern.into()).filter(|plan| plan.access() == access) {
-                value = self.copied_access_value(ExecutionCondition::Input(place.clone()), value, plan);
+                value = self.copied_access_value(ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())), value, plan);
             }
 
             if let Some(bray_bound_tree::StorageBinding::Identity(identity)) =

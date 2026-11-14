@@ -52,7 +52,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let equalities = self.proofs.equalities(&entry.assumptions, None);
         let count = self.value(state, count).with_equalities(&equalities);
 
-        matches!(count, ExecutionCondition::Literal(value)
+        matches!(count.kind(), crate::ExecutionConditionKind::Literal(value)
             if matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(integer) if integer.to_u64() == Some(0)))
     }
 
@@ -64,10 +64,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut subjects = Vec::new();
 
         while let Some(condition) = pending.pop() {
-            match condition {
-                ExecutionCondition::Trusted(condition) => pending.push(condition),
-                ExecutionCondition::Operation(_, operands) => pending.extend(operands.iter()),
-                ExecutionCondition::Predicate(predicate, _, arguments)
+            match condition.kind() {
+                crate::ExecutionConditionKind::Trusted(condition) => pending.push(condition),
+                crate::ExecutionConditionKind::Operation(_, operands) => pending.extend(operands.iter()),
+                crate::ExecutionConditionKind::Predicate(predicate, _, arguments)
                     if Some(*predicate) == self.owned_allocation =>
                 {
                     for input in arguments[0].inputs() {
@@ -109,7 +109,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .contains(&subject)
                 .then(|| subject.value_in(arguments))
                 .flatten()
-                .filter(|value| *value != ExecutionCondition::Unknown)
+                .filter(|value| *value != ExecutionCondition::unknown())
         }))
     }
 
@@ -155,9 +155,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &|place| {
                             place
                                 .value_in(&entry.arguments)
-                                .unwrap_or(ExecutionCondition::Unknown)
+                                .unwrap_or_else(ExecutionCondition::unknown)
                         },
-                        &ExecutionCondition::Unknown,
+                        &ExecutionCondition::unknown(),
                         &mut { ExecutionCondition::WORK_LIMIT },
                     )
                     .with_equalities(&equalities);
@@ -178,23 +178,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // Unsigned representations establish their zero lower bound even when
             // caller evidence does not otherwise constrain the current value.
-            if let ExecutionCondition::Operation(
+            if let crate::ExecutionConditionKind::Operation(
                 bray_bound_tree::BoundOperator::LessEqual,
                 operands,
-            ) = condition
-                && let [ExecutionCondition::Literal(lower), value] = operands.as_ref()
+            ) = condition.kind()
+                && let [lower, value] = operands.as_ref()
+                && let crate::ExecutionConditionKind::Literal(lower) = lower.kind()
                 && matches!(lower.kind(), bray_symbols::ConstantValueKind::Integer(integer) if integer.to_u64() == Some(0))
                 && self.unsigned_value(value)
             {
                 return true;
             }
 
-            let ExecutionCondition::Trusted(condition) = condition else {
+            let crate::ExecutionConditionKind::Trusted(condition) = condition.kind() else {
                 return false;
             };
 
-            let ExecutionCondition::Predicate(predicate, substitution, arguments) =
-                condition.as_ref()
+            let crate::ExecutionConditionKind::Predicate(predicate, substitution, arguments) =
+                (condition.as_ref()).kind()
             else {
                 return false;
             };
@@ -215,12 +216,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         continue;
                     }
 
-                    let ExecutionCondition::Trusted(condition) = condition else {
+                    let crate::ExecutionConditionKind::Trusted(condition) = condition.kind() else {
                         continue;
                     };
 
-                    let ExecutionCondition::Predicate(predicate, substitution, arguments) =
-                        condition.as_ref()
+                    let crate::ExecutionConditionKind::Predicate(predicate, substitution, arguments) =
+                        (condition.as_ref()).kind()
                     else {
                         continue;
                     };
@@ -278,21 +279,21 @@ fn prove_requirement<'a>(
         return Ok(());
     }
 
-    match condition {
-        ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalAnd, operands) => {
+    match condition.kind() {
+        crate::ExecutionConditionKind::Operation(bray_bound_tree::BoundOperator::LogicalAnd, operands) => {
             for operand in operands.iter() {
                 prove_requirement(operand, known, prove_condition, budget)?;
             }
 
             Ok(())
         }
-        ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, operands) => {
+        crate::ExecutionConditionKind::Operation(bray_bound_tree::BoundOperator::LogicalOr, operands) => {
             if prove_condition(condition)
                 || operands.iter().any(|operand| prove_requirement(operand, known, prove_condition, budget).is_ok()) {
                 Ok(())
             } else { Err(condition) }
         }
-        condition => prove_condition(condition).then_some(()).ok_or(condition),
+        _ => prove_condition(condition).then_some(()).ok_or(condition),
     }
 }
 
@@ -306,9 +307,9 @@ mod tests {
 
     #[test]
     fn disjunction_requirements_use_whole_clause_proof_before_selecting_alternatives() {
-        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
-        let promised = ExecutionCondition::Trusted(std::sync::Arc::new(input(2)));
-        let extra = ExecutionCondition::Trusted(std::sync::Arc::new(input(1)));
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+        let promised = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(input(2))));
+        let extra = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(input(1))));
         let established = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(0), promised]);
         let required = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![established.clone(), extra]);
         let known = BTreeSet::from([(established, true)]);
@@ -322,8 +323,8 @@ mod tests {
 
     #[test]
     fn failed_conjunction_reports_the_unproven_leaf() {
-        let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let first = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let second = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let known = BTreeSet::from([(first.clone(), true)]);
 
         let condition = ExecutionCondition::operation(BoundOperator::LogicalAnd,
@@ -335,8 +336,8 @@ mod tests {
 
     #[test]
     fn failed_disjunction_retains_all_alternatives() {
-        let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let first = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let second = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let condition = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![first, second]);
 
         assert_eq!(prove_requirement(&condition, &BTreeSet::new(), &mut |_| false,
@@ -381,11 +382,10 @@ fn range_count_follows(
         }
     }
 
-    if let ExecutionCondition::Operation(BoundOperator::Add, operands) = count
-        && let [
-            ExecutionCondition::Literal(left),
-            ExecutionCondition::Literal(right),
-        ] = operands.as_ref()
+    if let crate::ExecutionConditionKind::Operation(BoundOperator::Add, operands) = count.kind()
+        && let [left, right] = operands.as_ref()
+        && let crate::ExecutionConditionKind::Literal(left) = left.kind()
+        && let crate::ExecutionConditionKind::Literal(right) = right.kind()
         && let Ok(value) = crate::constant::fold_binary(
             BoundOperator::Add,
             left.kind(),
@@ -393,15 +393,16 @@ fn range_count_follows(
             crate::ConstantEvaluationLimits::default().integer_bits(),
         )
     {
-        let count = ExecutionCondition::Literal(std::sync::Arc::new(
+        let count = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(std::sync::Arc::new(
             bray_symbols::ConstantValueData::new(left.ty(), value),
-        ));
+        )));
 
         return range_count_follows(&count, extent, assumptions, lower_bounds, unsigned);
     }
 
-    if let ExecutionCondition::Operation(BoundOperator::Add, operands) = count
-        && let [index, ExecutionCondition::Literal(step)] = operands.as_ref()
+    if let crate::ExecutionConditionKind::Operation(BoundOperator::Add, operands) = count.kind()
+        && let [index, step] = operands.as_ref()
+        && let crate::ExecutionConditionKind::Literal(step) = step.kind()
         && matches!(step.kind(), bray_symbols::ConstantValueKind::Integer(integer) if integer.to_u64() == Some(1))
     {
         return assumptions.contains(&(
@@ -416,7 +417,7 @@ fn range_count_follows(
         ));
     }
 
-    let ExecutionCondition::Literal(value) = count else {
+    let crate::ExecutionConditionKind::Literal(value) = count.kind() else {
         return false;
     };
 
@@ -436,7 +437,7 @@ fn range_count_follows(
     }
 
     if count == 1
-        && let ExecutionCondition::Operation(BoundOperator::Subtract, operands) = extent
+        && let crate::ExecutionConditionKind::Operation(BoundOperator::Subtract, operands) = extent.kind()
         && let [end, start] = operands.as_ref()
     {
         return ExecutionCondition::operation(
@@ -466,7 +467,7 @@ fn constant_extent_lower_bounds(
     let mut bounds = std::collections::BTreeMap::<_, u64>::new();
 
     for (condition, holds) in assumptions {
-        let ExecutionCondition::Operation(operator, operands) = condition else {
+        let crate::ExecutionConditionKind::Operation(operator, operands) = condition.kind() else {
             continue;
         };
 
@@ -490,7 +491,7 @@ fn constant_extent_lower_bounds(
             _ => continue,
         };
 
-        let ExecutionCondition::Literal(value) = lower else {
+        let crate::ExecutionConditionKind::Literal(value) = lower.kind() else {
             continue;
         };
 

@@ -240,12 +240,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Some(bray_compiler_known::RepresentationRole::Future) => {
                 // Await and start consume a source future before driving it. An
                 // inactive frame with inert captures cannot execute user cleanup.
-                matches!(value, Some(ExecutionCondition::Expression(source))
-                    if self.disposal.plan.future_capture_cleanup.get(&source).is_some_and(|captures| captures.is_empty()))
+                matches!(value.as_ref().map(ExecutionCondition::kind), Some(crate::ExecutionConditionKind::Expression(source))
+                    if self.disposal.plan.future_capture_cleanup.get(source).is_some_and(|captures| captures.is_empty()))
             }
             Some(bray_compiler_known::RepresentationRole::String) => {
                 // Materialized string constants have static backing and no reference-counted owner.
-                matches!(value, Some(ExecutionCondition::Literal(value))
+                matches!(value.as_ref().map(ExecutionCondition::kind), Some(crate::ExecutionConditionKind::Literal(value))
                     if matches!(value.kind(), bray_symbols::ConstantValueKind::String(_)))
             }
             _ => false,
@@ -300,7 +300,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let value = self.current_input(state, *source);
 
             let value = self.copied_access_value(ExecutionCondition::post_state(
-                bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::Input(ordinal.clone()),
+                bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::new(crate::ExecutionConditionKind::Input(ordinal.clone())),
             ), value, plan);
 
             if consumes {
@@ -377,7 +377,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     let place = BoundReferenceTarget::Surface(input.symbol()).into();
 
                     if let Some(value) = arguments.get_mut(&place) {
-                        *value = std::mem::replace(value, ExecutionCondition::Unknown).coerce(
+                        *value = std::mem::replace(value, ExecutionCondition::unknown()).coerce(
                             self.request.semantic_values(),
                             conversion.source_type(),
                             conversion.target_type(),
@@ -479,12 +479,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         };
 
-        let ExecutionCondition::Expression(origin) = self.value(state, source.callee()) else {
+        let value = self.value(state, source.callee());
+
+        let crate::ExecutionConditionKind::Expression(origin) = value.kind() else {
             return None;
         };
 
         let Some(bray_bound_tree::BoundExpression::AnonymousCallable(callable)) =
-            self.request.view().expression(origin)
+            self.request.view().expression(*origin)
         else {
             return None;
         };
@@ -703,16 +705,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // Separate exclusive accesses to protected buffers retain separate allocation ownership.
                 // The selected intrinsic contract supplies the initialized ranges within those owners.
                 for requirement in &contract.requirements {
-                    if matches!(requirement, ExecutionCondition::Trusted(condition)
-                        if matches!(condition.as_ref(), ExecutionCondition::Predicate(identity, _, _) if Some(*identity) == predicate))
+                    if matches!(requirement.kind(), crate::ExecutionConditionKind::Trusted(condition)
+                        if matches!(condition.as_ref().kind(), crate::ExecutionConditionKind::Predicate(identity, _, _) if Some(*identity) == predicate))
                     {
                         let condition = requirement.substitute(
                             &|place| {
                                 place
                                     .value_in(&evidence.arguments)
-                                    .unwrap_or(ExecutionCondition::Unknown)
+                                    .unwrap_or_else(ExecutionCondition::unknown)
                             },
-                            &ExecutionCondition::Unknown,
+                            &ExecutionCondition::unknown(),
                             &mut { ExecutionCondition::WORK_LIMIT },
                         ).pointer_observations(&self.pointer_predicates);
 
@@ -779,13 +781,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &|input| {
                         input
                             .value_in(&post_state)
-                            .unwrap_or(ExecutionCondition::Unknown)
+                            .unwrap_or_else(ExecutionCondition::unknown)
                     },
                     &result,
                     &mut { ExecutionCondition::WORK_LIMIT },
                 );
 
-                if condition == ExecutionCondition::Unknown {
+                if condition == ExecutionCondition::unknown() {
                     continue;
                 }
 
@@ -815,6 +817,6 @@ pub(super) fn converted_argument(
         | bray_bound_tree::ConversionTarget::CallableContract
         | bray_bound_tree::ConversionTarget::NullablePresent => value.coerce(
             values, conversion.source_type(), conversion.target_type()),
-        _ => ExecutionCondition::Unknown,
+        _ => ExecutionCondition::unknown(),
     }
 }
