@@ -25,36 +25,37 @@ Proof closure remains in immutable preparation and never feeds derived consequen
 Indexed graph assertions avoid full fact-set searches per node. ExecutionAssumptions shares immutable roots,
 retaining identity on no-op updates. Proof-cache root aliases retain allocations and structural collision checks.
 
-Retained snapshots use borrowed graph identity for visitation. FixedPointResult retains solved outputs for
-ExecutionFlow consumers. No transfer is replayed by output lookup. These changes are checkpoint e72ebb80e.
+Retained snapshots visit borrowed graph identities once. FixedPointResult publishes solved outputs.
+Checkpoint d50c12d1f retains actual cleanup parts and phases through cancellation/publication/replay, including
+part-specific mutation identity. Wrapped futures retain capture effects, report dependencies and lifecycle
+retirement. All fixed controls pass at that checkpoint, with the same known RawBuffer invalid acceptance.
 
-Current batch preserves full_cleanup_parts' phase, type and path in prepared cleanup steps. Cancellation and
-lifecycle both select the actual part. Cancellation mutations retain the part ordinal, so siblings cannot overwrite
-publication or expire each other's evaluations. Removed aggregate cancellation_condition and outer-type effect
-selection. Unknown producers remain conservative. Lifecycle retirement and report/address dependencies remain.
-Existing inactive generic capture-report control now covers direct and nullable futures, valid and escaping borrows.
-No new type/cache. Growth limit 50 production/50 test lines excluding fixture formatting.
+Current batch replaces coarse shape buckets and whole-tree scope comparisons with exact ConditionId vectors.
+Both evidence roles and every polarity remain in the key. Physical aliases retain immutable source sets.
+All proof rules, semantic query memos, inference budgets and publication remain unchanged. Production shrinks
+24 lines. Existing role, changed-input, structural-collision, budget and parallel controls cover the rule.
+All 548 checker controls pass. One bounded instrumented loop preserves the intended rejection.
 
-Instrumented tooling: 197 authority/execution controls and seven selected source/import/capture-report controls pass.
-The loop preserves its intended rejection. All 92 wrapped broadcasts retain Future capture metadata and resolve
-empty capture effects, rather than outer-wrapper disposal. Full caller work is 6,615,914: ordering 3,178,399,
-equality 2,097,166, identity 539,538, recursive interning 800,811. Counts include physical comparisons. Hash
-collisions cause small process variation. Timing with probes is 418 ms. The operation target remains unmet.
-Uninstrumented tooling passes all 548 checker tests and both positive same-site loop controls in source/import.
-Fixed five twice: task cases 137-225 ms, loop 293/360 ms. Frozen30 remains 29 pass/same RawBuffer failure (13s).
-Timing ran alongside frozen30. All runs were bounded. No full matrices. This batch is ready for checkpoint.
+Current full count is 6,326,796: ordering 3,178,399, equality 1,686,781, identity 597,381, interning 864,235.
+Scope matching falls from 477k to 188k. Hash collisions cause small process variation. Timing with probes is 415 ms.
+The operation target remains unmet. Final uninstrumented tooling passes all 548 checker controls.
+Fixed five twice: task cases 131-139 ms, loop 307/279 ms. Frozen30 remains 29 pass/same RawBuffer failure (12.7s).
 Mutating style has the same six existing errors: wildcard flow/invalidation and oversized flow/merge,
 storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument. Format passes.
 
-The caller has 198 CFG blocks and two required storage solves, each 271 transfers. Latest overlapping stage costs:
-incoming 1.81M, transfer 3.36M, publication 1.45M, all joins 1.81M. Do not sum overlapping stages.
-Earlier measurement ruled out excessive fixed-point iterations and normalization as the main cost.
-An identity-action cleanup shortcut had no hits before the part repair and was removed.
-Next investigate repeated whole-state joins/publication and exact evidence preparation, with complete counts and
-unique-node/scope cardinalities. Do not add another cache without identifying which repeated work it removes.
-Retirement must still expire prior loop evaluations even when physical cleanup effects are empty.
-Guard/evidence lifetimes differ, so implication alone cannot justify deleting carrier clauses.
-Temporary probes are removed. Reusable current instrumentation is target/audit/proof-counter.patch.
+The caller has 198 CFG blocks, two required storage solves with 271 transfers each, 12,129 condition nodes across
+indices, 835 distinct evidence scopes, 3,281 equivalent rebuilt scopes and 24,482 proof queries. Incoming states
+cost 1.70M, transfers 3.24M and publication 1.38M. Conditional-fact synthesis costs 1.07M within joins. Derivation costs
+1.24M and retirement 1.28M across these stages. Stages overlap. Do not sum them.
+Ordinary uncached proof costs only 35k. Do not add a cache there. Retained-only query keys were rejected because
+equal generated clauses often have different storage and then repeat inference. Semantic reuse is required.
+Next trace uncached ExecutionWitness::owning_conditions and body-level ExecutionProof::new consumers.
+State and entry scopes must use their exact respective inputs. Also audit redundant join proof requests for
+unchanged claims carried by both predecessors. Do not assume common storage identity implies common authority. Exact owners, guards, availability,
+address dependencies, entry scopes and normal-return transfer must survive. Preserve unknown/absent alternatives
+and finite evaluation retirement. Close the producer/consumer contract before changing this algorithm.
+Temporary probes are removed. Complete current counts are in proof-count-current.json and reusable instrumentation
+is proof-counter.patch. No full matrices. Continue after checkpoints.
 
 ## Fixed evidence and broader work
 
