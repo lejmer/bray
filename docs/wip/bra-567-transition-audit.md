@@ -47,32 +47,30 @@ its original authority and address filtering. Current data and retained identity
 
 ## Current evidence and next decision
 
-Final uninstrumented build passes196 focused controls. Fixed-five twice: tasks133-140ms, loop314-318ms, preserving
-all outcomes and intended negative sites. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance,12.60s.
+Final uninstrumented build passes197 focused controls. Fixed-five twice: tasks132-136ms, loop309ms, preserving
+all outcomes and intended negative sites. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance.
 Formatting passes. Mutating style reports only six prior errors: wildcard flow/invalidation and oversized flow/merge,
 storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.
-No temporary profiling hooks remain. No task process remains after these checks.
+No temporary profiling hooks remain. Reusable counter patch is target/audit/proof-counter.patch.
 
-The latest sampled query-work baseline found about69.4M recursive comparisons,6.4M top-level interner lookups,
-330,782 budget-query keys,1,051 evidence scopes and22,581 alternative queries. Sharing join/deferred identity
-reduced node creation across indexes from245,947 to76,969 before the remaining capture/snapshot callers migrated.
-The largest index had8,161 nodes. Final operation counts need a fresh measurement after the next algorithmic change.
-Identity reuse alone cannot meet the goal. Witness refinement/Boolean preparation dominate comparison volume.
+Full caller counter now8,461,583 operations:4,243,089 ordering,3,014,581 equality,409,058 identity and794,855
+recursive interner calls. This is still far above10,000. Indexed graph assertions removed1.4M operations without
+changing inference. Sources stay separate, true-before-false priority and unknown rejection remain intact, and
+numeric/variant inference retains its source precedence and budgets. Production grows19 nonblank lines, tests20.
+Current categorized run:14,029 scope lookups,748 derived graphs,28,927 queries,45,322 substitutions,224joins.
+Scope lookup spends1.12M equality checks. Other flow work and substitutions remain material.
 
-The removed feedback let CFG and returned-value joins qualify carrier clauses by their own consequences. A bounded
-probe found one clause growing beyond200 across two owners and21,538 retained clauses over240 joins. Suppressing
-only feedback reduced retention to1,454 over224 joins and kept the intended rejection. Temporary probes were removed.
-
-Keep established assumptions as proof inputs and derived closure in its existing immutable query cache. Ownership
-case selection/preservation, completion selection, branch feasibility and ordinary-guard discharge query that closure
-rather than depend on prior publication. Both join paths continue proving each
-candidate against the actual predecessor and complete carrier. Empty ownership alternatives, unavailable evidence,
-alias/current-data distinctions and numeric unordered behavior must remain intact. Existing initialized-alternative
-ownership, guarded completion, qualifier/budget controls and fixed five are the oracles. Add no representation or
-cache and keep production growth below50 nonblank lines. Reconsider if retained alternatives lose needed facts or any
-negative becomes accepted. Next measure the entire caller phase, including recursive equality/ordering comparisons
-and interner lookups. Earlier counts covered only body checking and ordering, so they are not acceptance evidence.
-Candidate provenance and redundant carrier clauses remain the next unresolved mechanism. No task process remains.
+Next contract: preserve immutable evidence-root identity through flow clones and call-entry snapshots. Replace
+owned set copying with one shared execution-assumptions representation. Real updates detach. No-op insertion,
+extension and retention preserve identity. Proof preparation may recognize retained exact roots directly, while
+separately built equal sets still use the existing structural fallback. Never use an unretained address as identity.
+Ordinary and trusted sets remain separate, mutation cannot change cached input sets, and proof budgets stay fixed.
+State assumptions and call-entry assumptions produce these roots. Cached proofs, witness refinement and cloned
+branch/deferred states consume them. Local standalone proof sets can remain ordinary BTreeSets. Existing proof
+scope-isolation and fixed-five controls apply. Extend scope isolation for clone/no-op/update identity. One domain
+type, no new parallel proof cache. Growth limit150 nonblank production lines. Reconsider if conversion plumbing
+exceeds that limit, derived graphs increase or any fixed outcome changes. Candidate clause compression remains
+unresolved and outside this batch. No full matrices.
 
 ## Fixed gates and broader work
 

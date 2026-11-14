@@ -27,29 +27,37 @@ pub(super) fn prepare_trusted_conditions(
     let mut graph = BooleanGraph::new(&known, ordinary, index);
     let mut terms = (0..graph.terms.len()).map(|_| ProofTerm::default()).collect::<Vec<_>>();
     let mut queue = VecDeque::new();
+    let trusted_assertions = graph.assertions(&known);
+    let ordinary_assertions = graph.assertions(ordinary);
 
     for (index, node) in graph.terms.iter().enumerate() {
         let condition = &node.condition;
 
-        let explicit = |assumptions: &BTreeSet<_>| {
-            [true, false].into_iter().find(|value| assumptions.contains(&(condition.clone(), *value)))
-        };
+        let trusted = trusted_assertions[index];
+        let unqualified = ordinary_assertions[index];
 
         terms[index].asserted_alternative = alternative_value(condition).filter(|held| {
-            explicit(&known) == Some(*held)
-                || (explicit(ordinary) == Some(*held) && !node.condition.contains_trusted())
+            trusted == Some(*held)
+                || (unqualified == Some(*held) && !condition.contains_trusted())
         });
 
         terms[index].asserted = match condition {
             ExecutionCondition::Unknown => None,
             ExecutionCondition::Boolean(value) => Some(*value),
             ExecutionCondition::Entry { .. } => None,
-            ExecutionCondition::Trusted(_) => explicit(&known),
-            _ if !node.children.is_empty() => explicit(&known).or_else(|| {
-                explicit(ordinary).filter(|_| !node.condition.contains_trusted())
+            ExecutionCondition::Trusted(_) => trusted,
+            _ if !node.children.is_empty() => trusted.or_else(|| {
+                unqualified.filter(|_| !condition.contains_trusted())
             }),
-            _ => condition.prove(&known, &mut { ExecutionCondition::WORK_LIMIT })
-                .or_else(|| condition.prove(ordinary, &mut { ExecutionCondition::WORK_LIMIT })),
+            ExecutionCondition::Operation(..) | ExecutionCondition::VariantTest(..) => {
+                // Relational inference keeps its original source precedence and work budget.
+                trusted.filter(|_| !condition.contains_unknown())
+                    .or_else(|| condition.prove(&known, &mut { ExecutionCondition::WORK_LIMIT }))
+                    .or_else(|| unqualified.filter(|_| !condition.contains_unknown()))
+                    .or_else(|| condition.prove(ordinary, &mut { ExecutionCondition::WORK_LIMIT }))
+            }
+            // Other graph leaves have no inference rule beyond their explicit evidence.
+            _ => trusted.or(unqualified).filter(|_| !condition.contains_unknown()),
         };
 
         terms[index].value = terms[index].asserted;
@@ -378,6 +386,30 @@ mod tests {
         input(2).assume(false, &mut ordinary);
 
         assert_eq!(qualified.prove_trusted(&trusted, &ordinary), Some(true));
+    }
+
+    #[test]
+    fn closure_seeding_keeps_source_precedence_and_unknown_guards() {
+        let claim = ExecutionCondition::Trusted(Arc::new(input(1)));
+
+        for (guard, trusted_guard, ordinary_guards, expected) in [
+            (input(0), Some(false), vec![true], true),
+            (input(0), Some(true), vec![false], false),
+            (input(0), None, vec![false, true], false),
+            (ExecutionCondition::Unknown, None, vec![false], false),
+        ] {
+            let clause = ExecutionCondition::operation(BoundOperator::LogicalOr,
+                vec![guard.clone(), claim.clone()]);
+
+            let mut trusted = BTreeSet::from([(clause, true)]);
+
+            trusted.extend(trusted_guard.map(|holds| (guard.clone(), holds)));
+
+            let ordinary = ordinary_guards.into_iter().map(|holds| (guard.clone(), holds)).collect();
+            let known = trusted_condition_closure(trusted, &ordinary);
+
+            assert_eq!(known.contains(&(claim.clone(), true)), expected);
+        }
     }
 
     #[test]

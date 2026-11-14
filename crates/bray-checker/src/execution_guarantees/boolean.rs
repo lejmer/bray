@@ -84,6 +84,20 @@ impl BooleanGraph {
         self.indices.get(&self.conditions.intern(condition)).copied()
     }
 
+    pub(super) fn assertions(&self, assumptions: &BTreeSet<(ExecutionCondition, bool)>) -> Vec<Option<bool>> {
+        let mut assertions = vec![None; self.terms.len()];
+
+        for (condition, holds) in assumptions {
+            if let Some(id) = self.find(condition) {
+                let asserted = &mut assertions[id.0];
+
+                *asserted = Some(asserted.unwrap_or(false) || *holds);
+            }
+        }
+
+        assertions
+    }
+
     pub(super) fn derived(&self, id: BooleanId, value: impl Fn(BooleanId) -> Option<bool>) -> Option<bool> {
         let term = &self.terms[id.0];
 
