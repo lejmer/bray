@@ -21,7 +21,7 @@ pub(in crate::execution_guarantees) use model::PreparedCondition;
 pub(crate) use retention::Set as ObservationSet;
 pub(crate) use retained::RetainedSnapshots;
 pub(crate) use context::{ExecutionProof, ExecutionProofCache};
-pub(crate) use substitution::{ExecutionSubstitution, SnapshotSubstitution};
+pub(crate) use substitution::{ExecutionSubstitution, GuardSubstitution, SnapshotSubstitution};
 
 pub(super) use context::ProofMemo;
 

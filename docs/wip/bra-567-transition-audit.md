@@ -16,29 +16,24 @@ opaque result seeding. Adaptation prefixes are projected in formal coordinates a
 Completion publishes exact current referents through the existing footprint, never historical contents or an
 unconditional relation for a possible transfer. No parallel graph or new type was added.
 
-All 48 borrowed-field controls and 556 checker tests pass. Frozen30 is unchanged at 29 pass and the RawBuffer
-invalid acceptance, 11.69 s. Fixed five pass at 134-157 ms, including 157 ms for the loop. No full matrices ran.
-Style has the same six existing errors. Format/diff checks pass. Production probes are removed. The successful
-integration artifact contains disabled probes, with identical semantic code. Counts were not remeasured.
+All 48 borrowed-field controls, 12 conditional source/import controls and 557 checker tests pass.
+Frozen30 remains 29 pass and the RawBuffer invalid acceptance, 11.84 s. Fixed five pass at 137-153 ms,
+including 153 ms for the loop. No full matrices ran. Style has the same six existing errors. Format/diff
+checks pass. The validated artifact contains no production probes. Counts were not remeasured.
 
-Shape queries retain typed absence and current union tags through cleanup overlays. Common-components now
-keeps equal known tags independently of shared physical tag identity. Equal tags never retain payload owners.
+Shape queries retain typed absence and current union tags through cleanup overlays. Common-components keeps
+equal known tags independently of shared physical tag identity. Equal tags never retain payload owners.
 The observation collector keeps the real owner and current contents in one frame, mapping both snapshots and
-visiting fields once. Reference data still grants no ownership. Existing nullable/union predecessor-order and
-stabilization controls pass. The repair adds 11 net production lines and 28 test lines, no new fixture/provider.
-Source/import nullable_both and optional_real now pass. Nested_real remains the two conditional failures.
+visiting fields once. Reference data still grants no ownership. Nullable/union predecessor-order and
+stabilization controls pass. This checkpoint added 13 net production lines and 28 test lines.
 
-Next contract: actual select_variant branch guards prove both Value and Empty at the initial join. Its normal
-return instead has Choice(All([]), Case(Value, Transfer(input -> payload))), losing the empty guard. The final
-value is Owned(joined, Constructed(Discriminant(joined), [payload: Owned(projected joined, Unknown)])).
-The without_empty_guards probe reports no stripping on this path. Trace root_layout at ownership.rs owner
-selection and duplicate-removal selection before editing. It currently drops all guarded empty records.
-A repair must distinguish original empty alternatives from transfers discarded during selection. Guards on
-removed child mappings must not constrain an unrelated complete owner. Original empty alternatives must not
-become unconditional borrowing or owning authority. Keep negative owners and intended failure sites fixed.
-Use existing root-layout and physical-framing tests, then the focused source/import conditional fixture.
-Avoid separate reconstructed layouts. A fused original-layout selection may replace map-then-strip only if
-this path is confirmed, retaining ordering and explicit budget/exhaustion behavior.
+Lifecycle retirement previously dropped the entire ordinary relation between input initialization and result
+variant when its InitializedSnapshot expired. The selected empty return then lost its guard. Retirement now
+uses the existing bounded GuardSubstitution to discharge only expiring initialization snapshots proved by the
+pre-retirement ordinary scope, then applies the original filters. Unknown guards still expire. Unaffected facts
+retain their shared representation. Qualified conditions cannot enter this ordinary rewrite. No value graph or
+layout reconstruction was introduced. One retirement control covers true/false/unknown selector truth, expired
+initialization and qualified-authority exclusion. No new Bray fixture or provider was added.
 
 RawBuffer remains a separate invalid acceptance. Push/Pop omit stored-value transport. Exit publication drops
 allocation/owned-target slots. Mutation effects carry destination/type but no source and describe possible events,

@@ -83,14 +83,14 @@ impl<'a> SnapshotSubstitution<'a> {
 }
 
 /// One immutable ordinary guard environment owns all of its bounded DAG rewrites.
-pub(in crate::execution_guarantees::condition) struct GuardSubstitution {
+pub(crate) struct GuardSubstitution {
     facts: HashMap<ExecutionCondition, ExecutionCondition>,
     mapped: ExecutionMemo<ExecutionCondition>,
     changed: bool,
 }
 
 impl GuardSubstitution {
-    pub(in crate::execution_guarantees::condition) fn new<'a>(
+    pub(crate) fn new<'a>(
         replacements: impl IntoIterator<Item = (&'a ExecutionCondition, ExecutionCondition)>,
     ) -> Self {
         let mut facts = HashMap::new();
@@ -102,7 +102,7 @@ impl GuardSubstitution {
         Self { facts, mapped: ExecutionMemo::default(), changed }
     }
 
-    pub(in crate::execution_guarantees::condition) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
+    pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
         if !self.changed { return condition.clone(); }
 
         condition.substitute_values(&|value| match value.kind() {

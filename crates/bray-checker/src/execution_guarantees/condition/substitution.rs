@@ -3,4 +3,4 @@ mod scope;
 
 pub(crate) use scope::{ExecutionSubstitution, SnapshotSubstitution};
 
-pub(super) use scope::GuardSubstitution;
+pub(crate) use scope::GuardSubstitution;

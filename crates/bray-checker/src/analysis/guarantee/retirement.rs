@@ -169,11 +169,10 @@ impl ExecutionState {
                 if retired_owner(owner) && !retained_owner(owner))
         }, |_| kind.is_write());
 
-        self.assumptions.retain(|(condition, _)| {
+        retain_ordinary_facts(&mut self.assumptions, &self.proofs, &availability_expired, |condition| {
             let memo = queries(condition);
 
-            !availability_expired(condition)
-                && (retained_contents(condition, &memo) || !borrowed_changed(condition, &memo))
+            retained_contents(condition, &memo) || !borrowed_changed(condition, &memo)
         });
 
         let mut retired_conditions = BTreeSet::new();
@@ -674,6 +673,43 @@ impl ExecutionState {
     }
 }
 
+/// Forget retired availability after discharging its known ordinary consequences.
+fn retain_ordinary_facts(
+    facts: &mut crate::execution_guarantees::ExecutionAssumptions,
+    proofs: &crate::execution_guarantees::ExecutionProofCache,
+    expired: impl Fn(&ExecutionCondition) -> bool,
+    retained: impl Fn(&ExecutionCondition) -> bool,
+) {
+    let guards = facts.iter().filter(|(condition, _)| !condition.contains_trusted() && expired(condition))
+        .flat_map(|(condition, _)| condition.observations())
+        .filter(|condition| matches!(condition.kind(), crate::ExecutionConditionKind::InitializedSnapshot(..)) && expired(condition))
+        .collect::<BTreeSet<_>>();
+
+    let proof = proofs.ordinary_proof(facts);
+
+    let known = guards.into_iter().filter_map(|guard| {
+        proof.prove_mixed(guard, &mut { ExecutionCondition::WORK_LIMIT })
+            .map(|holds| (guard, ExecutionCondition::boolean(holds)))
+    }).collect::<Vec<_>>();
+
+    if known.is_empty() {
+        facts.retain(|(condition, _)| !expired(condition) && retained(condition));
+        return;
+    }
+
+    let substitution = crate::execution_guarantees::GuardSubstitution::new(known);
+    let mut consequences = crate::execution_guarantees::ExecutionAssumptions::default();
+
+    for (condition, holds) in facts.iter().filter(|(condition, _)| !condition.contains_trusted() && expired(condition)) {
+        let condition = substitution.apply(condition);
+
+        if !expired(&condition) && retained(&condition) { condition.assume(*holds, &mut consequences); }
+    }
+
+    facts.retain(|(condition, _)| !expired(condition) && retained(condition));
+    facts.extend(consequences);
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -731,6 +767,56 @@ mod tests {
 
         assert!(entry.copy_sources.is_empty());
         assert!(!entry.assumptions.is_empty());
+    }
+
+    #[test]
+    fn retiring_initialization_keeps_only_independent_known_consequences() {
+        use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalNot, LogicalOr};
+        use std::sync::Arc;
+
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
+
+        let initialized = ExecutionCondition::new(crate::ExecutionConditionKind::InitializedSnapshot(
+            place, Arc::new(owner.clone()), Arc::new(owner.clone()),
+        ));
+
+        let tag = ExecutionCondition::result().matches_variant(
+            bray_symbols::UnionVariantSymbolId::from_symbol_id(bray_symbols::SymbolId::new(920)),
+        );
+
+        let not = |value| ExecutionCondition::operation(LogicalNot, vec![value]);
+
+        let relation = ExecutionCondition::operation(LogicalOr, vec![
+            ExecutionCondition::operation(LogicalAnd, vec![initialized.clone(), tag.clone()]),
+            ExecutionCondition::operation(LogicalAnd, vec![not(initialized.clone()), not(tag.clone())]),
+        ]);
+
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+
+        let trusted = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), crate::test_support::empty_substitution(predicate.into()),
+                vec![ExecutionCondition::result().borrowed()]),
+        )));
+
+        for known in [Some(true), Some(false), None] {
+            let mut state = ExecutionState::default();
+
+            state.assumptions.insert((ExecutionCondition::operation(LogicalOr,
+                vec![not(initialized.clone()), trusted.clone()]), true));
+
+            relation.clone().assume(true, &mut state.assumptions);
+            if let Some(known) = known { initialized.clone().assume(known, &mut state.assumptions); }
+            state.invalidate_trusted_values([owner.clone()]);
+
+            assert_eq!(tag.prove_ordinary(&state.assumptions, Some(&state.proofs)), known);
+
+            assert_eq!(initialized.prove_ordinary(&state.assumptions, Some(&state.proofs)), None,
+                "a surviving consequence cannot revive retired initialization");
+
+            assert_ne!(trusted.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true),
+                "ordinary guard discharge cannot establish trusted authority");
+        }
     }
 
     #[test]
