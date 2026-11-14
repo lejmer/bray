@@ -130,8 +130,8 @@ impl ExecutionWitness {
 
     pub(crate) fn refine(
         self: &mut Arc<Self>,
-        trusted: &mut BTreeSet<(ExecutionCondition, bool)>,
-        assumptions: &mut BTreeSet<(ExecutionCondition, bool)>,
+        trusted: &mut super::ExecutionAssumptions,
+        assumptions: &mut super::ExecutionAssumptions,
         cache: &super::ExecutionProofCache,
     ) {
         if !self.has_guards() {
@@ -165,10 +165,10 @@ impl ExecutionWitness {
     pub(super) fn derived_conditions(
         &self,
         proof: &super::ExecutionProof<'_>,
-        assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+        assumptions: &super::ExecutionAssumptions,
         cache: &super::ExecutionProofCache,
     ) -> WitnessConditions {
-        let mut evidence = BTreeSet::new();
+        let mut evidence = super::ExecutionAssumptions::default();
 
         for condition in self.conditions.keys().filter(|condition| {
             proof.prove_mixed(condition, &mut {
@@ -371,7 +371,7 @@ impl super::ExecutionCallEvidence {
 
                     renamed
                 })
-                .collect::<BTreeSet<_>>()
+                .collect::<super::ExecutionAssumptions>()
         };
 
         let assumptions = rename_facts(&self.assumptions);

@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionAssumptions;
 use super::{ExecutionCondition, ExecutionProof, ExecutionProofCache};
 use super::context::ProofMemo;
 use super::memo::memoized;
@@ -6,7 +7,7 @@ use bray_bound_tree::BoundOperator;
 use std::collections::BTreeSet;
 
 impl ExecutionCondition {
-    pub(crate) fn prove_ordinary(&self, ordinary: &BTreeSet<(Self, bool)>, cache: Option<&ExecutionProofCache>) -> Option<bool> {
+    pub(crate) fn prove_ordinary(&self, ordinary: &ExecutionAssumptions, cache: Option<&ExecutionProofCache>) -> Option<bool> {
         let trusted = BTreeSet::new();
 
         self.prove_mixed_with_implications(&trusted, ordinary, &mut { Self::WORK_LIMIT }, None, None)
@@ -267,9 +268,9 @@ impl ExecutionCondition {
         ExecutionProof::implies(self, consequence)
     }
 
-    pub(crate) fn assume(self, value: bool, assumptions: &mut BTreeSet<(Self, bool)>) {
+    pub(crate) fn assume(self, value: bool, assumptions: &mut impl Extend<(Self, bool)>) {
         self.assume_with(value, &mut |condition, value| {
-            assumptions.insert((condition, value));
+            assumptions.extend(std::iter::once((condition, value)));
         });
     }
 

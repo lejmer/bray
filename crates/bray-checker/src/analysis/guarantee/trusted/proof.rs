@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionAssumptions;
 use std::collections::BTreeSet;
 
 use super::super::flow::ExecutionFlowDomain;
@@ -91,7 +92,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite,
         arguments: &std::collections::BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         transferred: &BTreeSet<crate::ExecutionPlace>,
-    ) -> BTreeSet<(ExecutionCondition, bool)> {
+    ) -> ExecutionAssumptions {
         if state.allocation_owners.is_empty() {
             return state.trusted_assumptions.clone();
         }

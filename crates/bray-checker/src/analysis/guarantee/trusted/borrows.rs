@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionAssumptions;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, StorageProjection};
@@ -48,7 +49,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-        assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+        assumptions: &ExecutionAssumptions,
     ) -> BTreeSet<ExecutionCondition> {
         let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
             return BTreeSet::new();

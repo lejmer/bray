@@ -8,7 +8,7 @@ use super::substitution::GuardSubstitution;
 use super::interning::{ConditionIndex, ConditionMap};
 use super::memo::{ExecutionMemo, ConditionMemo, cached_condition, memoized};
 use crate::execution_guarantees::boolean::AlternativeProof;
-use crate::execution_guarantees::ExecutionWitness;
+use crate::execution_guarantees::{ExecutionAssumptions, ExecutionWitness};
 use crate::execution_guarantees::witness::WitnessConditions;
 
 pub(super) struct ProofMemo {
@@ -78,8 +78,8 @@ impl DerivedFacts {
 struct PreparedFacts {
     witnesses: Mutex<HashMap<usize, (Arc<ExecutionWitness>, Arc<WitnessConditions>)>>,
     index: ConditionIndex,
-    trusted: BTreeSet<(ExecutionCondition, bool)>,
-    ordinary: BTreeSet<(ExecutionCondition, bool)>,
+    trusted: ExecutionAssumptions,
+    ordinary: ExecutionAssumptions,
     raw: ProofMemo,
     requested: ProofMemo,
     trusted_results: ConditionMemo<Option<bool>>,
@@ -87,9 +87,9 @@ struct PreparedFacts {
 }
 
 impl PreparedFacts {
-    fn new(trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: &BTreeSet<(ExecutionCondition, bool)>, index: &ConditionIndex) -> Self {
+    fn new(trusted: ExecutionAssumptions, ordinary: ExecutionAssumptions, index: &ConditionIndex) -> Self {
         // One exact snapshot owns all pure query memos and their lazy Boolean closure.
-        Self { witnesses: Mutex::default(), index: index.clone(), trusted: trusted.clone(), ordinary: ordinary.clone(), raw: ProofMemo::new(index), requested: ProofMemo::new(index), trusted_results: Mutex::new(index.map()), derived: OnceLock::new() }
+        Self { witnesses: Mutex::default(), index: index.clone(), trusted, ordinary, raw: ProofMemo::new(index), requested: ProofMemo::new(index), trusted_results: Mutex::new(index.map()), derived: OnceLock::new() }
     }
 
     fn derived(&self) -> &DerivedFacts {
@@ -102,6 +102,7 @@ impl PreparedFacts {
 pub(crate) struct ExecutionProofCache {
     pub(crate) conditions: ConditionIndex,
     facts: Mutex<HashMap<u64, Vec<Arc<PreparedFacts>>>>,
+    scopes: Mutex<HashMap<(usize, usize), (ExecutionAssumptions, ExecutionAssumptions, Arc<PreparedFacts>)>>,
 }
 
 impl std::fmt::Debug for ExecutionProofCache {
@@ -122,16 +123,16 @@ impl ExecutionProofCache {
         super::memo::memoize_condition(self.conditions.map(), query)
     }
 
-    pub(crate) fn ordinary_proof<'a>(&'a self, ordinary: &'a BTreeSet<(ExecutionCondition, bool)>) -> ExecutionProof<'a> {
-        static EMPTY: BTreeSet<(ExecutionCondition, bool)> = BTreeSet::new();
+    pub(crate) fn ordinary_proof<'a>(&'a self, ordinary: &'a ExecutionAssumptions) -> ExecutionProof<'a> {
+        static EMPTY: std::sync::LazyLock<ExecutionAssumptions> = std::sync::LazyLock::new(ExecutionAssumptions::default);
 
         self.proof(&EMPTY, ordinary)
     }
 
-    pub(crate) fn proof<'a>(&'a self, trusted: &'a BTreeSet<(ExecutionCondition, bool)>, ordinary: &'a BTreeSet<(ExecutionCondition, bool)>) -> ExecutionProof<'a> {
+    pub(crate) fn proof<'a>(&'a self, trusted: &'a ExecutionAssumptions, ordinary: &'a ExecutionAssumptions) -> ExecutionProof<'a> {
         let mut proof = ExecutionProof::new(trusted, ordinary);
 
-        proof.cache = Some(self);
+        proof.cache = Some((self, trusted, ordinary));
 
         proof
     }
@@ -139,8 +140,8 @@ impl ExecutionProofCache {
     pub(crate) fn refined_witness(
         &self,
         witness: &Arc<ExecutionWitness>,
-        trusted: &BTreeSet<(ExecutionCondition, bool)>,
-        ordinary: &BTreeSet<(ExecutionCondition, bool)>,
+        trusted: &ExecutionAssumptions,
+        ordinary: &ExecutionAssumptions,
     ) -> Arc<WitnessConditions> {
         let proof = self.proof(trusted, ordinary);
         let facts = proof.facts();
@@ -159,7 +160,13 @@ impl ExecutionProofCache {
         result
     }
 
-    fn prepare(&self, trusted: &BTreeSet<(ExecutionCondition, bool)>, ordinary: &BTreeSet<(ExecutionCondition, bool)>) -> Arc<PreparedFacts> {
+    fn prepare(&self, trusted: &ExecutionAssumptions, ordinary: &ExecutionAssumptions) -> Arc<PreparedFacts> {
+        let key = (trusted.storage_key(), ordinary.storage_key());
+
+        if let Some((_, _, prepared)) = self.scopes.lock().expect("proof scope index lock is not poisoned").get(&key) {
+            return Arc::clone(prepared);
+        }
+
         let mut hash = std::hash::DefaultHasher::new();
 
         // Bucket selection needs only a cheap shape. Full immutable sets below
@@ -173,19 +180,28 @@ impl ExecutionProofCache {
             }
         }
 
-        let key = hash.finish();
+        let fingerprint = hash.finish();
 
         let mut facts = self.facts.lock().expect("analysis proof cache lock is not poisoned");
-        let bucket = facts.entry(key).or_default();
+        let bucket = facts.entry(fingerprint).or_default();
 
-        if let Some(cached) = bucket.iter().find(|cached| cached.trusted == *trusted && cached.ordinary == *ordinary) {
-            return Arc::clone(cached);
-        }
+        let prepared = if let Some(cached) = bucket.iter().find(|cached| cached.trusted == *trusted && cached.ordinary == *ordinary) {
+            Arc::clone(cached)
+        } else {
+            let prepared = Arc::new(PreparedFacts::new(trusted.clone(), ordinary.clone(), &self.conditions));
 
-        let prepared = Arc::new(PreparedFacts::new(trusted, ordinary, &self.conditions));
+            // A fingerprint only selects the bucket. Complete snapshots establish semantic identity.
+            bucket.push(Arc::clone(&prepared));
 
-        // A hash only selects the bucket. Retained complete snapshots establish cache identity.
-        bucket.push(Arc::clone(&prepared));
+            prepared
+        };
+
+        drop(facts);
+
+        // Keep the exact roots alive. Updates detach from them, and their addresses cannot be reused.
+        // Different allocations with equal contents point to the same existing preparation.
+        self.scopes.lock().expect("proof scope index lock is not poisoned")
+            .insert(key, (trusted.clone(), ordinary.clone(), Arc::clone(&prepared)));
 
         prepared
     }
@@ -197,7 +213,7 @@ pub(crate) struct ExecutionProof<'a> {
     pub(in crate::execution_guarantees) reference_scan: bool,
     trusted: &'a BTreeSet<(ExecutionCondition, bool)>,
     ordinary: &'a BTreeSet<(ExecutionCondition, bool)>,
-    cache: Option<&'a ExecutionProofCache>,
+    cache: Option<(&'a ExecutionProofCache, &'a ExecutionAssumptions, &'a ExecutionAssumptions)>,
     prepared: OnceCell<Arc<PreparedFacts>>,
 }
 
@@ -320,9 +336,9 @@ impl<'a> ExecutionProof<'a> {
 
     fn facts(&self) -> &PreparedFacts {
         self.prepared.get_or_init(|| {
-            if let Some(cache) = self.cache { return cache.prepare(self.trusted, self.ordinary); }
+            if let Some((cache, trusted, ordinary)) = self.cache { return cache.prepare(trusted, ordinary); }
 
-            Arc::new(PreparedFacts::new(self.trusted, self.ordinary, &ConditionIndex::default()))
+            Arc::new(PreparedFacts::new(self.trusted.clone().into(), self.ordinary.clone().into(), &ConditionIndex::default()))
         })
     }
 
@@ -391,9 +407,9 @@ mod tests {
             ExecutionCondition::operation(LogicalNot, vec![guard.clone()]), claim.clone(),
         ]);
 
-        let facts = BTreeSet::from([(clause.clone(), true)]);
+        let facts = super::ExecutionAssumptions::from([(clause.clone(), true)]);
 
-        let ordinary = BTreeSet::from([
+        let ordinary = super::ExecutionAssumptions::from([
             (guard.clone(), true),
             (ExecutionCondition::operation(Less, vec![input(11), input(12)]), true),
             (ExecutionCondition::operation(Less, vec![input(12), input(13)]), true),
@@ -410,6 +426,29 @@ mod tests {
 
         assert_eq!(same.prove_trusted(&claim), Some(true));
         assert!(Arc::ptr_eq(prepared, same.prepared.get().expect("same inputs find preparation")));
+
+        let rebuilt = facts.iter().cloned().collect::<super::ExecutionAssumptions>();
+        let alias = cache.proof(&rebuilt, &ordinary);
+
+        assert!(!rebuilt.shares_storage(&facts));
+        assert_eq!(alias.prove_trusted(&claim), Some(true));
+        assert!(Arc::ptr_eq(prepared, alias.prepared.get().expect("equal rebuilt inputs reuse preparation")));
+
+        let mut unchanged = copied.clone();
+
+        unchanged.extend(copied.iter().cloned());
+        unchanged.retain(|_| true);
+
+        assert!(unchanged.shares_storage(&copied), "no-op updates retain the immutable scope");
+
+        let mut changed_inputs = ordinary.clone();
+
+        changed_inputs.retain(|(condition, _)| condition != &guard);
+        changed_inputs.insert((guard.clone(), false));
+
+        assert!(!changed_inputs.shares_storage(&ordinary));
+        assert_ne!(cache.proof(&facts, &changed_inputs).prove_trusted(&claim), Some(true));
+        assert_eq!(proof.prove_trusted(&claim), Some(true), "updating a clone cannot mutate cached authority");
 
         let observations = proof.refined_observations(&clause);
 
@@ -490,7 +529,7 @@ mod tests {
                 let witness = &witness;
 
                 threads.spawn(move || {
-                    let ordinary = BTreeSet::from([(guard, active)]);
+                    let ordinary = super::ExecutionAssumptions::from([(guard, active)]);
                     let proof = cache.proof(facts, &ordinary);
 
                     assert_eq!(proof.prove_trusted(claim) == Some(true), active);
@@ -500,7 +539,7 @@ mod tests {
             }
         });
 
-        let empty = BTreeSet::new();
+        let empty = super::ExecutionAssumptions::default();
 
         assert_ne!(cache.proof(&empty, &ordinary).prove_trusted(&claim), Some(true), "removing qualified evidence revokes authority");
         assert!(!cache.refined_witness(&witness, &empty, &ordinary).contains_key(&claim), "removed evidence cannot reuse a refinement");
@@ -513,7 +552,7 @@ mod tests {
             ExecutionCondition::operation(LogicalNot, vec![guard.clone()]), other_claim.clone(),
         ]);
 
-        let colliding = BTreeSet::from([(other_clause, true)]);
+        let colliding = super::ExecutionAssumptions::from([(other_clause, true)]);
         let other_owner = cache.proof(&colliding, &ordinary);
 
         assert_eq!(other_owner.prove_trusted(&other_claim), Some(true));

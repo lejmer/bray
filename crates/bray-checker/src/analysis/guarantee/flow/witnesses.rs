@@ -1,3 +1,4 @@
+use crate::execution_guarantees::ExecutionAssumptions;
 use crate::execution_guarantees::{ExecutionSubstitution, SnapshotSubstitution};
 use crate::execution_guarantees::{ExecutionObservationKind as ObservationKind, ExecutionProof};
 use std::collections::{BTreeMap, BTreeSet};
@@ -86,8 +87,7 @@ pub(super) fn conditional_facts(
         })
         .collect::<BTreeSet<_>>() };
 
-    let empty = BTreeSet::new();
-    let ordinary_proofs = [left.0, right.0].map(|state| state.proofs.proof(&empty, &state.assumptions));
+    let ordinary_proofs = [left.0, right.0].map(|state| state.proofs.ordinary_proof(&state.assumptions));
     let inactive = inactive_guards(&guards, &path_guards, [&left_inputs, &right_inputs], &ordinary_proofs, facts);
 
     conditional_aliases([left, right], [&left_inputs, &right_inputs], &guards, &path_guards, &inactive, &ordinary_proofs, facts);
@@ -147,7 +147,7 @@ pub(super) fn conditional_facts(
         let predecessors =
             [(0, (left.0, &left_inputs)), (1, (right.0, &right_inputs))].map(|(index, (state, inputs))| {
                 let source = inputs.apply(&owner);
-                let mut evidence = BTreeSet::new();
+                let mut evidence = ExecutionAssumptions::default();
 
                 for (_, witness) in state.owned_witnesses([source]) {
                     for condition in witness.conditions.keys().filter(|condition| {
