@@ -36,10 +36,10 @@ These final timings have temporary counters compiled but disabled. Frozen30 rema
 RawBuffer invalid acceptance, in 11.7 s. No full matrices ran. The prior uninstrumented pre-finalization batch
 was 105-149 ms, so do not claim a final production speedup from those earlier timings.
 
-The final bounded loop probe records 1,844,487 comparisons: ordering 1,035,376, equality 762,556 and physical
-identity 46,555. Interner lookups are zero because the interner is removed. Additional work is 561,908 native
+The final bounded loop probe records 1,844,579 comparisons: ordering 1,035,376, equality 762,573 and physical
+identity 46,630. Interner lookups are zero because the interner is removed. Additional work is 561,908 native
 key hashes, 104,612 constructed nodes, 190,594 child hashes and 1,357,450 comparison-pair lookups. Node hashing
-writes 660,863 payload chunks totaling 4,051,924 bytes. Pair-map writes are not separately counted. These
+writes 660,863 payload chunks totaling 4,051,924 bytes. Comparison-pair memoization also performs 394,975 writes. These
 categories overlap in cost and must not be summed as time. The 10,000 gate is nowhere near satisfied.
 
 Compared with the prior 2,215,658 comparison/interner count, this removes one reconstruction mechanism but
@@ -158,17 +158,35 @@ The 856 misses cannot be skipped from the 12 new-clause count, because refinemen
 No narrower sufficient identity has been established.
 
 The fixed-point solver retains block outputs but repeats edge transforms before comparing merged inputs.
-A possible next correction is one edge contribution per retained source-output generation, including rejected
-edges. Edge transforms read the whole source state and fixed solve inputs. Target-dependent merges must still
-run in original order, followed by the cyclic previous approximation. Slots must belong to one solve because
-cleanup rounds change reachability, liveness and lifetime ends. The generic propagate API currently combines
-transformation and target merge. Its contract must be separated or optimization confined to storage flow.
-This needs a bounded transform-count measurement and memory accounting before implementation.
+The bounded probe now measures 658 storage-flow propagations across eight solves. Only 36 repeat the same
+edge/source-output version. Their inclusive cost is 198,844 counted events, including target-dependent merges
+that caching cannot remove. That is at most 3.9 percent of the 5,114,981 instrumented events, not a wall-time
+estimate. Solve-local edge retention cannot be the main route to the gate. Do not implement it next.
 
-Next bounded experiment must measure construction provenance and unchanged-source edge-transform reuse
-potential together before another production change. Count producer call sites/variants, edge/source-output
-versions and the work inside repeated transformations. Charge comparison-pair maintenance too. This will
-choose between redundant value production and solve-local edge products without another local repair loop.
+Construction provenance identifies 36,346 Equal/NotEqual nodes and 30,302 LogicalNot nodes from operation
+normalization, plus 8,418 Boolean binary rebuild nodes. Raw inverse proof lookup constructs another 5,400 and
+ordinary-complement lookup 2,932. These are factory sites, not yet exact calling-consumer attribution.
+The dominant next contract is normalization and negated-query production. Trace those callers before choosing
+an implementation. Do not substitute another memo table for repeated production by default.
+
+Raw unchanged wrappers can retain their input after traversing children and charging the same budgets.
+Normalizing constructors need stronger guarantees. Even an already normalized Boolean tree can exceed the old
+work limit when flattened again, so equal children or canonical shape alone cannot justify skipping that work.
+Preserve exact shape, qualifier, current/entry scope, NaN handling and exhaustion semantics in any replacement.
+The scalar/projection reconstruction paths are smaller and should not distract from the dominant operation path.
+
+Concrete callers: implication::comparison_is_implied constructs normalized positive/negative comparison probes
+in both operand orders. condition/proof builds a separate raw inverse probe. context::can_assume constructs a
+normalized contrary only after mixed proof is unknown. Join/witness paths also create negations that become
+published formulas. A signed borrowed query could serve transient probes, but false proof of the original is
+not equivalent to proof of its normalized contrary under the original precedence and budgets. Published joins
+cannot silently become negative atom facts. Caller attribution remains unresolved, so do not claim measured
+savings for a polarity change yet. Native BTreeSet membership does not accept arbitrary virtual roots directly.
+
+For parent retention, run existing child rewrites and all normalization decisions first. At the final raw-result
+boundary, an exactly equal operator and ordered operands can reuse the original parent. Equality rewriting
+must still resolve the normalized result afterward. This is narrower than skipping normalization for unchanged
+children, and any added comparisons must be charged. It does not by itself establish the 10,000 solution.
 
 ## Fixed evidence and broader work
 
