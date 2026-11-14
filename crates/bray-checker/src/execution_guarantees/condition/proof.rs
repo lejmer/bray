@@ -214,26 +214,7 @@ impl ExecutionCondition {
 
     /// Checks a branch against both direct evidence and retained Boolean alternatives.
     pub(crate) fn can_assume(&self, value: bool, assumptions: &BTreeSet<(Self, bool)>) -> bool {
-        if self.is_unknown() { return true; }
-
-        let empty = BTreeSet::new();
-        let proof = ExecutionProof::new(&empty, assumptions);
-
-        if let Some(known) = proof.prove_mixed(self, &mut { Self::WORK_LIMIT }) {
-            return known == value;
-        }
-
-        let contrary = if value {
-            Self::operation(BoundOperator::LogicalNot, vec![self.clone()])
-        } else {
-            self.clone()
-        };
-
-        // Feasibility also asks about atomic conditions. Ordinary query recursion
-        // already searches alternatives for disjunctions, so do not repeat that work.
-        !(proof.prove_trusted(&contrary) == Some(true)
-            || !matches!(contrary, Self::Operation(BoundOperator::LogicalOr, _))
-                && proof.proves_alternative(&contrary))
+        ExecutionProof::new(&BTreeSet::new(), assumptions).can_assume(self, value)
     }
 
     /// Maps equivalent Boolean atoms, forgetting unsupported ones without strengthening the clause.

@@ -22,8 +22,8 @@ pub(super) struct OwnedReturn {
 }
 
 impl OwnedReturn {
-    pub(super) fn excludes(&self, path: &[StorageProjection]) -> bool {
-        activity(&self.value, path, &self.assumptions).0 == Some(false)
+    pub(super) fn excludes(&self, path: &[StorageProjection], cache: &crate::execution_guarantees::ExecutionProofCache) -> bool {
+        activity(&self.value, path, &self.assumptions, cache).0 == Some(false)
     }
 }
 
@@ -57,9 +57,8 @@ impl super::check::TrustedChecks {
 
         let mut returned = OwnedReturn {
             value: result.clone(),
-            assumptions: state
-                .assumptions
-                .iter()
+            assumptions: state.proofs.ordinary_proof(&state.assumptions)
+                .ordinary_facts()
                 .filter(|(condition, holds)| {
                     condition.nullable_absence(*holds).is_some()
                         || condition.nullable_absence(!*holds).is_some()
@@ -183,7 +182,7 @@ impl super::check::TrustedChecks {
 
             for returned in &self.owned_returns {
                 let (active, leaf_absent) =
-                    activity(&returned.value, transfer.output(), &returned.assumptions);
+                    activity(&returned.value, transfer.output(), &returned.assumptions, &domain.proofs);
 
                 let contains = returned
                     .transfers
@@ -270,7 +269,9 @@ pub(super) fn activity(
     result: &ExecutionCondition,
     path: &[StorageProjection],
     assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+    cache: &crate::execution_guarantees::ExecutionProofCache,
 ) -> (Option<bool>, bool) {
+    let proof = cache.ordinary_proof(assumptions);
     let mut value = result.clone();
     let mut active = Some(true);
 
@@ -280,7 +281,7 @@ pub(super) fn activity(
                 if let Some(present) = value.known_presence() {
                     Some(present)
                 } else {
-                    assumptions.iter().find_map(|(condition, holds)| {
+                    proof.ordinary_facts().find_map(|(condition, holds)| {
                         condition
                             .nullable_absence(*holds)
                             .map(|(subject, _)| (subject, false))
@@ -299,7 +300,7 @@ pub(super) fn activity(
             StorageProjection::ActiveUnionPayloadField { variant, .. } => value
                 .clone()
                 .matches_variant(*variant)
-                .prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }),
+                .prove_ordinary(assumptions, Some(cache)),
             _ => Some(true),
         };
 
@@ -315,7 +316,7 @@ pub(super) fn activity(
     }
 
     if value.known_presence() == Some(false)
-        || assumptions.iter().any(|(condition, holds)| {
+        || proof.ordinary_facts().any(|(condition, holds)| {
             condition
                 .nullable_absence(*holds)
                 .is_some_and(|(subject, _)| subject == &value || subject == value.owner_identity())
@@ -333,7 +334,7 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
     transfer: &DependencyOwnedTransfer<StorageProjection>,
     assumptions: &BTreeSet<(ExecutionCondition, bool)>,
 ) -> bool {
-    if activity(&ExecutionCondition::Result, transfer.output(), assumptions).0 == Some(false) {
+    if activity(&ExecutionCondition::Result, transfer.output(), assumptions, &domain.proofs).0 == Some(false) {
         return true;
     }
 

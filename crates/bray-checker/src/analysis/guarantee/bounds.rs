@@ -60,7 +60,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             condition
                 .with_equalities(&equalities)
-                .prove(&assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                .prove_ordinary(&assumptions, Some(&state.proofs))
                 == Some(true)
                 || self.integer_condition_truth(state, &condition, &mut ranges) == Some(true)
         };

@@ -84,14 +84,14 @@ impl DeferredValue {
         })
     }
 
-    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
+    pub(super) fn merge(&mut self, incoming: &Self, cache: &crate::execution_guarantees::ExecutionProofCache) -> bool {
         let mut changed = false;
 
         for (source, candidate) in &incoming.producers {
             if let Some(previous) = self.producers.get_mut(source) {
                 if previous != candidate {
                     if previous.entry != candidate.entry {
-                        changed |= Arc::make_mut(&mut previous.entry).intersect(&candidate.entry);
+                        changed |= Arc::make_mut(&mut previous.entry).intersect(&candidate.entry, cache);
                     }
 
                     changed |= previous.merge_capture(candidate);

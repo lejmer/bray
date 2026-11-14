@@ -9,7 +9,7 @@ All five fixed formerly unfinished fixtures must take less than500ms each, exclu
 Rust builds. Measure caller construction, checking and lowering in separate bounded optimized runs.
 The same_site_independent_second caller must also stay at or below10,000 combined condition comparisons and
 interner lookups, counting recursive work. This is a user acceptance gate. Do not hide work by renaming operations
-or moving it outside the measured phase. Both performance gates remain incomplete.
+or moving it outside the measured phase. The fixed-five timing gate passes. The operation-count gate remains incomplete.
 
 Preserve fixed positive/negative outcomes and rejection at observe(&value), source and import behavior, exact
 owner/dependency/current-value/entry-snapshot scopes, qualified polarity and every original work-budget result.
@@ -30,8 +30,12 @@ Only its tables use the already-locked hashbrown dependency. Structural hashing 
 Body flow owns proof preparation across required cleanup-feasibility rounds. Reachability, liveness and mutable
 flow state are recomputed. Joins, deferred frame moves, captured-input projection and returned-owner snapshot
 forests now use the same body identity index. Their result memos remain separate for each immutable mapping.
-Existing different-map, capture, opacity and budget controls exercise that separation. This batch adds11 nonblank
-Rust production lines and2 test lines, plus the dependency declarations. No Bray fixture bodies changed.
+Existing different-map, capture, opacity and budget controls exercise that separation.
+
+Ordinary proof closure stays in immutable preparation instead of feeding back into flow assumptions. Shape joins,
+entry intersections, ownership selection/preservation and completion guards query the existing body cache. Its
+ordinary_facts iterator merges the two existing ordered sets without copying or publishing them. No new type or
+cache was added. This batch removes4 nonblank production lines and adds15 test lines. No Bray fixture bodies changed.
 
 Immutable operands retain qualification/unknown properties. Ordering preserves derived field precedence and
 recognizes shared children. DAG walks preserve opacity and live-borrow context. Snapshot insertion happens once,
@@ -43,8 +47,8 @@ its original authority and address filtering. Current data and retained identity
 
 ## Current evidence and next decision
 
-Final uninstrumented build passes196 focused controls. Fixed-five twice: tasks303-343ms, loop1615-1666ms, preserving
-all outcomes and intended negative sites. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance,12.65s.
+Final uninstrumented build passes196 focused controls. Fixed-five twice: tasks133-140ms, loop314-318ms, preserving
+all outcomes and intended negative sites. Frozen30 remains29 pass/1 known RawBuffer invalid acceptance,12.60s.
 Formatting passes. Mutating style reports only six prior errors: wildcard flow/invalidation and oversized flow/merge,
 storage_flow cleanup/core, execution_guarantees/portable and tooling output/diagnostic/json/argument.
 No temporary profiling hooks remain. No task process remains after these checks.
@@ -55,13 +59,20 @@ reduced node creation across indexes from245,947 to76,969 before the remaining c
 The largest index had8,161 nodes. Final operation counts need a fresh measurement after the next algorithmic change.
 Identity reuse alone cannot meet the goal. Witness refinement/Boolean preparation dominate comparison volume.
 
-Next unresolved contract: conditional_facts collects source witness candidates, discards their source provenance,
-then reconstructs predecessor clauses and proves candidate/guard combinations. Trace direct forward transport
-through result_replacements, collect_observations, owned_alternatives and retain_conditional_guarantees before
-changing that mechanism. Cover both CFG joins and returned-value joins. Empty alternatives must remain empty,
-private unavailable witnesses must not publish caller truth, and borrowed-data mappings must not become ownership
-mappings. Determine which claims can be deduced from actual source transfers and where real implication remains
-necessary. Do not add another cache or widen inference as a substitute for closing this contract.
+The removed feedback let CFG and returned-value joins qualify carrier clauses by their own consequences. A bounded
+probe found one clause growing beyond200 across two owners and21,538 retained clauses over240 joins. Suppressing
+only feedback reduced retention to1,454 over224 joins and kept the intended rejection. Temporary probes were removed.
+
+Keep established assumptions as proof inputs and derived closure in its existing immutable query cache. Ownership
+case selection/preservation, completion selection, branch feasibility and ordinary-guard discharge query that closure
+rather than depend on prior publication. Both join paths continue proving each
+candidate against the actual predecessor and complete carrier. Empty ownership alternatives, unavailable evidence,
+alias/current-data distinctions and numeric unordered behavior must remain intact. Existing initialized-alternative
+ownership, guarded completion, qualifier/budget controls and fixed five are the oracles. Add no representation or
+cache and keep production growth below50 nonblank lines. Reconsider if retained alternatives lose needed facts or any
+negative becomes accepted. Next measure the entire caller phase, including recursive equality/ordering comparisons
+and interner lookups. Earlier counts covered only body checking and ordering, so they are not acceptance evidence.
+Candidate provenance and redundant carrier clauses remain the next unresolved mechanism. No task process remains.
 
 ## Fixed gates and broader work
 

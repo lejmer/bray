@@ -549,7 +549,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     vec![different_left, different_right],
                 );
 
-                if safe.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                if safe.prove_ordinary(&state.assumptions, Some(&state.proofs))
                     == Some(true)
                 {
                     return true;
@@ -631,7 +631,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let value = self.value(state, expression);
 
         ExecutionCondition::operation(BoundOperator::NotEqual, vec![value, zero])
-            .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+            .prove_ordinary(&state.assumptions, Some(&state.proofs))
             == Some(true)
             || self
                 .integer_range(state, expression, ranges, &mut {

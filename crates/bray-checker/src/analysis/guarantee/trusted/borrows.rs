@@ -61,7 +61,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ).expect("checked extraction guard decodes in the same semantic store")
                     .substitute(&|place| place.value_in(arguments).unwrap_or(ExecutionCondition::Unknown),
                         &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT })
-                    .prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }) != Some(false)))
+                    .prove_ordinary(assumptions, Some(&self.proofs)) != Some(false)))
             .map(|(transfer, _)| transfer)
             .filter(|transfer| !self.returned_value_is_borrowed(dependencies,
                 &crate::storage::owned_storage_projections(self.dependencies, transfer.output())))
@@ -226,7 +226,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let proof = state.proofs.proof(&state.trusted_assumptions, &state.assumptions);
 
         for (owner, guard) in guards {
-            if guard.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+            if guard.prove_ordinary(&state.assumptions, Some(&state.proofs))
                 == Some(true)
             {
                 continue;

@@ -434,7 +434,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
 
             for (_, guard) in &guards {
                 if snapshots.apply(guard)
-                    .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                    .prove_ordinary(&state.assumptions, Some(&state.proofs))
                     == Some(true)
                 {
                     result = bray_symbols::DependencyOwnedResult::case(guard.clone(), result);
@@ -447,7 +447,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
 }
 
 fn absent_observations(state: &ExecutionState) -> BTreeMap<ExecutionCondition, std::sync::Arc<bray_symbols::ConstantValueData>> {
-    state.assumptions.iter()
+    state.proofs.ordinary_proof(&state.assumptions).ordinary_facts()
         .filter_map(|(condition, holds)| condition.nullable_absence(*holds))
         .map(|(subject, absent)| (subject.clone(), std::sync::Arc::clone(absent)))
         .collect()

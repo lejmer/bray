@@ -600,7 +600,7 @@ impl ExecutionState {
                     slot.insert(entries);
                 }
                 std::collections::btree_map::Entry::Occupied(mut slot) => {
-                    slot.get_mut().merge(&entries);
+                    slot.get_mut().merge(&entries, &self.proofs);
                 }
             }
         }
@@ -1117,10 +1117,10 @@ mod tests {
             .clone()
             .assume(true, &mut left.trusted_assumptions);
 
-        assert!(left.intersect(&right));
+        assert!(left.intersect(&right, &Default::default()));
         assert_eq!(left.addresses[&argument][&address].len(), 2);
         assert!(!left.prove_trusted_requirements(&[condition]).is_ok());
-        assert!(!left.intersect(&right));
+        assert!(!left.intersect(&right, &Default::default()));
     }
 
     #[test]

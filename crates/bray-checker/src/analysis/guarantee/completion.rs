@@ -90,7 +90,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                 .cleanup
                                 .entry((node, access, part, slot, normal))
                                 .and_modify(|previous| {
-                                    previous.evidence.intersect(evidence);
+                                    previous.evidence.intersect(evidence, &self.domain.proofs);
                                 })
                                 // Different control-flow exits own independently mutable premises.
                                 .or_insert_with(|| crate::ExecutionCleanup {
@@ -123,7 +123,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                             .disposal
                             .entry((node.into(), lifecycle.call.callable))
                             .and_modify(|previous| {
-                                previous.intersect(evidence);
+                                previous.intersect(evidence, &self.domain.proofs);
                             })
                             .or_insert_with(|| evidence.clone());
                     };

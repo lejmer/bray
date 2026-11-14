@@ -674,7 +674,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let completed = ExecutionCondition::VariantTest(variant, Arc::new(root.clone()));
 
-        match completed.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) {
+        match completed.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
             Some(false) => return root,
             Some(true) => {
                 let payload = root.clone().project(projection);

@@ -246,7 +246,7 @@ impl ExecutionCallEvidence {
         self.anonymous_target.as_ref()
     }
 
-    pub(crate) fn intersect(&mut self, other: &Self) -> bool {
+    pub(crate) fn intersect(&mut self, other: &Self, cache: &super::ExecutionProofCache) -> bool {
         assert_eq!(
             self.implementation_witnesses, other.implementation_witnesses,
             "a selected invocation retains its implementation choices across control flow"
@@ -294,6 +294,8 @@ impl ExecutionCallEvidence {
 
         let mut arguments_changed = false;
         let mut joined_facts = Vec::new();
+        let left = cache.ordinary_proof(&self.assumptions);
+        let right = cache.ordinary_proof(&other.assumptions);
 
         for (place, value) in &mut self.arguments {
             let incoming = other.arguments.get(place);
@@ -305,7 +307,7 @@ impl ExecutionCallEvidence {
             let joined = incoming.map_or(super::ExecutionCondition::Unknown, |incoming| {
                 super::common_components(
                     value, incoming, None,
-                    (&self.assumptions, &other.assumptions),
+                    (&left, &right),
                     &mut joined_facts, &mut { super::ExecutionCondition::WORK_LIMIT },
                 )
             });

@@ -290,7 +290,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // A guarantee discharged solely by its ordinary guard carries no trusted authority.
             if condition == ExecutionCondition::Unknown
-                || guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true)
+                || guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true)
             {
                 continue;
             }
@@ -350,7 +350,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let guarantee = instantiate(template);
 
-            if guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+            if guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs))
                 != Some(true)
             {
                 carry_result(state, template, &guarantee, &result, false);
@@ -459,7 +459,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        let preconditions = assume_normal_entry(&mut entry, &contract.preconditions, &contract.requirements)?;
+        let preconditions = assume_normal_entry(&mut entry, &contract.preconditions, &contract.requirements, &state.proofs)?;
 
         for (condition, domain) in preconditions {
             // A completed runtime check establishes its captured value, not a new
@@ -480,6 +480,7 @@ fn assume_normal_entry(
     entry: &mut crate::ExecutionCallEvidence,
     preconditions: &[(ExecutionCondition, bray_symbols::PredicateDomain)],
     requirements: &[ExecutionCondition],
+    cache: &crate::execution_guarantees::ExecutionProofCache,
 ) -> Option<Vec<(ExecutionCondition, bray_symbols::PredicateDomain)>> {
     let equalities = ExecutionCondition::equalities(&entry.assumptions, None);
 
@@ -507,7 +508,7 @@ fn assume_normal_entry(
     // A disproven entry cannot complete normally. Unknown ordinary requirements
     // can pass their runtime checks; capture that entry evidence for completion guards.
     if preconditions.iter().any(|(condition, _)| {
-        condition.prove(&entry.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(false)
+        condition.prove_ordinary(&entry.assumptions, Some(cache)) == Some(false)
     }) {
         return None;
     }
@@ -549,11 +550,11 @@ mod admission_tests {
         let mut completed = before.clone();
 
         assert!(before.prove_trusted_requirements(std::slice::from_ref(&requirement)).is_err());
-        assume_normal_entry(&mut completed, &[], std::slice::from_ref(&requirement)).unwrap();
+        assume_normal_entry(&mut completed, &[], std::slice::from_ref(&requirement), &Default::default()).unwrap();
         assert!(completed.prove_trusted_requirements(std::slice::from_ref(&requirement)).is_ok());
         assert!(before.prove_trusted_requirements(std::slice::from_ref(&requirement)).is_err());
 
         assert!(assume_normal_entry(&mut completed,
-            &[(ExecutionCondition::Boolean(false), bray_symbols::PredicateDomain::Value)], &[]).is_none());
+            &[(ExecutionCondition::Boolean(false), bray_symbols::PredicateDomain::Value)], &[], &Default::default()).is_none());
     }
 }

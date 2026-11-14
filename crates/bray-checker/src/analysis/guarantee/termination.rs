@@ -296,7 +296,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
                 .expect("selected nullable result has its absence value");
 
                 let present = ExecutionCondition::pattern(result, BoundOperator::NotEqual, missing)
-                    .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                    .prove_ordinary(&state.assumptions, Some(&state.proofs))
                     == Some(true);
 
                 let after = ExecutionCondition::post_state(
@@ -541,7 +541,7 @@ fn next_present<C: CheckerRequestContext + ?Sized>(
         BoundOperator::NotEqual,
         missing,
     )
-    .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+    .prove_ordinary(&state.assumptions, Some(&state.proofs))
         == Some(true)
 }
 
@@ -615,7 +615,7 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
             if exits.iter().any(|state| {
                 phase.value_in(&state.current).is_none_or(|current| {
                     ExecutionCondition::operation(BoundOperator::Equal, vec![current, zero.clone()])
-                        .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                        .prove_ordinary(&state.assumptions, Some(&state.proofs))
                         != Some(true)
                 })
             }) {
