@@ -73,7 +73,6 @@ impl ExecutionCallEvidence {
     pub(crate) fn captured_facts(
         &self,
         ordinary: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-        index: &super::ConditionIndex,
     ) -> std::collections::BTreeSet<(super::ExecutionCondition, bool)> {
         use super::ExecutionCondition as Condition;
 
@@ -84,7 +83,7 @@ impl ExecutionCallEvidence {
             return facts;
         }
 
-        let snapshots = super::SnapshotSubstitution::new(&bindings, index);
+        let snapshots = super::SnapshotSubstitution::new(&bindings);
 
         for (condition, holds) in ordinary {
             if condition.contains_trusted() || condition.observes_live(None) {
@@ -304,7 +303,7 @@ impl ExecutionCallEvidence {
 
             // Invocation entries use the same snapshot join as current values.
             // Loss of contents knowledge does not retire a common carrier or loan.
-            let joined = incoming.map_or(super::ExecutionCondition::Unknown, |incoming| {
+            let joined = incoming.map_or_else(super::ExecutionCondition::unknown, |incoming| {
                 super::common_components(
                     value, incoming, None,
                     (&left, &right),
@@ -330,7 +329,7 @@ impl ExecutionCallEvidence {
 
         self.copy_sources
             .retain(|place, value| other.copy_sources.get(place) == Some(value)
-                && self.arguments.get(place).is_some_and(|value| *value != super::ExecutionCondition::Unknown));
+                && self.arguments.get(place).is_some_and(|value| *value != super::ExecutionCondition::unknown()));
 
         self.witness_inputs
             .retain(|owner| other.witness_inputs.contains(owner));
@@ -422,20 +421,20 @@ impl ExecutionCallEvidence {
                         .or_else(|| {
                             input
                                 .constant_term()
-                                .map(|_| super::ExecutionCondition::Input(input.clone()))
+                                .map(|_| super::ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
                         })
                         .or_else(|| match input.reference() {
                             Some(bray_bound_tree::BoundReferenceTarget::Surface(
                                 bray_symbols::AnySymbolId::GenericConstParameter(_),
                             )) => {
                                 // Generic substitution has already mapped this immutable compile-time input into the caller.
-                                Some(super::ExecutionCondition::Input(input.clone()))
+                                Some(super::ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
                             }
                             _ => None,
                         })
-                        .unwrap_or(super::ExecutionCondition::Unknown)
+                        .unwrap_or_else(super::ExecutionCondition::unknown)
                 },
-                &super::ExecutionCondition::Unknown,
+                &super::ExecutionCondition::unknown(),
                 &mut { crate::ExecutionCondition::WORK_LIMIT },
             );
 
@@ -462,23 +461,23 @@ mod tests {
         let argument = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
         let owner = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1));
         let field = bray_symbols::ConstantProjectionKind::TupleElement(bray_symbols::SymbolOrdinal::new(0));
-        let required = ExecutionCondition::Input(argument.clone().component(field));
-        let contents = ExecutionCondition::Input(owner.clone().component(field));
+        let required = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone().component(field)));
+        let contents = ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner.clone().component(field)));
         let mut entry = ExecutionCallEvidence::default();
 
-        entry.arguments.insert(argument.clone(), ExecutionCondition::Input(owner).borrowed());
+        entry.arguments.insert(argument.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner)).borrowed());
         entry.assumptions.insert((contents.clone(), true));
 
         assert!(entry.prove_requirements([&required]).is_ok());
-        assert!(entry.prove_requirements([&ExecutionCondition::Trusted(std::sync::Arc::new(required.clone()))]).is_err());
+        assert!(entry.prove_requirements([&ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(required.clone())))]).is_err());
 
         entry.assumptions.clear();
         assert!(entry.prove_requirements([&required]).is_err());
         entry.assumptions.insert((contents, false));
         assert!(entry.prove_requirements([&required]).is_err());
 
-        entry.arguments.insert(argument, ExecutionCondition::Input(
-            ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2))).borrowed());
+        entry.arguments.insert(argument, ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2)))).borrowed());
 
         assert!(entry.prove_requirements([&required]).is_err());
     }
@@ -486,9 +485,9 @@ mod tests {
     #[test]
     fn failed_entry_proofs_retain_the_requirement_and_actual_value() {
         let input = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
-        let required = ExecutionCondition::Input(input.clone());
+        let required = ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone()));
 
-        for actual in [ExecutionCondition::Boolean(false), ExecutionCondition::Unknown] {
+        for actual in [ExecutionCondition::boolean(false), ExecutionCondition::unknown()] {
             let mut entry = ExecutionCallEvidence::default();
 
             entry.arguments.insert(input.clone(), actual.clone());
@@ -501,7 +500,7 @@ mod tests {
 
         let mut entry = ExecutionCallEvidence::default();
 
-        entry.arguments.insert(input, ExecutionCondition::Boolean(true));
+        entry.arguments.insert(input, ExecutionCondition::boolean(true));
         assert!(entry.prove_requirements([&required]).is_ok());
     }
 }

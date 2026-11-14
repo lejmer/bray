@@ -249,16 +249,16 @@ pub(super) fn runtime_source_contract_matches(
         return Ok(false);
     }
 
-    let condition = match condition {
-        bray_checker::ExecutionCondition::Trusted(condition) => condition.as_ref(),
-        condition => condition,
+    let condition = match condition.kind() {
+        bray_checker::ExecutionConditionKind::Trusted(inner) => inner.as_ref(),
+        _ => condition,
     };
 
-    let bray_checker::ExecutionCondition::Predicate(
+    let bray_checker::ExecutionConditionKind::Predicate(
         bray_symbols::PredicateDefinitionSymbolId::Predicate(predicate),
         substitution,
         arguments,
-    ) = condition
+    ) = condition.kind()
     else {
         return Ok(false);
     };

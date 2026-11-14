@@ -60,16 +60,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .all(|term| crate::execution_condition_from_type_term(
                     self.request.semantic_values(), term, dependencies.input_count(),
                 ).expect("checked extraction guard decodes in the same semantic store")
-                    .substitute(&|place| place.value_in(arguments).unwrap_or(ExecutionCondition::Unknown),
-                        &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT })
+                    .substitute(&|place| place.value_in(arguments).unwrap_or_else(ExecutionCondition::unknown),
+                        &ExecutionCondition::unknown(), &mut { ExecutionCondition::WORK_LIMIT })
                     .prove_ordinary(assumptions, Some(&self.proofs)) != Some(false)))
             .map(|(transfer, _)| transfer)
             .filter(|transfer| !self.returned_value_is_borrowed(dependencies,
                 &crate::storage::owned_storage_projections(self.dependencies, transfer.output())))
             .filter_map(|transfer| {
-                let ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+                let decoded = crate::execution_condition_from_type_term(
                     self.request.semantic_values(), transfer.input(), dependencies.input_count(),
-                ).expect("checked extraction source names its formal input") else {
+                ).expect("checked extraction source names its formal input");
+
+                let crate::ExecutionConditionKind::Input(input) = decoded.kind() else {
                     unreachable!("checked extraction source contains only input projections");
                 };
 
@@ -119,13 +121,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &|place| {
                     place
                         .value_in(arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
+                        .unwrap_or_else(ExecutionCondition::unknown)
                 },
-                &ExecutionCondition::Unknown,
+                &ExecutionCondition::unknown(),
                 &mut { ExecutionCondition::WORK_LIMIT },
             );
 
-            if value == ExecutionCondition::Unknown {
+            if value == ExecutionCondition::unknown() {
                 continue;
             }
 
@@ -137,7 +139,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // slot. Returning a borrow instead retains its original loan identity.
             let value = if borrowed_result { value } else { value.into_referent() };
 
-            let ExecutionCondition::Input(input) = input else {
+            let crate::ExecutionConditionKind::Input(input) = input.kind() else {
                 unreachable!("a checked ownership source names an input projection");
             };
 
@@ -152,7 +154,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             ).apply(&value, Some(&input), bray_bound_tree::StorageMutation::Operation(invocation));
 
             let value = if borrowed_result || value.is_reference() {
-                ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::Unknown)
+                ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::unknown())
             } else {
                 ExecutionCondition::owned_value(value.owner_identity().clone(), contents)
             };
@@ -189,7 +191,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &|place| {
                     place
                         .value_in(arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
+                        .unwrap_or_else(ExecutionCondition::unknown)
                 },
                 result,
                 &mut { ExecutionCondition::WORK_LIMIT },
@@ -201,7 +203,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for (transfer, enclosing) in dependencies.owned_result().guarded_transfers() {
             let guard = enclosing.into_iter().copied().chain(transfer.condition())
                 .map(|condition| decode(condition))
-                .fold(ExecutionCondition::Boolean(true), |guard, condition| {
+                .fold(ExecutionCondition::boolean(true), |guard, condition| {
                     ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![guard, condition])
                 });
 
@@ -480,7 +482,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &|place| {
                         place
                             .value_in(arguments)
-                            .unwrap_or(ExecutionCondition::Unknown)
+                            .unwrap_or_else(ExecutionCondition::unknown)
                     },
                     &result,
                     &mut { ExecutionCondition::WORK_LIMIT },
@@ -508,7 +510,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &|place| {
                             place
                                 .value_in(arguments)
-                                .unwrap_or(ExecutionCondition::Unknown)
+                                .unwrap_or_else(ExecutionCondition::unknown)
                         },
                         &result,
                         &mut { ExecutionCondition::WORK_LIMIT },
@@ -521,9 +523,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let fields = self.returned_owned_values(invocation, arguments, [transfer]);
 
-                let ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+                let decoded = crate::execution_condition_from_type_term(
                     self.request.semantic_values(), transfer.input(), dependencies.input_count(),
-                ).expect("checked ownership source decodes in the same semantic store") else {
+                ).expect("checked ownership source decodes in the same semantic store");
+
+                let crate::ExecutionConditionKind::Input(input) = decoded.kind() else {
                     unreachable!("a checked ownership source names an input projection");
                 };
 
@@ -626,7 +630,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     match &mut joined {
                         None => joined = Some((branch, value)),
                         Some((previous, previous_value)) => {
-                            *previous_value = super::super::flow::merge_returned(previous, &branch, previous_value, &value, &root, match root.owner_identity() { ExecutionCondition::Expression(expression) => *expression, _ => invocation.expression().expect("normal result alternative retains its invocation expression") });
+                            *previous_value = super::super::flow::merge_returned(previous, &branch, previous_value, &value, &root, match (root.owner_identity()).kind() { crate::ExecutionConditionKind::Expression(expression) => *expression, _ => invocation.expression().expect("normal result alternative retains its invocation expression") });
                         }
                     }
                 }
@@ -650,12 +654,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> ExecutionCondition {
         // Reference observations can add fields around this invocation's pending
         // result. A constructed input from an earlier producer is already complete.
-        let pending = match &result {
-            ExecutionCondition::Constructed(base, _) => {
-                let belongs = match base.as_ref() {
-                    ExecutionCondition::Expression(expression) => invocation == (*expression).into(),
-                    ExecutionCondition::ScopedCapability(expression) => invocation == BoundExecutionSite::ScopedEnter(*expression),
-                    ExecutionCondition::PostState(bray_bound_tree::StorageMutation::Operation(site), _) => *site == invocation,
+        let pending = match result.kind() {
+            crate::ExecutionConditionKind::Constructed(base, _) => {
+                let belongs = match (base.as_ref()).kind() {
+                    crate::ExecutionConditionKind::Expression(expression) => invocation == (*expression).into(),
+                    crate::ExecutionConditionKind::ScopedCapability(expression) => invocation == BoundExecutionSite::ScopedEnter(*expression),
+                    crate::ExecutionConditionKind::PostState(bray_bound_tree::StorageMutation::Operation(site), _) => *site == invocation,
                     _ => false,
                 };
 
@@ -663,15 +667,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 base.as_ref()
             }
-            value => value,
+            _ => &result,
         };
 
-        let retains_identity = matches!(
-            pending,
-            ExecutionCondition::Expression(_)
-                | ExecutionCondition::ScopedCapability(_)
-                | ExecutionCondition::Projection(_, _)
-        ) || matches!(pending, ExecutionCondition::PostState(
+        let retains_identity = matches!((
+            pending).kind(),
+            crate::ExecutionConditionKind::Expression(_)
+                | crate::ExecutionConditionKind::ScopedCapability(_)
+                | crate::ExecutionConditionKind::Projection(_, _)
+        ) || matches!(pending.kind(), crate::ExecutionConditionKind::PostState(
                 bray_bound_tree::StorageMutation::Operation(site), _) if *site == invocation);
 
         if !retains_identity {
@@ -739,7 +743,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let value = path.iter().copied().fold(result.clone(), ExecutionCondition::project)
                 .coerce(self.request.semantic_values(), ty, ty);
 
-            if value != ExecutionCondition::Unknown {
+            if value != ExecutionCondition::unknown() {
                 if path.is_empty() {
                     result = value;
                 } else {
@@ -776,7 +780,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            if value == ExecutionCondition::Unknown {
+            if value == ExecutionCondition::unknown() {
                 continue;
             }
 
@@ -838,17 +842,17 @@ fn construct(
     if children.len() == 1
         && let Some(fields) = children.remove(&StorageProjection::NullableValue)
     {
-        return ExecutionCondition::Present(std::sync::Arc::new(construct(
+        return ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(construct(
             root.project(StorageProjection::NullableValue),
             fields,
             owns,
-        )));
+        ))));
     }
 
     let root = if let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) =
             children.keys().next()
     {
-        ExecutionCondition::Tagged(*variant, std::sync::Arc::new(root))
+        ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(*variant, std::sync::Arc::new(root)))
     } else {
         root
     };

@@ -317,7 +317,7 @@ impl Compilation {
                 .map(|(condition, domain, span)| {
                     (
                         if domain == bray_symbols::PredicateDomain::Trusted && trusted_producer {
-                            bray_checker::ExecutionCondition::Boolean(true)
+                            bray_checker::ExecutionCondition::boolean(true)
                         } else {
                             condition
                         },

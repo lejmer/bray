@@ -54,7 +54,7 @@ impl RetainedSnapshots {
     pub(crate) fn retains_contents(&self, value: &ExecutionCondition) -> bool {
         if self.roots.is_empty() { return false; }
 
-        if let ExecutionCondition::Observation { owner, contents, kind: ObservationKind::Reference } = value
+        if let crate::ExecutionConditionKind::Observation { owner, contents, kind: ObservationKind::Reference } = value.kind()
             && contents.ownership_identity().is_some_and(|(kind, _)| kind == ObservationKind::Owned)
             && **owner == contents.owner_identity().clone().borrowed()
             && self.matching(contents, false, |selected| {
@@ -87,7 +87,7 @@ impl RetainedSnapshots {
     }
 
     fn contents(mut value: &ExecutionCondition) -> &ExecutionCondition {
-        while let ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. } = value {
+        while let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. } = value.kind() {
             value = contents;
         }
 
@@ -123,7 +123,7 @@ impl RetainedSnapshots {
                 selected = selected.component(*projection);
             }
 
-            if matches!(snapshot.owner_identity(), ExecutionCondition::Borrowed(_)) && prefix.len() != path.len() {
+            if matches!((snapshot.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_)) && prefix.len() != path.len() {
                 selected = selected.borrowed();
             }
 
@@ -163,9 +163,9 @@ impl SnapshotIndex {
             pending.extend(snapshot.owned_components().map(|value| (value, reached)));
 
             // A loan retains its reached data, but never the referent's ownership.
-            match snapshot {
-                ExecutionCondition::Borrowed(referent)
-                | ExecutionCondition::Observation { contents: referent, kind: ObservationKind::Reference, .. } => pending.push((referent, true)),
+            match snapshot.kind() {
+                crate::ExecutionConditionKind::Borrowed(referent)
+                | crate::ExecutionConditionKind::Observation { contents: referent, kind: ObservationKind::Reference, .. } => pending.push((referent, true)),
                 _ => {}
             }
         }

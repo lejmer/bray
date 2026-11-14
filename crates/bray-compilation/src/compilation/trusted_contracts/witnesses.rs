@@ -28,16 +28,16 @@ impl Compilation {
         let mut diagnostics = DiagnosticBag::new();
 
         while let Some((requirement, condition)) = pending.pop() {
-            let ExecutionCondition::Trusted(condition) = condition else {
-                if let ExecutionCondition::Operation(_, operands) = condition {
+            let bray_checker::ExecutionConditionKind::Trusted(condition) = condition.kind() else {
+                if let bray_checker::ExecutionConditionKind::Operation(_, operands) = condition.kind() {
                     pending.extend(operands.iter().map(|condition| (requirement, condition)));
                 }
 
                 continue;
             };
 
-            let ExecutionCondition::Predicate(predicate, substitution, arguments) =
-                condition.as_ref()
+            let bray_checker::ExecutionConditionKind::Predicate(predicate, substitution, arguments) =
+                (condition.as_ref()).kind()
             else {
                 continue;
             };
@@ -112,7 +112,7 @@ impl Compilation {
                                 )
                         }) && self.trusted_result_is_witness(
                             ty?,
-                            std::slice::from_ref(&ExecutionCondition::Trusted(condition.clone())),
+                            std::slice::from_ref(&ExecutionCondition::new(bray_checker::ExecutionConditionKind::Trusted(condition.clone()))),
                             cancellation,
                             &mut diagnostics,
                         )?
@@ -160,10 +160,10 @@ impl Compilation {
         let mut addresses = Vec::new();
 
         while let Some((guarantee, condition)) = pending.pop() {
-            match condition {
-                ExecutionCondition::Trusted(condition) => {
-                    let ExecutionCondition::Predicate(predicate, substitution, arguments) =
-                        condition.as_ref()
+            match condition.kind() {
+                bray_checker::ExecutionConditionKind::Trusted(condition) => {
+                    let bray_checker::ExecutionConditionKind::Predicate(predicate, substitution, arguments) =
+                        (condition.as_ref()).kind()
                     else {
                         continue;
                     };
@@ -247,7 +247,7 @@ impl Compilation {
                         }
                     }
                 }
-                ExecutionCondition::Operation(_, operands) => {
+                bray_checker::ExecutionConditionKind::Operation(_, operands) => {
                     pending.extend(operands.iter().map(|operand| (guarantee, operand)))
                 }
                 _ => {}
@@ -366,13 +366,13 @@ impl Compilation {
         let mut pending = result_guarantees.collect::<Vec<_>>();
 
         while let Some(condition) = pending.pop() {
-            match condition {
-                ExecutionCondition::Trusted(condition) => {
+            match condition.kind() {
+                bray_checker::ExecutionConditionKind::Trusted(condition) => {
                     if !condition.observes_completion_result() {
                         continue;
                     }
 
-                    let ExecutionCondition::Predicate(predicate, _, _) = condition.as_ref() else {
+                    let bray_checker::ExecutionConditionKind::Predicate(predicate, _, _) = (condition.as_ref()).kind() else {
                         continue;
                     };
 
@@ -392,8 +392,8 @@ impl Compilation {
                         return Ok(true);
                     }
                 }
-                ExecutionCondition::Operation(_, operands) => pending.extend(operands.iter()),
-                ExecutionCondition::Unknown => return Ok(true),
+                bray_checker::ExecutionConditionKind::Operation(_, operands) => pending.extend(operands.iter()),
+                bray_checker::ExecutionConditionKind::Unknown => return Ok(true),
                 _ => {}
             }
         }

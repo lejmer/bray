@@ -15,21 +15,21 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
     ) -> Option<ExecutionCondition> {
         let (root, path) = subject.observation_path()?;
 
-        if root != ExecutionCondition::Result {
+        if root != ExecutionCondition::result() {
             return None;
         }
 
         let mut value = result.clone();
 
         for projection in path {
-            if matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) {
+            if matches!((value.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_)) {
                 return Some(value);
             }
 
             value = value.component(projection);
         }
 
-        matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)).then_some(value)
+        matches!((value.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_)).then_some(value)
     }
 
     /// Preserve the input loan and any independently retained owning value.
@@ -61,17 +61,17 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
             let Some(mut value) = root.value_in(arguments) else { return false; };
 
             for projection in place.projections.iter() {
-                if matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) {
+                if matches!((value.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_)) {
                     return true;
                 }
 
                 value = value.component(*projection);
             }
 
-            matches!(value.owner_identity(), ExecutionCondition::Borrowed(_))
+            matches!((value.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_))
         });
 
-        if !borrowed || condition == &ExecutionCondition::Unknown { return Vec::new(); }
+        if !borrowed || condition == &ExecutionCondition::unknown() { return Vec::new(); }
 
         // The typed subject was projected from this same current argument context.
         // A live backing context retains its guarantees when a temporary loan
@@ -306,7 +306,7 @@ pub(in crate::analysis::guarantee) fn result_projection(
     crate::storage::storage_projections(values, dependencies, path)
         .expect("checked result carrier retains its projection")
         .into_iter()
-        .fold(ExecutionCondition::Result, |value, projection| {
+        .fold(ExecutionCondition::result(), |value, projection| {
             value.project(projection)
         })
 }
@@ -329,7 +329,7 @@ fn collect(
             &|input| {
                 input
                     .value_in(&state.current)
-                    .unwrap_or(ExecutionCondition::Unknown)
+                    .unwrap_or_else(ExecutionCondition::unknown)
             },
             result,
             &mut { ExecutionCondition::WORK_LIMIT },
@@ -400,7 +400,7 @@ fn returned_owners(
             continue;
         }
 
-        if *value == ExecutionCondition::Unknown {
+        if *value == ExecutionCondition::unknown() {
             continue;
         }
 
@@ -409,18 +409,18 @@ fn returned_owners(
         owners.insert(value.clone(), path.clone());
         owners.insert(value.owner_identity().clone(), path.clone());
 
-        match value {
-            ExecutionCondition::Present(value) => {
+        match value.kind() {
+            crate::ExecutionConditionKind::Present(value) => {
                 let mut path = path;
 
                 path.push(StorageProjection::NullableValue);
                 pending.push((value, path));
             }
-            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => {
+            crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Reference, .. } => {
                 // Reached data can carry access promises without transferring its ownership.
                 pending.push((contents, path));
             }
-            ExecutionCondition::Constructed(_, fields) => {
+            crate::ExecutionConditionKind::Constructed(_, fields) => {
                 for (projection, component) in fields.iter() {
                     if !matches!(
                         projection,
@@ -541,7 +541,7 @@ impl ExecutionState {
             assumptions.extend(self.assumptions.iter().cloned());
             assumptions.extend(candidate.selection.iter().cloned());
 
-            let captured = entry.captured_facts(&assumptions, &self.proofs.conditions);
+            let captured = entry.captured_facts(&assumptions);
 
             assumptions.extend(captured.iter().cloned());
 

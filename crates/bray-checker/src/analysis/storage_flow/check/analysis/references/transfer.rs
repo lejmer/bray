@@ -421,7 +421,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     ..
                 }) = payload.projections.last()
                     && value.clone().matches_variant(*variant)
-                        == crate::ExecutionCondition::Boolean(false)
+                        == crate::ExecutionCondition::boolean(false)
                 {
                     self.mark_absent_references(state, payload);
                 }
@@ -429,7 +429,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         if matches!(self.request.semantic_values().type_data(target).as_ref(), bray_symbols::TypeData::Nullable(_))
-            && matches!(value, Some(crate::ExecutionCondition::Literal(value))
+            && matches!(value.as_ref().map(crate::ExecutionCondition::kind), Some(crate::ExecutionConditionKind::Literal(value))
                 if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
         {
             self.mark_absent_references(

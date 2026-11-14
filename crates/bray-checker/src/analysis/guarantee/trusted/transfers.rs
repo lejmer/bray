@@ -110,13 +110,14 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
         }
 
         for (transfer, cases) in contract.owned_result().guarded_transfers() {
-            let crate::ExecutionCondition::Input(input) =
-                crate::execution_condition_from_type_term(
+            let decoded = crate::execution_condition_from_type_term(
                     domain.request.semantic_values(),
                     transfer.input(),
                     contract.input_count(),
                 )
-                .expect("checked owned input decodes in the same semantic store")
+                .expect("checked owned input decodes in the same semantic store");
+
+            let crate::ExecutionConditionKind::Input(input) = decoded.kind()
             else {
                 unreachable!("checked ownership source contains only input projections");
             };
@@ -128,7 +129,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
 
             let mut value = root
                 .value_in(&entry.arguments)
-                .unwrap_or(crate::ExecutionCondition::Unknown);
+                .unwrap_or(crate::ExecutionCondition::unknown());
 
             for (index, projection) in input.projections.iter().enumerate() {
                 let container = reached_container(&value);
@@ -160,9 +161,9 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                             &|place| {
                                 place
                                     .value_in(&entry.arguments)
-                                    .unwrap_or(crate::ExecutionCondition::Unknown)
+                                    .unwrap_or(crate::ExecutionCondition::unknown())
                             },
-                            &crate::ExecutionCondition::Result,
+                            &crate::ExecutionCondition::result(),
                             &mut { crate::ExecutionCondition::WORK_LIMIT },
                         )
                             })
@@ -203,7 +204,7 @@ pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
     parent: &crate::execution_guarantees::ExecutionWitness,
 ) -> bool {
     let capture = |condition: &crate::ExecutionCondition| condition.capture_entry(
-        &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::Unknown),
+        &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::unknown()),
         &entry.trusted_assumptions, &entry.assumptions,
         &mut { crate::ExecutionCondition::WORK_LIMIT },
     );
@@ -219,7 +220,7 @@ pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
     let (_, subjects) = domain.completion_guarantees(invocation, declared, &capture);
 
     let path = crate::storage::owned_storage_projections(domain.dependencies, transfer.output());
-    let output = path.iter().copied().fold(crate::ExecutionCondition::Result, |value, projection| value.project(projection));
+    let output = path.iter().copied().fold(crate::ExecutionCondition::result(), |value, projection| value.project(projection));
 
     if !subjects.iter().any(|(_, subject)| subject.observes_completion_result()
         && output.is_owned_projection_of(subject)) {
@@ -228,20 +229,20 @@ pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
 
     let Some(source) = input.value_in(&entry.arguments) else { return false; };
 
-    let result = crate::ExecutionCondition::Result.with_component(transfer.output(), source, Some(&path));
+    let result = crate::ExecutionCondition::result().with_component(transfer.output(), source, Some(&path));
     let mut potential = ExecutionAssumptions::default();
 
     for (guarantee, subject) in &subjects {
         if !subject.observes_completion_result() { continue; }
 
         let guarantee = guarantee.substitute(
-            &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::Unknown),
+            &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::unknown()),
             &result, &mut { crate::ExecutionCondition::WORK_LIMIT },
         );
 
         // Ignore ordinary guards when checking which trusted authority could
         // escape. A later branch can establish a guard after this transfer.
-        for claim in guarantee.observations().filter(|claim| matches!(claim, crate::ExecutionCondition::Trusted(_))) {
+        for claim in guarantee.observations().filter(|claim| matches!(claim.kind(), crate::ExecutionConditionKind::Trusted(_))) {
             claim.clone().assume(true, &mut potential);
         }
     }
@@ -278,7 +279,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
 
         let value = if materializes {
             path.as_ref().map(|path| domain.current_access_value(state, path))
-                .unwrap_or(crate::ExecutionCondition::Unknown)
+                .unwrap_or(crate::ExecutionCondition::unknown())
         } else {
             domain.storage_value(state, plan.expression(), plan.access())
         };

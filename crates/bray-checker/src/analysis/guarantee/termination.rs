@@ -36,7 +36,7 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
 
                 if !flow
                     .domain
-                    .unsigned_value(&ExecutionCondition::Input(place.clone()))
+                    .unsigned_value(&ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())))
                 {
                     return None;
                 }
@@ -94,15 +94,19 @@ fn displacement(
         return Some(num_bigint::BigInt::from(0));
     }
 
-    let ExecutionCondition::Operation(
+    let crate::ExecutionConditionKind::Operation(
         operator @ (BoundOperator::Add | BoundOperator::Subtract),
         operands,
-    ) = value
+    ) = value.kind()
     else {
         return None;
     };
 
-    let [subject, ExecutionCondition::Literal(amount)] = operands.as_ref() else {
+    let [subject, amount] = operands.as_ref() else {
+        return None;
+    };
+
+    let crate::ExecutionConditionKind::Literal(amount) = amount.kind() else {
         return None;
     };
 
@@ -150,7 +154,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
                 .any(|input| input.contains(place))
         })
         .any(|place| {
-            let base = ExecutionCondition::Input(place.clone());
+            let base = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
             if !flow.domain.unsigned_value(&base) {
                 return false;
@@ -274,7 +278,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
             }
 
             // The next receiver must still be the original input, not a replacement cursor.
-            let base = ExecutionCondition::Input(place.clone());
+            let base = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
             if ExecutionPlace::argument(input)
                 .value_in(&evidence.arguments)
@@ -301,7 +305,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
 
                 let after = ExecutionCondition::post_state(
                     bray_bound_tree::StorageMutation::Operation(*occurrence),
-                    ExecutionCondition::Input(place.clone()),
+                    ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())),
                 );
 
                 present && place.value_in(&state.current).as_ref() == Some(&after)
@@ -322,18 +326,22 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
 }
 
 fn absent(value: &ExecutionCondition, state: &ExecutionState) -> bool {
-    if matches!(value, ExecutionCondition::Literal(value)
+    if matches!(value.kind(), crate::ExecutionConditionKind::Literal(value)
         if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
     {
         return true;
     }
 
     state.assumptions.iter().any(|(condition, holds)| {
-        let ExecutionCondition::Operation(operator, operands) = condition else {
+        let crate::ExecutionConditionKind::Operation(operator, operands) = condition.kind() else {
             return false;
         };
 
-        let [left, ExecutionCondition::Literal(missing)] = operands.as_ref() else {
+        let [left, missing] = operands.as_ref() else {
+            return false;
+        };
+
+        let crate::ExecutionConditionKind::Literal(missing) = missing.kind() else {
             return false;
         };
 
@@ -596,7 +604,7 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
         .any(|(header, (phase, _))| {
             let ty = flow
                 .domain
-                .observation_type(&ExecutionCondition::Input(phase.clone()))
+                .observation_type(&ExecutionCondition::new(crate::ExecutionConditionKind::Input(phase.clone())))
                 .expect("bounded input rank retains its scalar type");
 
             let values = flow.domain.request.semantic_values();
@@ -610,7 +618,7 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
                 ))
                 .expect("zero belongs to the bounded unsigned rank");
 
-            let zero = ExecutionCondition::Literal(values.constant_value_data(zero));
+            let zero = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(values.constant_value_data(zero)));
 
             if exits.iter().any(|state| {
                 phase.value_in(&state.current).is_none_or(|current| {

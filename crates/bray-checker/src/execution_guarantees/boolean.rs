@@ -3,14 +3,14 @@ use std::sync::{Arc, Mutex};
 
 use bray_bound_tree::BoundOperator;
 
-use super::ExecutionCondition;
-use super::condition::{ConditionId, ConditionIndex, ConditionMemo, ConditionNode, ProofMemo, cached_condition};
+use super::{ExecutionCondition, ExecutionConditionKind};
+use super::condition::{ConditionMemo, ProofMemo, cached_condition};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct BooleanId(pub(super) usize);
 
 pub(super) struct BooleanTerm {
-    pub(super) condition: Arc<ConditionNode>,
+    pub(super) condition: ExecutionCondition,
     pub(super) children: Vec<BooleanId>,
     pub(super) parents: Vec<BooleanId>,
     pub(super) published: Option<bool>,
@@ -19,22 +19,19 @@ pub(super) struct BooleanTerm {
 /// Shared Boolean structure, with qualified occurrences kept as independent atoms.
 pub(super) struct BooleanGraph {
     pub(super) terms: Vec<BooleanTerm>,
-    indices: HashMap<ConditionId, BooleanId>,
-    conditions: ConditionIndex,
+    indices: HashMap<ExecutionCondition, BooleanId>,
 }
 
 impl BooleanGraph {
     pub(super) fn new(
         trusted: &BTreeSet<(ExecutionCondition, bool)>,
         ordinary: &BTreeSet<(ExecutionCondition, bool)>,
-        conditions: ConditionIndex,
     ) -> Self {
-        let mut graph = Self { terms: Vec::new(), indices: HashMap::new(), conditions };
+        let mut graph = Self { terms: Vec::new(), indices: HashMap::new() };
 
         for ((condition, holds), qualified) in trusted.iter().map(|fact| (fact, true)).chain(ordinary.iter().map(|fact| (fact, false))) {
             if alternative_value(condition) == Some(*holds) && (qualified || !condition.contains_trusted()) {
-                let key = graph.conditions.intern(condition);
-                let id = graph.intern(key);
+                let id = graph.intern(condition);
 
                 graph.terms[id.0].published = Some(*holds);
             }
@@ -43,25 +40,22 @@ impl BooleanGraph {
         graph
     }
 
-    fn intern(&mut self, key: ConditionId) -> BooleanId {
-        if let Some(id) = self.indices.get(&key) { return *id; }
+    fn intern(&mut self, condition: &ExecutionCondition) -> BooleanId {
+        if let Some(id) = self.indices.get(condition) { return *id; }
 
-        let condition = self.conditions.node(key);
-        let children = &condition.children;
+        let children = match condition.kind() {
+            ExecutionConditionKind::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 => vec![self.intern(&operands[0])],
+            ExecutionConditionKind::Operation(BoundOperator::LogicalAnd | BoundOperator::LogicalOr, operands) if operands.len() == 2 =>
+                vec![self.intern(&operands[0]), self.intern(&operands[1])],
+            ExecutionConditionKind::ValueAlias(left, right) => vec![self.intern(left), self.intern(right)],
+            ExecutionConditionKind::Entry { condition, .. } | ExecutionConditionKind::Borrowed(condition) => vec![self.intern(condition)],
+            ExecutionConditionKind::Observation { owner, contents, .. } => {
+                self.intern(owner);
 
-        let children = match &condition.value {
-            ExecutionCondition::Operation(BoundOperator::LogicalNot, _) if children.len() == 1 => vec![self.intern(children[0])],
-            ExecutionCondition::Operation(BoundOperator::LogicalAnd | BoundOperator::LogicalOr, _) if children.len() == 2 =>
-                vec![self.intern(children[0]), self.intern(children[1])],
-            ExecutionCondition::ValueAlias(..) => vec![self.intern(children[0]), self.intern(children[1])],
-            ExecutionCondition::Entry { .. } | ExecutionCondition::Borrowed(_) => vec![self.intern(children[0])],
-            ExecutionCondition::Observation { .. } => {
-                self.intern(children[0]);
-
-                vec![self.intern(children[1])]
+                vec![self.intern(contents)]
             }
-            ExecutionCondition::Trusted(_) => {
-                self.intern(children[0]);
+            ExecutionConditionKind::Trusted(value) => {
+                self.intern(value);
 
                 Vec::new()
             }
@@ -72,18 +66,14 @@ impl BooleanGraph {
 
         for child in &children { self.terms[child.0].parents.push(id); }
 
-        self.indices.insert(key, id);
-
-        // The immutable structural node is shared. Scope-specific facts stay on this graph.
-        self.terms.push(BooleanTerm {
-            condition, children, parents: Vec::new(), published: None,
-        });
+        self.indices.insert(condition.clone(), id);
+        self.terms.push(BooleanTerm { condition: condition.clone(), children, parents: Vec::new(), published: None });
 
         id
     }
 
     pub(super) fn find(&self, condition: &ExecutionCondition) -> Option<BooleanId> {
-        self.indices.get(&self.conditions.intern(condition)).copied()
+        self.indices.get(condition).copied()
     }
 
     pub(super) fn assertions(&self, assumptions: &BTreeSet<(ExecutionCondition, bool)>) -> Vec<Option<bool>> {
@@ -103,13 +93,13 @@ impl BooleanGraph {
     pub(super) fn derived(&self, id: BooleanId, value: impl Fn(BooleanId) -> Option<bool>) -> Option<bool> {
         let term = &self.terms[id.0];
 
-        match (&term.condition.value, term.children.as_slice()) {
-            (ExecutionCondition::Boolean(value), _) => Some(*value),
-            (ExecutionCondition::Operation(BoundOperator::LogicalNot, _), [child]) => value(*child).map(|value| !value),
-            (ExecutionCondition::Entry { .. } | ExecutionCondition::Observation { .. } | ExecutionCondition::Borrowed(_), [child]) => value(*child),
-            (ExecutionCondition::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), _), [left, right]) =>
+        match (term.condition.kind(), term.children.as_slice()) {
+            (ExecutionConditionKind::Boolean(value), _) => Some(*value),
+            (ExecutionConditionKind::Operation(BoundOperator::LogicalNot, _), [child]) => value(*child).map(|value| !value),
+            (ExecutionConditionKind::Entry { .. } | ExecutionConditionKind::Observation { .. } | ExecutionConditionKind::Borrowed(_), [child]) => value(*child),
+            (ExecutionConditionKind::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), _), [left, right]) =>
                 prove_boolean(*operator, value(*left), || value(*right)),
-            (ExecutionCondition::ValueAlias(_, _), [left, right]) => alias_value(value(*left), || value(*right)),
+            (ExecutionConditionKind::ValueAlias(_, _), [left, right]) => alias_value(value(*left), || value(*right)),
             _ => None,
         }
     }
@@ -119,7 +109,7 @@ impl BooleanGraph {
 
         let [left, right] = term.children.as_slice() else { return [None, None]; };
 
-        if matches!(term.condition.value, ExecutionCondition::ValueAlias(_, _)) && held {
+        if matches!(term.condition.kind(), ExecutionConditionKind::ValueAlias(_, _)) && held {
             return [value(*left).map(|value| (*right, value)), value(*right).map(|value| (*left, value))];
         }
 
@@ -133,7 +123,7 @@ impl BooleanGraph {
 /// Find published alternatives contradicted by a goal's contrary without testing every premise against it.
 pub(super) struct AlternativeProof {
     graph: BooleanGraph,
-    related: HashMap<ConditionId, Vec<BooleanId>>,
+    related: HashMap<ExecutionCondition, Vec<BooleanId>>,
     answers: ConditionMemo<bool>,
     baseline: Vec<Option<bool>>,
     baseline_conflicts: Vec<BooleanId>,
@@ -199,9 +189,9 @@ impl AlternativeProof {
 
         // Children precede parents. Intrinsic values need preparation only once per view.
         for (index, term) in graph.terms.iter().enumerate() {
-            for subject in related_subjects(&term.condition.value) {
+            for subject in related_subjects(&term.condition) {
                 // Subject identities share structure without sharing established facts.
-                related.entry(graph.conditions.intern(subject)).or_default().push(BooleanId(index));
+                related.entry(subject.clone()).or_default().push(BooleanId(index));
             }
 
             // Without assumptions, only Boolean structure has a truth value. Opaque
@@ -215,7 +205,7 @@ impl AlternativeProof {
             }
         }
 
-        let answers = Mutex::new(graph.conditions.map());
+        let answers = Mutex::default();
 
         Self { graph, related, baseline, baseline_conflicts, answers }
     }
@@ -249,7 +239,7 @@ impl<'a> AlternativeQuery<'a> {
             self.seed(condition, *holds);
         }
 
-        let mut memo = ProofMemo::new(&self.proof.graph.conditions);
+        let mut memo = ProofMemo::new();
 
         while let Some(id) = self.queue.pop_front() {
             let asserted = {
@@ -266,13 +256,13 @@ impl<'a> AlternativeQuery<'a> {
             let proof = self.proof;
             let term = &proof.graph.terms[id.0];
 
-            let value = if let ExecutionCondition::Boolean(value) = &term.condition.value {
+            let value = if let ExecutionConditionKind::Boolean(value) = term.condition.kind() {
                 Some(*value)
             } else if let Some(value) = asserted {
                 Some(value)
             } else {
                 self.proof.graph.derived(id, |child| self.value(child)).or_else(|| {
-                    term.children.is_empty().then(|| term.condition.value.prove_with_memo(&contrary, &mut { ExecutionCondition::WORK_LIMIT }, Some(&memo))).flatten()
+                    term.children.is_empty().then(|| term.condition.prove_with_memo(&contrary, &mut { ExecutionCondition::WORK_LIMIT }, Some(&memo))).flatten()
                 })
             };
 
@@ -288,11 +278,11 @@ impl<'a> AlternativeQuery<'a> {
 
             // Only an established ordinary data correspondence can extend the hypothesis.
             // Never infer alias identity merely because two conditions have matching truth.
-            let copied = if matches!(term.condition.value, ExecutionCondition::ValueAlias(_, _)) && term.published == Some(true) {
+            let copied = if matches!(term.condition.kind(), ExecutionConditionKind::ValueAlias(_, _)) && term.published == Some(true) {
                 self.proof.graph.consequences(id, true, |child| self.value(child)).map(|copy| {
                     copy.filter(|(child, _)| self.value(*child).is_none()).map(|(child, value)| {
                         // The hypothesis owns these fact keys while operands stay shared with the graph.
-                        (self.proof.graph.terms[child.0].condition.value.clone(), value)
+                        (self.proof.graph.terms[child.0].condition.clone(), value)
                     })
                 })
             } else { [None, None] };
@@ -306,7 +296,7 @@ impl<'a> AlternativeQuery<'a> {
 
                 if !derived.is_empty() {
                     // Alias consequences change this hypothesis. Only structural identity survives.
-                    memo = ProofMemo::new(&self.proof.graph.conditions);
+                    memo = ProofMemo::new();
                 }
 
                 for (condition, held) in derived { self.seed(&condition, held); }
@@ -319,7 +309,7 @@ impl<'a> AlternativeQuery<'a> {
             let term = &self.proof.graph.terms[id.0];
             let held = term.published.expect("implication candidates have an asserted alternative");
 
-            term.condition.value.prove_with_memo(&contrary, &mut { ExecutionCondition::WORK_LIMIT }, Some(&memo))
+            term.condition.prove_with_memo(&contrary, &mut { ExecutionCondition::WORK_LIMIT }, Some(&memo))
                 == Some(!held)
         })
     }
@@ -332,7 +322,7 @@ impl<'a> AlternativeQuery<'a> {
     }
 
     fn seed(&mut self, condition: &ExecutionCondition, held: bool) {
-        if let Some(id) = self.proof.graph.find(condition) && !self.proof.graph.terms[id.0].condition.value.contains_unknown() {
+        if let Some(id) = self.proof.graph.find(condition) && !self.proof.graph.terms[id.0].condition.contains_unknown() {
             self.assert(id, held);
         }
 
@@ -340,7 +330,7 @@ impl<'a> AlternativeQuery<'a> {
         let proof = self.proof;
 
         for subject in related_subjects(condition) {
-            if let Some(ids) = proof.related.get(&proof.graph.conditions.intern(subject)) {
+            if let Some(ids) = proof.related.get(subject) {
                 for id in ids { self.enqueue(*id); }
             }
         }
@@ -361,10 +351,10 @@ impl<'a> AlternativeQuery<'a> {
 }
 
 pub(super) fn alternative_value(condition: &ExecutionCondition) -> Option<bool> {
-    match condition {
-        ExecutionCondition::Operation(BoundOperator::LogicalOr, _) => Some(true),
-        ExecutionCondition::Operation(BoundOperator::LogicalAnd, _) => Some(false),
-        ExecutionCondition::ValueAlias(_, _) => Some(true),
+    match condition.kind() {
+        ExecutionConditionKind::Operation(BoundOperator::LogicalOr, _) => Some(true),
+        ExecutionConditionKind::Operation(BoundOperator::LogicalAnd, _) => Some(false),
+        ExecutionConditionKind::ValueAlias(_, _) => Some(true),
         _ => None,
     }
 }
@@ -390,9 +380,9 @@ pub(super) fn prove_boolean(operator: BoundOperator, left: Option<bool>, right: 
 }
 
 fn related_subjects(condition: &ExecutionCondition) -> &[ExecutionCondition] {
-    match condition {
-        ExecutionCondition::Operation(BoundOperator::Equal | BoundOperator::NotEqual | BoundOperator::Less | BoundOperator::LessEqual | BoundOperator::Greater | BoundOperator::GreaterEqual, operands) => operands,
-        ExecutionCondition::VariantTest(_, subject) => std::slice::from_ref(subject.as_ref()),
+    match condition.kind() {
+        ExecutionConditionKind::Operation(BoundOperator::Equal | BoundOperator::NotEqual | BoundOperator::Less | BoundOperator::LessEqual | BoundOperator::Greater | BoundOperator::GreaterEqual, operands) => operands,
+        ExecutionConditionKind::VariantTest(_, subject) => std::slice::from_ref(subject.as_ref()),
         _ => &[],
     }
 }
@@ -410,16 +400,16 @@ mod tests {
 
     #[test]
     fn irrelevant_clauses_do_not_multiply_query_work_or_lend_authority() {
-        let input = |index| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(index)));
+        let input = |index| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(index))));
         let not = |value| ExecutionCondition::operation(LogicalNot, vec![value]);
         let or = |left, right| ExecutionCondition::operation(LogicalOr, vec![left, right]);
-        let claim = ExecutionCondition::Trusted(Arc::new(input(2)));
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(2))));
         let active = ExecutionCondition::operation(LogicalAnd, vec![input(0), input(1)]);
         let premise = or(not(active), claim.clone());
         let goal = or(not(input(0)), or(not(input(1)), claim.clone()));
         let empty = BTreeSet::new();
         let mut facts = BTreeSet::from([(premise, true)]);
-        let small = AlternativeProof::new(BooleanGraph::new(&facts, &empty, Default::default()));
+        let small = AlternativeProof::new(BooleanGraph::new(&facts, &empty));
 
         let mut query = AlternativeQuery::new(&small);
 
@@ -431,7 +421,7 @@ mod tests {
             facts.insert((or(input(index * 2), input(index * 2 + 1)), true));
         }
 
-        let large = AlternativeProof::new(BooleanGraph::new(&facts, &empty, Default::default()));
+        let large = AlternativeProof::new(BooleanGraph::new(&facts, &empty));
 
         for _ in 0..2 {
             let mut query = AlternativeQuery::new(&large);
@@ -443,7 +433,7 @@ mod tests {
             assert!(!large.proves(&or(input(3000), claim.clone())), "unknown guards cannot release authority");
         }
 
-        let parallel = AlternativeProof::new(BooleanGraph::new(&facts, &empty, Default::default()));
+        let parallel = AlternativeProof::new(BooleanGraph::new(&facts, &empty));
 
         std::thread::scope(|threads| {
             for (goal, expected) in [(goal.clone(), true), (or(input(3000), claim.clone()), false)] {
@@ -455,7 +445,7 @@ mod tests {
             }
         });
 
-        let ordinary = AlternativeProof::new(BooleanGraph::new(&empty, &facts, Default::default()));
+        let ordinary = AlternativeProof::new(BooleanGraph::new(&empty, &facts));
 
         assert!(!ordinary.proves(&goal), "ordinary occurrences cannot supply qualified evidence");
     }

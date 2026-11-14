@@ -1,5 +1,5 @@
 use crate::execution_guarantees::ExecutionAssumptions;
-use super::{ExecutionCondition, ExecutionProof, ExecutionProofCache};
+use super::{ExecutionCondition, ExecutionConditionKind as K, ExecutionProof, ExecutionProofCache};
 use super::context::ProofMemo;
 use super::memo::memoized;
 use crate::execution_guarantees::boolean::{alias_value, prove_boolean};
@@ -62,24 +62,24 @@ impl ExecutionCondition {
             return Some(value);
         }
 
-        if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
+        if let K::Observation { owner: _, contents: value, .. } | K::Borrowed(value) = self.kind() {
             return value.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo);
         }
 
-        if let Self::Entry { condition, .. } = self {
+        if let K::Entry { condition, .. } = self.kind() {
             return condition.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo);
         }
 
-        let proven = match self {
-            Self::Trusted(_) => None,
-            Self::Operation(BoundOperator::LogicalNot, operands)
+        let proven = match self.kind() {
+            K::Trusted(_) => None,
+            K::Operation(BoundOperator::LogicalNot, operands)
                 if let [operand] = operands.as_ref() =>
             {
                 operand
                     .prove_mixed_with_implications(trusted, ordinary, budget, implications, memo)
                     .map(|value| !value)
             }
-            Self::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands)
+            K::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands)
                 if let [left, right] = operands.as_ref() =>
             {
                 prove_boolean(*operator,
@@ -99,7 +99,7 @@ impl ExecutionCondition {
         }
 
         if let Some(implications) = implications
-            && matches!(self, Self::Operation(BoundOperator::LogicalOr, _)) {
+            && matches!(self.kind(), K::Operation(BoundOperator::LogicalOr, _)) {
             return implications.proves_alternative(self).then_some(true);
         }
 
@@ -139,25 +139,25 @@ impl ExecutionCondition {
             return Some(value);
         }
 
-        if let Self::Observation { owner: _, contents: value, .. } | Self::Borrowed(value) = self {
+        if let K::Observation { owner: _, contents: value, .. } | K::Borrowed(value) = self.kind() {
             return value.prove_with_memo(assumptions, budget, memo);
         }
 
-        if let Self::Entry { condition, .. } = self {
+        if let K::Entry { condition, .. } = self.kind() {
             return condition.prove_with_memo(assumptions, budget, memo);
         }
 
-        if let Self::ValueAlias(left, right) = self {
+        if let K::ValueAlias(left, right) = self.kind() {
             return alias_value(left.prove_with_memo(assumptions, budget, memo), || right.prove_with_memo(assumptions, budget, memo));
         }
 
-        if let Self::VariantTest(variant, subject) = self {
+        if let K::VariantTest(variant, subject) = self.kind() {
             return assumptions.iter().any(|(condition, value)| {
-                *value && matches!(condition, Self::VariantTest(active, other) if active != variant && other == subject)
+                *value && matches!(condition.kind(), K::VariantTest(active, other) if active != variant && other == subject)
             }).then_some(false);
         }
 
-        let Self::Operation(operator, operands) = self else {
+        let K::Operation(operator, operands) = self.kind() else {
             return None;
         };
 
@@ -172,7 +172,7 @@ impl ExecutionCondition {
         }
 
         if let Some(inverse) = operator.equality_complement() {
-            let inverse = Self::Operation(inverse, operands.clone());
+            let inverse = Self::new(K::Operation(inverse, operands.clone()));
 
             for value in [true, false] {
                 if assumptions.contains(&(inverse.clone(), value)) {
@@ -197,7 +197,7 @@ impl ExecutionCondition {
         ordinary: Option<&BTreeSet<(Self, bool)>>,
         memo: Option<&ProofMemo>,
     ) -> Option<bool> {
-        if let Self::Boolean(value) = self { return Some(*value); }
+        if let K::Boolean(value) = self.kind() { return Some(*value); }
         if let Some(memo) = memo { return memo.explicit_value(self, trusted, ordinary); }
 
         // Lookup keys share the proof input's immutable operands.
@@ -233,15 +233,15 @@ impl ExecutionCondition {
         ) -> ExecutionCondition {
             if let Some(value) = known.get(&(condition, holds)) { return value.clone(); }
 
-            let Some(remaining) = budget.checked_sub(1) else { return ExecutionCondition::Boolean(true); };
+            let Some(remaining) = budget.checked_sub(1) else { return ExecutionCondition::boolean(true); };
 
             *budget = remaining;
 
-            let value = match condition {
-                ExecutionCondition::Boolean(value) => ExecutionCondition::Boolean(*value == holds),
-                ExecutionCondition::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 =>
+            let value = match condition.kind() {
+                K::Boolean(value) => ExecutionCondition::boolean(*value == holds),
+                K::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 =>
                     visit(&operands[0], !holds, map, budget, known),
-                ExecutionCondition::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands) => {
+                K::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands) => {
                     let operator = if holds { *operator } else if *operator == BoundOperator::LogicalAnd {
                         BoundOperator::LogicalOr
                     } else { BoundOperator::LogicalAnd };
@@ -249,7 +249,7 @@ impl ExecutionCondition {
                     ExecutionCondition::operation(operator, operands.iter()
                         .map(|operand| visit(operand, holds, map, budget, known)).collect())
                 }
-                condition => map(condition).map_or(ExecutionCondition::Boolean(true), |condition| if holds { condition } else {
+                _ => map(condition).map_or_else(|| ExecutionCondition::boolean(true), |condition| if holds { condition } else {
                     ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition])
                 }),
             };
@@ -287,18 +287,18 @@ impl ExecutionCondition {
             return;
         }
 
-        match self {
-            Self::Unknown => {}
-            condition @ (Self::Observation { .. } | Self::Borrowed(_)) => {
-                let contents = condition.computed_value().clone();
+        match self.kind() {
+            K::Unknown => {}
+            K::Observation { .. } | K::Borrowed(_) => {
+                let contents = self.computed_value().clone();
 
-                if !condition.contains_unknown() {
-                    insert(condition, value);
+                if !self.contains_unknown() {
+                    insert(self.clone(), value);
                 }
 
                 contents.assume_proof(value, expose_trusted_truth, insert);
             }
-            Self::Entry {
+            K::Entry {
                 condition,
                 captured: true,
             } if !condition.contains_trusted() && !condition.observes_live(None) => {
@@ -310,25 +310,25 @@ impl ExecutionCondition {
                     .clone()
                     .assume_proof(value, expose_trusted_truth, insert);
             }
-            Self::Trusted(condition) => {
+            K::Trusted(condition) => {
                 // Keep the occurrence qualifier for contract implication and authority-bearing values.
                 if !condition.contains_unknown() {
-                    insert(Self::Trusted(condition.clone()), value);
+                    insert(self.clone(), value);
                 }
 
                 if expose_trusted_truth {
                     condition.as_ref().clone().assume_proof(value, true, insert);
                 }
             }
-            Self::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 => {
+            K::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 => {
                 // The immutable operand is retained independently by the condition set.
                 operands[0]
                     .clone()
                     .assume_proof(!value, expose_trusted_truth, insert);
             }
-            Self::Operation(operator, operands)
-                if (operator == BoundOperator::LogicalAnd && value)
-                    || (operator == BoundOperator::LogicalOr && !value) =>
+            K::Operation(operator, operands)
+                if (*operator == BoundOperator::LogicalAnd && value)
+                    || (*operator == BoundOperator::LogicalOr && !value) =>
             {
                 for operand in operands.iter() {
                     // The immutable operand is retained independently by the condition set.
@@ -337,8 +337,8 @@ impl ExecutionCondition {
                         .assume_proof(value, expose_trusted_truth, insert);
                 }
             }
-            condition if !condition.contains_unknown() => {
-                insert(condition, value);
+            _ if !self.contains_unknown() => {
+                insert(self.clone(), value);
             }
             _ => {}
         }

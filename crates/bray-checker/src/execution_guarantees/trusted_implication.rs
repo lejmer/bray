@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, VecDeque};
 
-use super::ExecutionCondition;
-use super::condition::{ConditionIndex, ProofMemo};
+use super::{ExecutionCondition, ExecutionConditionKind};
+use super::condition::ProofMemo;
 use super::boolean::{BooleanGraph, BooleanId, alternative_value};
 
 #[derive(Default)]
@@ -16,28 +16,26 @@ pub(crate) fn trusted_condition_closure(
     known: BTreeSet<(ExecutionCondition, bool)>,
     ordinary: &BTreeSet<(ExecutionCondition, bool)>,
 ) -> BTreeSet<(ExecutionCondition, bool)> {
-    let index = ConditionIndex::default();
-    let memo = ProofMemo::new(&index);
+    let memo = ProofMemo::new();
 
-    prepare_trusted_conditions(known, ordinary, index, memo.single_views()).0
+    prepare_trusted_conditions(known, ordinary, memo.single_views()).0
 }
 
 pub(super) fn prepare_trusted_conditions(
     mut known: BTreeSet<(ExecutionCondition, bool)>,
     ordinary: &BTreeSet<(ExecutionCondition, bool)>,
-    index: ConditionIndex,
     single: &[std::sync::Arc<ProofMemo>; 2],
 ) -> (BTreeSet<(ExecutionCondition, bool)>, BooleanGraph) {
     let [trusted_proof, ordinary_proof] = single;
 
-    let mut graph = BooleanGraph::new(&known, ordinary, index);
+    let mut graph = BooleanGraph::new(&known, ordinary);
     let mut terms = (0..graph.terms.len()).map(|_| ProofTerm::default()).collect::<Vec<_>>();
     let mut queue = VecDeque::new();
     let trusted_assertions = graph.assertions(&known);
     let ordinary_assertions = graph.assertions(ordinary);
 
     for (index, node) in graph.terms.iter().enumerate() {
-        let condition = &node.condition.value;
+        let condition = &node.condition;
 
         let trusted = trusted_assertions[index];
         let unqualified = ordinary_assertions[index];
@@ -47,15 +45,15 @@ pub(super) fn prepare_trusted_conditions(
                 || (unqualified == Some(*held) && !condition.contains_trusted())
         });
 
-        terms[index].asserted = match condition {
-            ExecutionCondition::Unknown => None,
-            ExecutionCondition::Boolean(value) => Some(*value),
-            ExecutionCondition::Entry { .. } => None,
-            ExecutionCondition::Trusted(_) => trusted,
+        terms[index].asserted = match condition.kind() {
+            ExecutionConditionKind::Unknown => None,
+            ExecutionConditionKind::Boolean(value) => Some(*value),
+            ExecutionConditionKind::Entry { .. } => None,
+            ExecutionConditionKind::Trusted(_) => trusted,
             _ if !node.children.is_empty() => trusted.or_else(|| {
                 unqualified.filter(|_| !condition.contains_trusted())
             }),
-            ExecutionCondition::Operation(..) | ExecutionCondition::VariantTest(..) => {
+            ExecutionConditionKind::Operation(..) | ExecutionConditionKind::VariantTest(..) => {
                 // Relational inference keeps its original source precedence and work budget.
                 trusted.filter(|_| !condition.contains_unknown())
                     .or_else(|| condition.prove_with_memo(&known, &mut { ExecutionCondition::WORK_LIMIT }, Some(trusted_proof)))
@@ -74,11 +72,11 @@ pub(super) fn prepare_trusted_conditions(
 
     // Refinement needs both positive guard facts and exclusions of inactive alternatives.
     for (node, term) in graph.terms.iter_mut().zip(terms) {
-        if let Some(value) = term.value && !node.condition.value.contains_trusted() {
+        if let Some(value) = term.value && !node.condition.contains_trusted() {
             // Facts and graph retain the same immutable condition operands.
-            known.insert((node.condition.value.clone(), value));
+            known.insert((node.condition.clone(), value));
 
-            if alternative_value(&node.condition.value) == Some(value) {
+            if alternative_value(&node.condition) == Some(value) {
                 node.published = Some(value);
             }
         }
@@ -112,11 +110,11 @@ fn propagate(
 
             for (child, held) in established.into_iter().flatten() {
                 // Normal assumptions retain qualified predicates and negation polarity.
-                graph.terms[child.0].condition.value.clone().assume_with(held, &mut |condition, value| {
+                graph.terms[child.0].condition.clone().assume_with(held, &mut |condition, value| {
                     if !known.insert((condition.clone(), value)) { return; }
 
                     if let Some(id) = graph.find(&condition) {
-                        if matches!(graph.terms[id.0].condition.value, ExecutionCondition::Boolean(_)) { return; }
+                        if matches!(graph.terms[id.0].condition.kind(), ExecutionConditionKind::Boolean(_)) { return; }
 
                         let term = &mut terms[id.0];
 
@@ -146,15 +144,15 @@ mod tests {
     use bray_bound_tree::{BoundOperator, BoundReferenceTarget};
     use bray_symbols::{CallableParameterSymbolId, SymbolId};
 
-    use super::{ExecutionCondition, trusted_condition_closure};
+    use super::{ExecutionCondition, ExecutionConditionKind, trusted_condition_closure};
 
     fn input(index: u32) -> ExecutionCondition {
-        ExecutionCondition::Input(
+        ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             BoundReferenceTarget::Surface(
                 CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
             )
             .into(),
-        )
+        ))
     }
 
     #[test]
@@ -164,17 +162,17 @@ mod tests {
         let or = |left, right| ExecutionCondition::operation(BoundOperator::LogicalOr, vec![left, right]);
         let a = input(0);
         let b = input(1);
-        let qualified = ExecutionCondition::Trusted(Arc::new(input(2)));
+        let qualified = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(2))));
 
         let atoms = [a.clone(), b.clone(), qualified.clone(), not(a.clone()), not(b.clone()),
             and(a.clone(), b.clone()), not(and(a.clone(), b.clone())),
-            or(not(a.clone()), not(b.clone())), ExecutionCondition::Unknown];
+            or(not(a.clone()), not(b.clone())), ExecutionCondition::unknown()];
 
         let clauses = atoms.iter().flat_map(|left| atoms.iter().map(|right| or(left.clone(), right.clone()))).collect::<BTreeSet<_>>();
         let ordinary = BTreeSet::new();
 
         for premise in &clauses {
-            if !matches!(premise, ExecutionCondition::Operation(BoundOperator::LogicalOr, _)) { continue; }
+            if !matches!(premise.kind(), ExecutionConditionKind::Operation(BoundOperator::LogicalOr, _)) { continue; }
 
             let facts = BTreeSet::from([(premise.clone(), true)]);
             let proof = crate::execution_guarantees::ExecutionProof::new(&facts, &ordinary);
@@ -183,7 +181,7 @@ mod tests {
             reference.reference_scan = true;
 
             for goal in &clauses {
-                if !matches!(goal, ExecutionCondition::Operation(BoundOperator::LogicalOr, _)) { continue; }
+                if !matches!(goal.kind(), ExecutionConditionKind::Operation(BoundOperator::LogicalOr, _)) { continue; }
 
                 assert_eq!(proof.prove_trusted(goal), reference.prove_trusted(goal),
                     "premise={premise:?}, goal={goal:?}");
@@ -196,7 +194,7 @@ mod tests {
         let not = |value| ExecutionCondition::operation(BoundOperator::LogicalNot, vec![value]);
         let or = |left, right| ExecutionCondition::operation(BoundOperator::LogicalOr, vec![left, right]);
         let comparison = |operator| ExecutionCondition::operation(operator, vec![input(0), input(1)]);
-        let claim = ExecutionCondition::Trusted(Arc::new(input(2)));
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(2))));
         let variant = |ordinal| bray_symbols::UnionVariantSymbolId::from_symbol_id(SymbolId::new(ordinal));
         let active = input(3).matches_variant(variant(900));
         let other = input(3).matches_variant(variant(901));
@@ -221,8 +219,8 @@ mod tests {
     #[test]
     fn guarded_trusted_disjunctions_prove_weaker_requirements_without_selecting_an_alternative() {
         let ordinary = input(0);
-        let promised = ExecutionCondition::Trusted(Arc::new(input(2)));
-        let extra = ExecutionCondition::Trusted(Arc::new(input(1)));
+        let promised = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(2))));
+        let extra = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(1))));
 
         let established = ExecutionCondition::operation(BoundOperator::LogicalOr,
             vec![ordinary, promised.clone()]);
@@ -242,7 +240,7 @@ mod tests {
 
         for index in 0..256 {
             let clause = ExecutionCondition::operation(BoundOperator::LogicalOr,
-                vec![input(10 + index), ExecutionCondition::Trusted(Arc::new(input(1000 + index)))]);
+                vec![input(10 + index), ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(1000 + index))))]);
 
             unrelated.insert((clause, true));
         }
@@ -258,7 +256,7 @@ mod tests {
         let variant = |ordinal| bray_symbols::UnionVariantSymbolId::from_symbol_id(SymbolId::new(ordinal));
         let success = input(0).matches_variant(variant(900));
         let failure = input(0).matches_variant(variant(901));
-        let claim = ExecutionCondition::Trusted(Arc::new(input(1)));
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(1))));
 
         let nullable = ExecutionCondition::operation(BoundOperator::LogicalOr,
             vec![input(2), claim.clone()]);
@@ -332,7 +330,7 @@ mod tests {
         );
 
         assert_eq!(
-            ExecutionCondition::Trusted(Arc::new(input(1)))
+            ExecutionCondition::new(ExecutionConditionKind::Trusted(Arc::new(input(1))))
                 .prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }),
             None
         );
@@ -341,7 +339,7 @@ mod tests {
     #[test]
     fn ordinary_disjunction_elimination_preserves_occurrence_authority() {
         let mut ordinary = BTreeSet::new();
-        let qualified = ExecutionCondition::Trusted(Arc::new(input(1)));
+        let qualified = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(1))));
 
         ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(0), input(1)])
             .assume(true, &mut ordinary);
@@ -377,7 +375,7 @@ mod tests {
 
     #[test]
     fn ordinary_facts_do_not_create_qualified_evidence() {
-        let qualified = ExecutionCondition::Trusted(Arc::new(input(1)));
+        let qualified = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(1))));
         let mut ordinary = BTreeSet::new();
 
         qualified.clone().assume(true, &mut ordinary);
@@ -396,13 +394,13 @@ mod tests {
 
     #[test]
     fn closure_seeding_keeps_source_precedence_and_unknown_guards() {
-        let claim = ExecutionCondition::Trusted(Arc::new(input(1)));
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(1))));
 
         for (guard, trusted_guard, ordinary_guards, expected) in [
             (input(0), Some(false), vec![true], true),
             (input(0), Some(true), vec![false], false),
             (input(0), None, vec![false, true], false),
-            (ExecutionCondition::Unknown, None, vec![false], false),
+            (ExecutionCondition::unknown(), None, vec![false], false),
         ] {
             let clause = ExecutionCondition::operation(BoundOperator::LogicalOr,
                 vec![guard.clone(), claim.clone()]);
@@ -420,7 +418,7 @@ mod tests {
 
     #[test]
     fn false_conjunctions_preserve_qualified_negative_authority() {
-        let qualified = ExecutionCondition::Trusted(Arc::new(input(1)));
+        let qualified = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(1))));
         let alternative = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![input(0), qualified.clone()]);
         let ordinary = BTreeSet::from([(input(0), true)]);
         let trusted = BTreeSet::from([(alternative.clone(), false)]);
@@ -445,7 +443,7 @@ mod tests {
         let next = input(2);
         let cycle = input(6);
         let selected = input(3);
-        let claim = ExecutionCondition::Trusted(Arc::new(input(4)));
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(4))));
         let alias = ExecutionCondition::value_alias(prior.clone(), current.clone());
         let conditional = or(not(selected.clone()), alias.clone());
         let promise = or(not(next.clone()), claim.clone());

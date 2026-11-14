@@ -265,7 +265,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .entry(address.clone())
                     .or_default()
                     .extend(owners.iter().cloned());
-            } else if source == ExecutionCondition::Unknown || entry.projections().is_empty() {
+            } else if source == ExecutionCondition::unknown() || entry.projections().is_empty() {
                 unknown = true;
             }
         }
@@ -330,7 +330,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         } else {
                             owners.extend(source.borrowed.iter().cloned());
 
-                            if value == ExecutionCondition::Unknown
+                            if value == ExecutionCondition::unknown()
                                 || path
                                     .inputs()
                                     .iter()
@@ -376,7 +376,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }) {
             let address = address_value(instantiate(subject));
 
-            if address == ExecutionCondition::Unknown {
+            if address == ExecutionCondition::unknown() {
                 continue;
             }
 
@@ -456,16 +456,16 @@ fn reference_subject(
     subject: &bray_symbols::DependencySubject,
 ) -> ExecutionCondition {
     let root = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Result {
-        ExecutionCondition::Result
+        ExecutionCondition::result()
     } else {
-        ExecutionCondition::Input(crate::ExecutionPlace::argument(
+        ExecutionCondition::new(crate::ExecutionConditionKind::Input(crate::ExecutionPlace::argument(
             call.input_ordinal(subject.subject_root())
                 .expect("checked reference has its formal input"),
-        ))
+        )))
     };
 
     super::carriers::result_projection(values, dependencies, subject.projections()).substitute(
-        &|_| ExecutionCondition::Unknown,
+        &|_| ExecutionCondition::unknown(),
         &root,
         &mut { ExecutionCondition::WORK_LIMIT },
     )
@@ -480,9 +480,9 @@ fn entry_subject(
         &|input| {
             input
                 .value_in(arguments)
-                .unwrap_or(ExecutionCondition::Unknown)
+                .unwrap_or_else(ExecutionCondition::unknown)
         },
-        &ExecutionCondition::Unknown,
+        &ExecutionCondition::unknown(),
         &mut { ExecutionCondition::WORK_LIMIT },
     )
 }

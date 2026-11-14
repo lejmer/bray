@@ -388,10 +388,10 @@ impl Compilation {
             return Ok(false);
         };
 
-        let expected = bray_checker::ExecutionCondition::VariantTest(
+        let expected = bray_checker::ExecutionCondition::new(bray_checker::ExecutionConditionKind::VariantTest(
             result.success_variant(),
-            std::sync::Arc::new(bray_checker::ExecutionCondition::Result),
-        );
+            std::sync::Arc::new(bray_checker::ExecutionCondition::result()),
+        ));
 
         let mut diagnostics = DiagnosticBag::new();
 
@@ -607,10 +607,10 @@ impl Compilation {
             .expect("Result finalizer has the checked Result representation")
             .success_variant();
 
-        let expected = bray_checker::ExecutionCondition::VariantTest(
+        let expected = bray_checker::ExecutionCondition::new(bray_checker::ExecutionConditionKind::VariantTest(
             success,
-            std::sync::Arc::new(bray_checker::ExecutionCondition::Result),
-        );
+            std::sync::Arc::new(bray_checker::ExecutionCondition::result()),
+        ));
 
         for (post, term) in &*domain.postconditions {
             let conditions = self.imported_execution_conditions(

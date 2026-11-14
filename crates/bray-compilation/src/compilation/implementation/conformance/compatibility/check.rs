@@ -987,10 +987,10 @@ fn trusted_predicates_are_compatible(
                 subject,
             )
         },
-        &|place| Ok(bray_checker::ExecutionCondition::Input(place.clone())),
+        &|place| Ok(bray_checker::ExecutionCondition::new(bray_checker::ExecutionConditionKind::Input(place.clone()))),
         &|value| Ok(std::sync::Arc::clone(value)),
         &mut |callable, implementation, witnesses, operands, reference_type| {
-            Ok(bray_checker::ExecutionCondition::Call(
+            Ok(bray_checker::ExecutionCondition::new(bray_checker::ExecutionConditionKind::Call(
                 callable,
                 implementation,
                 witnesses.into(),
@@ -998,13 +998,13 @@ fn trusted_predicates_are_compatible(
                 reference_type.map(|ty| values.substitute_contextual_self(
                     ty, bray_symbols::SelfTypeContext::Trait(application.definition()), subject,
                 )).transpose()?,
-            ))
+            )))
         },
     )?;
 
     let provided = bray_checker::execution_condition_from_type_term(values, provided, input_count)?;
 
-    Ok(required != bray_checker::ExecutionCondition::Unknown && required == provided)
+    Ok(required != bray_checker::ExecutionCondition::unknown() && required == provided)
 }
 
 fn phase_behavior_mismatch(

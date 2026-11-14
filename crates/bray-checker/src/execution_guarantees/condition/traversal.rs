@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 
-use super::ExecutionCondition;
+use super::{ExecutionCondition, ExecutionConditionKind as K};
 use bray_bound_tree::StorageMutation;
 
 /// Physical sharing only, never semantic value or owner identity.
@@ -34,22 +34,22 @@ impl ExecutionCondition {
 
             inspect(condition)?;
 
-            match condition {
-                Self::ValueAlias(left, right) => pending.extend([left.as_ref(), right.as_ref()]),
-                Self::ScalarValue(value) | Self::Discriminant(value) | Self::Descriptor(_, value) => pending.push(value),
-                Self::Observation { owner, contents, .. } => pending.extend([owner.as_ref(), contents.as_ref()]),
-                Self::Constructed(base, fields) => {
+            match condition.kind() {
+                K::ValueAlias(left, right) => pending.extend([left.as_ref(), right.as_ref()]),
+                K::ScalarValue(value) | K::Discriminant(value) | K::Descriptor(_, value) => pending.push(value),
+                K::Observation { owner, contents, .. } => pending.extend([owner.as_ref(), contents.as_ref()]),
+                K::Constructed(base, fields) => {
                     pending.push(base);
                     pending.extend(fields.iter().map(|(_, value)| value));
                 }
-                Self::Operation(_, operands) | Self::Predicate(_, _, operands) | Self::Call(_, _, _, operands, _) => pending.extend(operands.iter()),
-                Self::Tagged(_, value) | Self::VariantTest(_, value) | Self::Projection(_, value)
-                    | Self::Trusted(value) | Self::Borrowed(value) | Self::Present(value)
-                    | Self::Entry { condition: value, .. } | Self::CapturedInput { owner: value, .. } => pending.push(value),
-                Self::InitializedSnapshot(_, join, value) => pending.extend([join.as_ref(), value.as_ref()]),
-                Self::Boolean(_) | Self::Variant(_) | Self::Literal(_) | Self::Input(_) | Self::Result
-                    | Self::Expression(_) | Self::ScopedCapability(_) | Self::PostState(_, _)
-                    | Self::Joined(_, _, _) | Self::Unknown => {}
+                K::Operation(_, operands) | K::Predicate(_, _, operands) | K::Call(_, _, _, operands, _) => pending.extend(operands.iter()),
+                K::Tagged(_, value) | K::VariantTest(_, value) | K::Projection(_, value)
+                    | K::Trusted(value) | K::Borrowed(value) | K::Present(value)
+                    | K::Entry { condition: value, .. } | K::CapturedInput { owner: value, .. } => pending.push(value),
+                K::InitializedSnapshot(_, join, value) => pending.extend([join.as_ref(), value.as_ref()]),
+                K::Boolean(_) | K::Variant(_) | K::Literal(_) | K::Input(_) | K::Result
+                    | K::Expression(_) | K::ScopedCapability(_) | K::PostState(_, _)
+                    | K::Joined(_, _, _) | K::Unknown => {}
             }
         }
 
@@ -58,9 +58,9 @@ impl ExecutionCondition {
 
     pub(crate) fn depends_on(&self, mutation: StorageMutation) -> bool {
         self.visit(|condition| {
-            let depends = match condition {
-                Self::Expression(candidate) | Self::ScopedCapability(candidate) => mutation == StorageMutation::Operation((*candidate).into()),
-                Self::PostState(site, _) => *site == mutation,
+            let depends = match condition.kind() {
+                K::Expression(candidate) | K::ScopedCapability(candidate) => mutation == StorageMutation::Operation((*candidate).into()),
+                K::PostState(site, _) => *site == mutation,
                 _ => false,
             };
 
@@ -69,7 +69,7 @@ impl ExecutionCondition {
     }
 
     pub(super) fn contains_equivalence(&self) -> bool {
-        self.visit(|condition| if matches!(condition, Self::ValueAlias(_, _) | Self::Operation(bray_bound_tree::BoundOperator::Equal | bray_bound_tree::BoundOperator::NotEqual, _)) {
+        self.visit(|condition| if matches!(condition.kind(), K::ValueAlias(_, _) | K::Operation(bray_bound_tree::BoundOperator::Equal | bray_bound_tree::BoundOperator::NotEqual, _)) {
             ControlFlow::Break(())
         } else { ControlFlow::Continue(()) }).is_break()
     }
@@ -79,7 +79,7 @@ impl ExecutionCondition {
         let mut changes = BTreeSet::new();
 
         let _ = self.visit(|condition| {
-            if let Self::PostState(mutation, _) = condition {
+            if let K::PostState(mutation, _) = condition.kind() {
                 changes.insert(*mutation);
             }
 

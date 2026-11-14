@@ -255,13 +255,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                     // A value-changing conversion owns a new result. Its selected tag is known,
                     // but the source payload's properties do not automatically hold afterward.
-                    _ => ExecutionCondition::Expression(expression).project(projection),
+                    _ => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)).project(projection),
                 };
 
-                ExecutionCondition::constructed(ExecutionCondition::Tagged(
+                ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(
                         *variant,
-                        Arc::new(ExecutionCondition::Expression(expression)),
-                    ),
+                        Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))),
+                    )),
                     vec![(projection, payload)].into(),
                 )
             }

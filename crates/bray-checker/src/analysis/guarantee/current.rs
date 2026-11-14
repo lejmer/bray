@@ -55,7 +55,7 @@ impl CurrentValues {
         let root = root_place(place);
 
         let current = self.roots.entry(root.clone()).or_insert_with(|| CurrentRoot {
-            value: ExecutionCondition::Input(root),
+            value: ExecutionCondition::new(crate::ExecutionConditionKind::Input(root)),
             availability: ValueAvailability::Present,
             components: BTreeMap::new(),
             observed_components: BTreeSet::new(),
@@ -116,7 +116,7 @@ impl CurrentValues {
         let root_key = root_place(&place);
 
         let root = self.roots.entry(root_key).or_insert_with(|| CurrentRoot {
-            value: ExecutionCondition::Unknown,
+            value: ExecutionCondition::unknown(),
             availability: ValueAvailability::Unknown,
             components: BTreeMap::new(),
             observed_components: BTreeSet::new(),
@@ -256,20 +256,20 @@ fn collect_owned_places(
 
     *budget = remaining;
 
-    match value {
-        ExecutionCondition::Observation { contents, kind: crate::execution_guarantees::ExecutionObservationKind::Owned, .. } => {
+    match value.kind() {
+        crate::ExecutionConditionKind::Observation { contents, kind: crate::execution_guarantees::ExecutionObservationKind::Owned, .. } => {
             collect_owned_places(contents, place, places, budget);
         }
-        ExecutionCondition::Tagged(_, contents) => {
+        crate::ExecutionConditionKind::Tagged(_, contents) => {
             collect_owned_places(contents, place, places, budget);
         }
-        ExecutionCondition::Present(value) => {
+        crate::ExecutionConditionKind::Present(value) => {
             let child = place.clone().component(bray_symbols::ConstantProjectionKind::NullableValue);
 
             places.insert(child.clone());
             collect_owned_places(value, &child, places, budget);
         }
-        ExecutionCondition::Constructed(_, fields) => {
+        crate::ExecutionConditionKind::Constructed(_, fields) => {
             for (projection, value) in fields.iter() {
                 let Some(projection) = ExecutionPlace::projection_kind(*projection) else { continue; };
 
@@ -360,10 +360,10 @@ mod tests {
         assert!(first.value_in(&values).is_some(), "terminal data remains readable for postconditions");
         assert!(values.live_value(&first).is_none());
         assert!(values.live_value(&root).is_none(), "a partial owner cannot preserve the retired child");
-        assert_eq!(values.live_value(&second), Some(ExecutionCondition::Input(second.clone())));
+        assert_eq!(values.live_value(&second), Some(ExecutionCondition::new(crate::ExecutionConditionKind::Input(second.clone()))));
 
         assert_eq!(values.live_entries().collect::<Vec<_>>(),
-            vec![(second.clone(), ExecutionCondition::Input(second.clone()))]);
+            vec![(second.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(second.clone())))]);
 
         values.retire(&root);
 
@@ -385,36 +385,36 @@ mod tests {
         assert!(values.live_values().next().is_none());
 
         values.set_slot(first.clone(), super::CurrentValue {
-            value: ExecutionCondition::Input(source.clone()), availability: ValueAvailability::Present,
+            value: ExecutionCondition::new(crate::ExecutionConditionKind::Input(source.clone())), availability: ValueAvailability::Present,
         });
 
         assert!(values.live_value(&root).is_none(), "initializing one field does not initialize the whole owner");
 
         assert_eq!(values.live_entries().collect::<Vec<_>>(),
-            vec![(first.clone(), ExecutionCondition::Input(source.clone()))]);
+            vec![(first.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(source.clone())))]);
 
-        values.insert(root.clone(), ExecutionCondition::Input(source.clone()));
+        values.insert(root.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(source.clone())));
 
         assert_eq!(values.keys().cloned().collect::<Vec<_>>(), vec![root.clone()]);
 
         values.retire(&first);
 
         assert_eq!(values.live_entries().collect::<Vec<_>>(), vec![(second,
-            ExecutionCondition::Input(source.component(bray_symbols::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)))))]);
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(source.component(bray_symbols::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1))))))]);
 
-        values.insert(root.clone(), ExecutionCondition::Input(root));
+        values.insert(root.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(root)));
 
         assert_eq!(values.availability(&first), ValueAvailability::Present);
     }
 
     fn retained_owner() -> (ExecutionState, ExecutionPlace, ExecutionCondition) {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(place.clone());
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
 
-        let claim = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::predicate(
             symbol.into(), crate::test_support::empty_substitution(symbol.into()), vec![owner.clone().borrowed()],
-        )));
+        ))));
 
         let mut state = ExecutionState::default();
 
@@ -430,12 +430,12 @@ mod tests {
         let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let left = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let right = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1));
-        let old = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-        let sibling = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
-        let replacement = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(3)));
+        let old = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let sibling = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
+        let replacement = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(3))));
         let mut state = ExecutionState::default();
 
-        state.assign(root.clone(), ExecutionCondition::constructed(ExecutionCondition::Input(root.clone()),
+        state.assign(root.clone(), ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone())),
             [(left, old), (right, sibling.clone())].into()), None);
 
         let field = root.clone().project(&[left]).expect("tuple field");
@@ -456,7 +456,7 @@ mod tests {
     fn available_carrier_does_not_reprove_an_unestablished_clause_after_mutation() {
         let (mut state, place, claim) = retained_owner();
 
-        let owner = ExecutionCondition::Input(place);
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place));
         let mut stable = crate::execution_guarantees::ObservationSet::default();
 
         stable.insert(owner.clone());
@@ -532,7 +532,7 @@ mod tests {
 
         let mut unknown = ExecutionState::default();
 
-        unknown.assign(place.clone(), ExecutionCondition::Unknown, None);
+        unknown.assign(place.clone(), ExecutionCondition::unknown(), None);
 
         let mut joined = Some(present);
 
@@ -540,7 +540,7 @@ mod tests {
 
         let state = joined.expect("reachable join");
 
-        assert_eq!(state.current.get(&place), Some(&ExecutionCondition::Unknown));
+        assert_eq!(state.current.get(&place), Some(&ExecutionCondition::unknown()));
         assert_eq!(claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), None);
     }
     #[test]
@@ -553,25 +553,25 @@ mod tests {
         });
 
         for (owner, holder_owner) in [
-            (ExecutionCondition::Input(root.clone()), ExecutionCondition::Input(holder.clone())),
-            (ExecutionCondition::Expression(expressions[0]), ExecutionCondition::Expression(expressions[1])),
+            (ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone())), ExecutionCondition::new(crate::ExecutionConditionKind::Input(holder.clone()))),
+            (ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0])), ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[1]))),
         ] {
         let marker = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let progress = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1));
         let loan = owner.clone().borrowed();
 
         let left_value = loan.with_referent(ExecutionCondition::constructed(owner.clone(),
-            [(progress, ExecutionCondition::Boolean(true))].into()));
+            [(progress, ExecutionCondition::boolean(true))].into()));
 
         let right_value = loan.with_referent(ExecutionCondition::constructed(
-            ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(9))),
-            [(marker, owner.clone().project(marker)), (progress, ExecutionCondition::Boolean(false))].into()));
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(9)))),
+            [(marker, owner.clone().project(marker)), (progress, ExecutionCondition::boolean(false))].into()));
 
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
 
-        let held = |value: ExecutionCondition| ExecutionCondition::Trusted(Arc::new(ExecutionCondition::predicate(
+        let held = |value: ExecutionCondition| ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(ExecutionCondition::predicate(
             symbol.into(), crate::test_support::empty_substitution(symbol.into()), vec![value.borrowed()],
-        )));
+        ))));
 
         let claim = held(loan.clone().project(marker));
         let block = crate::analysis::id::AnalysisBlockId::from_slot(bray_bound_tree::BoundUnitId::new(0), 42);
@@ -584,7 +584,7 @@ mod tests {
             left.current.insert(root.clone(), left_value.clone());
 
             left.current.insert(holder.clone(), ExecutionCondition::constructed(holder_owner.clone(),
-                [(marker, left_value.clone()), (progress, ExecutionCondition::Boolean(true))].into()));
+                [(marker, left_value.clone()), (progress, ExecutionCondition::boolean(true))].into()));
 
             left.carry_guarantee(loan.clone(), claim.clone());
             claim.clone().assume(true, &mut left.trusted_assumptions);
@@ -594,7 +594,7 @@ mod tests {
             right.current.insert(root.clone(), right_value.clone());
 
             right.current.insert(holder.clone(), ExecutionCondition::constructed(holder_owner.clone(),
-                [(marker, right_value.clone()), (progress, ExecutionCondition::Boolean(false))].into()));
+                [(marker, right_value.clone()), (progress, ExecutionCondition::boolean(false))].into()));
 
             if !both_proven {
                 right.witnesses.clear();

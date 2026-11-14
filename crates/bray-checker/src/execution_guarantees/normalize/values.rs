@@ -47,11 +47,11 @@ pub(crate) fn construction_condition(
         })
         .collect::<Vec<_>>();
 
-    let base = ExecutionCondition::Expression(expression);
+    let base = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
 
     let base = match construction.target() {
         bray_bound_tree::ConstructionTarget::UnionVariant(variant) => {
-            ExecutionCondition::Tagged(variant, std::sync::Arc::new(base))
+            ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(variant, std::sync::Arc::new(base)))
         }
         _ => base,
     };
@@ -100,7 +100,7 @@ pub(super) fn constructed_condition(
                     conversion.target_type(),
                 ),
                 bray_bound_tree::SelectedConstructionInput::Default { .. } => {
-                    ExecutionCondition::Unknown
+                    ExecutionCondition::unknown()
                 }
             },
         ));
@@ -139,7 +139,7 @@ pub(super) fn constructed_condition(
                 })
                 .collect::<Vec<_>>();
 
-            Some(ExecutionCondition::constructed(ExecutionCondition::Expression(expression),
+            Some(ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
                 fields.into(),
             ))
         }
@@ -174,7 +174,7 @@ pub(super) fn constructed_condition(
                 })
                 .collect::<Vec<_>>();
 
-            Some(ExecutionCondition::constructed(ExecutionCondition::Expression(expression),
+            Some(ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
                 fields.into(),
             ))
         }
@@ -194,8 +194,8 @@ pub(crate) fn condition_literals(
             let value = values.constant_value_data(literal.value());
 
             let condition = match value.kind() {
-                ConstantValueKind::Boolean(value) => ExecutionCondition::Boolean(*value),
-                _ => ExecutionCondition::Literal(value),
+                ConstantValueKind::Boolean(value) => ExecutionCondition::boolean(*value),
+                _ => ExecutionCondition::new(crate::ExecutionConditionKind::Literal(value)),
             };
 
             (literal.expression(), condition)
@@ -256,7 +256,7 @@ pub(crate) fn pattern_value(
     use bray_bound_tree::{BoundOperator, PatternPredicate};
 
     if let PatternPredicate::ActiveUnionVariant(variant) = predicate {
-        return Some((BoundOperator::Equal, ExecutionCondition::Variant(variant)));
+        return Some((BoundOperator::Equal, ExecutionCondition::new(crate::ExecutionConditionKind::Variant(variant))));
     }
 
     let expected = match predicate {
@@ -280,8 +280,8 @@ pub(crate) fn pattern_value(
     };
 
     let expected = match expected.kind() {
-        ConstantValueKind::Boolean(value) => ExecutionCondition::Boolean(*value),
-        _ => ExecutionCondition::Literal(expected),
+        ConstantValueKind::Boolean(value) => ExecutionCondition::boolean(*value),
+        _ => ExecutionCondition::new(crate::ExecutionConditionKind::Literal(expected)),
     };
 
     let operator = if predicate == PatternPredicate::NullablePresent {
@@ -377,9 +377,9 @@ pub(super) fn borrowed_condition(
         let root = crate::ExecutionPlace::storage_identity(storage, path.root)?;
 
         let mut identity = if matches!(storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::PostconditionResult(_))) {
-            ExecutionCondition::Result
+            ExecutionCondition::result()
         } else {
-            ExecutionCondition::Input(root.clone())
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone()))
         };
 
         // Follow the checked reference boundaries in this existing access path.
@@ -409,17 +409,17 @@ pub(super) fn borrowed_condition(
             bray_symbols::AnyLocalSymbolId::PostconditionResult(_))));
 
         if result {
-            place.projections.iter().fold(ExecutionCondition::Result, |value, projection| value.component(*projection))
+            place.projections.iter().fold(ExecutionCondition::result(), |value, projection| value.component(*projection))
         } else {
-            ExecutionCondition::Input(place)
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(place))
         }
-    })).unwrap_or(ExecutionCondition::Expression(operand));
+    })).unwrap_or_else(|| ExecutionCondition::new(crate::ExecutionConditionKind::Expression(operand)));
 
     if !scalar {
         return ExecutionCondition::reference_value(identity.borrowed(), value);
     }
 
-    let value = if identity == value || value == ExecutionCondition::Unknown {
+    let value = if identity == value || value == ExecutionCondition::unknown() {
         identity
     } else {
         ExecutionCondition::scalar_observation(identity, value)
@@ -469,7 +469,7 @@ pub(super) fn structured_condition(
         {
             // Name the evaluated range without inventing element contents.
             // The enclosing borrow supplies access to the projected storage.
-            ExecutionCondition::Expression(expression)
+            ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
         }
         operation
             if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::ElementIndex
@@ -482,21 +482,21 @@ pub(super) fn structured_condition(
                 ) =>
         {
             let [receiver, index] = operation.operands() else {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             let index = evaluate(*index);
 
-            let ExecutionCondition::Literal(index) = index else {
-                return ExecutionCondition::Unknown;
+            let crate::ExecutionConditionKind::Literal(index) = index.kind() else {
+                return ExecutionCondition::unknown();
             };
 
             let ConstantValueKind::Integer(index) = index.kind() else {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             let Some(index) = index.to_u64().and_then(|index| u32::try_from(index).ok()) else {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             evaluate(*receiver).project(bray_bound_tree::StorageProjection::ElementFromStart(
@@ -507,7 +507,7 @@ pub(super) fn structured_condition(
             if operation.kind() == bray_bound_tree::BoundStructuredExpressionKind::Conditional =>
         {
             if operation.blocks().len() != operation.operands().len() + 1 {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             }
 
             let mut branches = Vec::new();
@@ -519,21 +519,21 @@ pub(super) fn structured_condition(
                     .expect("conditional retains its branch block");
 
                 let [bray_bound_tree::BoundBlockItem::Expression(yielded)] = block.items() else {
-                    return ExecutionCondition::Unknown;
+                    return ExecutionCondition::unknown();
                 };
 
                 let Some(BoundExpression::ControlTransfer(transfer)) =
                     unit.view().expression(*yielded)
                 else {
-                    return ExecutionCondition::Unknown;
+                    return ExecutionCondition::unknown();
                 };
 
                 if transfer.kind() != bray_bound_tree::BoundControlTransferKind::Yield {
-                    return ExecutionCondition::Unknown;
+                    return ExecutionCondition::unknown();
                 }
 
                 let Some(operand) = transfer.operand() else {
-                    return ExecutionCondition::Unknown;
+                    return ExecutionCondition::unknown();
                 };
 
                 branches.push(evaluate(operand));
@@ -578,7 +578,7 @@ pub(super) fn structured_condition(
             ) =>
         {
             let Some(operand) = operation.operands().first() else {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             let value = evaluate(*operand);
@@ -593,6 +593,6 @@ pub(super) fn structured_condition(
                 _ => value,
             }
         }
-        _ => ExecutionCondition::Unknown,
+        _ => ExecutionCondition::unknown(),
     }
 }

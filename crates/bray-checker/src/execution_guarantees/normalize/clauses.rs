@@ -285,8 +285,8 @@ fn reference_conditions(
         let mut condition = match place.reference() {
             Some(bray_bound_tree::BoundReferenceTarget::Local(
                 bray_symbols::AnyLocalSymbolId::PostconditionResult(_),
-            )) => ExecutionCondition::Result,
-            Some(reference) => ExecutionCondition::Input(reference.into()),
+            )) => ExecutionCondition::result(),
+            Some(reference) => ExecutionCondition::new(crate::ExecutionConditionKind::Input(reference.into())),
             None => continue,
         };
 

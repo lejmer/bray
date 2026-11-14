@@ -1,5 +1,5 @@
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
-use super::ExecutionCondition;
+use super::{ExecutionCondition, ExecutionConditionKind as K};
 use bray_bound_tree::BoundOperator;
 use std::sync::Arc;
 
@@ -12,10 +12,10 @@ impl ExecutionCondition {
     /// Name new contents by the existing value, independently of an alias slot.
     /// Replaying a mutation retains the defining identity instead of nesting epochs.
     pub(crate) fn post_state(mutation: bray_bound_tree::StorageMutation, identity: Self) -> Self {
-        match identity.owner_identity() {
-            Self::Unknown => Self::Unknown,
-            Self::PostState(_, identity) => Self::PostState(mutation, Arc::clone(identity)),
-            identity => Self::PostState(mutation, Arc::new(identity.clone())),
+        match identity.owner_identity().kind() {
+            K::Unknown => ExecutionCondition::unknown(),
+            K::PostState(_, identity) => ExecutionCondition::new(K::PostState(mutation, Arc::clone(identity))),
+            _ => ExecutionCondition::new(K::PostState(mutation, Arc::new(identity.owner_identity().clone()))),
         }
     }
 
@@ -28,13 +28,13 @@ impl ExecutionCondition {
 
         let identity = source.descriptor_identity();
 
-        if identity.contains_unknown() { return Self::Unknown; }
+        if identity.contains_unknown() { return ExecutionCondition::unknown(); }
 
         let identity = identity.clone().into_referent();
 
-        match identity {
-            Self::Descriptor(..) | Self::Unknown => identity,
-            identity => Self::Descriptor(kind, Arc::new(identity)),
+        match identity.kind() {
+            K::Descriptor(..) | K::Unknown => identity,
+            _ => ExecutionCondition::new(K::Descriptor(kind, Arc::new(identity))),
         }
     }
 
@@ -51,8 +51,8 @@ impl ExecutionCondition {
         let value = values.constant_value_data(values.observed_constant_value(value));
 
         let observed = match value.kind() {
-            bray_symbols::ConstantValueKind::Boolean(value) => Self::Boolean(*value),
-            _ => Self::Literal(value),
+            bray_symbols::ConstantValueKind::Boolean(value) => ExecutionCondition::boolean(*value),
+            _ => ExecutionCondition::new(K::Literal(value)),
         };
 
         if borrowed {
@@ -71,8 +71,8 @@ impl ExecutionCondition {
             return subject;
         }
 
-        match &subject {
-            Self::Input(place) if place.projections.last().is_some_and(|projection| matches!(
+        match subject.kind() {
+            K::Input(place) if place.projections.last().is_some_and(|projection| matches!(
                 projection,
                 bray_symbols::ConstantProjectionKind::ProductField(_)
                     | bray_symbols::ConstantProjectionKind::UnionPayloadField(_)
@@ -81,14 +81,14 @@ impl ExecutionCondition {
 
                 owner.projections = owner.projections[..owner.projections.len() - 1].into();
 
-                Self::Input(owner)
+                ExecutionCondition::new(K::Input(owner))
             }
-            Self::Projection(
+            K::Projection(
                 bray_symbols::ConstantProjectionKind::ProductField(_)
                     | bray_symbols::ConstantProjectionKind::UnionPayloadField(_),
                 parent,
             ) => parent.as_ref().clone(),
-            value => value.clone(),
+            _ => subject,
         }
     }
 
@@ -105,17 +105,17 @@ impl ExecutionCondition {
             *argument = argument.computed_value().clone();
 
             if argument.contains_unknown() {
-                return Self::Unknown;
+                return ExecutionCondition::unknown();
             }
         }
 
-        Self::Call(
+        ExecutionCondition::new(K::Call(
             callable,
             implementation,
             bray_base::shared_slice(witnesses),
             arguments.into(),
             reference_type,
-        )
+        ))
     }
 
     pub(crate) fn coerce(
@@ -136,7 +136,7 @@ impl ExecutionCondition {
             let value = if matches!(
                 values.type_data(source).as_ref(),
                 bray_symbols::TypeData::Borrow { .. }
-            ) && !matches!(self, Self::Borrowed(_))
+            ) && !matches!(self.kind(), K::Borrowed(_))
             {
                 self.borrowed()
             } else {
@@ -150,8 +150,8 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn pattern(subject: Self, operator: BoundOperator, expected: Self) -> Self {
-        if let Self::Variant(variant) = expected {
-            subject.matches_variant(variant)
+        if let K::Variant(variant) = expected.kind() {
+            subject.matches_variant(*variant)
         } else {
             Self::operation(operator, vec![subject, expected])
         }
@@ -163,7 +163,7 @@ impl ExecutionCondition {
         &self,
         holds: bool,
     ) -> Option<(&Self, &Arc<bray_symbols::ConstantValueData>)> {
-        let Self::Operation(operator, operands) = self else {
+        let K::Operation(operator, operands) = self.kind() else {
             return None;
         };
 
@@ -175,13 +175,15 @@ impl ExecutionCondition {
         }
 
         match operands.as_ref() {
-            [subject, Self::Literal(absent)] | [Self::Literal(absent), subject]
-                if matches!(
-                    absent.kind(),
-                    bray_symbols::ConstantValueKind::NullableAbsent
-                ) =>
-            {
-                Some((subject, absent))
+            [left, right] => {
+                let (subject, absent) = match (left.kind(), right.kind()) {
+                    (_, K::Literal(absent)) => (left, absent),
+                    (K::Literal(absent), _) => (right, absent),
+                    _ => return None,
+                };
+
+                matches!(absent.kind(), bray_symbols::ConstantValueKind::NullableAbsent)
+                    .then_some((subject, absent))
             }
             _ => None,
         }
@@ -189,12 +191,12 @@ impl ExecutionCondition {
 
     /// Reads nullable payload contents while retaining the extraction's owning observation.
     pub(crate) fn nullable_payload_snapshot(&self) -> Option<&Self> {
-        let Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, owner) = self
+        let K::Projection(bray_symbols::ConstantProjectionKind::NullableValue, owner) = self.kind()
         else {
             return None;
         };
 
-        let Self::Constructed(_, fields) = owner.as_ref() else {
+        let K::Constructed(_, fields) = owner.kind() else {
             return None;
         };
 
@@ -205,33 +207,26 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn present(self) -> Self {
-        match self {
-            Self::Unknown => Self::Unknown,
-            payload @ Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _) => {
-                if let Some(snapshot) = payload.nullable_payload_snapshot()
-                    && (matches!(
-                        snapshot,
-                        Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _)
-                    ) || matches!(snapshot, Self::Input(place) if place.projections.last() == Some(&bray_symbols::ConstantProjectionKind::NullableValue)))
+        match self.kind() {
+            K::Unknown => ExecutionCondition::unknown(),
+            K::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value) => {
+                if let Some(snapshot) = self.nullable_payload_snapshot()
+                    && (matches!(snapshot.kind(), K::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _))
+                        || matches!(snapshot.kind(), K::Input(place) if place.projections.last() == Some(&bray_symbols::ConstantProjectionKind::NullableValue)))
                 {
                     return snapshot.clone().present();
                 }
 
-                let Self::Projection(_, value) = payload else {
-                    unreachable!()
-                };
-
                 value.as_ref().clone()
             }
-            Self::Input(mut place)
-                if place.projections.last()
-                    == Some(&bray_symbols::ConstantProjectionKind::NullableValue) =>
-            {
+            K::Input(place) if place.projections.last() == Some(&bray_symbols::ConstantProjectionKind::NullableValue) => {
+                let mut place = place.clone();
+
                 place.projections = place.projections[..place.projections.len() - 1].into();
 
-                Self::Input(place)
+                ExecutionCondition::new(K::Input(place))
             }
-            value => Self::Present(Arc::new(value)),
+            _ => ExecutionCondition::new(K::Present(Arc::new(self))),
         }
     }
 
@@ -240,16 +235,16 @@ impl ExecutionCondition {
             return payload.clone().borrowed();
         }
 
-        if self == Self::Unknown || self.copied_value().is_reference() {
+        if self == ExecutionCondition::unknown() || self.copied_value().is_reference() {
             // Copying a loan does not create a loan to its private copy context.
             return self.copied_value().clone();
         }
 
         if self.is_reference_computation() {
-            return Self::Borrowed(Arc::new(self));
+            return ExecutionCondition::new(K::Borrowed(Arc::new(self)));
         }
 
-        if let Self::Projection(projection, parent) = &self {
+        if let K::Projection(projection, parent) = self.kind() {
             let selected = parent.as_ref().clone().component(*projection);
 
             if selected != self {
@@ -260,13 +255,13 @@ impl ExecutionCondition {
         let owner = self.owner_identity();
 
         if owner.ownership_identity().is_none() {
-            return Self::reference_value(Self::Unknown, self);
+            return Self::reference_value(ExecutionCondition::unknown(), self);
         }
 
         if owner == &self {
-            Self::Borrowed(Arc::new(self))
+            ExecutionCondition::new(K::Borrowed(Arc::new(self)))
         } else {
-            Self::reference_value(Self::Borrowed(Arc::new(owner.clone())), self)
+            Self::reference_value(ExecutionCondition::new(K::Borrowed(Arc::new(owner.clone()))), self)
         }
     }
 
@@ -276,15 +271,15 @@ impl ExecutionCondition {
 
         let identity = self.owner_identity();
 
-        if *identity == Self::Unknown { return Self::Unknown; }
+        if *identity == ExecutionCondition::unknown() { return ExecutionCondition::unknown(); }
 
         // The observed physical context survives a contents update. The enclosing
         // reference retains access to that context without acquiring ownership.
         let previous = self.clone().into_referent();
 
-        let contents = match previous {
-            Self::Observation { owner, kind: kind @ (ObservationKind::Owned | ObservationKind::Scalar), .. } => {
-                Self::observation(owner.as_ref().clone(), contents, kind)
+        let contents = match previous.kind() {
+            K::Observation { owner, kind: kind @ (ObservationKind::Owned | ObservationKind::Scalar), .. } => {
+                Self::observation(owner.as_ref().clone(), contents, *kind)
             }
             _ => contents,
         };
@@ -312,7 +307,7 @@ impl ExecutionCondition {
         base: Self,
         mut fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
     ) -> Self {
-        if let Self::Present(payload) = &base
+        if let K::Present(payload) = base.kind()
             && matches!(fields.as_ref(), [(bray_bound_tree::StorageProjection::NullableValue, value)] if value == payload.as_ref())
         {
             return base;
@@ -322,8 +317,8 @@ impl ExecutionCondition {
             Arc::make_mut(&mut fields).sort_by_key(|(projection, _)| *projection);
         }
 
-        match base {
-            Self::Constructed(base, previous) => {
+        match base.kind() {
+            K::Constructed(base, previous) => {
                 // Compose existing immutable snapshots once. Later fields replace
                 // earlier contents while preserving untouched components.
                 let fields = previous.iter().chain(fields.iter()).cloned()
@@ -331,14 +326,14 @@ impl ExecutionCondition {
 
                 Self::constructed(base.as_ref().clone(), fields.into_iter().collect())
             }
-            Self::Observation { owner, contents, kind } => Self::observation(
-                owner.as_ref().clone(), Self::constructed(contents.as_ref().clone(), fields), kind,
+            K::Observation { owner, contents, kind } => Self::observation(
+                owner.as_ref().clone(), Self::constructed(contents.as_ref().clone(), fields), *kind,
             ),
-            Self::Borrowed(contents) => Self::reference_value(
-                Self::Borrowed(Arc::clone(&contents)),
+            K::Borrowed(contents) => Self::reference_value(
+                ExecutionCondition::new(K::Borrowed(Arc::clone(contents))),
                 Self::constructed(contents.as_ref().clone(), fields),
             ),
-            base => Self::Constructed(Arc::new(base), fields),
+            _ => ExecutionCondition::new(K::Constructed(Arc::new(base), fields)),
         }
     }
 
@@ -352,24 +347,24 @@ impl ExecutionCondition {
 
     /// Data produced without a known scalar payload still has its defining identity.
     pub(crate) fn opaque_scalar(identity: Self) -> Self {
-        Self::scalar_observation(identity.clone(), Self::ScalarValue(Arc::new(identity)))
+        Self::scalar_observation(identity.clone(), ExecutionCondition::new(K::ScalarValue(Arc::new(identity))))
     }
 
     pub(crate) fn value_alias(left: Self, right: Self) -> Self {
         let left = left.copied_value().clone();
         let right = right.copied_value().clone();
 
-        if left.contains_unknown() || right.contains_unknown() { return Self::Unknown; }
+        if left.contains_unknown() || right.contains_unknown() { return ExecutionCondition::unknown(); }
 
         assert!(!left.contains_trusted() && !right.contains_trusted()
             && !left.is_reference() && !right.is_reference(),
             "data aliases require ordinary copied observations: left={left:?}, right={right:?}");
 
-        if left == right { return Self::Boolean(true); }
+        if left == right { return ExecutionCondition::boolean(true); }
 
         let (left, right) = if left < right { (left, right) } else { (right, left) };
 
-        Self::ValueAlias(Arc::new(left), Arc::new(right))
+        ExecutionCondition::new(K::ValueAlias(Arc::new(left), Arc::new(right)))
     }
 
     pub(crate) fn scalar_observation(owner: Self, contents: Self) -> Self {
@@ -382,35 +377,35 @@ impl ExecutionCondition {
         let owner = owner.owner_identity();
 
         if kind == ObservationKind::Owned && owner == &contents
-            || kind == ObservationKind::Reference && matches!(owner, Self::Borrowed(referent) if referent.as_ref() == &contents)
+            || kind == ObservationKind::Reference && matches!(owner.kind(), K::Borrowed(referent) if referent.as_ref() == &contents)
         {
             return owner.clone();
         }
 
-        if matches!(&contents, Self::Observation { owner: current, kind: current_kind, .. } if current.as_ref() == owner && *current_kind == kind) {
+        if matches!(contents.kind(), K::Observation { owner: current, kind: current_kind, .. } if current.as_ref() == owner && *current_kind == kind) {
             return contents;
         }
 
-        Self::Observation { owner: Arc::new(owner.clone()), contents: Arc::new(contents), kind }
+        ExecutionCondition::new(K::Observation { owner: Arc::new(owner.clone()), contents: Arc::new(contents), kind })
     }
 
     pub(crate) fn observation_kind(&self) -> Option<ObservationKind> {
-        match self {
-            Self::Observation { kind, .. } => Some(*kind),
+        match self.kind() {
+            K::Observation { kind, .. } => Some(*kind),
             _ => None,
         }
     }
 
     /// Reached data does not own storage. The reference value retains its access capability.
     pub(crate) fn current_referent(&self) -> Option<&Self> {
-        match self {
-            Self::Observation { contents, kind: ObservationKind::Reference, .. } => Some(contents),
+        match self.kind() {
+            K::Observation { contents, kind: ObservationKind::Reference, .. } => Some(contents),
             _ => None,
         }
     }
 
     pub(crate) fn is_reference(&self) -> bool {
-        matches!(self, Self::Borrowed(_)) || self.current_referent().is_some()
+        matches!(self.kind(), K::Borrowed(_)) || self.current_referent().is_some()
     }
 
     /// Built-in computations read values rather than their storage or loan identities.
@@ -418,8 +413,8 @@ impl ExecutionCondition {
         let mut value = self;
 
         loop {
-            match value {
-                Self::Borrowed(contents) | Self::Observation { contents, .. } => value = contents,
+            match value.kind() {
+                K::Borrowed(contents) | K::Observation { contents, .. } => value = contents,
                 _ => return value,
             }
         }
@@ -427,8 +422,8 @@ impl ExecutionCondition {
 
     /// A scalar storage context and its current copied contents are distinct observations.
     pub(crate) fn storage_contents(&self) -> Option<(&Self, &Self)> {
-        match self {
-            Self::Observation { owner, contents, kind: ObservationKind::Scalar } => Some((owner, contents)),
+        match self.kind() {
+            K::Observation { owner, contents, kind: ObservationKind::Scalar } => Some((owner, contents)),
             _ => None,
         }
     }
@@ -446,11 +441,11 @@ impl ExecutionCondition {
 
     /// Observe the current reached value. Only checked ownership transitions may move it.
     pub(crate) fn into_referent(self) -> Self {
-        match self {
-            Self::Borrowed(value) | Self::Observation { contents: value, kind: ObservationKind::Reference, .. } => {
+        match self.kind() {
+            K::Borrowed(value) | K::Observation { contents: value, kind: ObservationKind::Reference, .. } => {
                 value.as_ref().clone().into_referent()
             }
-            value => value,
+            _ => self,
         }
     }
 
@@ -461,8 +456,8 @@ impl ExecutionCondition {
         let mut value = self;
 
         loop {
-            match value {
-                Self::Borrowed(contents) | Self::Observation {
+            match value.kind() {
+                K::Borrowed(contents) | K::Observation {
                     contents, kind: ObservationKind::Reference | ObservationKind::Scalar, ..
                 } => value = contents.as_ref().clone(),
                 _ => return value,
@@ -471,16 +466,16 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn requiring_trusted_predicates(self) -> Self {
-        match self {
-            Self::Predicate(_, _, _) => Self::Trusted(Arc::new(self)),
-            Self::Operation(operator, operands) => Self::operation(
-                operator,
+        match self.kind() {
+            K::Predicate(_, _, _) => ExecutionCondition::new(K::Trusted(Arc::new(self))),
+            K::Operation(operator, operands) => Self::operation(
+                *operator,
                 operands
                     .iter()
                     .map(|operand| operand.clone().requiring_trusted_predicates())
                     .collect(),
             ),
-            value => value,
+            _ => self,
         }
     }
 
@@ -494,13 +489,13 @@ impl ExecutionCondition {
             // retains its storage context even when the contents are equal.
             *argument = argument.copied_value().clone();
 
-            if let Self::Present(payload) = argument {
+            if let K::Present(payload) = argument.kind() {
                 // Predicate arguments name the nullable value. Structural visitors
                 // separately retain its explicit initialized payload snapshot.
                 *argument = payload.as_ref().clone().present();
             }
 
-            if let Self::Observation { contents, kind: ObservationKind::Reference, .. } = argument
+            if let K::Observation { contents, kind: ObservationKind::Reference, .. } = argument.kind()
                 && (contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
                     || contents.is_reference_computation())
             {
@@ -512,21 +507,21 @@ impl ExecutionCondition {
 
         for argument in &arguments {
             if argument.contains_unknown() {
-                return Self::Unknown;
+                return ExecutionCondition::unknown();
             }
         }
 
-        Self::Predicate(predicate, substitution, arguments.into())
+        ExecutionCondition::new(K::Predicate(predicate, substitution, arguments.into()))
     }
 
     fn is_reference_computation(&self) -> bool {
         let mut value = self;
 
-        while let Self::Projection(_, parent) = value {
+        while let K::Projection(_, parent) = value.kind() {
             value = parent;
         }
 
-        matches!(value, Self::Call(_, _, _, _, Some(_)))
+        matches!(value.kind(), K::Call(_, _, _, _, Some(_)))
     }
 
     pub(crate) fn field(field: bray_symbols::AnySymbolId, value: Self) -> Self {
@@ -550,14 +545,14 @@ impl ExecutionCondition {
 
         if projection == StorageProjection::AddressTarget { return self.into_referent(); }
 
-        if let (Self::Constructed(_, fields), StorageProjection::ElementFromEnd(index)) =
-            (&self, projection)
+        if let (K::Constructed(_, fields), StorageProjection::ElementFromEnd(index)) =
+            (self.kind(), projection)
         {
             let Some(index) = u32::try_from(fields.len())
                 .ok()
                 .and_then(|length| length.checked_sub(index.raw() + 1))
             else {
-                return Self::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             return self.project(StorageProjection::ElementFromStart(
@@ -565,13 +560,13 @@ impl ExecutionCondition {
             ));
         }
 
-        if let Self::Observation { owner, contents, kind } = self {
+        if let K::Observation { owner, contents, kind } = self.kind() {
             let selected = contents.as_ref().clone().project(projection);
 
-            return Self::projected_observation(kind, selected, || owner.as_ref().clone().project(projection));
+            return Self::projected_observation(*kind, selected, || owner.as_ref().clone().project(projection));
         }
 
-        if let Self::Borrowed(value) = self {
+        if let K::Borrowed(value) = self.kind() {
             return value.as_ref().clone().project(projection).borrowed();
         }
 
@@ -590,13 +585,13 @@ impl ExecutionCondition {
                 bray_symbols::ConstantProjectionKind::ArrayElementOrdinal(index)
             }
             _ => {
-                return match self {
-                    Self::Constructed(_, fields) => fields
+                return match self.kind() {
+                    K::Constructed(_, fields) => fields
                         .iter()
                         .find(|(candidate, _)| *candidate == projection)
                         .map(|(_, value)| value.clone())
-                        .unwrap_or(Self::Unknown),
-                    _ => Self::Unknown,
+                        .unwrap_or_else(ExecutionCondition::unknown),
+                    _ => ExecutionCondition::unknown(),
                 };
             }
         };
@@ -616,32 +611,31 @@ impl ExecutionCondition {
                 | ConstantProjectionKind::TupleElement(_)
                 | ConstantProjectionKind::ArrayElementOrdinal(_)
         ) {
-            return Self::Unknown;
+            return ExecutionCondition::unknown();
         }
 
-        match self {
-            Self::Present(value) if projection == ConstantProjectionKind::NullableValue => {
+        match self.kind() {
+            K::Present(value) if projection == ConstantProjectionKind::NullableValue => {
                 value.as_ref().clone()
             }
-            Self::Input(place) => Self::Input(place.component(projection)),
+            K::Input(place) => ExecutionCondition::new(K::Input(place.clone().component(projection))),
             // A field access through a borrow observes the referent's field,
             // rather than projecting a field from the borrow value itself.
-            Self::Observation { owner, contents, kind } => {
+            K::Observation { owner, contents, kind } => {
                 let selected = contents.as_ref().clone().component(projection);
 
-                Self::projected_observation(kind, selected, || owner.as_ref().clone().component(projection))
+                Self::projected_observation(*kind, selected, || owner.as_ref().clone().component(projection))
             }
-            Self::Borrowed(value) => value.as_ref().clone().component(projection).borrowed(),
-            Self::Tagged(_, value) => value.as_ref().clone().component(projection),
+            K::Borrowed(value) => value.as_ref().clone().component(projection).borrowed(),
+            K::Tagged(_, value) => value.as_ref().clone().component(projection),
             // Retain the nullable owner's identity when extracting its payload. Rewrapping
             // that payload can then name the acquisition witness without asserting presence.
-            value @ Self::Constructed(_, _)
-                if projection == ConstantProjectionKind::NullableValue =>
+            K::Constructed(_, _) if projection == ConstantProjectionKind::NullableValue =>
             {
-                Self::Projection(projection, Arc::new(value))
+                ExecutionCondition::new(K::Projection(projection, Arc::new(self)))
             }
-            Self::Projection(ConstantProjectionKind::NullableValue, ref owner)
-                if let Self::Constructed(base, fields) = owner.as_ref() =>
+            K::Projection(ConstantProjectionKind::NullableValue, owner)
+                if let K::Constructed(base, fields) = owner.kind() =>
             {
                 fields
                     .iter()
@@ -652,7 +646,7 @@ impl ExecutionCondition {
                             .component(projection)
                     })
             }
-            Self::Constructed(base, fields) => fields
+            K::Constructed(base, fields) => fields
                 .iter()
                 .find(|(candidate, _)| match (candidate, projection) {
                     (
@@ -679,8 +673,8 @@ impl ExecutionCondition {
                 .unwrap_or_else(|| {
                     base.as_ref().clone().component(projection)
                 }),
-            Self::Unknown | Self::Discriminant(_) | Self::Descriptor(..) => Self::Unknown,
-            value => Self::Projection(projection, Arc::new(value)),
+            K::Unknown | K::Discriminant(_) | K::Descriptor(..) => ExecutionCondition::unknown(),
+            _ => ExecutionCondition::new(K::Projection(projection, Arc::new(self))),
         }
     }
 
@@ -712,7 +706,7 @@ impl ExecutionCondition {
                         let mut observed = &current;
 
                         loop {
-                            if let Self::Observation { contents, .. } = observed {
+                            if let K::Observation { contents, .. } = observed.kind() {
                                 observed = contents;
                             } else if let Some(payload) = observed.nullable_payload_snapshot() {
                                 observed = payload;
@@ -721,18 +715,18 @@ impl ExecutionCondition {
                             }
                         }
 
-                        let Self::Constructed(_, fields) = observed else { return None; };
+                        let K::Constructed(_, fields) = observed.kind() else { return None; };
 
                         fields.iter().find_map(|(projection, _)|
                             matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field).then_some(*projection)
                         )
                     });
 
-                    let Some(projection) = projection else { return Self::Unknown; };
+                    let Some(projection) = projection else { return ExecutionCondition::unknown(); };
 
                     projection
                 }
-                _ => return Self::Unknown,
+                _ => return ExecutionCondition::unknown(),
             };
 
             projections.push(projection);
@@ -759,7 +753,7 @@ impl ExecutionCondition {
             return self.with_referent(data.with_storage_component(path, value));
         }
 
-        if let Self::Observation { owner, contents, kind } = self {
+        if let K::Observation { owner, contents, kind } = self.kind() {
             return Self::observation(owner.as_ref().clone(), contents.with_storage_component(path, value), *kind);
         }
 
@@ -770,7 +764,7 @@ impl ExecutionCondition {
                 return self.clone();
             }
 
-            let Self::Projection(_, owner) = self else {
+            let K::Projection(_, owner) = self.kind() else {
                 unreachable!("a nullable payload snapshot retains its owner projection");
             };
 
@@ -795,7 +789,7 @@ impl ExecutionCondition {
     }
 
     fn has_ordinary_complement(&self, terms: &std::collections::BTreeSet<Self>) -> bool {
-        let Self::Operation(operator, operands) = self else { return false; };
+        let K::Operation(operator, operands) = self.kind() else { return false; };
 
         if !matches!(operator, BoundOperator::LogicalNot | BoundOperator::NotEqual)
             || operands.contains_trusted() || operands.contains_unknown()
@@ -805,10 +799,10 @@ impl ExecutionCondition {
 
         match (operator, operands.as_ref()) {
             (BoundOperator::LogicalNot, [operand]) => terms.contains(operand),
-            (BoundOperator::NotEqual, [_, _]) => terms.contains(&Self::Operation(
+            (BoundOperator::NotEqual, [_, _]) => terms.contains(&ExecutionCondition::new(K::Operation(
                 operator.equality_complement().expect("inequality has an exact equality complement"),
                 operands.clone(),
-            )),
+            ))),
             _ => false,
         }
     }
@@ -821,38 +815,38 @@ impl ExecutionCondition {
 
         while let Some(operand) = pending.pop() {
             let Some(next) = remaining.checked_sub(1) else {
-                return Self::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             remaining = next;
 
-            match operand {
-                Self::Boolean(value) if value != conjunction => return Self::Boolean(value),
-                Self::Boolean(_) => {}
-                Self::Operation(inner, children) if inner == operator => {
+            match operand.kind() {
+                K::Boolean(value) if *value != conjunction => return ExecutionCondition::boolean(*value),
+                K::Boolean(_) => {}
+                K::Operation(inner, children) if *inner == operator => {
                     if children.len() > remaining {
-                        return Self::Unknown;
+                        return ExecutionCondition::unknown();
                     }
 
                     pending.extend(children.iter().cloned());
                 }
-                value => { terms.insert(value); }
+                _ => { terms.insert(operand); }
             }
         }
 
         // Folding must not bypass the work limit of the original binary rebuild.
         if terms.len().saturating_sub(1) > remaining {
-            return Self::Unknown;
+            return ExecutionCondition::unknown();
         }
 
         if terms.iter().any(|term| term.has_ordinary_complement(&terms)) {
-            return Self::Boolean(!conjunction);
+            return ExecutionCondition::boolean(!conjunction);
         }
 
         let mut level = terms.into_iter().collect::<Vec<_>>();
 
         if level.is_empty() {
-            return Self::Boolean(conjunction);
+            return ExecutionCondition::boolean(conjunction);
         }
 
         // Build directly: recursively calling operation would repeatedly flatten the tree.
@@ -865,12 +859,12 @@ impl ExecutionCondition {
                 next.push(match values.next() {
                     Some(right) => {
                         let Some(next_remaining) = remaining.checked_sub(1) else {
-                            return Self::Unknown;
+                            return ExecutionCondition::unknown();
                         };
 
                         remaining = next_remaining;
 
-                        Self::Operation(operator, vec![left, right].into())
+                        ExecutionCondition::new(K::Operation(operator, vec![left, right].into()))
                     }
                     None => left,
                 });
@@ -892,20 +886,29 @@ impl ExecutionCondition {
         }
 
         if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual)
-            && let [value, Self::Literal(absent)] | [Self::Literal(absent), value] = operands.as_slice()
-            && matches!(absent.kind(), bray_symbols::ConstantValueKind::NullableAbsent)
+            && let [left, right] = operands.as_slice()
         {
-            if let Some(present) = value.known_presence() {
-                return Self::Boolean(present == (operator == BoundOperator::NotEqual));
-            }
-
-            let tag = match value {
-                Self::Discriminant(base) | Self::Constructed(base, _) => Some(base),
+            let nullable = match (left.kind(), right.kind()) {
+                (_, K::Literal(absent)) => Some((left, absent)),
+                (K::Literal(absent), _) => Some((right, absent)),
                 _ => None,
             };
 
-            if let Some(tag) = tag {
-                return Self::operation(operator, vec![(**tag).clone(), Self::Literal(Arc::clone(absent))]);
+            if let Some((value, absent)) = nullable
+                && matches!(absent.kind(), bray_symbols::ConstantValueKind::NullableAbsent)
+            {
+                if let Some(present) = value.known_presence() {
+                    return ExecutionCondition::boolean(present == (operator == BoundOperator::NotEqual));
+                }
+
+                let tag = match value.kind() {
+                    K::Discriminant(base) | K::Constructed(base, _) => Some(base),
+                    _ => None,
+                };
+
+                if let Some(tag) = tag {
+                    return Self::operation(operator, vec![(**tag).clone(), ExecutionCondition::new(K::Literal(Arc::clone(absent)))]);
+                }
             }
         }
 
@@ -914,41 +917,32 @@ impl ExecutionCondition {
             BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr
         ) && operands.iter().any(Self::contains_unknown)
         {
-            return Self::Unknown;
+            return ExecutionCondition::unknown();
         }
 
-        if let [Self::Literal(value)] = operands.as_slice()
+        if let [value] = operands.as_slice()
+            && let K::Literal(value) = value.kind()
             && let Some(kind) = crate::constant::fold_numeric_sign(operator, value.kind())
         {
-            return Self::Literal(Arc::new(bray_symbols::ConstantValueData::new(
-                value.ty(),
-                kind,
-            )));
+            return ExecutionCondition::new(K::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+                value.ty(), kind,
+            ))));
         }
 
-        if let [Self::Literal(left), Self::Literal(right)] = operands.as_slice()
-            && matches!(
-                operator,
-                BoundOperator::Equal
-                    | BoundOperator::NotEqual
-                    | BoundOperator::Less
-                    | BoundOperator::LessEqual
-                    | BoundOperator::Greater
-                    | BoundOperator::GreaterEqual
+        if let [left, right] = operands.as_slice()
+            && let (K::Literal(left), K::Literal(right)) = (left.kind(), right.kind())
+            && matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual | BoundOperator::Less
+                | BoundOperator::LessEqual | BoundOperator::Greater | BoundOperator::GreaterEqual)
+            && let Ok(bray_symbols::ConstantValueKind::Boolean(value)) = crate::constant::fold_binary(
+                operator, left.kind(), right.kind(), crate::ConstantEvaluationLimits::default().integer_bits(),
             )
-            && let Ok(bray_symbols::ConstantValueKind::Boolean(value)) =
-                crate::constant::fold_binary(
-                    operator,
-                    left.kind(),
-                    right.kind(),
-                    crate::ConstantEvaluationLimits::default().integer_bits(),
-                )
         {
-            return Self::Boolean(value);
+            return ExecutionCondition::boolean(value);
         }
 
         if operator == BoundOperator::LogicalNot
-            && let [Self::Operation(comparison, inner)] = operands.as_slice()
+            && let [value] = operands.as_slice()
+            && let K::Operation(comparison, inner) = value.kind()
             && let Some(complement) = comparison.equality_complement()
         {
             return Self::operation(complement, inner.to_vec());
@@ -958,30 +952,40 @@ impl ExecutionCondition {
             // Strict self-ordering is false even for NaN. Equality and weak ordering
             // require value-domain evidence that this untyped normalization does not carry.
             (BoundOperator::Less | BoundOperator::Greater, [left, right]) if left == right => {
-                Self::Boolean(false)
+                ExecutionCondition::boolean(false)
             }
-            (
-                BoundOperator::Equal | BoundOperator::NotEqual,
-                [condition, Self::Boolean(expected)] | [Self::Boolean(expected), condition],
-            ) => {
-                if *expected == (operator == BoundOperator::Equal) {
-                    condition.clone()
-                } else {
-                    Self::operation(BoundOperator::LogicalNot, vec![condition.clone()])
+            (BoundOperator::Equal | BoundOperator::NotEqual, [left, right]) => {
+                let boolean = match (left.kind(), right.kind()) {
+                    (_, K::Boolean(expected)) => Some((left, *expected)),
+                    (K::Boolean(expected), _) => Some((right, *expected)),
+                    _ => None,
+                };
+
+                if let Some((condition, expected)) = boolean {
+                    if expected == (operator == BoundOperator::Equal) {
+                        return condition.clone();
+                    }
+
+                    return Self::operation(BoundOperator::LogicalNot, vec![condition.clone()]);
                 }
+
+                ExecutionCondition::new(K::Operation(operator, operands.into()))
             }
-            (BoundOperator::LogicalNot, [Self::Boolean(value)]) => Self::Boolean(!value),
-            (BoundOperator::LogicalNot, [Self::Operation(BoundOperator::LogicalNot, inner)]) => {
-                inner.first().cloned().unwrap_or(Self::Unknown)
-            }
-            _ => Self::Operation(operator, operands.into()),
+            (BoundOperator::LogicalNot, [value]) => match value.kind() {
+                K::Boolean(value) => ExecutionCondition::boolean(!*value),
+                K::Operation(BoundOperator::LogicalNot, inner) => {
+                    inner.first().cloned().unwrap_or_else(ExecutionCondition::unknown)
+                }
+                _ => ExecutionCondition::new(K::Operation(operator, operands.into())),
+            },
+            _ => ExecutionCondition::new(K::Operation(operator, operands.into())),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ExecutionCondition, ObservationKind};
+    use super::{ExecutionCondition, ObservationKind, K};
     use crate::ExecutionPlace;
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{ConstantProjectionKind, SymbolId, SymbolOrdinal, UnionVariantSymbolId};
@@ -992,11 +996,11 @@ mod tests {
         use crate::execution_guarantees::ExecutionDescriptorKind as Kind;
 
         let root = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let owner = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let original = owner.clone().project(field);
-        let replacement = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
-        let template = ExecutionCondition::Input(root.clone()).project(field).descriptor(Kind::Value);
+        let replacement = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
+        let template = ExecutionCondition::new(K::Input(root.clone())).project(field).descriptor(Kind::Value);
 
         for current in [original.clone(), replacement.clone()] {
             let contents = ExecutionCondition::constructed(owner.clone(), [(field, current.clone())].into());
@@ -1004,7 +1008,7 @@ mod tests {
             let inputs: std::collections::BTreeMap<_, _> = [(root.clone(), actual)].into();
 
             let observed = template.substitute(&|place| place.value_in(&inputs).expect("selected input"),
-                &ExecutionCondition::Unknown, &mut { ExecutionCondition::WORK_LIMIT });
+                &ExecutionCondition::unknown(), &mut { ExecutionCondition::WORK_LIMIT });
 
             assert_eq!(observed, current.descriptor(Kind::Value));
             assert_eq!(observed == original.descriptor(Kind::Value), current == original);
@@ -1013,18 +1017,18 @@ mod tests {
 
     #[test]
     fn descriptor_selection_survives_substitution_without_observing_reached_contents() {
-        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let input = |ordinal| ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
         let template = input(0).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference);
         let owner = input(1);
 
-        for contents in [input(2), ExecutionCondition::Unknown] {
+        for contents in [input(2), ExecutionCondition::unknown()] {
             let view = ExecutionCondition::reference_value(owner.clone().borrowed(), contents);
             let copied = ExecutionCondition::scalar_observation(input(3), view.clone());
 
             assert_eq!(copied.clone().borrowed(), view);
 
             for actual in [view, copied.clone(), copied.borrowed()] {
-                let observed = template.substitute(&|_| actual.clone(), &ExecutionCondition::Unknown,
+                let observed = template.substitute(&|_| actual.clone(), &ExecutionCondition::unknown(),
                     &mut { ExecutionCondition::WORK_LIMIT });
 
                 assert_eq!(observed, owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference));
@@ -1036,10 +1040,10 @@ mod tests {
         }
 
         assert_ne!(owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), input(4).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), "replacement does not retain the old descriptor");
-        assert_eq!(ExecutionCondition::Unknown.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), ExecutionCondition::Unknown);
+        assert_eq!(ExecutionCondition::unknown().descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference), ExecutionCondition::unknown());
 
-        assert_eq!(ExecutionCondition::reference_value(ExecutionCondition::Unknown, input(2)).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference),
-            ExecutionCondition::Unknown, "known pointee data cannot supply a missing descriptor identity");
+        assert_eq!(ExecutionCondition::reference_value(ExecutionCondition::unknown(), input(2)).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference),
+            ExecutionCondition::unknown(), "known pointee data cannot supply a missing descriptor identity");
 
         let observed = owner.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference);
         let contents = [(owner.clone(), input(2))].into();
@@ -1060,8 +1064,8 @@ mod tests {
         use bray_bound_tree::BoundOperator;
         use std::collections::BTreeSet;
 
-        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
-        let predicate = ExecutionCondition::Trusted(Arc::new(input(2)));
+        let input = |ordinal| ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+        let predicate = ExecutionCondition::new(K::Trusted(Arc::new(input(2))));
 
         for (operator, opposite) in [(BoundOperator::Equal, BoundOperator::NotEqual),
             (BoundOperator::NotEqual, BoundOperator::Equal)]
@@ -1089,8 +1093,8 @@ mod tests {
         use bray_bound_tree::BoundOperator;
         use std::collections::BTreeSet;
 
-        let guard = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let predicate = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let guard = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let predicate = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
 
         let qualify = |clause| ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
             ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]), clause,
@@ -1119,9 +1123,9 @@ mod tests {
         use bray_bound_tree::BoundOperator;
         use std::collections::BTreeSet;
 
-        let first = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let second = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-        let third = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        let first = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let second = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let third = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
 
         for operator in [BoundOperator::LogicalAnd, BoundOperator::LogicalOr] {
             let combine = |left, right| ExecutionCondition::operation(operator, vec![left, right]);
@@ -1129,13 +1133,13 @@ mod tests {
             assert_eq!(combine(combine(first.clone(), second.clone()), third.clone()),
                 combine(third.clone(), combine(second.clone(), first.clone())));
 
-            let unknown_complement = combine(ExecutionCondition::Unknown,
-                ExecutionCondition::operation(BoundOperator::LogicalNot, vec![ExecutionCondition::Unknown]));
+            let unknown_complement = combine(ExecutionCondition::unknown(),
+                ExecutionCondition::operation(BoundOperator::LogicalNot, vec![ExecutionCondition::unknown()]));
 
             assert_eq!(unknown_complement.prove(&BTreeSet::new(), &mut { ExecutionCondition::WORK_LIMIT }), None);
 
             assert_eq!(ExecutionCondition::operation(operator,
-                vec![first.clone(); ExecutionCondition::WORK_LIMIT + 1]), ExecutionCondition::Unknown);
+                vec![first.clone(); ExecutionCondition::WORK_LIMIT + 1]), ExecutionCondition::unknown());
         }
     }
 
@@ -1143,13 +1147,13 @@ mod tests {
     fn ordinary_complements_fold_without_manufacturing_qualified_truth() {
         use bray_bound_tree::BoundOperator;
 
-        let input = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let input = |ordinal| ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
         let negate = |value| ExecutionCondition::operation(BoundOperator::LogicalNot, vec![value]);
         let compare = |operator| ExecutionCondition::operation(operator, vec![input(0), input(1)]);
-        let trusted = ExecutionCondition::Trusted(Arc::new(input(2)));
+        let trusted = ExecutionCondition::new(K::Trusted(Arc::new(input(2))));
 
         for operator in [BoundOperator::LogicalAnd, BoundOperator::LogicalOr] {
-            let absorbing = ExecutionCondition::Boolean(operator == BoundOperator::LogicalOr);
+            let absorbing = ExecutionCondition::boolean(operator == BoundOperator::LogicalOr);
 
             for (positive, negative) in [
                 (input(0), negate(input(0))),
@@ -1167,11 +1171,11 @@ mod tests {
             for (positive, negative) in [
                 (trusted.clone(), negate(trusted.clone())),
                 (input(2), negate(trusted.clone())),
-                (ExecutionCondition::Unknown, negate(ExecutionCondition::Unknown)),
+                (ExecutionCondition::unknown(), negate(ExecutionCondition::unknown())),
                 (compare(BoundOperator::Less), compare(BoundOperator::GreaterEqual)),
             ] {
-                assert!(!matches!(ExecutionCondition::operation(operator, vec![positive, negative]),
-                    ExecutionCondition::Boolean(_)), "qualified, unknown and unordered pairs need evidence");
+                assert!(!matches!(ExecutionCondition::operation(operator, vec![positive, negative]).kind(),
+                    K::Boolean(_)), "qualified, unknown and unordered pairs need evidence");
             }
 
             let mut terms = (0..ExecutionCondition::WORK_LIMIT / 2)
@@ -1180,15 +1184,15 @@ mod tests {
 
             terms.push(negate(input(0)));
 
-            assert_eq!(ExecutionCondition::operation(operator, terms), ExecutionCondition::Unknown,
+            assert_eq!(ExecutionCondition::operation(operator, terms), ExecutionCondition::unknown(),
                 "a complement cannot bypass the original binary rebuild budget");
         }
     }
 
     #[test]
     fn scalar_and_reference_projections_keep_their_roles() {
-        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let child = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let owner = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let child = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let data = ExecutionCondition::constructed(owner.clone(), [(field, child.clone())].into());
         let copied = ExecutionCondition::scalar_observation(owner.clone(), data.clone()).project(field);
@@ -1207,7 +1211,7 @@ mod tests {
         let descriptor = owner.clone().borrowed();
 
         let copied_views = ExecutionCondition::scalar_observation(owner, ExecutionCondition::constructed(
-            ExecutionCondition::Unknown, [(field, descriptor.clone())].into(),
+            ExecutionCondition::unknown(), [(field, descriptor.clone())].into(),
         ));
 
         assert_eq!(copied_views.project(field), descriptor);
@@ -1215,21 +1219,21 @@ mod tests {
 
     #[test]
     fn shape_decorations_keep_data_out_of_stable_loan_identity() {
-        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let owner = ExecutionCondition::new(K::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let variant = UnionVariantSymbolId::from_symbol_id(SymbolId::new(900));
 
-        let make = |contents| ExecutionCondition::Tagged(variant, Arc::new(ExecutionCondition::constructed(
+        let make = |contents| ExecutionCondition::new(K::Tagged(variant, Arc::new(ExecutionCondition::constructed(
             owner.clone(), [(field, contents)].into(),
-        ))).present().borrowed();
+        )))).present().borrowed();
 
-        let before = make(ExecutionCondition::Boolean(true));
-        let after = make(ExecutionCondition::Boolean(false));
+        let before = make(ExecutionCondition::boolean(true));
+        let after = make(ExecutionCondition::boolean(false));
         let loan = owner.borrowed();
 
         assert_eq!(before.owner_identity(), loan.owner_identity());
         assert_eq!(after.owner_identity(), loan.owner_identity());
         assert_ne!(before, after);
-        assert_eq!(before.into_referent().component(ConstantProjectionKind::NullableValue).matches_variant(variant), ExecutionCondition::Boolean(true));
+        assert_eq!(before.into_referent().component(ConstantProjectionKind::NullableValue).matches_variant(variant), ExecutionCondition::boolean(true));
     }
 }

@@ -110,10 +110,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     // Keep the exact selected instance from the evaluated input.
                     let input = self.current_input(state, input);
 
-                    let (ExecutionCondition::Input(mut place), _) = input.observation_path()?
+                    let (owner, _) = input.observation_path()?;
+
+                    let crate::ExecutionConditionKind::Input(place) = owner.kind()
                     else {
                         return None;
                     };
+
+                    let mut place = place.clone();
 
                     if place.selected_static() != Some(declaration) {
                         return None;
@@ -126,7 +130,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     return Some(
                         place
                             .value_in(&state.current)
-                            .unwrap_or(ExecutionCondition::Unknown),
+                            .unwrap_or_else(ExecutionCondition::unknown),
                     );
                 }
 

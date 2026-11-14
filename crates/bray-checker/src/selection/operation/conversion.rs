@@ -242,7 +242,7 @@ fn phase_guarantees_are_compatible(
                 )
                 .expect("published callable predicates retain valid semantic identities")
             })
-            .unwrap_or(ExecutionCondition::Unknown)
+            .unwrap_or_else(ExecutionCondition::unknown)
     };
 
     let requirements = source.predicate_requirements().iter().all(|condition| {
@@ -286,7 +286,7 @@ fn phase_guarantees_are_compatible(
         // Conversion has no captured invocation inputs. Exit facts must not prove an
         // entry guard, even when both snapshots name the same formal parameter.
         decode(predicate).capture_entry(
-            &|_| ExecutionCondition::Unknown,
+            &|_| ExecutionCondition::unknown(),
             &entry_facts,
             &entry_facts,
             &mut { bray_symbols::EXECUTION_CONDITION_WORK_LIMIT },

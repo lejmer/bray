@@ -112,13 +112,13 @@ impl Compilation {
                         contract.transferred_inputs.push(reference);
                     }
 
-                    fields.insert(name.as_str(), ExecutionCondition::Input(reference.into()));
+                    fields.insert(name.as_str(), ExecutionCondition::new(bray_checker::ExecutionConditionKind::Input(reference.into())));
                 }
             }
         }
 
         let Some(pointer) = fields.get("pointer") else {
-            contract.requirements.push(ExecutionCondition::Unknown);
+            contract.requirements.push(ExecutionCondition::unknown());
 
             return Ok(Some(contract));
         };
@@ -152,14 +152,14 @@ impl Compilation {
 
             let substitution = storage_contract_substitution(&context, symbol.into(), generic)?;
 
-            Ok(ExecutionCondition::Trusted(std::sync::Arc::new(
-                ExecutionCondition::Predicate(symbol.into(), substitution, arguments.into()),
-            )))
+            Ok(ExecutionCondition::new(bray_checker::ExecutionConditionKind::Trusted(std::sync::Arc::new(
+                ExecutionCondition::new(bray_checker::ExecutionConditionKind::Predicate(symbol.into(), substitution, arguments.into())),
+            ))))
         };
 
         if allocation {
             let (Some(bytes), Some(align)) = (fields.get("bytes"), fields.get("align")) else {
-                contract.requirements.push(ExecutionCondition::Unknown);
+                contract.requirements.push(ExecutionCondition::unknown());
 
                 return Ok(Some(contract));
             };
@@ -173,7 +173,7 @@ impl Compilation {
             let (Some(capacity), Some(initialized)) =
                 (fields.get("capacity"), fields.get("initialized"))
             else {
-                contract.requirements.push(ExecutionCondition::Unknown);
+                contract.requirements.push(ExecutionCondition::unknown());
 
                 return Ok(Some(contract));
             };
@@ -188,7 +188,7 @@ impl Compilation {
                     .lookup_member(owner, name)
                     .map_err(binding_query_error)?
                 else {
-                    return Ok(ExecutionCondition::Unknown);
+                    return Ok(ExecutionCondition::unknown());
                 };
 
                 let definition = bray_symbols::CallableDefinitionId::try_new(symbol)
@@ -196,19 +196,19 @@ impl Compilation {
 
                 let substitution = storage_contract_substitution(&context, symbol, &arguments)?;
 
-                Ok(ExecutionCondition::Call(
+                Ok(ExecutionCondition::new(bray_checker::ExecutionConditionKind::Call(
                     bray_symbols::CallableInstanceData::new(definition, substitution),
                     None,
                     std::sync::Arc::new([]),
                     [].into(),
                     None,
-                ))
+                )))
             };
 
-            let bytes = ExecutionCondition::Operation(
+            let bytes = ExecutionCondition::new(bray_checker::ExecutionConditionKind::Operation(
                 bray_bound_tree::BoundOperator::Multiply,
                 vec![layout_query("stride_of")?, capacity.clone()].into(),
-            );
+            ));
 
             contract.requirements.extend([
                 predicate(
@@ -227,20 +227,20 @@ impl Compilation {
                     &arguments,
                     vec![pointer.clone(), initialized.clone()],
                 )?,
-                ExecutionCondition::Operation(
+                ExecutionCondition::new(bray_checker::ExecutionConditionKind::Operation(
                     bray_bound_tree::BoundOperator::LessEqual,
                     vec![initialized.clone(), capacity.clone()].into(),
-                ),
+                )),
             ]);
         }
 
         for condition in &contract.requirements {
-            if matches!(condition, ExecutionCondition::Trusted(_)) {
+            if matches!(condition.kind(), bray_checker::ExecutionConditionKind::Trusted(_)) {
                 contract.guarantees.push(condition.clone());
 
                 contract
                     .witness_subjects
-                    .push((condition.clone(), ExecutionCondition::Result));
+                    .push((condition.clone(), ExecutionCondition::result()));
             } else {
                 contract.postconditions.push(condition.clone());
             }

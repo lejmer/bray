@@ -148,7 +148,7 @@ impl Compilation {
 
             if checked.diagnostics().has_errors() {
                 conditions.push((
-                    ExecutionCondition::Unknown,
+                    ExecutionCondition::unknown(),
                     bray_symbols::PredicateDomain::Value,
                     span,
                 ));
@@ -165,7 +165,7 @@ impl Compilation {
                             bray_checker::execution_condition_from_term(values, term, &references)
                         })
                         .transpose()?
-                        .unwrap_or(ExecutionCondition::Unknown);
+                        .unwrap_or_else(ExecutionCondition::unknown);
 
                     conditions.push((condition, predicate.domain(), span));
                 }

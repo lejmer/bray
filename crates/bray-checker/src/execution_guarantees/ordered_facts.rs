@@ -3,45 +3,42 @@ use std::collections::BTreeSet;
 use hashbrown::{HashMap, HashSet};
 use bray_bound_tree::BoundOperator;
 
-use super::{ConditionIndex, ExecutionCondition};
-use super::condition::ConditionId;
+use super::{ExecutionCondition, ExecutionConditionKind};
 
 struct Edge {
     position: usize,
-    target: ConditionId,
+    target: ExecutionCondition,
     strict: bool,
 }
 
 struct Node {
-    value: ExecutionCondition,
     ordered: usize,
     edges: Vec<Edge>,
 }
 
 /// One immutable evidence scope owns its ordered edges and their original scan positions.
 pub(super) struct OrderedFacts {
-    conditions: ConditionIndex,
-    nodes: HashMap<ConditionId, Node>,
+    nodes: HashMap<ExecutionCondition, Node>,
     length: usize,
     has_edges: bool,
 }
 
 impl OrderedFacts {
-    pub(super) fn new(facts: &BTreeSet<(ExecutionCondition, bool)>, conditions: &ConditionIndex) -> Self {
-        let mut result = Self { conditions: conditions.clone(), nodes: HashMap::new(), length: facts.len(), has_edges: false };
+    pub(super) fn new(facts: &BTreeSet<(ExecutionCondition, bool)>) -> Self {
+        let mut result = Self { nodes: HashMap::new(), length: facts.len(), has_edges: false };
 
         for (position, (condition, holds)) in facts.iter().enumerate() {
-            let ExecutionCondition::Operation(operator, operands) = condition else { continue; };
+            let ExecutionConditionKind::Operation(operator, operands) = condition.kind() else { continue; };
 
             // Only positive ordered comparisons and false inequality exclude NaN.
             if !matches!((operator, holds), (BoundOperator::Equal | BoundOperator::Less | BoundOperator::LessEqual
                 | BoundOperator::Greater | BoundOperator::GreaterEqual, true) | (BoundOperator::NotEqual, false)) { continue; }
 
             let operands = operands.iter().map(|value| {
-                let id = conditions.intern(value);
+                let id = value.clone();
 
-                result.nodes.entry(id).or_insert_with(|| Node {
-                    value: value.clone(), ordered: position + 1, edges: Vec::new(),
+                result.nodes.entry(id.clone()).or_insert_with(|| Node {
+                    ordered: position + 1, edges: Vec::new(),
                 });
 
                 id
@@ -52,22 +49,22 @@ impl OrderedFacts {
             let [left, right] = operands.as_slice() else { continue; };
 
             let (from, to, strict) = match operator {
-                BoundOperator::Less => (*left, *right, true),
-                BoundOperator::LessEqual | BoundOperator::Equal => (*left, *right, false),
-                BoundOperator::Greater => (*right, *left, true),
-                BoundOperator::GreaterEqual => (*right, *left, false),
+                BoundOperator::Less => (left.clone(), right.clone(), true),
+                BoundOperator::LessEqual | BoundOperator::Equal => (left.clone(), right.clone(), false),
+                BoundOperator::Greater => (right.clone(), left.clone(), true),
+                BoundOperator::GreaterEqual => (right.clone(), left.clone(), false),
                 _ => unreachable!("positive ordered evidence has an ordered operator"),
             };
 
             result.has_edges = true;
 
             result.nodes.get_mut(&from).expect("ordered source was indexed").edges.push(Edge {
-                position: position + 1, target: to, strict,
+                position: position + 1, target: to.clone(), strict,
             });
 
             if *operator == BoundOperator::Equal && left != right {
                 result.nodes.get_mut(&to).expect("equality target was indexed").edges.push(Edge {
-                    position: position + 1, target: from, strict: false,
+                    position: position + 1, target: from.clone(), strict: false,
                 });
             }
         }
@@ -82,8 +79,7 @@ impl OrderedFacts {
             return false;
         }
 
-        let key = self.conditions.intern(value);
-        let position = self.nodes.get(&key).map(|node| node.ordered);
+        let position = self.nodes.get(value).map(|node| node.ordered);
 
         if let Some(position) = position && *budget >= position {
             *budget -= position;
@@ -107,17 +103,16 @@ impl OrderedFacts {
             return result;
         }
 
-        let upper_id = self.conditions.intern(upper);
-        let mut pending = vec![(lower, self.conditions.intern(lower), false)];
+        let mut pending = vec![(lower, false)];
         let mut visited = HashSet::new();
 
-        while let Some((current, key, strict)) = pending.pop() {
+        while let Some((current, strict)) = pending.pop() {
             if literal_path(current, upper, requires_strict && !strict) { return true; }
-            if !visited.insert((key, strict)) { continue; }
+            if !visited.insert((current, strict)) { continue; }
 
             let mut consumed = 0;
 
-            for edge in self.nodes.get(&key).into_iter().flat_map(|node| &node.edges) {
+            for edge in self.nodes.get(current).into_iter().flat_map(|node| &node.edges) {
                 let cost = edge.position - consumed;
 
                 let Some(remaining) = budget.checked_sub(cost) else { *budget = 0; return false; };
@@ -127,9 +122,9 @@ impl OrderedFacts {
 
                 let strict = strict || edge.strict;
 
-                if edge.target == upper_id && (strict || !requires_strict) { return true; }
+                if edge.target == *upper && (strict || !requires_strict) { return true; }
 
-                pending.push((&self.nodes.get(&edge.target).expect("ordered target was indexed").value, edge.target, strict));
+                pending.push((&edge.target, strict));
             }
 
             // Skipped facts still consume exactly the original bounded scan's work.
@@ -143,7 +138,7 @@ impl OrderedFacts {
 }
 
 fn literal_path(current: &ExecutionCondition, upper: &ExecutionCondition, strict: bool) -> bool {
-    let (ExecutionCondition::Literal(current), ExecutionCondition::Literal(upper)) = (current, upper) else { return false; };
+    let (ExecutionConditionKind::Literal(current), ExecutionConditionKind::Literal(upper)) = (current.kind(), upper.kind()) else { return false; };
 
     matches!((current.kind(), upper.kind()),
         (bray_symbols::ConstantValueKind::Integer(_), bray_symbols::ConstantValueKind::Integer(_)))
@@ -154,21 +149,21 @@ fn literal_path(current: &ExecutionCondition, upper: &ExecutionCondition, strict
 
 #[cfg(test)]
 mod tests {
-    use super::{BoundOperator, BTreeSet, ConditionIndex, ExecutionCondition, OrderedFacts};
+    use super::{BoundOperator, BTreeSet, ExecutionCondition, ExecutionConditionKind, OrderedFacts};
     use std::sync::Arc;
     use bray_symbols::{ConstantValueData, ConstantValueKind, IntegerConstant, SymbolOrdinal};
 
     #[test]
     fn indexed_edges_preserve_scan_results_and_each_budget() {
-        let input = |ordinal| ExecutionCondition::Input(super::super::ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(super::super::ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
 
-        let integer = |value| ExecutionCondition::Literal(Arc::new(ConstantValueData::new(crate::test_support::error_type(),
-            ConstantValueKind::Integer(IntegerConstant::from_u64(value)))));
+        let integer = |value| ExecutionCondition::new(crate::ExecutionConditionKind::Literal(Arc::new(ConstantValueData::new(crate::test_support::error_type(),
+            ConstantValueKind::Integer(IntegerConstant::from_u64(value))))));
 
         let values = [input(0), input(1), integer(2), integer(4)];
 
-        let relation = |op, left: usize, right: usize| ExecutionCondition::Operation(op,
-            vec![values[left].clone(), values[right].clone()].into());
+        let relation = |op, left: usize, right: usize| ExecutionCondition::new(crate::ExecutionConditionKind::Operation(op,
+            vec![values[left].clone(), values[right].clone()].into()));
 
         let candidates = [
             (relation(BoundOperator::LessEqual, 0, 1), true),
@@ -177,14 +172,14 @@ mod tests {
             (relation(BoundOperator::Less, 1, 3), false),
             (relation(BoundOperator::NotEqual, 1, 3), false),
             (relation(BoundOperator::Greater, 3, 1), true),
-            (ExecutionCondition::Unknown, true),
+            (ExecutionCondition::unknown(), true),
         ];
 
         for mask in 0..(1 << candidates.len()) {
             let facts = candidates.iter().enumerate().filter(|(bit, _)| mask & (1 << bit) != 0)
                 .map(|(_, fact)| fact.clone()).collect::<BTreeSet<_>>();
 
-            let indexed = OrderedFacts::new(&facts, &ConditionIndex::default());
+            let indexed = OrderedFacts::new(&facts);
 
             for budget in 0..=64 {
                 for lower in &values {
@@ -224,7 +219,7 @@ mod tests {
 
             *budget = remaining;
 
-            let ExecutionCondition::Operation(operator, operands) = condition else {
+            let ExecutionConditionKind::Operation(operator, operands) = condition.kind() else {
                 return false;
             };
 
@@ -261,8 +256,8 @@ mod tests {
         let mut visited = std::collections::BTreeSet::new();
 
         while let Some((current, strict)) = pending.pop() {
-            if let (ExecutionCondition::Literal(current), ExecutionCondition::Literal(upper)) =
-                (current, upper)
+            if let (ExecutionConditionKind::Literal(current), ExecutionConditionKind::Literal(upper)) =
+                (current.kind(), upper.kind())
                 && matches!(
                     (current.kind(), upper.kind()),
                     (
@@ -298,7 +293,7 @@ mod tests {
 
                 *budget = remaining;
 
-                let ExecutionCondition::Operation(operator, operands) = condition else {
+                let ExecutionConditionKind::Operation(operator, operands) = condition.kind() else {
                     continue;
                 };
 

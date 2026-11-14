@@ -16,7 +16,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.expressions.get(&expression)
             .or_else(|| state.pending_results.get(&expression))
             .cloned()
-            .unwrap_or(ExecutionCondition::Unknown)
+            .unwrap_or_else(ExecutionCondition::unknown)
     }
 
     pub(in crate::analysis::guarantee) fn returned_value(&self, state: &ExecutionState) -> ExecutionCondition {
@@ -27,7 +27,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 _ => None,
             })
             .and_then(|place| place.value_in(&state.current))
-            .unwrap_or(ExecutionCondition::Unknown)
+            .unwrap_or_else(ExecutionCondition::unknown)
     }
 
     pub(in crate::analysis::guarantee) fn publish_return(&self, state: &mut ExecutionState, value: ExecutionCondition) {
@@ -60,7 +60,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Record every inactive case while the constructor owns this knowledge.
         // Pairwise joins can then preserve exclusions across arbitrarily nested choices.
         for variant in variants.iter().copied() {
-            state.assumptions.insert((ExecutionCondition::VariantTest(variant, owner.clone()), variant == active));
+            state.assumptions.insert((ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(variant, owner.clone())), variant == active));
         }
     }
 
@@ -117,7 +117,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // owner or loan wrapper. The immutable data is shared by this read.
             let contents = value.computed_value().clone();
 
-            return if contents == ExecutionCondition::Unknown {
+            return if contents == ExecutionCondition::unknown() {
                 ExecutionCondition::opaque_scalar(identity)
             } else { ExecutionCondition::scalar_observation(identity, contents) };
         }
@@ -209,7 +209,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 place
                     .value_in(&state.current)
-                    .unwrap_or(ExecutionCondition::Unknown)
+                    .unwrap_or_else(ExecutionCondition::unknown)
             }
             bray_bound_tree::BoundExecutionSite::Iterate(_)
             | bray_bound_tree::BoundExecutionSite::Next(_)
@@ -219,14 +219,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .expect("implicit invocation result has an execution place");
 
                 if state.current.availability(&place) == super::super::current::ValueAvailability::Absent {
-                    return ExecutionCondition::Unknown;
+                    return ExecutionCondition::unknown();
                 }
 
                 place
                     .value_in(&state.current)
-                    .unwrap_or(ExecutionCondition::Unknown)
+                    .unwrap_or_else(ExecutionCondition::unknown)
             }
-            bray_bound_tree::BoundExecutionSite::ScopedExit(_) => ExecutionCondition::Unknown,
+            bray_bound_tree::BoundExecutionSite::ScopedExit(_) => ExecutionCondition::unknown(),
             bray_bound_tree::BoundExecutionSite::Cleanup(node)
             | bray_bound_tree::BoundExecutionSite::Node(node) => {
                 panic!("invocation value requires an expression owner, got {node:?}")
@@ -238,10 +238,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         value: &ExecutionCondition,
     ) -> Option<bray_symbols::TypeId> {
-        match value {
-            ExecutionCondition::ScalarValue(identity) | ExecutionCondition::PostState(_, identity) => self.observation_type(identity),
-            ExecutionCondition::Input(place)
-            | ExecutionCondition::Joined(_, _, place) => self
+        match value.kind() {
+            crate::ExecutionConditionKind::ScalarValue(identity) | crate::ExecutionConditionKind::PostState(_, identity) => self.observation_type(identity),
+            crate::ExecutionConditionKind::Input(place)
+            | crate::ExecutionConditionKind::Joined(_, _, place) => self
                 .observed_types
                 .get(place)
                 .copied()
@@ -254,7 +254,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                     _ => None,
                 }),
-            ExecutionCondition::Call(instance, _, _, _, _)
+            crate::ExecutionConditionKind::Call(instance, _, _, _, _)
                 if Some(instance.definition().symbol()) == self.sequence_length =>
             {
                 Some(crate::representation::representation_type(
@@ -262,12 +262,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     bray_compiler_known::RepresentationRole::ScalarUsize,
                 ))
             }
-            ExecutionCondition::Expression(expression) => self
+            crate::ExecutionConditionKind::Expression(expression) => self
                 .semantics
                 .types()
                 .expression(*expression)
                 .map(|entry| entry.ty()),
-            ExecutionCondition::Literal(value) => Some(value.ty()),
+            crate::ExecutionConditionKind::Literal(value) => Some(value.ty()),
             _ => None,
         }
     }
@@ -297,7 +297,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, identity) {
             return place
                 .value_in(&state.current)
-                .unwrap_or(ExecutionCondition::Unknown);
+                .unwrap_or_else(ExecutionCondition::unknown);
         }
 
         match self
@@ -311,10 +311,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // Physical frame storage can find the actual retained frame after
                 // its expression-cache lifetime ends. A missing frame is not recreated.
                 state.deferred_invocations.keys().find(|owner| {
-                    matches!(owner, ExecutionCondition::Expression(source) if *source == expression)
+                    matches!(owner.kind(), crate::ExecutionConditionKind::Expression(source) if *source == expression)
                 }).cloned().unwrap_or_else(|| self.value(state, expression))
             }
-            _ => ExecutionCondition::Unknown,
+            _ => ExecutionCondition::unknown(),
         }
     }
 
@@ -386,7 +386,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 value = value.project(*projection);
             }
         } else {
-            value = ExecutionCondition::Unknown;
+            value = ExecutionCondition::unknown();
         }
 
         value

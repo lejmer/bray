@@ -54,7 +54,7 @@ impl ExecutionState {
         let role = value.ownership_identity().map(|(kind, _)| kind);
 
         if role == Some(ObservationKind::Reference)
-            || matches!(value, ExecutionCondition::Observation { kind: ObservationKind::Scalar, .. })
+            || matches!(value.kind(), crate::ExecutionConditionKind::Observation { kind: ObservationKind::Scalar, .. })
         {
             return DependencyOwnedResult::default();
         }
@@ -65,7 +65,7 @@ impl ExecutionState {
 
         // A projected anonymous wrapper keeps its authoritative layout even when
         // its current payload data no longer exposes the original formal input.
-        if let ExecutionCondition::Projection(field, parent) = value
+        if let crate::ExecutionConditionKind::Projection(field, parent) = value.kind()
             && let Some(result) = self.recorded_owned_result(parent, budget)
         {
             return project_owned_result(result, *field);
@@ -75,13 +75,13 @@ impl ExecutionState {
             return self.owned_result_bounded(payload, extraction, budget);
         }
 
-        let contents = match value {
-            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned, .. } => self.owned_result_bounded(contents, extraction, budget),
-            ExecutionCondition::Present(value) => {
+        let contents = match value.kind() {
+            crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } => self.owned_result_bounded(contents, extraction, budget),
+            crate::ExecutionConditionKind::Present(value) => {
                 self.prefixed_owned_result(value, StorageProjection::NullableValue, extraction, budget)
             }
-            ExecutionCondition::Tagged(_, contents) => self.owned_result_bounded(contents, extraction, budget),
-            ExecutionCondition::Constructed(base, fields) => {
+            crate::ExecutionConditionKind::Tagged(_, contents) => self.owned_result_bounded(contents, extraction, budget),
+            crate::ExecutionConditionKind::Constructed(base, fields) => {
                 let inherited = self.owned_result_bounded(base, extraction, budget).try_map(
                     &mut |transfer| {
                         if transfer.output().first().is_some_and(|first| fields.iter().any(|(field, _)| field == first)) {
@@ -137,22 +137,22 @@ impl ExecutionState {
                     Some(self.prefixed_owned_result(value, *field, extraction, budget))
                 })))
             }
-            ExecutionCondition::Projection(field, parent) => project_owned_result(
+            crate::ExecutionConditionKind::Projection(field, parent) => project_owned_result(
                 self.owned_result_bounded(parent, extraction, budget), *field,
             ),
-            ExecutionCondition::Input(place) if !place.projections.is_empty() => {
+            crate::ExecutionConditionKind::Input(place) if !place.projections.is_empty() => {
                 let mut root = place.clone();
 
                 root.projections = [].into();
 
-                let ownership = self.owned_result_bounded(&ExecutionCondition::Input(root), extraction, budget);
+                let ownership = self.owned_result_bounded(&ExecutionCondition::new(crate::ExecutionConditionKind::Input(root)), extraction, budget);
 
                 if place.projections.len() > *budget { return DependencyOwnedResult::default(); }
                 *budget -= place.projections.len();
 
                 place.projections.iter().fold(ownership, |ownership, field| project_owned_result(ownership, *field))
             }
-            ExecutionCondition::Input(place) if extraction && place.is_callable_input() => {
+            crate::ExecutionConditionKind::Input(place) if extraction && place.is_callable_input() => {
                 DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(value.clone(), [])
                     .with_preservation(DependencyValuePreservation::all()))
             }
@@ -162,7 +162,7 @@ impl ExecutionState {
         // Contents can change without changing this object's recorded identity.
         // Only its own mapping survives that way. Child mappings come from the
         // actual current children, never a previous version of the aggregate.
-        let owner = matches!(value, ExecutionCondition::Observation { kind: ObservationKind::Owned, .. })
+        let owner = matches!(value.kind(), crate::ExecutionConditionKind::Observation { kind: ObservationKind::Owned, .. })
             .then(|| value.ownership_identity()).flatten()
             .filter(|(kind, _)| *kind == ObservationKind::Owned)
             .and_then(|(_, owner)| self.recorded_owned_result(owner, budget))
@@ -205,7 +205,7 @@ impl ExecutionState {
 
         *budget = remaining;
 
-        if value == source && *value != ExecutionCondition::Unknown {
+        if value == source && *value != ExecutionCondition::unknown() {
             return DependencyValuePreservation::all();
         }
 
@@ -217,10 +217,10 @@ impl ExecutionState {
             return self.value_preservation(payload, source, budget);
         }
 
-        match value {
-            ExecutionCondition::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. }
-            | ExecutionCondition::Tagged(_, contents) => self.value_preservation(contents, source, budget),
-            ExecutionCondition::Constructed(base, fields) => {
+        match value.kind() {
+            crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. }
+            | crate::ExecutionConditionKind::Tagged(_, contents) => self.value_preservation(contents, source, budget),
+            crate::ExecutionConditionKind::Constructed(base, fields) => {
                 let base = self.value_preservation(base, source, budget);
                 let mut children = base.children().clone();
                 let mut preserved = base.preserves_value();
@@ -236,7 +236,7 @@ impl ExecutionState {
 
                 DependencyValuePreservation::new(preserved, children)
             }
-            ExecutionCondition::Present(value) => DependencyValuePreservation::new(false, [(
+            crate::ExecutionConditionKind::Present(value) => DependencyValuePreservation::new(false, [(
                 StorageProjection::NullableValue,
                 self.value_preservation(value, &source.clone().project(StorageProjection::NullableValue), budget),
             )].into()),
@@ -441,9 +441,9 @@ mod tests {
         use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalNot, LogicalOr};
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let value = ExecutionCondition::Input(place.clone());
-        let take = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-        let initialized = ExecutionCondition::InitializedSnapshot(place, std::sync::Arc::new(ExecutionCondition::Boolean(true)), std::sync::Arc::new(value.clone()));
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
+        let take = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let initialized = ExecutionCondition::new(crate::ExecutionConditionKind::InitializedSnapshot(place, std::sync::Arc::new(ExecutionCondition::boolean(true)), std::sync::Arc::new(value.clone())));
         let not = |condition| ExecutionCondition::operation(LogicalNot, vec![condition]);
 
         let relation = ExecutionCondition::operation(LogicalOr, vec![
@@ -458,7 +458,7 @@ mod tests {
             let mut state = ExecutionState::default();
 
             relation.clone().assume(true, &mut state.assumptions);
-            state.assumptions.insert((ExecutionCondition::Trusted(std::sync::Arc::new(take.clone())), true));
+            state.assumptions.insert((ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(take.clone()))), true));
             if let Some(selected) = selected { initialized.clone().assume(selected, &mut state.assumptions); }
 
             state.owned_results.insert(value.clone(), DependencyOwnedResult::choice([
@@ -488,11 +488,11 @@ mod tests {
 
     #[test]
     fn canonical_input_projections_reuse_only_the_recorded_owner_layout() {
-        let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let root = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let field = StorageProjection::NullableValue;
         let projection = bray_symbols::ConstantProjectionKind::NullableValue;
         let selected = root.clone().project(field);
-        let explicit = ExecutionCondition::Projection(projection, std::sync::Arc::new(root.clone()));
+        let explicit = ExecutionCondition::new(crate::ExecutionConditionKind::Projection(projection, std::sync::Arc::new(root.clone())));
         let mut state = ExecutionState::default();
 
         assert!(state.owned_result(&selected).is_empty());
@@ -500,7 +500,7 @@ mod tests {
         let preservation = DependencyValuePreservation::new(true, [(field, DependencyValuePreservation::none())].into());
 
         let layout = DependencyOwnedResult::case(
-            ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))),
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)))),
             DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(root.clone(), []).with_preservation(preservation)),
         );
 
@@ -521,16 +521,16 @@ mod tests {
 
     #[test]
     fn checked_extraction_publishes_current_formal_contents_without_borrow_authority() {
-        let original = ExecutionCondition::Input(ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
-            bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0)).into())));
+        let original = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
+            bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0)).into()))));
 
         let state = ExecutionState::default();
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
-        let current = original.clone().with_storage_component(&[field], ExecutionCondition::Unknown);
+        let current = original.clone().with_storage_component(&[field], ExecutionCondition::unknown());
 
         assert!(state.owned_result(&original).is_empty(), "borrowing a formal never grants ownership");
         assert!(state.extracted_result(&original.clone().borrowed()).is_empty(), "returning a loan cannot extract its referent");
-        assert!(state.extracted_result(&ExecutionCondition::ScalarValue(std::sync::Arc::new(original.clone()))).is_empty(), "copied data cannot carry owner authority");
+        assert!(state.extracted_result(&ExecutionCondition::new(crate::ExecutionConditionKind::ScalarValue(std::sync::Arc::new(original.clone())))).is_empty(), "copied data cannot carry owner authority");
 
         let moved = state.extracted_result(&original);
 
@@ -554,8 +554,8 @@ mod tests {
 
     #[test]
     fn conditional_predecessor_masks_survive_joined_data_and_untouched_updates() {
-        let original = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let condition = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let original = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let condition = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let other = StorageProjection::TupleElement(SymbolOrdinal::new(1));
         let mut state = ExecutionState::default();
@@ -564,7 +564,7 @@ mod tests {
             DependencyOwnedTransfer::new(original.clone(), []).with_preservation(DependencyValuePreservation::all()),
         ));
 
-        let predecessor = ExecutionCondition::constructed(ExecutionCondition::Unknown, [(field, original)].into());
+        let predecessor = ExecutionCondition::constructed(ExecutionCondition::unknown(), [(field, original)].into());
         let active = state.owned_result(&predecessor);
 
         assert!(active.transfers().all(|transfer| transfer.preservation().preserves_value()));
@@ -573,12 +573,12 @@ mod tests {
             DependencyOwnedResult::case(condition, active), DependencyOwnedResult::default(),
         ]);
 
-        let joined = ExecutionCondition::Result;
+        let joined = ExecutionCondition::result();
 
         state.owned_results.insert(joined.clone(), layout.clone());
         assert_eq!(state.owned_result(&joined), layout);
 
-        let updated = ExecutionCondition::constructed(joined, [(other, ExecutionCondition::Boolean(false))].into());
+        let updated = ExecutionCondition::constructed(joined, [(other, ExecutionCondition::boolean(false))].into());
         let retained = state.owned_result(&updated);
 
         assert!(!retained.transfers().collect::<Vec<_>>().is_empty());
@@ -592,7 +592,7 @@ mod tests {
 
     #[test]
     fn repeated_actual_updates_compose_masks_without_restoring_old_contents() {
-        let original = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let original = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let first = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let second = StorageProjection::TupleElement(SymbolOrdinal::new(1));
         let mut state = ExecutionState::default();
@@ -604,7 +604,7 @@ mod tests {
         let mut current = original.clone();
 
         for field in [first, second].into_iter().cycle().take(16) {
-            current = current.with_storage_component(&[field], ExecutionCondition::Unknown);
+            current = current.with_storage_component(&[field], ExecutionCondition::unknown());
 
             let captured = state.owned_result(&current);
 
@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn joins_keep_distinct_contents_snapshots_of_the_same_owner() {
-        let original = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let original = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
 
         let original_layout = DependencyOwnedResult::Transfer(
@@ -635,14 +635,14 @@ mod tests {
 
         state.owned_results.insert(original.clone(), original_layout.clone());
 
-        let changed = original.with_storage_component(&[field], ExecutionCondition::Unknown);
+        let changed = original.with_storage_component(&[field], ExecutionCondition::unknown());
         let changed_layout = state.owned_result(&changed);
 
         state.owned_results.insert(changed.clone(), changed_layout.clone());
 
-        let unrelated = |ordinal| ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
+        let unrelated = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
 
-        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(unrelated(1), unrelated(2))].into(), &Default::default(), &Default::default()));
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(unrelated(1), unrelated(2))].into(), &Default::default()));
         assert_eq!(state.owned_results.get(&original), Some(&original_layout), "a changed snapshot cannot alter the original value's preservation");
         assert_eq!(state.owned_results.get(&changed), Some(&changed_layout), "a snapshot's identity does not erase its changed contents");
         assert_eq!(state.owned_result(&changed), changed_layout);
@@ -650,9 +650,9 @@ mod tests {
 
     #[test]
     fn mutated_formal_retains_its_top_lineage_and_current_child_lineage() {
-        let original = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-        let old_child = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
-        let new_child = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        let original = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let old_child = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let new_child = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let mut state = ExecutionState::default();
 
@@ -666,7 +666,7 @@ mod tests {
         ));
 
         let changed = ExecutionCondition::owned_value(original.clone(),
-            ExecutionCondition::constructed(ExecutionCondition::Unknown, [(field, new_child.clone())].into()));
+            ExecutionCondition::constructed(ExecutionCondition::unknown(), [(field, new_child.clone())].into()));
 
         let ownership = state.owned_result(&changed);
 
