@@ -116,21 +116,17 @@ impl ValuePreservation {
         // empty layout cannot later be inferred again from an inactive child.
         state.owned_results.insert(source.clone(), ownership.clone());
 
-        // Current ownership survives constructor normalization independently of
-        // formal input transfers. Fresh local owners have no input mapping.
-        let owned_context = source.ownership_identity()
-            .is_some_and(|(role, _)| role == crate::execution_guarantees::ExecutionObservationKind::Owned);
-
         let empty = Default::default();
 
         let moved = state.entries.get(&mutation.occurrence())
             .map_or(&empty, |entry| &entry.extracted_values);
 
         let moved = crate::execution_guarantees::RetainedSnapshots::from(moved);
+        let next = mask.apply_bounded(&source, place, mutation, true, &moved, &mut { ExecutionCondition::WORK_LIMIT });
 
-        let next = mask.apply_bounded(&source, place, mutation, owned_context, &moved, &mut { ExecutionCondition::WORK_LIMIT });
-
-        if source == next { return next; }
+        if source == next {
+            return next;
+        }
 
         let ownership = ownership.try_map(
             &mut |transfer| {
@@ -183,8 +179,13 @@ impl ValuePreservation {
     }
 
     fn contents_preservation(&self) -> bray_symbols::DependencyValuePreservation<StorageProjection> {
-        bray_symbols::DependencyValuePreservation::new(self.value || self.inline, self.children.iter()
+        bray_symbols::DependencyValuePreservation::new(self.preserves_value() || self.inline, self.children.iter()
             .map(|(field, child)| (*field, child.contents_preservation())).collect())
+    }
+
+    fn preserves_value(&self) -> bool {
+        self.value || self.discriminant && self.children.get(&StorageProjection::NullableValue)
+            .is_some_and(Self::preserves_value)
     }
 
     /// A mutation produces unknown new contents and carries only actual source
@@ -204,7 +205,7 @@ impl ValuePreservation {
         source: &ExecutionCondition,
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
-        owned_context: bool,
+        in_place: bool,
         moved: &crate::execution_guarantees::RetainedSnapshots,
         budget: &mut usize,
     ) -> ExecutionCondition {
@@ -215,7 +216,7 @@ impl ValuePreservation {
         *budget = remaining;
 
         let consumed = moved.retains_owner(source);
-        let retained = self.value && !consumed;
+        let retained = self.preserves_value() && !consumed;
 
         if !retained && self.descriptor
             && let Some(referent) = match source.kind() {
@@ -226,7 +227,7 @@ impl ValuePreservation {
         {
             // Frame reached data before retaining the loan descriptor. Its
             // fields keep their actual values rather than projected field loans.
-            return source.with_referent(self.apply_bounded(referent, place, mutation, false, moved, budget));
+            return source.with_referent(self.apply_bounded(referent, place, mutation, in_place, moved, budget));
         }
 
         if !retained && self.descriptor && let Some((context, copied)) = source.storage_contents() {
@@ -234,7 +235,7 @@ impl ValuePreservation {
             // the copied descriptor's reached data without replacing its origin.
             return ExecutionCondition::scalar_observation(
                 context.clone(),
-                self.apply_bounded(copied, place, mutation, false, moved, budget),
+                self.apply_bounded(copied, place, mutation, in_place, moved, budget),
             );
         }
 
@@ -254,7 +255,7 @@ impl ValuePreservation {
         for (projection, preservation) in &self.children {
             let child = source.clone().project(*projection);
             let child_place = place.and_then(|place| place.clone().project(&[*projection]));
-            let next = preservation.apply_bounded(&child, child_place.as_ref(), mutation, false, moved, budget);
+            let next = preservation.apply_bounded(&child, child_place.as_ref(), mutation, in_place, moved, budget);
 
             contents = contents.with_storage_component(&[*projection], next);
         }
@@ -262,8 +263,9 @@ impl ValuePreservation {
         // An in-place contents update retains its existing owned context.
         // The physical slot can survive extraction, but its moved owner cannot
         // remain the identity of the replacement value.
-        if !retained && place.is_some() && !consumed && (self.descriptor || owned_context
-            || source.observation_kind() == Some(crate::execution_guarantees::ExecutionObservationKind::Owned)) {
+        if !retained && place.is_some() && !consumed && (self.descriptor
+            || source.observation_kind() == Some(crate::execution_guarantees::ExecutionObservationKind::Owned)
+            || in_place && source.ownership_identity().is_some_and(|(role, _)| role == crate::execution_guarantees::ExecutionObservationKind::Owned)) {
             return source.with_current_contents(contents);
         }
 
@@ -758,6 +760,14 @@ mod tests {
 
         let mut payload_mask = ValuePreservation { discriminant: true, ..Default::default() };
 
+        payload_mask.at_mut(&[payload]).value = true;
+
+        assert_eq!(payload_mask.apply(&owner, Some(&place), mutation), owner,
+            "a nullable's retained tag and complete payload retain its whole value");
+
+        assert_eq!(payload_mask.contents_preservation(), bray_symbols::DependencyValuePreservation::all());
+
+        payload_mask.at_mut(&[payload]).value = false;
         payload_mask.at_mut(&[payload, StorageProjection::TupleElement(SymbolOrdinal::new(0))]).value = true;
 
         let framed = payload_mask.apply(&owner, Some(&place), mutation);
@@ -907,6 +917,18 @@ mod tests {
             assert_ne!(updated.computed_value(), &owner);
             assert_eq!(mask.frame(&mut state, &updated, &[], Some(&place), mutation), updated);
             assert_eq!(state.owned_result(&source), layout, "framing leaves the prior snapshot intact");
+
+            let child = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+            let parent = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(9))));
+            let nested = ExecutionCondition::constructed(parent, [(child, source.clone())].into());
+            let mut nested_mask = ValuePreservation::default();
+
+            nested_mask.at_mut(&[child]);
+
+            let nested = nested_mask.frame(&mut state, &nested, &[], Some(&place), mutation).project(child);
+
+            assert_eq!(nested.ownership_identity(), source.ownership_identity(), "in-place framing preserves the existing role at every visited component");
+            assert_eq!(nested.computed_value(), updated.computed_value());
 
             let mut extraction = state.clone();
 

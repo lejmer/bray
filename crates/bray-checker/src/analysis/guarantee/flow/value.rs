@@ -239,6 +239,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         value: &ExecutionCondition,
     ) -> Option<bray_symbols::TypeId> {
         match value.kind() {
+            crate::ExecutionConditionKind::Result => self.storage.identity_entries().find_map(|(identity, storage)| {
+                matches!(storage, bray_bound_tree::StorageIdentity::PostconditionResult(_))
+                    .then(|| self.storage.storage_type(identity)).flatten()
+            }),
             crate::ExecutionConditionKind::ScalarValue(identity) | crate::ExecutionConditionKind::PostState(_, identity) => self.observation_type(identity),
             crate::ExecutionConditionKind::Input(place)
             | crate::ExecutionConditionKind::Joined(_, _, place) => self
@@ -250,7 +254,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     crate::execution_guarantees::ExecutionInput::Storage(identity)
                         if place.projections.is_empty() =>
                     {
-                        self.storage.identity_type(identity)
+                        self.storage.storage_type(identity)
                     }
                     _ => None,
                 }),
