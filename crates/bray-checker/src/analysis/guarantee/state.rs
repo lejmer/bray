@@ -92,9 +92,22 @@ impl ExecutionState {
         let Some(invocation) = invocation.filter(|invocation| self.entries.get(invocation)
             .is_some_and(|entry| !entry.pending_execution)) else { return BTreeSet::new(); };
 
-        self.entry_witness_inputs(invocation).into_iter().filter(|carrier| {
-            self.witnesses.get(carrier).is_some_and(|witness| !witness.available)
-        }).collect()
+        let entry = &self.entries[&invocation];
+        let owned = self.witness_snapshots(entry.witness_sources());
+
+        let captured = owned.iter().filter(|value| {
+            matches!(value.ownership_identity(), Some((crate::execution_guarantees::ExecutionObservationKind::Owned, _)))
+        }).filter_map(|value| self.deferred_entries(value))
+            .flat_map(|deferred| deferred.producers.values())
+            .filter(|candidate| super::deferred::possible(&candidate.selection, &self.proofs.ordinary_proof(&self.assumptions)))
+            .flat_map(|candidate| candidate.entry.witness_inputs.iter());
+
+        // Custody of a frame retains its child's existing private admission. It
+        // does not admit that evidence to the outer call or make it available.
+        entry.witness_inputs.iter().chain(captured).filter(|carrier| {
+            owned.retains_owner(carrier)
+                && self.witnesses.get(*carrier).is_some_and(|witness| !witness.available)
+        }).cloned().collect()
     }
 
     pub(super) fn private_allocation_conditions(

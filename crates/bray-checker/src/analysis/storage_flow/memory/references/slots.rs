@@ -1,6 +1,9 @@
 use super::super::model::{
-    Contents, Origin, Place, ReferenceExit, References, State, StoredValue, Target, Transfer,
+    Contents, Origin, Place, ReferenceExit, State, StoredValue, Target, Transfer,
 };
+#[cfg(test)]
+use super::super::model::References;
+
 use bray_bound_tree::{StorageIdentityId, StorageProjection};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -182,9 +185,9 @@ impl State {
                 if !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget) => {
                 let bounds = self.returned_reference_bounds(reference);
 
-                // A complete view of private inline storage does not publish
-                // its containing owner merely by observing a stored reference.
-                bounds.unknown || bounds.displaced || bounds.inexact || bounds.targets.is_empty()
+                // A complete bound to private inline storage does not publish its
+                // owner. An inexact location within that region remains private.
+                bounds.unknown || bounds.displaced || bounds.targets.is_empty()
                     || bounds.targets.iter().any(|target| target.previous
                         || target.storage_path().is_none_or(|path| !self.is_owned_inline_storage(path)))
             }

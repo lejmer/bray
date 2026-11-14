@@ -566,7 +566,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         &mut |condition| Ok(Some(condition.clone())),
                     ).expect("returned ownership contents composition is infallible");
 
-                for (_, value) in fields {
+                if let Some((_, value)) = fields {
                     let actual = DependencyOwnedResult::all([
                         ownership.clone(), state.owned_children_result(value),
                     ]);

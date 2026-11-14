@@ -4040,7 +4040,7 @@ fn observed_pointer_fields_keep_scope_without_initialization_authority() {
 #[test]
 fn borrowed_choices_read_existing_pointer_values_before_publication() {
 
-    for mode in ["complete", "missing", "opaque", "retyped", "retired"] {
+    for mode in ["complete", "missing", "opaque", "retyped", "retired", "inexact"] {
         let ([owner, backing, result, observed], origins) = places();
 
         let call = origins[0].into();
@@ -4081,6 +4081,10 @@ fn borrowed_choices_read_existing_pointer_values_before_publication() {
 
         state.complete_transition(call);
 
+        if mode == "inexact" {
+            state.returned_inputs.get_mut(&result).expect("view retains its complete private region bound").inexact = true;
+        }
+
         let mut parent = state.value_target(&Target::storage(result), view_type).expect("bounded borrowed choice");
 
         parent.previous = mode == "retired";
@@ -4091,9 +4095,19 @@ fn borrowed_choices_read_existing_pointer_values_before_publication() {
 
         let read = state.value_targets(&location).expect("pointer read retains its current value");
 
+        if mode != "retired" {
+            let unexposed = state.unexposed_storage(std::slice::from_ref(&owner), []).collect::<Vec<_>>();
+
+            if mode == "opaque" {
+                assert!(unexposed.is_empty(), "an unknown bound cannot certify a private region");
+            } else {
+                assert_eq!(unexposed, vec![&owner],
+                    "{mode}: reading through a private region cannot publish its container");
+            }
+        }
+
         if mode == "complete" {
             assert_eq!(read.into_iter().collect::<BTreeSet<_>>(), BTreeSet::from(pointers));
-            assert_eq!(state.unexposed_storage(std::slice::from_ref(&owner), []).collect::<Vec<_>>(), vec![&owner], "reading through a private borrowed choice does not make its container an external root");
 
             state.escape_targets(state.referenced_regions(&location).expect("known pointer alternatives"));
 

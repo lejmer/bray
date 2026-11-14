@@ -38,6 +38,14 @@ pub(crate) fn common_components(
         return ExecutionCondition::unknown();
     }
 
+    if left.nullable_payload_snapshot().is_some() || right.nullable_payload_snapshot().is_some() {
+        return common_components(
+            left.nullable_payload_snapshot().unwrap_or(left),
+            right.nullable_payload_snapshot().unwrap_or(right),
+            result, conditions, facts, budget,
+        );
+    }
+
     if let Some(joined) = common_scalar_components(left, right, result.as_ref(), conditions, facts, budget) {
         return joined;
     }
@@ -161,8 +169,7 @@ pub(crate) fn common_components(
                 |value: &ExecutionCondition, conditions: &ExecutionProof<'_>| {
                     match projection {
                         bray_bound_tree::StorageProjection::NullableValue => {
-                            matches!(value.kind(), crate::ExecutionConditionKind::Literal(value)
-                    if matches!(value.kind(), ConstantValueKind::NullableAbsent))
+                            value.known_presence() == Some(false)
                                 || conditions.ordinary_facts().any(|(condition, holds)| {
                                     condition.nullable_absence(*holds).is_some_and(
                                         |(subject, _)| {

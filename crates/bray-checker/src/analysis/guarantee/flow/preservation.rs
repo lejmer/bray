@@ -184,8 +184,13 @@ impl ValuePreservation {
     }
 
     fn contents_preservation(&self) -> bray_symbols::DependencyValuePreservation<StorageProjection> {
-        bray_symbols::DependencyValuePreservation::new(self.preserves_value() || self.inline, self.children.iter()
-            .map(|(field, child)| (*field, child.contents_preservation())).collect())
+        let children: BTreeMap<_, _> = self.children.iter()
+            .map(|(field, child)| (*field, child.contents_preservation())).collect();
+
+        let preserved = self.value || self.inline || self.discriminant
+            && children.get(&StorageProjection::NullableValue).is_some_and(|payload| payload.preserves_value());
+
+        bray_symbols::DependencyValuePreservation::new(preserved, children)
     }
 
     fn preserves_value(&self) -> bool {
@@ -433,6 +438,14 @@ mod tests {
 
         assert_eq!(mask.contents_preservation(), Mask::all());
         assert_ne!(mask.apply(&input, Some(&root), mutation).computed_value(), input.computed_value());
+
+        let mut nullable = ValuePreservation::default();
+
+        nullable.record(Kind::Discriminant);
+        assert_eq!(nullable.contents_preservation(), Mask::none());
+        nullable.at_mut(&[StorageProjection::NullableValue]).record(Kind::InlineBits);
+        assert_eq!(nullable.contents_preservation(), Mask::all());
+        assert!(!nullable.preserves_value(), "portable inline preservation cannot freeze generic payload data");
 
         let ordinary = [(std::sync::Arc::from([]), Kind::Value)];
         let partial = Mask::new(true, [(fields[0], Mask::none())].into());

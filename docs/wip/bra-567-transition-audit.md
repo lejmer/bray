@@ -7,15 +7,18 @@ Read this record and the work-on-bray-issues contract gate after compaction.
 
 ## Current evidence
 
-transport-batch-validation.json identifies the source/binary and fixed comparisons:
-- Checker559, frozen30 and all19 focused ownership/exposure controls pass.
-- Owned501/505 and deferred294/298 retain the same four failures each in source/import modes.
-  No passing identity regressed and no baseline identity is missing.
-- Nullable extraction and mutable-carrier forwarding now pass, including mutation inside the
-  forwarder, mutation after forwarding, fabricated ownership and real async composition.
-- fixed-current.json:907 pass,1 fail (loop cleanup),8 unverified. All previously passing identities
-  remain passing. The eight previously unverified slow cases were excluded from this comparison run.
-- Style and maintained-source formatting pass. There are no installed probes.
+The current batch preserves nullable payload owners, portable nullable contents, false ordinary guards,
+private nested-frame custody and complete inexact private-region views. No probes are installed.
+- custody-shape-validation.json: owned505/505, deferred298/298, frozen30 and focused19 pass.
+  No missing identities or regressions in those groups. Both former sets of four matrix failures pass.
+- Checker exposed one wrapped-absence regression. The existing known_presence query repairs it.
+  custody-shape-checker-fixed.log: all559 pass. Matrices precede this final one-line correction and
+  must be included in the next combined validation. Style/format pass.
+- Last pushed checkpoint8dcca93cc fixed-current.json:907 pass,1 fail (loop cleanup),8 unverified.
+  These broad fixed916 results precede the current batch. Source/interface/native gates remain.
+- Full-provider report exceeded240s. body-trace.log locates serial checking through bridge::install.
+  Previously verified: symbols221, interfaces217, bound-tree136, lowering38, tooling115,
+  runtime interface29, runtime ABI35, test protocol23, backend identity1.
 
 Preserve fixed916 identities and rejection locations. The explicit oracle rename is
 production_host_lease_cannot_claim_preservation_across_fallible_preparation to
@@ -53,11 +56,34 @@ returned elsewhere or only in another Choice cannot authorize separation. Condit
 layouts remain conservative. The remaining nullable join matrix failures lose conditional result shape.
 Publish ordinary active/empty shape without deriving presence from ownership or overriding empty layouts.
 
-Loop cleanup loses guard authority after get<T>/opaque execution. Deferred task_frame_borrow_ends and
-task_returns_observation_future lose held witnesses before the RunResult join. witness-trace.log shows
-capture, not completed-body authority. Locate the removal before editing. Do not remove the admission
-availability filter or grant authority while a future remains dormant. Batch independently understood
-repairs before broad validation. Keep temporary traces bounded and remove superseded evidence.
+Ownership alternatives retain proven true and false ordinary payload guards. Unknown stays unknown.
+A false guard qualifies the actual empty layout, never an invented payload. Nullable joins compare
+stored payload snapshots and use known_presence for inactive wrappers. Equal owners retain identity,
+not overwritten contents. Portable tag+inline preservation never freezes generic/protected data.
+Private nested-frame custody uses existing recorded child admission and actual retained owners, never
+outer admission or public availability. Actual writes still revoke captured evidence. Preserve d302124.
+Inexact complete private-region views stay private. Unknown/displaced/escaped regions remain conservative,
+and no view acquires exact identity or initialized-memory authority. Existing controls cover these rules.
+
+Loop cleanup remains unresolved. nullable-loop.log shows retired escaped Returned origins overlap a
+fresh local guard because returned_inputs is keyed only by place and accumulates both evaluations.
+State::retire also omits returned_inputs when retiring referred storage, unlike Transfer::retire_dependencies.
+A repair must distinguish current/previous bounds and update referenced epochs, while old returned
+references can still alias an unchanged outer-loop object. Merely declaring old returned values disjoint
+or dropping escaped history is unsound. Trace staging/commit, observe_reference, capture/relocation and
+join before changing this representation. No epoch patch is installed.
+Proposed owning change: key existing State/Transfer.returned_inputs by (previous, place), preserving
+one finite historical summary. Stage bounds only in Transfer, then retire old origins and publish
+current bounds in commit_value. observe_reference retires before publishing its own bounds. Retirement
+updates referred epochs in State as Transfer already does. Relocation maps keys and referred targets.
+Returned-to-owned-storage alias checks require the bound's actual storage epoch, even for unknown
+external alternatives. Unchanged outer-loop storage must remain aliasable. Existing returned_borrow_regions
+and recreated_local tests will cover same-site return, copied old reference, fresh local, and explicit
+escape. Its current first-region accumulation expectation should become Disjoint only for the new
+return, while an old return must keep its original bound. Generic RawBuffer and deferred matrices guard
+staging/relocation. No second history map, reconstruction or new public API. Reconsider if a staged
+consumer needs bounds before commit, and resolve it through the owning Transfer rather than publishing
+unproduced output into State.
 
 ## Transition requirements
 
@@ -93,8 +119,9 @@ Delete stale traces/caches when replaced. Never clean the entire shared target.
 
 Performance regression monitoring remains active. Fixed identities are in proof-indexed-current.json.
 Latest timing-current.json: all five pass at135-153ms, loop153ms, provider time separate.
-Latest counted checkpoint transport-validation.json: loop1,482,433 comparisons and38,060 nodes,
-versus prior1,481,729 and38,060. Baseline proof-count-current.json is1,471,543 and38,058. Timing and counts use separate runs. Counter patch retains four measured hooks.
+Latest counts-current.json on8dcca93cc: loop1,482,315 comparisons and38,038 nodes,
+versus previous1,482,433 and38,060. All five controls pass. Timing and counts use separate runs.
+Counter patch retains four measured hooks.
 Preserve immutable conditions, scope-keyed ProofMemo, ordered BooleanGraph, role-sensitive snapshots,
 actual predecessor evidence, absence/unknown and owner/contents/capture distinctions.
 No new cache or evidence representation without removing superseded machinery.

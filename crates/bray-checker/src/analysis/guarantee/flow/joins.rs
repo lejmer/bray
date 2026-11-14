@@ -357,6 +357,27 @@ mod tests {
             Some(ExecutionObservationKind::Reference), "joining nullable references cannot grant ownership");
 
         assert_eq!(join(&ExecutionCondition::unknown(), &absent), ExecutionCondition::unknown());
+
+        let payload_owner = input(0).project(payload);
+        let original = ExecutionCondition::constructed(input(0), [(payload, payload_owner.clone())].into());
+
+        let changed = ExecutionCondition::owned_value(input(0), ExecutionCondition::constructed(
+            input(0).discriminant(), [(payload, ExecutionCondition::owned_value(
+                payload_owner.clone(), ExecutionCondition::boolean(false),
+            ))].into(),
+        ));
+
+        for (left, right) in [(&original, &changed), (&changed, &original)] {
+            for joined in [join(left, right), join_components(left, right)] {
+                let selected = joined.project(payload);
+
+                assert_eq!(selected.ownership_identity(), Some((ExecutionObservationKind::Owned, &payload_owner)),
+                    "joining stored nullable snapshots keeps the common payload owner");
+
+                assert_ne!(selected.computed_value(), payload_owner.computed_value(),
+                    "retained ownership cannot restore replaced payload contents");
+            }
+        }
     }
 
     #[test]

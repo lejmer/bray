@@ -530,6 +530,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     bray_symbols::DependencyOwnedResult::choice([(left, right.0), (right, left.0)].into_iter().zip(inputs).map(
         |(((state, source), other), inputs)| {
             let mut result = state.owned_result(source);
+
             let snapshots = SnapshotSubstitution::new(&inputs);
 
             for (condition, holds) in state.assumptions.difference(&other.assumptions) {
@@ -541,11 +542,14 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
             }
 
             for (_, guard) in &guards {
-                if snapshots.apply(guard)
+                if let Some(holds) = snapshots.apply(guard)
                     .prove_ordinary(&state.assumptions, Some(&state.proofs))
-                    == Some(true)
                 {
-                    result = bray_symbols::DependencyOwnedResult::case(guard.clone(), result);
+                    let condition = if holds { guard.clone() } else {
+                        ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()])
+                    };
+
+                    result = bray_symbols::DependencyOwnedResult::case(condition, result);
                 }
             }
 
