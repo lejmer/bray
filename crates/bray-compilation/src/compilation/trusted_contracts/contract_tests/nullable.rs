@@ -255,7 +255,11 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
 
         let diagnostics = checked.diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "deferred={deferred} promise={promise} source={source_owner} route={route}: {diagnostics:#?}");
+        assert_eq!(
+            !diagnostics.has_errors(), valid,
+            "deferred={deferred} promise={promise} source={source_owner} route={route}: {diagnostics:#?}; forward ownership: {:?}",
+            source_function_dependencies(&application, "forward_owner").owned_result(),
+        );
 
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);

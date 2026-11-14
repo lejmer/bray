@@ -859,10 +859,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         if let Some(result) = self.invocation_result(occurrence) {
-            for (path, kind) in self.input.footprint.observations(&result) {
-                let bray_bound_tree::StorageObservationKind::Reference(ty) = kind else { continue; };
+            for (path, ty) in &self.input.footprint.references {
+                if !result.contains(path) { continue; }
 
-                if crate::representation::reference_kind(self.request, ty)
+                if crate::representation::reference_kind(self.request, *ty)
                     != Some(bray_symbols::DependencyReferenceKind::Borrow)
                     || state.definitely_absent.iter().any(|(absent, reason)| {
                         *reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload && absent.contains(path)
@@ -870,7 +870,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let Some(targets) = state.memory.value_targets(&Target::storage(path.clone())) else { continue; };
 
-                if let [target] = targets.as_slice() {
+                if let [target] = targets.as_slice() && target.is_exact() {
                     observations.insert(path.clone(), target.clone());
                 }
             }

@@ -78,7 +78,7 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
         ("", true),
         ("mutate(&mut completed);", false),
         ("observe_completion(&completed);", true),
-        ("publish_completion(&completed);", false),
+        ("publish_completion(&completed);", true),
         ("let incidents = completed.incidents;", true),
         ("let value = observe();", true),
         ("let value = acquire();", true),
@@ -349,7 +349,7 @@ fn production_storage_lease_requires_admission_evidence() {
 
 #[test]
 #[ignore = "tier:proof"]
-fn production_host_lease_cannot_claim_preservation_across_fallible_preparation() {
+fn production_host_lease_retains_authority_across_fallible_preparation() {
     let compilation = production_host_compilation(
         r#"
         trusted internal module bray.runtime.bootstrap.host;
@@ -375,9 +375,9 @@ fn production_host_lease_cannot_claim_preservation_across_fallible_preparation()
         .lowered_unit(source_function_body_key(&compilation, "production_probe"))
         .expect("fixture callable must lower successfully");
 
-    bray_testing::assert_goal_state_diagnostic_kind(
-        checked.diagnostics(),
-        DiagnosticKind::CheckingTrustedObligationNotProven,
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "a private acquisition survives unrelated preparation: {checked:#?}"
     );
 }
 

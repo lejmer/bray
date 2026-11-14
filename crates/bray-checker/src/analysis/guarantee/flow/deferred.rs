@@ -549,7 +549,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let root = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
 
-        let (mut completed, value) = self.complete_producers(state, &root, expression, &deferred, observations)
+        let (mut completed, value) = self.complete_producers(state, &root, self.invocation_result_place(expression.into()).as_ref(), expression, &deferred, observations)
             .unwrap_or_else(|| panic!("reachable deferred completion has no feasible producer: {expression:?}, producers={:?}", deferred.producers.iter().map(|(source, candidate)| (*source,
                 super::super::deferred::possible(&candidate.selection, &state.proofs.ordinary_proof(&state.assumptions)),
                 self.dependencies.calls()[source].deferred_completion(),
@@ -566,6 +566,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         root: &ExecutionCondition,
+        output: Option<&ExecutionPlace>,
         expression: BoundExpressionId,
         deferred: &super::super::deferred::DeferredValue,
         observations: &bray_bound_tree::StorageCompletion,
@@ -628,6 +629,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &mut branch,
                     &task,
                     root.clone(),
+                    output,
                     expression,
                     observations,
                 )
@@ -636,7 +638,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             // Resolve body ownership before observation consumes the Task's captures.
-            let (value, _) = self.complete_trusted_call(&mut branch, source, value, observations);
+            let (value, _) = self.complete_trusted_call(&mut branch, source, output, value, observations);
 
             if let Some((previous, previous_value)) = &mut completed {
                 *previous_value = super::merge_returned(
@@ -660,6 +662,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         deferred: &super::super::deferred::DeferredValue,
         root: ExecutionCondition,
+        output: Option<&ExecutionPlace>,
         expression: BoundExpressionId,
         observations: &bray_bound_tree::StorageCompletion,
     ) -> ExecutionCondition {
@@ -672,6 +675,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let projection =
             bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field };
 
+        // The nested completion owns its payload path while the outer observation keeps its root.
+        let payload_output = output.and_then(|output| output.clone().project(&[projection]));
         let completed = ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(variant, Arc::new(root.clone())));
 
         match completed.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
@@ -679,7 +684,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Some(true) => {
                 let payload = root.clone().project(projection);
 
-                let (normal, value) = self.complete_producers(state, &payload, expression, deferred, observations)
+                let (normal, value) = self.complete_producers(state, &payload, payload_output.as_ref(), expression, deferred, observations)
                     .unwrap_or_else(|| panic!("completed task observation has no feasible body producer: {expression:?}, producers={:?}", deferred.producers.keys().collect::<Vec<_>>()));
 
                 *state = normal;
@@ -700,7 +705,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         completed.assume(false, &mut abnormal.assumptions);
 
         let Some((mut normal, value)) =
-            self.complete_producers(&normal, &payload, expression, deferred, observations)
+            self.complete_producers(&normal, &payload, payload_output.as_ref(), expression, deferred, observations)
         else {
             *state = abnormal;
 

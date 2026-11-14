@@ -109,19 +109,24 @@ impl ValuePreservation {
         let source = path.iter().copied().fold(source.clone(), ExecutionCondition::project);
         let mask = self.at_mut(path);
 
-        // Another alias can still retain the original snapshot and layout.
-        let ownership = state.owned_result(&source);
-
-        // Selection applies to this branch's existing snapshot too. An explicit
-        // empty layout cannot later be inferred again from an inactive child.
-        state.owned_results.insert(source.clone(), ownership.clone());
-
         let empty = Default::default();
 
         let moved = state.entries.get(&mutation.occurrence())
             .map_or(&empty, |entry| &entry.extracted_values);
 
         let moved = crate::execution_guarantees::RetainedSnapshots::from(moved);
+
+        // A checked extraction transfers current borrowed contents. Capture its
+        // formal origin before framing replaces the source, without treating an
+        // ordinary borrow as ownership or overwriting an explicit empty layout.
+        let ownership = if moved.retains_owner(&source) {
+            state.extracted_result(&source)
+        } else {
+            state.owned_result(&source)
+        };
+
+        state.owned_results.insert(source.clone(), ownership.clone());
+
         let next = mask.apply_bounded(&source, place, mutation, true, &moved, &mut { ExecutionCondition::WORK_LIMIT });
 
         if source == next {
@@ -949,6 +954,37 @@ mod tests {
 
             assert!(extraction.owned_result(&vacated).is_empty(), "the vacated value cannot inherit the moved formal lineage");
             assert_eq!(extraction.owned_result(&source), layout, "the returned snapshot keeps its own lineage");
+        }
+
+        let formal = ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
+            bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0)).into(),
+        ));
+
+        let source = ExecutionCondition::new(crate::ExecutionConditionKind::Input(formal))
+            .project(StorageProjection::TupleElement(SymbolOrdinal::new(0)));
+
+        for (extracted, known_empty) in [(false, false), (true, false), (true, true)] {
+            let mut state = super::super::super::state::ExecutionState::default();
+
+            if known_empty {
+                state.owned_results.insert(source.clone(), Default::default());
+            }
+
+            if extracted {
+                state.entries.insert(sites[0].into(), crate::ExecutionCallEvidence {
+                    extracted_values: [source.clone()].into(),
+                    ..Default::default()
+                });
+            }
+
+            let next = mask.frame(&mut state, &source, &[], Some(&place), mutation);
+            let returned = state.owned_result(&source);
+
+            assert_eq!(returned.is_empty(), !extracted || known_empty,
+                "only a checked extraction can retain an unrecorded borrowed formal origin");
+
+            assert!(returned.transfers().all(|transfer| transfer.input() == source));
+            assert!(state.owned_result(&next).is_empty(), "replacement contents cannot inherit the extracted origin");
         }
     }
 

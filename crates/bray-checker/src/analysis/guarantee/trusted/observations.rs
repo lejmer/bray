@@ -42,6 +42,45 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         visible.then_some((expression, call))
     }
 
+    /// Read current referents after the actual returned owner has been produced.
+    pub(super) fn refresh_returned_references(
+        &self,
+        state: &mut ExecutionState,
+        output: Option<&crate::ExecutionPlace>,
+        result: ExecutionCondition,
+        completion: &bray_bound_tree::StorageCompletion,
+    ) -> ExecutionCondition {
+        let Some(output) = output else { return result; };
+
+        let mut refreshed = result.clone();
+
+        for (path, target) in completion.references() {
+            let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path) else { continue; };
+
+            if !output.contains(&place) { continue; }
+
+            let Some(target) = target.value_observation_path() else { continue; };
+
+            let Some(contents) = self.current_storage_value(state, &target) else { continue; };
+
+            let projections = &place.projections[output.projections.len()..];
+            let prior = projections.iter().fold(result.clone(), |value, projection| value.component(*projection));
+            let value = prior.with_referent(contents);
+            let storage = &path.projections[path.projections.len() - projections.len()..];
+
+            refreshed = refreshed.with_component(projections, value, Some(storage));
+        }
+
+        if refreshed != result {
+            // Updating a reference's reached data cannot create or retire the enclosing owner.
+            let ownership = state.owned_result(&result);
+
+            state.owned_results.insert(refreshed.clone(), ownership);
+        }
+
+        refreshed
+    }
+
     pub(super) fn refresh_borrowed_arguments(
         &self,
         state: &ExecutionState,

@@ -252,7 +252,18 @@ fn production_retirement_owner_preserves_its_frozen_row_and_lock() {
     for (body, expected) in [
         ("let moved = completed;", None),
         (
-            "let mut anchor = trusted host_anchor(&completed.lease); let host = trusted host_value(&completed.lease, &mut anchor);",
+            r#"
+                let mut anchor = trusted host_anchor(&completed.lease);
+                let host = trusted host_value(&completed.lease, &mut anchor);
+            "#,
+            None,
+        ),
+        (
+            r#"
+                let mut anchor = trusted host_anchor(&completed.lease);
+                let host = trusted host_value(&completed.lease, &mut anchor);
+                host.storage = none;
+            "#,
             Some(DiagnosticKind::CheckingTrustedObligationNotProven),
         ),
         (

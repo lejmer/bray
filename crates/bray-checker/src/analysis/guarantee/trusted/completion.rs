@@ -135,6 +135,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
+        output: Option<&crate::ExecutionPlace>,
         result: ExecutionCondition,
         observations: &bray_bound_tree::StorageCompletion,
     ) -> (ExecutionCondition, Option<BTreeMap<crate::ExecutionPlace, ExecutionCondition>>) {
@@ -237,6 +238,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let result = self.complete_returned_references(invocation, result, &arguments);
+        let result = self.refresh_returned_references(state, output, result, observations);
 
         let instantiate = |condition: &ExecutionCondition| {
             let condition = condition.substitute(

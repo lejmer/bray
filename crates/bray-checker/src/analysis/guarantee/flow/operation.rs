@@ -588,7 +588,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     ), result, plan)
                 });
 
-            let (result, _) = self.complete_trusted_call(state, invocation, result, observations);
+            let (result, _) = self.complete_trusted_call(state, invocation, self.invocation_result_place(invocation).as_ref(), result, observations);
 
             state.assign(place, result, None);
 
