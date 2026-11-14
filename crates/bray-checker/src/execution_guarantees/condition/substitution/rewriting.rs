@@ -4,7 +4,7 @@ use bray_bound_tree::BoundOperator;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use super::scope::{MapRole, RewriteMemo};
+use super::scope::{MapRole, RewriteMap, RewriteMemo};
 use super::super::memo::{ExecutionMemo, memoized};
 
 impl ExecutionCondition {
@@ -276,7 +276,7 @@ impl ExecutionCondition {
         replacements: &BTreeMap<Self, Self>,
         identities: &BTreeMap<Self, Self>,
     ) -> Self {
-        joined_value(self, replacements, identities, None)
+        joined_value(self, RewriteMap::new(replacements), RewriteMap::new(identities), None)
     }
 }
 
@@ -329,22 +329,22 @@ fn resolve_equality(
 
 pub(super) fn joined_value(
     value: &ExecutionCondition,
-    values: &BTreeMap<ExecutionCondition, ExecutionCondition>,
-    owners: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+    values: RewriteMap<'_>,
+    owners: RewriteMap<'_>,
     memo: Option<&RewriteMemo>,
 ) -> ExecutionCondition {
-    if !ExecutionCondition::has_value_changes(values) && !ExecutionCondition::has_value_changes(owners) {
+    if !values.changed && !owners.changed {
         return value.clone();
     }
 
-    rewrite_equalities(value, values, Some(owners), &mut { ExecutionCondition::WORK_LIMIT },
+    rewrite_equalities(value, values.entries, Some(owners), &mut { ExecutionCondition::WORK_LIMIT },
         memo.map(|memo| (memo, MapRole::Value)))
 }
 
 pub(super) fn joined_owner(
     value: &ExecutionCondition,
-    values: &BTreeMap<ExecutionCondition, ExecutionCondition>,
-    owners: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+    values: RewriteMap<'_>,
+    owners: RewriteMap<'_>,
     memo: Option<&RewriteMemo>,
 ) -> ExecutionCondition {
     let owner = value.owner_identity();
@@ -354,35 +354,35 @@ pub(super) fn joined_owner(
 
     let (replacements, role) = if component { (values, MapRole::Value) } else { (owners, MapRole::Owner) };
 
-    if !ExecutionCondition::has_value_changes(replacements) && !ExecutionCondition::has_value_changes(owners) {
+    if !replacements.changed && !owners.changed {
         return owner.clone();
     }
 
-    rewrite_equalities(owner, replacements, Some(owners), &mut { ExecutionCondition::WORK_LIMIT },
+    rewrite_equalities(owner, replacements.entries, Some(owners), &mut { ExecutionCondition::WORK_LIMIT },
         memo.map(|memo| (memo, role))).owner_identity().clone()
 }
 
 fn rewrite_identity(
     owner: &ExecutionCondition,
-    identities: Option<&BTreeMap<ExecutionCondition, ExecutionCondition>>,
+    identities: Option<RewriteMap<'_>>,
     budget: &mut usize,
     memo: Option<(&RewriteMemo, MapRole)>,
 ) -> ExecutionCondition {
     identities.map_or_else(|| owner.clone(), |identities| {
-        if !ExecutionCondition::has_value_changes(identities) { return owner.clone(); }
+        if !identities.changed { return owner.clone(); }
 
-        rewrite_equalities(owner, identities, Some(identities), budget, memo.map(|(memo, _)| (memo, MapRole::Owner)))
+        rewrite_equalities(owner, identities.entries, Some(identities), budget, memo.map(|(memo, _)| (memo, MapRole::Owner)))
     })
 }
 
 fn rewrite_equalities(
     value: &ExecutionCondition,
     replacements: &std::collections::BTreeMap<ExecutionCondition, ExecutionCondition>,
-    identities: Option<&BTreeMap<ExecutionCondition, ExecutionCondition>>,
+    identities: Option<RewriteMap<'_>>,
     budget: &mut usize,
     memo: Option<(&RewriteMemo, MapRole)>,
 ) -> ExecutionCondition {
-    if replacements.is_empty() && identities.is_none_or(BTreeMap::is_empty) {
+    if replacements.is_empty() && identities.is_none_or(|map| map.entries.is_empty()) {
         return value.clone();
     }
 
@@ -405,7 +405,7 @@ fn rewrite_equalities(
 fn rewrite_equalities_inner(
     value: &ExecutionCondition,
     replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
-    identities: Option<&BTreeMap<ExecutionCondition, ExecutionCondition>>,
+    identities: Option<RewriteMap<'_>>,
     budget: &mut usize,
     memo: Option<(&RewriteMemo, MapRole)>,
 ) -> ExecutionCondition {

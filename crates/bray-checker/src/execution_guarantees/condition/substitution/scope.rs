@@ -20,58 +20,64 @@ impl RewriteMemo {
     }
 }
 
+/// Immutable replacement entries retain whether any mapping changes its input.
+#[derive(Clone, Copy)]
+pub(super) struct RewriteMap<'a> {
+    pub(super) entries: &'a BTreeMap<ExecutionCondition, ExecutionCondition>,
+    pub(super) changed: bool,
+}
+
+impl<'a> RewriteMap<'a> {
+    pub(super) fn new(entries: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
+        Self { entries, changed: ExecutionCondition::has_value_changes(entries) }
+    }
+}
+
 /// Reuse pure bounded rewriting across one forest and one immutable pair of maps.
 /// Structural identity can be shared with the body, while results stay within these maps.
 pub(crate) struct ExecutionSubstitution<'a> {
-    values: &'a BTreeMap<ExecutionCondition, ExecutionCondition>,
-    owners: &'a BTreeMap<ExecutionCondition, ExecutionCondition>,
-    changed: bool,
+    values: RewriteMap<'a>,
+    owners: RewriteMap<'a>,
     mapped: RewriteMemo,
 }
 
 impl<'a> ExecutionSubstitution<'a> {
     pub(crate) fn new(values: &'a BTreeMap<ExecutionCondition, ExecutionCondition>, owners: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
         Self {
-            values,
-            owners,
-            changed: ExecutionCondition::has_value_changes(values) || ExecutionCondition::has_value_changes(owners),
+            values: RewriteMap::new(values),
+            owners: RewriteMap::new(owners),
             mapped: RewriteMemo::new(),
         }
     }
 
-    pub(crate) fn has_changes(&self) -> bool { self.changed }
+    pub(crate) fn has_changes(&self) -> bool { self.values.changed || self.owners.changed }
 
-    pub(crate) fn is_empty(&self) -> bool { self.values.is_empty() && self.owners.is_empty() }
+    pub(crate) fn is_empty(&self) -> bool { self.values.entries.is_empty() && self.owners.entries.is_empty() }
 
     pub(crate) fn value(&self, value: &ExecutionCondition) -> ExecutionCondition {
-        if !self.changed { return value.clone(); }
-
         super::rewriting::joined_value(value, self.values, self.owners, Some(&self.mapped))
     }
 
     pub(crate) fn owner(&self, value: &ExecutionCondition) -> ExecutionCondition {
-        if !self.changed { return value.owner_identity().clone(); }
-
         super::rewriting::joined_owner(value, self.values, self.owners, Some(&self.mapped))
     }
 }
 
 /// Capture a forest against one immutable predecessor map without expanding inserted snapshots.
 pub(crate) struct SnapshotSubstitution<'a> {
-    snapshots: &'a BTreeMap<ExecutionCondition, ExecutionCondition>,
-    changed: bool,
+    snapshots: RewriteMap<'a>,
     mapped: ExecutionMemo<ExecutionCondition>,
 }
 
 impl<'a> SnapshotSubstitution<'a> {
     pub(crate) fn new(snapshots: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
-        Self { snapshots, changed: ExecutionCondition::has_value_changes(snapshots), mapped: ExecutionMemo::default() }
+        Self { snapshots: RewriteMap::new(snapshots), mapped: ExecutionMemo::default() }
     }
 
     pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
-        if !self.changed { return condition.clone(); }
+        if !self.snapshots.changed { return condition.clone(); }
 
-        condition.substitute_values(&|value| super::rewriting::snapshot_value(value, self.snapshots),
+        condition.substitute_values(&|value| super::rewriting::snapshot_value(value, self.snapshots.entries),
             &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped))
     }
 }
