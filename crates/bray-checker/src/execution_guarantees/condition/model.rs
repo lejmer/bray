@@ -137,17 +137,66 @@ pub enum ExecutionConditionKind {
 pub struct ExecutionCondition(Arc<ConditionNode>);
 
 #[derive(Debug)]
-struct ConditionNode {
+pub(in crate::execution_guarantees) struct ConditionNode {
     kind: ExecutionConditionKind,
     hash: u64,
+}
+
+impl ConditionNode {
+    fn new(kind: ExecutionConditionKind) -> Self {
+        let hash = super::hashing::structural_hash(&kind);
+
+        Self { kind, hash }
+    }
+}
+
+/// A condition prepared for exact lookup without allocating its root handle.
+pub(in crate::execution_guarantees) enum PreparedCondition {
+    Retained(ExecutionCondition),
+    Unpublished(ConditionNode),
+}
+
+impl PreparedCondition {
+    pub(in crate::execution_guarantees) fn new(kind: ExecutionConditionKind) -> Self {
+        Self::Unpublished(ConditionNode::new(kind))
+    }
+
+    pub(in crate::execution_guarantees) fn finish(self) -> ExecutionCondition {
+        match self {
+            Self::Retained(value) => value,
+            Self::Unpublished(node) => ExecutionCondition(Arc::new(node)),
+        }
+    }
+
+    fn node(&self) -> &ConditionNode {
+        match self {
+            Self::Retained(value) => &value.0,
+            Self::Unpublished(node) => node,
+        }
+    }
+
+    pub(super) fn cached_hash(&self) -> u64 { self.node().hash }
+
+    #[cfg(test)]
+    pub(super) fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
+        Self::Unpublished(ConditionNode { kind, hash })
+    }
+}
+
+impl From<ExecutionCondition> for PreparedCondition {
+    fn from(value: ExecutionCondition) -> Self { Self::Retained(value) }
+}
+
+impl hashbrown::Equivalent<ExecutionCondition> for PreparedCondition {
+    fn equivalent(&self, key: &ExecutionCondition) -> bool {
+        compare_nodes(self.node(), &key.0, true, &mut ComparedPairs::new()).is_eq()
+    }
 }
 
 impl ExecutionCondition {
     /// Creates a condition from its checked structural kind.
     pub fn new(kind: ExecutionConditionKind) -> Self {
-        let hash = super::hashing::structural_hash(&kind);
-
-        Self(Arc::new(ConditionNode { kind, hash }))
+        Self(Arc::new(ConditionNode::new(kind)))
     }
 
     /// Returns the condition's structural kind.
@@ -188,12 +237,12 @@ fn compare_operands(left: &[ExecutionCondition], right: &[ExecutionCondition], c
         .unwrap_or_else(|| left.len().cmp(&right.len()))
 }
 
-impl ExecutionCondition {
+impl ConditionNode {
     /// Compare exact root fields in declaration order, delegating recursive identity to the caller.
-    fn cmp_parts(&self, other: &Self, child: &mut impl FnMut(&Self, &Self) -> Ordering) -> Ordering {
+    fn cmp_parts(&self, other: &Self, child: &mut impl FnMut(&ExecutionCondition, &ExecutionCondition) -> Ordering) -> Ordering {
         use ExecutionConditionKind as C;
 
-        match (self.kind(), other.kind()) {
+        match (&self.kind, &other.kind) {
             (C::Boolean(a), C::Boolean(b)) => a.cmp(b),
             (C::Variant(a), C::Variant(b)) => a.cmp(b),
             (C::Literal(a), C::Literal(b)) => a.cmp(b),
@@ -238,19 +287,19 @@ impl ExecutionCondition {
                 | C::ScalarValue(_) | C::Trusted(_) | C::Borrowed(_) | C::Descriptor(..) | C::CapturedInput { .. }
                 | C::Constructed(..) | C::Observation { .. } | C::PostState(..) | C::Joined(..) | C::ValueAlias(..)
                 | C::InitializedSnapshot(..) | C::Operation(..) | C::Predicate(..) | C::Call(..) | C::Projection(..)
-                | C::Entry { .. }, _) => self.kind().partial_cmp(other.kind()).expect("execution condition variants retain their declaration order"),
+                | C::Entry { .. }, _) => self.kind.partial_cmp(&other.kind).expect("execution condition variants retain their declaration order"),
         }
     }
 }
 
-// Pairs refer to nodes retained by the two input handles throughout one comparison.
+// Input nodes and their children remain alive throughout one comparison.
 type ComparedPairs = HashMap<(*const ConditionNode, *const ConditionNode), Ordering>;
 
-fn compare_nodes(left: &ExecutionCondition, right: &ExecutionCondition, equality_only: bool, pairs: &mut ComparedPairs) -> Ordering {
-    if Arc::ptr_eq(&left.0, &right.0) { return Ordering::Equal; }
-    if equality_only && left.0.hash != right.0.hash { return Ordering::Less; }
+fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: bool, pairs: &mut ComparedPairs) -> Ordering {
+    if std::ptr::eq(left, right) { return Ordering::Equal; }
+    if equality_only && left.hash != right.hash { return Ordering::Less; }
 
-    let pair = (Arc::as_ptr(&left.0), Arc::as_ptr(&right.0));
+    let pair = (left as *const ConditionNode, right as *const ConditionNode);
 
     if let Some(result) = pairs.get(&pair) { return *result; }
 
@@ -259,7 +308,7 @@ fn compare_nodes(left: &ExecutionCondition, right: &ExecutionCondition, equality
     let result = left.cmp_parts(right, &mut |left, right| {
         descended = true;
 
-        compare_nodes(left, right, equality_only, pairs)
+        compare_nodes(&left.0, &right.0, equality_only, pairs)
     });
 
     // Leaf comparisons do no recursive work, so retain only recursive results.
@@ -270,7 +319,7 @@ fn compare_nodes(left: &ExecutionCondition, right: &ExecutionCondition, equality
 
 impl Ord for ExecutionCondition {
     fn cmp(&self, other: &Self) -> Ordering {
-        compare_nodes(self, other, false, &mut ComparedPairs::new())
+        compare_nodes(&self.0, &other.0, false, &mut ComparedPairs::new())
     }
 }
 
@@ -282,7 +331,7 @@ impl std::fmt::Debug for ExecutionCondition {
 
 impl PartialEq for ExecutionCondition {
     fn eq(&self, other: &Self) -> bool {
-        compare_nodes(self, other, true, &mut ComparedPairs::new()).is_eq()
+        compare_nodes(&self.0, &other.0, true, &mut ComparedPairs::new()).is_eq()
     }
 }
 
@@ -453,10 +502,10 @@ mod tests {
         let right = graph();
         let mut pairs = super::ComparedPairs::new();
 
-        assert!(super::compare_nodes(&left, &right, true, &mut pairs).is_eq());
+        assert!(super::compare_nodes(&left.0, &right.0, true, &mut pairs).is_eq());
         assert!(pairs.len() <= 20, "equality must compare shared node pairs once");
         pairs.clear();
-        assert!(super::compare_nodes(&left, &right, false, &mut pairs).is_eq());
+        assert!(super::compare_nodes(&left.0, &right.0, false, &mut pairs).is_eq());
         assert!(pairs.len() <= 20, "ordering must compare shared node pairs once");
         assert_eq!(left, right);
         assert_eq!(left.cmp(&right), std::cmp::Ordering::Equal);

@@ -1,8 +1,15 @@
 use std::hash::{Hash, Hasher};
 
 use super::{ExecutionCondition, ExecutionConditionKind};
+use super::model::PreparedCondition;
 
 impl Hash for ExecutionCondition {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.cached_hash().hash(state);
+    }
+}
+
+impl Hash for PreparedCondition {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.cached_hash().hash(state);
     }
@@ -71,4 +78,20 @@ mod tests {
         assert!(left < right);
         assert_eq!(left.partial_cmp(&equal), Some(std::cmp::Ordering::Equal));
     }
+
+    #[test]
+    fn prepared_lookup_checks_colliding_roots_exactly() {
+        let stored = C::with_test_hash(K::Boolean(false), 7);
+        let mut facts = hashbrown::HashSet::new();
+
+        facts.insert(stored.clone());
+
+        let matching = super::PreparedCondition::with_test_hash(K::Boolean(false), 7);
+        let different = super::PreparedCondition::with_test_hash(K::Boolean(true), 7);
+
+        assert!(facts.contains(&matching));
+        assert!(!facts.contains(&different));
+        assert!(facts.contains(&super::PreparedCondition::Retained(stored)));
+    }
+
 }

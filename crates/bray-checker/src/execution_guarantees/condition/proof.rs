@@ -1,5 +1,5 @@
 use crate::execution_guarantees::ExecutionAssumptions;
-use super::{ExecutionCondition, ExecutionConditionKind as K, ExecutionProof, ExecutionProofCache};
+use super::{ExecutionCondition, ExecutionConditionKind as K, ExecutionProof, ExecutionProofCache, PreparedCondition};
 use super::context::ProofMemo;
 use super::memo::memoized;
 use crate::execution_guarantees::boolean::{alias_value, prove_boolean};
@@ -41,7 +41,12 @@ impl ExecutionCondition {
         implications: Option<&ExecutionProof<'_>>,
         memo: Option<&ProofMemo>,
     ) -> Option<bool> {
-        memoized(memo.map(|memo| &memo.queries), self, budget, |budget| self.prove_mixed_inner(trusted, ordinary, budget, implications, memo))
+        if *budget == 0 { return None; }
+
+        let local;
+        let memo = if let Some(memo) = memo { memo } else { local = ProofMemo::new(); &local };
+
+        memoized(Some(&memo.queries), self, budget, |budget| self.prove_mixed_inner(trusted, ordinary, budget, implications, memo))
     }
 
     fn prove_mixed_inner(
@@ -50,7 +55,7 @@ impl ExecutionCondition {
         ordinary: &BTreeSet<(Self, bool)>,
         budget: &mut usize,
         implications: Option<&ExecutionProof<'_>>,
-        memo: Option<&ProofMemo>,
+        memo: &ProofMemo,
     ) -> Option<bool> {
         *budget = budget.checked_sub(1)?;
 
@@ -58,16 +63,16 @@ impl ExecutionCondition {
             return None;
         }
 
-        if let Some(value) = self.explicit_value(trusted, Some(ordinary), memo) {
+        if let Some(value) = self.explicit_value(trusted, Some(ordinary), Some(memo)) {
             return Some(value);
         }
 
         if let K::Observation { owner: _, contents: value, .. } | K::Borrowed(value) = self.kind() {
-            return value.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo);
+            return value.prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo));
         }
 
         if let K::Entry { condition, .. } = self.kind() {
-            return condition.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo);
+            return condition.prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo));
         }
 
         let proven = match self.kind() {
@@ -76,21 +81,21 @@ impl ExecutionCondition {
                 if let [operand] = operands.as_ref() =>
             {
                 operand
-                    .prove_mixed_with_implications(trusted, ordinary, budget, implications, memo)
+                    .prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo))
                     .map(|value| !value)
             }
             K::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands)
                 if let [left, right] = operands.as_ref() =>
             {
                 prove_boolean(*operator,
-                    left.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo),
-                    || right.prove_mixed_with_implications(trusted, ordinary, budget, implications, memo))
+                    left.prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo)),
+                    || right.prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo)))
             }
             _ => {
-                let single = memo.map(ProofMemo::single_views);
+                let [trusted_memo, ordinary_memo] = memo.single_views();
 
-                self.prove_with_memo(trusted, budget, single.map(|[trusted, _]| trusted.as_ref()))
-                    .or_else(|| self.prove_with_memo(ordinary, budget, single.map(|[_, ordinary]| ordinary.as_ref())))
+                self.prove_with_memo(trusted, budget, Some(trusted_memo))
+                    .or_else(|| self.prove_with_memo(ordinary, budget, Some(ordinary_memo)))
             }
         };
 
@@ -120,14 +125,19 @@ impl ExecutionCondition {
         budget: &mut usize,
         memo: Option<&ProofMemo>,
     ) -> Option<bool> {
-        memoized(memo.map(|memo| &memo.queries), self, budget, |budget| self.prove_inner(assumptions, budget, memo))
+        if *budget == 0 { return None; }
+
+        let local;
+        let memo = if let Some(memo) = memo { memo } else { local = ProofMemo::new(); &local };
+
+        memoized(Some(&memo.queries), self, budget, |budget| self.prove_inner(assumptions, budget, memo))
     }
 
     fn prove_inner(
         &self,
         assumptions: &BTreeSet<(Self, bool)>,
         budget: &mut usize,
-        memo: Option<&ProofMemo>,
+        memo: &ProofMemo,
     ) -> Option<bool> {
         *budget = budget.checked_sub(1)?;
 
@@ -135,20 +145,20 @@ impl ExecutionCondition {
             return None;
         }
 
-        if let Some(value) = self.explicit_value(assumptions, None, memo) {
+        if let Some(value) = self.explicit_value(assumptions, None, Some(memo)) {
             return Some(value);
         }
 
         if let K::Observation { owner: _, contents: value, .. } | K::Borrowed(value) = self.kind() {
-            return value.prove_with_memo(assumptions, budget, memo);
+            return value.prove_with_memo(assumptions, budget, Some(memo));
         }
 
         if let K::Entry { condition, .. } = self.kind() {
-            return condition.prove_with_memo(assumptions, budget, memo);
+            return condition.prove_with_memo(assumptions, budget, Some(memo));
         }
 
         if let K::ValueAlias(left, right) = self.kind() {
-            return alias_value(left.prove_with_memo(assumptions, budget, memo), || right.prove_with_memo(assumptions, budget, memo));
+            return alias_value(left.prove_with_memo(assumptions, budget, Some(memo)), || right.prove_with_memo(assumptions, budget, Some(memo)));
         }
 
         if let K::VariantTest(variant, subject) = self.kind() {
@@ -172,10 +182,10 @@ impl ExecutionCondition {
         }
 
         if let Some(inverse) = operator.equality_complement() {
-            let inverse = Self::new(K::Operation(inverse, operands.clone()));
+            let inverse = PreparedCondition::new(K::Operation(inverse, operands.clone()));
 
             for value in [true, false] {
-                if assumptions.contains(&(inverse.clone(), value)) {
+                if memo.raw_contains(&inverse, value, assumptions) {
                     return Some(!value);
                 }
             }
@@ -183,10 +193,10 @@ impl ExecutionCondition {
 
         match (operator, operands.as_ref()) {
             (BoundOperator::LogicalNot, [operand]) => {
-                operand.prove_with_memo(assumptions, budget, memo).map(|value| !value)
+                operand.prove_with_memo(assumptions, budget, Some(memo)).map(|value| !value)
             }
             (operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), [left, right]) =>
-                prove_boolean(*operator, left.prove_with_memo(assumptions, budget, memo), || right.prove_with_memo(assumptions, budget, memo)),
+                prove_boolean(*operator, left.prove_with_memo(assumptions, budget, Some(memo)), || right.prove_with_memo(assumptions, budget, Some(memo))),
             _ => None,
         }
     }

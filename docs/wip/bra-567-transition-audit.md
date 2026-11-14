@@ -30,22 +30,21 @@ independently retained data. BooleanGraph shares immutable condition children. O
 scan positions, DFS order, strictness, source precedence and budget charges. Its differential oracle covers
 128 graphs and budgets 0-64. Solved flow outputs and actual cleanup parts/phases remain retained.
 
-Current demand-driven proof checkpoint: optimized tooling build and all 552 checker tests pass. Fixed five
-twice take 128-136 ms for task cases and 164/165 ms for the loop. Extra source/import controls pass at 159-169 ms.
+Current direct-membership checkpoint: optimized tooling build and all 556 checker tests pass. Fixed five
+twice take 131-137 ms for task cases and 167/159 ms for the loop. Extra source/import controls pass at 169-176 ms.
 Counters are compiled but disabled for timings. Frozen30 remains 29 pass and the same RawBuffer invalid acceptance
 in 11.6 s. No full matrices ran. Source fixtures and expected rejection sites are unchanged.
 
-The bounded loop probe records 1,766,114 comparisons: ordering 958,010, equality 761,465 and physical identity
-46,639. Interner lookups are zero. It also records 561,077 key hashes, 83,611 prepared nodes, 148,592 child hashes,
-1,280,802 comparison-pair lookups, 380,918 pair writes and 513,856 node-hash writes totaling 3,169,882 bytes.
+The bounded loop probe records 1,573,864 comparisons: ordering 753,313, equality 773,831 and physical identity
+46,720. Interner lookups are zero. It also records 613,156 key hashes, 82,899 prepared nodes, 147,168 child hashes,
+1,087,729 comparison-pair lookups, 362,980 pair writes and 508,872 node-hash writes totaling 3,139,978 bytes.
 These are overlapping cost categories, not time. The 10,000 goal remains far from achieved.
 
-Moving unused unequal probes below equality and direct strict-result branches removes 21,001 constructions and
-about 4 percent of comparisons against cefd3f958. Boolean derivation now skips already
-asserted values. Refinement reuses the established root without repeating its positive-fact lookup. The batch
-adds one nonblank production line and no tests. Independent inspection confirms unchanged budgets, precedence,
-NaN rules, qualification and observation order. Existing regression oracles passed. Style has the same six
-pre-existing errors. Format and diff checks pass. Temporary hooks are removed after measurement.
+Direct membership removes 192,250 comparisons, about 11 percent against 2c4034a34. Prepared unpublished roots
+and their key hashes remain counted. Timings are comparable. The batch adds 59 nonblank production lines and
+86 test lines. Independent inspection confirms unchanged budgets and raw/mixed scope isolation. Regression
+oracles passed. Style has the same six pre-existing errors. Format and diff checks pass. Temporary hooks are
+removed after measurement. Further small lookup changes cannot establish the 10,000 goal.
 
 ## Computation graph and cost model
 
@@ -133,10 +132,9 @@ The edge probe finds only 36 unchanged-source repetitions in 658 storage-flow pr
 their inclusive cost was at most 198,844 of 5,114,981 instrumented events, including merges that cannot be cached.
 Edge-result retention cannot be the main route to the gate. Do not implement it next.
 
-Caller-attributed construction now identifies implication::comparison_is_implied's known lookup as the largest
-site, with 38,294 operation roots. Raw inverse lookup in condition/proof constructs 5,400 more. Substitution and
-equality rewrite operation rebuilding contributes 4,868 and 4,228. Scalar/projection paths are smaller. The
-remaining dominant query construction has an actual consumer, not merely a factory-site attribution.
+Caller-attributed construction still identifies implication::comparison_is_implied's known lookup as the largest
+site. These roots are now unpublished but normalization and hashing still cost work. Removing an allocation
+does not remove this computation. Substitution and equality rewriting also rebuild operations.
 
 Normalized Boolean shape is not sufficient for a no-op rewrite shortcut. For example, a balanced conjunction
 built from 128 flat leaves can fit the original 256-work limit but exhaust it when flattened and rebuilt again.
@@ -144,7 +142,7 @@ Preserve child traversal, normalization and exhaustion even when final children 
 formulas cannot silently become negative atom facts. Proving a normalized contrary is not generally equivalent
 to asking whether the original condition proves false under the original precedence and budgets.
 
-## Next direct-membership contract
+## Implemented direct-membership contract
 
 Use the existing ProofMemo evidence index for exact transient query membership. Replace its Boolean value with
 raw first-set membership for both signs and the existing filtered explicit answer. Ingest unknown-containing
@@ -179,6 +177,23 @@ controls and frozen30. Extend existing evidence/normalization tests for both raw
 ordinary Trusted facts, normalized literal membership, matching collision hashes and no-memo budgets. Preserve
 ordered relation rank/length/DFS costs. Measure comparison, root/child/key hashing, pair writes and ingress work.
 The lookup must not remove counted root work merely by moving it out of ExecutionCondition::new.
+
+## Next unresolved producer boundary
+
+Evidence snapshots already preserve Arc identity for clones, duplicate insertions and no-op retention.
+Fresh keys arise at state::join_values when any substitution changes, flow/merge's intersection plus
+alternative insertion, deferred refinement's entry/current/selection/projected-capture union, and per-carrier
+proved-evidence construction in witness::derived_conditions and flow/witnesses. These are distinct producers.
+
+BTree ordering governs insertion, difference/take limits, proof rank and semantic state equality.
+Hash membership removes query searches, not this ordered producer work. Restoring an older equal snapshot
+needs unchanged fact expansion, observation occurrences and budgets, not just equal keys. Entry/current
+scope reuse requires an established producer relation. Historical entry, retirement and copy projection
+can change either set, so do not infer a general superset or add a union cache.
+
+Next trace producer-to-consumer dependencies and identify which repeated evaluations can be eliminated.
+Close the exact transition contract before edits. Do not add edge caching or another local lookup cache.
+The previous edge measurement bounds its potential contribution, and fixed scope memos already exist.
 
 ## Fixed evidence and broader work
 
