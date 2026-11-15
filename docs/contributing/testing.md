@@ -7,6 +7,34 @@ See [Repository tasks](xtask.md) for common commands and specialized workflows.
 
 Use [Compiler profiling](profiling.md) to diagnose compiler performance and compare compilation runs.
 
+## Documentation tests
+
+Run the lightweight documentation check without compiler libraries or LLVM bindings:
+
+```text
+cargo test -p xtask --no-default-features --test documentation
+```
+
+The check requires the language specification's entry point, `docs/language/index.md`, to exist as a file. Removing the
+entry point or its containing specification directory fails the check. It does not validate specification content or
+completeness. More specific documentation tests can be added separately.
+
+The suite lives in `xtask/tests/documentation/`. Add Rust tests and modules there as new documentation checks are needed.
+Keep its dependencies available without the `full` feature so documentation CI does not build the compiler.
+
+## CI paths
+
+Non-draft pull requests select CI from their changed paths:
+
+| Changed paths | Compiler tests | Documentation tests |
+| --- | --- | --- |
+| Only `docs/**` | Skip | Run |
+| Only paths outside `docs/**` | Run | Skip |
+| Both | Run | Run |
+
+Deleted paths participate in the same selection, so deleting the specification still runs and fails the documentation
+check. Scheduled and manually dispatched compiler test runs keep their full coverage.
+
 ## Compiler test tiers
 
 The default `bray-compilation` suite is the fast behavior tier. Its reference execution target is **120 seconds** on a
@@ -49,8 +77,8 @@ The `all` tier has a 600 second reference target. To run everything directly wit
 ignored test also needs `--ignored` or `--include-ignored`.
 
 Shards divide the sorted `(binary, test name)` inventory by ordinal modulo the shard count. The shard union covers the
-selected tier exactly once. Pull requests run fast and native coverage. Proof and exhaustive
-coverage runs nightly on `develop` and on manual workflow dispatch, with four deterministic shards per tier. To check
+selected tier exactly once. Pull requests selected by [CI paths](#ci-paths) run fast and native coverage. Proof and
+exhaustive coverage runs nightly on `develop` and on manual workflow dispatch, with four deterministic shards per tier. To check
 those tiers before merging a relevant change, run the documented commands locally or dispatch the full workflow for
 that branch once the workflow exists on the default branch. Do not remove a test or shrink its stress inputs to meet
 the reference target. Put substantial native, proof, stress, or target-matrix work in its owning tier and keep a focused
