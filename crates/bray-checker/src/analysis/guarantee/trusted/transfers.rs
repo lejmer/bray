@@ -122,12 +122,9 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
             input.clone()
         };
 
+        let mut enclosing = std::collections::BTreeMap::new();
+
         for (transfer, cases) in contract.owned_result().guarded_transfers() {
-            let conditions = cases.iter().copied().copied().chain(transfer.condition()).collect::<Vec<_>>();
-
-            let complete = contract.owned_result().guaranteed_transfers_under(&conditions).into_iter()
-                .map(|transfer| (decode_input(transfer.input()), transfer)).collect::<Vec<_>>();
-
             let input = decode_input(transfer.input());
 
             let root = crate::ExecutionPlace {
@@ -150,12 +147,24 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                     && input.projections[index..].iter().any(|projection| {
                         *projection != bray_symbols::ConstantProjectionKind::NullableValue
                     })
-                    && !complete.iter().any(|(owner, returned)| {
-                        // A child annotation within the same complete returned carrier is not separation.
-                        owner.contains(&input) && owner.projections.len() <= index
-                            && transfer.output().strip_prefix(returned.output())
-                                == Some(&input.projections[owner.projections.len()..])
-                    })
+                    && !{
+                        let mut conditions = cases.iter().copied().copied().chain(transfer.condition()).collect::<Vec<_>>();
+
+                        conditions.sort_unstable();
+                        conditions.dedup();
+
+                        let complete = enclosing.entry(conditions).or_insert_with_key(|conditions| {
+                            contract.owned_result().guaranteed_transfers_under(conditions).into_iter()
+                                .map(|transfer| (decode_input(transfer.input()), transfer)).collect::<Vec<_>>()
+                        });
+
+                        complete.iter().any(|(owner, returned)| {
+                            // A child annotation within the same complete returned carrier is not separation.
+                            owner.contains(&input) && owner.projections.len() <= index
+                                && transfer.output().strip_prefix(returned.output())
+                                    == Some(&input.projections[owner.projections.len()..])
+                        })
+                    }
                     && !independent_result_owner(domain, invocation, entry, transfer,
                         &input, witness.expect("a partial witness retains its owning contract"))
                 {

@@ -11,8 +11,8 @@ Comparison baseline: 854757009. validation-current.json/log retain fixed 916, ow
 frozen 30 and focused controls. comparison-current.json/log preserve current exact identities and hashes.
 The latest batch passes all 1,715 identities with none missing in 398.28 s. Focused checks pass 559 checker,
 221 symbol and 17 carrier/nullable/probe tests. No expected outcome or failure site changed.
-No checker instrumentation remains. The compilation test binary contains a temporary pin probe removed
-from source. Production code matches the validated batch. Four count hooks remain only in an ignored patch.
+No checker instrumentation or temporary probe remains in source or current test binaries. The pin
+probe records identify the earlier binary. Four count hooks remain only in an ignored patch.
 
 The current pin probe verifies clean bodies for ensure_deadlines, ensure_workers, close_owner,
 close_owner_binding and native_owner_release. close_owner now publishes the complete execution Reference
@@ -32,8 +32,13 @@ its opaque guarantee from unchanged pointer bits or weaken the indirect-storage 
 actual native producer-retention contract. LinkAccess similarly holds a lease borrow and raw pointer.
 allocation-current.log and links-current.log retain the unresolved earlier traces, identified by proof-current.json.
 
-Reviewer /root/pr_review reviewed 1687c09b7 and published incremental review 5908883837 on PR 710.
-Verified the published review. No new actionable findings. All three prior review threads are resolved.
+Reviewer /root/pr_review reviewed 86ef6ef86 and published review 5909038223, verified on PR 710.
+Finding 4577016048 / PRRT_kwDOTFaIPc63mNSa: repeated enclosing-layout derivation for identical guards.
+Current fix derives only for a possible witness separation and reuses each sorted, deduplicated guard
+context within that invocation. It replaces repeated materialization, preserves diagnostic traversal order,
+and adds no persistent state. Focused validation passes all 559 checker tests and 820 owned/deferred,
+carrier, nullable and consuming-copy controls, with no missing fixed identity. Push, reply and re-review.
+No new ownership finding. All three earlier review threads are resolved.
 Current fixes use selected_lane for all callback readiness, share referent_owner_identity and move imports.
 The existing root fixture checks blocking/compute rejection while the cooperative task is active and driver
 acceptance after terminal return. Native execution of those assertions remains blocked by contracts.
@@ -63,13 +68,25 @@ input. Immediate-parent projection respects empty intermediate records. Keep roo
 preservation from current contents. Never import historical children or derive ownership through loans.
 Existing projection and mutation tests cover nested owners, overwritten children and explicit empties.
 
-Next unresolved contract: Inactive remains a copied ABI token. Native provider retention needs a borrowed,
-noncopy Producer scope tied to the exact token, introduced at actual native entry boundaries. It owns no
-lease, dispatch permission or provider reference. Trace publication, activation, inactive cleanup,
-requirements inspection, PreparedStart and native composition before editing. Reuse task::Composition to
-carry the scope. Remove activation/composition's accepted lambda producer reassertion, while keeping
-successful admission separate. Descriptor borrowing alone cannot retain raw callback providers. The
-end-to-end inventory and positive/negative source oracles are not yet closed, so production edits are blocked.
+Next unresolved contract: Inactive remains a copied ABI token. A durable noncopy Producer must consume
+both native provider retention and the exact inactive-exclusive claim, store the token by value, and be
+borrowed only for metadata. Admission/destruction consumes it. A generic borrow_producer(&Inactive)
+issuer is unsound: it could mint two permits and leave one usable after the other releases the frame.
+Native fixtures own descriptor/backing in Arc<Frame>, removed and dropped by destroy before its callback
+returns. Native-call lifetime therefore cannot justify retention after frame release. Existing consuming-
+copyable-receiver tests establish move retirement and witness-copy rejection, including @copy values.
+Formation must use an actual move, not an implicit copy. Native exclusive claims remain entry-local,
+never recreated by general raw-slot readers. Producer retention alone cannot imply inactive exclusivity.
+
+Trace all typed consumers before editing: metadata/requirements borrow Producer, begin and inactive
+acquisition consume it, compose_reference and task::Composition own and forward it. PreparedStart can
+lose its token field: prepare_start borrows the enclosing permit, reserve_start needs only preparation,
+task and service facts, commit_start takes the permit by value and passes it into begin. No optional
+replacement permit is needed on failed admission because current callers return or abort. Remove the
+accepted lambda's producer reassertion in activation/composition while keeping successful admission
+separate. Publication/provider initialization may borrow native retention without acquiring a durable
+exclusive permit. Their exact API boundary remains to be settled. Descriptor borrowing alone cannot
+retain raw callback providers. End-to-end consumer inventory and source oracles remain open.
 
 Returned ownership contract: prepare each returned snapshot together with its current owned layout, using the same ownership
 recording as ValuePreservation.frame. Completion must consume that prepared mapping, not reconstruct input.root_layout.
