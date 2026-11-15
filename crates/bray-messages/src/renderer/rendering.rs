@@ -106,11 +106,6 @@ impl DiagnosticRenderer {
         MessageCatalog::new(self.locale).note_heading(kind)
     }
 
-    /// Renders the heading for an ordinary source label.
-    pub fn render_label_heading(self) -> &'static str {
-        MessageCatalog::new(self.locale).label_heading()
-    }
-
     /// Renders the heading for a supporting source location.
     pub fn render_related_location_heading(self) -> &'static str {
         MessageCatalog::new(self.locale).related_location_heading()

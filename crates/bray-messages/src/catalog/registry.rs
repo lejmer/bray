@@ -14,7 +14,7 @@ use crate::{
 };
 
 use super::english::{
-    diagnostic_template as english_diagnostic_template, label_heading as english_label_heading,
+    diagnostic_template as english_diagnostic_template,
     label_style as english_label_style, label_template as english_label_template,
     note_heading as english_note_heading, note_kind as english_note_kind,
     note_template as english_note_template,
@@ -255,12 +255,6 @@ impl MessageCatalog {
     pub(crate) const fn note_heading(self, kind: RenderedDiagnosticNoteKind) -> &'static str {
         match self.locale {
             DiagnosticLocale::English => english_note_heading(kind),
-        }
-    }
-
-    pub(crate) const fn label_heading(self) -> &'static str {
-        match self.locale {
-            DiagnosticLocale::English => english_label_heading(),
         }
     }
 

@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use bray_diagnostics::DiagnosticBag;
 use bray_messages::{
     DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote,
-    RenderedDiagnosticRelatedLocation, RenderedDiagnosticSuggestion,
+    RenderedDiagnosticNoteKind, RenderedDiagnosticRelatedLocation, RenderedDiagnosticSuggestion,
 };
 use bray_source::SourceStore;
 
@@ -86,7 +86,7 @@ fn write_labels(
         writeln!(
             writer,
             "{}: {} at {}",
-            color_note_heading(renderer.render_label_heading()),
+            color_note_heading(renderer.render_note_heading(RenderedDiagnosticNoteKind::Note)),
             label.message(),
             location,
         )?;
