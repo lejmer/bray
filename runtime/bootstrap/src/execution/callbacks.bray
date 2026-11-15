@@ -172,16 +172,7 @@ trusted internal func readiness_status(pos owner: &bray.runtime.bootstrap.activa
 
     let lane = if selected.status == 0
     {
-        // Synchronous disposal deliberately installs no task continuation. Its
-        // actual enclosing driver still retains cleanup execution authority.
-        yield if !bray.runtime.bootstrap.activation.callback.resumable(owner.operation)
-        {
-            yield (trusted context(&selected)).driver;
-        }
-        else
-        {
-            yield trusted selected_lane(&selected);
-        };
+        yield trusted selected_lane(&selected);
     }
     else
     {

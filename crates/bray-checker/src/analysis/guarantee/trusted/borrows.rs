@@ -146,10 +146,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let path = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
             let borrowed_result = dependencies.returned_value(transfer).is_borrowed();
+            let extracted = value.is_reference() && !borrowed_result;
 
             // A checked ownership transfer can extract the value from a borrowed
             // slot. Returning a borrow instead retains its original loan identity.
-            let value = if borrowed_result { value } else { value.into_referent() };
+            let source = if borrowed_result { value } else { value.into_referent() };
 
             let crate::ExecutionConditionKind::Input(input) = input.kind() else {
                 unreachable!("a checked ownership source names an input projection");
@@ -157,23 +158,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // Whole inline preservation and absence of reached writes jointly retain
             // this synchronous entry snapshot. A deferred entry can predate suspension.
-            let unchanged = !borrowed_result && !value.is_reference() && (transports_value
+            let unchanged = !borrowed_result && !source.is_reference() && (transports_value
                 || dependencies.deferred_effects().is_none()
                     && dependencies.preserves_storage_on_normal_return()
                     && transfer.preservation() == &bray_symbols::DependencyValuePreservation::all());
 
-            let value = if borrowed_result || value.is_reference() {
-                ExecutionCondition::reference_value(value.owner_identity().clone(), ExecutionCondition::unknown())
+            let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
+
+            let value = if borrowed_result || source.is_reference() {
+                ExecutionCondition::reference_value(source.owner_identity().clone(), ExecutionCondition::unknown())
             } else if unchanged {
-                value
+                // Retain the immutable source while recording its prepared ownership below.
+                source.clone()
             } else {
-                let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
-
-                let contents = super::super::flow::ValuePreservation::returned(
+                super::super::flow::ValuePreservation::returned(
                     &preservation, dependencies.returned_value(transfer).observations(),
-                ).apply(&value, Some(&input), bray_bound_tree::StorageMutation::Operation(invocation));
-
-                value.with_current_contents(contents)
+                ).returned_snapshot(&source, &input, bray_bound_tree::StorageMutation::Operation(invocation))
             };
 
             // The selected child owns its output path while the enclosing completion keeps its root.
@@ -183,6 +183,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let value = if unchanged { value } else {
                 self.refresh_returned_references(state, destination.as_ref(), value, completion)
             };
+
+            if !borrowed_result && !source.is_reference() {
+                // The callee proves inline transport. The physical snapshot mask
+                // separately refreshes reached state and is not a portable contract.
+                state.preserve_owned_result(&source, &value, extracted, |path| {
+                    path.iter().fold(preservation.clone(), |mask, field| mask.projected(field))
+                });
+            }
 
             fields.insert(transfer.clone(), (path, value));
         }
@@ -538,42 +546,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.refine_witnesses(state);
 
                 let fields = returned.get(transfer);
-
-                let decoded = crate::execution_condition_from_type_term(
-                    self.request.semantic_values(), transfer.input(), dependencies.input_count(),
-                ).expect("checked ownership source decodes in the same semantic store");
-
-                let crate::ExecutionConditionKind::Input(input) = decoded.kind() else {
-                    unreachable!("a checked ownership source names an input projection");
-                };
-
-                let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
-
-                let ownership = input.value_in(arguments)
-                    .map(|value| {
-                        let extraction = value.is_reference() && !dependencies.returned_value(transfer).is_borrowed();
-
-                        let value = value.into_referent();
-
-                        if extraction { state.extracted_result(&value) } else { state.owned_result(&value) }
-                    })
-                    .unwrap_or_default()
-                    .root_layout()
-                    .try_map(
-                        &mut |source| Ok::<_, std::convert::Infallible>(DependencyOwnedResult::Transfer(
-                            source.clone().with_preservation(source.preservation().intersection(&preservation)),
-                        )),
-                        &mut |condition| Ok(Some(condition.clone())),
-                    ).expect("returned ownership contents composition is infallible");
-
-                if let Some((_, value)) = fields {
-                    let actual = DependencyOwnedResult::all([
-                        ownership.clone(), state.owned_children_result(value),
-                    ]);
-
-                    // Preserve only the transferred top lineage and actual children.
-                    state.owned_results.insert(value.clone(), actual);
-                }
 
                 Some(construct(result, fields.into_iter().cloned().collect(), transfer.condition().is_none()))
             }

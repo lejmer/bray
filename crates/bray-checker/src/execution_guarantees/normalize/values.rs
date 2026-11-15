@@ -368,7 +368,7 @@ pub(crate) fn storage_borrow_identity(
 
         if aggregate && let Some(value) = root.value_in(current)
             .filter(|value| value.ownership_identity().is_some() || value.is_reference()) {
-            value.owner_identity().clone().into_referent().owner_identity().clone()
+            value.referent_owner_identity()
         } else {
             ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone()))
         }
@@ -388,7 +388,7 @@ pub(crate) fn storage_borrow_identity(
             let prefix = root.clone().project(&path.projections[..index])?;
 
             if let Some(value) = prefix.value_in(current) {
-                identity = value.owner_identity().clone().into_referent().owner_identity().clone();
+                identity = value.referent_owner_identity();
             }
         }
 

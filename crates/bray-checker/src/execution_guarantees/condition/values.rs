@@ -375,7 +375,7 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn scalar_observation(owner: Self, contents: Self) -> Self {
-        let owner = owner.owner_identity().clone().into_referent().owner_identity().clone();
+        let owner = owner.referent_owner_identity();
 
         Self::observation(owner, contents, ObservationKind::Scalar)
     }

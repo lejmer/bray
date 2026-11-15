@@ -172,6 +172,11 @@ impl ExecutionCondition {
         value
     }
 
+    /// The current owner's identity after following its loan, without its contents.
+    pub(crate) fn referent_owner_identity(&self) -> Self {
+        self.owner_identity().clone().into_referent().owner_identity().clone()
+    }
+
     /// Selects carrier authority independently of general data and physical identity.
     pub(crate) fn ownership_identity(&self) -> Option<(ObservationKind, &Self)> {
         let mut value = self;

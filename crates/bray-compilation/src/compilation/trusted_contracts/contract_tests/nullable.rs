@@ -246,8 +246,10 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
         if route == "await" {
             let published = source_function_dependencies(&application, "forward_owner");
 
-            assert!(!published.owned_result().is_empty(),
-                "checked extraction must publish the source-to-result ownership transfer: {published:?}");
+            assert!(published.owned_result().transfers().any(|transfer| {
+                transfer.output().is_empty()
+                    && transfer.preservation() == &bray_symbols::DependencyValuePreservation::all()
+            }), "checked extraction preserves the complete inline value, including its nullable tag: {published:?}");
         }
 
         let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
@@ -616,7 +618,10 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
             {{
                 return
                 {{
-                    marker = Marker {{}}, pointer = pointer
+                    marker = Marker
+                    {{
+                    }},
+                    pointer = pointer
                 }};
             }}
             const func present(pos owner: &(Owner?)) -> &Owner
@@ -696,6 +701,12 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
             func caller(pos pointer: DataPointer<u8>, pos reject: bool)
             {{
                 caller_existing(make(pointer), reject);
+                _ = relay(make(pointer), reject);
+            }}
+            func relay(pos owner: Owner, pos reject: bool) -> Result<unit, (Owner?, u32)>
+                requires(trusted live(&owner.marker))
+            {{
+                return forward(owner, reject);
             }}
             "#
         );
@@ -705,6 +716,14 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
         assert!(!application.syntax_tree_result().diagnostics().has_errors(), "{source}");
 
         let diagnostics = application.check_diagnostics();
+
+        let relay = source_function_dependencies(&application, "relay");
+        let values = application.semantic_value_store().expect("fixture semantic store");
+
+        assert!(relay.owned_result().transfers().any(|transfer| {
+            matches!(values.constant_term_data(transfer.input()).as_ref(),
+                bray_symbols::ConstantTermData::CallableArgument(ordinal) if *ordinal == bray_symbols::SymbolOrdinal::new(0))
+        }), "forwarding through nullable adaptation must publish the complete input owner: {relay:?}");
 
         assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
 

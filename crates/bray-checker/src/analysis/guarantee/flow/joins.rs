@@ -1,3 +1,5 @@
+use bray_bound_tree::BoundOperator;
+use crate::execution_guarantees::ExecutionObservationKind;
 use crate::execution_guarantees::ExecutionSubstitution;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,8 +15,6 @@ pub(super) fn ordinary_alternatives(
     left: &BTreeSet<(ExecutionCondition, bool)>,
     right: &BTreeSet<(ExecutionCondition, bool)>,
 ) -> ExecutionCondition {
-    use bray_bound_tree::BoundOperator;
-
     let branch = |source: &BTreeSet<(ExecutionCondition, bool)>, other: &BTreeSet<(ExecutionCondition, bool)>| {
         ExecutionCondition::operation(BoundOperator::LogicalAnd, source.difference(other)
             .filter(|(condition, _)| !condition.contains_trusted() && !condition.observes_live(None))
@@ -30,7 +30,7 @@ pub(super) fn ordinary_alternatives(
 pub(super) fn common_current_owner(
     left: &ExecutionCondition,
     right: &ExecutionCondition,
-) -> Option<(crate::execution_guarantees::ExecutionObservationKind, ExecutionCondition)> {
+) -> Option<(ExecutionObservationKind, ExecutionCondition)> {
     let role = |value: &ExecutionCondition| value.observation_kind()
         .or_else(|| value.ownership_identity().map(|(role, _)| role));
 
@@ -40,7 +40,7 @@ pub(super) fn common_current_owner(
         return None;
     }
 
-    Some((kind, left.owner_identity().clone().into_referent().owner_identity().clone()))
+    Some((kind, left.referent_owner_identity()))
 }
 
 pub(super) fn current_content_identities(
@@ -86,10 +86,8 @@ fn collect_current_content_identities(
     left: &ExecutionCondition,
     right: &ExecutionCondition,
     contents: ExecutionCondition,
-    owners: &mut BTreeMap<ExecutionCondition, (crate::execution_guarantees::ExecutionObservationKind, ExecutionCondition)>,
+    owners: &mut BTreeMap<ExecutionCondition, (ExecutionObservationKind, ExecutionCondition)>,
 ) {
-    use crate::execution_guarantees::ExecutionObservationKind;
-
     let Some((kind, owner)) = common_current_owner(left, right) else { return; };
 
     let entry = owners.entry(owner).or_insert_with(|| (kind, contents.clone()));
@@ -230,6 +228,10 @@ pub(in crate::analysis::guarantee) fn merge_returned(
 #[cfg(test)]
 mod tests {
     use super::common_components;
+    use crate::analysis::guarantee::state::ExecutionState;
+    use crate::analysis::id::AnalysisBlockId;
+    use crate::execution_guarantees::ExecutionObservationKind;
+    use bray_symbols::{SymbolId, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::{BoundUnitId, StorageProjection};
     use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
@@ -271,9 +273,6 @@ mod tests {
 
     #[test]
     fn nullable_joins_preserve_payloads_and_normalization_makes_progress() {
-        use crate::execution_guarantees::ExecutionObservationKind;
-        use bray_symbols::{SymbolId, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
-
         let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
         let payload = StorageProjection::NullableValue;
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
@@ -583,9 +582,6 @@ mod tests {
 
     #[test]
     fn joined_contents_keep_the_descriptor_and_a_distinct_current_identity() {
-        use crate::analysis::guarantee::state::ExecutionState;
-        use crate::analysis::id::AnalysisBlockId;
-
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let descriptor = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
@@ -762,9 +758,6 @@ mod tests {
 
     #[test]
     fn disappearing_alias_does_not_rename_a_surviving_observation() {
-        use crate::analysis::guarantee::state::ExecutionState;
-        use crate::analysis::id::AnalysisBlockId;
-
         let original = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let alias = ExecutionPlace::argument(SymbolOrdinal::new(1));
         let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(original.clone()));
@@ -795,8 +788,6 @@ mod tests {
     }
     #[test]
     fn returned_branches_keep_shared_fields_in_the_whole_snapshot() {
-        use crate::analysis::guarantee::state::ExecutionState;
-
         let owner = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let marker = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
         let marker_place = owner.clone().component(marker);
@@ -833,9 +824,6 @@ mod tests {
 
     #[test]
     fn stable_owned_values_converge_across_guarded_back_edges() {
-        use crate::analysis::guarantee::state::ExecutionState;
-        use crate::analysis::id::AnalysisBlockId;
-
         let place = ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
             bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0))
                 .into(),
@@ -889,9 +877,6 @@ mod tests {
 
     #[test]
     fn empty_layouts_do_not_accumulate_in_loop_observations() {
-        use crate::analysis::guarantee::state::ExecutionState;
-        use crate::analysis::id::AnalysisBlockId;
-
         let place = ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
             bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0))
                 .into(),
@@ -900,7 +885,7 @@ mod tests {
         let guard = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             bray_bound_tree::BoundReferenceTarget::Surface(
                 bray_symbols::CallableParameterSymbolId::from_symbol_id(
-                    bray_symbols::SymbolId::new(1),
+                    SymbolId::new(1),
                 )
                 .into(),
             )

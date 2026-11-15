@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 
@@ -31,8 +32,6 @@ pub(super) fn audit_product_runtime(
                 unit.digest()
             ));
         }
-
-        use std::fmt::Write;
 
         writeln!(
             receipt,

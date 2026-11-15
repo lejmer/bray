@@ -5,6 +5,54 @@ use bray_bound_tree::StorageProjection;
 use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation};
 
 impl ExecutionState {
+    /// Retain only current mappings whose actual owner survives this preservation.
+    pub(super) fn preserve_owned_result(
+        &mut self,
+        source: &ExecutionCondition,
+        next: &ExecutionCondition,
+        extracted: bool,
+        mut preservation: impl FnMut(&[StorageProjection]) -> DependencyValuePreservation<StorageProjection>,
+    ) {
+
+        // A checked extraction transfers current borrowed contents. Capture its
+        // formal origin before framing replaces the source, without treating an
+        // ordinary borrow as ownership or overwriting an explicit empty layout.
+        let ownership = if extracted {
+            self.extracted_result(source)
+        } else {
+            self.owned_result(source)
+        };
+
+        self.owned_results.insert(source.clone(), ownership.clone());
+
+        if source == next {
+            return;
+        }
+
+        let ownership = ownership.try_map(
+            &mut |transfer| {
+                let before = transfer.output().iter().fold(source.clone(), |value, field| value.project(*field));
+                let after = transfer.output().iter().fold(next.clone(), |value, field| value.project(*field));
+
+                if before.ownership_identity().is_none()
+                    || before.ownership_identity() != after.ownership_identity()
+                {
+                    return Ok::<_, std::convert::Infallible>(bray_symbols::DependencyOwnedResult::default());
+                }
+
+                let preservation = preservation(transfer.output());
+
+                Ok(bray_symbols::DependencyOwnedResult::Transfer(transfer.clone().with_preservation(
+                    transfer.preservation().intersection(&preservation),
+                )))
+            },
+            &mut |condition| Ok(Some(condition.clone())),
+        ).expect("physical ownership preservation is infallible");
+
+        self.owned_results.insert(next.clone(), ownership);
+
+    }
+
     /// Selects exact formal ownership from retained snapshots and joined layouts.
     pub(super) fn owned_result(
         &self,
@@ -19,24 +67,6 @@ impl ExecutionState {
         value: &ExecutionCondition,
     ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
         self.owned_result_bounded(value, true, &mut { ExecutionCondition::WORK_LIMIT })
-    }
-
-    /// Selects actual descendant mappings independently of the containing owner.
-    pub(super) fn owned_children_result(
-        &self,
-        value: &ExecutionCondition,
-    ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
-        let mut budget = ExecutionCondition::WORK_LIMIT;
-
-        let children = self.owned_result_bounded(value, false, &mut budget).try_map(
-            &mut |transfer| Ok::<_, std::convert::Infallible>(
-                if transfer.output().is_empty() { DependencyOwnedResult::default() }
-                else { DependencyOwnedResult::Transfer(transfer.clone()) },
-            ),
-            &mut |condition| Ok(Some(condition.clone())),
-        ).expect("actual descendant ownership selection is infallible");
-
-        without_empty_guards(children, &mut budget)
     }
 
     fn owned_result_bounded(

@@ -1,3 +1,30 @@
+static atomic_uint worker_create_attempts;
+
+#if defined(_WIN32)
+typedef HANDLE (WINAPI *CreateThreadFunction)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
+
+static HANDLE WINAPI counted_create_thread(
+    LPSECURITY_ATTRIBUTES security,
+    SIZE_T stack_size,
+    LPTHREAD_START_ROUTINE entry,
+    LPVOID context,
+    DWORD flags,
+    LPDWORD thread_id
+)
+{
+    atomic_fetch_add(&worker_create_attempts, 1);
+
+    CreateThreadFunction create = (CreateThreadFunction)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "CreateThread");
+
+    if (create == NULL)
+        abort();
+
+    return create(security, stack_size, entry, context, flags, thread_id);
+}
+
+CreateThreadFunction __imp_CreateThread = counted_create_thread;
+#endif
+
 #if defined(__linux__)
 typedef struct
 {
@@ -36,7 +63,6 @@ extern int __real_pthread_create(pthread_t*, const pthread_attr_t*, void* (*)(vo
 extern int __real_pthread_join(pthread_t, void**);
 
 static atomic_bool reject_worker_creation;
-static atomic_uint worker_create_attempts;
 static atomic_uint worker_joins;
 static atomic_uint worker_retains;
 static atomic_uint worker_releases;

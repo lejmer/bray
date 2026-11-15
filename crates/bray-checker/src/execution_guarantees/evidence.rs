@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use super::ExecutionCondition as Condition;
+
 /// One failed condition, retaining its declaration meaning and instantiated arguments.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UnprovenExecutionCondition {
@@ -74,8 +76,6 @@ impl ExecutionCallEvidence {
         &self,
         ordinary: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
     ) -> std::collections::BTreeSet<(super::ExecutionCondition, bool)> {
-        use super::ExecutionCondition as Condition;
-
         let bindings = self.copy_bindings();
         let mut facts = std::collections::BTreeSet::new();
 
@@ -184,8 +184,8 @@ impl ExecutionCallEvidence {
         mut map: impl FnMut(&super::ExecutionCondition) -> Result<super::ExecutionCondition, E>,
     ) -> Result<Self, E> {
         let mut mapped = Self {
-            implementation_witnesses: std::sync::Arc::clone(&self.implementation_witnesses),
-            owned_inputs: std::sync::Arc::clone(&self.owned_inputs),
+            implementation_witnesses: Arc::clone(&self.implementation_witnesses),
+            owned_inputs: Arc::clone(&self.owned_inputs),
             anonymous_target: self.anonymous_target.clone(),
             trusted_boundary: self.trusted_boundary,
             pending_execution: self.pending_execution,
@@ -414,7 +414,7 @@ impl ExecutionCallEvidence {
                                 ));
 
                             // The captured argument retains this immutable component path.
-                            argument.projections = std::sync::Arc::clone(&input.projections);
+                            argument.projections = Arc::clone(&input.projections);
 
                             argument.value_in(&self.arguments)
                         })

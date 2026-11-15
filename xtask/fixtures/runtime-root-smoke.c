@@ -121,10 +121,41 @@ static ActivationState root_state(
     };
 }
 
+static void check_root_callback_readiness(RootFrame* frame, uint32_t expected)
+{
+    for (uint32_t lanes = 1; lanes <= 2; ++lanes)
+    {
+        for (uint32_t operation = 3; operation <= 5; operation += 2)
+        {
+            ActivationExecution execution = { 0 };
+
+            if (bray_runtime_activation_snapshot(&frame->header, 0, operation, 6, &execution) != 0)
+                abort();
+
+            execution.requirements.lanes = 4 | lanes;
+
+            ActivationInvocation invocation = {
+                .execution = &execution,
+                .descriptor = frame->header.descriptor,
+                .context = (uintptr_t)frame,
+                .operation = { .tag = operation, .value.cleanup_exit = 6 },
+            };
+
+            bray_runtime_activation_action_readiness(&invocation);
+
+            if (invocation.admission != expected)
+                abort();
+        }
+    }
+}
+
 static void root_resume(ActivationProgress* progress, uintptr_t context)
 {
     RootFrame* frame = (RootFrame*)context;
+
     require_root_thread();
+    check_root_callback_readiness(frame, 6);
+
     ++frame->resumes;
 
     if (frame->mode == ROOT_CANCELLED)
@@ -137,11 +168,13 @@ static void root_resume(ActivationProgress* progress, uintptr_t context)
     {
         frame->value = 7;
         frame->lexical_cleanup = 1;
+
         *progress = (ActivationProgress) {
             .kind = 1,
             .state = 1,
             .payload = (uintptr_t)&frame->value,
         };
+
         return;
     }
 
@@ -166,13 +199,14 @@ static void root_resume(ActivationProgress* progress, uintptr_t context)
         if (bray_runtime_cleanup_storage_admission(&descriptor->storage, &lease) != 0)
             abort();
 
-        RootFrame* child = bray_runtime_cleanup_storage_activation(&lease, &descriptor->storage);
+        RootFrame* child = (RootFrame*)bray_runtime_cleanup_storage_activation(&lease, &descriptor->storage);
         InactiveActivation token = { lease, descriptor };
 
         if (child == NULL)
             abort();
 
         bray_runtime_activation_initialization(&token, (uintptr_t)child, &records);
+
         child->value = 0;
         child->mode = ROOT_CHILD;
         child->resumes = 0;
@@ -182,13 +216,16 @@ static void root_resume(ActivationProgress* progress, uintptr_t context)
             abort();
 
         bray_runtime_awaited_frame_composition(token, 1, (uintptr_t)&frame->value, 0);
+
         *progress = (ActivationProgress){ .kind = 0, .state = 1 };
+
         return;
     }
 
     if (frame->mode == ROOT_SUCCESS)
     {
         RunOutcome child = { 0 };
+
         bray_runtime_frame_completion_move(&frame->header, &child);
 
         if (
@@ -205,11 +242,13 @@ static void root_resume(ActivationProgress* progress, uintptr_t context)
     if (frame->mode == ROOT_PANICKED)
         *progress = (ActivationProgress){ .kind = 3, .state = 1, .report = panic_report() };
     else
+    {
         *progress = (ActivationProgress) {
             .kind = 1,
             .state = 1,
             .payload = (uintptr_t)&frame->value,
         };
+    }
 }
 
 static void root_cancel(ActivationProgress* progress, uintptr_t context)
@@ -246,6 +285,7 @@ static void root_move(uintptr_t context, uintptr_t destination)
 static void root_destroy(uintptr_t context)
 {
     RootFrame* frame = (RootFrame*)context;
+
     require_root_thread();
 
     if (frame->mode == ROOT_CHILD)
@@ -263,6 +303,7 @@ static int check_execution_roots(void)
         .timers = 1,
         .capabilities = 63,
     };
+
     const ActivationDescriptor descriptor = {
         .storage = { { 21 }, sizeof(RootFrame), _Alignof(RootFrame) },
         .completion = offsetof(RootFrame, value),
@@ -277,6 +318,7 @@ static int check_execution_roots(void)
         .move_completion = root_move,
         .destroy = root_destroy,
     };
+
     unsigned worker_attempts = atomic_load(&worker_create_attempts);
 
     if (
@@ -313,7 +355,7 @@ static int check_execution_roots(void)
     if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &rejected_lease) != 0)
         return 249;
 
-    RootFrame* rejected_frame = bray_runtime_cleanup_storage_activation(
+    RootFrame* rejected_frame = (RootFrame*)bray_runtime_cleanup_storage_activation(
         &rejected_lease,
         &descriptor.storage
     );
@@ -327,6 +369,7 @@ static int check_execution_roots(void)
         (uintptr_t)rejected_frame,
         &rejected_records
     );
+
     rejected_frame->mode = ROOT_REJECTED_BLOCKING;
     rejected_frame->resumes = 0;
 
@@ -337,6 +380,7 @@ static int check_execution_roots(void)
         (uintptr_t)&rejected_token,
         &rejected_outcome
     );
+
     unsigned before_rejection_disposal = root_destructions;
 
     if (
@@ -352,6 +396,7 @@ static int check_execution_roots(void)
         bray_runtime_activation_action_readiness,
         &rejected_outcome
     );
+
     bray_runtime_inactive_frame_resolution(
         &rejected_token,
         bray_runtime_activation_callback,
@@ -372,7 +417,7 @@ static int check_execution_roots(void)
         if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &lease) != 0)
             return 249;
 
-        RootFrame* frame = bray_runtime_cleanup_storage_activation(&lease, &descriptor.storage);
+        RootFrame* frame = (RootFrame*)bray_runtime_cleanup_storage_activation(&lease, &descriptor.storage);
         InactiveActivation token = { lease, &descriptor };
         ActivationRecords records = { 0 };
 
@@ -380,6 +425,7 @@ static int check_execution_roots(void)
             return 249;
 
         bray_runtime_activation_initialization(&token, (uintptr_t)frame, &records);
+
         frame->value = 101;
         frame->mode = mode;
         frame->resumes = 0;
@@ -390,6 +436,7 @@ static int check_execution_roots(void)
 
         RunOutcome outcome = { 0 };
         RootAdmission admitted = bray_runtime_root_execution((uintptr_t)&token, &outcome);
+
         unsigned destructions = root_destructions;
         unsigned child_destructions = root_child_destructions;
 
@@ -411,6 +458,8 @@ static int check_execution_roots(void)
         }
 
         outcome = bray_runtime_root_terminal_observation(admitted.task);
+
+        check_root_callback_readiness(frame, 0);
 
         if (
             frame->lexical_cleanup != 1 ||
