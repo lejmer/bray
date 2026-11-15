@@ -55,28 +55,38 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let source = self.invocation_place(occurrence, root)?;
 
-            let input =
-                crate::storage::owned_storage_projections(self.dependencies, &input.projections);
+            let path = contracts.returned_value(transfer).input_path();
+            let input = path.projections();
 
             let mut output =
                 crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
             let wrapping = self.invocation_wrapping(occurrence, root);
 
-            let (input, adaptation) = if let Some(path) = input.strip_prefix(wrapping.as_slice()) {
-                (path, &[][..])
+            let adaptation = if input.starts_with(wrapping.as_slice()) {
+                &[][..]
             } else {
                 // Returning the complete adapted owner also returns its wrapper.
-                let adaptation = wrapping.strip_prefix(input.as_slice())?;
+                let adaptation = wrapping.strip_prefix(input)?;
 
                 output.extend_from_slice(adaptation);
 
-                (&[][..], adaptation)
+                adaptation
+            };
+
+            let sources = if contracts.returned_value(transfer).is_borrowed() {
+                let input = input.strip_prefix(wrapping.as_slice()).unwrap_or_default();
+
+                vec![Target::storage(source).project(input)]
+            } else if adaptation.is_empty() {
+                self.invocation_path_locations(state, occurrence, &bray_symbols::DependencySubject::root(root), path)?
+            } else {
+                vec![Target::storage(source)]
             };
 
             Some((
                 transfer,
-                Target::storage(source).project(input),
+                sources,
                 Target::storage(destination.clone()).project(&output),
                 adaptation.to_vec(),
             ))
@@ -84,14 +94,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let guaranteed = contracts.owned_result().guaranteed_transfers();
 
-        for (transfer, source, output, adaptation) in &transfers {
+        for (transfer, sources, output, adaptation) in &transfers {
             let Some(common) = guaranteed.iter().find(|common| common.same_identity(transfer)) else { continue; };
 
-            self.stage_preserved_references(state, occurrence, common, contracts.returned_value(transfer), source, output, adaptation);
+            self.stage_preserved_references(state, occurrence, common, contracts.returned_value(transfer), sources, output, adaptation);
         }
 
         state.memory.stage_deferred_values(occurrence,
-            transfers.into_iter().map(|(_, source, destination, _)| (source, destination)));
+            transfers.into_iter().flat_map(|(_, sources, destination, _)| sources.into_iter().map(move |source| (source, destination.clone()))));
     }
 
     fn stage_preserved_references(
@@ -100,7 +110,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
         transfer: &bray_symbols::DependencyOwnedTransfer,
         returned: &bray_bound_tree::BoundReturnedValue,
-        source: &crate::analysis::storage_flow::memory::Target,
+        sources: &[crate::analysis::storage_flow::memory::Target],
         output: &crate::analysis::storage_flow::memory::Target,
         adaptation: &[bray_bound_tree::StorageProjection],
     ) {
@@ -118,12 +128,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Some(mask.projected(&crate::ExecutionPlace::projection_kind(*projection)?))
             }) else { continue; };
 
-            let source = source.project(actual);
+            let sources = sources.iter().map(|source| source.project(actual)).collect::<Vec<_>>();
 
-            if preservation.preserves_value() && state.memory.has_value(&source) {
+            if preservation.preserves_value() && !sources.is_empty() && sources.iter().all(|source| state.memory.has_value(source)) {
                 // Capture unchanged descriptors before consumption. Referent contents are
                 // refreshed from committed memory, never restored from this entry snapshot.
-                state.memory.stage_value(occurrence, &source, output.project(actual));
+                for source in sources {
+                    state.memory.stage_value(occurrence, &source, output.project(actual));
+                }
             }
         }
     }

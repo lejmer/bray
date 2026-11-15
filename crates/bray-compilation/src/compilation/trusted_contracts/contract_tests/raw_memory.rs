@@ -1,7 +1,7 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::compilation::result_dependencies::{callable_dependencies};
 use crate::test_support::{compilation, source_function_body_key};
-use super::fixtures::{production_sync_compilation};
+use super::fixtures::{diagnostic_at_call, production_sync_compilation};
 
 #[test]
 fn copied_addresses_keep_value_dependencies_without_the_container_loan() {
@@ -444,30 +444,52 @@ fn raw_retirement_distinguishes_private_descriptors_from_borrowed_storage() {
 fn raw_extraction_transfers_a_complete_nullable_witness() {
     for (extra_read, use_owner, valid) in [
         ("", "observe(&complete);", true),
-        ("", "let fabricated: Owner = { epoch = complete.epoch }; observe(&fabricated);", false),
+        ("", "if owner matches none
+                    {
+                        touch(complete.pointer);
+                        require_empty(&owner);
+                    }", true),
+        ("", "touch(complete.pointer);
+
+                    observe(&complete);", false),
+        ("", "let fabricated: Owner =
+                    {
+                        epoch = complete.epoch,
+                        pointer = complete.pointer
+                    };
+
+                    observe(&fabricated);", false),
         ("_ = trusted core.memory.read<T>(pointer);", "observe(&complete);", false),
     ] {
         let source = format!(
             r#"
             trusted module app;
+
             using core.memory;
+
             struct Owner
             {{
                 epoch: u64;
+                pointer: DataPointer<u64>;
             }}
+
             trusted predicate live(owner: &Owner);
-            trusted func acquire() -> Owner
+
+            trusted func acquire(pos pointer: DataPointer<u64>) -> Owner
                 ensures(trusted live(owner = &result))
             {{
                 return
                 {{
-                    epoch = 1
+                    epoch = 1,
+                    pointer = pointer
                 }};
             }}
+
             func observe(pos owner: &Owner)
                 requires(trusted live(owner = owner))
             {{
             }}
+
             trusted func exchange<T>(pos storage: &mut T, pos value: T) -> T
                 uses(raw_memory, unchecked_init)
             {{
@@ -477,11 +499,34 @@ fn raw_extraction_transfers_a_complete_nullable_witness() {
                 trusted core.memory.write<T>(pointer, value);
                 return previous;
             }}
-            func caller(pos present: bool)
+
+            func require_empty(pos owner: &(Owner?))
+                requires(owner matches none)
+                executes(pure, total)
             {{
-                let mut owner: Owner? = if present {{ yield acquire(); }} else {{ yield none; }};
+            }}
+
+            func caller(
+                pos present: bool,
+                pos pointer: DataPointer<u64>,
+                pos touch: func(pos pointer: DataPointer<u64>) -> unit
+            )
+            {{
+                let mut owner: Owner? = if present
+                {{
+                    yield acquire(pointer);
+                }}
+                else
+                {{
+                    yield none;
+                }};
+
                 let moved = exchange<(Owner?)>(&mut owner, none);
-                if let ?complete = moved {{ {use_owner} }}
+
+                if let ?complete = moved
+                {{
+                    {use_owner}
+                }}
             }}
             "#
         );
@@ -489,7 +534,23 @@ fn raw_extraction_transfers_a_complete_nullable_witness() {
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        let expected = (!valid).then_some(if extra_read.is_empty() {
+            DiagnosticKind::CheckingTrustedObligationNotProven
+        } else {
+            DiagnosticKind::CheckingUninitializedRawStorage
+        });
+
+        bray_testing::assert_goal_state_diagnostic_outcome(diagnostics, expected, &source);
+
+        if let Some(expected) = expected {
+            let source_id = source_function_body_key(&application, "caller").source().syntax().source_id();
+            let site = if extra_read.is_empty() { "observe(" } else { "core.memory.read<T>(pointer)" };
+
+            assert!(diagnostics.iter()
+                .filter(|diagnostic| diagnostic.kind() == expected)
+                .all(|diagnostic| diagnostic_at_call(diagnostic, source_id, &source, site)),
+                "the invalid operation must be rejected at its owning boundary: {diagnostics:#?}");
+        }
     }
 }
 

@@ -366,9 +366,10 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
         let borrowed = matches!(request.semantic_values().type_data(output_type).as_ref(), bray_symbols::TypeData::Borrow { .. });
         let mut conditions = Vec::new();
 
-        let (transferred, ty) = returned_input_projection_conditions(
+        let (transferred, ty, input_path) = prepare_returned_input(
             request,
             transfer.input(),
+            (!borrowed).then_some(output_type),
             input_count,
             &mut input_type,
         )?;
@@ -402,16 +403,17 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
         conditions.dedup();
 
         result.insert(transfer.clone(), bray_bound_tree::BoundReturnedValue::new(
-            borrowed, conditions, crate::storage::observation::returned_observations(request, ty)?,
+            borrowed, input_path, conditions, crate::storage::observation::returned_observations(request, ty)?,
         ));
     }
 
     Ok(result)
 }
 
-fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
+fn prepare_returned_input<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     mut term: bray_symbols::ConstantTermId,
+    reached_type: Option<bray_symbols::TypeId>,
     input_count: usize,
     input_type: &mut impl FnMut(
         u32,
@@ -419,7 +421,7 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
         Option<bray_symbols::TypeId>,
         CheckerQueryError<C::UpstreamError>,
     >,
-) -> Result<(Vec<bray_symbols::ConstantTermId>, bray_symbols::TypeId), CheckerQueryError<C::UpstreamError>> {
+) -> Result<(Vec<bray_symbols::ConstantTermId>, bray_symbols::TypeId, bray_bound_tree::StorageReferencePath), CheckerQueryError<C::UpstreamError>> {
 
     let values = request.semantic_values();
     let mut projections = Vec::new();
@@ -442,6 +444,13 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
 
     let mut ty = input_type(ordinal)?
         .expect("checked owned transfer retains its actual input type");
+
+    let path = crate::storage::resolve_owned_storage_projections(
+        request, &projections.iter().rev().map(|(_, projection)| *projection).collect::<Vec<_>>(),
+    )?;
+
+    let (_, input_path) = crate::storage::reference_path(request, ty, path.into(), reached_type)?
+        .expect("checked owning return retains its physical input route");
 
     let mut conditions = Vec::new();
 
@@ -492,5 +501,5 @@ fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
             ));
     }
 
-    Ok((conditions, ty))
+    Ok((conditions, ty, input_path))
 }

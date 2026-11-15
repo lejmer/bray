@@ -14,6 +14,8 @@ use bray_bound_tree::StorageObservationKind as Observation;
 struct Shape {
     observations: Vec<(Vec<StorageProjection>, Observation)>,
     whole_sources: Vec<(Vec<StorageProjection>, TypeId)>,
+    // Exhaustive ordinary values for return transport, excluding reached or protected state.
+    returned_values: Vec<Vec<StorageProjection>>,
     complete_value: bool,
     inline_only: bool,
     complete_references: bool,
@@ -47,6 +49,7 @@ impl Shape {
         Self {
             observations: vec![(Vec::new(), Observation::Identity), (Vec::new(), Observation::InlineBits), (Vec::new(), Observation::Mutable)],
             whole_sources: vec![(Vec::new(), ty)],
+            returned_values: Vec::new(),
             complete_value: false,
             inline_only: false,
             complete_references: false,
@@ -79,10 +82,13 @@ pub(crate) fn returned_observations<C: CheckerRequestContext + ?Sized>(
             if matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::Borrow { .. }))
             .then_some(path)).collect::<Vec<_>>();
 
-    Ok(shape.observations.iter().filter(|(path, observation)| {
+    let observations = shape.observations.iter().map(|(path, kind)| (path, *kind))
+        .chain(shape.returned_values.iter().map(|path| (path, Observation::Value)));
+
+    Ok(observations.filter(|(path, observation)| {
         !boundaries.iter().any(|boundary| path.starts_with(boundary)
-            && (path != *boundary || !matches!(observation, Observation::Reference(_))))
-    }).map(|(path, kind)| (path.clone().into(), *kind)).collect())
+            && (path.as_slice() != boundary.as_slice() || !matches!(observation, Observation::Reference(_))))
+    }).map(|(path, kind)| (path.clone().into(), kind)).collect())
 }
 
 fn known_shape<C: CheckerRequestContext + ?Sized>(
@@ -98,6 +104,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
         return Ok(Shape {
             observations: Vec::new(),
             whole_sources: Vec::new(),
+            returned_values: (!reference).then(Vec::new).into_iter().collect(),
             complete_value: !reference,
             inline_only: true,
             complete_references: true,
@@ -121,6 +128,8 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
     let mut shape = Shape {
         observations: vec![(Vec::new(), observation)],
         whole_sources: Vec::new(),
+        returned_values: (!reference && (scalar || crate::representation::is_address(role)
+            || role == RepresentationRole::FunctionPointer)).then(Vec::new).into_iter().collect(),
         complete_value: (scalar || role == RepresentationRole::FunctionPointer) && !reference,
         inline_only: scalar,
         complete_references: scalar || matches!(observation, Observation::Address),
@@ -741,6 +750,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     let mut fields = Vec::new();
     let mut complete_references = true;
     let mut inline_carriers = Some(BTreeSet::new());
+    let mut complete_returned_value = !reference;
 
     let role = match data.as_ref() {
         TypeData::Callable(_) => Some(bray_compiler_known::RepresentationRole::FunctionPointer),
@@ -791,6 +801,8 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
             }
 
             if let Some(element) = buffer_element {
+                complete_returned_value = false;
+
                 // Inline pointer fields cover backing with no embedded references.
                 // Reference-bearing or opaque elements still require the retained-loan bound.
                 let element = paths(request, element, visiting, complete_reference_types)?;
@@ -883,6 +895,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
     let mut result = vec![(Vec::new(), Observation::Identity)];
     let mut whole_sources = Vec::new();
+    let mut returned_values = Vec::new();
 
     if definition.is_some() && let Some(carriers) = &mut inline_carriers {
         carriers.insert(ty);
@@ -916,6 +929,14 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         }));
 
         complete_value &= shape.complete_value;
+        complete_returned_value &= shape.returned_values.iter().any(Vec::is_empty);
+
+        if !reference {
+            returned_values.extend(shape.returned_values.iter().map(|path| {
+                std::iter::once(field).chain(path.iter().copied()).collect()
+            }));
+        }
+
         inline_only &= shape.inline_only && shape.is_reference_free();
         complete_references &= shape.complete_references;
 
@@ -936,6 +957,11 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         visiting.remove(&definition);
     }
 
+    if complete_returned_value {
+        returned_values.clear();
+        returned_values.push(Vec::new());
+    }
+
     if inline_only && !result.iter().any(|(path, observation)| path.is_empty()
         && matches!(observation, Observation::Value | Observation::Marker(_))) {
         result.push((Vec::new(), Observation::Value));
@@ -944,6 +970,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     Ok(Shape {
         observations: result,
         whole_sources,
+        returned_values,
         complete_value,
         inline_only,
         complete_references,
@@ -970,6 +997,10 @@ fn array_shape<C: CheckerRequestContext + ?Sized>(
     shape.inline_only = !nested_borrow && element.inline_only && element.is_reference_free();
     shape.inline_carriers = element.inline_carriers;
 
+    if !reference && element.returned_values.iter().any(Vec::is_empty) {
+        shape.returned_values.push(Vec::new());
+    }
+
     if shape.inline_only {
         shape.observations.push((Vec::new(), Observation::Value));
     } else if let Some(length) = crate::constant::known_array_length(request.semantic_values(), ty)
@@ -978,6 +1009,12 @@ fn array_shape<C: CheckerRequestContext + ?Sized>(
         for index in 0..length {
             let index = bray_symbols::SymbolOrdinal::new(u32::try_from(index)
                 .expect("bounded array observation index fits an ordinal"));
+
+            if !reference && !shape.returned_values.iter().any(Vec::is_empty) {
+                shape.returned_values.extend(element.returned_values.iter().map(|path| {
+                    std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect()
+                }));
+            }
 
             shape.observations.extend(element.observations.iter().map(|(path, kind)| {
                 (std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect(), *kind)

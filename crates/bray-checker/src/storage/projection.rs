@@ -300,20 +300,39 @@ pub(crate) fn owned_storage_preservation(
     }).unwrap_or_else(|error| match error {})
 }
 
+pub(crate) fn resolve_owned_storage_projections<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    projections: &[bray_symbols::ConstantProjectionKind],
+) -> crate::CheckerQueryResult<Vec<StorageProjection>, C::UpstreamError> {
+    projections.iter().map(|projection| map_owned_storage_projection(*projection, &mut |field| {
+        Ok(request.union_payload_field(field)?
+            .expect("checked owning field retains its variant").variant())
+    })).collect()
+}
+
 fn owned_storage_projection(
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     projection: bray_symbols::ConstantProjectionKind,
 ) -> StorageProjection {
-    match projection {
+    map_owned_storage_projection(projection, &mut |field| {
+        Ok::<_, std::convert::Infallible>(dependencies.projection_variant(field))
+    }).unwrap_or_else(|error| match error {})
+}
+
+fn map_owned_storage_projection<E>(
+    projection: bray_symbols::ConstantProjectionKind,
+    variant: &mut impl FnMut(bray_symbols::UnionPayloadFieldSymbolId) -> Result<bray_symbols::UnionVariantSymbolId, E>,
+) -> Result<StorageProjection, E> {
+    Ok(match projection {
         bray_symbols::ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(field),
         bray_symbols::ConstantProjectionKind::UnionPayloadField(field) => StorageProjection::ActiveUnionPayloadField {
-            variant: dependencies.projection_variant(field), field,
+            variant: variant(field)?, field,
         },
         bray_symbols::ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
         bray_symbols::ConstantProjectionKind::TupleElement(ordinal) => StorageProjection::TupleElement(ordinal),
         bray_symbols::ConstantProjectionKind::ArrayElementOrdinal(ordinal) => StorageProjection::ElementFromStart(ordinal),
         _ => unreachable!("checked transfer contains only owning projections"),
-    }
+    })
 }
 
 pub(crate) fn storage_projections(

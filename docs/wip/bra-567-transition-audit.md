@@ -1,113 +1,105 @@
 # BRA-567 current work
 
 Branch: feature/bra-567-async-root-orchestration. PR: https://github.com/lejmer/bray/pull/710.
-Continue through implementation, verification and review. Checkpoint pushes and bounded full matrices are authorized.
-Further performance optimization belongs in a separate PR. Compiler-owned versions stay at 1 / 1.0.
-After restart, read this record and the work-on-bray-issues contract gate before editing or validating.
+Continue through implementation, verification and review. Checkpoint pushes and bounded matrices are authorized.
+Performance optimization is deferred to a separate PR. Versions remain 1 / 1.0.
+After restart, read this record and the active worktree's work-on-bray-issues contract gate.
 
-## Current repair
+## Current batch
 
-Pushed checkpoint: 18f2be5fe. Retained reviewer: /root/pr_review. Published review 5909417945 is verified.
-Findings 4577296573 (commit_start regression) and 4577296576 (fixture indentation) remain open until the repair is pushed.
-Earlier review threads are resolved. Both findings have local fixes verified by the focused controls and comparison. Re-review follows the checkpoint.
+Pushed head: 7c684322b. Retained reviewer: /root/pr_review. Formal re-review 5909639379 is verified.
+Both prior findings are resolved. The current uncommitted batch has read-only reviewer scrutiny, but still
+needs checkpoint publication and formal re-review on the PR.
 
-Producer permission now owns both native retention and exact inactive-exclusive claims. Inactive.into_producer
-consumes the copied ABI token's authority. Its raw read copies data only. Root acquisition clears its mutable
-native input slot and does not preserve frame_input. Restoring address bits must not permit reacquisition.
-PreparedStart owns the exact Producer whose requirements it inspected, then takes its nullable slot before begin.
-Pending Request owns Producer, continuation, destination/disposition and typed callback before current().
-Composition adds the actual parent Cursor and origin. The task relation grants no independent child authority.
-Native tuples convert once at entry. No reassertion of producer permission after callbacks is allowed.
+Three related contracts now have concrete repairs:
+- Owning extraction follows its prepared input reference path to CURRENT storage before staging descriptors.
+  BoundReturnedValue carries that immutable path. Borrowed returns keep their descriptor route. Existing
+  guaranteed-transfer and preservation filters remain. Every possible source must supply metadata before
+  values merge. Wrapper adaptations remain explicit. Shared projection conversion replaces duplicated mapping.
+- Whole owning return preserves exhaustive ordinary scalar/address aggregates, including nested aggregates.
+  The existing Shape walk records complete returned-value paths. Borrowed, atomic, opaque and RawBuffer
+  backing contents are excluded. Returned observations pass through borrowed-boundary filtering and portable
+  partial-preservation masks. Physical invalidation classification is unchanged. This removes synthetic
+  changed contents for unchanged ordinary owners without reconstructing their evidence.
+- Cleanup expansion preserves the incoming ambient classification when its component route becomes unknown.
+  RawBuffer disposal, unportable cleanup projections and lifecycle receiver remapping share unbounded_scope.
+  Ambient disposal must not become caller-reaching retirement. Existing caller-reaching effects remain so.
+  The diagnostic probe located the loss in scheduler initialize/destroy_reference and reserve_start. There
+  were no deep-entry retirement publication events. No backing-route reconstruction was needed.
 
-The remaining regression came from shared references stored under a mutable holder. A direct sibling assignment
-and take_nullable both reproduced it. Storage flow resolved the CURRENT physical reference slot but skipped
-preserve_shared_views because no prior descriptor frame existed. The marker was absent from stable_values,
-so invalidate_referents revoked its predicate before framing. This was not a proof-search failure.
+Reconsider on any conditional-to-unconditional transfer, retained overwritten/reached state, borrowed authority,
+previous-epoch recovery or new invalid acceptance. Growth is limited to one existing record's prepared path,
+shared conversion, exhaustive shape paths and one cleanup-scope helper. No new language rule, cache or public type.
 
-Repair: classify the missing slot frame through the existing effect classifier with Address and no shared-loan
-exemption. Publish via preserve_reference_slot, then apply existing current-target/exposure checks to the referent.
-Retain the direct-slot write guard. A logical descriptor frame can describe the old pointee while the local
-reference variable is replaced. That frame alone cannot justify physical slot preservation.
-No new representation or historical reconstruction. Scope includes ordinary writes, call completion and cleanup
-through preserve_storage_values. Reconsider on any replacement, raw-alias, previous-epoch or unknown-effect acceptance.
+## Verification
 
-The shared regression fixture covers unchanged access, sibling assignment, generic extraction, nested reference
-replacement and mutable-reference-parameter replacement. Both negatives must fail at the final observation.
-Existing physical-slot, exposure and ownership controls keep their identities and expectations.
-Temporary audit_changed_producer_bodies is removed from source. The retained binary still contains it.
-No checker tracing remains. Superseded scratch reproduction and three timeout-run artifacts were removed.
+The fixed comparison completes all 1,717 identities with zero failures or omissions. comparison-current.json/log
+contain exact test outcomes and binary/source identities. It includes the source/import matrices and the two
+added shared-slot/native-acquisition controls. All 559 checker tests pass. Bound-tree's 136 tests passed the
+prepared-path change and remain unchanged by the latest private checker changes.
 
-## Evidence and next boundary
+The expanded raw-extraction fixture passes whole-pointer-owner forwarding, empty source preservation across a
+callback, and rejection of callback-invalidated, fabricated and duplicate owners. The existing report test now
+includes start_frame and passes its mandatory scoped cleanup after reserve_start. Both nested begin_child
+postconditions pass. The four isolated production checks pass in 174-190 seconds within 360-second bounds.
 
-Current local repair passes 559 checker tests and all five cases of the new fixture.
-The frozen 1,715 plus two added identities produced 1,712 passes, two failures and three unfinished tests.
-The two failures share begin_child's empty-producer postcondition. The three unfinished tests exceeded individual 180-second bounds, then completed on corrected source:
-provider profiling 178 s, native-exit 153 s, nested-host in the 181 s grouped provider run. Those final runs used 360/300 s bounds. comparison-current.json/log retain exact identities and partial evidence.
-Do not expand migration until unexplained regressions are repaired. validation-current.json retains the frozen identities.
-The intermediate runtime check passed 64/65 changed callable bodies. Both commit_start failures are gone.
-The repeated 65-body check after direct-slot guard restoration still passes 64/65. Nested callable bodies
-are covered separately: the latest provider run passes nested-host but retains the two empty-slot failures.
-provider-current.json/log/err and producer-bodies.json/log/err identify their exact source and binary state.
-The source manifest is generated from the producer checkpoint's changed sources, not a permanent validation list.
+Fixed five and loop pass. The loop was 228 ms during concurrent work. Current counts were not measured.
+counts-current.json retains the last instrumented loop: 1,485,955 comparisons / 38,484 nodes. timing-current.json
+retains control identities. The ignored counter patch is not applied. No memory leak has been established.
 
-start_frame still fails scoped cleanup's view_owned requirement after reserve_start. Its source contracts agree:
-enter and reserve establish inactive_start, commit establishes prepared_start, and exit requires prepared_start.
-Normal ensures do not cover reserve_start's panic edge. The failed actual names prepare_start(...).value.selected.acquisition.
-Next trace returned shared-reference transport through prepare_start, Ok extraction and scoped enter, then its
-physical slot and marker preservation on normal AND exceptional reserve_start edges. No source reassertion is justified.
+Style and Bray format pass. Final raw-extraction rejection-location check passes in 0.24 seconds. The fixed
+comparison predates only expression layout, avoiding excluded-path clones and stricter test assertions.
 
-Last full native gate, at 86ef6ef86: 12 primary E7123 plus 15 dependent E7135. All five E7124 failures were removed.
-This count predates the producer and sibling-slot repairs. Native execution remains unverified.
-Other unresolved groups from that gate: borrowed views, raw allocation evidence, observer preparation and neighbor links.
-allocation-current.log and links-current.log retain those unresolved traces, identified by proof-current.json.
+Native checking fails after 308.92 seconds, before execution/archive/link evidence. native-current.json/log
+identify the inputs. Nine E7123 occurrences group into borrowed owner markers (4), allocation authority (2),
+observer preparation (1) and neighboring links (2). One independent E7135 loses registration presence in
+reserve_start after demand_lane. Sixteen more E7135 occurrences depend on failing callees. The filtered
+production report test does not certify these other bodies or all execution properties.
 
-Earlier unchanged gates: symbols 221, interfaces 217, bound-tree 136, lowering 38, tooling 115, runtime interface 29,
-runtime ABI 35, test protocol 23 and backend identity 1. Current compiler changes may require affected gates again.
-Source/import matrices and negative failure sites are required. A passing provider subset does not certify all runtime bodies.
+Next contract investigation: trace physical marker preservation and resolved raw-effect targets across
+ensure_deadlines/ensure_workers/demand_lane/origin_driver_startup, plus the disjoint registration field in
+reserve_start. If physical markers survive, inspect refreshed logical borrowed observations. Do not patch
+until the first divergence and equivalent paths are established. Preserve both current marker positives and
+reachable mutation negatives. Superseded extraction traces are removed. The retirement probe retains only
+distinct relevant events.
 
-The nested begin_child helper used &mut Composition, hiding its caller's private storage behind an external
-input. Ambient pool/header effects then lost the ordinary empty-slot postcondition. The transition must also retain
-the real protocol guarantee that the parent remains selected.
-begin_child now consumes complete Composition and returns it with the admitted address. Keep the exact same
-admission, producer, parent, origin and pool requirements, take-once operation and all postconditions,
-including the ordinary empty producer slot. The helper owns private storage, and returns the complete current
-owner for connection. No reconstruction, new type, tag-preservation widening or weaker checks. Invocation
-stores raw header/output pointers, not an address of Cursor. Parent selection passes, but the ordinary empty-slot
-postcondition STILL FAILS after the owned transition. Do not treat this source change as a compiler repair.
-Next capture actual effects and slot preservation at activation.begin, and reserve_start on the failure edge.
-For local stored references, a no-loan reference path can still name a nested slot. Determine whether the
-coarse access-key guard confuses a reached effect with slot replacement before changing it.
+## Design invariants
 
-## Invariants that must survive further repairs
+Producer owns native retention and exact inactive-exclusive authority. Root acquisition clears the mutable ABI
+input slot. Restoring copied address bits cannot reacquire authority. PreparedStart owns the exact Producer
+whose requirements it inspected. Pending Request owns Producer, continuation and disposition before current().
+Composition carries the real parent Cursor and origin. begin_child consumes and returns complete Composition,
+retaining empty producer and parent-selection postconditions. No predicate reassertion after callbacks.
 
-- Trace producers and consumers across ownership, storage flow, liveness, lowering and cleanup. Verify real async composition
-  with invalid variants. Production precedes consumption, moves retire old authority, and loop analysis stabilizes.
-- Current owned layouts travel with returned snapshots before retirement. Explicit empty layouts stay authoritative.
-  Nullable tag preservation alone is not payload preservation. Borrowed access never establishes ownership.
-- Guarded enclosing transfers must exist at the same output path in every possible alternative. Unknown guards and empty
-  alternatives cannot authorize separation. Reuse lazy per-invocation intersections without mutable proof dependence.
-- Retaining identity does not retain overwritten contents. Inline preservation and reached-storage preservation are distinct.
-  Actual completion mappings must carry typed borrowed fields, including generic, deferred and scoped completion.
-- Staged outputs read pending producers. Other values use committed storage epochs. No historical entry-content recovery.
-  Generic raw-buffer transport follows actual stored payload dependencies, including remaining contents after Pop.
-- Preserve private deferred frame admission (d302124), raw exposure limits, role-sensitive snapshots and immutable proof graphs.
-  Compiler invariant defects panic where discovered. Source failures preserve precise structured diagnostic causes.
+Shared references inside mutable holders preserve their current slot across sibling writes. Address classification
+has no shared-loan exemption. Replacement and previous epochs remain excluded. Both replacement negatives remain.
 
-## Completion and operations
+Trace actual producers and consumers through ownership, storage flow, liveness, lowering and cleanup.
+Production precedes consumption. Moves retire old authority. Loop analysis stabilizes. Explicit empty ownership
+layouts remain authoritative. Tag preservation alone is not payload preservation. Retaining identity does not
+retain overwritten contents. Staged outputs use pending producers, other observations use committed state.
+Generic RawBuffer contents retain their actual payload dependencies, including remaining contents after Pop.
+Preserve deferred admission (d302124), exposure limits, role-sensitive snapshots and immutable proof graphs.
+Compiler invariant defects panic at detection. Source diagnostics retain specific structured causes.
 
-Finish source/interface/native gates, including root/main authority, cleanup before terminal publication, normal/panic/cancel,
-rollback exactly once, services through static disposal, synchronous control, real async execution and archive/link proof that
-Rust orchestration is removed. Use async-ownership-composition.bray and runtime-root-smoke.c. Then finish maintainability
-and independent PR review. Only then mark the PR ready and BRA-567 In Review. Closing follows merge.
+## Remaining completion gates
 
-Use optimized tooling. Set BOTH CARGO_TARGET_DIR and CARGO_BUILD_BUILD_DIR to the shared main target/cargo.
-Checker incremental is disabled. LLVM is target/toolchains/llvm/active (22.1.8).
-Native Rust must use installed 1.98.1-x86_64-pc-windows-msvc. Default 1.99 emits LLVM 23 bitcode.
-Native LLVM/archive/link/execution runs outside the sandbox. Keep processes bounded and report partial outcomes on timeout.
-Do not clean the entire shared target. Replace stale task logs instead of accumulating histories.
-Run style at coherent batch finalization and format Bray. Inline fixtures need manual Bray formatting too.
+Refresh native failures, fix causes as coherent batches, and stop on unexplained comparison regressions.
+Verify main-lane/root authority, compatible child progress and direct await without another TCB. Prove root
+lexical cleanup precedes terminal publication for normal/panic/cancellation, rollback exactly once, incidents
+and result disposal before services, and services retained through selected static disposal. Preserve sync-only
+and no-optional-resource controls. Use async-ownership-composition.bray and runtime-root-smoke.c. Native archive
+and link evidence must prove the migrated Rust root/shutdown orchestration is absent. Suspended host/static
+fallback belongs to BRA-507, using the same continued-execution owner. Test-host policy belongs to BRA-559.
 
-Occasionally run the fixed five and loop. timing-current.json identifies them and separates provider from caller time.
-Last timing: four callers 141-174 ms, loop 162 ms. Last loop count: 1,485,955 comparisons / 38,484 nodes.
-counts-current.json identifies that older measurement. The four-counter patch is ignored and not applied.
-Current counters do not measure destruction. An earlier run released every condition node. No leak has been established.
+Complete affected interface/source/native gates, maintainability audit and formal PR re-review. Then mark the PR
+ready and BRA-567 In Review. Do not close the issue before merge. No implementation completion is claimed yet.
+
+## Operations
+
+Use optimized tooling. Set CARGO_TARGET_DIR and CARGO_BUILD_BUILD_DIR to the main target/cargo.
+Checker incremental is disabled. LLVM is target/toolchains/llvm/active (22.1.8). Native Rust uses installed
+1.98.1-x86_64-pc-windows-msvc because default 1.99 emits LLVM 23 bitcode. LLVM/archive/link/execution runs outside
+the sandbox. Bound expensive processes and preserve leaf failures. Reuse prior evidence for unchanged behavior.
+Do not clean shared storage or interrupt unrelated editor work. Replace stale task logs instead of accumulating
+history. Run style at batch finalization and format Bray. Inline fixtures require manual readable formatting.

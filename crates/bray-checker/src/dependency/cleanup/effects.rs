@@ -91,7 +91,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
 
         let scope = match scope {
             Some(path) => project(effect, &path, Kind::Dispose(*ty), None),
-            None if part.is_some() => Effect::UnboundedMutation { kind: Kind::Dispose(*ty), access_type: None, ambient: false },
+            None if part.is_some() => unbounded_scope(effect, Kind::Dispose(*ty), None),
             None => replace_kind(effect, Kind::Dispose(*ty), None),
         };
 
@@ -167,7 +167,7 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
                 reference: DependencySubject::new(subject.subject_root(), subject.projections().iter().copied().chain(pointer)),
                 projections: [].into(), access_type: None, kind: Kind::Retire,
             },
-            _ => Effect::UnboundedMutation { kind: Kind::Retire, access_type: None, ambient: false },
+            _ => unbounded_scope(scope, Kind::Retire, None),
         };
 
         effects.push(replace_kind(&backing, Kind::Dispose(fields.element), None));
@@ -225,7 +225,7 @@ fn append_call<C: CheckerRequestContext + ?Sized>(
                     projections: std::sync::Arc::clone(projections), kind: *kind, access_type: *access_type,
                 }
             } else {
-                Effect::unresolved(*kind, *access_type)
+                unbounded_scope(scope, *kind, *access_type)
             }
         }
         // A selected destructor cannot retain its own terminal receiver address.
@@ -246,6 +246,13 @@ fn mutation(effect: &Effect) -> Option<(Kind, Option<TypeId>)> {
 
 fn replace_kind(scope: &Effect, kind: Kind, access_type: Option<TypeId>) -> Effect {
     project(scope, &[], kind, access_type)
+}
+
+fn unbounded_scope(scope: &Effect, kind: Kind, access_type: Option<TypeId>) -> Effect {
+    // Losing a component route does not give ambient cleanup access to private caller storage.
+    Effect::UnboundedMutation {
+        kind, access_type, ambient: matches!(scope, Effect::UnboundedMutation { ambient: true, .. }),
+    }
 }
 
 fn project(scope: &Effect, suffix: &[Projection], kind: Kind, access_type: Option<TypeId>) -> Effect {

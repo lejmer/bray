@@ -25,6 +25,7 @@ fn production_report_consumers_check_their_callback_protocol() {
         "resolve",
         "execute",
         "invoke_retaining",
+        "start_frame",
         "retained_address",
     ];
 
