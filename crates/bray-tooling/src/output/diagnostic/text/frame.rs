@@ -92,15 +92,7 @@ fn write_marker_line(
     diagnostic: &RenderedDiagnostic,
     writer: &mut impl Write,
 ) -> io::Result<()> {
-    let Some(marker) = marker_line(line, viewport, location) else {
-        return Ok(());
-    };
-
-    write!(
-        writer,
-        "{}",
-        color_frame_text(&format!("{:>gutter_width$} | ", ""))
-    )?;
+    let marker = marker_line(line, viewport, location);
 
     let label = diagnostic.labels().iter().find(|label| {
         label.style() == DiagnosticLabelStyle::Primary
@@ -108,14 +100,30 @@ fn write_marker_line(
             && line.number == location.end().line()
     });
 
+    if marker.is_none() && label.is_none() {
+        return Ok(());
+    }
+
     write!(
         writer,
         "{}",
-        color_severity_label(diagnostic.severity(), &marker)
+        color_frame_text(&format!("{:>gutter_width$} | ", ""))
     )?;
 
+    if let Some(marker) = marker {
+        write!(
+            writer,
+            "{}",
+            color_severity_label(diagnostic.severity(), &marker)
+        )?;
+
+        if label.is_some() {
+            write!(writer, " ")?;
+        }
+    }
+
     if let Some(label) = label {
-        write!(writer, " {}", label.message())?;
+        write!(writer, "{}", label.message())?;
     }
 
     writeln!(writer)
@@ -307,7 +315,7 @@ fn marker_line(
     viewport: TextFrameViewport,
     location: SourceLocation<'_>,
 ) -> Option<String> {
-    let marker_range = marker_range(line, location);
+    let marker_range = marker_range(line, location)?;
     let visible_range = viewport.start_column..viewport.end_column();
 
     let start = marker_range.start.max(visible_range.start);
@@ -324,29 +332,44 @@ fn marker_line(
     }
 
     marker.push_str(&" ".repeat(start.saturating_sub(visible_range.start)));
-    marker.push_str(&"^".repeat(end.saturating_sub(start).max(1)));
+    marker.push_str(&"^".repeat(end.saturating_sub(start)));
 
     Some(marker)
 }
 
-fn marker_range(line: SourceFrameLine<'_>, location: SourceLocation<'_>) -> Range<usize> {
-    let text_len = line.text.chars().count();
+fn marker_range(line: SourceFrameLine<'_>, location: SourceLocation<'_>) -> Option<Range<usize>> {
+    // An insertion marks a position rather than underlining source characters.
+    if location.span().is_empty() {
+        let start = zero_based_column(location.start());
+
+        return Some(start..start.saturating_add(1));
+    }
+
+    let content_start = line
+        .text
+        .chars()
+        .take_while(|ch| ch.is_whitespace())
+        .count();
+
+    let content_end = line.text.trim_end().chars().count();
     let start_line = location.start().line();
     let end_line = location.end().line();
 
     let start = if line.number == start_line {
-        zero_based_column(location.start())
+        zero_based_column(location.start()).max(content_start)
     } else {
-        0
+        content_start
     };
 
     let end = if line.number == end_line {
-        zero_based_column(location.end()).saturating_add(1)
+        zero_based_column(location.end())
+            .saturating_add(1)
+            .min(content_end)
     } else {
-        text_len
+        content_end
     };
 
-    start..end.max(start.saturating_add(1))
+    (start < end).then_some(start..end)
 }
 
 fn zero_based_column(position: LineColumn) -> usize {
@@ -427,9 +450,11 @@ fn marker_column_range(lines: &[FrameLine<'_>], location: SourceLocation<'_>) ->
     let mut start = usize::MAX;
     let mut end = 0;
 
-    for line in lines.iter().filter_map(|line| line.source()) {
-        let range = marker_range(line, location);
-
+    for range in lines
+        .iter()
+        .filter_map(FrameLine::source)
+        .filter_map(|line| marker_range(line, location))
+    {
         start = start.min(range.start);
         end = end.max(range.end);
     }
@@ -454,6 +479,7 @@ fn viewport_start_column(
     }
 
     focus_column
+        .clamp(marker_range.start, marker_range.end.saturating_sub(1))
         .saturating_sub(SOURCE_FRAME_MAX_COLUMNS / 3)
         .min(max_start)
 }
