@@ -1,4 +1,4 @@
-use super::super::model::{Contents, Effect, Origin, Place, References, State, Target};
+use super::super::model::{Contents, Effect, Origin, Place, References, State, Target, Transfer};
 use super::slots::take_subtree;
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId, StorageIdentityId};
 use bray_symbols::TypeId;
@@ -131,7 +131,7 @@ impl State {
 
         for (destination, ty, forwarded) in references {
             let bounds = match forwarded {
-                Some(regions) => self.expand_returned_regions(regions),
+                Some(regions) => self.expand_returned_regions(regions, self.pending.get(&call)),
                 None => {
                     // Each output retains independent bounds across later joins and retirement.
                     opaque_bounds
@@ -157,13 +157,23 @@ impl State {
         }
     }
 
-    fn expand_returned_regions(&self, regions: impl IntoIterator<Item = Target>) -> References {
+    fn expand_returned_regions(
+        &self,
+        regions: impl IntoIterator<Item = Target>,
+        staged: Option<&Transfer>,
+    ) -> References {
         let mut bounds = References::default();
 
         for target in regions {
             match &target.origin {
                 Origin::Returned { reference, projections } => {
-                    bounds.merge(self.returned_reference_bounds(reference));
+                    // Output alternatives belong to their pending producer. Ordinary
+                    // inputs and historical aliases retain their committed bounds.
+                    let returned = staged.filter(|_| !target.previous)
+                        .and_then(|transfer| transfer.returned_inputs.get(reference))
+                        .unwrap_or_else(|| self.returned_reference_bounds(reference, target.previous));
+
+                    bounds.merge(returned);
                     bounds.unknown |= target.previous || projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget);
                 }
                 _ => {
@@ -187,7 +197,7 @@ impl State {
             .then(|| target.clone())
         });
 
-        let mut bounds = self.expand_returned_regions(inputs.into_iter().chain(exposed));
+        let mut bounds = self.expand_returned_regions(inputs.into_iter().chain(exposed), None);
 
         bounds.unknown = true;
 
@@ -252,7 +262,7 @@ impl State {
             }
         }
 
-        let mut bounds = self.expand_returned_regions(inputs);
+        let mut bounds = self.expand_returned_regions(inputs, None);
 
         // Checked regions are closed physical bounds, not forwarded addresses.
         bounds.inexact = true;
@@ -277,10 +287,11 @@ impl State {
         }
 
         let bounds = self.unbounded_reference_regions(inputs);
-        let target = self.returned_reference(reference, &bounds);
+        let target = Self::returned_reference(reference.clone());
 
         // A new read after replacement must not equal a pointer retained from the old value.
         self.retire(&target);
+        self.returned_inputs.insert((reference, false), bounds);
 
         self.contents
             .entry(target.clone())
@@ -292,12 +303,7 @@ impl State {
         Ok(())
     }
 
-    fn returned_reference(&mut self, reference: Place, bounds: &References) -> Target {
-        self.returned_inputs
-            .entry(reference.clone())
-            .or_default()
-            .merge(bounds);
-
+    fn returned_reference(reference: Place) -> Target {
         Target {
             previous: false,
             origin: Origin::Returned {
@@ -315,7 +321,7 @@ impl State {
         ty: TypeId,
         bounds: References,
     ) {
-        let target = self.returned_reference(reference.clone(), &bounds);
+        let target = Self::returned_reference(reference.clone());
 
         self.pending
             .entry(call)
@@ -662,6 +668,10 @@ impl State {
     }
 
     pub(super) fn retire(&mut self, current: &Target) {
+        for bounds in self.returned_inputs.values_mut() {
+            bounds.retire(current);
+        }
+
         if !self
             .contents
             .range(current.clone()..)
@@ -673,7 +683,8 @@ impl State {
             return;
         }
 
-        for references in self.values.values_mut().filter_map(|value| value.references.as_mut()).chain(self.borrows.values_mut()) {
+        for references in self.values.values_mut().filter_map(|value| value.references.as_mut())
+            .chain(self.borrows.values_mut()) {
             references.retire(current);
         }
 
@@ -687,6 +698,12 @@ impl State {
                     std::sync::Arc::make_mut(transfer).retire_dependencies(current);
                 }
             }
+        }
+
+        if let Origin::Returned { reference, projections } = &current.origin
+            && projections.is_empty()
+            && let Some(bounds) = self.returned_inputs.remove(&(reference.clone(), false)) {
+            self.returned_inputs.entry((reference.clone(), true)).or_default().merge(&bounds);
         }
 
         let values = take_subtree(&mut self.values, current).collect::<Vec<_>>();

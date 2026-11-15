@@ -414,7 +414,8 @@ pub(in crate::analysis::storage_flow) struct State {
         std::sync::Arc<BTreeMap<bray_bound_tree::StorageIdentityId, bray_symbols::BorrowKind>>,
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) unaddressed_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
-    pub(super) returned_inputs: BTreeMap<Place, References>,
+    // Bounds retain the producing slot and whether its evaluation has retired.
+    pub(super) returned_inputs: BTreeMap<(Place, bool), References>,
     pub(super) values: BTreeMap<Target, StoredValue>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,

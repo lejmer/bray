@@ -141,7 +141,8 @@ impl State {
         source: &Source,
         producers: &std::collections::BTreeSet<BoundExecutionSite>,
     ) -> Option<Vec<Effect>> {
-        let Source::Value(source) = source else {
+        let Source::Value(source) = source
+        else {
             return None;
         };
 
@@ -167,8 +168,37 @@ impl State {
         let transfer = self.pending.get_mut(&invocation)
             .expect("deferred cleanup is captured with its prepared value transition");
 
+        let result = result.into_iter().flat_map(|effect| {
+            let Effect::Mutation(target, kind, access_type) = &effect
+            else {
+                return vec![effect];
+            };
+
+            let Origin::Returned { reference, .. } = &target.origin
+            else {
+                return vec![effect];
+            };
+
+            let Some(bounds) = transfer.returned_inputs.get(reference).filter(|_| !target.previous) else {
+                return vec![effect];
+            };
+
+            // A pending result has no current referent. Its possible cleanup
+            // effects retain physical inputs and independent ambient storage.
+            let (origins, unbounded) = Self::effect_origins_from(target, Some(bounds));
+
+            let mut effects = origins.cloned().map(|origin| Effect::Mutation(origin, *kind, *access_type))
+                .collect::<Vec<_>>();
+
+            if unbounded {
+                effects.push(Effect::unbounded(*kind, *access_type, true));
+            }
+
+            effects
+        }).collect();
+
         transfer.captured_cleanup = Some(captures.into_iter().collect());
-        transfer.result_cleanup = Some(result.into_iter().collect());
+        transfer.result_cleanup = Some(result);
     }
 
     pub(in crate::analysis::storage_flow) fn deferred_cleanup_effects(
@@ -200,11 +230,13 @@ impl State {
         result: StoragePath,
         producers: impl IntoIterator<Item = (BoundExecutionSite, StoragePath)>,
     ) -> bool {
-        let Source::Value(source) = source else {
+        let Source::Value(source) = source
+        else {
             return false;
         };
 
-        let Some(entries) = self.deferred.get(source) else {
+        let Some(entries) = self.deferred.get(source)
+        else {
             return false;
         };
 
@@ -231,7 +263,8 @@ impl State {
             }
         }
 
-        let Some(completed) = completed else {
+        let Some(completed) = completed
+        else {
             return false;
         };
 
@@ -289,7 +322,7 @@ impl Transfer {
             })
             .collect();
 
-        for references in self.inputs.values_mut().filter_map(|value| value.references.as_mut()) {
+        for references in self.inputs.values_mut().filter_map(|value| value.references.as_mut()).chain(self.returned_inputs.values_mut()) {
             references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate).collect();
         }
 

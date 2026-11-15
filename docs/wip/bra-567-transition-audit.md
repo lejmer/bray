@@ -7,28 +7,24 @@ Read this record and the work-on-bray-issues contract gate after compaction.
 
 ## Current evidence
 
-The current batch preserves nullable payload owners, portable nullable contents, false ordinary guards,
-private nested-frame custody and complete inexact private-region views. No probes are installed.
-- custody-shape-validation.json: owned505/505, deferred298/298, frozen30 and focused19 pass.
-  No missing identities or regressions in those groups. Both former sets of four matrix failures pass.
-- Checker exposed one wrapped-absence regression. The existing known_presence query repairs it.
-  custody-shape-checker-fixed.log: all559 pass. Matrices precede this final one-line correction and
-  must be included in the next combined validation. Style/format pass.
-- Last pushed checkpoint8dcca93cc fixed-current.json:907 pass,1 fail (loop cleanup),8 unverified.
-  These broad fixed916 results precede the current batch. Source/interface/native gates remain.
-- Full-provider report exceeded240s. body-trace.log locates serial checking through bridge::install.
-  Previously verified: symbols221, interfaces217, bound-tree136, lowering38, tooling115,
-  runtime interface29, runtime ABI35, test protocol23, backend identity1.
+Checkpoint5f284f398 is pushed. The uncommitted lifetime batch now passes checker559 and
+1709/1715 combined fixed/matrix cases, with no reported diagnostic failures. Six full-provider
+checks exceeded420s and remain unverified. epoch-combined.json preserves every identity, outcome
+and source/binary hash. Owned505, deferred298, frozen30 and focused19 all pass. All eleven earlier
+panic regressions pass. Two previously passing slow checks are now unverified, not passes.
 
-Preserve fixed916 identities and rejection locations. The explicit oracle rename is
+The user observed7.5GB in the concurrent provider run. An isolated120s profiled provider run reached
+1.85GB peak RSS, then dropped to1.62GB. Still in checking at timeout. This does not establish a leak.
+provider-memory.json/log and provider-profile contain the bounded measurement. The profiling fixture
+used WorkerBudget::serial. Give that single full-provider probe available_parallelism, keep small
+shared fixtures serial, then trace condition creation/release and body progress. No full matrix rerun.
+
+Preserve fixed916 identities and rejection locations. The deliberate oracle rename is
 production_host_lease_cannot_claim_preservation_across_fallible_preparation to
-production_host_lease_retains_authority_across_fallible_preparation. Earlier corrected host
-oracles follow contract-reasoning.md: immutable completion fields, unrelated ambient state and
-an explicitly authorized host borrow do not imply mutation. Actual replacement and fabrication reject.
-The full-provider report fixture exceeded240s. body-trace.log locates serial body checking through
-entry/bridge::install, not its hot transitive query. Source/interface/native gates remain outstanding.
+production_host_lease_retains_authority_across_fallible_preparation. Other corrected host
+oracles follow contract-reasoning.md. Actual replacement and fabrication must reject.
 Previously verified: symbols221, interfaces217, bound-tree136, lowering38, tooling115,
-runtime interface29, runtime ABI35, test protocol23 and backend identity1.
+runtime interface29, runtime ABI35, test protocol23 and backend identity1. Native gates remain.
 
 ## Current contracts and unresolved causes
 
@@ -53,8 +49,7 @@ Changed contents or different owners still refresh. Existing aggregate/carrier t
 A guaranteed enclosing transfer to the same relative output path makes its descendant annotation part
 of the complete owner, not a detached witness. Use guaranteed_transfers. Partial-only returns, a parent
 returned elsewhere or only in another Choice cannot authorize separation. Conditional-only enclosing
-layouts remain conservative. The remaining nullable join matrix failures lose conditional result shape.
-Publish ordinary active/empty shape without deriving presence from ownership or overriding empty layouts.
+layouts remain conservative. Publish ordinary active/empty shape without deriving presence from ownership or overriding empty layouts.
 
 Ownership alternatives retain proven true and false ordinary payload guards. Unknown stays unknown.
 A false guard qualifies the actual empty layout, never an invented payload. Nullable joins compare
@@ -65,25 +60,27 @@ outer admission or public availability. Actual writes still revoke captured evid
 Inexact complete private-region views stay private. Unknown/displaced/escaped regions remain conservative,
 and no view acquires exact identity or initialized-memory authority. Existing controls cover these rules.
 
-Loop cleanup remains unresolved. nullable-loop.log shows retired escaped Returned origins overlap a
-fresh local guard because returned_inputs is keyed only by place and accumulates both evaluations.
-State::retire also omits returned_inputs when retiring referred storage, unlike Transfer::retire_dependencies.
-A repair must distinguish current/previous bounds and update referenced epochs, while old returned
-references can still alias an unchanged outer-loop object. Merely declaring old returned values disjoint
-or dropping escaped history is unsound. Trace staging/commit, observe_reference, capture/relocation and
-join before changing this representation. No epoch patch is installed.
-Proposed owning change: key existing State/Transfer.returned_inputs by (previous, place), preserving
-one finite historical summary. Stage bounds only in Transfer, then retire old origins and publish
-current bounds in commit_value. observe_reference retires before publishing its own bounds. Retirement
-updates referred epochs in State as Transfer already does. Relocation maps keys and referred targets.
-Returned-to-owned-storage alias checks require the bound's actual storage epoch, even for unknown
-external alternatives. Unchanged outer-loop storage must remain aliasable. Existing returned_borrow_regions
-and recreated_local tests will cover same-site return, copied old reference, fresh local, and explicit
-escape. Its current first-region accumulation expectation should become Disjoint only for the new
-return, while an old return must keep its original bound. Generic RawBuffer and deferred matrices guard
-staging/relocation. No second history map, reconstruction or new public API. Reconsider if a staged
-consumer needs bounds before commit, and resolve it through the owning Transfer rather than publishing
-unproduced output into State.
+Checkpoint5f284f398 is pushed. Current uncommitted lifetime batch:
+State.returned_inputs uses (place, previous), preserving one finite historical summary. Transfer owns
+only unproduced current bounds. Staging no longer publishes bounds in State. Completion retires the
+old origin before installing new bounds. Reads retire before publishing. Retirement updates referred
+epochs even without tracked contents. Relocation moves bounds' referents alongside other references.
+Private local alias checks require matching storage epochs. Old returns may still alias unchanged
+outer-loop objects, external backing and unknown global alternatives. No extra history map or fallback.
+Escape publication keeps explicit roots unrestricted. Unknown candidates expand to physical origins
+and pass unknown_reference_may_reach, so a symbolic external alternative cannot publish a private local.
+Existing tests cover pending production, old surviving aliases, fresh locals, explicit and raw exposure.
+The two old unit fixtures now create retired epochs through actual completion instead of flipping a flag.
+
+Pending and completed references must retain their own bounds without early State publication.
+Result preparation merges independent and input alternatives before completion. Audit that merge
+alongside deferred cleanup capture, output relocation and old-epoch retirement. Existing independent
+pointer source/import, activation, storage and async controls expose the regression. Keep the loop
+and matrices fixed. nullable-loop.log retains the loop cause, epoch-capture.log the repaired representatives.
+All four representative panics identify expand_returned_regions. Its staged-output caller must read
+the pending producer, while ordinary inputs use committed epochs. The existing rewritten-return
+control now also completes bounded staged alternatives. Cleanup capture independently flattens pending
+result effects to physical regions. No new history map or reconstruction is permitted.
 
 ## Transition requirements
 
@@ -118,7 +115,7 @@ Keep actual Bray formatting in inline fixtures. Run style at coherent batch fina
 Delete stale traces/caches when replaced. Never clean the entire shared target.
 
 Performance regression monitoring remains active. Fixed identities are in proof-indexed-current.json.
-Latest timing-current.json: all five pass at135-153ms, loop153ms, provider time separate.
+Latest timing-current.json: all five pass at151-155ms, loop166ms, provider time separate.
 Latest counts-current.json on8dcca93cc: loop1,482,315 comparisons and38,038 nodes,
 versus previous1,482,433 and38,060. All five controls pass. Timing and counts use separate runs.
 Counter patch retains four measured hooks.

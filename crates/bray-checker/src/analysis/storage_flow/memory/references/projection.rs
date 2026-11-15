@@ -98,10 +98,13 @@ impl State {
             && !path.projections.contains(&StorageProjection::OwnedTarget)
     }
 
-    pub(super) fn returned_reference_bounds(&self, reference: &Place) -> &References {
-        self.returned_inputs.get(reference).unwrap_or_else(|| {
-            panic!("returned reference {reference:?} has no complete input-region bound")
-        })
+    #[track_caller]
+    pub(super) fn returned_reference_bounds(&self, reference: &Place, previous: bool) -> &References {
+        let Some(bounds) = self.returned_inputs.get(&(reference.clone(), previous)) else {
+            panic!("returned reference {reference:?} (previous={previous}) has no complete input-region bound");
+        };
+
+        bounds
     }
 
     pub(super) fn bounded_reference_contents<C: crate::CheckerRequestContext + ?Sized>(
@@ -109,19 +112,33 @@ impl State {
         request: crate::CheckerUnitView<'_, C>,
         location: &Target,
     ) -> crate::CheckerQueryResult<Option<References>, C::UpstreamError> {
-        if location.previous { return Ok(None); }
+        if location.previous {
+            return Ok(None);
+        }
 
-        let Origin::Returned { reference, projections } = &location.origin else { return Ok(None); };
+        let Origin::Returned { reference, projections } = &location.origin
+        else {
+            return Ok(None);
+        };
 
-        let bounds = self.returned_reference_bounds(reference);
+        let bounds = self.returned_reference_bounds(reference, location.previous);
 
         if projections.is_empty() || bounds.unknown || bounds.displaced || bounds.inexact || bounds.targets.is_empty() {
             return Ok(None);
         }
 
-        let parent = Target { previous: false, origin: Origin::Returned { reference: reference.clone(), projections: [].into() } };
+        let parent = Target {
+            previous: false,
+            origin: Origin::Returned {
+                reference: reference.clone(),
+                projections: [].into()
+            }
+        };
 
-        let Some(ty) = self.declared_type(&parent) else { return Ok(None); };
+        let Some(ty) = self.declared_type(&parent)
+        else {
+            return Ok(None);
+        };
 
         let mut contents = References::default();
 
@@ -130,9 +147,14 @@ impl State {
                 return Ok(None);
             }
 
-            let Some(value) = self.values.get(&target.project(projections)).and_then(|value| value.references.as_ref()) else { return Ok(None); };
+            let Some(value) = self.values.get(&target.project(projections)).and_then(|value| value.references.as_ref())
+            else {
+                return Ok(None);
+            };
 
-            if value.unknown || value.displaced { return Ok(None); }
+            if value.unknown || value.displaced {
+                return Ok(None);
+            }
 
             contents.merge(value);
         }
@@ -147,7 +169,7 @@ impl State {
         let (storage, returned) = match &target.origin {
             Origin::Storage(path) => (Some(path.root), None),
             Origin::Returned { reference, .. } => {
-                (None, Some(self.returned_reference_bounds(reference)))
+                (None, Some(self.returned_reference_bounds(reference, target.previous)))
             }
             Origin::Entry { .. } | Origin::Allocation { .. } | Origin::Static { .. } => (None, None),
         };
@@ -166,10 +188,17 @@ impl State {
         target: &'a Target,
     ) -> (impl Iterator<Item = &'a Target>, bool) {
         let returned = match &target.origin {
-            Origin::Returned { reference, .. } => Some(self.returned_reference_bounds(reference)),
+            Origin::Returned { reference, .. } => Some(self.returned_reference_bounds(reference, target.previous)),
             _ => None,
         };
 
+        Self::effect_origins_from(target, returned)
+    }
+
+    pub(super) fn effect_origins_from<'a>(
+        target: &'a Target,
+        returned: Option<&'a References>,
+    ) -> (impl Iterator<Item = &'a Target>, bool) {
         let unbounded = returned.is_some_and(|bounds| bounds.unknown || target.previous
             || target.projections().contains(&StorageProjection::OwnedTarget));
 
@@ -190,7 +219,7 @@ impl State {
                 if let Origin::Returned { reference, projections } = &returned.origin
                     && !projections.contains(&StorageProjection::OwnedTarget)
                 {
-                    let bounds = self.returned_reference_bounds(reference);
+                    let bounds = self.returned_reference_bounds(reference, returned.previous);
 
                     // Complete producer bounds exclude unrelated storage, without
                     // equating the returned address to any one possible source.
@@ -241,21 +270,19 @@ impl State {
         }
 
         let returned_slot = match (&left.origin, &right.origin) {
-            (Origin::Returned { reference, .. }, Origin::Storage(slot))
-            | (Origin::Storage(slot), Origin::Returned { reference, .. }) => {
-                Some((reference, slot))
-            }
+            (Origin::Returned { reference, .. }, Origin::Storage(slot)) => Some((reference, left.previous, slot, right.previous)),
+            (Origin::Storage(slot), Origin::Returned { reference, .. }) => Some((reference, right.previous, slot, left.previous)),
             _ => None,
         };
 
-        if let Some((reference, slot)) = returned_slot
+        if let Some((reference, previous, slot, slot_previous)) = returned_slot
             && self.is_owned_inline_storage(slot)
             && !self
-                .returned_reference_bounds(reference)
+                .returned_reference_bounds(reference, previous)
                 .targets
                 .iter()
                 .any(|target| {
-                    target.storage_path().is_some_and(|path| {
+                    target.previous == slot_previous && target.storage_path().is_some_and(|path| {
                         path.root == slot.root && self.is_owned_inline_storage(path)
                     })
                 })

@@ -182,8 +182,8 @@ impl State {
         match &target.origin {
             Origin::Storage(path) => !self.is_owned_inline_storage(path),
             Origin::Returned { reference, projections }
-                if !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget) => {
-                let bounds = self.returned_reference_bounds(reference);
+            if !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget) => {
+                let bounds = self.returned_reference_bounds(reference, target.previous);
 
                 // A complete bound to private inline storage does not publish its
                 // owner. An inexact location within that region remains private.
@@ -209,9 +209,15 @@ impl State {
     }
 
     fn entry_field_is_reachable(&self, region: &Target, target: &Target) -> bool {
-        let Origin::Entry { reference: parent, projections, kind: bray_symbols::DependencyReferenceKind::Address, .. } = &region.origin else { return false; };
+        let Origin::Entry { reference: parent, projections, kind: bray_symbols::DependencyReferenceKind::Address, .. } = &region.origin
+        else {
+            return false;
+        };
 
-        let Origin::Entry { reference: field, .. } = &target.origin else { return false; };
+        let Origin::Entry { reference: field, .. } = &target.origin
+        else {
+            return false;
+        };
 
         let prefix = parent.projections.iter().copied()
             .chain([bray_bound_tree::StorageProjection::AddressTarget])
@@ -236,15 +242,19 @@ impl State {
         &self,
         roots: impl IntoIterator<Item = Target>,
     ) -> BTreeSet<Target> {
-        let (mut targets, unknown) = self.transitive_regions(roots, |_, _| true);
+        let (targets, unknown) = self.transitive_regions(roots, |_, _| true);
 
-        self.include_unknown_targets(&mut targets, unknown);
+        let mut implicit = BTreeSet::new();
+
+        self.include_unknown_targets(&mut implicit, unknown);
 
         // Publishing a symbolic result also exposes each possible input allocation.
         // Keep its own identity for backing produced independently of those inputs.
         targets
             .iter()
             .flat_map(|target| std::iter::once(target).chain(self.effect_origins(target).0))
+            .chain(implicit.iter().flat_map(|target| self.effect_origins(target).0)
+                .filter(|target| self.unknown_reference_may_reach(target)))
             .map(exposure_region)
             .collect()
     }
@@ -347,7 +357,7 @@ impl State {
 
                         expanded.inexact = true;
 
-                        let bounds = self.returned_reference_bounds(reference);
+                        let bounds = self.returned_reference_bounds(reference, target.previous);
 
                         if (bounds.unknown || bounds.inexact) && !bounds.targets.is_empty() {
                             input_regions.insert(slot.clone());
@@ -490,9 +500,13 @@ impl State {
 
         for (slot, mut value, overlap) in self.transferred_slots(source, destination) {
             if inexact || overlap {
-                if let Some(references) = &mut value.references { references.inexact = true; }
+                if let Some(references) = &mut value.references {
+                    references.inexact = true;
+                }
 
-                if inexact && value.tracked && !complete { value.complete = false; }
+                if inexact && value.tracked && !complete {
+                    value.complete = false;
+                }
             }
 
             values.entry(slot).and_modify(|current| { current.merge(&value); }).or_insert(value);
@@ -571,8 +585,9 @@ impl State {
                 continue;
             }
 
-            for value in transfer.values.values_mut() {
-                if let Some(references) = &mut value.references { references.retire(target); }
+            for references in transfer.values.values_mut().filter_map(|value| value.references.as_mut())
+                .chain(transfer.returned_inputs.values_mut()) {
+                references.retire(target);
             }
 
             enclosing = Some(target);
@@ -582,11 +597,11 @@ impl State {
         self.contents.extend(transfer.payloads);
         self.deferred.extend(transfer.deferred);
 
-        // One abstract origin can describe surviving references from several
-        // evaluations. New completion bounds must not discard those earlier regions.
+        // Retired bounds stay in their historical epoch. This completion publishes
+        // only the regions of the newly produced reference.
         for (reference, bounds) in transfer.returned_inputs {
             self.returned_inputs
-                .entry(reference)
+                .entry((reference, false))
                 .or_default()
                 .merge(&bounds);
         }
@@ -696,7 +711,9 @@ pub(super) fn selected_subtree<'a, V>(
     values.range(prefix.clone()..)
         .take_while(move |(slot, _)| limit.contains(slot))
         .filter(move |(slot, _)| {
-            if !widened { return true; }
+            if !widened {
+                return true;
+            }
 
             let length = source.projections().len();
 

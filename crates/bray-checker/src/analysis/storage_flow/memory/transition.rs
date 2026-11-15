@@ -182,7 +182,7 @@ impl State {
 
                 for (reference, bounds) in transfer.returned_inputs {
                     self.returned_inputs
-                        .entry(reference)
+                        .entry((reference, false))
                         .or_default()
                         .merge(&bounds);
                 }

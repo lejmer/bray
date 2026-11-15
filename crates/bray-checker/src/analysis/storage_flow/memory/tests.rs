@@ -3468,6 +3468,10 @@ fn returned_borrow_regions_bound_aliases_without_claiming_argument_identity() {
             [Target::storage(second.clone())],
         );
 
+        assert_eq!(state.target_relationship(&returned, &Target::storage(second.clone())),
+            StorageRelationship::Disjoint,
+            "pending output cannot change the bounds of an existing reference");
+
         state.complete_transition(call);
 
         let current = state
@@ -3482,13 +3486,31 @@ fn returned_borrow_regions_bound_aliases_without_claiming_argument_identity() {
 
         assert_eq!(
             state.target_relationship(&current, &previous),
-            bray_bound_tree::StorageRelationship::PotentiallyOverlapping
+            StorageRelationship::PotentiallyOverlapping
         );
 
-        assert_eq!(
-            state.target_relationship(&current, &Target::storage(first)),
-            bray_bound_tree::StorageRelationship::PotentiallyOverlapping
-        );
+        assert_eq!(state.target_relationship(&current, &Target::storage(first.clone())),
+            StorageRelationship::Disjoint,
+            "new return bounds cannot inherit another evaluation's input regions");
+
+        assert_eq!(state.target_relationship(&previous, &Target::storage(first.clone())),
+            StorageRelationship::PotentiallyOverlapping,
+            "an older returned reference can still reach its unchanged input");
+
+        state.begin(first.root);
+
+        assert_eq!(state.target_relationship(&previous, &Target::storage(first.clone())),
+            StorageRelationship::Disjoint,
+            "an older returned reference cannot reach a recreated local");
+
+        state.escape_targets([previous]);
+
+        assert_eq!(state.unexposed_storage(std::slice::from_ref(&first), []).count(), 1,
+            "escaped retired returns cannot publish a fresh local");
+
+        state.escape_targets([Target::storage(first.clone())]);
+
+        assert_eq!(state.unexposed_storage(std::slice::from_ref(&first), []).count(), 0);
     }
 }
 
@@ -3526,20 +3548,37 @@ fn retired_local_reference_slots_do_not_expose_their_former_targets() {
 
 #[test]
 fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
-    let ([owner, pointer, _, _], origins) = places();
+    let ([owner, pointer, view, opaque], origins) = places();
 
     let target = Target::storage(owner.clone());
 
     let mut state = State {
-        owned_storage: [owner.root].into(),
+        owned_storage: [owner.root, pointer.root, view.root, opaque.root].into(),
         ..State::default()
     };
 
     assert!(!state.unknown_reference_may_reach(&target));
 
+    let call = origins[0].into();
+
+    state.stage_returned_reference(call, Target::storage(view.clone()), view.clone(), error_type(), [target.clone()]);
+    state.complete_transition(call);
+    state.values.insert(Target::storage(opaque.clone()), References { unknown: true, ..Default::default() }.into());
+
+    let returned = state.value_target(&Target::storage(view), error_type()).expect("returned view retains its bounded identity");
+
+    assert!(!state.escaped_regions([Target::storage(opaque.clone())]).contains(&target),
+        "an unknown external pointer cannot publish a private alternative of another returned view");
+
+    assert!(state.escaped_regions([returned]).contains(&target),
+        "explicitly publishing a returned pointer exposes each possible input region");
+
     state.address(owner, pointer, error_type(), origins[0]);
 
     assert!(state.unknown_reference_may_reach(&target));
+
+    assert!(state.escaped_regions([Target::storage(opaque)]).contains(&target),
+        "unknown pointers can reach actually exposed local storage");
 }
 
 #[test]
@@ -4082,12 +4121,16 @@ fn borrowed_choices_read_existing_pointer_values_before_publication() {
         state.complete_transition(call);
 
         if mode == "inexact" {
-            state.returned_inputs.get_mut(&result).expect("view retains its complete private region bound").inexact = true;
+            state.returned_inputs.get_mut(&(result.clone(), false)).expect("view retains its complete private region bound").inexact = true;
         }
 
-        let mut parent = state.value_target(&Target::storage(result), view_type).expect("bounded borrowed choice");
+        let mut parent = state.value_target(&Target::storage(result.clone()), view_type).expect("bounded borrowed choice");
 
-        parent.previous = mode == "retired";
+        if mode == "retired" {
+            state.stage_returned_reference(call, Target::storage(result.clone()), result, view_type, candidates.clone());
+            state.complete_transition(call);
+            parent.previous = true;
+        }
 
         let location = parent.project(&[field]);
 
@@ -4147,6 +4190,8 @@ fn rewritten_returned_references_keep_flat_input_bounds() {
             [input],
         );
 
+        state.bound_staged_reference(call, &Target::storage(output.clone()));
+        state.stage_returned_references(call, [(output.clone(), error_type())], []);
         state.complete_transition(call);
 
         input = state
@@ -4588,7 +4633,11 @@ fn bounded_returned_references_preserve_input_exclusivity() {
 
         let mut returned = state.value_target(&destination, error_type()).expect("a returned view has a physical identity");
 
-        returned.previous = previous;
+        if previous {
+            state.stage_returned_reference(call, destination.clone(), result.clone(), error_type(), [left.clone()]);
+            state.complete_transition(call);
+            returned.previous = true;
+        }
 
         let returned = returned.project(&[StorageProjection::UninitPayload]);
 
