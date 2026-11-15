@@ -1,4 +1,4 @@
-# Scalar Types
+# Scalar types
 
 A **scalar type** is a compiler-known named value type whose values are treated as atomic by the type system.
 

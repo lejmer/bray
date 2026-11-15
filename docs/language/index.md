@@ -41,7 +41,7 @@ Style does not change whether a program is valid or what it means.
 
 ---
 
-## Grammar References
+## Grammar references
 
 The Markdown grammar chapters explain the grammar and edge cases for readers.
 
