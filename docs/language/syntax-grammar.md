@@ -40,7 +40,7 @@ compilation-unit =
 
 ---
 
-## Source Units
+## Source units
 
 [Module declarations](modules-and-packages/module-declarations.md) defines the semantic ownership of source-unit
 and block module contributions.
@@ -1741,13 +1741,13 @@ modifiers, incompatible modifier combinations, and invalid receiver-mode combina
 
 Each type callable member is a definition and has a callable body block.
 
-### Type Constants
+### Type constants
 
 A constant declaration inside a type body defines a type-associated constant.
 
 Type-associated constants use ordinary constant declaration syntax.
 
-### Type Predicates
+### Type predicates
 
 A predicate declaration inside a type body defines a type-associated predicate.
 
@@ -1779,7 +1779,7 @@ The result clause is required. Semantic checking accepts `Self` or `Result<Self,
 Constructors are synchronous. Trusted constructors use the same `trusted` modifier and callable contract clauses as
 other trusted declarations.
 
-### Lifecycle Members
+### Lifecycle members
 
 [Lifecycle declarations](lifecycle/lifecycle-declarations.md) defines receivers, signatures, and declaration placement.
 
@@ -1888,7 +1888,7 @@ Visibility is the declaration header modifier. `public` is optional because it i
 
 Trait members inherit the visibility of the trait. Individual trait members do not accept `public` or `internal`.
 
-### Trait Callable Members
+### Trait callable members
 
 ```ebnf
 trait-callable-member-declaration =
@@ -1926,7 +1926,7 @@ Without `static`, the member is an instance method. The receiver mode is selecte
 Callable modifiers, receiver modifiers, and `static` are parsed as modifiers before `func`. Duplicate modifiers,
 incompatible modifier combinations, and invalid receiver-mode combinations are semantic errors.
 
-### Trait Constant Members
+### Trait constant members
 
 ```ebnf
 trait-constant-member-declaration =
@@ -1937,7 +1937,7 @@ A trait constant member without an initializer is required.
 
 A trait constant member with an initializer supplies a default value.
 
-### Trait Type Members
+### Trait type members
 
 ```ebnf
 trait-type-member-declaration =
@@ -1948,7 +1948,7 @@ A trait type member declares a required type-valued member.
 
 Trait type-valued members cannot have generic parameters or defaults.
 
-### Trait Predicate Members
+### Trait predicate members
 
 ```ebnf
 trait-predicate-member-declaration =
@@ -1969,7 +1969,7 @@ An `=` tail supplies a predicate body.
 
 Trait predicate members use the shared `predicate-parameter-list` grammar.
 
-### Trait Lifecycle Requirements
+### Trait lifecycle requirements
 
 [Lifecycle requirements in traits](types/traits.md#lifecycle-requirements-in-traits) defines signatures and fulfillment.
 
@@ -2043,7 +2043,7 @@ application.
 Header `with(...)` clauses establish static constraints for the implementation. A `with(...)` clause can constrain
 inferred implementation parameters, but it cannot introduce them.
 
-### Implementation Subjects
+### Implementation subjects
 
 ```ebnf
 inherent-implementation-subject =
@@ -2067,7 +2067,7 @@ subject, or an implementation-eligible borrow subject.
 The grammar accepts `&Subject` and `&mut Subject` as borrow-subject forms. Which type forms are implementation-eligible
 is checked by type rules.
 
-### Implementation Bodies
+### Implementation bodies
 
 ```ebnf
 implementation-body =
@@ -2090,7 +2090,7 @@ Implementation bodies are braced member lists.
 
 Inherent and trait implementation bodies use the same member grammar.
 
-### Implementation Members
+### Implementation members
 
 Implementation members reuse the same definition forms as type-body callable members, constructors, lifecycle members,
 type-associated constants, type-valued member bindings, type-associated predicates, and callable overload declarations.
@@ -2140,7 +2140,7 @@ Trait declarations do not contain overload declarations.
 Callable overload declarations in trait implementation bodies are rejected semantically because they do not fulfill
 trait members.
 
-### Callable Overload Declarations
+### Callable overload declarations
 
 ```ebnf
 callable-overload-declaration =
@@ -2155,7 +2155,7 @@ Callable overload arms name existing callable declarations.
 
 A callable overload declaration does not define a callable body.
 
-### Implementation Overload Declarations
+### Implementation overload declarations
 
 ```ebnf
 implementation-overload-declaration =
@@ -2186,7 +2186,7 @@ Borrow subjects use the grouped forms `(&Subject)` and `(&mut Subject)`.
 
 The path inside the trait parentheses names the shared trait declaration, not a concrete trait application.
 
-### Overload Arms
+### Overload arms
 
 ```ebnf
 overload-arm-list =

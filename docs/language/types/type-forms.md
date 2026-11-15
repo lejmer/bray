@@ -1,4 +1,4 @@
-# Type Forms
+# Type forms
 
 Syntax follows the [type expressions grammar](../syntax-grammar.md#type-expressions).
 

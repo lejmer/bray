@@ -8,7 +8,7 @@ No I/O declaration is ambient. A reference into another logical module requires 
 follows ordinary qualified-path lookup. `using` does not introduce unqualified names. References within the same logical
 module need no self-import.
 
-## Service Modules
+## Service modules
 
 The portable public service modules specified by this chapter are:
 
@@ -36,7 +36,7 @@ The compiler does not recognize these modules by spelling. Their declarations re
 declarations unless another language rule explicitly identifies a particular declaration as compiler-known or
 recognized.
 
-## Byte Streams
+## Byte streams
 
 `std.io` readers and writers transfer bytes. Text I/O is built by explicitly encoding or decoding text through the
 standard text contracts.
@@ -109,7 +109,7 @@ inherited standard streams use the same operation boundary while owning independ
 process pipes are owned resources accessed through exclusive mutation, so their native leaves add no standard-stream
 guard.
 
-## Paths And Filesystems
+## Paths and filesystems
 
 A `std.path` value preserves one target-native path losslessly. A path is not required to be valid UTF-8. Converting
 text into a path validates the selected target's path restrictions, and converting a path into text is fallible when the
@@ -139,7 +139,7 @@ An API that promises deterministic directory traversal orders entries by the tar
 An incremental native-order traversal can explicitly leave ordering unspecified. Source requiring reproducible behavior
 must choose a deterministic traversal or sort the results.
 
-## Process Context
+## Process context
 
 The executable root receives one immutable process-context snapshot containing:
 
@@ -202,7 +202,7 @@ iteration deterministic and independent of host enumeration order. `current_dire
 working-directory snapshot and never observes later host-global mutation. Two `Id` values are equal exactly when they
 identify the same process lifetime in the same host observation domain.
 
-## Child Processes
+## Child processes
 
 `std.process` distinguishes raw child-process control from the typed Bray process protocol.
 
@@ -406,7 +406,7 @@ Blocking waits require `blocking_execution()`. An async wait can defer that requ
 blocking. An async wait implemented through runtime timer integration can instead suspend its current task without
 requiring a blocking lane.
 
-## Entropy And Random Generation
+## Entropy and random generation
 
 System entropy is an external nondeterministic input. Requesting it is an I/O effect and can fail. Failure never causes
 an implicit fallback to time, process identity, memory addresses, or another predictable seed.
@@ -423,7 +423,7 @@ order. Each call consumes enough complete words to fill its destination and disc
 An empty destination consumes no words. Equal seeds and the same sequence of operations produce equal output on every
 target.
 
-## Effects And Execution Requirements
+## Effects and execution requirements
 
 Files, terminals, processes, clocks, environment state, and entropy are external state under the language's I/O effect
 rules. Effect-free contexts cannot access them.
@@ -436,7 +436,7 @@ I/O owners and values carry ordinary ownership, borrowing, dependency, affinity,
 contracts. Passing a resource or dependent buffer across a task, native thread, process, callback, or suspension
 boundary is valid only when the destination preserves those contracts.
 
-## Failures And Diagnostics
+## Failures and diagnostics
 
 Expected external failures are typed Bray values returned through `Result`. Public failure values expose stable
 categories and can retain target-specific numeric codes for inspection. Host-authored prose is not a stable semantic
@@ -459,7 +459,7 @@ On ordinary completion, a fixed native entry reports and consumes retained clean
 result. A native invocation carries only its explicit protocol outputs. Omitted argument defaults execute in the caller
 and retain their own Bray completion and cleanup behavior.
 
-## Target Availability
+## Target availability
 
 The following compiler-known boolean target properties describe platform-service availability:
 

@@ -1,4 +1,4 @@
-# Product Types
+# Product types
 
 Syntax follows the [struct bodies grammar](../syntax-grammar.md#struct-bodies).
 

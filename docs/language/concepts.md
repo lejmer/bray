@@ -5,7 +5,7 @@ validity and execution rules.
 
 ---
 
-## Program Structure
+## Program structure
 
 A **source unit** is one UTF-8 text input.
 
@@ -28,7 +28,7 @@ A **binding** associates a name use with the declaration, local binding, member,
 
 ---
 
-## Names And Paths
+## Names and paths
 
 A **name** is an identifier spelling used to introduce or refer to a program entity.
 
@@ -47,7 +47,7 @@ A **trait application** is a trait declaration together with any generic argumen
 
 ---
 
-## Values And Storage
+## Values and storage
 
 A **value** is a typed runtime entity.
 
@@ -133,7 +133,7 @@ A **non-local completion** exits the current expression region through a control
 
 ---
 
-## Contracts And Conditions
+## Contracts and conditions
 
 A **condition** is a proposition guaranteed by the language rules at a particular program point.
 

@@ -1,4 +1,4 @@
-# Union Types
+# Union types
 
 Syntax follows the [union bodies grammar](../syntax-grammar.md#union-bodies).
 

@@ -400,7 +400,7 @@ Unknown escape sequences are invalid.
 
 ---
 
-## Tuple Element Indices
+## Tuple element indices
 
 Tuple element access uses a decimal tuple element index after `.`.
 
@@ -418,7 +418,7 @@ tuple element `0`. In ordinary expression positions, the same character shape is
 
 ---
 
-## Operators And Punctuation
+## Operators and punctuation
 
 ```ebnf
 operator-or-punctuation-token =
@@ -468,7 +468,7 @@ The grammar context determines the role.
 
 ---
 
-## Invalid Tokens
+## Invalid tokens
 
 Invalid lexical forms make the source text invalid.
 
@@ -491,7 +491,7 @@ Invalid tokens are rejected at the source range that forms or attempts to form t
 
 ---
 
-## Character Classes
+## Character classes
 
 ```ebnf
 ascii-letter =
