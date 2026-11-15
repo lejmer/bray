@@ -223,13 +223,23 @@ impl<Projection, Input> DependencyOwnedResult<Projection, Input> {
     /// Contents are retained only according to each transfer's preservation mask.
     pub fn guaranteed_transfers(&self) -> std::collections::BTreeSet<DependencyOwnedTransfer<Projection, Input>>
     where Projection: Clone + Ord, Input: Clone + Ord {
+        self.guaranteed_transfers_under(&[])
+    }
+
+    /// Returns mappings guaranteed when the supplied ordinary conditions hold.
+    /// Unknown guards and possible empty alternatives cannot establish a transfer.
+    pub fn guaranteed_transfers_under(&self, conditions: &[Input]) -> std::collections::BTreeSet<DependencyOwnedTransfer<Projection, Input>>
+    where Projection: Clone + Ord, Input: Clone + Ord {
         match self {
-            Self::Transfer(transfer) if transfer.condition.is_none() => [transfer.clone()].into(),
+            Self::Transfer(transfer) if transfer.condition.as_ref().is_none_or(|condition| conditions.contains(condition)) => {
+                [transfer.clone().with_condition(None)].into()
+            }
+            Self::Case { condition, result } if conditions.contains(condition) => result.guaranteed_transfers_under(conditions),
             Self::Transfer(_) | Self::Case { .. } => Default::default(),
             Self::All(values) => {
                 let mut shared = std::collections::BTreeMap::<_, DependencyOwnedTransfer<Projection, Input>>::new();
 
-                for transfer in values.iter().flat_map(Self::guaranteed_transfers) {
+                for transfer in values.iter().flat_map(|value| value.guaranteed_transfers_under(conditions)) {
                     shared.entry((transfer.input.clone(), transfer.output.clone(), transfer.condition.clone()))
                         .and_modify(|previous| {
                             previous.preservation = previous.preservation.intersection(&transfer.preservation);
@@ -246,10 +256,10 @@ impl<Projection, Input> DependencyOwnedResult<Projection, Input> {
                     return Default::default();
                 };
 
-                let mut shared = first.guaranteed_transfers();
+                let mut shared = first.guaranteed_transfers_under(conditions);
 
                 for value in values {
-                    let incoming = value.guaranteed_transfers();
+                    let incoming = value.guaranteed_transfers_under(conditions);
 
                     shared = shared.into_iter().filter_map(|mut transfer| {
                         let other = incoming.iter().find(|other| transfer.same_identity(other))?;
@@ -398,7 +408,15 @@ mod tests {
         assert_eq!(simultaneous.guaranteed_transfers(), [common.clone(), other].into());
         assert!(Layout::case(2, simultaneous).guaranteed_transfers().is_empty());
         assert!(Layout::choice([choice, Layout::default()]).guaranteed_transfers().is_empty());
-        assert!(Layout::Transfer(common.with_condition(Some(2))).guaranteed_transfers().is_empty());
+
+        let conditional = Layout::Transfer(common.clone().with_condition(Some(2)));
+
+        assert!(conditional.guaranteed_transfers().is_empty());
+        assert!(conditional.guaranteed_transfers_under(&[3]).is_empty());
+        assert_eq!(conditional.guaranteed_transfers_under(&[2]), [common.clone()].into());
+        assert_eq!(Layout::case(2, conditional.clone()).guaranteed_transfers_under(&[2]), [common.clone()].into());
+        assert!(Layout::choice([conditional.clone(), Layout::default()]).guaranteed_transfers_under(&[2]).is_empty());
+        assert!(Layout::choice([conditional, Layout::Transfer(common.with_condition(Some(3)))]).guaranteed_transfers_under(&[2]).is_empty());
     }
 
     #[test]

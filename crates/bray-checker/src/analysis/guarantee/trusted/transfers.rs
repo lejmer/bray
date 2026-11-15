@@ -122,10 +122,12 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
             input.clone()
         };
 
-        let complete = contract.owned_result().guaranteed_transfers().into_iter()
-            .map(|transfer| (decode_input(transfer.input()), transfer)).collect::<Vec<_>>();
-
         for (transfer, cases) in contract.owned_result().guarded_transfers() {
+            let conditions = cases.iter().copied().copied().chain(transfer.condition()).collect::<Vec<_>>();
+
+            let complete = contract.owned_result().guaranteed_transfers_under(&conditions).into_iter()
+                .map(|transfer| (decode_input(transfer.input()), transfer)).collect::<Vec<_>>();
+
             let input = decode_input(transfer.input());
 
             let root = crate::ExecutionPlace {

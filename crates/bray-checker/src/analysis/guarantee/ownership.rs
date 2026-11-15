@@ -171,16 +171,15 @@ impl ExecutionState {
                 self.owned_result_bounded(parent, extraction, budget), *field,
             ),
             crate::ExecutionConditionKind::Input(place) if !place.projections.is_empty() => {
-                let mut root = place.clone();
+                let (field, prefix) = place.projections.split_last().expect("projected input has a final field");
 
-                root.projections = [].into();
+                let mut parent = place.clone();
 
-                let ownership = self.owned_result_bounded(&ExecutionCondition::new(crate::ExecutionConditionKind::Input(root)), extraction, budget);
+                parent.projections = prefix.into();
 
-                if place.projections.len() > *budget { return DependencyOwnedResult::default(); }
-                *budget -= place.projections.len();
-
-                place.projections.iter().fold(ownership, |ownership, field| project_owned_result(ownership, *field))
+                project_owned_result(self.owned_result_bounded(
+                    &ExecutionCondition::new(crate::ExecutionConditionKind::Input(parent)), extraction, budget,
+                ), *field)
             }
             crate::ExecutionConditionKind::Input(place) if extraction && place.is_callable_input() => {
                 DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(value.clone(), [])
@@ -195,7 +194,7 @@ impl ExecutionState {
         let owner = matches!(value.kind(), crate::ExecutionConditionKind::Observation { kind: ObservationKind::Owned, .. })
             .then(|| value.ownership_identity()).flatten()
             .filter(|(kind, _)| *kind == ObservationKind::Owned)
-            .and_then(|(_, owner)| self.recorded_owned_result(owner, budget))
+            .map(|(_, owner)| self.owned_result_bounded(owner, false, budget))
             .map(|layout| layout.root_layout()).unwrap_or_default()
             .try_map(
                 &mut |transfer| Ok::<_, std::convert::Infallible>(
@@ -548,7 +547,11 @@ mod tests {
         assert_eq!(transfers[0].input(), selected);
         assert!(!transfers[0].preservation().preserves_value());
         assert!(!actual.guarded_transfers().next().expect("guarded transfer").1.is_empty());
-        assert!(state.owned_result(&root.borrowed().project(field)).is_empty());
+        assert!(state.owned_result(&root.clone().borrowed().project(field)).is_empty());
+
+        state.owned_results.insert(selected.clone(), DependencyOwnedResult::default());
+        assert!(state.owned_result(&selected.clone().project(field)).is_empty(), "an empty intermediate layout overrides recorded ancestry");
+        assert!(state.owned_result(&ExecutionCondition::owned_value(selected, ExecutionCondition::unknown())).is_empty());
     }
 
     #[test]
@@ -686,26 +689,35 @@ mod tests {
         let old_child = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let new_child = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
-        let mut state = ExecutionState::default();
 
-        state.owned_results.insert(original.clone(), DependencyOwnedResult::all([
-            DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(original.clone(), [])),
-            DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(old_child.clone(), [field])),
-        ]));
+        for nested in [false, true] {
+            let mut state = ExecutionState::default();
+            let root = original.clone();
+            let original = if nested { original.clone().project(field) } else { original.clone() };
 
-        state.owned_results.insert(new_child.clone(), DependencyOwnedResult::Transfer(
-            DependencyOwnedTransfer::new(new_child.clone(), []),
-        ));
+            state.owned_results.insert(root.clone(), DependencyOwnedResult::all([
+                DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(root.clone(), [])),
+                DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(old_child.clone(), if nested { vec![field, field] } else { vec![field] })),
+            ]));
 
-        let changed = ExecutionCondition::owned_value(original.clone(),
-            ExecutionCondition::constructed(ExecutionCondition::unknown(), [(field, new_child.clone())].into()));
+            state.owned_results.insert(new_child.clone(), DependencyOwnedResult::Transfer(
+                DependencyOwnedTransfer::new(new_child.clone(), []),
+            ));
 
-        let ownership = state.owned_result(&changed);
+            let changed = ExecutionCondition::owned_value(original.clone(),
+                ExecutionCondition::constructed(ExecutionCondition::unknown(), [(field, new_child.clone())].into()));
 
-        let mappings = ownership.transfers().map(|transfer| (transfer.input(), transfer.output().to_vec()))
-            .collect::<std::collections::BTreeSet<_>>();
+            let ownership = state.owned_result(&changed);
 
-        assert_eq!(mappings, [(original, vec![]), (new_child, vec![field])].into());
-        assert!(!ownership.transfers().any(|transfer| transfer.input() == old_child));
+            let mappings = ownership.transfers().map(|transfer| (transfer.input(), transfer.output().to_vec()))
+                .collect::<std::collections::BTreeSet<_>>();
+
+            assert_eq!(mappings, [(original, vec![]), (new_child.clone(), vec![field])].into());
+            assert!(!ownership.transfers().any(|transfer| transfer.input() == old_child));
+
+            let owner = ownership.transfers().find(|transfer| transfer.output().is_empty()).expect("current owner lineage");
+
+            assert!(!owner.preservation().preserves_value(), "identity cannot restore old contents");
+        }
     }
 }

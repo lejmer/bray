@@ -7,40 +7,33 @@ Read this record and the work-on-bray-issues contract gate after compaction.
 
 ## Current evidence
 
-Comparison baseline: 854757009. The current repair is the latest checkpoint on this branch.
-All 1,715 fixed comparison tests pass, zero failed or missing, in 743.83 s.
-comparison-current.json/log preserve exact identities and binary/source hashes. validation-current.json/log
-retain the comparison baseline: fixed 916, owned 505, deferred 298, frozen 30 and focused controls.
-All 559 checker tests and 11 nullable controls pass. repair-current.json/logs record final focused evidence.
-The strengthened nullable test checks whole-input publication and preservation of the tag through await.
-No temporary fixture probes or checker instrumentation remain. Four counter hooks are retained only as
-an ignored patch for future measurements. The compilation test binary still contains disabled counters.
+Comparison baseline: 854757009. validation-current.json/log retain fixed 916, owned 505, deferred 298,
+frozen 30 and focused controls. comparison-current.json/log preserve current exact identities and hashes.
+The latest batch passes all 1,715 identities with none missing in 398.28 s. Focused checks pass 559 checker,
+221 symbol and 17 carrier/nullable/probe tests. No expected outcome or failure site changed.
+No checker instrumentation remains. The compilation test binary contains a temporary pin probe removed
+from source. Production code matches the validated batch. Four count hooks remain only in an ignored patch.
 
-The repair prepares current returned ownership once, including owners inside anonymous nullable wrappers.
-Completion consumes that mapping instead of reconstructing input.root_layout. Portable preservation comes
-from the checked callee contract, not from the narrower physical mask that refreshes reached state.
-Source body candidates for create_execution and commit_driver are clean. boundary-source.log retains the
-six sampled body outcomes. Its query exit status is not a claim that all sampled bodies pass.
+The current pin probe verifies clean bodies for ensure_deadlines, ensure_workers, close_owner,
+close_owner_binding and native_owner_release. close_owner now publishes the complete execution Reference
+and its acquisition child. pin-current.json/log retain exact identities and layouts.
 
-Fresh native smoke compilation fails with 17 primary diagnostics and 15 dependent E7135 diagnostics.
-Counts: E7123=12, E7124=5. native-current.json/log contain the current release tool hash and pinned toolchains.
-The nullable deadline/worker take_pin failures have disappeared. Their callers in execution/deadlines.bray
-and execution/workers.bray now report separation failures. Trace these alongside the three existing
-close_owner separation failures before classifying or repairing the group. Native execution, root C smoke,
-real async composition and archive/link removal gates remain unrun.
+Fresh native smoke compilation fails with 12 primary E7123 diagnostics and 15 dependent E7135 diagnostics.
+All five E7124 separation failures are gone. native-current.json/log identify the release tool and pinned
+toolchains. Native execution, root C smoke, real async composition and archive/link removal remain unrun.
 Native Rust must use installed 1.98.1 with pinned LLVM 22.1.8. Default 1.99 emits LLVM 23 bitcode.
 The provider tests filter selected functions, and the profiling test checks reuse rather than zero diagnostics.
 Their passing results do not establish that every production runtime body checks.
 
-Remaining groups: borrowed view/storage retention, raw allocation evidence, separation, observer preparation,
+Remaining groups: borrowed view/storage retention, raw allocation evidence, observer preparation,
 and inactive producer/neighbor access carriers. awaited_composition loses producer(token) at current().
 Inactive has copied IDs and a raw descriptor pointer, but no represented retained permission. Do not recover
 its opaque guarantee from unchanged pointer bits or weaken the indirect-storage negative. Establish the
 actual native producer-retention contract. LinkAccess similarly holds a lease borrow and raw pointer.
 allocation-current.log and links-current.log retain the unresolved earlier traces, identified by proof-current.json.
 
-Reviewer /root/pr_review reviewed 854757009 and published review 5908506132 on PR 710.
-Open comments 4576635425/5429/5433 concern callback lane widening, duplicated normalization and local imports.
+Reviewer /root/pr_review reviewed 1687c09b7 and published incremental review 5908883837 on PR 710.
+Verified the published review. No new actionable findings. All three prior review threads are resolved.
 Current fixes use selected_lane for all callback readiness, share referent_owner_identity and move imports.
 The existing root fixture checks blocking/compute rejection while the cooperative task is active and driver
 acceptance after terminal return. Native execution of those assertions remains blocked by contracts.
@@ -48,17 +41,37 @@ The Windows worker counter now intercepts __imp_CreateThread, verified against t
 An isolated native control counts a real created thread. Combined C smoke syntax passes with three existing
 CRT deprecation warnings. Style and Bray formatting pass. No new test fixture families or representations.
 
-Timing controls pass under concurrent work: four completion cases 170-190 ms, loop 217 ms, provider separate.
+Timing controls pass: four completion cases 141-174 ms, loop 162 ms, provider separate. Counts below are
+from the previous checkpoint and have not been remeasured for the pin batch.
 Counts: loop 1,485,955 comparisons / 38,484 nodes, up 0.23% / 1.09%. The four other cases decrease slightly.
 Current counters do not measure destruction. The earlier checkpoint measured all condition nodes released.
 No leak has been demonstrated. Reused provider compilation previously plateaued at 3.8 GB private memory.
-Previously unaffected gates: symbols 221, interfaces 217, bound-tree 136, lowering 38, tooling 115,
+Previously unaffected gates: interfaces 217, bound-tree 136, lowering 38, tooling 115,
 runtime interface 29, runtime ABI 35, test protocol 23 and backend identity 1.
 Preserve fixed identities and rejection sites. Host-oracle corrections follow contract-reasoning.md.
 
 ## Current contracts and unresolved causes
 
-Active repair contract: prepare each returned snapshot together with its current owned layout, using the same ownership
+Separation contract: a child transfer's known ordinary guards may qualify an enclosing transfer at the
+same relative output path, only when it occurs in every possible alternative. Unknown guards, empty
+alternatives, different owners and output paths remain conservative. The existing intersection owns this
+rule. Its unconditional API supplies no guards. Fixed source/import and fabrication controls pass.
+
+Projected-owner contract: observe_memory_read carries the exact current snapshot through observe_move
+and pending_results. Owned(projected input, current contents) uses the same ancestry lookup as a bare
+input. Immediate-parent projection respects empty intermediate records. Keep root_layout only and derive
+preservation from current contents. Never import historical children or derive ownership through loans.
+Existing projection and mutation tests cover nested owners, overwritten children and explicit empties.
+
+Next unresolved contract: Inactive remains a copied ABI token. Native provider retention needs a borrowed,
+noncopy Producer scope tied to the exact token, introduced at actual native entry boundaries. It owns no
+lease, dispatch permission or provider reference. Trace publication, activation, inactive cleanup,
+requirements inspection, PreparedStart and native composition before editing. Reuse task::Composition to
+carry the scope. Remove activation/composition's accepted lambda producer reassertion, while keeping
+successful admission separate. Descriptor borrowing alone cannot retain raw callback providers. The
+end-to-end inventory and positive/negative source oracles are not yet closed, so production edits are blocked.
+
+Returned ownership contract: prepare each returned snapshot together with its current owned layout, using the same ownership
 recording as ValuePreservation.frame. Completion must consume that prepared mapping, not reconstruct input.root_layout.
 A lifted nullable has payload ownership without a separate wrapper owner. Preserve that actual payload,
 but never recover overwritten children, empty layouts or ownership through an ordinary loan. Producers:
@@ -93,8 +106,7 @@ Changed contents or different owners still refresh. Existing aggregate/carrier t
 
 A guaranteed enclosing transfer to the same relative output path makes its descendant annotation part
 of the complete owner, not a detached witness. Use guaranteed_transfers. Partial-only returns, a parent
-returned elsewhere or only in another Choice cannot authorize separation. Conditional-only enclosing
-layouts remain conservative. Publish ordinary active/empty shape without deriving presence from ownership or overriding empty layouts.
+returned elsewhere or only in another Choice cannot authorize separation. Conditional enclosing layouts require the same known guards and a transfer in every possible alternative. Publish ordinary active/empty shape without deriving presence from ownership or overriding empty layouts.
 
 Ownership alternatives retain proven true and false ordinary payload guards. Unknown stays unknown.
 A false guard qualifies the actual empty layout, never an invented payload. Nullable joins compare
