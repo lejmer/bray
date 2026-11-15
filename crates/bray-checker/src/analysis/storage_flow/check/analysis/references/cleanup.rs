@@ -70,24 +70,28 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     _ => continue,
                 };
 
-                if subject.subject_root() != bray_symbols::DependencySubjectRoot::Receiver {
+                let owner = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver {
+                    ty
+                } else if let Some(ty) = crate::storage::static_subject_type(request, subject.subject_root())? {
+                    ty
+                } else {
                     continue;
-                }
+                };
 
                 let Some(projections) = crate::storage::resolve_storage_projections(request, subject.projections())? else {
                     continue;
                 };
 
-                let Some((reached, path)) = crate::storage::reference_path(request, ty, projections.into(), None)? else {
+                let Some((reached, path)) = crate::storage::reference_path(request, owner, projections.into(), None)? else {
                     continue;
                 };
 
                 // The same guarded cleanup expansion supplies both runtime effects and
                 // finite descriptor demands. Owning elements never become parent edges.
-                demands.entry(ty).or_default().insert((path.projections().into(), reached));
+                demands.entry(owner).or_default().insert((path.projections().into(), reached));
 
                 for end in 0..=path.projections().len() {
-                    if let Some((prefix, _)) = crate::storage::reference_path(request, ty, path.projections()[..end].into(), None)? {
+                    if let Some((prefix, _)) = crate::storage::reference_path(request, owner, path.projections()[..end].into(), None)? {
                         nested.insert(prefix);
                     }
                 }
@@ -124,11 +128,17 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             {
                 let key = (lifecycle.call.callable, subject.clone());
 
-                if subject.subject_root() != bray_symbols::DependencySubjectRoot::Receiver
-                    || self.lifecycle_paths.contains_key(&key)
-                {
+                if self.lifecycle_paths.contains_key(&key) {
                     continue;
                 }
+
+                let owner = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver {
+                    *ty
+                } else if let Some(ty) = crate::storage::static_subject_type(request, subject.subject_root())? {
+                    ty
+                } else {
+                    continue;
+                };
 
                 let Some(projections) =
                     crate::storage::resolve_storage_projections(request, subject.projections())?
@@ -137,8 +147,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 };
 
                 // The actual cleanup receiver already denotes its physical storage.
-                let owner = *ty;
-
                 if let Some((ty, path)) =
                     crate::storage::reference_path(request, owner, projections.into(), None)?
                 {

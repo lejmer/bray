@@ -97,7 +97,13 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
             let Some(ty) = result_type else { return Ok(None); };
 
             ty
-        } else { return Ok(None); };
+        } else {
+            let Some(ty) = crate::storage::static_subject_type(request, subject.subject_root())? else {
+                return Ok(None);
+            };
+
+            ty
+        };
 
         reference_subject_path(request, subject, ty)
     })?;
@@ -309,6 +315,7 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
     } else {
         crate::dependency::result_input(call, subject.subject_root())
             .map(|input| input.ty(request.semantic_values()))
+            .or(crate::storage::static_subject_type(request, subject.subject_root())?)
     };
 
     let Some(ty) = ty else {

@@ -88,11 +88,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             |endpoint, _| {
                 let (ty, path) = paths.get(endpoint)?;
 
-                let locations = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), path, None)?;
+                let locations = self.cleanup_subject_locations(memory, receiver, endpoint.subject(), Some(path))?;
 
                 Some((*ty, locations.into_iter().map(Source::Value).collect()))
             },
-            |_| Some(receiver.clone()),
+            |endpoint| {
+                let root = endpoint.subject().subject_root();
+
+                if root == DependencySubjectRoot::Receiver {
+                    Some(receiver.clone())
+                } else {
+                    self.static_location(&bray_symbols::DependencySubject::root(root))
+                }
+            },
         );
 
         for (destination, sources, complete) in transfers {

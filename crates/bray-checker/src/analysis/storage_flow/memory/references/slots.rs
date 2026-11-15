@@ -1,5 +1,5 @@
 use super::super::model::{
-    Contents, Origin, Place, ReferenceExit, State, StoredValue, Target, Transfer,
+    Contents, Origin, Place, ReferenceExit, Retirement, State, StoredValue, Target, Transfer,
 };
 #[cfg(test)]
 use super::super::model::References;
@@ -41,6 +41,7 @@ impl State {
             .range(Target::storage(place.clone())..)
             .map_while(|(target, value)| target.storage_path().map(|path| (path, value)))
             .take_while(move |(slot, _)| place.contains(slot))
+            .filter(move |(slot, _)| place.contains_storage(slot))
             .filter_map(|(slot, value)| Some((slot, value.references.as_ref()?)))
     }
 
@@ -59,6 +60,7 @@ impl State {
         self.values
             .range(location.clone()..)
             .take_while(|(slot, _)| location.contains(slot))
+            .filter(|(slot, _)| location.contains_storage(slot))
             .flat_map(|(_, value)| value.references.iter().flat_map(|references| references.targets.iter()))
     }
 
@@ -201,7 +203,7 @@ impl State {
         roots: impl IntoIterator<Item = Target>,
     ) -> BTreeSet<Target> {
         let roots = roots.into_iter().map(|root| exposure_region(&root)).collect::<BTreeSet<_>>();
-        let reached = self.transitive_regions(roots.iter().cloned(), |region, slot| region.contains(slot)).0;
+        let reached = self.transitive_regions(roots.iter().cloned(), |region, slot| region.contains_storage(slot)).0;
 
         reached.iter().filter(|target| roots.contains(*target)
             || !reached.iter().any(|region| self.entry_field_is_reachable(region, target)))
@@ -301,7 +303,7 @@ impl State {
                 if follow(&target, slot)
                     // Typed scalars cannot load unrelated pointer slots. Explicit
                     // stored references and raw allocation views remain authoritative.
-                    && (!reference_free || target.contains(slot))
+                    && (!reference_free || target.contains_storage(slot))
                     && self.target_relationship(&target, slot)
                         != bray_bound_tree::StorageRelationship::Disjoint
                 {
@@ -573,21 +575,23 @@ impl State {
         let mut enclosing: Option<&Target> = None;
 
         for target in transfer.payloads.keys() {
-            if enclosing.is_some_and(|enclosing| enclosing.contains(target)) {
+            if enclosing.is_some_and(|enclosing| enclosing.contains_storage(target)) {
                 continue;
             }
 
             // Installing an inline owner starts a new storage incarnation. Incoming
             // raw pointers can still name the destination's previous contents.
-            self.retire(target);
+            let retirement = Retirement::for_payload(target);
 
-            if matches!(target.origin, Origin::Returned { .. } | Origin::Allocation { .. }) {
+            self.retire_region(target, retirement);
+
+            if matches!(retirement, Retirement::Producer) {
                 continue;
             }
 
             for references in transfer.values.values_mut().filter_map(|value| value.references.as_mut())
                 .chain(transfer.returned_inputs.values_mut()) {
-                references.retire(target);
+                references.retire(target, Retirement::Storage);
             }
 
             enclosing = Some(target);
@@ -613,8 +617,8 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn clear_value(&mut self, target: &Target) {
         // Only the replaced subtree is visited, even when the function has many live values.
-        take_subtree(&mut self.values, target).for_each(drop);
-        take_subtree(&mut self.deferred, target).for_each(drop);
+        take_subtree(&mut self.values, target, Retirement::Storage).for_each(drop);
+        take_subtree(&mut self.deferred, target, Retirement::Storage).for_each(drop);
     }
 
     pub(in crate::analysis::storage_flow) fn offset(
@@ -629,18 +633,22 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn forget(&mut self, identity: StorageIdentityId) {
-        let root = Place::root(identity);
+        for previous in [false, true] {
+            let root = Target { previous, ..Target::storage(Place::root(identity)) };
 
-        let removed = self.values
-            .range(Target::storage(root.clone())..)
-            .map_while(|(target, _)| target.storage_path())
-            .take_while(|slot| root.contains(slot))
-            .filter(|slot| !is_entry_slot(&self.contents, slot))
-            .cloned()
-            .collect::<Vec<_>>();
+            if self.has_addressed_storage(&root) {
+                continue;
+            }
 
-        for slot in removed {
-            self.values.remove(&Target::storage(slot));
+            let removed = self.values.range(root.clone()..)
+                .take_while(|(target, _)| root.contains(target))
+                .filter(|(target, _)| root.contains_storage(target)
+                    && matches!(&target.origin, Origin::Storage(path) if !is_entry_slot(&self.contents, path)))
+                .map(|(target, _)| target.clone()).collect::<Vec<_>>();
+
+            for target in removed {
+                self.values.remove(&target);
+            }
         }
     }
 
@@ -666,11 +674,12 @@ impl State {
         &mut self,
         live: &BTreeSet<StorageIdentityId>,
     ) {
-        self.values.retain(|target, _| {
-            target.storage_path().is_none_or(|place| {
-                live.contains(&place.root) || is_entry_slot(&self.contents, place)
-            })
-        });
+        let expired = self.values.keys().filter_map(Target::storage_path)
+            .map(|place| place.root).filter(|root| !live.contains(root)).collect::<BTreeSet<_>>();
+
+        for identity in expired {
+            self.forget(identity);
+        }
     }
 }
 
@@ -711,14 +720,19 @@ pub(super) fn selected_subtree<'a, V>(
     values.range(prefix.clone()..)
         .take_while(move |(slot, _)| limit.contains(slot))
         .filter(move |(slot, _)| {
+            let length = source.projections().len();
+
+            if slot.projections().len() < length
+                || !StorageProjection::remains_in_allocation(&slot.projections()[length..])
+            {
+                return false;
+            }
+
             if !widened {
                 return true;
             }
 
-            let length = source.projections().len();
-
-            slot.projections().len() >= length
-                && target_prefix(slot, prefix.projections().len()) == prefix
+            target_prefix(slot, prefix.projections().len()) == prefix
                 && bray_bound_tree::StorageProjection::relationship(
                     source.projections(), &slot.projections()[..length],
                 ) != bray_bound_tree::StorageRelationship::Disjoint
@@ -741,11 +755,13 @@ fn is_entry_slot(contents: &BTreeMap<Target, Contents>, slot: &Place) -> bool {
 pub(super) fn take_subtree<'a, V>(
     values: &'a mut BTreeMap<Target, V>,
     root: &Target,
+    retirement: Retirement,
 ) -> impl Iterator<Item = (Target, V)> + 'a {
     // Only the selected subtree is visited. Keys share their immutable projection paths.
     let keys = values
         .range(root.clone()..)
         .take_while(|(key, _)| root.contains(key))
+        .filter(|(key, _)| retirement.contains(root, key))
         .map(|(key, _)| key.clone())
         .collect::<Vec<_>>();
 
@@ -758,13 +774,13 @@ pub(super) fn take_subtree<'a, V>(
     })
 }
 
-fn exposure_region(target: &Target) -> Target {
+pub(in crate::analysis::storage_flow::memory) fn exposure_region(target: &Target) -> Target {
     target.allocation_region().unwrap_or_else(|| {
         // An inline local has one enclosing allocation. Keep symbolic entry
         // references unchanged when their allocation boundary is not established.
-        target.storage_path().map_or_else(
-            || target.clone(),
-            |path| Target::storage(Place::root(path.root)),
-        )
+        match &target.origin {
+            Origin::Storage(path) => Target { previous: target.previous, ..Target::storage(Place::root(path.root)) },
+            _ => target.clone(),
+        }
     })
 }

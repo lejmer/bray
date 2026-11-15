@@ -1,4 +1,4 @@
-use super::super::model::{Contents, Effect, Origin, Place, References, State, Target, Transfer};
+use super::super::model::{Contents, Effect, Origin, Place, References, Retirement, State, Target, Transfer};
 use super::slots::take_subtree;
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId, StorageIdentityId};
 use bray_symbols::TypeId;
@@ -29,6 +29,7 @@ impl State {
         for root in roots {
             inputs.extend(self.values.range(root.clone()..)
                 .take_while(|(slot, _)| root.contains(slot))
+                .filter(|(slot, _)| root.contains_storage(slot))
                 .map(|(slot, references)| (slot.clone(), references.clone())));
         }
     }
@@ -73,9 +74,9 @@ impl State {
         if pending.values.contains_key(&destination) {
             // Alternative sources for one output must agree on its initialized payloads.
             let mut previous = super::super::model::Transfer {
-                values: take_subtree(&mut pending.values, &destination).collect(),
-                payloads: take_subtree(&mut pending.payloads, &destination).collect(),
-                deferred: take_subtree(&mut pending.deferred, &destination).collect(),
+                values: take_subtree(&mut pending.values, &destination, Retirement::Storage).collect(),
+                payloads: take_subtree(&mut pending.payloads, &destination, Retirement::Storage).collect(),
+                deferred: take_subtree(&mut pending.deferred, &destination, Retirement::Storage).collect(),
                 ..Default::default()
             };
 
@@ -286,7 +287,7 @@ impl State {
         let target = Self::returned_reference(reference.clone());
 
         // A new read after replacement must not equal a pointer retained from the old value.
-        self.retire(&target);
+        self.retire_region(&target, Retirement::Producer);
         self.returned_inputs.insert((reference, false), bounds);
 
         self.contents
@@ -388,9 +389,9 @@ impl State {
     ) {
         let pending = self.pending.entry(call).or_default();
 
-        take_subtree(&mut pending.values, &destination).for_each(drop);
-        take_subtree(&mut pending.payloads, &destination).for_each(drop);
-        take_subtree(&mut pending.deferred, &destination).for_each(drop);
+        take_subtree(&mut pending.values, &destination, Retirement::Storage).for_each(drop);
+        take_subtree(&mut pending.payloads, &destination, Retirement::Storage).for_each(drop);
+        take_subtree(&mut pending.deferred, &destination, Retirement::Storage).for_each(drop);
         pending.values.insert(destination, References::default().into());
     }
 
@@ -430,6 +431,7 @@ impl State {
             .payloads
             .range_mut(destination.clone()..)
             .take_while(|(target, _)| destination.contains(target))
+            .filter(|(target, _)| destination.contains_storage(target))
         {
             contents.initialized.clear();
         }
@@ -527,7 +529,7 @@ impl State {
             previous: false,
         };
 
-        self.retire(&current);
+        self.retire_region(&current, Retirement::Producer);
 
         let contents = Contents {
             allocations: [allocation].into_iter().collect(),
@@ -683,34 +685,42 @@ impl State {
     }
 
     pub(super) fn retire(&mut self, current: &Target) {
+        self.retire_region(current, Retirement::Storage);
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn retire_region(
+        &mut self,
+        current: &Target,
+        retirement: Retirement,
+    ) {
         for bounds in self.returned_inputs.values_mut() {
-            bounds.retire(current);
+            bounds.retire(current, retirement);
         }
 
         if !self
             .contents
             .range(current.clone()..)
-            .next()
-            .is_some_and(|(target, _)| current.contains(target))
+            .take_while(|(target, _)| current.contains(target))
+            .any(|(target, _)| retirement.contains(current, target))
             && !self.values.range(current.clone()..).take_while(|(target, _)| current.contains(target))
-                .any(|(_, value)| value.tracked)
+                .any(|(target, value)| retirement.contains(current, target) && value.tracked)
         {
             return;
         }
 
         for references in self.values.values_mut().filter_map(|value| value.references.as_mut())
             .chain(self.borrows.values_mut()) {
-            references.retire(current);
+            references.retire(current, retirement);
         }
 
         for transfer in self.pending.values_mut() {
-            transfer.retire_dependencies(current);
+            transfer.retire_dependencies(current, retirement);
         }
 
         for entries in self.deferred.values_mut() {
             for transfer in entries.values_mut() {
-                if transfer.references(current) {
-                    std::sync::Arc::make_mut(transfer).retire_dependencies(current);
+                if transfer.references(current, retirement) {
+                    std::sync::Arc::make_mut(transfer).retire_dependencies(current, retirement);
                 }
             }
         }
@@ -721,7 +731,7 @@ impl State {
             self.returned_inputs.entry((reference.clone(), true)).or_default().merge(&bounds);
         }
 
-        let values = take_subtree(&mut self.values, current).collect::<Vec<_>>();
+        let values = take_subtree(&mut self.values, current, retirement).collect::<Vec<_>>();
 
         for (target, mut value) in values {
             if let Some(references) = &mut value.references {
@@ -739,7 +749,7 @@ impl State {
                 .merge(&value);
         }
 
-        let contents = take_subtree(&mut self.contents, current).collect::<Vec<_>>();
+        let contents = take_subtree(&mut self.contents, current, retirement).collect::<Vec<_>>();
 
         for (target, mut contents) in contents {
             // Older instances share a summary target, so no definite contents survive.
@@ -758,7 +768,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn begin(&mut self, identity: StorageIdentityId) {
-        // Retire a storage incarnation once, including all its addressed fields and payloads.
+        // Descriptor storage ends independently of separately allocated backing.
         self.retire(&Target::storage(Place::root(identity)));
     }
 }

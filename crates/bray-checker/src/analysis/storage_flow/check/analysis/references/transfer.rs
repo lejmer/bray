@@ -182,7 +182,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // with the result so source lifetime retirement cannot erase it.
             for (path, reason) in &state.definitely_absent {
                 if *reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload
-                    && result.contains(path)
+                    && result.contains_storage(path)
                 {
                     self.stage_absent_references(&mut state.memory, (*target).into(), path);
                 }
@@ -979,7 +979,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .into_iter()
                     .flat_map(|paths| paths.iter())
                     .filter(|(path, _)| path.projections.is_empty() || !state.definitely_absent.iter().any(|(absent, reason)| {
-                        *reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload && absent.contains(path)
+                        *reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload && absent.contains_storage(path)
                     }))
                     .map(|(path, ty)| (path.clone(), *ty))
                     .chain(root.filter(|(path, _)| {

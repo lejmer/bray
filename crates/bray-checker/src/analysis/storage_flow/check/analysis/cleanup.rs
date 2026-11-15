@@ -432,7 +432,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .lifecycle_paths
                     .get(&(call.lifecycle.call.callable, subject.clone()))?;
 
-                self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), path, None)
+                self.cleanup_subject_locations(memory, &receiver, subject, Some(path))
             };
 
             let Some(destinations) = location(relation.exit()) else {
@@ -489,13 +489,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let effects = self.input.buffer_cleanup_effects.get(&ty)?;
 
         Some(self.resolve_effects(effects, |subject, indirect| {
-            let locations = if let Some(location) = self.static_location(subject) {
-                vec![location]
-            } else {
-                let path = self.input.buffer_cleanup_paths.get(&(ty, subject.clone()))?;
-
-                self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), path, None)?
-            };
+            let path = self.input.buffer_cleanup_paths.get(&(ty, subject.clone()));
+            let locations = self.cleanup_subject_locations(memory, receiver, subject, path)?;
 
             if indirect {
                 locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
@@ -523,6 +518,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .reference_target(self.request.semantic_values(), memory, self.storage, access)?
                 .project(&path.projections[base.projections.len()..]),
         )
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn cleanup_subject_locations(
+        &self,
+        memory: &State,
+        receiver: &Target,
+        subject: &bray_symbols::DependencySubject,
+        path: Option<&bray_bound_tree::StorageReferencePath>,
+    ) -> Option<Vec<Target>> {
+        let start = if subject.subject_root() == DependencySubjectRoot::Receiver {
+            receiver.clone()
+        } else {
+            self.static_location(&bray_symbols::DependencySubject::root(subject.subject_root()))?
+        };
+
+        if let Some(path) = path {
+            self.input.reference_locations(self.request.semantic_values(), memory, start, path, None)
+        } else {
+            subject.projections().is_empty().then_some(vec![start])
+        }
     }
 
     fn cleanup_observations(
@@ -657,30 +672,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         Some(
             self.resolve_effects(contracts.effects(), |subject, indirect| {
-                if let Some(location) = self.static_location(subject) {
-                    return if indirect {
-                        memory.referenced_regions(&location)
-                    } else {
-                        Some(vec![location])
-                    };
-                }
-
-                if subject.subject_root() != DependencySubjectRoot::Receiver {
-                    return None;
-                }
-
                 let receiver = self.cleanup_receiver(memory, access, path)?;
-
-                if subject.projections().is_empty() {
-                    return Some(vec![receiver]);
-                }
-
-                let (_, prepared) = self
+                let prepared = self
                     .input
                     .lifecycle_paths
-                    .get(&(lifecycle.call.callable, subject.clone()))?;
-
-                let locations = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), prepared, None)?;
+                    .get(&(lifecycle.call.callable, subject.clone())).map(|(_, path)| path);
+                let locations = self.cleanup_subject_locations(memory, &receiver, subject, prepared)?;
 
                 if indirect {
                     locations.into_iter().try_fold(Vec::new(), |mut targets, location| {

@@ -3,6 +3,23 @@ use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{DependencyProjection, TypeData, TypeId};
 
+pub(crate) fn static_subject_type<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    root: bray_symbols::DependencySubjectRoot,
+) -> crate::CheckerQueryResult<Option<TypeId>, C::UpstreamError> {
+    let (bray_symbols::DependencySubjectRoot::ProductStatic(declaration)
+    | bray_symbols::DependencySubjectRoot::ExactThreadStatic(declaration)) = root else {
+        return Ok(None);
+    };
+
+    let declared = request.context().storage_declaration_type(declaration.into())?;
+    let constants = request.checked_constant_terms(declared.value())?;
+
+    Ok(crate::constant::resolve_type_expression_template(
+        request.semantic_values(), declared.value(), constants.value(),
+    ))
+}
+
 /// Selects a pattern component relative to its already evaluated expression.
 pub(crate) fn expression_storage_projections(
     storage: &bray_bound_tree::StoragePlan,
@@ -170,7 +187,7 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
             };
 
             let queried = member
-                .map(|member| request.context().storage_member_type(member))
+                .map(|member| request.context().storage_declaration_type(member))
                 .transpose()?;
 
             let template = queried.as_ref().map(|queried| {
@@ -505,6 +522,7 @@ pub(crate) fn dependency_projection(
         StorageProjection::OwnedTarget => Some(DependencyProjection::OwnedTarget),
         StorageProjection::UninitPayload => Some(DependencyProjection::UninitPayload),
         StorageProjection::AddressTarget => Some(DependencyProjection::AddressTarget),
+        StorageProjection::AnyElement => Some(DependencyProjection::AnyElement),
         _ => None,
     }
 }

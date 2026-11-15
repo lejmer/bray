@@ -115,8 +115,12 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
 
     let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, "dispose");
 
-    assert!(summary.effects().iter().any(|effect| matches!(effect,
-        bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Retire, .. })),
+    assert!(summary.effects().iter().any(|effect| match effect {
+        bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Retire, .. } => true,
+        bray_symbols::DependencyStorageEffect::Direct { subject, kind: bray_symbols::DependencyMutationKind::Retire, .. } =>
+            subject.projections().contains(&bray_symbols::DependencyProjection::OwnedTarget),
+        _ => false,
+    }),
         "nested cleanup must publish actual retirement: {summary:#?}");
     assert!(!summary.effects().iter().any(|effect| matches!(effect,
         bray_symbols::DependencyStorageEffect::Unknown | bray_symbols::DependencyStorageEffect::UnboundedMutation { .. })),

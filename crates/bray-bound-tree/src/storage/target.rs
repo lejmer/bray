@@ -433,6 +433,12 @@ impl StorageTarget {
         }
     }
 
+    /// Whether this target contains physical storage in the same allocation and epoch.
+    pub fn contains_storage(&self, other: &Self) -> bool {
+        self.contains(other)
+            && StorageProjection::remains_in_allocation(&other.projections()[self.projections().len()..])
+    }
+
     /// Derives components while preserving the original reference identity and epoch.
     pub fn project(&self, projections: &[StorageProjection]) -> Self {
         let append =
@@ -717,6 +723,11 @@ mod tests {
 
                 assert_eq!(region, header.project(&[StorageProjection::OwnedTarget]));
                 assert_eq!(region.previous, previous);
+                assert!(header.contains(&payload));
+                assert!(!header.contains_storage(&payload));
+                assert!(region.contains_storage(&payload));
+                assert!(header.contains_storage(&header.project(&[StorageProjection::UninitPayload])));
+                assert!(!header.contains_storage(&StorageTarget { previous: !previous, ..header.clone() }));
 
                 assert_eq!(
                     region.relationship(&header),

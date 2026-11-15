@@ -27,6 +27,12 @@ impl StoragePath {
         self.root == other.root && other.projections.starts_with(&self.projections)
     }
 
+    /// Whether this path contains the other slot without crossing an owned allocation boundary.
+    pub fn contains_storage(&self, other: &Self) -> bool {
+        self.contains(other)
+            && StorageProjection::remains_in_allocation(&other.projections[self.projections.len()..])
+    }
+
     /// Compares value slots without following references held in those slots.
     pub fn relationship(&self, other: &Self) -> StorageRelationship {
         if self.root != other.root {

@@ -452,8 +452,19 @@ impl Plan {
             &mut diagnostics,
         )?;
 
+        let future_results = expressions.selections().entries().iter().filter_map(|entry| {
+            let bray_bound_tree::SemanticSelection::Call(call) = entry.selection() else {
+                return None;
+            };
+
+            match call.resolution().result() {
+                bray_bound_tree::BoundCallResult::LazyFuture(future) => Some(future.completion_type()),
+                bray_bound_tree::BoundCallResult::Immediate(_) => None,
+            }
+        });
+
         prepared.cleanup_callees = crate::dependency::cleanup_callees(request,
-            types.iter().copied().chain(prepared.opaque_types()).chain(input_parts.keys().copied()))?;
+            types.iter().copied().chain(prepared.opaque_types()).chain(input_parts.keys().copied()).chain(future_results))?;
 
         prepared.prepare_lifecycles(request, types, &mut diagnostics)?;
         prepared.cleanup_callees.extend(prepared.lifecycles.values()

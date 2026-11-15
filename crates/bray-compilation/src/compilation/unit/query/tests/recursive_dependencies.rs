@@ -3,6 +3,39 @@ use bray_diagnostics::DiagnosticKind;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn lazy_result_cleanup_participates_in_recursive_summary_discovery() {
+    let compilation = compilation(r#"
+        module app;
+
+        struct Resource
+        {
+            destruct()
+            {
+                let pending = create();
+            }
+        }
+
+        async func create() -> Resource
+        {
+            return Resource {};
+        }
+
+        func caller()
+        {
+            let pending = create();
+        }
+    "#);
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "caller"))
+        .expect("lazy result cleanup has a closed source-summary component");
+
+    assert!(!lowered.diagnostics().has_errors(), "{:#?}", lowered.diagnostics());
+}
+
+#[test]
 fn abstract_trait_results_converge_through_recursive_defaults() {
     let compilation = compilation(
         r#"

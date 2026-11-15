@@ -186,7 +186,10 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
             };
 
             let Some(access) = access else {
-                return Ok(None);
+                return match crate::storage::static_subject_type(request, subject.subject_root())? {
+                    Some(ty) => super::references::reference_subject_path(request, subject, ty),
+                    None => Ok(None),
+                };
             };
 
             let ty = storage

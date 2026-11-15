@@ -299,7 +299,11 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                         )
                     });
 
-                if let Some((path, target)) = reference {
+                // Owning elements have separate storage. Whole-value reference
+                // publication covers the descriptor's physical fields.
+                if let Some((path, target)) = reference
+                    && bray_bound_tree::StorageProjection::remains_in_allocation(&path.projections)
+                {
                     self.value_references
                         .entry(identity)
                         .or_default()

@@ -381,6 +381,11 @@ pub enum StorageProjection {
 }
 
 impl StorageProjection {
+    /// Whether these relative projections stay in one allocation, including protected inline storage.
+    pub fn remains_in_allocation(projections: &[Self]) -> bool {
+        !projections.contains(&Self::OwnedTarget)
+    }
+
     /// Whether this selector identifies one component independently of evaluation.
     pub const fn is_exact(self) -> bool {
         !matches!(self, Self::Element(_) | Self::AnyElement | Self::SliceRange { .. })

@@ -12,7 +12,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 .get(&payload.root)
                 .into_iter()
                 .flat_map(|paths| paths.keys())
-                .filter(move |path| *path != payload && payload.contains(path))
+                .filter(move |path| *path != payload && payload.contains_storage(path))
                 .cloned(),
         )
     }

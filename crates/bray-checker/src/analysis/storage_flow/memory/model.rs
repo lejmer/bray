@@ -8,6 +8,31 @@ pub(in crate::analysis::storage_flow) use bray_bound_tree::{
     StorageOrigin as Origin, StoragePath as Place, StorageTarget as Target,
 };
 
+#[derive(Clone, Copy)]
+pub(super) enum Retirement {
+    Storage,
+    Producer,
+}
+
+impl Retirement {
+    pub(super) fn for_payload(target: &Target) -> Self {
+        if target.projections().is_empty()
+            && matches!(target.origin, Origin::Returned { .. } | Origin::Allocation { .. })
+        {
+            Self::Producer
+        } else {
+            Self::Storage
+        }
+    }
+
+    pub(super) fn contains(self, current: &Target, target: &Target) -> bool {
+        match self {
+            Self::Storage => current.contains_storage(target),
+            Self::Producer => current.contains(target),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::analysis::storage_flow) enum Effect {
     Unknown,
@@ -52,9 +77,9 @@ impl Effect {
         )
     }
 
-    pub(super) fn retire(&mut self, current: &Target) {
+    pub(super) fn retire(&mut self, current: &Target, retirement: Retirement) {
         if let Self::Mutation(target, _, _) = self
-            && current.contains(target)
+            && retirement.contains(current, target)
         {
             target.previous = true;
         }
@@ -196,11 +221,12 @@ impl References {
             || self.inexact != inexact
     }
 
-    pub(super) fn retire(&mut self, current: &Target) {
+    pub(super) fn retire(&mut self, current: &Target, retirement: Retirement) {
         let targets = self
             .targets
             .range(current.clone()..)
             .take_while(|target| current.contains(target))
+            .filter(|target| retirement.contains(current, target))
             .cloned()
             .collect::<Vec<_>>();
 
@@ -297,20 +323,20 @@ pub(in crate::analysis::storage_flow) struct CapturedEffects {
 }
 
 impl CapturedEffects {
-    pub(super) fn references(&self, current: &Target) -> bool {
-        self.escaped.iter().any(|target| current.contains(target))
+    pub(super) fn references(&self, current: &Target, retirement: Retirement) -> bool {
+        self.escaped.iter().any(|target| retirement.contains(current, target))
             || self.mutations.iter().any(
-                |effect| matches!(effect, Effect::Mutation(target, _, _) if current.contains(target)),
+                |effect| matches!(effect, Effect::Mutation(target, _, _) if retirement.contains(current, target)),
             )
     }
 
-    pub(super) fn retire(&mut self, current: &Target) {
+    pub(super) fn retire(&mut self, current: &Target, retirement: Retirement) {
         for effect in &mut self.mutations {
-            effect.retire(current);
+            effect.retire(current, retirement);
         }
 
         for target in &mut self.escaped {
-            if current.contains(target) {
+            if retirement.contains(current, target) {
                 target.previous = true;
             }
         }
@@ -441,7 +467,7 @@ impl State {
         let no_payload = |absence: &BTreeMap<Place, StorageAbsence>, slot: &Target| {
             slot.storage_path().is_some_and(|slot| {
                 absence.iter().any(|(path, reason)| {
-                    *reason == StorageAbsence::NoPayload && path.contains(slot)
+                    *reason == StorageAbsence::NoPayload && path.contains_storage(slot)
                 })
             })
         };
@@ -687,15 +713,15 @@ impl ReferenceExit {
         merge_stored(
             &mut self.stored,
             &incoming.stored,
-            |target| target.storage_path().is_some_and(|slot| self.absent.iter().any(|path| path.contains(slot))),
-            |target| target.storage_path().is_some_and(|slot| incoming.absent.iter().any(|path| path.contains(slot))),
+            |target| target.storage_path().is_some_and(|slot| self.absent.iter().any(|path| path.contains_storage(slot))),
+            |target| target.storage_path().is_some_and(|slot| incoming.absent.iter().any(|path| path.contains_storage(slot))),
         );
 
         merge_stored(
             &mut self.slots,
             &incoming.slots,
-            |slot| self.absent.iter().any(|path| path.contains(slot)),
-            |slot| incoming.absent.iter().any(|path| path.contains(slot)),
+            |slot| self.absent.iter().any(|path| path.contains_storage(slot)),
+            |slot| incoming.absent.iter().any(|path| path.contains_storage(slot)),
         );
 
         self.input_regions

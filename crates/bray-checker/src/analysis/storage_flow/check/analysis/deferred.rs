@@ -28,8 +28,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let captures = self.capture_opaque_effects(state, invocation, self.call_effects(state, invocation, captures), &roots, &private, &output);
 
         let result = self.resolve_effects(result, |subject, indirect| {
-            let locations = if let Some(target) = self.static_location(subject) {
-                vec![target]
+            let locations = if matches!(subject.subject_root(), DependencySubjectRoot::ProductStatic(_) | DependencySubjectRoot::ExactThreadStatic(_)) {
+                self.invocation_locations(state, invocation, subject)?
             } else {
                 if subject.subject_root() != DependencySubjectRoot::Result {
                     return None;
@@ -72,13 +72,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for effect in effects {
             match effect {
                 Effect::Mutation(target, Kind::Dispose(ty), _) => {
-                    let (mut regions, unknown) = if output.contains(&target) {
+                    let (mut regions, unknown) = if output.contains_storage(&target) {
                         state.memory.staged_contained_regions(invocation, &target)
                     } else {
                         let mut regions = std::collections::BTreeSet::new();
                         let mut unknown = false;
 
-                        for (_, targets, opaque) in state.memory.observed_references().filter(|(slot, _, _)| target.contains(slot)) {
+                        for (_, targets, opaque) in state.memory.observed_references().filter(|(slot, _, _)| target.contains_storage(slot)) {
                             regions.extend(targets.iter().cloned());
                             unknown |= opaque;
                         }
@@ -92,7 +92,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         regions.extend(captures.iter().cloned());
                     }
 
-                    if !private.iter().any(|root| root.contains(&target)) {
+                    if !private.iter().any(|root| root.contains_storage(&target)) {
                         regions.insert(target);
                     }
 

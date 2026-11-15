@@ -956,6 +956,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             },
         };
 
+        if subject.projections().iter().any(|projection| matches!(projection,
+            bray_symbols::DependencyProjection::OwnedTarget | bray_symbols::DependencyProjection::AddressTarget)) {
+            return None;
+        }
+
         // A selector unknown to the caller widens only within this static.
         let projections = crate::storage::storage_projections(
             self.request.semantic_values(), self.dependencies, subject.projections(),

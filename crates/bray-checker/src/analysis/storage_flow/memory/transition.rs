@@ -1,7 +1,7 @@
 use super::Source;
-use super::model::{Origin, Place, References, State, Target, Transfer};
+use super::model::{Place, References, State, Target, Transfer};
 use bray_bound_tree::{
-    BoundExpressionId, MemoryOperationStatus, MemoryReadKind, StorageIdentityId,
+    BoundExpressionId, MemoryOperationStatus, MemoryReadKind,
 };
 use bray_symbols::TypeId;
 
@@ -28,9 +28,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn consume_target(&mut self, target: Target, ty: TypeId) {
-        if target
-            .storage_path()
-            .is_some_and(|place| !self.has_addressed_storage(place.root))
+        if target.storage_path().is_some() && !self.has_addressed_storage(&target)
         {
             return;
         }
@@ -45,9 +43,7 @@ impl State {
         origin: BoundExpressionId,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) {
-        if target
-            .storage_path()
-            .is_some_and(|place| !self.has_addressed_storage(place.root))
+        if target.storage_path().is_some() && !self.has_addressed_storage(&target)
         {
             return;
         }
@@ -60,19 +56,12 @@ impl State {
         self.consume_target(Target::storage(place), ty);
     }
 
-    fn has_addressed_storage(&self, root: StorageIdentityId) -> bool {
-        if self.contents.is_empty() {
-            return false;
-        }
+    pub(in crate::analysis::storage_flow::memory) fn has_addressed_storage(&self, target: &Target) -> bool {
+        let region = super::references::exposure_region(target);
 
-        let start = Target {
-            origin: Origin::Storage(Place::root(root)),
-            previous: false,
-        };
-
-        self.contents.range(start..).next().is_some_and(
-            |(target, _)| matches!(&target.origin, Origin::Storage(place) if place.root == root),
-        )
+        self.contents.range(region.clone()..)
+            .take_while(|(target, _)| region.contains(target))
+            .any(|(target, _)| region.contains_storage(target))
     }
 
     #[cfg(test)]
@@ -361,7 +350,7 @@ impl State {
             if let Some(contents) = self.contents.get_mut(target) {
                 if exact
                     && references.targets.iter().any(|source| {
-                        source.contains(target)
+                        source.contains_storage(target)
                             && target.projections()[source.projections().len()..]
                                 .contains(&bray_bound_tree::StorageProjection::UninitPayload)
                     })
@@ -379,7 +368,7 @@ impl State {
                     && references
                         .targets
                         .iter()
-                        .any(|source| source.contains(target))
+                        .any(|source| source.contains_storage(target))
                 {
                     if references.targets.contains(target) {
                         contents.pending.remove(&ty);

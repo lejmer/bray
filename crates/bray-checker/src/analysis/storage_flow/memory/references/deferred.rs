@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bray_bound_tree::{BoundExecutionSite, StoragePath};
 
-use super::super::model::{Effect, Origin, State, Target, Transfer};
+use super::super::model::{Effect, Origin, Retirement, State, Target, Transfer};
 use super::Source;
 
 pub(in crate::analysis::storage_flow::memory) type DeferredTransitions =
@@ -93,6 +93,7 @@ impl State {
 
             for (slot, entries) in self.deferred.range(source.clone()..)
                 .take_while(|(slot, _)| source.contains(slot))
+                .filter(|(slot, _)| source.contains_storage(slot))
             {
                 let target = destination.project(&slot.projections()[source.projections().len()..]);
 
@@ -132,7 +133,7 @@ impl State {
         self.deferred
             .keys()
             .filter_map(Target::observation_path)
-            .filter(move |path| root.contains(path))
+            .filter(move |path| root.contains_storage(path))
             .filter(move |path| self.unexposed_storage(std::slice::from_ref(path), []).next().is_some())
     }
 
@@ -276,86 +277,69 @@ impl State {
 
 impl Transfer {
     fn relocate(&mut self, source: &Target, destination: &Target) {
-        let relocate = |target: Target| {
-            if source.contains(&target) {
-                destination.project(&target.projections()[source.projections().len()..])
-            } else if let Origin::Returned {
-                reference,
-                projections,
-            } = &target.origin
-                && let Some(path) = source.storage_path()
-                && path.contains(reference)
-                && let Some(destination) = destination.storage_path()
-            {
-                Target {
-                    origin: Origin::Returned {
-                        reference: StoragePath {
-                            root: destination.root,
-                            projections: destination
-                                .projections
-                                .iter()
-                                .copied()
-                                .chain(
-                                    reference.projections[path.projections.len()..]
-                                        .iter()
-                                        .copied(),
-                                )
-                                .collect(),
-                        },
-                        projections: Arc::clone(projections),
-                    },
-                    previous: target.previous,
-                }
-            } else {
-                target
+        let produced = self.payloads.keys().filter(|target| matches!(Retirement::for_payload(target), Retirement::Producer))
+            .cloned().collect::<Vec<_>>();
+
+        let relocate_path = |path: StoragePath| {
+            let Some(prefix) = source.storage_path().filter(|prefix| prefix.contains(&path)) else {
+                return path;
+            };
+            let destination = destination.storage_path().expect("deferred output keeps storage coordinates");
+
+            StoragePath {
+                root: destination.root,
+                projections: destination.projections.iter().copied()
+                    .chain(path.projections[prefix.projections.len()..].iter().copied()).collect(),
             }
         };
 
-        self.values = std::mem::take(&mut self.values)
-            .into_iter()
-            .map(|(slot, mut value)| {
-                if let Some(references) = &mut value.references {
-                    references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate).collect();
+        let relocate_referent = |mut target: Target| {
+            if produced.iter().any(|root| root.contains(&target)) {
+                match &mut target.origin {
+                    Origin::Returned { reference, .. } => *reference = relocate_path(reference.clone()),
+                    Origin::Allocation { allocation, .. } => *allocation = relocate_path(allocation.clone()),
+                    _ => unreachable!("produced referents retain their returned or allocation origin"),
                 }
+            }
 
-                (relocate(slot), value)
-            })
-            .collect();
+            target
+        };
 
-        for references in self.inputs.values_mut().filter_map(|value| value.references.as_mut()).chain(self.returned_inputs.values_mut()) {
-            references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate).collect();
+        let relocate_slot = |target: Target| {
+            if source.contains_storage(&target) {
+                Target { previous: target.previous,
+                    ..destination.project(&target.projections()[source.projections().len()..]) }
+            } else {
+                relocate_referent(target)
+            }
+        };
+
+        self.values = std::mem::take(&mut self.values).into_iter().map(|(slot, mut value)| {
+            if let Some(references) = &mut value.references {
+                references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate_referent).collect();
+            }
+
+            (relocate_slot(slot), value)
+        }).collect();
+
+        // Captured inputs and conservative storage bounds name existing physical
+        // regions. Only positively identified pending referents change namespace.
+        for references in self.returned_inputs.values_mut() {
+            references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate_referent).collect();
         }
 
-        self.payloads = std::mem::take(&mut self.payloads)
-            .into_iter()
-            .map(|(slot, contents)| (relocate(slot), contents))
-            .collect();
-
-        self.returned_inputs = std::mem::take(&mut self.returned_inputs)
-            .into_iter()
-            .map(|(slot, references)| {
-                let slot = relocate(Target::storage(slot))
-                    .storage_path()
-                    .expect("relocated returned bounds keep their storage slot")
-                    .clone();
-
-                (slot, references)
-            })
-            .collect();
-
-        self.deferred = std::mem::take(&mut self.deferred)
-            .into_iter()
-            .map(|(slot, entries)| {
-                let target = relocate(slot.clone());
-
-                (target, entries)
-            })
-            .collect();
+        self.payloads = std::mem::take(&mut self.payloads).into_iter()
+            .map(|(slot, contents)| (relocate_slot(slot), contents)).collect();
+        self.returned_inputs = std::mem::take(&mut self.returned_inputs).into_iter()
+            .map(|(slot, references)| (relocate_path(slot), references)).collect();
+        self.deferred = std::mem::take(&mut self.deferred).into_iter()
+            .map(|(slot, entries)| (relocate_slot(slot), entries)).collect();
     }
+
 }
 
 impl Transfer {
-    pub(in crate::analysis::storage_flow::memory) fn references(&self, current: &Target) -> bool {
+    pub(in crate::analysis::storage_flow::memory) fn references(&self, current: &Target, retirement: Retirement) -> bool {
         self.values
             .values()
             .chain(self.inputs.values())
@@ -365,27 +349,28 @@ impl Transfer {
                 references
                     .targets
                     .iter()
-                    .any(|target| current.contains(target))
+                    .any(|target| retirement.contains(current, target))
             })
             || [&self.deferred_effects, &self.captured_cleanup, &self.result_cleanup].into_iter().flatten().flatten().any(|effect| {
                 effect
                     .mutation()
-                    .is_some_and(|(target, _)| current.contains(target))
+                    .is_some_and(|(target, _)| retirement.contains(current, target))
             })
             || self
                 .failure_effects
                 .as_ref()
-                .is_some_and(|effects| effects.references(current))
+                .is_some_and(|effects| effects.references(current, retirement))
             || self
                 .deferred
                 .values()
                 .flat_map(|entries| entries.values())
-                .any(|transfer| transfer.references(current))
+                .any(|transfer| transfer.references(current, retirement))
     }
 
     pub(in crate::analysis::storage_flow::memory) fn retire_dependencies(
         &mut self,
         current: &Target,
+        retirement: Retirement,
     ) {
         for references in self
             .values
@@ -394,14 +379,14 @@ impl Transfer {
             .filter_map(|value| value.references.as_mut())
             .chain(self.returned_inputs.values_mut())
         {
-            references.retire(current);
+            references.retire(current, retirement);
         }
 
         for effects in [&mut self.deferred_effects, &mut self.captured_cleanup, &mut self.result_cleanup].into_iter().flatten() {
             *effects = std::mem::take(effects)
                 .into_iter()
                 .map(|mut effect| {
-                    effect.retire(current);
+                    effect.retire(current, retirement);
 
                     effect
                 })
@@ -409,15 +394,15 @@ impl Transfer {
         }
 
         if let Some(effects) = &mut self.failure_effects
-            && effects.references(current)
+            && effects.references(current, retirement)
         {
-            Arc::make_mut(effects).retire(current);
+            Arc::make_mut(effects).retire(current, retirement);
         }
 
         for entries in self.deferred.values_mut() {
             for transfer in entries.values_mut() {
-                if transfer.references(current) {
-                    Arc::make_mut(transfer).retire_dependencies(current);
+                if transfer.references(current, retirement) {
+                    Arc::make_mut(transfer).retire_dependencies(current, retirement);
                 }
             }
         }

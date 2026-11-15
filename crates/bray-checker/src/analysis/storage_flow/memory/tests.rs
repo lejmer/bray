@@ -1,5 +1,5 @@
 use super::{Effect, Origin, Place, State, Target};
-use super::model::References;
+use super::model::{References, Retirement};
 use crate::test_support::{
     TestCheckerContext, array_type, callable_entry, error_type, expression_unit, push_expression,
     semantic_values, tuple_type,
@@ -2450,7 +2450,7 @@ fn memory_writes_capture_formed_borrows_and_reads_transfer_the_whole_value() {
 
 #[test]
 fn ending_inline_storage_lifetime_expires_its_exposed_payload_address() {
-    let ([owner, pointer, _, _], origins) = places();
+    let ([owner, pointer, referent, _], origins) = places();
 
     let mut state = State::default();
 
@@ -2460,6 +2460,11 @@ fn ending_inline_storage_lifetime_expires_its_exposed_payload_address() {
     state.uninit(payload.clone(), error_type());
     state.write_value(payload.clone(), error_type(), origins[0], None);
 
+    let field = payload.project(&[BUFFER_POINTER]);
+    let referent = Target::storage(referent);
+
+    state.values.insert(field.clone(), References::one(referent.clone()).into());
+
     state.point_at(
         payload,
         pointer.clone(),
@@ -2468,12 +2473,15 @@ fn ending_inline_storage_lifetime_expires_its_exposed_payload_address() {
     );
 
     state.forget(owner.root);
+    state.retain_live(&BTreeSet::from([pointer.root]));
 
     assert!(state.initialized(&Target::storage(pointer.clone()), error_type()));
+    assert_eq!(state.value_targets(&field), Some(vec![referent]), "the surviving aggregate address retains its stored pointer fields");
 
     state.end_storage(|identity| identity == owner.root);
 
     assert!(!state.initialized(&Target::storage(pointer.clone()), error_type()));
+    assert!(state.value_targets(&field).is_none(), "physical storage end still expires the old field");
 }
 
 #[test]
@@ -2904,6 +2912,47 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
         state.target_relationship(&unrelated, &regions[0]),
         bray_bound_tree::StorageRelationship::PotentiallyOverlapping
     );
+}
+
+#[test]
+fn nested_backing_survives_descriptor_moves_and_pruning() {
+    let ([owner, moved, alias, ..], _) = places();
+    let mut state = State::default();
+    let descriptor = Target::storage(owner.clone());
+
+    state.declare_owned_buffer(descriptor.clone(), descriptor.project(&[BUFFER_POINTER]), error_type());
+
+    let outer = state.owned_regions(&descriptor, BUFFER_POINTER).unwrap().remove(0);
+    let element = outer.project(&[StorageProjection::AnyElement]);
+
+    state.declare_owned_buffer(element.clone(), element.project(&[BUFFER_POINTER]), error_type());
+
+    let inner = state.owned_regions(&element, BUFFER_POINTER).unwrap().remove(0);
+
+    state.contents.get_mut(&inner).unwrap().initialized.insert(error_type());
+    state.values.insert(Target::storage(alias.clone()), References::one(inner.clone()).into());
+    state.transfer_value(&descriptor, moved.clone());
+    state.forget(owner.root);
+    state.retain_live(&BTreeSet::from([moved.root, alias.root]));
+    state.end_storage(|identity| identity == owner.root);
+
+    assert!(!state.values.contains_key(&descriptor.project(&[BUFFER_POINTER])), "backing records alone do not retain their descriptor");
+    assert_eq!(state.owned_regions(&Target::storage(moved), BUFFER_POINTER), Some(vec![outer.clone()]));
+    assert_eq!(state.owned_regions(&element, BUFFER_POINTER), Some(vec![inner.clone()]));
+    assert!(state.contents[&inner].initialized.contains(&error_type()), "descriptor storage end must preserve the moved allocation facts");
+    assert!(!state.initialized_targets(&References::one(inner.clone()), error_type()),
+        "a dynamic element's region must remain inexact");
+
+    state.retire_region(&outer, Retirement::Storage);
+
+    assert!(state.contents[&inner].initialized.contains(&error_type()), "retiring an element descriptor does not free its owned allocation");
+    assert_eq!(state.referenced_regions(&Target::storage(alias.clone())), Some(vec![inner.clone()]));
+
+    state.retire_region(&inner, Retirement::Storage);
+
+    assert!(state.contents.get(&inner).is_none_or(|contents| !contents.initialized.contains(&error_type())));
+    assert!(state.referenced_regions(&Target::storage(alias)).unwrap().iter().all(|target| target.previous),
+        "actual backing retirement must invalidate saved aliases");
 }
 
 #[test]
@@ -4768,36 +4817,45 @@ fn input_exclusivity_follows_mutable_ownership_and_preserves_shared_aliases() {
 #[test]
 fn deferred_input_references_survive_frame_moves_without_following_replaced_input_slots() {
     let ([input, frame, payload, moved], expressions) = places();
-
     let producer = expressions[0].into();
     let movement = expressions[1].into();
     let completion = expressions[2].into();
-    let mut state = State::default();
     let root = Target::storage(input.clone());
-    let target = Target::storage(payload.clone());
     let path = bray_bound_tree::StorageReferencePath::new([].into(), [].into());
 
-    state.point_at(target.clone(), input.clone(), error_type(), bray_symbols::DependencyReferenceKind::Borrow);
-    state.begin_transition(producer);
-    state.capture_reference_inputs(producer, [root.clone()]);
-    state.capture_deferred_transition(producer, frame.clone());
-    state.clear(&input);
-    state.point_at(Target::storage(moved.clone()), input, error_type(), bray_symbols::DependencyReferenceKind::Borrow);
-    state.begin_transition(movement);
-    state.stage_slot(movement, &frame, moved.clone());
-    state.clear(&frame);
-    state.complete_transition(movement);
+    for target in [
+        Target::storage(payload.clone()),
+        Target::storage(frame.clone()).project(&[StorageProjection::OwnedTarget]),
+        Target {
+            previous: false,
+            origin: Origin::Returned { reference: frame.clone(), projections: [].into() },
+        },
+    ] {
+        let mut state = State::default();
 
-    assert!(state.prepare_deferred_completion(completion,
-        &super::Source::Value(Target::storage(moved)), frame.clone(), [(producer, frame)]));
+        state.point_at(target.clone(), input.clone(), error_type(), bray_symbols::DependencyReferenceKind::Borrow);
+        state.begin_transition(producer);
+        state.capture_reference_inputs(producer, [root.clone()]);
+        state.capture_deferred_transition(producer, frame.clone());
+        state.clear(&input);
+        state.point_at(Target::storage(moved.clone()), input.clone(), error_type(), bray_symbols::DependencyReferenceKind::Borrow);
+        state.begin_transition(movement);
+        state.stage_slot(movement, &frame, moved.clone());
+        state.clear(&frame);
+        state.complete_transition(movement);
 
-    assert_eq!(state.captured_input_target(completion, crate::test_support::semantic_values(), &root, &path), Some(target));
+        assert!(state.prepare_deferred_completion(completion,
+            &super::Source::Value(Target::storage(moved.clone())), payload.clone(), [(producer, frame.clone())]));
 
-    state.begin(payload.root);
+        assert_eq!(state.captured_input_target(completion, semantic_values(), &root, &path), Some(target.clone()),
+            "output instantiation must preserve the captured physical input");
 
-    let retired = state.captured_input_target(completion, crate::test_support::semantic_values(), &root, &path);
+        state.retire_region(&target, Retirement::Storage);
 
-    assert!(retired.is_none_or(|target| target.previous), "retired referents cannot become current input observations");
+        let retired = state.captured_input_target(completion, semantic_values(), &root, &path);
+
+        assert!(retired.is_none_or(|target| target.previous), "retired referents cannot become current input observations");
+    }
 }
 
 #[test]
@@ -5097,6 +5155,22 @@ fn produced_owned_buffer_bounds_survive_transport_without_publishing_early() {
 
     assert_eq!(state.target_relationship(&pointer, &Target::storage(exposed.clone())), bray_bound_tree::StorageRelationship::Disjoint);
     assert!(!state.initialized(&pointer, error_type()), "an owned bound supplies no initialization proof");
+
+    let nested = pointer.project(&[StorageProjection::AnyElement]);
+
+    state.declare_owned_buffer(nested.clone(), nested.project(&[BUFFER_POINTER]), error_type());
+
+    let backing = state.owned_regions(&nested, BUFFER_POINTER).unwrap().remove(0);
+    let produced_pointer = Place { root: owner.root, projections: [BUFFER_POINTER].into() };
+
+    state.stage_owned_buffer_reference(call, Target::storage(owner), Target::storage(produced_pointer.clone()), produced_pointer.clone(), error_type());
+    state.complete_transition(call);
+
+    assert!(state.referenced_regions(&Target::storage(Place { root: moved.root, projections: [BUFFER_POINTER].into() }))
+        .unwrap().iter().all(|target| target.previous), "a repeated producer cannot revive its previous result");
+    assert!(state.contents.contains_key(&Target { previous: true, ..backing }),
+        "producer publication advances prior nested backing coordinates too");
+    assert!(state.referenced_regions(&Target::storage(produced_pointer)).unwrap().iter().all(|target| !target.previous));
 
     state.stage_returned_reference(call, Target::storage(raw.clone()), raw.clone(), error_type(), []);
     state.complete_transition(call);

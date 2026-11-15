@@ -14,6 +14,7 @@ pub use projection::projected_storage_type;
 pub(crate) use projection::{
     dependency_projection, dependency_projections, expression_storage_projections, nullable_wrapping, owned_storage_projections, projected_value_type, projected_owned_type,
     reference_path, unadapted_projections, resolve_owned_storage_preservation, resolve_owned_storage_projections, resolve_storage_projections, storage_projections,
+    static_subject_type,
 };
 pub(crate) use protocol::selected_storage_protocol_call;
 pub(crate) use scope::{

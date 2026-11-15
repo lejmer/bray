@@ -77,6 +77,7 @@ impl State {
 
         self.contents.range(root.clone()..)
             .take_while(|(candidate, _)| root.contains(candidate))
+            .filter(|(candidate, _)| root.contains_storage(candidate))
             .any(|(_, contents)| contents.exposed || contents.escaped)
     }
 
@@ -340,7 +341,7 @@ impl State {
         let staged = self.pending.get(&invocation)?;
 
         self.reference_location_in(values, start.clone(), path, None, |target| {
-            staged.values.get(target).or_else(|| (!root.contains(target)).then(|| self.values.get(target)).flatten())
+            staged.values.get(target).or_else(|| (!root.contains_storage(target)).then(|| self.values.get(target)).flatten())
                 .and_then(|value| value.references.as_ref())
         })
     }
@@ -355,7 +356,7 @@ impl State {
         let captured = &self.pending.get(&invocation)?.inputs;
 
         let lookup = |target: &Target| {
-            (if root.contains(target) { captured.get(target) } else { self.values.get(target) }).and_then(|value| value.references.as_ref())
+            (if root.contains_storage(target) { captured.get(target) } else { self.values.get(target) }).and_then(|value| value.references.as_ref())
         };
 
         let location = self.reference_location_in(values, root.clone(), path, None, lookup)?;
@@ -375,7 +376,7 @@ impl State {
         let staged = self.pending.get(&invocation)?;
 
         staged.values.get(location)
-            .or_else(|| (!root.contains(location)).then(|| self.values.get(location)).flatten())?
+            .or_else(|| (!root.contains_storage(location)).then(|| self.values.get(location)).flatten())?
             .references.as_ref()?.regions()
     }
 
@@ -388,7 +389,8 @@ impl State {
         let mut targets = std::collections::BTreeSet::new();
         let mut unknown = false;
 
-        for references in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot)).filter_map(|(_, value)| value.references.as_ref()) {
+        for references in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot))
+            .filter(|(slot, _)| value.contains_storage(slot)).filter_map(|(_, value)| value.references.as_ref()) {
             targets.extend(references.targets.iter().cloned());
             unknown |= references.unknown || references.displaced;
         }
@@ -532,16 +534,18 @@ impl State {
         self.values
             .range(target.clone()..)
             .take_while(|(candidate, _)| target.contains(candidate))
+            .filter(|(candidate, _)| target.contains_storage(candidate))
             .any(|(_, value)| value.references.is_some() || value.tracked)
             || self
                 .deferred
                 .range(target.clone()..)
-                .next()
-                .is_some_and(|(candidate, _)| target.contains(candidate))
+                .take_while(|(candidate, _)| target.contains(candidate))
+                .any(|(candidate, _)| target.contains_storage(candidate))
             || self
                 .contents
                 .range(target.clone()..)
                 .take_while(|(candidate, _)| target.contains(candidate))
+                .filter(|(candidate, _)| target.contains_storage(candidate))
                 .any(|(candidate, _)| {
                     candidate.projections()[target.projections().len()..]
                         .contains(&StorageProjection::UninitPayload)
