@@ -1002,7 +1002,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
 
         let patterns =
-            bray_bound_tree::CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
+            bray_bound_tree::CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], [], []);
 
         let mut cleanup_shapes = crate::asynchronous::CleanupShapeResolver::new(request);
 

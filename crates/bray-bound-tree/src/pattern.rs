@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use bray_base::shared_slice;
+use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
-    ConstantTermId, ConstantValueId, LocalBindingSymbolId, StructFieldSymbolId, StructSymbolId,
+    AnySymbolId, ConstantTermId, ConstantValueId, LocalBindingSymbolId, StructFieldSymbolId, StructSymbolId,
     SymbolOrdinal, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
@@ -338,6 +338,7 @@ pub struct CheckedPatterns {
     kind: BoundUnitKind,
     patterns: Arc<[PatternCheckEntry]>,
     binding_types: Arc<[PatternBindingTypeEntry]>,
+    member_references: Arc<[(BoundPatternId, AnySymbolId)]>,
     matches: Arc<[MatchCoverageEntry]>,
 }
 
@@ -348,6 +349,7 @@ impl CheckedPatterns {
         kind: BoundUnitKind,
         patterns: impl IntoIterator<Item = PatternCheckEntry>,
         binding_types: impl IntoIterator<Item = PatternBindingTypeEntry>,
+        member_references: impl IntoIterator<Item = (BoundPatternId, AnySymbolId)>,
         matches: impl IntoIterator<Item = MatchCoverageEntry>,
     ) -> Self {
         let mut patterns = patterns.into_iter().collect::<Vec<_>>();
@@ -363,6 +365,7 @@ impl CheckedPatterns {
             kind,
             patterns: patterns.into(),
             binding_types: binding_types.into(),
+            member_references: sorted_unique_shared_slice(member_references),
             matches: matches.into(),
         }
     }
@@ -385,6 +388,11 @@ impl CheckedPatterns {
     /// Returns checked local binding types in local identity order.
     pub fn binding_types(&self) -> &[PatternBindingTypeEntry] {
         &self.binding_types
+    }
+
+    /// Returns exact member accesses, including each occurrence of a shared alternative binding.
+    pub fn member_references(&self) -> &[(BoundPatternId, AnySymbolId)] {
+        &self.member_references
     }
 
     /// Returns match coverage results in expression ID order.

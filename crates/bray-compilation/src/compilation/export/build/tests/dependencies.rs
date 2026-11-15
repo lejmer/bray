@@ -443,11 +443,17 @@ fn named_patterns_and_trait_projections_require_declared_namespaces() {
                 "#
             );
 
+            let implementation = if imported {
+                format!("using {prefix}api.Provided;")
+            } else {
+                String::new()
+            };
+
             let projection = format!(
                 r#"
                 module app;
 
-                using {prefix}api.Provided;
+                {implementation}
                 {using}
 
                 struct Holder

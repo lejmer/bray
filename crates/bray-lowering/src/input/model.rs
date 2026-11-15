@@ -1110,7 +1110,7 @@ mod tests {
 
     fn empty_expression_inputs(unit: &BoundUnit) -> ExpressionInputs {
         let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []);
-        let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
+        let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], [], []);
 
         let selections = CheckedSemanticSelections::try_new(unit, &types, [])
             .unwrap_or_else(|error| panic!("empty selections must validate: {error:?}"));

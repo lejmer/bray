@@ -30,6 +30,8 @@ pub use entry::{
     bind_target_gate,
 };
 pub use lookup::{
+    can_access_symbol, using_scope_contains,
+    access_path_tokens, using_covers_path,
     BoundImplementationUsing, ImportedPathRoot, NameAccess, bind_implementation_using,
     bind_named_trait_implementation_path, bind_owner_surface_path,
     bind_surface_path_with_member_lookup, check_member_access,

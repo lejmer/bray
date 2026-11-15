@@ -478,7 +478,7 @@ impl Compilation {
         let foreign_callables = self.foreign_callable_diagnostics(cancellation)?;
         let product = self.product_semantics_with_cancellation(cancellation)?;
 
-        let collections = ordered_diagnostic_collections(
+        let mut bags =
             std::iter::once(source_graph.diagnostics())
                 .chain(sources.iter())
                 .chain([
@@ -487,8 +487,21 @@ impl Compilation {
                     callable_overloads,
                     foreign_callables,
                     product.diagnostics(),
-                ]),
-        );
+                ])
+                .collect::<Vec<_>>();
+
+        // Incomplete binding must not turn absent reference data into unused-import warnings.
+        let unused_usings = if !self.syntax_tree_result().diagnostics().has_errors()
+            && bags.iter().all(|bag| !bag.has_errors())
+        {
+            self.unused_using_diagnostics(cancellation)?
+        } else {
+            DiagnosticBag::new()
+        };
+
+        bags.push(&unused_usings);
+
+        let collections = ordered_diagnostic_collections(bags);
 
         Ok(SemanticDiagnosticPublication {
             diagnostics: publish_diagnostics(self.state.fact_runtime.profile(), collections),

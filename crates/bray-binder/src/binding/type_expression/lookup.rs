@@ -18,6 +18,16 @@ use crate::lookup::{
 use crate::{BindingError, BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {
+    /// Resolves a source path in this declaration's lexical type scope.
+    pub fn bind_surface_path(
+        &self,
+        path: &PathSyntax,
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Upstream> {
+        self.check_cancellation()?;
+
+        self.bind_path(path).map(crate::lookup::surface_lookup)
+    }
+
     pub(super) fn bind_trait(
         &mut self,
         syntax: &TraitApplicationSyntax,

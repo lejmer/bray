@@ -271,6 +271,8 @@ define_diagnostic_kinds! {
     BindingUnresolvedName,
     /// A named cross-module path lacks its required using declaration.
     BindingUndeclaredDependency,
+    /// A validated using declaration has no references in its logical module.
+    BindingUnusedUsing,
     /// Name binding found more than one candidate for one ordinary name.
     BindingAmbiguousName,
     /// Name binding found candidates that are not visible in the current context.
@@ -835,6 +837,7 @@ impl DiagnosticKind {
             Self::InterfaceExecutableTemplateUnavailable => 5015,
             Self::BindingUnresolvedName => 6001,
             Self::BindingUndeclaredDependency => 6010,
+            Self::BindingUnusedUsing => 6022,
             Self::BindingAmbiguousName => 6002,
             Self::BindingInaccessibleName => 6003,
             Self::BindingWrongNameKind => 6004,
@@ -1212,6 +1215,7 @@ impl DiagnosticKind {
             Self::InterfaceExecutableTemplateUnavailable => INTERFACE_EXECUTABLE_TEMPLATE_KEY,
             Self::BindingUnresolvedName => "binding_unresolved_name",
             Self::BindingUndeclaredDependency => "binding_undeclared_dependency",
+            Self::BindingUnusedUsing => "binding_unused_using",
             Self::BindingAmbiguousName => "binding_ambiguous_name",
             Self::BindingInaccessibleName => "binding_inaccessible_name",
             Self::BindingWrongNameKind => "binding_wrong_name_kind",

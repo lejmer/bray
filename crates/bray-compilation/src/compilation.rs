@@ -51,6 +51,7 @@ mod tooling;
 mod type_representation;
 mod type_surface;
 mod unit;
+mod using_diagnostics;
 
 pub use codegen::CodegenPreparationError;
 pub use configuration::BuildConfiguration;

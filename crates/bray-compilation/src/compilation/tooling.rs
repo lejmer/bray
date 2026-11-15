@@ -12,7 +12,7 @@ use bray_declarations::{DeclarationId, DeclarationRecord, DeclarationTable, Synt
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::{SourceId, TextRange, TextSize};
 use bray_symbols::{AnySymbolId, SymbolKind, SymbolOrigin};
-use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node};
+use bray_syntax::{SourceSyntaxNode, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node};
 
 use super::state::Compilation;
 use crate::fact::{CancellationToken, FactQueryError, QueryPriority};
@@ -23,7 +23,7 @@ type SyntaxBoundUnit = (BoundUnitKey, BoundUnitResult);
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(super) struct SourceReferenceIndex {
-    references: BTreeMap<BoundReferenceTarget, Vec<BoundSourceAnchor>>,
+    pub(super) references: BTreeMap<BoundReferenceTarget, Vec<BoundSourceAnchor>>,
 }
 
 /// Availability of one source-correlated semantic answer.
@@ -604,7 +604,7 @@ impl Compilation {
         })
     }
 
-    fn source_reference_index(
+    pub(super) fn source_reference_index(
         &self,
         source_id: SourceId,
         cancellation: &CancellationToken,
@@ -711,12 +711,14 @@ impl Compilation {
                 );
             }
 
-            let has_pattern_references = unit
+            let has_checked_references = unit
                 .tree()
                 .expressions()
-                .any(|(_, expression)| matches!(expression, BoundExpression::PatternReference(_)));
+                .any(|(_, expression)| matches!(expression,
+                    BoundExpression::PatternReference(_) | BoundExpression::MemberAccess(_)
+                    | BoundExpression::StructConstruction(_) | BoundExpression::UnqualifiedVariant(_)));
 
-            let expressions = if has_pattern_references {
+            let expressions = if has_checked_references {
                 Some(self.expression_semantics_with_cancellation(unit.key().clone(), cancellation)?)
             } else {
                 None
@@ -746,8 +748,38 @@ impl Compilation {
                 if let Some(target) = target {
                     push_reference(&mut references, target, expression.origin().source_anchor());
                 }
+
+                if let Some(selection) = expressions.as_ref().and_then(|expressions| {
+                    expressions.result().value().selections().expression(expression_id)
+                }) {
+                    index_selection_references(&mut references, expression.origin().source_anchor(), selection);
+                }
+            }
+
+            if unit.tree().patterns().any(|(_, pattern)| pattern.is_contextual_name()
+                || pattern.target().is_some() || matches!(pattern.kind(),
+                    bray_bound_tree::BoundPatternKind::Product | bray_bound_tree::BoundPatternKind::Variant)) {
+                // Pattern publication retains its Arc-backed unit key independently of this index.
+                let patterns = self.patterns_with_cancellation(unit.key().clone(), cancellation)?;
+
+                let checked = patterns.result().value();
+
+                let targets = checked.patterns().iter().filter_map(|pattern| match pattern.target() {
+                    Some(bray_bound_tree::BoundPatternTarget::Surface(target)) => Some((pattern.pattern(), target)),
+                    _ => None,
+                });
+
+                for (pattern, target) in targets.chain(checked.member_references().iter().copied()) {
+                    cancellation.check()?;
+
+                    let anchor = unit.tree().pattern(pattern).expect("checked pattern belongs to bound unit").origin().source_anchor();
+
+                    push_reference(&mut references, BoundReferenceTarget::Surface(target), anchor);
+                }
             }
         }
+
+        self.index_source_paths(source_id, cancellation, &mut references)?;
 
         for anchors in references.values_mut() {
             anchors.sort_by_key(reference_sort_key);
@@ -755,6 +787,80 @@ impl Compilation {
         }
 
         Ok(SourceReferenceIndex { references })
+    }
+
+    fn index_source_paths(
+        &self,
+        source_id: SourceId,
+        cancellation: &CancellationToken,
+        references: &mut BTreeMap<BoundReferenceTarget, Vec<BoundSourceAnchor>>,
+    ) -> Result<(), FactQueryError> {
+        let syntax = self.source_unit_syntax(source_id).expect("indexed source has syntax");
+        let declarations = self.product_source_graph()?.declarations();
+        let symbols = self.symbol_graph()?;
+        let binder = self.binding_context(cancellation)?;
+        let mut paths = Vec::new();
+
+        walk_syntax_node(syntax.source_unit(), |event| {
+            if let SyntaxWalkEvent::EnterNode(node) = event
+                && let Some(path) = node.cast::<bray_syntax::PathSyntax>()
+                && !path.is_recovered()
+                && let Some(declaration) = declaration_for_syntax(declarations, SyntaxAnchor::from_node(&path))
+                && !matches!(declaration.kind(), bray_declarations::DeclarationKind::Module | bray_declarations::DeclarationKind::Using)
+            {
+                paths.push((declaration, path));
+            }
+
+            SyntaxWalkControl::Continue
+        });
+
+        for (declaration, path) in paths {
+            cancellation.check()?;
+
+            let module = self.source_module_for_declaration(symbols, declaration)?;
+            let owner = symbols.symbol_for_declaration(declaration.id()).unwrap_or(module.id().into());
+            let source = BoundSourceAnchor::new(SyntaxAnchor::from_node(&path), path.source().version());
+            let tokens = path.tokens().collect::<Vec<_>>();
+
+            let binding = super::binder::type_binder(&binder, owner)
+                .and_then(|binder| binder.bind_surface_path(&path))
+                .map_err(super::binder::binding_query_error)?;
+
+            if let bray_symbols::MemberLookupResult::Found(target) = binding {
+                push_reference(references, BoundReferenceTarget::Surface(target), source);
+
+                // A single name is already resolved in the full lexical type scope.
+                if tokens.len() == 1 {
+                    continue;
+                }
+            }
+
+            // Preserve the written namespace even when the final target is re-exported.
+            // Prefix syntax shares the original immutable source and token storage.
+            for length in (1..=tokens.len()).step_by(2) {
+                let mut prefix = bray_syntax::PathSyntax::builder(path.source().clone());
+
+                for token in &tokens[..length] {
+                    match token.kind() {
+                        bray_syntax::SyntaxKind::IdentifierToken => prefix.push_identifier_token(token.clone()),
+                        bray_syntax::SyntaxKind::DotToken => prefix.push_dot_token(token.clone()),
+                        _ => unreachable!("path syntax contains only identifiers and dots"),
+                    }
+                }
+
+                let binding = binder.bind_surface_path(module.id(), &prefix.build(), bray_binder::NameAccess::Internal)
+                    .map_err(super::binder::binding_query_error)?;
+
+                if let bray_symbols::MemberLookupResult::Found(target) = binding.value() {
+                    push_reference(references, BoundReferenceTarget::Surface(*target), source);
+
+                    break;
+                }
+            }
+
+        }
+
+        Ok(())
     }
 
     fn bound_expression_for_syntax(
@@ -987,6 +1093,34 @@ impl Compilation {
     }
 }
 
+fn index_selection_references(
+    references: &mut BTreeMap<BoundReferenceTarget, Vec<BoundSourceAnchor>>,
+    source: BoundSourceAnchor,
+    selection: &SemanticSelection,
+) {
+    match selection {
+        SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Member(member)) => {
+            push_reference(references, BoundReferenceTarget::Surface(member.member()), source);
+        }
+        SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Construction(construction)) => {
+            let target = match construction.target() {
+                bray_bound_tree::ConstructionTarget::Struct(target) => target.into(),
+                bray_bound_tree::ConstructionTarget::UnionVariant(target) => target.into(),
+                bray_bound_tree::ConstructionTarget::TypeForm { .. } => return,
+            };
+
+            push_reference(references, BoundReferenceTarget::Surface(target), source);
+
+            for input in construction.inputs() {
+                if let bray_bound_tree::SelectedConstructionInput::Explicit { input, .. } = input {
+                    push_reference(references, BoundReferenceTarget::Surface(input.symbol()), source);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn push_reference(
     references: &mut BTreeMap<BoundReferenceTarget, Vec<BoundSourceAnchor>>,
     target: BoundReferenceTarget,
@@ -1019,7 +1153,7 @@ fn reference_sort_key(
     )
 }
 
-fn declaration_for_syntax(
+pub(super) fn declaration_for_syntax(
     declarations: &DeclarationTable,
     syntax: SyntaxAnchor,
 ) -> Option<&DeclarationRecord> {

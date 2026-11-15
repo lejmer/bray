@@ -9,9 +9,11 @@ mod route;
 pub(super) use core::classify_pattern_target;
 pub use core::{NameAccess, bind_surface_path_with_member_lookup};
 pub(crate) use core::{
+    surface_lookup,
     PathBindingContext, bind_module_path, bind_source_path, visible_imported_path_root,
 };
 pub(crate) use dependency::{lookup_dependency_declared, module_using_access};
+pub use dependency::{access_path_tokens, using_covers_path};
 pub use imported::ImportedPathRoot;
 pub(crate) use owner::bind_owner_path;
 pub use owner::bind_owner_surface_path;

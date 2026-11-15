@@ -14,6 +14,14 @@ The compiler checks references against the dependencies declared by `using` and 
 An internal path also requires acknowledgement under [accessibility and ambient names](#accessibility-and-ambient-names).
 Tooling can use the same explicit dependency information.
 
+The compiler warns about a valid `using` declaration with no named references to its path or descendants in the
+enabled contributions to its logical module. References in signatures, types, contracts, defaults, and exports count
+as usage, as do expression references. A `using` declaration's own target does not count as usage.
+An access to an internal member also counts when `using internal` acknowledges its scope, including field selection,
+construction, and destructuring through values whose source does not spell that scope's path.
+An explicit import that makes a dependency's trait implementation participate in the coherence domain also counts as
+usage, even without a named reference. See [trait coherence](../types/implementations.md#trait-coherence).
+
 A `using` declaration creates neither unqualified names nor aliases. It does not silently extend overload sets,
 implementation overload families, operators, conversions, behavioral contracts, or other polymorphic behavior.
 Declaring the dependency executes no code and initializes no module.

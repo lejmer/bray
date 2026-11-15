@@ -316,7 +316,7 @@ mod tests {
             let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
                 .expect("read-only selections must build");
 
-            let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
+            let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], [], []);
             let inputs = ValueInputs::new(&unit, &selections, &patterns);
 
             assert_eq!(inputs.writes, AssignmentInputs::default());
@@ -372,7 +372,7 @@ mod tests {
             let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
                 .expect("test selections must build");
 
-            let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
+            let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], [], []);
             let inputs = ValueInputs::new(&unit, &selections, &patterns);
             let writes: &AssignmentInputs = &inputs.writes;
 

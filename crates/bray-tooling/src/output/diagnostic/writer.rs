@@ -67,6 +67,61 @@ mod tests {
     use crate::OutputFormat;
 
     #[test]
+    fn unused_using_warning_preserves_text_and_json_context() {
+        let compilation = Compilation::load(CompilationRequest::new(
+            PackageIdentity::try_new("test.package").expect("fixture package identity is valid"),
+            vec![SourceInput::virtual_text(SourceIdentity::new(0), "unused.bray", SourceVersion::new(0),
+                r#"
+module api
+{
+}
+
+module app
+{
+    using api;
+}
+"#)],
+        )).expect("unused using fixture loads");
+
+        let diagnostics = compilation.check_diagnostics();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::BindingUnusedUsing);
+
+        write_diagnostics(diagnostics, Some(compilation.sources()), OutputFormat::Text, &mut stdout, &mut stderr)
+            .expect("unused using warning text renders");
+
+        let text = String::from_utf8(stderr).expect("diagnostic text is UTF-8");
+
+        assert!(stdout.is_empty());
+
+        for expected in ["warning", "using declaration for 'api' is unused", "remove this using declaration", "unused.bray"] {
+            assert!(text.contains(expected), "{text}");
+        }
+
+        let mut stderr = Vec::new();
+
+        write_diagnostics(diagnostics, Some(compilation.sources()), OutputFormat::Json, &mut stdout, &mut stderr)
+            .expect("unused using warning JSON renders");
+
+        let json: serde_json::Value = serde_json::from_slice(&stdout).expect("diagnostic JSON parses");
+        let diagnostic = &json["diagnostics"][0];
+
+        assert!(stderr.is_empty());
+        assert_eq!(json["has_errors"], false);
+
+        assert_eq!(serde_json::json!({
+            "code":diagnostic["code"], "kind":diagnostic["kind"], "severity":diagnostic["severity"],
+            "args":diagnostic["args"], "label":diagnostic["labels"][0]["kind"], "note":diagnostic["notes"][0]["kind"],
+        }), serde_json::json!({
+            "code":6022, "kind":"binding_unused_using", "severity":"warning",
+            "args":[{"name":"referenced_name", "value":{"kind":"referenced_name", "value":"api"}}],
+            "label":"name_reference", "note":"remove_unused_using",
+        }));
+    }
+
+    #[test]
     fn panic_argument_diagnostics_preserve_text_and_json_context() {
         for (call, kind, code, message, help, argument, note, source_text) in [
             (

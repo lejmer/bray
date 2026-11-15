@@ -10,6 +10,24 @@ use crate::RenderedDiagnosticNoteKind;
 use crate::renderer::DiagnosticRenderer;
 
 #[test]
+fn unused_using_warning_names_the_dependency_and_correction() {
+    let span = SourceSpan::empty(SourceId::new(0), TextSize::new(5));
+
+    let diagnostic = Diagnostic::new(DiagnosticId::new(5), DiagnosticKind::BindingUnusedUsing, SeverityKind::Warning)
+        .with_primary_span(span)
+        .with_arg(DiagnosticArg::referenced_name("geometry.shapes"))
+        .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::NameReference, span))
+        .with_note(DiagnosticNote::new(DiagnosticNoteKind::RemoveUnusedUsing));
+
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+    assert_eq!(rendered.message(), "using declaration for 'geometry.shapes' is unused");
+    assert_eq!(rendered.primary_span(), Some(span));
+    assert_eq!(rendered.notes()[0].message(), "remove this using declaration");
+    assert_eq!(rendered.notes()[0].rendered_kind(), RenderedDiagnosticNoteKind::Help);
+}
+
+#[test]
 fn panic_argument_errors_identify_the_message_and_correction() {
     let span = SourceSpan::new(
         SourceId::new(0),

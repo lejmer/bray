@@ -277,7 +277,6 @@ fn generic_cleanup_resolves_selected_associated_types() {
                 type Item = {item};
                 func item() -> {item} {{ return {value}; }}
             }}
-            using ProducerSource;
             async func main() {{ let producer = Producer {{ marker = 0 }}; producer.discard(); }}
         "#
         ));
@@ -481,7 +480,6 @@ fn certified_completion_omits_finalizer_body_cleanup_obligations() {
         impl ProducerSource = Producer(Source<Owner>) {
             func make() -> Owner { return Owner {}; }
         }
-        using ProducerSource;
         func sink<T>(pos value: T) {}
         struct Container<S, T, const Ready: bool> with(S: Source<T>) {
             source: S;
@@ -610,7 +608,6 @@ fn runtime_defaults_resolve_selected_associated_cleanup_types() {
             }}
             struct Producer {{ marker: i32; }}
             impl ProducerSource = Producer(Source) {{ type Item = {item}; }}
-            using ProducerSource;
             async func main() {{ let producer = Producer {{ marker = 0 }}; producer.outer(); }}
             "#
         ));
