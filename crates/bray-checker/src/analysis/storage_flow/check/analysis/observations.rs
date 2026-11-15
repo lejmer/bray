@@ -276,7 +276,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             descriptor.contains(path)
                                 && matches!(path.projections.get(descriptor.projections.len()), Some(bray_bound_tree::StorageProjection::NullableValue | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
                         }) {
-                            bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_descriptors, stable_values);
+                            let target = descriptor.access_id(self.storage).and_then(|access| {
+                                self.input.reference_target(self.request.semantic_values(), memory, self.storage, access)
+                            });
+
+                            if target.is_some_and(|target| !target.previous && survives(
+                                &target, bray_bound_tree::StorageObservationKind::Discriminant, ty, false,
+                            )) {
+                                bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_descriptors, stable_values);
+                            }
                         }
                     }
 
@@ -333,7 +341,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .into_iter()
                         .flatten()
                         .filter(|descriptor| path.contains(descriptor)) {
-                    bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_descriptors, stable_values);
+                    if targets.iter().all(|target| !target.previous && survives(
+                        &target.project(&descriptor.projections[path.projections.len()..]),
+                        bray_bound_tree::StorageObservationKind::Discriminant, ty, true,
+                    )) {
+                        bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_descriptors, stable_values);
+                    }
                 }
 
             }

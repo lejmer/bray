@@ -96,7 +96,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     }
                 }
 
-                self.buffer_cleanup_paths.insert((ty, subject.clone()), path);
+                self.buffer_cleanup_paths.insert((ty, subject.clone()), (reached, path));
             }
 
             self.buffer_cleanup_effects.insert(ty, effects);

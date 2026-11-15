@@ -54,7 +54,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
         BTreeMap<bray_symbols::TypeId, Vec<bray_symbols::DependencyStorageEffect>>,
     pub(in crate::analysis::storage_flow) buffer_cleanup_paths: BTreeMap<
         (bray_symbols::TypeId, bray_symbols::DependencySubject),
-        bray_bound_tree::StorageReferencePath,
+        (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath),
     >,
     pub(in crate::analysis::storage_flow) reference_paths:
         BTreeMap<StorageAccessId, (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
@@ -210,16 +210,6 @@ impl StorageFlowInput {
         let lifecycle_demands =
             input.prepare_lifecycle_references(request, cleanup, dependencies)?;
 
-        input.footprint.prepare_stores(request, storage, memory, dependencies, &input.lifecycle_paths)?;
-
-        input.tag_preserving_assignments = Self::prepare_assignment_observations(
-            cleanup_shapes,
-            request,
-            storage,
-            selections,
-            &input.footprint,
-        )?;
-
         input.prepare_reference_constructions(request, storage, values, selections, types)?;
 
         for (ty, paths) in lifecycle_demands {
@@ -253,6 +243,11 @@ impl StorageFlowInput {
         input.prepare_buffer_cleanup(request, cleanup.opaque_types(), &mut demands)?;
         input.prepare_allocation_pointer(request, memory, types)?;
 
+        input.prepare_effect_observations(request, storage, memory, dependencies)?;
+        input.tag_preserving_assignments = Self::prepare_assignment_observations(
+            cleanup_shapes, request, storage, selections, &input.footprint,
+        )?;
+
         input.prepare_entry_references(request, storage, selections, dependencies, demands)?;
 
         for (path, ty) in &input.footprint.whole_sources {
@@ -279,6 +274,41 @@ impl StorageFlowInput {
         diagnostics.add_range(cleanup_diagnostics);
 
         Ok((input, diagnostics))
+    }
+
+    fn prepare_effect_observations<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+        storage: &StoragePlan,
+        memory: &bray_bound_tree::CheckedMemoryOperations,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+        let mut atomic = self.footprint.prepare_stores(request, storage, memory)?;
+
+        for call in dependencies.calls().values() {
+            let effects = call.effects().iter()
+                .chain(call.deferred_effects().into_iter().flatten())
+                .chain(call.deferred_capture_cleanup().into_iter().flatten())
+                .chain(call.deferred_result_cleanup().into_iter().flatten());
+
+            atomic |= self.footprint.prepare_effects(request, effects, |subject| call.reference_type(subject))?;
+        }
+
+        for (callable, contract) in dependencies.lifecycle_dependencies() {
+            atomic |= self.footprint.prepare_effects(request, contract.effects(),
+                |subject| self.lifecycle_paths.get(&(*callable, subject.clone())).map(|(ty, _)| *ty))?;
+        }
+
+        for (ty, effects) in &self.buffer_cleanup_effects {
+            atomic |= self.footprint.prepare_effects(request, effects,
+                |subject| self.buffer_cleanup_paths.get(&(*ty, subject.clone())).map(|(ty, _)| *ty))?;
+        }
+
+        if !atomic {
+            self.footprint.atomic = None;
+        }
+
+        Ok(())
     }
 
     fn prepare_assignment_observations<C>(

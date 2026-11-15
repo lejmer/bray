@@ -221,11 +221,15 @@ impl super::check::TrustedChecks {
 
         // Common conditional moves also describe inactive exits. Other exits retain
         // their complete alternatives, including layouts that transfer no input.
+        let common = shared.keys().collect::<Vec<_>>();
+
         DependencyOwnedResult::choice(self.owned_returns.iter().map(|returned| {
             let factored = lift_shared_cases(&returned.transfers, &|transfer| {
                 shared.keys().any(|candidate| candidate.same_identity(transfer))
             });
-            let local = factored
+            let factored = complete_shared_alternatives(&factored, &common, &[]);
+
+            fill_shared_alternative(factored, &common)
                 .try_map(
                     &mut |transfer| {
                         let (_, shape) = shapes.iter()
@@ -243,18 +247,7 @@ impl super::check::TrustedChecks {
                     },
                     &mut |condition| Ok(Some((*condition, OwnedReturnCondition::Unconditional))),
                 )
-                .expect("ownership mapping is infallible");
-
-            DependencyOwnedResult::all(std::iter::once(local).chain(shared.iter().filter(|(transfer, _)| {
-                !returned.transfers.transfers().any(|actual| actual.same_identity(transfer))
-            }).map(
-                |(transfer, shape)| {
-                    DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
-                        (transfer.input(), *shape),
-                        transfer.output().iter().copied(),
-                    ).with_preservation(transfer.preservation().clone()))
-                },
-            )))
+                .expect("ownership mapping is infallible")
         }))
     }
 }
@@ -290,6 +283,52 @@ fn factor_guard(
             .map(|value| factor_guard(condition, value.clone(), shared))),
         layout => DependencyOwnedResult::case(condition, layout),
     }
+}
+
+// Complete inactive alternatives before the caller retires unreturned inputs.
+// Simultaneous siblings can already provide an identity with a stronger mask.
+fn complete_shared_alternatives(
+    layout: &DependencyOwnedResult<StorageProjection>,
+    shared: &[&DependencyOwnedTransfer<StorageProjection>],
+    covered: &[&DependencyOwnedTransfer<StorageProjection>],
+) -> DependencyOwnedResult<StorageProjection> {
+    match layout {
+        DependencyOwnedResult::Transfer(_) => layout.clone(),
+        DependencyOwnedResult::Case { condition, result } => DependencyOwnedResult::case(
+            *condition, complete_shared_alternatives(result, shared, covered),
+        ),
+        DependencyOwnedResult::All(values) => {
+            let guaranteed = values.iter().map(DependencyOwnedResult::guaranteed_transfers).collect::<Vec<_>>();
+
+            DependencyOwnedResult::all(values.iter().enumerate().map(|(index, value)| {
+                let covered = covered.iter().copied().chain(guaranteed.iter().enumerate()
+                    .filter(|(other, _)| *other != index).flat_map(|(_, transfers)| transfers)).collect::<Vec<_>>();
+
+                complete_shared_alternatives(value, shared, &covered)
+            }))
+        }
+        DependencyOwnedResult::Choice(values) => {
+            let required = shared.iter().copied().filter(|transfer| {
+                !covered.iter().any(|other| other.same_identity(transfer))
+                    && layout.transfers().any(|actual| actual.same_identity(transfer))
+            }).collect::<Vec<_>>();
+
+            DependencyOwnedResult::choice(values.iter().map(|value| {
+                fill_shared_alternative(complete_shared_alternatives(value, shared, covered), &required)
+            }))
+        }
+    }
+}
+
+fn fill_shared_alternative(
+    layout: DependencyOwnedResult<StorageProjection>,
+    shared: &[&DependencyOwnedTransfer<StorageProjection>],
+) -> DependencyOwnedResult<StorageProjection> {
+    let guaranteed = layout.guaranteed_transfers();
+    let missing = shared.iter().filter(|transfer| !guaranteed.iter().any(|actual| actual.same_identity(transfer)))
+        .map(|transfer| DependencyOwnedResult::Transfer((*transfer).clone()));
+
+    DependencyOwnedResult::all(std::iter::once(layout).chain(missing))
 }
 
 /// An inactive alternative owns no payload and imposes no input-identity requirement.
@@ -460,5 +499,47 @@ fn feasible_layout(
 
             feasible_layout(result, &assumptions, instantiate)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{ConstantTermData, DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation, SymbolOrdinal};
+
+    use super::{complete_shared_alternatives, fill_shared_alternative, lift_shared_cases};
+
+    #[test]
+    fn inactive_alternatives_keep_common_identity_without_weakening_present_masks() {
+        let input = crate::test_support::semantic_values()
+            .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+            .expect("formal ownership input");
+        let guard = crate::test_support::semantic_values()
+            .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(1)))
+            .expect("ordinary result guard");
+        let complete = DependencyOwnedTransfer::new(input, [])
+            .with_preservation(DependencyValuePreservation::all());
+        let changed = complete.clone().with_preservation(DependencyValuePreservation::none());
+        let guarded = DependencyOwnedResult::case(guard, DependencyOwnedResult::Transfer(complete.clone()));
+        let empty = DependencyOwnedResult::case(guard, DependencyOwnedResult::default());
+        let layout = DependencyOwnedResult::choice([guarded, empty.clone()]);
+        let lifted = lift_shared_cases(&layout, &|transfer| transfer.same_identity(&complete));
+        let common = [&changed];
+        let actual = fill_shared_alternative(complete_shared_alternatives(&lifted, &common, &[]), &common);
+
+        assert_eq!(actual, DependencyOwnedResult::choice([
+            DependencyOwnedResult::all([DependencyOwnedResult::Transfer(complete.clone()), empty.clone()]),
+            DependencyOwnedResult::all([DependencyOwnedResult::Transfer(changed.clone()), empty]),
+        ]));
+
+        let simultaneous = DependencyOwnedResult::all([
+            DependencyOwnedResult::Transfer(complete),
+            DependencyOwnedResult::choice([
+                DependencyOwnedResult::Transfer(changed), DependencyOwnedResult::default(),
+            ]),
+        ]);
+        let common = simultaneous.transfers().collect::<Vec<_>>();
+
+        assert_eq!(complete_shared_alternatives(&simultaneous, &common, &[]), simultaneous,
+            "an enclosing simultaneous owner must not receive a weaker fallback in an inactive child");
     }
 }

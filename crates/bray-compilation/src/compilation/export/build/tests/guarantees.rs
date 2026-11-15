@@ -19,7 +19,7 @@ use super::fixtures::{
 };
 
 #[test]
-fn exclusive_entry_tags_survive_only_disjoint_unpublished_call_effects() {
+fn exclusive_entry_tags_require_bounded_effects_or_private_storage() {
     let api = r#"
         trusted module api;
 
@@ -34,6 +34,10 @@ fn exclusive_entry_tags_survive_only_disjoint_unpublished_call_effects() {
         extern trusted func publish_tag(pos pointer: DataPointer<(usize?)>);
         extern trusted func publish_owner(pos pointer: DataPointer<Owner>);
 
+        func checked_observe(pos sibling: &usize)
+        {
+        }
+
         func clear(pos owner: &mut Owner)
         {
             owner.registration = none;
@@ -44,7 +48,8 @@ fn exclusive_entry_tags_survive_only_disjoint_unpublished_call_effects() {
     assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
 
     for (operation, capabilities, valid) in [
-        ("trusted API.observe(&owner.sibling);", "", true),
+        ("API.checked_observe(&owner.sibling);", "", true),
+        ("trusted API.observe(&owner.sibling);", "", false),
         ("trusted API.opaque(owner);", "", false),
         ("trusted API.publish_tag(core.memory.address_of_mut<(usize?)>(&mut owner.registration));", "", false),
         ("trusted API.publish_owner(core.memory.address_of_mut<API.Owner>(owner));", "", false),
@@ -57,9 +62,6 @@ fn exclusive_entry_tags_survive_only_disjoint_unpublished_call_effects() {
             let prefix = if imported { "example.package.api" } else { "api" };
             let caller = format!(r#"
                 trusted module app;
-
-                using core.memory;
-                using API;
 
                 trusted func caller(pos owner: &mut API.Owner)
                     ensures(owner.registration matches ?_)

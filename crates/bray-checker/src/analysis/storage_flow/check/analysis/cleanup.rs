@@ -489,7 +489,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let effects = self.input.buffer_cleanup_effects.get(&ty)?;
 
         Some(self.resolve_effects(effects, |subject, indirect| {
-            let path = self.input.buffer_cleanup_paths.get(&(ty, subject.clone()));
+            let path = self.input.buffer_cleanup_paths.get(&(ty, subject.clone())).map(|(_, path)| path);
             let locations = self.cleanup_subject_locations(memory, receiver, subject, path)?;
 
             if indirect {

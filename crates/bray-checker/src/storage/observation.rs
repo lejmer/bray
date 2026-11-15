@@ -288,9 +288,7 @@ impl Footprint {
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
         memory: &bray_bound_tree::CheckedMemoryOperations,
-        dependencies: &bray_bound_tree::CheckedDependencyContracts,
-        lifecycle_paths: &BTreeMap<(bray_symbols::CallableInstanceData, bray_symbols::DependencySubject), (TypeId, bray_bound_tree::StorageReferencePath)>,
-    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let mut atomic = false;
 
         let complete_reference_types = std::sync::Arc::get_mut(&mut self.complete_reference_types)
@@ -343,23 +341,19 @@ impl Footprint {
             cached_shape(request, pointee, &mut self.shapes, complete_reference_types)?;
         }
 
-        // Prepare every typed transfer in the existing effect walk, including
-        // helper Consume/Write summaries whose target is not a source local.
-        for call in dependencies.calls().values() {
-            atomic |= prepare_effects(request, call.effects().iter().chain(call.deferred_effects().into_iter().flatten()),
-                &mut self.shapes, complete_reference_types, |subject| call.reference_type(subject))?;
-        }
+        Ok(atomic)
+    }
 
-        for (callable, contract) in dependencies.lifecycle_dependencies() {
-            atomic |= prepare_effects(request, contract.effects(), &mut self.shapes, complete_reference_types,
-                |subject| lifecycle_paths.get(&(*callable, subject.clone())).map(|(ty, _)| *ty))?;
-        }
+    pub(crate) fn prepare_effects<'a, C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+        effects: impl IntoIterator<Item = &'a Effect>,
+        reference_type: impl Fn(&bray_symbols::DependencySubject) -> Option<TypeId>,
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+        let complete_reference_types = std::sync::Arc::get_mut(&mut self.complete_reference_types)
+            .expect("effect observations are prepared before their type cache is published");
 
-        if !atomic {
-            self.atomic = None;
-        }
-
-        Ok(())
+        prepare_effects(request, effects, &mut self.shapes, complete_reference_types, reference_type)
     }
 
     /// Borrows the original classification from the nearest owning or loan context.
@@ -663,7 +657,8 @@ fn prepare_effects<'a, C: CheckerRequestContext + ?Sized>(
     'effects: for effect in effects {
         let (mut ty, projections) = match effect {
             Effect::Atomic | Effect::Direct { kind: Mutation::Atomic, .. }
-            | Effect::Indirect { kind: Mutation::Atomic, .. } => {
+            | Effect::Indirect { kind: Mutation::Atomic, .. }
+            | Effect::UnboundedMutation { kind: Mutation::Atomic, .. } => {
                 atomic = true;
                 continue;
             }

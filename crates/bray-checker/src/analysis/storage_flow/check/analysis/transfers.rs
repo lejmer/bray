@@ -68,7 +68,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let ambient = memory.ambient_regions(effects.unwrap_or(&unknown));
-        let exposed = memory.raw_exposed_regions();
 
         let transfers_owner = |owner: Option<bray_symbols::TypeId>, ty: Option<bray_symbols::TypeId>| {
             owner.and_then(|owner| self.input.footprint.inline_carriers(owner))
@@ -81,16 +80,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 // Ordinary code cannot transfer a retained shared loan's inline
                 // owner. Raw operations still retain their actual reached region.
                 if borrow == Some(bray_symbols::BorrowKind::Shared) && !raw { return true; }
-
-                // Unrelated ambient work cannot transfer an exclusively retained
-                // inline owner. Published addresses and admitted mutable inputs
-                // remain subject to their actual effects.
-                if borrow == Some(bray_symbols::BorrowKind::Mutable) && !raw
-                    && matches!(effect, Effect::Ambient)
-                    && observation.is_ordinary_inline()
-                    && exposed.iter().all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint) {
-                    return true;
-                }
 
                 let transports = match observation {
                     Observation::Marker(marker) => ty.and_then(|ty| self.input.footprint.inline_carriers(ty))
