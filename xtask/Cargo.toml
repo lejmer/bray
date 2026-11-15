@@ -10,7 +10,7 @@ workspace = true
 
 [features]
 default = ["full"]
-# Compiler tests only need process execution, discovery, and reporting.
+# Compiler and documentation test runners do not need compiler libraries or LLVM bindings.
 full = [
     "dep:cc",
     "dep:bray-base",
@@ -63,7 +63,7 @@ bray-formatter = { path = "../crates/bray-formatter", optional = true }
 bray-linker = { path = "../crates/bray-linker", optional = true }
 bray-native-artifact = { path = "../crates/bray-native-artifact", optional = true }
 bray-numeric = { path = "../crates/bray-numeric", optional = true }
-bray-package-interface = { path = "../crates/bray-package-interface", optional = true }
+bray-package-interface = { path = "../crates/bray-package-interface", features = ["test-support"], optional = true }
 bray-profile = { path = "../crates/bray-profile", optional = true }
 bray-project = { path = "../crates/bray-project", optional = true }
 bray-runtime-abi = { path = "../crates/bray-runtime-abi", optional = true }
@@ -86,9 +86,6 @@ syn = { version = "2", features = ["full", "visit"] }
 subprocess = "1.2.1"
 tempfile = "3"
 unicode-width = { version = "0.2", optional = true }
-
-[dev-dependencies]
-bray-package-interface = { path = "../crates/bray-package-interface", features = ["test-support"] }
 
 [target.'cfg(not(windows))'.dependencies]
 inkwell = { version = "=0.9.0", default-features = false, features = ["llvm22-1-prefer-static"], optional = true }

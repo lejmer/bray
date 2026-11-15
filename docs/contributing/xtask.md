@@ -150,10 +150,13 @@ cargo xtask package-interface validate <path>
 ## Compiler test tiers
 
 The default `full` feature enables all repository tasks. Build `xtask` with `-p xtask --no-default-features` for a
-compiler-test runner without compiler-library or LLVM-binding dependencies. The `test compiler --profile <profile>`
+test runner without compiler-library or LLVM-binding dependencies. The `test compiler --profile <profile>`
 option selects the Cargo profile used to prepare test binaries and defaults to `test`.
 
 Run `cargo xtask test compiler` for the measured fast compiler suite. Select `--tier native`, `--tier proof`,
 `--tier exhaustive`, or `--tier all` for broader coverage. Add `--shard index/count` for a deterministic portion of a
 tier. See [Compiler test tiers](testing.md#compiler-test-tiers) for reference timing targets, portable work checks, configurable timeouts, reports,
 and direct Cargo commands.
+
+The lightweight Cargo integration target `documentation` checks language-specification presence. See
+[Documentation tests](testing.md#documentation-tests).

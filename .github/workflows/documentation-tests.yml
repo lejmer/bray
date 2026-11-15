@@ -1,0 +1,32 @@
+name: Documentation tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: documentation-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  documentation-tests:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: true
+          cache-on-failure: true
+          save-if: ${{ job.status != 'cancelled' }}
+      - name: Run documentation tests
+        run: cargo test --profile ci -p xtask --no-default-features --test documentation
