@@ -57,19 +57,28 @@ trusted internal func initialized() -> bool
     return core.atomic.load<u64, 1>(&synchronization.key) != 0;
 }
 
-trusted internal func lease_synchronization_pointer(pos lease: &HostLease) -> DataPointer<Synchronization>
+trusted internal func lease_synchronization(pos lease: &HostLease) -> &Synchronization
     requires(trusted host_access_live(owner = &lease.acquisition))
-    ensures(
-        trusted core.memory.valid_read<Synchronization>(pointer = result, count = 1),
-        trusted core.memory.aligned_for<Synchronization>(pointer = result),
-        trusted core.memory.initialized_as<Synchronization>(pointer = result),
-        trusted core.memory.shared_alias_valid<Synchronization>(pointer = result),
-        trusted core.memory.epoch_current<Synchronization>(pointer = result),
-        trusted core.memory.synchronized_access<Synchronization>(pointer = result),
-        trusted core.memory.movement_stable<Synchronization>(pointer = result),
-        trusted core.memory.finalization_pending<Synchronization>(pointer = result)
-    )
+    ensures(trusted host_access_live(owner = &lease.acquisition))
     executes(pure, total)
+    uses(raw_memory, unchecked_alias)
 {
-    return std.memory.uninit_pointer<Synchronization>(lease.synchronization);
+    let pointer = std.memory.uninit_pointer<Synchronization>(lease.synchronization);
+
+    let authorize = trusted lambda(pos lease: &HostLease, pos pointer: DataPointer<Synchronization>)
+        requires(trusted host_access_live(owner = &lease.acquisition))
+        ensures(
+            trusted core.memory.valid_read<Synchronization>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Synchronization>(pointer = pointer),
+            trusted core.memory.initialized_as<Synchronization>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Synchronization>(pointer = pointer),
+            trusted core.memory.epoch_current<Synchronization>(pointer = pointer),
+            trusted core.memory.synchronized_access<Synchronization>(pointer = pointer),
+            trusted core.memory.movement_stable<Synchronization>(pointer = pointer),
+            trusted core.memory.finalization_pending<Synchronization>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(lease, pointer);
+    return trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(lease.synchronization, pointer);
 }

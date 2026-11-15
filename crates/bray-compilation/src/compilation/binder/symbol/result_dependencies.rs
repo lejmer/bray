@@ -454,13 +454,15 @@ fn body_result_dependencies(
     } else {
         None
     })
-    .with_returned_input(if !previous.normal_completion() {
-        checked.returned_input()
-    } else if !checked.normal_completion() || previous.returned_input() == checked.returned_input()
-    {
-        previous.returned_input()
+    .with_owned_result(if !previous.normal_completion() {
+        checked.owned_result().clone()
+    } else if !checked.normal_completion() {
+        previous.owned_result().clone()
     } else {
-        None
+        bray_symbols::DependencyOwnedResult::choice([
+            previous.owned_result().clone(),
+            checked.owned_result().clone(),
+        ])
     })
     .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
     .with_synchronous_cleanup(

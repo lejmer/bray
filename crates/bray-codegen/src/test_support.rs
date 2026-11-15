@@ -2,7 +2,7 @@ use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use bray_base::Cancellation;
 use bray_ir::MirTargetContract;
-use bray_runtime_interface::{BinarySymbolName, PanicAbiIdentity, RuntimeAbiVersion};
+use bray_runtime_interface::{BinarySymbolName, EXECUTION_ABI_VERSION, PanicAbiIdentity};
 use bray_symbols::{CallableAbi, PackageIdentity};
 use bray_target::test_support::test_target_profile;
 use bray_target::{
@@ -390,7 +390,7 @@ pub fn contribution(id: BackendArtifactId) -> BackendArtifactContribution {
 }
 
 fn codegen_unit(seed: u8, target: &CodegenTarget) -> CodegenUnit {
-    let mir_target = MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
+    let mir_target = MirTargetContract::new(target.profile().clone(), EXECUTION_ABI_VERSION);
 
     let Ok(unit) = CodegenUnit::try_new(
         CodegenPartitionPolicy::NATIVE_BALANCED,
@@ -436,7 +436,7 @@ pub fn codegen_backend_capabilities() -> BackendCapabilities {
             target.relocation_model(),
             target.code_model(),
         )]),
-        BackendRuntimeCapabilities::new([RuntimeAbiVersion::new(1, 0)], true, true),
+        BackendRuntimeCapabilities::new([EXECUTION_ABI_VERSION], true, true),
         BackendOptimizationCapabilities::new(
             [
                 OptimizationLevel::None,

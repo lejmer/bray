@@ -2,17 +2,89 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::state::ExecutionState;
 use crate::ExecutionCondition;
+use bray_bound_tree::StorageProjection;
 use bray_symbols::{DependencyProjection, DependencyWitnessCarrier};
+
+impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlowDomain<'_, '_, C> {
+    /// Combine declared completion clauses with checked portable carrier promises.
+    pub(super) fn completion_guarantees(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        contract: &crate::TrustedCallContract,
+        capture: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+    ) -> (
+        Vec<ExecutionCondition>,
+        Vec<(ExecutionCondition, ExecutionCondition)>,
+    ) {
+        let inferred = self
+            .dependencies
+            .calls()
+            .get(&invocation)
+            .into_iter()
+            .flat_map(|dependencies| {
+                dependencies.carriers().iter().map(|carrier| {
+                    let condition = crate::execution_condition_from_type_term(
+                        self.request.semantic_values(),
+                        carrier.guarantee(),
+                        dependencies.input_count(),
+                    )
+                    .expect("checked carrier condition decodes in the same semantic store");
+
+                    (
+                        capture(&condition),
+                        result_projection(
+                            self.request.semantic_values(),
+                            self.dependencies,
+                            carrier.path(),
+                        ),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let guarantees = contract
+            .guarantees
+            .iter()
+            .map(capture)
+            .chain(inferred.iter().map(|(condition, _)| condition.clone()))
+            .collect::<Vec<_>>();
+
+        let mut subjects = contract
+            .witness_subjects
+            .iter()
+            .filter_map(|(guarantee, subject)| {
+                let guarantee = capture(guarantee);
+
+                if subject.observes_completion_result()
+                    && inferred
+                        .iter()
+                        .any(|(condition, _)| *condition == guarantee)
+                {
+                    None
+                } else {
+                    Some((guarantee, subject.clone()))
+                }
+            })
+            .collect::<Vec<_>>();
+
+        subjects.extend(inferred);
+
+        (guarantees, subjects)
+    }
+}
 
 impl super::check::TrustedChecks {
     pub(super) fn collect_carriers<C: crate::CheckerRequestContext + ?Sized>(
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
-        dependencies: &bray_bound_tree::CheckedDependencyContracts,
         state: &ExecutionState,
         result: &ExecutionCondition,
     ) {
-        let owners = returned_owners(result);
+        let owners = if state.witnesses.is_empty() {
+            BTreeMap::new()
+        } else {
+            returned_owners(result)
+        };
 
         collect(state, result, &owners, &self.guarantees, &mut self.carriers);
 
@@ -20,7 +92,7 @@ impl super::check::TrustedChecks {
             .trusted_contracts()
             .is_some_and(|inputs| inputs.infer_result_witnesses)
         {
-            collect_inferred(request, dependencies, state, &owners, &mut self.inferred);
+            collect_inferred(request, state, &owners, &mut self.inferred);
         }
     }
 
@@ -40,12 +112,9 @@ impl super::check::TrustedChecks {
                 if paths.as_ref().is_some_and(|paths| !paths.is_empty())
                     && let Some(term) = portable(request, condition)
                 {
-                    result.extend(
-                        paths
-                            .iter()
-                            .flatten()
-                            .map(|path| DependencyWitnessCarrier::new(term, path.iter().copied())),
-                    );
+                    result.extend(paths.iter().flatten().map(|path| {
+                        DependencyWitnessCarrier::new(term, portable_path(request, path))
+                    }));
                 }
             }
         }
@@ -74,19 +143,14 @@ pub(super) fn portable<C: crate::CheckerRequestContext + ?Sized>(
 
 fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
-    dependencies: &bray_bound_tree::CheckedDependencyContracts,
     state: &ExecutionState,
-    owners: &BTreeMap<ExecutionCondition, Vec<DependencyProjection>>,
+    owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
     previous: &mut Option<BTreeSet<DependencyWitnessCarrier>>,
 ) {
-    let identities = owners
-        .iter()
-        .map(|(owner, path)| (owner.clone(), result_projection(dependencies, path)))
-        .collect::<BTreeMap<_, _>>();
-
+    let mut identities = None;
     let mut result = BTreeSet::new();
 
-    for (owner, conditions) in &state.witness_carriers {
+    for (owner, witness) in &state.witnesses {
         let Some(path) = owners.get(owner) else {
             continue;
         };
@@ -95,12 +159,39 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        for condition in conditions {
+        for condition in witness
+            .conditions
+            .iter()
+            .filter(|(condition, guarantee)| {
+                guarantee.witness
+                    && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                        == Some(true)
+            })
+            .map(|(condition, _)| condition)
+        {
+            let identities = identities.get_or_insert_with(|| {
+                owners
+                    .iter()
+                    .map(|(owner, path)| {
+                        (
+                            owner.clone(),
+                            path.iter()
+                                .fold(ExecutionCondition::Result, |value, projection| {
+                                    value.project(*projection)
+                                }),
+                        )
+                    })
+                    .collect()
+            });
+
             // Rename actual returned storage identities, never ordinary field equalities.
-            let condition = condition.with_joined_values(&identities, &identities);
+            let condition = condition.with_joined_values(identities, identities);
 
             if let Some(term) = portable(request, &condition) {
-                result.insert(DependencyWitnessCarrier::new(term, path.iter().copied()));
+                result.insert(DependencyWitnessCarrier::new(
+                    term,
+                    portable_path(request, path),
+                ));
             }
         }
     }
@@ -112,10 +203,11 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
 }
 
 pub(in crate::analysis::guarantee) fn result_projection(
+    values: &bray_symbols::SemanticValueStore,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     path: &[DependencyProjection],
 ) -> ExecutionCondition {
-    crate::storage::storage_projections(dependencies, path)
+    crate::storage::storage_projections(values, dependencies, path)
         .expect("checked result carrier retains its projection")
         .into_iter()
         .fold(ExecutionCondition::Result, |value, projection| {
@@ -126,9 +218,9 @@ pub(in crate::analysis::guarantee) fn result_projection(
 fn collect(
     state: &ExecutionState,
     result: &ExecutionCondition,
-    owners: &BTreeMap<ExecutionCondition, Vec<DependencyProjection>>,
+    owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
     guarantees: &[(ExecutionCondition, bray_source::SourceSpan)],
-    previous: &mut [Option<BTreeSet<Vec<DependencyProjection>>>],
+    previous: &mut [Option<BTreeSet<Vec<StorageProjection>>>],
 ) {
     if guarantees.is_empty() {
         return;
@@ -154,7 +246,7 @@ fn collect(
 
         let mut paths = BTreeSet::new();
 
-        for (carrier, conditions) in &state.witness_carriers {
+        for (carrier, witness) in &state.witnesses {
             let Some(path) = owners.get(carrier) else {
                 continue;
             };
@@ -165,7 +257,16 @@ fn collect(
 
             let mut evidence = BTreeSet::new();
 
-            for condition in conditions {
+            for condition in witness
+                .conditions
+                .iter()
+                .filter(|(condition, guarantee)| {
+                    guarantee.witness
+                        && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                            == Some(true)
+                })
+                .map(|(condition, _)| condition)
+            {
                 // The temporary proof set owns its conditions independently of the exit state.
                 condition.clone().assume(true, &mut evidence);
             }
@@ -192,17 +293,14 @@ fn collect(
 
 fn returned_owners(
     result: &ExecutionCondition,
-) -> BTreeMap<ExecutionCondition, Vec<DependencyProjection>> {
+) -> BTreeMap<ExecutionCondition, Vec<StorageProjection>> {
     let mut owners = BTreeMap::new();
     let mut pending = vec![(result, Vec::new())];
-    let mut budget = ExecutionCondition::WORK_LIMIT;
 
     while let Some((value, path)) = pending.pop() {
-        let Some(remaining) = budget.checked_sub(1) else {
-            return BTreeMap::new();
-        };
-
-        budget = remaining;
+        if path.len() >= ExecutionCondition::WORK_LIMIT {
+            continue;
+        }
 
         if *value == ExecutionCondition::Unknown {
             continue;
@@ -212,34 +310,49 @@ fn returned_owners(
 
         match value {
             ExecutionCondition::Present(value) => {
+                // Presence snapshots can name the joined owner through their payload.
+                let reconstructed = value.owner_identity().clone().present();
+
+                if !matches!(
+                    reconstructed,
+                    ExecutionCondition::Present(_) | ExecutionCondition::Unknown
+                ) {
+                    owners.insert(reconstructed.owner_identity().clone(), path.clone());
+                }
+
                 let mut path = path;
 
-                path.push(DependencyProjection::NullableValue);
+                path.push(StorageProjection::NullableValue);
                 pending.push((value, path));
             }
             ExecutionCondition::Constructed(_, fields) => {
-                for (projection, value) in fields.iter() {
-                    let projection = match projection {
-                        bray_bound_tree::StorageProjection::ProductField(field) => {
-                            DependencyProjection::ProductField(*field)
-                        }
-                        bray_bound_tree::StorageProjection::TupleElement(index) => {
-                            DependencyProjection::TupleElement(*index)
-                        }
-                        bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                            field,
-                            ..
-                        } => DependencyProjection::UnionPayloadField(*field),
-                        bray_bound_tree::StorageProjection::NullableValue => {
-                            DependencyProjection::NullableValue
-                        }
-                        _ => continue,
-                    };
+                for (projection, component) in fields.iter() {
+                    if !matches!(
+                        projection,
+                        StorageProjection::ProductField(_)
+                            | StorageProjection::TupleElement(_)
+                            | StorageProjection::ActiveUnionPayloadField { .. }
+                            | StorageProjection::NullableValue
+                            | StorageProjection::ElementFromStart(_)
+                    ) {
+                        continue;
+                    }
 
                     let mut child = path.clone();
 
-                    child.push(projection);
-                    pending.push((value, child));
+                    child.push(*projection);
+
+                    if *projection == StorageProjection::NullableValue {
+                        // Nullable extraction retains the complete snapshot's identity.
+                        owners.insert(
+                            value
+                                .clone()
+                                .project(bray_bound_tree::StorageProjection::NullableValue),
+                            child.clone(),
+                        );
+                    }
+
+                    pending.push((component, child));
                 }
             }
             _ => {}
@@ -249,93 +362,169 @@ fn returned_owners(
     owners
 }
 
+/// Convert complete storage paths only when publishing portable carrier contracts.
+fn portable_path<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    path: &[StorageProjection],
+) -> Vec<DependencyProjection> {
+    path.iter()
+        .map(|projection| match projection {
+            StorageProjection::ElementFromStart(index) => {
+                let values = request.semantic_values();
+
+                let value = values
+                    .intern_constant_value(bray_symbols::ConstantValueData::new(
+                        crate::representation::representation_type(
+                            request,
+                            bray_compiler_known::RepresentationRole::ScalarUsize,
+                        ),
+                        bray_symbols::ConstantValueKind::Integer(
+                            bray_symbols::IntegerConstant::from_u64(u64::from(index.raw())),
+                        ),
+                    ))
+                    .expect("checked array index belongs to the same semantic store");
+
+                DependencyProjection::Element(
+                    values
+                        .intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+                        .expect("checked array selector belongs to the same semantic store"),
+                )
+            }
+            projection => crate::storage::dependency_projection(*projection)
+                .expect("returned owner retains a portable storage projection"),
+        })
+        .collect()
+}
+
 impl ExecutionState {
     /// Discharges ordinary guards while each original carrier still supplies its own evidence.
     pub(in crate::analysis::guarantee) fn refine_witnesses(&mut self) {
-        for conditions in self.witness_carriers.values_mut() {
-            if !conditions.iter().any(|condition| {
-                matches!(
-                    condition,
-                    ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, _)
-                )
-            }) {
+        for witness in self
+            .witnesses
+            .values_mut()
+            .filter(|witness| witness.available)
+        {
+            witness.refine(&mut self.trusted_assumptions, &mut self.assumptions);
+        }
+
+        self.refine_deferred_witnesses();
+    }
+
+    pub(in crate::analysis::guarantee) fn refine_deferred_witnesses(&mut self) {
+        let candidates = self
+            .deferred_invocations
+            .iter()
+            .flat_map(|(owner, entries)| {
+                entries
+                    .producers
+                    .keys()
+                    .map(move |source| (owner.clone(), *source))
+            })
+            .collect::<Vec<_>>();
+
+        for (owner, source) in candidates {
+            let candidate = &self.deferred_invocations[&owner].producers[&source];
+            let entry = &candidate.entry;
+
+            if !entry.pending_execution
+                || !super::super::deferred::possible(&candidate.selection, &self.assumptions)
+            {
                 continue;
             }
 
-            let mut evidence = BTreeSet::new();
+            let owners = self.owned_witnesses(entry.owned_arguments())
+                .filter(|(_, witness)| witness.has_guards())
+                .map(|(owner, _)| owner.clone())
+                .collect::<BTreeSet<_>>();
 
-            for condition in conditions.iter() {
-                // This proof set is independent of the immutable carried clauses.
-                condition.clone().assume(true, &mut evidence);
+            if owners.is_empty() && entry.copy_sources.is_empty() {
+                continue;
             }
 
-            let known =
-                crate::execution_guarantees::trusted_condition_closure(evidence, &self.assumptions);
+            let mut assumptions = entry.assumptions.clone();
 
-            let derived = conditions
-                .iter()
-                .flat_map(ExecutionCondition::observations)
-                .filter(|condition| {
-                    !condition.contains_trusted()
-                        || matches!(condition, ExecutionCondition::Trusted(_))
+            assumptions.extend(self.assumptions.iter().cloned());
+            assumptions.extend(candidate.selection.iter().cloned());
+
+            let captured = entry.captured_facts(&assumptions);
+
+            assumptions.extend(captured.iter().cloned());
+
+            // Canonical constant contents let literal and abstract visits to the
+            // same captured frame meet without losing an argument observation.
+            let mut equalities = None;
+
+            let constants = entry
+                .copy_sources
+                .keys()
+                .filter_map(|place| place.value_in(&entry.arguments))
+                .filter_map(|value| {
+                    let normalized = match value.prove_trusted(&BTreeSet::new(), &assumptions) {
+                        Some(holds) => ExecutionCondition::Boolean(holds),
+                        None => value.with_equalities(equalities.get_or_insert_with(|| {
+                            ExecutionCondition::equalities(&assumptions, None)
+                        })),
+                    };
+
+                    if !matches!(
+                        normalized,
+                        ExecutionCondition::Boolean(_)
+                            | ExecutionCondition::Literal(_)
+                            | ExecutionCondition::Variant(_)
+                    ) {
+                        return None;
+                    }
+
+                    (normalized != value).then_some((value, normalized))
                 })
-                .filter(|condition| known.contains(&((*condition).clone(), true)))
-                .cloned()
-                .collect::<Vec<_>>();
+                .collect::<std::collections::BTreeMap<_, _>>();
 
-            for condition in derived {
-                // The carrier and current proof set independently retain this established fact.
-                if matches!(condition, ExecutionCondition::Trusted(_)) {
-                    condition
-                        .clone()
-                        .assume(true, &mut self.trusted_assumptions);
+            let changed = !captured.is_subset(&entry.assumptions) || !constants.is_empty();
 
-                    conditions.insert(condition);
-                } else {
-                    // A checked mixed guarantee can also establish ordinary value bounds.
-                    // Their truth does not supply the qualifier required by trusted calls.
-                    condition.assume(true, &mut self.assumptions);
+            let trusted = if owners.is_empty() {
+                None
+            } else {
+                let mut trusted = entry.trusted_assumptions.clone();
+
+                for owner in owners {
+                    if let Some(witness) = self.witnesses.get_mut(&owner) {
+                        witness.refine(&mut trusted, &mut assumptions);
+                    }
                 }
+
+                (trusted != entry.trusted_assumptions).then_some(trusted)
+            };
+
+            // Captured contents are ordinary immutable values, available to every
+            // analysis consumer independently of the child run's trusted authority.
+            self.assumptions.extend(captured.iter().cloned());
+
+            let candidate = self
+                .deferred_invocations
+                .get_mut(&owner)
+                .expect("captured owner is retained during refinement")
+                .producers
+                .get_mut(&source)
+                .expect("captured producer is retained during refinement");
+
+            if !changed && trusted.is_none() {
+                continue;
+            }
+
+            // Only changed captured values or proof facts require a new entry snapshot.
+            let entry = std::sync::Arc::make_mut(&mut candidate.entry);
+
+            entry.assumptions.extend(captured);
+
+            if !constants.is_empty() {
+                for value in entry.arguments.values_mut() {
+                    *value = value.with_snapshots(&constants);
+                }
+            }
+
+            if let Some(trusted) = trusted {
+                entry.trusted_assumptions = trusted;
             }
         }
     }
-}
-
-/// An exact entry snapshot can transport an unknown witness only as a complete owned value.
-pub(super) fn returned_input<C: crate::CheckerRequestContext + ?Sized>(
-    domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
-    result: &ExecutionCondition,
-) -> Option<bray_symbols::ConstantTermId> {
-    let inputs = domain.request.trusted_contracts()?;
-
-    if !inputs.infer_result_witnesses {
-        return None;
-    }
-
-    let ty = domain.semantics.types().callable_result_type()?;
-
-    if domain.storage.copyable_types().contains(&ty) {
-        return None;
-    }
-
-    let mut input = result;
-
-    while let ExecutionCondition::Projection(_, value) = input {
-        input = value;
-    }
-
-    let ExecutionCondition::Input(place) = input else {
-        return None;
-    };
-
-    if !place.is_callable_input()
-        || domain
-            .borrowed_inputs
-            .iter()
-            .any(|borrow| borrow.contains(place))
-    {
-        return None;
-    }
-
-    portable(domain.request, result)
 }

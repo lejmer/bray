@@ -9,6 +9,7 @@
 #include <windows.h>
 #else
 #include <pthread.h>
+#include <sched.h>
 #endif
 
 struct provider_outcome;
@@ -21,6 +22,9 @@ typedef struct provider_report
     uint8_t namespace_identity[32];
     uint32_t cause;
     uint32_t primary_present;
+    uint32_t worker_stage;
+    uint32_t worker_category;
+    int64_t worker_native_code;
     uintptr_t message;
     size_t message_length;
     uint32_t (*copy_message)(uintptr_t, size_t, uint8_t*, size_t);
@@ -33,12 +37,166 @@ typedef struct provider_report
     uint32_t (*consume)(struct provider_report*, uint32_t);
 } provider_report;
 
-_Static_assert(sizeof(provider_report) == 152, "provider report native layout");
+_Static_assert(sizeof(provider_report) == 168, "provider report native layout");
 _Static_assert(sizeof(product_host_descriptor) == 80, "provider descriptor native layout");
 _Static_assert(sizeof(provider_domain) == 64, "resident domain native layout");
 
 typedef void (*produce_report)(provider_report*);
 typedef int32_t* (*state_address)(void);
+
+typedef struct
+{
+    uintptr_t address;
+} worker_reference;
+
+typedef struct
+{
+    uint32_t stage;
+    uint32_t category;
+    int64_t native_code;
+} worker_failure;
+
+struct provider_outcome
+{
+    uint32_t state;
+    uintptr_t payload;
+    provider_report report;
+};
+
+_Static_assert(sizeof(struct provider_outcome) == 184, "provider outcome native layout");
+_Static_assert(sizeof(worker_failure) == 16, "worker failure native layout");
+
+typedef struct
+{
+    uintptr_t context;
+    uint32_t (*call)(
+        uintptr_t,
+        uint32_t,
+        const worker_reference*,
+        uint64_t*,
+        struct provider_outcome*
+    );
+} worker_callback;
+
+extern uint32_t bray_runtime_scheduler_creation(uint32_t, uint64_t, size_t, worker_reference*);
+extern void bray_runtime_scheduler_destruction(const worker_reference*);
+extern uint32_t bray_runtime_worker_creation(
+    const worker_reference*,
+    const worker_callback*,
+    worker_reference*
+);
+extern uint32_t bray_runtime_worker_demand(const worker_reference*, uint32_t, worker_failure*);
+extern void bray_runtime_worker_stop(const worker_reference*);
+extern void bray_runtime_worker_destruction(const worker_reference*);
+
+typedef struct
+{
+    produce_report produce;
+    provider_report* destination;
+    provider_host_owner* owner;
+    worker_reference scheduler;
+    worker_reference workers;
+    atomic_uint trigger;
+    atomic_uint produced;
+    atomic_uint unbound;
+    atomic_uint completed;
+    atomic_uint released;
+} worker_producer;
+
+static void yield_native_thread(void)
+{
+#if defined(_WIN32)
+    SwitchToThread();
+#else
+    sched_yield();
+#endif
+}
+
+static uint32_t produce_worker_callback(
+    uintptr_t address,
+    uint32_t operation,
+    const worker_reference* scope,
+    uint64_t* argument,
+    struct provider_outcome* outcome
+)
+{
+    worker_producer* context = (worker_producer*)address;
+    (void)scope;
+    (void)outcome;
+
+    switch (operation)
+    {
+        case 0:
+            provider_host_retain((uintptr_t)context->owner);
+            break;
+        case 1:
+            assert(atomic_load(&context->unbound) != 0);
+            provider_host_release((uintptr_t)context->owner);
+            atomic_fetch_add(&context->released, 1);
+            break;
+        case 2:
+            break;
+        case 3:
+            return atomic_exchange(&context->trigger, 0);
+        case 4:
+            if (atomic_load(&context->produced) == 0)
+            {
+                context->produce(context->destination);
+                atomic_store(&context->produced, 1);
+            }
+            else
+            {
+                // Both native workers may depend on this callback. Stop must
+                // detach them without waiting for this callback to return.
+                bray_runtime_worker_stop(&context->workers);
+            }
+
+            break;
+        case 5:
+            atomic_fetch_add(&context->unbound, 1);
+            break;
+        case 6:
+            *argument = 1;
+            break;
+        case 8:
+            assert(atomic_load(&context->unbound) == 2);
+            atomic_fetch_add(&context->completed, 1);
+            break;
+        default:
+            abort();
+    }
+
+    return 0;
+}
+
+static void produce_on_workers(worker_producer* context)
+{
+    worker_callback callback = {(uintptr_t)context, produce_worker_callback};
+    worker_failure failure = {0};
+
+    assert(bray_runtime_scheduler_creation(21, 0, 4, &context->scheduler) == 0);
+    assert(bray_runtime_worker_creation(&context->scheduler, &callback, &context->workers) == 0);
+    assert(bray_runtime_worker_demand(&context->workers, 0, &failure) == 0);
+    assert(bray_runtime_worker_demand(&context->workers, 2, &failure) == 0);
+    atomic_store(&context->trigger, 1);
+
+    while (atomic_load(&context->produced) == 0)
+        yield_native_thread();
+}
+
+static void finish_workers(worker_producer* context)
+{
+    atomic_store(&context->trigger, 1);
+
+    while (atomic_load(&context->released) != 2)
+        yield_native_thread();
+
+    assert(atomic_load(&context->completed) == 1);
+    assert(atomic_load(&context->unbound) == 2);
+    bray_runtime_worker_stop(&context->workers);
+    bray_runtime_worker_destruction(&context->workers);
+    bray_runtime_scheduler_destruction(&context->scheduler);
+}
 
 typedef struct
 {
@@ -111,7 +269,15 @@ static provider_report take_primary(provider_report* report)
     return primary;
 }
 
-static int check_report(const char* path, uint64_t* previous_epoch, unsigned abnormal, const char* normal, const char* failing, const char* state_symbol)
+static int check_report(
+    const char* path,
+    uint64_t* previous_epoch,
+    unsigned abnormal,
+    const char* normal,
+    const char* failing,
+    const char* state_symbol,
+    unsigned on_workers
+)
 {
     void* library = provider_host_open(path);
 
@@ -163,7 +329,12 @@ static int check_report(const char* path, uint64_t* previous_epoch, unsigned abn
     int32_t* live = state();
     provider_report report = {0};
 
-    produce_on_thread(produce, &report);
+    worker_producer workers = {.produce = produce, .destination = &report, .owner = &owner};
+
+    if (on_workers)
+        produce_on_workers(&workers);
+    else
+        produce_on_thread(produce, &report);
     assert(*live == 739391 && report.primary_present == 1 && report.count == 1);
     assert(report.provider.callbacks != NULL);
     assert(report.consume != NULL && (void*)report.consume == provider_host_domain.consumer);
@@ -215,6 +386,15 @@ static int check_report(const char* path, uint64_t* previous_epoch, unsigned abn
 
     assert(consumed == (abnormal ? 5 : 0));
     assert(abnormal || attempts == 0);
+
+    if (on_workers)
+    {
+        assert(owner.closes == 0);
+        before = bray_allocation_probe_begin();
+        finish_workers(&workers);
+        assert(bray_allocation_probe_end(before) == 0);
+    }
+
     assert(owner.closes == 1);
     assert(strcmp(history, "retained provider report") == 0);
 
@@ -311,10 +491,15 @@ int main(int count, char** arguments)
 
     for (unsigned cycle = 0; cycle < 8; cycle += 1)
     {
-        assert(check_report(arguments[1], &epoch, cycle % 2,
+        assert(check_report(
+            arguments[1],
+            &epoch,
+            cycle % 2,
             count == 5 ? arguments[2] : "bray_provider_report",
             count == 5 ? arguments[3] : "bray_provider_abnormal_report",
-            count == 5 ? arguments[4] : "bray_provider_state") == 0);
+            count == 5 ? arguments[4] : "bray_provider_state",
+            0
+        ) == 0);
 
         unsigned attempts, live;
         size_t bytes, live_bytes;
@@ -337,6 +522,18 @@ int main(int count, char** arguments)
     }
 
     puts("provider lifetime cycles: 8; scheduler bindings: 0");
+
+    assert(check_report(
+        arguments[1],
+        &epoch,
+        0,
+        count == 5 ? arguments[2] : "bray_provider_report",
+        count == 5 ? arguments[3] : "bray_provider_abnormal_report",
+        count == 5 ? arguments[4] : "bray_provider_state",
+        1
+    ) == 0);
+
+    puts("worker provider lifetime: cleanup before unload; worker stop allocates nothing");
 
     if (count == 3)
     {

@@ -11,7 +11,7 @@ use bray_codegen::{
     DebugInformationOutputMode, OptimizationLevel, ReproducibilityLevel, SizePreference,
 };
 use bray_diagnostics::DiagnosticBag;
-use bray_runtime_interface::RuntimeAbiVersion;
+use bray_runtime_interface::EXECUTION_ABI_VERSION;
 use bray_symbols::ProductKind;
 #[cfg(test)]
 use bray_target::ObjectFormat;
@@ -365,7 +365,7 @@ fn capabilities(supports_thin_lto: bool) -> Result<BackendCapabilities, CodegenF
             ProductKind::Test,
         ],
         BackendTargetCapabilities::new(targets),
-        BackendRuntimeCapabilities::new([RuntimeAbiVersion::new(1, 0)], true, true),
+        BackendRuntimeCapabilities::new([EXECUTION_ABI_VERSION], true, true),
         BackendOptimizationCapabilities::new(
             [
                 OptimizationLevel::None,

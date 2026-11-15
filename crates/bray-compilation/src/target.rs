@@ -29,7 +29,10 @@ impl SelectedTarget {
 
     /// Creates a selected target from one native toolchain profile.
     pub fn for_native(target: NativeTarget) -> Self {
-        Self::new(target.profile(), RuntimeAbiVersion::new(1, 0))
+        Self::new(
+            target.profile(),
+            bray_runtime_interface::EXECUTION_ABI_VERSION,
+        )
     }
 
     /// Returns the native selected target with the supplied canonical identity.
@@ -121,7 +124,6 @@ impl SelectedTargetContext {
 #[cfg(test)]
 mod tests {
     use bray_compiler_known::AvailabilityRule;
-    use bray_runtime_interface::RuntimeAbiVersion;
     use bray_target::NativeTarget;
 
     use super::SelectedTarget;
@@ -136,7 +138,11 @@ mod tests {
         );
 
         assert_eq!(target.integer_width_bits().get(), 64);
-        assert_eq!(target.runtime_abi(), RuntimeAbiVersion::new(1, 0));
+
+        assert_eq!(
+            target.runtime_abi(),
+            bray_runtime_interface::EXECUTION_ABI_VERSION
+        );
     }
 
     #[test]

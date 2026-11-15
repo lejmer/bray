@@ -16,6 +16,7 @@ use bray_test_protocol::{
 };
 use bray_tooling::OutputFormat;
 use serde::Serialize;
+use serde::ser::SerializeStruct;
 
 use super::model::LoadedTestHost;
 use crate::tack::error::operation_diagnostics;
@@ -150,6 +151,21 @@ pub(super) fn render_details(report: &TestCommandReport, show_output: bool) -> S
         .iter()
         .flat_map(TestProductReport::results)
     {
+        let identity = result.identity().to_string();
+
+        let admission = match result.outcome() {
+            TestOutcome::Panicked(report) => renderer.worker_failure(&identity, report),
+            TestOutcome::InfrastructureFailed(failure) => {
+                renderer.timeout_admission_failure(&identity, *failure)
+            }
+            _ => None,
+        };
+
+        if let Some(detail) = admission {
+            output.push_str(&detail);
+            output.push('\n');
+        }
+
         if let TestOutcome::InfrastructureFailed(failure) = result.outcome()
             && let Some(termination) = failure.host_termination()
         {
@@ -511,6 +527,11 @@ enum JsonTestOutcome<'report> {
     },
     Panicked {
         cause: &'static str,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_worker_failure"
+        )]
+        worker_failure: Option<bray_runtime_abi::NativeWorkerFailure>,
         source: Option<JsonSourceAnchor>,
         message: &'report str,
     },
@@ -522,6 +543,11 @@ enum JsonTestOutcome<'report> {
     },
     InfrastructureFailed {
         failure: &'static str,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_platform_failure"
+        )]
+        platform_failure: Option<bray_runtime_abi::NativePlatformStatus>,
         detail_code: Option<u64>,
         host_termination: Option<TestHostTermination>,
     },
@@ -550,6 +576,10 @@ impl<'report> From<&'report TestOutcome> for JsonTestOutcome<'report> {
             },
             TestOutcome::Panicked(report) => Self::Panicked {
                 cause: panic_cause(report.cause()),
+                worker_failure: match report.cause() {
+                    TestPanicCause::WorkerFormationFailure(failure) => Some(failure),
+                    _ => None,
+                },
                 source: report.source().map(Into::into),
                 message: report.message(),
             },
@@ -561,11 +591,48 @@ impl<'report> From<&'report TestOutcome> for JsonTestOutcome<'report> {
             },
             TestOutcome::InfrastructureFailed(failure) => Self::InfrastructureFailed {
                 failure: infrastructure_failure(failure.kind()),
+                platform_failure: match failure.kind() {
+                    TestInfrastructureFailureKind::TimeoutClock(status) => Some(status),
+                    _ => None,
+                },
                 detail_code: failure.detail_code(),
                 host_termination: failure.host_termination(),
             },
         }
     }
+}
+
+fn serialize_worker_failure<S: serde::Serializer>(
+    failure: &Option<bray_runtime_abi::NativeWorkerFailure>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let Some(failure) = failure else {
+        return serializer.serialize_none();
+    };
+
+    let mut value = serializer.serialize_struct("WorkerFormationFailure", 3)?;
+
+    value.serialize_field("stage", &failure.stage)?;
+    value.serialize_field("category", &failure.category)?;
+    value.serialize_field("native_code", &failure.native_code)?;
+
+    value.end()
+}
+
+fn serialize_platform_failure<S: serde::Serializer>(
+    failure: &Option<bray_runtime_abi::NativePlatformStatus>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let Some(failure) = failure else {
+        return serializer.serialize_none();
+    };
+
+    let mut value = serializer.serialize_struct("PlatformFailure", 2)?;
+
+    value.serialize_field("category", &failure.category())?;
+    value.serialize_field("native_code", &failure.native_code())?;
+
+    value.end()
 }
 
 #[derive(Serialize)]
@@ -628,6 +695,7 @@ const fn panic_cause(cause: TestPanicCause) -> &'static str {
         TestPanicCause::RuntimePanic => "runtime_panic",
         TestPanicCause::AllocationFailure => "allocation_failure",
         TestPanicCause::EntryFailure => "entry_failure",
+        TestPanicCause::WorkerFormationFailure(_) => "worker_formation_failure",
         TestPanicCause::MemoryLayoutSizeOverflow => "memory_layout_size_overflow",
         TestPanicCause::MemoryLayoutUnsupportedAlignment => "memory_layout_unsupported_alignment",
     }
@@ -649,6 +717,14 @@ const fn infrastructure_failure(kind: TestInfrastructureFailureKind) -> &'static
         TestInfrastructureFailureKind::MissingOutcome => "missing_outcome",
         TestInfrastructureFailureKind::Cleanup => "cleanup",
         TestInfrastructureFailureKind::ForcedTermination => "forced_termination",
+        TestInfrastructureFailureKind::TimeoutRuntime => "timeout_runtime",
+        TestInfrastructureFailureKind::TimeoutCallbackResources => "timeout_callback_resources",
+        TestInfrastructureFailureKind::TimeoutDeadlineOverflow => "timeout_deadline_overflow",
+        TestInfrastructureFailureKind::TimeoutCapacity => "timeout_capacity",
+        TestInfrastructureFailureKind::TimeoutStorage => "timeout_storage",
+        TestInfrastructureFailureKind::TimeoutIdentityExhausted => "timeout_identity_exhausted",
+        TestInfrastructureFailureKind::TimeoutClosed => "timeout_closed",
+        TestInfrastructureFailureKind::TimeoutClock(_) => "timeout_clock",
     }
 }
 

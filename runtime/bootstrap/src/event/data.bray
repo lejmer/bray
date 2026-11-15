@@ -1,0 +1,83 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.event;
+
+using core.atomic;
+using core.memory;
+using std.sync;
+using internal bray.runtime.bootstrap.task;
+using internal bray.runtime.bootstrap.host;
+
+// These noncopy carriers retain actual allocations. Their pointer bits alone
+// cannot establish the retained predicates at a foreign boundary.
+@layout(c)
+internal struct Reference
+{
+    address: usize;
+}
+
+internal callable Wake = @abi(c) trusted func(pos context: usize, pos notify: u32) -> u32
+    executes(total);
+
+@layout(c)
+internal struct Callback
+{
+    context: usize;
+    call: Wake;
+}
+
+@layout(c)
+internal struct Domain
+{
+    references: core.atomic.Atomic<usize>;
+    state: Uninit<State>;
+}
+
+@layout(c)
+internal struct State
+{
+    mut generation: u64;
+    mut closed: bool;
+    mut head: u64;
+    mut tail: u64;
+}
+
+trusted internal predicate retained(owner: &Reference);
+
+trusted internal predicate callback_owned(owner: &Callback);
+
+trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
+
+trusted internal predicate callback_slot(pointer: DataPointer<Callback>);
+
+trusted internal predicate owned_reference(owner: &Reference);
+
+trusted internal predicate release_entry(pointer: DataPointer<Reference>);
+
+// Native names are owned by the resident host, separately from event state.
+internal struct DirectoryEntry
+{
+    identity: usize;
+    runtime: u64;
+    mut owner: Reference?;
+}
+
+trusted internal predicate final_reference(owner: &Reference);
+
+trusted internal predicate registration_entry(
+    event: DataPointer<Reference>,
+    task: DataPointer<bray.runtime.bootstrap.task.Reference>,
+    callback: DataPointer<Callback>
+);
+
+// The mutation anchor borrows the actual owner and resident acquisition. It
+// separates interior-state mutation from the immutable retained event owner.
+internal struct Anchor
+{
+    owner: &Reference;
+}
+
+trusted internal predicate anchored(owner: &Anchor);
+
+trusted internal predicate collection_owned(owner: &State);
+
+trusted internal predicate anchor_matches(anchor: &Anchor, lease: &bray.runtime.bootstrap.host.HostLease);

@@ -10,6 +10,7 @@ use crate::fact::{CancellationToken, FactQueryError};
 
 const U32: AbiField = AbiField::Scalar(RepresentationRole::ScalarU32);
 const U64: AbiField = AbiField::Scalar(RepresentationRole::ScalarU64);
+const I64: AbiField = AbiField::Scalar(RepresentationRole::ScalarI64);
 const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
 const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
     let mut fields = [AbiField::NativePointer; NATIVE_PANIC_REPORT_FIELDS.len()];
@@ -19,6 +20,7 @@ const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
         fields[index] = match NATIVE_PANIC_REPORT_FIELDS[index] {
             RuntimeAbiType::U32 => U32,
             RuntimeAbiType::U64 => U64,
+            RuntimeAbiType::I64 => I64,
             RuntimeAbiType::Usize => USIZE,
             // Source stores callback addresses as native words. Reconstructing a
             // callable still requires the report's complete producer witness.
@@ -164,6 +166,10 @@ pub(super) fn runtime_source_contract_matches(
             | RuntimeAbiRole::ComplexMultiply
             | RuntimeAbiRole::ComplexDivide
             | RuntimeAbiRole::ComplexPower
+            | RuntimeAbiRole::WorkerDemand
+            | RuntimeAbiRole::WorkerStop
+            | RuntimeAbiRole::WorkerPointerEntry
+            | RuntimeAbiRole::WorkerWordEntry
             | RuntimeAbiRole::ThreadStorageExit
             | RuntimeAbiRole::ControlStorageExit
             | RuntimeAbiRole::ThreadAttachmentLeave
@@ -193,10 +199,45 @@ pub(super) fn runtime_source_contract_matches(
         return Ok(false);
     }
 
-    let [(condition, bray_symbols::PredicateDomain::Trusted, _)] = conditions.value().as_slice()
-    else {
+    let expected_execution = match role {
+        RuntimeAbiRole::WorkerPointerEntry | RuntimeAbiRole::WorkerWordEntry => Some(3_u8),
+        RuntimeAbiRole::WorkerDemand | RuntimeAbiRole::WorkerStop => Some(1),
+        _ => None,
+    };
+
+    if let Some(expected) = expected_execution {
+        let behavior = compilation.body_behavior_with_cancellation(body.clone(), cancellation)?;
+        let mut execution = 0;
+
+        for requirement in behavior.result().value().execution_requirements() {
+            let bit = match compilation
+                .available_compiler_known_symbols()
+                .symbol_implementation(requirement.declaration())
+            {
+                Some(bray_compiler_known::ImplementationHook::BlockingExecution) => 1,
+                Some(bray_compiler_known::ImplementationHook::ComputeExecution) => 2,
+                _ => return Ok(false),
+            };
+
+            execution |= bit;
+        }
+
+        if behavior.result().diagnostics().has_errors() || execution != expected {
+            return Ok(false);
+        }
+    }
+
+    let mut authority = conditions.value().iter().filter(|(_, domain, _)| {
+        expected_execution.is_none() || *domain != bray_symbols::PredicateDomain::Execution
+    });
+
+    let Some((condition, bray_symbols::PredicateDomain::Trusted, _)) = authority.next() else {
         return Ok(false);
     };
+
+    if authority.next().is_some() {
+        return Ok(false);
+    }
 
     let condition = match condition {
         bray_checker::ExecutionCondition::Trusted(condition) => condition.as_ref(),
@@ -303,7 +344,9 @@ pub(super) fn runtime_role_abi(
 ) -> CallableAbi {
     if matches!(
         role,
-        RuntimeAbiRole::ThreadStorageExit | RuntimeAbiRole::ControlStorageExit
+        RuntimeAbiRole::ThreadStorageExit
+            | RuntimeAbiRole::ControlStorageExit
+            | RuntimeAbiRole::WorkerWordEntry
     ) && compilation
         .selected_target()
         .target()

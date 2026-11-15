@@ -1,3 +1,6 @@
+use std::path::Path;
+use std::time::{Duration, Instant};
+
 use bray_codegen::{
     ArtifactDigest, ArtifactDigestAlgorithm, AssemblySyntaxKind, BackendArtifactId,
     BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
@@ -11,12 +14,36 @@ use bray_target::test_support::test_target_profile;
 use bray_target::{TargetIdentity, TargetOutputDescription, TargetOutputKind, TargetOutputName};
 use bray_testing::test_mir_unit;
 
+use crate::storage::StorageLease;
 use crate::{
     ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole, EmissionPlan,
     EmissionRequest, EmittedArtifact, OutputSink, PlannedArtifact, PlannedArtifactDestination,
     ProductIdentity, ProductKind, ReplacementPolicy, RequestedArtifact,
     RequestedArtifactDestination,
 };
+
+pub(crate) fn wait_for_lease_release(path: &Path) {
+    // Parallel process creation can inherit a lease until the child successfully executes.
+    let deadline = Instant::now() + Duration::from_secs(10);
+
+    loop {
+        if let Some(lease) =
+            StorageLease::try_exclusive(path).expect("fixture lease must be readable")
+        {
+            // Release copies inherited while this probe held the exclusive lock as well.
+            lease.unlock().expect("fixture lease probe must unlock");
+            return;
+        }
+
+        assert!(
+            Instant::now() < deadline,
+            "fixture lease did not release: {}",
+            path.display()
+        );
+
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
 
 pub(crate) fn product_identity() -> ProductIdentity {
     let Some(package) = PackageIdentity::try_new("example.package") else {

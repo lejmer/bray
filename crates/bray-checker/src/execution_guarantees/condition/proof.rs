@@ -36,10 +36,6 @@ impl ExecutionCondition {
             return Some(*value);
         }
 
-        if let Self::Entry { condition, .. } = self {
-            return condition.prove_mixed(trusted, ordinary, budget);
-        }
-
         // Test exact evidence once per Boolean node. Recursively proving its entire
         // subtree at each level makes a chain of clauses require quadratic work.
         for value in [true, false] {
@@ -49,6 +45,10 @@ impl ExecutionCondition {
             {
                 return Some(value);
             }
+        }
+
+        if let Self::Entry { condition, .. } = self {
+            return condition.prove_mixed(trusted, ordinary, budget);
         }
 
         match self {
@@ -97,10 +97,6 @@ impl ExecutionCondition {
     ) -> Option<bool> {
         *budget = budget.checked_sub(1)?;
 
-        if let Self::Entry { condition, .. } = self {
-            return condition.prove(assumptions, budget);
-        }
-
         if self.is_unknown() {
             return None;
         }
@@ -116,6 +112,10 @@ impl ExecutionCondition {
 
         if assumptions.contains(&(self.clone(), false)) && !self.contains_unknown() {
             return Some(false);
+        }
+
+        if let Self::Entry { condition, .. } = self {
+            return condition.prove(assumptions, budget);
         }
 
         if let Self::VariantTest(variant, subject) = self {
@@ -193,7 +193,7 @@ impl ExecutionCondition {
             Self::Entry {
                 condition,
                 captured: true,
-            } if !condition.contains_trusted() && !condition.observes_borrowed(None) => {
+            } if !condition.contains_trusted() && !condition.observes_live(None) => {
                 // Instantiation has already frozen these ordinary input values.
                 // Use the same value evidence that proof reads, without promoting
                 // historical authority or observations of live borrowed storage.

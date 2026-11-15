@@ -873,7 +873,7 @@ mod tests {
             let root = runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution)
                 .expect("fixture `runtime_function_type` call must succeed");
 
-            let expected_root_parameters = match native {
+            let mut expected_root_parameters = match native {
                 NativeTarget::X86_64WindowsMsvc => vec![
                     context.ptr_type(inkwell::AddressSpace::default()).into(),
                     context.i64_type().into(),
@@ -889,6 +889,8 @@ mod tests {
                     context.i64_type().array_type(2).into(),
                 ],
             };
+
+            expected_root_parameters.push(context.ptr_type(inkwell::AddressSpace::default()).into());
 
             assert_eq!(progress.get_return_type(), None, "{native:?}");
 

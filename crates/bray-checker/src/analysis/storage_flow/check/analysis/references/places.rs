@@ -57,9 +57,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let borrowed = self.expression_is_borrowed(expression);
 
         let storage = if borrowed {
+            // A selected element has one bounded location even when its offset
+            // is unknown. Memory transitions retain that target's inexactness.
             let targets = self
                 .expression_reference(state, expression)?
-                .targets(&state.memory)?;
+                .regions(&state.memory)?;
 
             if targets.len() != 1 {
                 return None;

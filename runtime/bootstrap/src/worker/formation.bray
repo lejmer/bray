@@ -1,0 +1,466 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.atomic;
+using core.target;
+using core.memory;
+using std.memory;
+using std.numeric;
+using internal std.memory;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host.product;
+using internal bray.runtime.bootstrap.pool;
+using internal std.thread;
+
+trusted internal func retained_worker_value(pos owner: &WorkerReference) -> &Worker
+    requires(trusted retained_worker(owner = &owner.marker))
+    ensures(trusted retained_worker(owner = &owner.marker), trusted retained(owner = &result.pool.marker))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = owner.pointer;
+
+    let authorize = trusted lambda(pos owner: &WorkerReference, pos pointer: DataPointer<Worker>)
+        requires(trusted retained_worker(owner = &owner.marker))
+        ensures(
+            trusted core.memory.valid_read<Worker>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Worker>(pointer = pointer),
+            trusted core.memory.initialized_as<Worker>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Worker>(pointer = pointer),
+            trusted core.memory.epoch_current<Worker>(pointer = pointer),
+            trusted core.memory.synchronized_access<Worker>(pointer = pointer),
+            trusted core.memory.movement_stable<Worker>(pointer = pointer),
+            trusted core.memory.finalization_pending<Worker>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(owner, pointer);
+
+    return trusted std.memory.borrow_from<Worker, WorkerReference>(owner, pointer);
+}
+
+// The selected native admission boundary runs below the public worker service.
+// Its low-level formation wait cannot depend on that service or a timer.
+@abi(c)
+trusted internal func demand(
+    pos pointer: DataPointer<DataPointer<Domain>>,
+    pos workload: u32,
+    pos failure: DataPointer<Failure>
+) -> u32
+    requires(trusted formation_entry(), blocking_execution())
+{
+    let authorize = trusted lambda(pos pointer: DataPointer<DataPointer<Domain>>)
+        requires(trusted formation_entry())
+        ensures(
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
+            trusted reference_slot(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(pointer);
+
+    let reference = trusted read_reference(pointer);
+    let result = trusted ensure(reference, workload);
+    let failed = result.stage != 0;
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<Failure>(failure, result);
+
+    return if failed
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+}
+
+trusted internal func ensure(pos reference: Reference, pos workload: u32) -> Failure
+    requires(
+        trusted retained(owner = &reference.marker),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        blocking_execution()
+    )
+    uses(intrinsic)
+{
+    if workload > 2
+    {
+        trusted core.target.abort();
+    }
+
+    let mut prepared: std.memory.RawBuffer<std.memory.RawBuffer<Worker>>? = none;
+    let mut node: std.memory.RawBuffer<Worker>? = none;
+
+    let outcome: Failure = loop
+    {
+        let selected: Result<FormationChoice, usize> =
+        {
+            let mut guard = trusted lock(&reference);
+            let state = trusted locked_state(&reference, &mut guard);
+
+            let scheduler = trusted scheduler_reference(&reference);
+            let accepting = trusted bray.runtime.bootstrap.scheduler.worker_admission(scheduler);
+
+            if state.stopping || !accepting
+            {
+                break
+                {
+                    stage = 4,
+                    category = 0,
+                    native_code = 0
+                };
+            }
+
+            // Cooperative and compute have one independently acquired consumer.
+            // Blocking work retains one idle consumer for nested blocking demand.
+            let available = if workload == 1
+            {
+                yield state.idle_blocking;
+            }
+            else
+            {
+                yield state.count[workload as usize];
+            };
+
+            yield if available != 0
+            {
+                let select = trusted lambda(pos state: &State, pos workload: u32) -> DataPointer<Worker>
+                    uses(intrinsic)
+                {
+                    if let ?entries = state.entries
+                    {
+                        let rows = trusted std.memory.initialized_slice<std.memory.RawBuffer<Worker>>(&entries);
+
+                        // The newest reservation may still be forming. Await its
+                        // acknowledgement rather than an older busy worker's startup.
+                        let mut index = rows.length();
+
+                        while index != 0
+                        {
+                            index -= 1;
+
+                            let workers = trusted std.memory.initialized_slice<Worker>(&rows[index]);
+
+                            if workers[0].workload == workload
+                            {
+                                return std.memory.pointer<Worker>(&rows[index]);
+                            }
+                        }
+                    }
+
+                    return trusted core.target.abort();
+                };
+
+                yield Ok(FormationChoice.Existing(trusted select(&state, workload)));
+            }
+            else
+            {
+                yield match consume trusted bray.runtime.bootstrap.heap.reserve<std.memory.RawBuffer<Worker>>(
+                    &mut state.entries,
+                    &mut prepared
+                )
+                {
+                    case Error(capacity) { yield Error(capacity); }
+                    case Ok(ready)
+                    {
+                        if !ready
+                        {
+                            break
+                            {
+                                stage = 1,
+                                category = 0,
+                                native_code = 0
+                            };
+                        }
+
+                        yield if node matches none
+                        {
+                            yield Ok(FormationChoice.Backing);
+                        }
+                        else
+                        {
+                            let publish = trusted lambda(
+                                pos state: &mut State,
+                                pos node: std.memory.RawBuffer<Worker>
+                            ) -> Descriptor
+                                requires(node.initialized == 1)
+                                ensures(
+                                    trusted forming(owner = &result.marker),
+                                    trusted retained_worker(owner = &result.reference.marker)
+                                )
+                            {
+                                let pointer = std.memory.pointer<Worker>(&node);
+
+                                if let ?entries = state.entries
+                                {
+                                    trusted internal std.memory.initialize_spare<std.memory.RawBuffer<Worker>>(
+                                        &mut entries,
+                                        node
+                                    );
+                                }
+                                else
+                                {
+                                    trusted core.target.abort();
+                                }
+
+                                return
+                                {
+                                    marker = Marker
+                                    {
+                                    },
+                                    reference =
+                                    {
+                                        marker = Marker
+                                        {
+                                        },
+                                        pointer = pointer
+                                    }
+                                };
+                            };
+
+                            let storage = match consume trusted std.memory.replace_value<
+                                (std.memory.RawBuffer<Worker>?)
+                            >(&mut node, none)
+                            {
+                                case ?storage { yield storage; }
+                                case none { yield trusted core.target.abort(); }
+                            };
+
+                            let row = trusted publish(state, storage);
+
+                            state.count[workload as usize] += 1;
+                            state.live += 1;
+
+                            if workload == 1
+                            {
+                                state.idle_blocking += 1;
+                            }
+
+                            yield Ok(FormationChoice.Created(row));
+                        };
+                    }
+                };
+            };
+        };
+
+        match consume selected
+        {
+            case Error(capacity)
+            {
+                prepared = trusted prepare_collection(&reference, capacity);
+
+                if prepared matches none
+                {
+                    break
+                    {
+                        stage = 1,
+                        category = 0,
+                        native_code = 0
+                    };
+                }
+            }
+            case Ok(choice)
+            {
+                match consume choice
+                {
+                    case FormationChoice.Backing
+                    {
+                        node = trusted prepare_worker(&reference, workload);
+
+                        if node matches none
+                        {
+                            break
+                            {
+                                stage = 1,
+                                category = 0,
+                                native_code = 0
+                            };
+                        }
+                    }
+                    case FormationChoice.Existing(pointer)
+                    {
+                        // The retained pool owns the row after the queue guard ends.
+                        let retain = trusted lambda(pos owner: &Reference, pos pointer: DataPointer<Worker>) ->
+                            WorkerReference
+                            requires(trusted retained(owner = &owner.marker))
+                            ensures(
+                                trusted retained(owner = &owner.marker),
+                                trusted retained_worker(owner = &result.marker)
+                            )
+                            executes(pure, total)
+                            uses(intrinsic)
+                        {
+                            return
+                            {
+                                marker = Marker
+                                {
+                                },
+                                pointer = pointer
+                            };
+                        };
+
+                        let row = trusted retain(&reference, pointer);
+
+                        break trusted await_worker(&row);
+                    }
+                    case FormationChoice.Created(formation) { break trusted create_worker(formation); }
+                }
+            }
+        }
+    };
+
+    if outcome.stage != 0
+    {
+        let pointer = trusted scheduler_pointer(&reference);
+
+        let authorize = trusted lambda(
+            pos reference: &Reference,
+            pos pointer: DataPointer<bray.runtime.bootstrap.scheduler.Reference>
+        )
+            requires(trusted retained(owner = &reference.marker))
+            ensures(trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = pointer))
+            executes(pure, total) {};
+
+        trusted authorize(&reference, pointer);
+
+        _ = trusted bray.runtime.bootstrap.scheduler.worker_admission_state(pointer, 1);
+    }
+
+    return outcome;
+}
+
+trusted internal func prepare_worker(pos reference: &Reference, pos workload: u32) -> std.memory.RawBuffer<Worker>?
+    requires(trusted retained(owner = &reference.marker))
+    ensures(trusted retained(owner = &reference.marker))
+{
+    let mut prepared = trusted bray.runtime.bootstrap.heap.try_buffer<Worker>(1);
+
+    if let ?storage = prepared
+    {
+        trusted internal std.memory.initialize_spare<Worker>(
+            &mut storage,
+            {
+                pool =
+                {
+                    marker = Marker
+                    {
+                    },
+                    pointer = reference.pointer
+                },
+                workload = workload,
+                handle = core.atomic.initialize<u64>(0),
+                identity = core.atomic.initialize<u64>(0),
+                startup = core.atomic.initialize<u32>(0),
+                terminal = core.atomic.initialize<u32>(0),
+                detach = core.atomic.initialize<u32>(0),
+                formation = core.atomic.initialize<u32>(0),
+                failure_stage = core.atomic.initialize<u32>(0),
+                failure_category = core.atomic.initialize<u32>(0),
+                failure_code = core.atomic.initialize<i64>(0)
+            }
+        );
+    }
+
+    return prepared;
+}
+
+trusted internal func create_worker(pos formation: Descriptor) -> Failure
+    requires(
+        trusted forming(owner = &formation.marker),
+        trusted retained_worker(owner = &formation.reference.marker),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        blocking_execution()
+    )
+{
+    let (descriptor, reference) = trusted retain_descriptor(formation);
+    let (status, handle, native_error) = trusted start_native(descriptor);
+    let row = trusted retained_worker_value(&reference);
+
+    core.atomic.store<u64, 2>(&row.handle, handle);
+    core.atomic.store<u32, 2>(&row.formation, 1);
+    core.atomic.notify_all<u32>(&row.formation);
+
+    if status.category != 0
+    {
+        core.atomic.store<u32, 0>(&row.failure_stage, 2);
+        core.atomic.store<u32, 0>(&row.failure_category, status.category);
+        core.atomic.store<i64, 0>(&row.failure_code, native_error);
+        core.atomic.store<u32, 2>(&row.startup, 2);
+        core.atomic.notify_all<u32>(&row.startup);
+        core.atomic.store<u32, 2>(&row.terminal, 1);
+        core.atomic.notify_all<u32>(&row.terminal);
+
+        return
+        {
+            stage = 2,
+            category = status.category,
+            native_code = native_error
+        };
+    }
+
+    return trusted await_worker(&reference);
+}
+
+trusted internal func await_worker(pos reference: &WorkerReference) -> Failure
+    requires(trusted retained_worker(owner = &reference.marker), blocking_execution())
+    uses(intrinsic)
+{
+    let row = trusted retained_worker_value(reference);
+
+    while core.atomic.load<u32, 1>(&row.startup) == 0
+    {
+        core.atomic.wait<u32, 1>(&row.startup, 0);
+    }
+
+    if core.atomic.load<u32, 1>(&row.startup) != 1
+    {
+        while core.atomic.load<u32, 1>(&row.terminal) == 0
+        {
+            core.atomic.wait<u32, 1>(&row.terminal, 0);
+        }
+
+        let handle = core.atomic.exchange<u64, 3>(&row.handle, 0);
+
+        if handle != 0
+        {
+            let status = trusted internal std.thread.platform_thread_join(handle);
+
+            if status.category != 0
+            {
+                trusted core.target.abort();
+            }
+        }
+
+        return
+        {
+            stage = core.atomic.load<u32, 0>(&row.failure_stage),
+            category = core.atomic.load<u32, 0>(&row.failure_category),
+            native_code = core.atomic.load<i64, 0>(&row.failure_code)
+        };
+    }
+
+    return no_failure();
+}
+
+trusted internal func install_failure(pos scope: &ScopeReference, pos failure: &Failure)
+    requires(trusted scope_live(owner = &scope.marker))
+    ensures(trusted scope_live(owner = &scope.marker))
+{
+    let mut outcome = trusted failure_outcome(failure);
+    let mut argument: u64 = 0;
+    _ = trusted invoke_owned(scope, 7, &mut argument, &mut outcome);
+}
+
+trusted internal func prepare_collection(
+    pos reference: &Reference,
+    pos capacity: usize
+) -> std.memory.RawBuffer<std.memory.RawBuffer<Worker>>?
+    requires(trusted retained(owner = &reference.marker))
+    ensures(trusted retained(owner = &reference.marker))
+{
+    return trusted bray.runtime.bootstrap.heap.try_buffer<std.memory.RawBuffer<Worker>>(capacity);
+}

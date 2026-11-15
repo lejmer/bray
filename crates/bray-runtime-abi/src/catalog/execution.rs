@@ -257,7 +257,7 @@ macro_rules! runtime_role_catalog {
             }
             RootExecution {
                 "Begin and own the executable root run.", "root_execution",
-                native: (ROOT_EXECUTION_SYMBOL = "bray_runtime_root_execution", [Usize, Configuration] -> RootStart),
+                native: (ROOT_EXECUTION_SYMBOL = "bray_runtime_root_execution", [Usize, Configuration, Pointer] -> RootStart),
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
@@ -578,6 +578,116 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [RequestCancellation]
             }
+            EventCreation {
+                "Admit event backing and a resident external identity.", "event_creation",
+                native: (EVENT_CREATION_SYMBOL = "bray_runtime_event_creation", [U64, Pointer] -> Usize),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64, Pointer] -> Usize,
+                owner: Host, availability: All, bootstrap: ("event.creation"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventAcquisition {
+                "Validate an external event and retain its actual storage.", "event_acquisition",
+                native: (EVENT_ACQUISITION_SYMBOL = "bray_runtime_event_acquisition", [U64, Usize, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64, Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.acquisition"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventRelease {
+                "Release one retained event storage owner.", "event_release",
+                native: (EVENT_RELEASE_SYMBOL = "bray_runtime_event_release", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("event.release"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventObservation {
+                "Observe the generation and closure of a retained event.", "event_observation",
+                native: (EVENT_OBSERVATION_SYMBOL = "bray_runtime_event_observation", [Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.observation"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventRegistration {
+                "Admit one withdrawal or committed delivery owner.", "event_registration",
+                native: (EVENT_REGISTRATION_SYMBOL = "bray_runtime_event_registration", [Pointer, U64, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.registration"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventReadiness {
+                "Observe whether a retained task wait has released its slot.", "event_readiness",
+                native: (EVENT_READINESS_SYMBOL = "bray_runtime_event_readiness", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.readiness"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventWithdrawal {
+                "Withdraw pending membership or release a committed registration owner.", "event_withdrawal",
+                native: (EVENT_WITHDRAWAL_SYMBOL = "bray_runtime_event_withdrawal", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.withdrawal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventNotification {
+                "Commit event notification and drain retained delivery outside locks.", "event_notification",
+                native: (EVENT_NOTIFICATION_SYMBOL = "bray_runtime_event_notification", [Pointer, U32, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U32, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.notification"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventSignal {
+                "Signal a resident external event without thread attachment.", "event_signal",
+                native: (EVENT_SIGNAL_SYMBOL = "bray_runtime_event_signal", [Usize] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Usize] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.signal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventDestruction {
+                "Close an external event and remove its resident identity.", "event_destruction",
+                native: (EVENT_DESTRUCTION_SYMBOL = "bray_runtime_event_destruction", [U64, Usize] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64, Usize] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.destruction"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventClear {
+                "Close and retire the events of a retiring runtime.", "event_clear",
+                native: (EVENT_CLEAR_SYMBOL = "bray_runtime_event_clear", [U64] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64] -> Void,
+                owner: Host, availability: All, bootstrap: ("event.clear"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
             SchedulerCreation {
                 "Admit scheduler backing without starting optional execution services.", "scheduler_creation",
                 native: (SCHEDULER_CREATION_SYMBOL = "bray_runtime_scheduler_creation", [U32, U64, Usize, Pointer] -> U32),
@@ -600,11 +710,21 @@ macro_rules! runtime_role_catalog {
             }
             SchedulerSelection {
                 "Select a compatible lane from checked continuation requirements.", "scheduler_selection",
-                native: (SCHEDULER_SELECTION_SYMBOL = "bray_runtime_scheduler_selection", [Pointer, Pointer, Pointer] -> U32),
+                native: (SCHEDULER_SELECTION_SYMBOL = "bray_runtime_scheduler_selection", [Pointer, U64, Pointer, Pointer] -> U32),
                 service: Execution,
                 call_hook: (),
-                compiler: C [Pointer, Pointer, Pointer] -> U32,
+                compiler: C [Pointer, U64, Pointer, Pointer] -> U32,
                 owner: Host, availability: All, bootstrap: ("scheduler.selection"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerRecovery {
+                "Retain an admitted driver for terminal or failed task cleanup.", "scheduler_recovery",
+                native: (SCHEDULER_RECOVERY_SYMBOL = "bray_runtime_scheduler_recovery", [Pointer, U64, Pointer, U32] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, Pointer, U32] -> Void,
+                owner: Host, availability: All, bootstrap: ("scheduler.recovery"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: []
             }
@@ -738,6 +858,206 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: []
             }
+            WorkerAdmissionState {
+                "Close or observe worker admission on the shared scheduler owner.", "worker_admission_state",
+                native: (WORKER_ADMISSION_STATE_SYMBOL = "bray_runtime_worker_admission_state", [Pointer, U32] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U32] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.worker_admission_state"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            WorkerFailureReporting {
+                "Preserve a target worker formation failure in the caller-owned outcome.", "worker_failure_reporting",
+                native: (WORKER_FAILURE_REPORTING_SYMBOL = "bray_runtime_worker_failure_reporting", [Pointer, Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("worker.failure_reporting"), host_control: false,
+                capabilities: [],
+                effects: [ConstructPanicReport]
+            }
+            WorkerCreation {
+                "Own demanded worker lifetime and exact-thread execution.", "worker_creation",
+                native: (WORKER_CREATION_SYMBOL = "bray_runtime_worker_creation", [Pointer, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("worker.creation"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            WorkerDestruction {
+                "Own demanded worker lifetime and exact-thread execution.", "worker_destruction",
+                native: (WORKER_DESTRUCTION_SYMBOL = "bray_runtime_worker_destruction", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("worker.destruction"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            WorkerDemand {
+                "Own demanded worker lifetime and exact-thread execution.", "worker_demand",
+                native: (WORKER_DEMAND_SYMBOL = "bray_runtime_worker_demand", [Pointer, U32, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U32, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("worker.demand"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            WorkerStop {
+                "Own demanded worker lifetime and exact-thread execution.", "worker_stop",
+                native: (WORKER_STOP_SYMBOL = "bray_runtime_worker_stop", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("worker.stop"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            WorkerNotification {
+                "Own demanded worker lifetime and exact-thread execution.", "worker_notification",
+                native: (WORKER_NOTIFICATION_SYMBOL = "bray_runtime_worker_notification", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("worker.notification"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            WorkerAcquisition {
+                "Own demanded worker lifetime and exact-thread execution.", "worker_acquisition",
+                native: (WORKER_ACQUISITION_SYMBOL = "bray_runtime_worker_acquisition", [Pointer, U32, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U32, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("worker.acquisition"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            WorkerCompatibility {
+                "Own demanded worker lifetime and exact-thread execution.", "worker_compatibility",
+                native: (WORKER_COMPATIBILITY_SYMBOL = "bray_runtime_worker_compatibility", [Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("worker.compatibility"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            WorkerPointerEntry {
+                "Own demanded worker lifetime and exact-thread execution.", "worker_pointer_entry",
+                native: (WORKER_POINTER_ENTRY_SYMBOL = "bray_runtime_worker_pointer_entry", [Pointer] -> Pointer),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Pointer,
+                owner: Host, availability: All, bootstrap: ("worker.pointer_entry"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            WorkerWordEntry {
+                "Own demanded worker lifetime and exact-thread execution.", "worker_word_entry",
+                native: (WORKER_WORD_ENTRY_SYMBOL = "bray_runtime_worker_word_entry", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("worker.word_entry"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            DeadlineCreation {
+                "Admit an ordered deadline owner borrowing the existing scheduler.", "deadline_creation",
+                native: (DEADLINE_CREATION_SYMBOL = "bray_runtime_deadline_creation", [Pointer, Usize, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.creation"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineDestruction {
+                "Release a deadline owner after its registration owners retire.", "deadline_destruction",
+                native: (DEADLINE_DESTRUCTION_SYMBOL = "bray_runtime_deadline_destruction", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("deadline.destruction"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineRegistration {
+                "Transfer admitted notification ownership into the ordered deadline heap.", "deadline_registration",
+                native: (DEADLINE_REGISTRATION_SYMBOL = "bray_runtime_deadline_registration", [Pointer, U64, U64, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, U64, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.registration"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineWithdrawal {
+                "Withdraw pending deadline membership before delivery commitment.", "deadline_withdrawal",
+                native: (DEADLINE_WITHDRAWAL_SYMBOL = "bray_runtime_deadline_withdrawal", [Pointer, U64] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.withdrawal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineScopeWithdrawal {
+                "Withdraw pending deadlines for one retired scheduler registration.", "deadline_scope_withdrawal",
+                native: (DEADLINE_SCOPE_WITHDRAWAL_SYMBOL = "bray_runtime_deadline_scope_withdrawal", [Pointer, U64] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64] -> Void,
+                owner: Host, availability: All, bootstrap: ("deadline.scope_withdrawal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineDispatch {
+                "Commit elapsed deadlines and deliver retained callbacks outside the heap lock.", "deadline_dispatch",
+                native: (DEADLINE_DISPATCH_SYMBOL = "bray_runtime_deadline_dispatch", [Pointer, U64] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.dispatch"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineNext {
+                "Observe the earliest pending monotonic deadline.", "deadline_next",
+                native: (DEADLINE_NEXT_SYMBOL = "bray_runtime_deadline_next", [Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("deadline.next"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineMembershipCount {
+                "Observe the number of pending deadline registrations.", "deadline_membership_count",
+                native: (DEADLINE_MEMBERSHIP_COUNT_SYMBOL = "bray_runtime_deadline_membership_count", [Pointer] -> Usize),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Usize,
+                owner: Host, availability: All, bootstrap: ("deadline.membership_count"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            DeadlineClosure {
+                "Close admission while preserving existing deadline and delivery owners.", "deadline_closure",
+                native: (DEADLINE_CLOSURE_SYMBOL = "bray_runtime_deadline_closure", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("scheduler.deadline_closure"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
             TaskControlCreation {
                 "Create the runtime identity for resident Bray task control.", "task_control_creation",
                 native: (TASK_CONTROL_CREATION_SYMBOL = "bray_runtime_task_control_creation", [] -> U64),
@@ -800,10 +1120,10 @@ macro_rules! runtime_role_catalog {
             }
             TaskControlDispatch {
                 "Drive one exclusively claimed Bray task outside its cell lock.", "task_control_dispatch",
-                native: (TASK_CONTROL_DISPATCH_SYMBOL = "bray_runtime_task_control_dispatch", [Pointer, Pointer, Pointer, Pointer] -> U32),
+                native: (TASK_CONTROL_DISPATCH_SYMBOL = "bray_runtime_task_control_dispatch", [Pointer, Pointer, Pointer, Pointer, Pointer] -> U32),
                 service: Execution,
                 call_hook: (),
-                compiler: C [Pointer, Pointer, Pointer, Pointer] -> U32,
+                compiler: C [Pointer, Pointer, Pointer, Pointer, Pointer] -> U32,
                 owner: Host, availability: All, bootstrap: ("task.dispatch"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [ExecuteCallbackRoot, PublishTerminalState]
@@ -919,7 +1239,7 @@ macro_rules! runtime_role_catalog {
             }
             TaskStart {
                 "Publish a newly initialized task for execution.", "task_start",
-                native: (TASK_START_SYMBOL = "bray_runtime_task_start", [U64, InactiveFrame] -> U32),
+                native: (TASK_START_SYMBOL = "bray_runtime_task_start", [U64, InactiveFrame, Pointer] -> U32),
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,

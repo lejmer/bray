@@ -1,6 +1,5 @@
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
-use std::sync::{Arc, Mutex, Weak};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use bray_platform::{MonotonicClock, RuntimeThread, RuntimeThreadId};
 use bray_runtime_model::RuntimeCapability;
@@ -12,8 +11,8 @@ use crate::{
 };
 
 use super::contract::{SchedulerError, SchedulerLimits};
+use super::deadline::BrayDeadlines;
 use super::native::{self, BrayScheduler};
-use super::timer::Timer;
 
 /// One Bray scheduler and the native resources retained by its registrations.
 #[derive(Clone, Debug)]
@@ -26,14 +25,13 @@ pub(super) struct SchedulerData {
     pub(super) limits: SchedulerLimits,
     pub(super) observe_queue_time: bool,
     pub(super) state: Mutex<SchedulerState>,
+    pub(super) deadlines: OnceLock<BrayDeadlines>,
     pub(super) source: BrayScheduler,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct SchedulerState {
     pub(super) tasks: HashMap<TaskId, RegisteredTask>,
-    pub(super) timers: BinaryHeap<Reverse<Timer>>,
-    pub(super) next_timer: u64,
 }
 
 // These bindings own callback resources and checked metadata, never readiness,
@@ -48,6 +46,10 @@ pub(super) struct RegisteredTask {
 }
 
 impl Scheduler {
+    pub(crate) fn source_reference(&self) -> &bray_runtime_abi::NativeSchedulerReference {
+        &self.data.source.reference
+    }
+
     pub(crate) fn wake_waiters(&self) {
         native::bray_runtime_scheduler_notification(&self.data.source.reference);
     }
@@ -85,6 +87,7 @@ impl Scheduler {
                 limits,
                 observe_queue_time,
                 state: Mutex::new(SchedulerState::default()),
+                deadlines: OnceLock::new(),
                 source,
             }),
         })
@@ -133,7 +136,7 @@ impl Scheduler {
         let lane = self
             .data
             .source
-            .select(execution.descriptor(), execution.origin().unwrap_or(origin))?;
+            .select(None, execution.descriptor(), execution.origin().unwrap_or(origin))?;
 
         let mut registration = 0;
 
@@ -232,7 +235,24 @@ impl Scheduler {
             .into_iter()
             .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
 
-        super::dispatch::pop_ready(&self.data, thread, lanes)
+        super::dispatch::pop_ready(&self.data, thread, lanes, None)
+    }
+
+    pub(crate) fn take_worker_ready(
+        &self,
+        thread: &RuntimeThread,
+        lanes: impl IntoIterator<Item = ExecutionLane>,
+        scope: &bray_runtime_abi::NativeWorkerScope,
+    ) -> Result<Option<super::dispatch::ReadyTask>, SchedulerError> {
+        self.promote_elapsed_timers()?;
+
+        let thread = thread.id();
+
+        let lanes = lanes
+            .into_iter()
+            .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
+
+        super::dispatch::pop_ready(&self.data, thread, lanes, Some(scope))
     }
 
     /// Returns the number of registered independent runs.
@@ -392,9 +412,21 @@ impl TaskRegistration {
             .ok_or(SchedulerError::UnknownTask(self.task))?;
 
         scheduler.source.select(
+            Some((self.task, self.registration)),
             execution.descriptor(),
             execution.origin().unwrap_or(self.origin),
         )
+    }
+
+    pub(crate) fn retain_driver(&self, scope: Option<&bray_runtime_abi::NativeWorkerScope>, cleanup: bool) {
+        let scheduler = self.scheduler.upgrade().expect("an exclusive dispatch retains its scheduler");
+
+        native::bray_runtime_scheduler_recovery(
+            &scheduler.source.reference,
+            self.registration,
+            scope.unwrap_or(&bray_runtime_abi::NativeWorkerScope::default()),
+            cleanup,
+        );
     }
 }
 
@@ -441,10 +473,12 @@ fn unregister_task(scheduler: &SchedulerData, task: TaskId, registration: Option
             removed.registration,
         );
 
-        state.timers.retain(|Reverse(timer)| timer.task != task);
-
         removed
     };
+
+    if let Some(deadlines) = scheduler.deadlines.get() {
+        deadlines.withdraw_scope(removed.registration);
+    }
 
     drop(removed);
 }
@@ -466,7 +500,7 @@ impl TaskWakeHandle {
         self.wake_with_cause(TaskWakeCause::Cancellation)
     }
 
-    pub(super) fn wake_with_cause(&self, cause: TaskWakeCause) -> Result<bool, SchedulerError> {
+    pub(crate) fn wake_with_cause(&self, cause: TaskWakeCause) -> Result<bool, SchedulerError> {
         let scheduler = self
             .scheduler
             .upgrade()
@@ -520,6 +554,10 @@ mod tests {
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
         let wake = registration.wake_handle();
         let retired = task.id();
+
+        super::unregister_task(&scheduler.data, retired, None);
+
+        assert!(matches!(registration.execution_lane(&task.execution_state()), Err(SchedulerError::UnknownTask(task)) if task == retired));
 
         drop(registration);
         drop(task);
@@ -840,12 +878,10 @@ mod tests {
 
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
-        let deadline = MonotonicClock
-            .deadline_after(Duration::ZERO)
-            .unwrap_or_else(|| panic!("zero deadline must be representable"));
+        let duration = Duration::ZERO;
 
         let _timer = scheduler
-            .register_timer(deadline, &registration.wake_handle())
+            .register_timer(duration, &registration.wake_handle())
             .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
 
         let ready = scheduler
@@ -880,12 +916,10 @@ mod tests {
             .wake()
             .unwrap_or_else(|error| panic!("task must wake: {error:?}"));
 
-        let deadline = MonotonicClock
-            .deadline_after(Duration::ZERO)
-            .unwrap_or_else(|| panic!("zero deadline must be representable"));
+        let duration = Duration::ZERO;
 
         let _timer = scheduler
-            .register_timer(deadline, &registration.wake_handle())
+            .register_timer(duration, &registration.wake_handle())
             .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
 
         let ready = scheduler
@@ -896,13 +930,15 @@ mod tests {
         assert_eq!(ready.task(), task.id());
         drop(ready);
 
-        let state = scheduler
-            .data
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        assert!(state.timers.is_empty());
+        assert_eq!(
+            scheduler
+                .data
+                .deadlines
+                .get()
+                .expect("timer service was demanded")
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -919,12 +955,10 @@ mod tests {
 
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
-        let deadline = MonotonicClock
-            .deadline_after(Duration::from_secs(60))
-            .unwrap_or_else(|| panic!("timer deadline must be representable"));
+        let duration = Duration::from_secs(60);
 
         let timer = scheduler
-            .register_timer(deadline, &registration.wake_handle())
+            .register_timer(duration, &registration.wake_handle())
             .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
 
         drop(timer);
@@ -1113,12 +1147,10 @@ mod tests {
             .wake()
             .unwrap_or_else(|error| panic!("task must wake: {error:?}"));
 
-        let deadline = MonotonicClock
-            .deadline_after(Duration::from_secs(60))
-            .unwrap_or_else(|| panic!("timer deadline must be representable"));
+        let duration = Duration::from_secs(60);
 
         let _timer = scheduler
-            .register_timer(deadline, &registration.wake_handle())
+            .register_timer(duration, &registration.wake_handle())
             .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
 
         drop(registration);
@@ -1130,7 +1162,127 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         assert!(state.tasks.is_empty());
-        assert!(state.timers.is_empty());
+
+        assert_eq!(
+            scheduler
+                .data
+                .deadlines
+                .get()
+                .expect("timer service was demanded")
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn deadline_rejection_preserves_task_and_service_ownership() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("runtime thread initializes");
+
+        let scheduler = Scheduler::new(
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MigratableLanes,
+            ],
+            runtime.runtime().id(),
+            SchedulerLimits::new(nonzero(1), nonzero(1)),
+        )
+        .expect("scheduler backing is admitted");
+
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
+        let wake = registration.wake_handle();
+
+        assert!(matches!(
+            scheduler.register_timer(Duration::MAX, &wake),
+            Err(SchedulerError::DeadlineOverflow)
+        ));
+
+        assert!(scheduler.data.deadlines.get().is_none());
+
+        let timer = scheduler
+            .register_timer(Duration::from_secs(60), &wake)
+            .expect("first timer is admitted");
+
+        assert!(matches!(
+            scheduler.register_timer(Duration::ZERO, &wake),
+            Err(SchedulerError::TimerCapacityReached)
+        ));
+
+        scheduler.close_timers();
+
+        assert!(matches!(
+            scheduler.register_timer(Duration::ZERO, &wake),
+            Err(SchedulerError::TimersClosed)
+        ));
+
+        assert!(
+            wake.wake()
+                .expect("rejection retains the task's readiness owner")
+        );
+
+        assert_eq!(
+            scheduler
+                .snapshot()
+                .expect("scheduler remains observable")
+                .timer_count(),
+            1
+        );
+
+        drop(timer);
+
+        assert_eq!(
+            scheduler
+                .snapshot()
+                .expect("withdrawal remains available after closure")
+                .timer_count(),
+            0
+        );
+    }
+
+    #[test]
+    fn closure_before_first_deadline_rejects_lazy_service_formation() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("runtime thread initializes");
+        let scheduler = scheduler(runtime.runtime().id());
+
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
+
+        scheduler.close_timers();
+
+        assert!(matches!(
+            scheduler.register_timer(Duration::ZERO, &registration.wake_handle()),
+            Err(SchedulerError::TimersClosed)
+        ));
+
+        assert!(scheduler.data.deadlines.get().is_none());
+    }
+
+    #[test]
+    fn pending_timer_retains_its_scheduler_until_withdrawal() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("runtime thread initializes");
+        let scheduler = scheduler(runtime.runtime().id());
+
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
+        let wake = registration.wake_handle();
+
+        let timer = scheduler
+            .register_timer(Duration::from_secs(60), &wake)
+            .expect("timer is admitted");
+
+        drop(scheduler);
+        assert!(wake.wake().expect("the timer retains its scheduler"));
+        drop(timer);
+        assert!(matches!(wake.wake(), Err(SchedulerError::UnknownTask(_))));
     }
 
     fn scheduler(main_thread: bray_platform::RuntimeThreadId) -> Scheduler {
@@ -1268,7 +1420,7 @@ mod tests {
         );
 
         source
-            .select(&descriptor, origin)
+            .select(None, &descriptor, origin)
             .map_err(|error| match error {
                 SchedulerError::LaneSelection(error) => error,
                 error => panic!("fixture lane selection failed: {error:?}"),

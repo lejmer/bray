@@ -14,15 +14,16 @@ use crate::bundle::{
 use crate::workspace;
 use bray_runtime_interface::{
     BinarySymbolName, PanicAbiIdentity, PlatformServiceRole, ProtectedFrameAbiVersions,
-    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactComponentMetadata, RuntimeArtifactId,
-    RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability, RuntimeContract,
-    RuntimeIdentity, RuntimeNativeIndexMetadata, RuntimeRoleBinding,
+    RuntimeAbiRole, RuntimeArtifactComponentMetadata, RuntimeArtifactId, RuntimeArtifactMetadata,
+    RuntimeArtifactPurpose, RuntimeCapability, RuntimeContract, RuntimeIdentity,
+    RuntimeNativeIndexMetadata, RuntimeRoleBinding,
 };
 use bray_symbols::NativeLinkRequirement;
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
 const USAGE: &str = "usage: cargo xtask runtime-artifact \
-    <build --output <directory> [--target <triple>] [--profile <profile>] | smoke-test>";
+    <build --output <directory> [--target <triple>] [--profile <profile>] | \
+    smoke-test [--output <directory> [--profile <profile>]]>";
 pub(super) const METADATA_FILE_NAME: &str = "bray-runtime.brayrt";
 const RUNTIME_IDENTITY: &str = "bray.runtime.reference";
 const PANIC_ABI: &str = "bray.panic.unwind";
@@ -85,21 +86,42 @@ fn build_command(arguments: impl Iterator<Item = String>) -> Result<Package, Com
     build(target, &output, &options.profile)
 }
 
-fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(), CommandError> {
-    if let Some(argument) = arguments.next() {
-        return Err(CommandError::UnexpectedArgument(argument));
-    }
+fn smoke_test_command(arguments: impl Iterator<Item = String>) -> Result<(), CommandError> {
+    let mut arguments = arguments.peekable();
+
+    let options = if arguments.peek().is_some() {
+        Some(BuildOptions::parse(arguments)?)
+    } else {
+        None
+    };
 
     let target = NativeTarget::current().ok_or(CommandError::HostTarget)?;
+
+    if options
+        .as_ref()
+        .and_then(|options| options.native.target())
+        .is_some_and(|requested| requested != target)
+    {
+        return Err(CommandError::HostTarget);
+    }
 
     let directory = tempfile::Builder::new()
         .prefix("bray-runtime-artifact-smoke-")
         .tempdir()
         .map_err(CommandError::TemporaryDirectory)?;
 
-    let output = directory.path().join(target.as_str());
+    let output = options.as_ref().map_or_else(
+        || directory.path().join(target.as_str()),
+        |options| options.native.target_output(target),
+    );
 
-    let mut package = build(target, &output, "release")?;
+    let profile = options
+        .as_ref()
+        .map_or("release", |options| options.profile.as_str());
+
+    // Persistent smoke inputs use the same freshness checks and rebuild path as
+    // ordinary artifact construction. Executables remain isolated per smoke run.
+    let mut package = build(target, &output, profile)?;
 
     super::smoke::add_package_dependencies(&mut package, target, directory.path())?;
 
@@ -426,8 +448,8 @@ fn metadata(
     let contract = RuntimeContract::try_new(
         identity,
         artifact,
-        RuntimeAbiVersion::new(1, 0),
-        ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+        bray_runtime_interface::EXECUTION_ABI_VERSION,
+        ProtectedFrameAbiVersions::uniform(bray_runtime_interface::EXECUTION_ABI_VERSION),
         target_identity,
         panic_abi,
         SUPPORTED_CAPABILITIES,
@@ -962,12 +984,20 @@ mod tests {
             ))
         ));
 
-        let options =
-            BuildOptions::parse(["--output".to_owned(), "runtime".to_owned()].into_iter())
-                .unwrap_or_else(|error| panic!("host runtime build options must parse: {error}"));
+        let options = BuildOptions::parse(
+            [
+                "--output".to_owned(),
+                "runtime".to_owned(),
+                "--profile".to_owned(),
+                "ci".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_or_else(|error| panic!("host runtime build options must parse: {error}"));
 
         assert_eq!(options.native.target(), None);
         assert_eq!(options.native.output(), std::path::Path::new("runtime"));
+        assert_eq!(options.profile, "ci");
     }
 
     #[test]

@@ -64,6 +64,20 @@ impl OperationEffects {
         effects.value_inputs = value_inputs;
         effects.add_selected_call_dependencies(selections, storage, dependencies);
 
+        for (expression, source) in effects.value_inputs.deferred_sources() {
+            let completed = dependencies
+                .calls()
+                .get(&source.into())
+                .and_then(|call| call.deferred_result())
+                .expect("known lazy producer has its checked completion contract");
+
+            effects
+                .owner_dependencies
+                .entry(expression.into())
+                .or_default()
+                .extend(dependency_subjects(completed.requirements(), storage));
+        }
+
         effects.retain_report_dependencies(
             request,
             graph,

@@ -2,10 +2,11 @@ use crate::analysis::storage_flow::memory::Effect;
 use bray_bound_tree::{StorageIdentity, StorageInvalidation, StoragePath, StorageProjection};
 use bray_symbols::{
     DependencyMutationKind, DependencyStorageEffect, DependencySubject, DependencySubjectRoot,
-    SymbolOrdinal, TypeData,
+    TypeData,
 };
 
 use super::core::StorageFlowCollector;
+use std::collections::BTreeSet;
 use crate::CheckerRequestContext;
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
 use crate::analysis::storage_flow::memory::{Origin, Target};
@@ -23,26 +24,35 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Effect>> {
         self.prepare_assignment_reference(state, operation, assignment);
 
+        if self.call_attempt(operation).is_some() {
+            self.observe_call_reference_inputs(state, operation.occurrence());
+        }
+
         if let bray_bound_tree::BoundExecutionSite::Node(
             bray_bound_tree::AnyBoundNodeId::Expression(expression),
         ) = operation.occurrence()
             && self.memory.operation(expression).is_some()
         {
+            if matches!(operation, AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Input | AnalysisCallPhase::Completion, ..
+            }) {
+                return Some(Vec::new());
+            }
+
             return self.memory_effects(state, expression);
         }
 
         let invocation = self.call_attempt(operation)?;
 
-        if let Some(expression) = invocation.expression()
-            && matches!(
-                self.request.view().expression(expression),
-                Some(bray_bound_tree::BoundExpression::Await(_))
-            )
-        {
-            let source = self.execution.awaited_invocation(execution, expression);
-            let effects = source.and_then(|source| state.memory.deferred_effects(source));
+        let awaited = invocation.expression().and_then(|expression| {
+            match self.request.view().expression(expression) {
+                Some(bray_bound_tree::BoundExpression::Await(awaited)) => Some(*awaited),
+                _ => None,
+            }
+        });
 
-            return effects;
+        if let Some(awaited) = awaited {
+            return self.begin_await_transition(state, execution, operation, awaited);
         }
 
         if !self.dependencies.calls().contains_key(&invocation)
@@ -67,12 +77,34 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .extend(contracts.synchronous_cleanup().iter().cloned());
         }
 
-        let mut task_effects = task_effects(
-            &state.memory,
-            invocation
-                .expression()
-                .and_then(|expression| self.execution.task_effect_source(execution, expression)),
-        );
+        let task_sources = invocation
+            .expression()
+            .and_then(|expression| self.execution.task_invocations(execution, expression));
+
+        if invocation.expression().is_some_and(|expression| matches!(
+            self.execution.semantics.selections().expression(expression),
+            Some(bray_bound_tree::SemanticSelection::Call(call))
+                if call.implementation_hook().and_then(crate::analysis::AnalysisTaskOperationKind::from_implementation_hook).is_some()
+        ))
+            && let Some(crate::analysis::storage_flow::memory::Source::Value(source)) = self.invocation_reference(state, invocation, DependencySubjectRoot::Receiver)
+            && let Some(result) = self.invocation_result(invocation)
+        {
+            state.memory.stage_deferred_values(invocation, [(source, Target::storage(result))]);
+        }
+
+        let mut task_effects = task_sources.as_ref().and_then(|sources| {
+            let source =
+                self.invocation_reference(state, invocation, DependencySubjectRoot::Receiver)?;
+
+            let body = self
+                .execution
+                .task_body(execution, invocation.expression()?)?;
+
+            task_effects(
+                state.memory.deferred_effects(&source, &[body].into()),
+                self.execution.task_cleanup_types(sources, false)?,
+            )
+        });
 
         if let Some(effects) = contracts.deferred_effects() {
             let effects = task_effects
@@ -102,6 +134,140 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Some(effects)
     }
 
+    fn begin_await_transition(
+        &mut self,
+        state: &mut StorageFlowState,
+        execution: &crate::analysis::guarantee::ExecutionState,
+        operation: AnalysisOperationKind,
+        awaited: bray_bound_tree::BoundAwaitExpression,
+    ) -> Option<Vec<Effect>> {
+        let invocation = operation.occurrence();
+
+        let expression = invocation
+            .expression()
+            .expect("await transition retains its expression");
+
+        let source = self.expression_reference(state, awaited.operand())?;
+
+        let task_producers = self
+            .execution
+            .awaited_task_invocations(execution, expression);
+
+        let task = task_producers.is_some();
+
+        let producers = task_producers.unwrap_or_else(|| {
+            self.execution
+                .awaited_invocations(execution, expression)
+                .map(|(source, _)| source)
+                .collect::<std::collections::BTreeSet<_>>()
+        });
+
+        if self.execution.awaited_unknown(execution, expression) {
+            state.memory.begin_transition(invocation);
+
+            return None;
+        }
+
+        let body = task
+            .then(|| {
+                self.execution.deferred_body(
+                    execution,
+                    self.execution.value(execution, awaited.operand()),
+                )
+            })
+            .flatten();
+
+        let body_sources = body
+            .map(|(source, _)| [source].into())
+            .unwrap_or_else(|| producers.clone());
+
+        let mut body_effects = if task && body.is_none() {
+            None
+        } else {
+            state.memory.deferred_effects(&source, &body_sources)
+        };
+
+        if task
+            && let Some(effects) = &mut body_effects
+            && !effects.contains(&Effect::Ambient)
+        {
+            effects.push(Effect::Ambient);
+        }
+
+        let effects = if task {
+            // Normal and abnormal snapshots own descriptors with shared projection paths.
+            task_effects(
+                body_effects.clone(),
+                self.execution.task_cleanup_types(&producers, false)?,
+            )
+        } else {
+            body_effects.take()
+        };
+
+        let mut result = self
+            .expression_result_storage(expression)
+            .expect("await retains its checked result storage");
+
+        if task {
+            let (variant, field) = crate::representation::union_payload(
+                self.request,
+                "RunResultVariant0Completed",
+                "RunResultVariant0CompletedValue",
+            );
+
+            result.projections = result
+                .projections
+                .iter()
+                .copied()
+                .chain(std::iter::repeat_n(
+                    StorageProjection::ActiveUnionPayloadField { variant, field },
+                    body.map_or(1, |(_, depth)| depth),
+                ))
+                .collect();
+        }
+
+        state.memory.prepare_deferred_completion(
+            invocation,
+            &source,
+            result,
+            body_sources.iter().map(|producer| {
+                (
+                    *producer,
+                    self.invocation_result(*producer)
+                        .expect("formed producer retains its result storage"),
+                )
+            }),
+        );
+
+        if task {
+            // Capture cancellation before consuming the operand. Its cleanup
+            // runs on the abnormal result path, after that outcome is selected.
+            let roots = self.invocation_roots(state, invocation);
+            let escaped = self.address_escapes(state, operation, effects.as_deref(), &roots, false);
+
+            let invalidation = self.operation_observations(
+                state,
+                operation,
+                None,
+                effects.as_deref(),
+                Some(&roots),
+                None,
+            );
+
+            self.capture_failure_effects(
+                state,
+                invocation,
+                effects,
+                escaped,
+                invalidation.as_ref(),
+            );
+
+            return body_effects;
+        }
+
+        return effects;
+    }
+
     pub(super) fn call_attempt(
         &self,
         operation: AnalysisOperationKind,
@@ -109,7 +275,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         match operation {
             AnalysisOperationKind::Suspension {
                 occurrence,
-                kind: crate::analysis::model::AnalysisSuspensionKind::Await,
+                kind:
+                    crate::analysis::model::AnalysisSuspensionKind::Await
+                    | crate::analysis::model::AnalysisSuspensionKind::Yield,
             } => Some(occurrence),
             AnalysisOperationKind::Call {
                 invocation,
@@ -212,13 +380,22 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         assignment: Option<&Target>,
         effects: Option<&[Effect]>,
         roots: Option<&[Target]>,
+        marker_exposure: Option<&BTreeSet<Target>>,
     ) -> Option<StorageInvalidation> {
         let mut observed = effects
             .map(|effects| {
-                self.call_observations(state, kind.occurrence(), effects, roots.unwrap_or(&[]))
+                self.call_observations(
+                    state,
+                    kind.occurrence(),
+                    effects,
+                    roots.unwrap_or(&[]),
+                    marker_exposure,
+                )
             })
             .or_else(|| {
-                roots.map(|roots| self.opaque_observations(&state.memory, roots.iter().cloned()))
+                roots.map(|roots| {
+                    self.opaque_observations(&state.memory, roots.iter().cloned(), marker_exposure)
+                })
             })
             .or_else(|| {
                 assignment
@@ -294,9 +471,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(in crate::analysis::storage_flow) fn apply_failure_effects(
-        &self,
+        &mut self,
         state: &mut StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
+        normal_effects: bool,
     ) {
         let Some(effects) = state.memory.take_failure_effects(occurrence) else {
             return;
@@ -304,6 +482,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // The captured regions were normalized before ownership transfer.
         state.memory.escape_regions(effects.escaped.iter().cloned());
+
+        self.record_resolved_effects(&state.memory, &effects.mutations, normal_effects);
 
         self.apply_resolved_effects(
             &mut state.memory,
@@ -339,8 +519,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for effect in effects {
             match effect {
                 Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape) => {}
-                Effect::Mutation(target, kind) => memory.invalidate_target(target, *kind),
-                Effect::Ambient => {
+                Effect::Mutation(target, kind) => {
+                    memory.invalidate_target(target, *kind, invalidation)
+                }
+                effect if effect.is_ambient() => {
                     if effects.contains(&Effect::Escape) {
                         // Opaque calls can reach every invocation input, including delayed escapes.
                         memory.invalidate(
@@ -359,17 +541,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         let targets = memory.reachable_targets(memory.escaped_regions(escaped));
 
                         for target in targets {
-                            memory.invalidate_target(&target, DependencyMutationKind::Retire);
+                            memory.invalidate_target(
+                                &target,
+                                DependencyMutationKind::Retire,
+                                invalidation,
+                            );
                         }
                     }
                 }
-                Effect::Atomic => memory.invalidate(
+                effect if effect.is_atomic() => memory.invalidate(
                     &StorageInvalidation::unknown(),
                     self.storage,
                     DependencyMutationKind::Atomic,
                 ),
                 Effect::Unknown | Effect::Cleanup(_) => {
                     unreachable!("opaque effects handled above")
+                }
+                Effect::Ambient | Effect::Atomic => {
+                    unreachable!("classified effects handled above")
                 }
             }
         }
@@ -382,7 +571,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: &[DependencyStorageEffect],
     ) -> Vec<Effect> {
         self.resolve_effects(effects, |subject, indirect| {
-            if indirect && subject.projections().is_empty() {
+            if indirect
+                && subject.projections().is_empty()
+                && !matches!(
+                    subject.subject_root(),
+                    DependencySubjectRoot::ProductStatic(_)
+                        | DependencySubjectRoot::ExactThreadStatic(_)
+                )
+            {
                 self.invocation_reference(state, occurrence, subject.subject_root())?
                     .regions(&state.memory)
             } else {
@@ -392,7 +588,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     locations
                         .iter()
                         .try_fold(Vec::new(), |mut targets, location| {
-                            targets.extend(state.memory.referenced_regions(location)?);
+                            let regions = state.memory.referenced_regions(location);
+
+                            targets.extend(regions?);
 
                             Some(targets)
                         })
@@ -442,7 +640,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 } => (reference, true, projections.as_ref(), *kind),
             };
 
-            let Some(suffix) = storage_projections(self.dependencies, projections) else {
+            let static_subject = matches!(
+                subject.subject_root(),
+                DependencySubjectRoot::ProductStatic(_)
+                    | DependencySubjectRoot::ExactThreadStatic(_)
+            );
+
+            let suffix = storage_projections(
+                self.request.semantic_values(),
+                self.dependencies,
+                projections,
+            );
+
+            let suffix = if let Some(suffix) = suffix {
+                suffix
+            } else if static_subject {
+                Vec::new()
+            } else {
                 resolved.push(if kind == DependencyMutationKind::Escape {
                     Effect::Escape
                 } else {
@@ -571,6 +785,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             Origin::Storage(path) => self.formal_effect(path, kind),
             Origin::Allocation(_) => None,
+            Origin::Static { root, projections } => {
+                // An unresolved selector widens within the same static identity.
+                let projections = projections.iter().copied()
+                    .map_while(crate::storage::dependency_projection);
+
+                Some(DependencyStorageEffect::Direct {
+                    subject: DependencySubject::new(*root, projections),
+                    kind,
+                })
+            }
         };
 
         if let Some(effect) = effect {
@@ -643,33 +867,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             )
         });
 
-        if matches!(identity, StorageIdentity::Parameter(_))
-            && identity.is_invocation_owned(self.storage.kind())
+        if matches!(
+            identity,
+            StorageIdentity::Parameter(_)
+                | StorageIdentity::Receiver(_)
+                | StorageIdentity::AnonymousParameter(_)
+                | StorageIdentity::ContractParameter(_)
+        ) && identity.is_invocation_owned(self.storage.kind())
             && !borrowed
             && (kind != DependencyMutationKind::Escape
-                || self.input.has_complete_references(self.storage, path))
+                || self.input.reference_free(self.storage, path).is_some())
             && !path.projections.contains(&StorageProjection::OwnedTarget)
         {
-            // Writes to inline parameter storage stay in this invocation.
+            // Writes to inline owned input storage stay in this invocation.
             // Escape summaries separately carry its reachable value contents.
             return None;
         }
 
         let root = match identity {
-            StorageIdentity::Parameter(parameter) => {
-                DependencySubjectRoot::Parameter(SymbolOrdinal::new(
-                    self.request
-                        .symbols()
-                        .callable_parameter(parameter)
-                        .expect("planned parameter retains its declaration")
-                        .ordinal(),
-                ))
-            }
-            StorageIdentity::Receiver(_) => DependencySubjectRoot::Receiver,
-            StorageIdentity::Static(_)
-            | StorageIdentity::ContractParameter(_)
+            StorageIdentity::Parameter(_)
+            | StorageIdentity::Receiver(_)
             | StorageIdentity::AnonymousParameter(_)
-            | StorageIdentity::Error(_)
+            | StorageIdentity::ContractParameter(_) => self
+                .formal_root(path.root)
+                .expect("checked callable input retains its formal dependency subject"),
+            StorageIdentity::Static(declaration) => *self
+                .request
+                .static_dependencies()
+                .get(&declaration)
+                .expect("planned static storage retains its prepared dependency root"),
+            StorageIdentity::Error(_)
             | StorageIdentity::CustomIndexBorrow(_)
             | StorageIdentity::Alternative { .. } => return Some(DependencyStorageEffect::Unknown),
             // Resolved referent writes use physical targets. Initializing or retiring a local
@@ -699,10 +926,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 }
 
 pub(super) fn task_effects(
-    memory: &crate::analysis::storage_flow::memory::State,
-    source: Option<bray_bound_tree::BoundExecutionSite>,
+    effects: Option<Vec<Effect>>,
+    cleanup: impl IntoIterator<Item = bray_symbols::TypeId>,
 ) -> Option<Vec<Effect>> {
-    let mut effects = memory.deferred_effects(source?)?;
+    let mut effects = effects?;
+
+    for ty in cleanup {
+        let effect = Effect::Cleanup(ty);
+
+        if !effects.contains(&effect) {
+            effects.push(effect);
+        }
+    }
 
     // Scheduling and resolution can affect external runtime state even when
     // the captured computation has no user storage mutations.

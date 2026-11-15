@@ -1,0 +1,370 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.event;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal std.memory;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+
+@abi(c)
+trusted internal func creation(pos runtime: u64, pos output: DataPointer<Reference>) -> usize
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    if runtime == 0
+    {
+        return 0;
+    }
+
+    let allocated = trusted allocate_domain();
+
+    if allocated matches none
+    {
+        return 0;
+    }
+
+    let owner = trusted take_optional_reference(allocated);
+
+    let identity = trusted publish(&owner, runtime);
+
+    if identity == 0
+    {
+        trusted release_event(owner);
+        return 0;
+    }
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<Reference>(output, owner);
+    return identity;
+}
+
+// Directory backing is prepared outside the resident acquisition. Empty entries
+// are reused, so retained storage follows peak simultaneous names, not history.
+trusted internal func publish(pos owner: &Reference, pos runtime: u64) -> usize
+    requires(trusted retained(owner = owner), trusted owned_reference(owner = owner))
+    ensures(trusted retained(owner = owner), trusted owned_reference(owner = owner))
+{
+    let mut prepared: std.memory.RawBuffer<DirectoryEntry>? = none;
+
+    while true
+    {
+        let capacity = match consume trusted try_publish(owner, runtime, &mut prepared)
+        {
+            case Ok(identity) { return identity; }
+            case Error(capacity) { yield capacity; }
+        };
+
+        if !trusted prepare_directory(owner, &mut prepared, capacity)
+        {
+            return 0;
+        }
+    }
+}
+
+trusted internal func try_publish(
+    pos owner: &Reference,
+    pos runtime: u64,
+    pos prepared: &mut(std.memory.RawBuffer<DirectoryEntry>?)
+) -> Result<usize, usize>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+    uses(raw_memory, intrinsic)
+{
+    let lease = trusted event_access(owner);
+
+    if !lease.active
+    {
+        return Ok(0);
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if host.transitioning || host.next_identity >= std.numeric.truncate_to<u64, usize>(std.numeric.USIZE_MAX)
+    {
+        return Ok(0);
+    }
+
+    let identity = std.numeric.truncate_to<usize, u64>(host.next_identity);
+
+    if let ?buffer = host.events
+    {
+        let rows = trusted std.memory.initialized_slice_mut<DirectoryEntry>(&mut buffer);
+        let mut index: usize = 0;
+
+        while index < rows.length()
+        {
+            if rows[index].owner matches none
+            {
+                rows[index] =
+                {
+                    identity = identity,
+                    runtime = runtime,
+                    owner = trusted retain_event(owner)
+                };
+
+                host.next_identity += 1;
+                return Ok(identity);
+            }
+
+            index += 1;
+        }
+    }
+
+    match consume trusted reserve_directory(owner, &mut host.events, prepared)
+    {
+        case Ok(ready)
+        {
+            if !ready
+            {
+                return Ok(0);
+            }
+
+            if let ?buffer = host.events
+            {
+                trusted internal std.memory.initialize_spare<DirectoryEntry>(
+                    &mut buffer,
+                    {
+                        identity = identity,
+                        runtime = runtime,
+                        owner = trusted retain_event(owner)
+                    }
+                );
+            }
+            else
+            {
+                trusted core.target.abort();
+            }
+
+            host.next_identity += 1;
+            return Ok(identity);
+        }
+        case Error(capacity) { return Error(capacity); }
+    };
+}
+
+trusted internal func names_live(pos directory: &(std.memory.RawBuffer<DirectoryEntry>?)) -> bool
+    executes(pure, total)
+    uses(raw_memory)
+{
+    if let ?buffer = directory
+    {
+        let rows = trusted std.memory.initialized_slice<DirectoryEntry>(&buffer);
+        let mut index: usize = 0;
+
+        while index < rows.length()
+        {
+            if rows[index].owner matches ?_
+            {
+                return true;
+            }
+
+            index += 1;
+        }
+    }
+
+    return false;
+}
+
+trusted internal func lookup(pos runtime: u64, pos identity: usize, pos remove: bool) -> Reference?
+    ensures(trusted optional_reference(owner = &result))
+    uses(raw_memory)
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return none;
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if let ?buffer = host.events
+    {
+        let rows = trusted std.memory.initialized_slice_mut<DirectoryEntry>(&mut buffer);
+        let mut index: usize = 0;
+
+        while index < rows.length()
+        {
+            if rows[index].owner matches ?_ && (identity == 0 || rows[index].identity == identity) && (runtime == 0 ||
+                rows[index].runtime == runtime)
+            {
+                if remove
+                {
+                    return trusted std.memory.replace_value<(Reference?)>(&mut rows[index].owner, none);
+                }
+
+                return trusted retain_entry(&rows[index], &lease);
+            }
+
+            index += 1;
+        }
+    }
+
+    return none;
+}
+
+// The actual resident entry and its live acquisition keep this allocation alive
+// while a new independent storage reference commits. Name equality grants none.
+trusted internal func retain_entry(
+    pos entry: &DirectoryEntry,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> Reference
+    requires(
+        entry.owner matches ?_,
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+{
+    let borrow_entry = trusted lambda(pos entry: &DirectoryEntry, pos lease: &bray.runtime.bootstrap.host.HostLease) ->
+        Reference
+        requires(
+            entry.owner matches ?_,
+            lease.active,
+            trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+        )
+        ensures(trusted retained(owner = &result))
+        executes(pure, total)
+        uses(intrinsic)
+    {
+        return match entry.owner
+        {
+            case ?owner
+            {
+                yield
+                {
+                    address = owner.address
+                };
+            }
+            case none { yield trusted core.target.abort(); }
+        };
+    };
+
+    let borrowed = trusted borrow_entry(entry, lease);
+
+    return trusted retain_event(&borrowed);
+}
+
+@abi(c)
+trusted internal func acquisition(pos runtime: u64, pos identity: usize, pos output: DataPointer<Reference>) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    if runtime == 0 || identity == 0
+    {
+        return 3;
+    }
+
+    let acquired = trusted lookup(runtime, identity, false);
+
+    if acquired matches none
+    {
+        return 3;
+    }
+
+    let owner = trusted take_optional_reference(acquired);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<Reference>(output, owner);
+    return 0;
+}
+
+@abi(c)
+trusted internal func signal(pos identity: usize) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    if identity == 0
+    {
+        return 3;
+    }
+
+    let acquired = trusted lookup(0, identity, false);
+
+    if acquired matches none
+    {
+        return 3;
+    }
+
+    let mut owner = trusted take_optional_reference(acquired);
+    let (_, _, status) = trusted notify(&owner, true);
+
+    trusted release_event(owner);
+    return status;
+}
+
+@abi(c)
+trusted internal func destruction(pos runtime: u64, pos identity: usize) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    if runtime == 0 || identity == 0
+    {
+        return 3;
+    }
+
+    let acquired = trusted lookup(runtime, identity, true);
+
+    if acquired matches none
+    {
+        return 3;
+    }
+
+    let mut owner = trusted take_optional_reference(acquired);
+    let (_, _, status) = trusted notify(&owner, true);
+
+    trusted release_event(owner);
+    return status;
+}
+
+@abi(c)
+trusted internal func clear(pos runtime: u64)
+    requires(runtime != 0, trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    while true
+    {
+        let acquired = trusted lookup(runtime, 0, true);
+
+        if acquired matches none
+        {
+            return;
+        }
+
+        let mut owner = trusted take_optional_reference(acquired);
+
+        _ = trusted notify(&owner, true);
+
+        trusted release_event(owner);
+    }
+}
+
+// Native allocation and buffer movement cannot consume the lent event owner.
+trusted internal func reserve_directory(
+    pos owner: &Reference,
+    pos buffer: &mut(std.memory.RawBuffer<DirectoryEntry>?),
+    pos prepared: &mut(std.memory.RawBuffer<DirectoryEntry>?)
+) -> Result<bool, usize>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    return trusted bray.runtime.bootstrap.heap.reserve<DirectoryEntry>(buffer, prepared);
+}
+
+trusted internal func prepare_directory(
+    pos owner: &Reference,
+    pos prepared: &mut(std.memory.RawBuffer<DirectoryEntry>?),
+    pos capacity: usize
+) -> bool
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    let allocation = catch trusted bray.runtime.bootstrap.heap.try_buffer<DirectoryEntry>(capacity);
+
+    prepared = match consume allocation
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { yield none; }
+    };
+
+    return prepared matches ?_;
+}

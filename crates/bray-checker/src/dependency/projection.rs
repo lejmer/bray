@@ -446,6 +446,34 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         retain(std::slice::from_ref(projection));
     }
 
+    for call in contracts.calls().values() {
+        for transfer in call.owned_result().transfers() {
+            let crate::ExecutionCondition::Input(input) =
+                crate::execution_condition_from_type_term(
+                    request.semantic_values(),
+                    transfer.input(),
+                    call.input_count(),
+                )
+                .expect("checked ownership source decodes in the same semantic store")
+            else {
+                unreachable!("checked ownership source contains only input projections");
+            };
+
+            fields.extend(
+                input
+                    .projections
+                    .iter()
+                    .chain(transfer.output())
+                    .filter_map(|projection| match projection {
+                        bray_symbols::ConstantProjectionKind::UnionPayloadField(field) => {
+                            Some(*field)
+                        }
+                        _ => None,
+                    }),
+            );
+        }
+    }
+
     let mut variants = BTreeMap::new();
 
     for entry in selections.entries() {

@@ -22,13 +22,15 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
         Option<bray_bound_tree::StorageInvalidation>,
     pub(in crate::analysis::storage_flow) discriminants:
         BTreeMap<StorageIdentityId, BTreeSet<bray_bound_tree::StoragePath>>,
+    /// Assignments preserving tags, with whether their write domain is limited to contents.
     pub(in crate::analysis::storage_flow) tag_preserving_assignments:
-        BTreeSet<bray_bound_tree::BoundExecutionSite>,
+        BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
     pub(in crate::analysis::storage_flow) borrowed_identities:
-        BTreeMap<StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
+        BTreeMap<bray_bound_tree::StoragePath, Vec<bray_bound_tree::StoragePath>>,
     pub(in crate::analysis::storage_flow) opaque_values: BTreeSet<bray_bound_tree::StoragePath>,
     pub(in crate::analysis::storage_flow) stable_identities:
         BTreeMap<StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
+    pub(in crate::analysis::storage_flow) empty_markers: BTreeSet<bray_bound_tree::StoragePath>,
     pub(in crate::analysis::storage_flow) opaque_candidates: Vec<bray_bound_tree::StoragePath>,
     pub(super) unused_entry_storage: BTreeSet<StorageIdentityId>,
     pub(super) cleanup_free_storage: BTreeSet<StorageIdentityId>,
@@ -48,11 +50,11 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     >,
     pub(in crate::analysis::storage_flow) lifecycle_references:
         BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_bound_tree::BoundCallReference>>,
-    pub(in crate::analysis::storage_flow) complete_reference_types: BTreeSet<bray_symbols::TypeId>,
+    pub(in crate::analysis::storage_flow) complete_reference_types: std::sync::Arc<BTreeMap<bray_symbols::TypeId, bool>>,
     pub(in crate::analysis::storage_flow) raw_buffers:
         BTreeMap<bray_symbols::TypeId, (crate::representation::RawBufferFields, bool)>,
     pub(in crate::analysis::storage_flow) reference_paths:
-        BTreeMap<StorageAccessId, bray_bound_tree::StorageReferencePath>,
+        BTreeMap<StorageAccessId, (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
     pub(in crate::analysis::storage_flow) value_references: BTreeMap<
         StorageIdentityId,
         BTreeMap<crate::analysis::storage_flow::memory::Place, bray_symbols::TypeId>,
@@ -155,31 +157,13 @@ impl StorageFlowInput {
         // Share the same type-shape preparation with mutation observations.
         let footprint = crate::storage::observation::prepare(request, storage)?;
 
-        let mut tag_preserving_assignments = BTreeMap::<_, bool>::new();
-
-        for plan in storage
-            .access_plans()
-            .iter()
-            .filter(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
-        {
-            let builtin = matches!(request.view().expression(plan.expression()), Some(bray_bound_tree::BoundExpression::Assignment(assignment)) if assignment.operator() == bray_bound_tree::BoundAssignmentOperator::Assign)
-                || matches!(selections.expression(plan.expression()), Some(bray_bound_tree::SemanticSelection::Operation(bray_bound_tree::SelectedOperation::CompoundAssignment(assignment))) if matches!(assignment.target(), bray_bound_tree::OperatorTarget::BuiltIn(_)));
-
-            let ty = storage
-                .access(plan.access())
-                .expect("assignment retains its destination type")
-                .reached_type();
-
-            let preserves = builtin
-                && footprint.tag_free_values.contains(&ty)
-                && cleanup_shapes.requirement(ty)?
-                    == bray_bound_tree::AsyncStorageCleanupRequirement::None;
-
-            tag_preserving_assignments
-                .entry(plan.occurrence())
-                .and_modify(|known| *known &= preserves)
-                .or_insert(preserves);
-        }
+        let tag_preserving_assignments = Self::prepare_assignment_observations(
+            cleanup_shapes,
+            request,
+            storage,
+            selections,
+            &footprint,
+        )?;
 
         let mut demands = BTreeMap::<_, BTreeSet<_>>::new();
 
@@ -195,6 +179,7 @@ impl StorageFlowInput {
         }
 
         let atomic_observations = atomic.then_some(footprint.atomic);
+
         let stable_identities = footprint.identities;
         let borrowed_identities = footprint.borrowed_identities;
         let discriminants = footprint.discriminants;
@@ -209,7 +194,6 @@ impl StorageFlowInput {
 
         let opaque_values = stable_identities
             .values()
-            .chain(borrowed_identities.values())
             .chain(scalar_values.values())
             .flatten()
             .cloned()
@@ -225,8 +209,7 @@ impl StorageFlowInput {
             .chain(
                 borrowed_identities
                     .keys()
-                    .copied()
-                    .map(bray_bound_tree::StoragePath::root),
+                    .cloned(),
             )
             .chain(
                 discriminants
@@ -240,17 +223,15 @@ impl StorageFlowInput {
             .collect();
 
         let mut input = Self {
-            complete_reference_types: footprint.complete_reference_types,
+            empty_markers: footprint.empty_markers,
+            complete_reference_types: footprint.complete_reference_types.into(),
             atomic_observations,
             opaque_values,
             opaque_candidates,
             stable_identities,
             borrowed_identities,
             discriminants,
-            tag_preserving_assignments: tag_preserving_assignments
-                .into_iter()
-                .filter_map(|(site, preserves)| preserves.then_some(site))
-                .collect(),
+            tag_preserving_assignments,
             retained_storage,
             initialization_destinations,
             mutable_storage,
@@ -324,6 +305,56 @@ impl StorageFlowInput {
         diagnostics.add_range(cleanup_diagnostics);
 
         Ok((input, diagnostics))
+    }
+
+    fn prepare_assignment_observations<C>(
+        cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
+        request: CheckerUnitView<'_, C>,
+        storage: &StoragePlan,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        footprint: &crate::storage::observation::Footprint,
+    ) -> crate::CheckerQueryResult<
+        BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
+        C::UpstreamError,
+    >
+    where
+        C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
+    {
+        let mut assignments = BTreeMap::<_, (bool, bool)>::new();
+
+        for plan in storage
+            .access_plans()
+            .iter()
+            .filter(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
+        {
+            let builtin = matches!(request.view().expression(plan.expression()), Some(bray_bound_tree::BoundExpression::Assignment(assignment)) if assignment.operator() == bray_bound_tree::BoundAssignmentOperator::Assign)
+                || matches!(selections.expression(plan.expression()), Some(bray_bound_tree::SemanticSelection::Operation(bray_bound_tree::SelectedOperation::CompoundAssignment(assignment))) if matches!(assignment.target(), bray_bound_tree::OperatorTarget::BuiltIn(_)));
+
+            let ty = storage
+                .access(plan.access())
+                .expect("assignment retains its destination type")
+                .reached_type();
+
+            let content_only = footprint.tag_free_values.get(&ty).copied();
+
+            let preserves = builtin
+                && content_only.is_some()
+                && cleanup_shapes.requirement(ty)?
+                    == bray_bound_tree::AsyncStorageCleanupRequirement::None;
+
+            assignments
+                .entry(plan.occurrence())
+                .and_modify(|(tags, contents)| {
+                    *tags &= preserves;
+                    *contents &= content_only == Some(true);
+                })
+                .or_insert((preserves, content_only == Some(true)));
+        }
+
+        Ok(assignments
+            .into_iter()
+            .filter_map(|(site, (tags, contents))| tags.then_some((site, contents)))
+            .collect())
     }
 
     pub(super) fn prepare_locations(

@@ -7,6 +7,7 @@ mod normalize;
 mod place;
 mod portable;
 mod trusted_implication;
+mod witness;
 
 pub use bray_symbols::ExecutionProperty;
 pub use condition::ExecutionCondition;
@@ -16,7 +17,6 @@ pub use implication::{
     execution_condition_is_implied, map_execution_condition_references,
     remap_execution_condition_inputs, substitute_execution_condition,
 };
-pub(crate) use model::ExecutionValueEvidence;
 pub use model::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,
@@ -38,3 +38,7 @@ pub use portable::{
 pub use clause::ExecutionClauseId;
 
 pub(crate) use trusted_implication::trusted_condition_closure;
+
+pub(crate) use witness::{
+    AddressDependencies, ExecutionGuarantee, ExecutionWitness, rename_witnesses,
+};

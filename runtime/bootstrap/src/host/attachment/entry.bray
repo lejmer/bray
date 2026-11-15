@@ -40,15 +40,12 @@ trusted internal func enter_attachment_locked(
     )
     ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
     executes(total)
-    uses(intrinsic, raw_memory, unchecked_alias)
+    uses(intrinsic)
 {
     let no_identity: u64 = 0;
     let unavailable = (bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE, no_identity);
 
-    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        lease.synchronization,
-        trusted lease_synchronization_pointer(lease)
-    );
+    let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
 
     let native_thread = core.atomic.load<u64, 1>(&synchronization.lock);
     let identity = trusted current_attachment_locked(lease);

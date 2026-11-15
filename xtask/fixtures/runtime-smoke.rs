@@ -52,6 +52,13 @@ struct RunOutcome {
     report: PanicReport,
 }
 
+#[repr(C)]
+struct WorkerFailure {
+    stage: u32,
+    category: u32,
+    native_code: i64,
+}
+
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 struct PanicCause(u32);
@@ -198,10 +205,15 @@ unsafe extern "C" {
     ) -> Status;
     safe fn bray_runtime_task_destruction(task: TaskHandle) -> Status;
     safe fn bray_runtime_report_consumer(report: &mut PanicReport, reporting: u32) -> u32;
+    safe fn bray_runtime_worker_failure_reporting(
+        failure: &WorkerFailure,
+        outcome: &mut RunOutcome,
+    );
     safe fn bray_runtime_initialization(worker_capacity: usize, timer_capacity: usize) -> Status;
     safe fn bray_runtime_root_execution(
         frame: InactiveFrameTransfer,
         configuration: Configuration,
+        outcome: &mut RunOutcome,
     ) -> RootStart;
     safe fn bray_runtime_root_cancellation_request(root: RootHandle) -> Status;
     safe fn bray_runtime_root_terminal_observation(root: RootHandle) -> RunOutcome;
@@ -240,7 +252,11 @@ unsafe extern "C" {
     safe fn bray_runtime_wake(task: TaskHandle) -> Status;
     safe fn bray_runtime_main_thread_lane_startup(configuration: Configuration) -> Status;
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
-    safe fn bray_runtime_task_start(task: TaskHandle, frame: InactiveFrame) -> Status;
+    safe fn bray_runtime_task_start(
+        task: TaskHandle,
+        frame: InactiveFrame,
+        outcome: &mut RunOutcome,
+    ) -> Status;
     safe fn bray_runtime_main_thread_lane_drive() -> Status;
     safe fn bray_runtime_execution_shutdown() -> Status;
     safe fn bray_runtime_structured_shutdown() -> Status;
@@ -479,12 +495,19 @@ fn start_root(descriptor: &ActivationDescriptor) -> RootHandle {
     let frame = admit(descriptor);
     let transfer = InactiveFrameTransfer(std::ptr::from_ref(&frame).addr());
 
+    let mut outcome = RunOutcome {
+        state: RunState::RUNTIME_FAILURE,
+        payload: 0,
+        report: PanicReport::empty(),
+    };
+
     let start = bray_runtime_root_execution(
         transfer,
         Configuration {
             task_capacity: 8,
             timer_capacity: 8,
         },
+        &mut outcome,
     );
 
     assert!(start.status == Status::SUCCESS);
@@ -493,6 +516,7 @@ fn start_root(descriptor: &ActivationDescriptor) -> RootHandle {
 }
 
 fn main() {
+    worker_failure_context_survives_source_reporting();
     admitted_reports_survive_failed_reservation();
 
     let descriptor = protected_frame(7, suspend_and_wake, cancel_frame, ignore_action);
@@ -592,7 +616,13 @@ fn main() {
     let descriptor = protected_frame(11, resume_frame, cancel_frame, ignore_action);
     let frame = admit(&descriptor);
 
-    assert!(bray_runtime_task_start(task, frame) == Status::SUCCESS);
+    let mut admission = RunOutcome {
+        state: RunState::RUNTIME_FAILURE,
+        payload: 0,
+        report: PanicReport::empty(),
+    };
+
+    assert!(bray_runtime_task_start(task, frame, &mut admission) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive() == Status::SUCCESS);
 
     let mut outcome = RunOutcome {
@@ -732,4 +762,32 @@ fn admitted_reports_survive_failed_reservation() {
     assert!(bray_runtime_panic_report_destruction(&mut report) == Status::SUCCESS);
     assert!(bray_runtime_panic_report_destruction(&mut report) == Status::SUCCESS);
     assert_eq!(REPORT_RELEASES.load(Ordering::Relaxed), 11);
+}
+
+fn worker_failure_context_survives_source_reporting() {
+    for native_code in [i64::MIN, i64::MAX] {
+        let failure = WorkerFailure {
+            stage: 2,
+            category: 12,
+            native_code,
+        };
+
+        let mut outcome = RunOutcome {
+            state: RunState::COMPLETED,
+            payload: 0,
+            report: PanicReport::empty(),
+        };
+
+        bray_runtime_worker_failure_reporting(&failure, &mut outcome);
+
+        assert!(outcome.state == RunState::PANICKED);
+        assert_eq!(outcome.report.cause, 8);
+        assert_eq!(outcome.report.worker_stage, failure.stage);
+        assert_eq!(outcome.report.worker_category, failure.category);
+        assert_eq!(outcome.report.worker_native_code, native_code);
+        assert_eq!(outcome.report.message_length, 0);
+        assert!(outcome.report.copy_message.is_none());
+        assert!(outcome.report.release_message.is_none());
+        assert!(bray_runtime_panic_report_destruction(&mut outcome.report) == Status::SUCCESS);
+    }
 }

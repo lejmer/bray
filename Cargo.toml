@@ -68,10 +68,17 @@ unwrap_used = "deny"
 [profile.dev.package.bray-compilation]
 debug = 1
 
+# Runtime build scripts compile Bray source through the compiler libraries.
+[profile.dev.build-override]
+opt-level = 1
+
 # Compiler behavior tests exercise substantial analyses. Keep the local test loop optimized.
 [profile.test]
 opt-level = 1
 debug = 1
+
+[profile.test.build-override]
+opt-level = 1
 
 # The task harness has little analysis work and benefits from cheap rebuilds.
 [profile.test.package.xtask]

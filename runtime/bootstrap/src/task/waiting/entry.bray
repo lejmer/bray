@@ -52,36 +52,26 @@ trusted internal func wait(
 
         let registration = trusted take_optional_registration(prepared);
 
-        yield trusted publish_wait(registration, &lease, &mut anchor);
+        let (publication_status, spare) = trusted publish_wait(registration, &lease, &mut anchor);
+
+        if spare matches none
+        {
+            return publication_status;
+        }
+
+        yield (publication_status, trusted take_optional_registration(spare));
     };
 
-    // A repeated registration leaves the existing owner in place. The spare
-    // temporary references are released only after the collection unlocks.
-    return trusted release_rejected_wait(rejected);
-}
+    // Release the spare owner after the resident collection has unlocked.
+    let (result_status, rejected_owner) = rejected;
 
-trusted internal func release_rejected_wait(pos outcome: (u32, WaitRegistration?)) -> u32
-    requires(
-        trusted optional_registration(owner = &outcome.1),
-        trusted bray.runtime.bootstrap.host.product.native_host()
-    )
-{
-    let (status, owner) = outcome;
-
-    if owner matches none
-    {
-        return status;
-    }
-
-    let registration = trusted take_optional_registration(owner);
-
-    trusted release_wait(registration);
-    return status;
+    trusted release_wait(rejected_owner);
+    return result_status;
 }
 
 trusted internal func take_optional_registration(pos owner: WaitRegistration?) -> WaitRegistration
     requires(owner matches ?_, trusted optional_registration(owner = &owner))
-    ensures(trusted registration_owned(owner = &result))
+    ensures(trusted registration_owned(owner = &result.marker))
     uses(intrinsic)
 {
     return match consume owner

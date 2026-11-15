@@ -112,7 +112,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         start: bray_ir::MirRuntimeReference,
         frame: BasicValueEnum<'context>,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let allocated = self.invoke_native_runtime(allocation, &[])?
+        let allocated = self
+            .invoke_native_runtime(allocation, &[])?
             .expect("task allocation returns its admitted identity or rejection");
 
         let status = extract_value(&self.builder, allocated, 0)?.into_int_value();
@@ -125,39 +126,65 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let completed = llvm_context.append_basic_block(self.function, "task.admission.completed");
 
         let accepted = llvm(self.builder.build_int_compare(
-            inkwell::IntPredicate::EQ, status, status.get_type().const_zero(), "task.allocated",
+            inkwell::IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            "task.allocated",
         ))?;
 
-        llvm(self.builder.build_conditional_branch(accepted, starting, failed))?;
+        llvm(
+            self.builder
+                .build_conditional_branch(accepted, starting, failed),
+        )?;
+
         self.builder.position_at_end(starting);
 
-        let status = self.invoke_native_runtime(start, &[task.into(), frame])?
-            .expect("task start returns its ownership transition status").into_int_value();
+        let status = self
+            .invoke_native_runtime(start, &[task.into(), frame, context.into()])?
+            .expect("task start returns its ownership transition status")
+            .into_int_value();
 
         let accepted = llvm(self.builder.build_int_compare(
-            inkwell::IntPredicate::EQ, status, status.get_type().const_zero(), "task.started",
+            inkwell::IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            "task.started",
         ))?;
 
-        llvm(self.builder.build_conditional_branch(accepted, completed, rejected))?;
+        llvm(
+            self.builder
+                .build_conditional_branch(accepted, completed, rejected),
+        )?;
+
         self.builder.position_at_end(rejected);
 
         let destruction = bray_ir::MirRuntimeReference::new(
-            bray_runtime_interface::RuntimeAbiRole::TaskDestruction, allocation.abi_version(),
+            bray_runtime_interface::RuntimeAbiRole::TaskDestruction,
+            allocation.abi_version(),
         );
 
-        let status = self.invoke_native_runtime(destruction, &[task.into()])?
+        let status = self
+            .invoke_native_runtime(destruction, &[task.into()])?
             .expect("rejected start releases its unstarted task control");
 
         crate::translation::require_runtime_success(
-            self.module, llvm_context, &self.builder, status, "task.rejection.retirement",
+            self.module,
+            llvm_context,
+            &self.builder,
+            status,
+            "task.rejection.retirement",
         )?;
 
         llvm(self.builder.build_unconditional_branch(failed))?;
         self.builder.position_at_end(failed);
 
-        self.invoke_native_runtime(bray_ir::MirRuntimeReference::new(
-            bray_runtime_interface::RuntimeAbiRole::TaskAdmissionFailure, allocation.abi_version(),
-        ), &[context.into()])?;
+        self.invoke_native_runtime(
+            bray_ir::MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::TaskAdmissionFailure,
+                allocation.abi_version(),
+            ),
+            &[context.into()],
+        )?;
 
         llvm(self.builder.build_unconditional_branch(completed))?;
         self.builder.position_at_end(completed);
@@ -227,54 +254,113 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         .unwrap_or_else(|| callback_type.const_null());
 
         let destruction = crate::mapping::frame::cleanup_callback(
-            self.module, self.request.mappings(), destruction, self.types,
-        )?.unwrap_or_else(|| callback_type.const_null());
+            self.module,
+            self.request.mappings(),
+            destruction,
+            self.types,
+        )?
+        .unwrap_or_else(|| callback_type.const_null());
 
         let (quiesce, quiesce_storage) = crate::mapping::frame::lifecycle_factory_callback(
-            self.module, self.request.mappings(), quiesce, self.types,
-        )?.unwrap_or_else(|| (callback_type.const_null(), callback_type.const_null()));
+            self.module,
+            self.request.mappings(),
+            quiesce,
+            self.types,
+        )?
+        .unwrap_or_else(|| (callback_type.const_null(), callback_type.const_null()));
 
         let (lifecycle, lifecycle_storage) = crate::mapping::frame::lifecycle_factory_callback(
-            self.module, self.request.mappings(), lifecycle, self.types,
-        )?.unwrap_or_else(|| (callback_type.const_null(), callback_type.const_null()));
+            self.module,
+            self.request.mappings(),
+            lifecycle,
+            self.types,
+        )?
+        .unwrap_or_else(|| (callback_type.const_null(), callback_type.const_null()));
 
         let context = self.types.context();
         let state_type = context.struct_type(&[context.i32_type().into(); 2], false);
 
-        let glue_type = context.struct_type(&[
-            callback_type.into(), callback_type.into(), callback_type.into(), callback_type.into(),
-            callback_type.into(), callback_type.into(), state_type.into(), self.pointer_integer_type().into(),
-        ], false);
+        let glue_type = context.struct_type(
+            &[
+                callback_type.into(),
+                callback_type.into(),
+                callback_type.into(),
+                callback_type.into(),
+                callback_type.into(),
+                callback_type.into(),
+                state_type.into(),
+                self.pointer_integer_type().into(),
+            ],
+            false,
+        );
 
         let glue = self.allocate_temporary(glue_type, "observation.glue")?;
 
         let affinity = llvm(self.builder.build_select(
             llvm(self.builder.build_int_compare(
                 inkwell::IntPredicate::NE,
-                llvm(self.builder.build_and(requirements, context.i32_type().const_int(4, false), "observation.main"))?,
-                context.i32_type().const_zero(), "observation.main.required",
+                llvm(self.builder.build_and(
+                    requirements,
+                    context.i32_type().const_int(4, false),
+                    "observation.main",
+                ))?,
+                context.i32_type().const_zero(),
+                "observation.main.required",
             ))?,
-            context.i32_type().const_int(2, false), context.i32_type().const_zero(), "observation.affinity",
+            context.i32_type().const_int(2, false),
+            context.i32_type().const_zero(),
+            "observation.affinity",
         ))?;
 
-        let state = llvm(self.builder.build_insert_value(state_type.const_zero(), affinity, 0, "observation.affinity.state"))?;
-        let state = llvm(self.builder.build_insert_value(state, requirements, 1, "observation.requirements"))?;
+        let state = llvm(self.builder.build_insert_value(
+            state_type.const_zero(),
+            affinity,
+            0,
+            "observation.affinity.state",
+        ))?;
+
+        let state = llvm(self.builder.build_insert_value(
+            state,
+            requirements,
+            1,
+            "observation.requirements",
+        ))?;
+
         let provider = crate::mapping::provider::key(self.module, &self.builder, self.types)?;
         let mut value = glue_type.const_zero();
 
         let fields: [BasicValueEnum<'context>; 8] = [
-            quiesce.into(), lifecycle.into(), cancellation.into(), destruction.into(),
-            quiesce_storage.into(), lifecycle_storage.into(), state.into_struct_value().into(), provider.into(),
+            quiesce.into(),
+            lifecycle.into(),
+            cancellation.into(),
+            destruction.into(),
+            quiesce_storage.into(),
+            lifecycle_storage.into(),
+            state.into_struct_value().into(),
+            provider.into(),
         ];
 
         for (index, field) in fields.into_iter().enumerate() {
-            value = llvm(self.builder.build_insert_value(value, field, u32::try_from(index).expect("glue fields fit u32"), "observation.glue.field"))?.into_struct_value();
+            value = llvm(self.builder.build_insert_value(
+                value,
+                field,
+                u32::try_from(index).expect("glue fields fit u32"),
+                "observation.glue.field",
+            ))?
+            .into_struct_value();
         }
 
         llvm(self.builder.build_store(glue, value))?;
 
         let outcome = self.checked_call_panic_report_context()?;
-        let arguments = [task.into(), boolean.into(), layout.into(), glue.into(), outcome.into()];
+
+        let arguments = [
+            task.into(),
+            boolean.into(),
+            layout.into(),
+            glue.into(),
+            outcome.into(),
+        ];
 
         let token = self
             .invoke_native_runtime(*runtime, &arguments)?
@@ -503,7 +589,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ..
             } => {
                 let future_type = self.operation_result_type(
-                    self.unit.operation(operation_id)
+                    self.unit
+                        .operation(operation_id)
                         .expect("task-observation creation retains its MIR operation"),
                 );
 
@@ -526,14 +613,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let lifecycle = next_helper(
                     &mut helpers,
                     &MirHelperReference::LifecycleFrame {
-                        role: bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution),
+                        role: bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                            bray_ir::MirCleanupPhase::LifecycleResolution,
+                        ),
                         ty: result.completion_type(),
                     },
                 );
 
                 let destruction = next_helper(
                     &mut helpers,
-                    &MirHelperReference::Destroy(result.completion_type(), bray_ir::MirDestructionDisposition::Abandoned),
+                    &MirHelperReference::Destroy(
+                        result.completion_type(),
+                        bray_ir::MirDestructionDisposition::Abandoned,
+                    ),
                 );
 
                 let creation = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame));

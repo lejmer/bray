@@ -48,6 +48,7 @@ trusted internal func invoke(
     requires(
         trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
         trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         operation < 6,
         (operation < 4 || (operation == 4 && trusted completion_destination(
             pointer = cursor.pointer,
@@ -100,19 +101,28 @@ trusted internal func invoke(
         pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
         pos ready: bray.runtime.bootstrap.activation.callback.Ready,
         pos execution: &bray.runtime.bootstrap.activation.requirements.Execution,
+        pos operation: u32,
     ) -> u32
         requires(
             trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
-            trusted bray.runtime.bootstrap.entry.native_entry()
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
         )
         ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
     {
-        return trusted ready(
+        let status = trusted ready(
             std.memory.address_of<bray.runtime.bootstrap.activation.requirements.Execution>(execution)
         );
+
+        if status == bray.runtime.bootstrap.STATUS_SUCCESS && operation == 3
+        {
+            trusted bray.runtime.bootstrap.entry.control.enter_cleanup();
+        }
+
+        return status;
     };
 
-    let status = trusted admit(cursor, ready, &execution);
+    let status = trusted admit(cursor, ready, &execution, operation);
 
     if status != bray.runtime.bootstrap.STATUS_SUCCESS
     {
@@ -226,10 +236,12 @@ trusted internal func invoke(
             pos argument: usize,
             pos progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
             pos records: DataPointer<bray.runtime.bootstrap.ReportRecords>,
+            pos resolving: bool,
         ) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
             requires(
                 trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
                 trusted bray.runtime.bootstrap.entry.native_entry(),
+                trusted bray.runtime.bootstrap.pool.protocol_access(),
                 trusted bray.runtime.bootstrap.activation.callback.authorized(
                     execution = execution,
                     descriptor = descriptor,
@@ -246,7 +258,7 @@ trusted internal func invoke(
                 trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report),
             )
         {
-            return trusted bray.runtime.bootstrap.activation.callback.invoke(
+            let (returned, remaining) = trusted bray.runtime.bootstrap.activation.callback.invoke(
                 callback,
                 execution,
                 descriptor,
@@ -256,6 +268,13 @@ trusted internal func invoke(
                 progress,
                 records
             );
+
+            if resolving && !suspended(returned.kind)
+            {
+                trusted bray.runtime.bootstrap.entry.control.leave_cleanup();
+            }
+
+            return (returned, remaining);
         };
 
         // Select the retaining contract before entry. The complete header is
@@ -271,7 +290,8 @@ trusted internal func invoke(
             operation,
             argument,
             output,
-            available
+            available,
+            operation == 3 || (operation == 0 && header.phase == bray.runtime.bootstrap.activation.RESOLVING)
         );
 
         let updated = trusted access(cursor);
@@ -382,6 +402,7 @@ trusted internal func execute(
         ),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted destinations(pointer = pointer, output = output, records = records, incidents = incidents),
     )
     uses(intrinsic, layout_reinterpret, raw_memory, unchecked_init)
@@ -420,6 +441,7 @@ trusted internal func execute(
                 address = argument
             )) || (operation == 5 && trusted retiring(pointer = pointer) && trusted observed(pointer = pointer))),
             trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
             trusted destinations(pointer = pointer, output = output, records = records, incidents = incidents),
             operation < 6,
             operation != 3 || argument < 7,

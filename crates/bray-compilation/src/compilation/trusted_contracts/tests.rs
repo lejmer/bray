@@ -2979,6 +2979,132 @@ fn borrowed_completion_preserves_the_reached_owner_for_cleanup() {
 }
 
 #[test]
+fn borrowed_results_do_not_invalidate_their_input_observations() {
+    // A readonly borrow retains an empty marker's historical identity. An opaque
+    // implementation can still change observable mutable contents.
+    for marker_fields in ["", "mut active: bool;"] {
+        for body in [
+            "return obtain<T>(&lazy.cell, lazy.initializer);",
+            "let output = obtain<T>(&lazy.cell, lazy.initializer); return output;",
+            "_ = obtain<T>(&lazy.cell, lazy.initializer); return &lazy.cell.value;",
+        ] {
+            for opaque in [false, true] {
+                for guarantee in [false, true] {
+                    let declaration = if opaque {
+                        "extern trusted func"
+                    } else {
+                        "func"
+                    };
+
+                    let implementation = if opaque {
+                        ";"
+                    } else {
+                        "{ _ = initializer(); return &cell.value; }"
+                    };
+
+                    let completion = if guarantee {
+                        "ensures(trusted valid(&cell.marker))"
+                    } else {
+                        ""
+                    };
+
+                    let source = format!(
+                        r#"
+                    trusted module app;
+                    struct Marker {{ {marker_fields} }}
+                    trusted predicate valid(owner: &Marker);
+                    struct Cell<T> {{ marker: Marker; value: T; }}
+                    struct Lazy<T> {{ cell: Cell<T>; initializer: func() -> T; }}
+                    {declaration} obtain<T>(pos cell: &Cell<T>, pos initializer: func() -> T) -> &T
+                        requires(trusted valid(&cell.marker)) {completion} {implementation}
+                    func caller<T>(pos lazy: &Lazy<T>) -> &T
+                        requires(trusted valid(&lazy.cell.marker))
+                        ensures(trusted valid(&lazy.cell.marker))
+                    {{ {body} }}
+                    "#
+                    );
+
+                    let compilation = compilation(&source);
+
+                    let valid = marker_fields.is_empty() || (opaque && guarantee);
+
+                    assert_eq!(
+                        !compilation.check_diagnostics().has_errors(),
+                        valid,
+                        "{source}: {:?}",
+                        compilation.check_diagnostics()
+                    );
+
+                    if !valid {
+                        bray_testing::assert_goal_state_diagnostic_kind(
+                            compilation.check_diagnostics(),
+                            DiagnosticKind::CheckingTrustedObligationNotProven,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn consuming_reference_carriers_preserves_referent_evidence() {
+    for (parameters, requirement, initialization) in [
+        (
+            "pos guard: Guard<T>",
+            "requires(trusted acquired(&guard.acquisition))",
+            "",
+        ),
+        ("pos input: &Cell<T>", "", "let guard = make<T>(input);"),
+    ] {
+        for dispose in ["guard.unlock();", "dispose<T>(guard);"] {
+            let source = format!(
+                r#"
+                trusted module app;
+                struct Marker {{}}
+                trusted predicate valid(owner: &Marker);
+                trusted predicate acquired(owner: &Marker);
+                struct Cell<T> {{ marker: Marker; value: T; }}
+                struct Guard<T> {{
+                    cell: &Cell<T>;
+                    acquisition: Marker;
+                    trusted destruct()
+                        requires(trusted acquired(&self.acquisition))
+                        ensures(trusted valid(&self.cell.marker)) executes(total) {{}}
+                    trusted func owner() -> &Cell<T>
+                        requires(trusted acquired(&self.acquisition))
+                        ensures(trusted valid(&result.marker)) executes(pure, total)
+                    {{ return self.cell; }}
+                    consume func unlock()
+                        requires(trusted acquired(&self.acquisition)) executes(total) {{}}
+                }}
+                trusted func make<T>(pos cell: &Cell<T>) -> Guard<T>
+                    ensures(trusted acquired(&result.acquisition))
+                {{ return {{ cell = cell, acquisition = Marker {{}} }}; }}
+                func dispose<T>(pos guard: Guard<T>)
+                    requires(trusted acquired(&guard.acquisition)) {{}}
+                func observe<T>(pos cell: &Cell<T>) requires(trusted valid(&cell.marker)) {{}}
+                func caller<T>({parameters}) {requirement} {{
+                    {initialization}
+                    let cell = guard.owner();
+                    {dispose}
+                    observe(cell);
+                }}
+                "#
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
+}
+
+#[test]
 fn cleanup_checks_destructor_against_finalizer_completion() {
     for (guarantee, execution, body, valid) in [
         (

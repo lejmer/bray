@@ -6,12 +6,21 @@ impl State {
     pub(in crate::analysis::storage_flow) fn for_storage(
         storage: &bray_bound_tree::StoragePlan,
         cleanup_free: &std::collections::BTreeSet<bray_bound_tree::StorageIdentityId>,
+        complete_reference_types: &std::sync::Arc<std::collections::BTreeMap<TypeId, bool>>,
     ) -> Self {
         let borrowed = storage
             .borrow_capabilities()
             .iter()
             .flat_map(|borrow| storage.retained_roots(borrow.access()))
             .collect::<std::collections::BTreeSet<_>>();
+
+        let entry_borrows = storage.borrow_capabilities().iter().filter(|borrow| {
+            borrow.entry_binding().is_some() && borrow.parent().is_none()
+        }).filter_map(|borrow| {
+            let path = storage.logical_path(borrow.access())?;
+
+            path.projections.is_empty().then_some((path.root, borrow.kind()))
+        }).collect::<std::collections::BTreeMap<_, _>>();
 
         let owned_storage = storage
             .identity_entries()
@@ -25,6 +34,8 @@ impl State {
             .collect();
 
         Self {
+            complete_reference_types: std::sync::Arc::clone(complete_reference_types),
+            entry_borrows: std::sync::Arc::new(entry_borrows),
             owned_storage,
             unaddressed_storage,
             ..Self::default()
@@ -64,7 +75,7 @@ impl State {
             Origin::Returned { reference, .. } => {
                 (None, Some(self.returned_reference_bounds(reference)))
             }
-            Origin::Entry { .. } | Origin::Allocation(_) => (None, None),
+            Origin::Entry { .. } | Origin::Allocation(_) | Origin::Static { .. } => (None, None),
         };
 
         storage.into_iter().chain(
@@ -94,6 +105,24 @@ impl State {
         left: &Target,
         right: &Target,
     ) -> bray_bound_tree::StorageRelationship {
+        if !left.previous && !right.previous
+            && let (
+                Origin::Entry { reference: left, layer: 1, projections: left_path },
+                Origin::Entry { reference: right, layer: 1, projections: right_path },
+            ) = (&left.origin, &right.origin)
+            && left.root != right.root
+            && left.projections.is_empty() && right.projections.is_empty()
+            && let (Some(left), Some(right)) = (self.entry_borrows.get(&left.root), self.entry_borrows.get(&right.root))
+            && (*left == bray_symbols::BorrowKind::Mutable || *right == bray_symbols::BorrowKind::Mutable)
+            && (*left == bray_symbols::BorrowKind::Mutable || Place::inline_projections(left_path))
+            && (*right == bray_symbols::BorrowKind::Mutable || Place::inline_projections(right_path))
+        {
+            // Mutable owners exclude aliases through their owned storage. Shared
+            // owners can contain interior mutable storage, so their non-inline
+            // projections remain conservative. Stored pointers have separate origins.
+            return bray_bound_tree::StorageRelationship::Disjoint;
+        }
+
         let returned_slot = match (&left.origin, &right.origin) {
             (Origin::Returned { reference, .. }, Origin::Storage(slot))
             | (Origin::Storage(slot), Origin::Returned { reference, .. }) => {
@@ -104,10 +133,6 @@ impl State {
 
         if let Some((reference, slot)) = returned_slot
             && self.is_owned_inline_storage(slot)
-            && !self
-                .contents
-                .get(&Target::storage(Place::root(slot.root)))
-                .is_some_and(|contents| contents.escaped)
             && !self
                 .returned_reference_bounds(reference)
                 .targets
@@ -258,6 +283,8 @@ impl State {
             .range(target.clone()..)
             .next()
             .is_some_and(|(candidate, _)| target.contains(candidate))
+            || self.deferred.range(target.clone()..).next()
+                .is_some_and(|(candidate, _)| target.contains(candidate))
             || self
                 .contents
                 .range(target.clone()..)

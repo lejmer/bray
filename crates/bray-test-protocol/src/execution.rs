@@ -131,6 +131,8 @@ pub enum TestPanicCause {
     AllocationFailure,
     /// Native entry or its terminal cleanup failed.
     EntryFailure,
+    /// A demanded worker could not establish its target thread or attachment.
+    WorkerFormationFailure(bray_runtime_abi::NativeWorkerFailure),
     /// A requested memory layout exceeds the target address size.
     MemoryLayoutSizeOverflow,
     /// A requested memory layout requires unsupported alignment.
@@ -192,6 +194,22 @@ pub enum TestInfrastructureFailureKind {
     Cleanup,
     /// The host process required forced termination.
     ForcedTermination,
+    /// Execution services for a test timeout could not be formed or retained.
+    TimeoutRuntime,
+    /// A timeout's native cancellation callback backing could not be admitted.
+    TimeoutCallbackResources,
+    /// A relative timeout cannot be represented in target nanoseconds.
+    TimeoutDeadlineOverflow,
+    /// The configured pending timeout capacity was reached.
+    TimeoutCapacity,
+    /// Pending timeout storage could not be admitted.
+    TimeoutStorage,
+    /// Pending timeout identities were exhausted.
+    TimeoutIdentityExhausted,
+    /// Timeout admission has closed.
+    TimeoutClosed,
+    /// The target monotonic clock failed with its original platform cause.
+    TimeoutClock(bray_runtime_abi::NativePlatformStatus),
 }
 
 /// Native termination observed after a test host stopped.

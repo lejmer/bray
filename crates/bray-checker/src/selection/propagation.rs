@@ -186,7 +186,7 @@ where
 
     match representation {
         Some(RepresentationRole::RunResult) => Ok(Some(Ok(SelectedPropagation::CurrentRun {
-            success: union_payload(
+            success: crate::representation::union_payload(
                 request,
                 "RunResultVariant0Completed",
                 "RunResultVariant0CompletedValue",
@@ -206,12 +206,12 @@ where
                         boundary: boundary.target,
                         result_type: boundary.ty,
                         error_conversion: conversion,
-                        error: union_payload(
+                        error: crate::representation::union_payload(
                             request,
                             "ResultVariant1Error",
                             "ResultVariant1ErrorError",
                         ),
-                        success: union_payload(
+                        success: crate::representation::union_payload(
                             request,
                             "ResultVariant0Ok",
                             "ResultVariant0OkValue",
@@ -413,30 +413,4 @@ where
     .with_note(DiagnosticNote::new(
         DiagnosticNoteKind::PropagationBoundaryMustMatch,
     )))
-}
-
-fn union_payload<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    variant: &str,
-    field: &str,
-) -> (
-    bray_symbols::UnionVariantSymbolId,
-    bray_symbols::UnionPayloadFieldSymbolId,
-) {
-    let symbols = request.available_compiler_known_symbols();
-
-    let variant = bray_compiler_known::CompilerKnownDeclarationKey::try_new(variant)
-        .expect("propagation success uses a compiler-known variant");
-
-    let field = bray_compiler_known::CompilerKnownDeclarationKey::try_new(field)
-        .expect("propagation success uses a compiler-known payload");
-
-    (
-        symbols
-            .declaration_symbol(&variant)
-            .expect("checked propagation retains its success variant"),
-        symbols
-            .declaration_symbol(&field)
-            .expect("checked propagation retains its success payload"),
-    )
 }

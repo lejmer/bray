@@ -28,7 +28,6 @@ pub(crate) fn trusted_condition_closure(
                 .iter()
                 .filter(|(condition, _)| !condition.contains_trusted()),
         )
-        .take(ExecutionCondition::WORK_LIMIT)
         .filter_map(|(condition, holds)| {
             (*holds
                 && matches!(
@@ -40,10 +39,8 @@ pub(crate) fn trusted_condition_closure(
         .collect::<Vec<_>>();
 
     while let Some(condition) = pending.pop() {
-        // Each bounded input clause can contain a bounded Boolean expression.
-        if indices.contains_key(&condition)
-            || conditions.len() == ExecutionCondition::WORK_LIMIT * ExecutionCondition::WORK_LIMIT
-        {
+        // Visit each finite Boolean term once without charging unrelated clauses a shared quota.
+        if indices.contains_key(&condition) {
             continue;
         }
 
@@ -254,6 +251,41 @@ mod tests {
         assert_eq!(
             input(128).prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn unrelated_facts_and_clauses_do_not_limit_disjunction_elimination() {
+        let mut ordinary = BTreeSet::new();
+
+        input(0).assume(false, &mut ordinary);
+
+        ExecutionCondition::operation(BoundOperator::LogicalOr, vec![input(0), input(1)])
+            .assume(true, &mut ordinary);
+
+        for ordinal in 50_000..50_150 {
+            input(ordinal).assume(false, &mut ordinary);
+        }
+
+        for ordinal in 0..6_000 {
+            ExecutionCondition::operation(
+                BoundOperator::LogicalOr,
+                vec![input(1_000 + ordinal * 2), input(1_001 + ordinal * 2)],
+            )
+            .assume(true, &mut ordinary);
+        }
+
+        let known = trusted_condition_closure(BTreeSet::new(), &ordinary);
+
+        assert_eq!(
+            input(1).prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }),
+            Some(true)
+        );
+
+        assert_eq!(
+            ExecutionCondition::Trusted(Arc::new(input(1)))
+                .prove_mixed(&known, &ordinary, &mut { ExecutionCondition::WORK_LIMIT }),
+            None
         );
     }
 

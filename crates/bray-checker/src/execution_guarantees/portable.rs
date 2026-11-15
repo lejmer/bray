@@ -242,6 +242,7 @@ fn encode(
         | ExecutionCondition::Variant(_)
         | ExecutionCondition::Constructed(_, _)
         | ExecutionCondition::Expression(_)
+        | ExecutionCondition::CapturedInput { .. }
         | ExecutionCondition::ScopedCapability(_)
         | ExecutionCondition::PostState(_, _)
         | ExecutionCondition::Joined(_, _, _) => return Ok(None),

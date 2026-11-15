@@ -116,6 +116,8 @@ pub struct NativeTaskDispatchServices {
     ),
     /// Delivers a registered task's wake notification.
     pub wake: extern "C" fn(u64),
+    /// Withdraws the suspended native wait when Source abandons ordinary work.
+    pub cancel_wait: extern "C" fn(),
 }
 
 #[cfg(test)]
@@ -164,11 +166,12 @@ mod tests {
 
     #[test]
     fn task_dispatch_services_match_bray_callbacks() {
-        assert_abi_layout!(NativeTaskDispatchServices, size: 32, align: 8, fields: {
+        assert_abi_layout!(NativeTaskDispatchServices, size: 40, align: 8, fields: {
             invoke: 0,
             ready: 8,
             transfer: 16,
             wake: 24,
+            cancel_wait: 32,
         });
     }
 }

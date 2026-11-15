@@ -2,6 +2,8 @@
 trusted internal module bray.runtime.bootstrap.task;
 
 using internal bray.runtime.bootstrap;
+using core.memory;
+using std.memory;
 
 // The checked source invocation still owns its inactive input after native
 // admission rejects. Its failure edge resolves that input through typed cleanup.
@@ -12,6 +14,30 @@ trusted internal func admission_failure(pos outcome: DataPointer<bray.runtime.bo
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
 {
+    let preserve = trusted lambda(pos pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>) -> bool
+        requires(trusted bray.runtime.bootstrap.host.product.native_host())
+        uses(raw_memory)
+    {
+        let permit = trusted lambda(pos pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>)
+            requires(trusted bray.runtime.bootstrap.host.product.native_host())
+            ensures(
+                trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer),
+                trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer)
+            )
+            executes(pure, total) {};
+
+        trusted permit(pointer);
+
+        return (trusted std.memory.read<bray.runtime.bootstrap.ReportOutcome>(pointer)).state ==
+            bray.runtime.bootstrap.RUN_PANICKED;
+    };
+
+    if trusted preserve(outcome)
+    {
+        return;
+    }
+
     trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
         outcome,
         trusted bray.runtime.bootstrap.allocation_failure(trusted bray.runtime.bootstrap.consume_address())

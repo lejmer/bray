@@ -213,7 +213,7 @@ static unsigned detached;
 
 static void fake_admission(uint32_t operation, void* outcome)
 {
-    memset(outcome, 0, 168);
+    memset(outcome, 0, 184);
 
     if (operation == 0)
     {
@@ -238,7 +238,7 @@ static static_identity fake_dependency(size_t ordinal)
 static void fake_destroy(uint32_t abandoned, void* outcome)
 {
     (void)abandoned;
-    memset(outcome, 0, 168);
+    memset(outcome, 0, 184);
     destroyed += 1;
 }
 

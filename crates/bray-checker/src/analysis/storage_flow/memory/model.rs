@@ -19,6 +19,17 @@ pub(in crate::analysis::storage_flow) enum Effect {
 }
 
 impl Effect {
+    pub(in crate::analysis::storage_flow) fn is_ambient(&self) -> bool {
+        matches!(self, Self::Ambient)
+    }
+
+    pub(in crate::analysis::storage_flow) fn is_atomic(&self) -> bool {
+        matches!(
+            self,
+            Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic)
+        )
+    }
+
     pub(super) fn retire(&mut self, current: &Target) {
         if let Self::Mutation(target, _) = self
             && current.contains(target)
@@ -56,7 +67,11 @@ impl Effect {
         match self {
             Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape) => None,
             Self::Mutation(target, kind) => Some((target, *kind)),
-            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
+            Self::Unknown
+            | Self::Ambient
+            | Self::Escape
+            | Self::Atomic
+            | Self::Cleanup(_) => None,
         }
     }
 }
@@ -243,6 +258,9 @@ pub(super) struct Transfer {
     pub(super) values: BTreeMap<Target, References>,
     pub(super) payloads: BTreeMap<Target, Contents>,
     pub(super) failure_effects: Option<std::sync::Arc<CapturedEffects>>,
+    pub(super) deferred_effects: Option<BTreeSet<Effect>>,
+    pub(super) deferred: super::references::DeferredTransitions,
+    pub(super) returned_inputs: BTreeMap<Place, References>,
 }
 
 impl Transfer {
@@ -250,6 +268,28 @@ impl Transfer {
         let changed = merge_references(&mut self.values, &incoming.values, |_| false, |_| false);
 
         let mut changed = merge_contents(&mut self.payloads, &incoming.payloads) || changed;
+
+        changed |= super::references::merge_deferred(&mut self.deferred, &incoming.deferred);
+
+        for (reference, bounds) in &incoming.returned_inputs {
+            changed |= self
+                .returned_inputs
+                .entry(reference.clone())
+                .or_default()
+                .merge(bounds);
+        }
+
+        if let Some(effects) = &mut self.deferred_effects {
+            if let Some(incoming) = &incoming.deferred_effects {
+                let before = effects.len();
+
+                effects.extend(incoming.iter().cloned());
+                changed |= before != effects.len();
+            } else {
+                self.deferred_effects = None;
+                changed = true;
+            }
+        }
 
         if let Some(incoming) = &incoming.failure_effects {
             if let Some(current) = &mut self.failure_effects {
@@ -274,13 +314,17 @@ impl Transfer {
 /// Reference values are copied between slots. Contents and obligations belong to targets once.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct State {
+    // Complete reference shapes, with whether the type contains no reference slots.
+    pub(super) complete_reference_types: std::sync::Arc<BTreeMap<TypeId, bool>>,
+    pub(super) entry_borrows:
+        std::sync::Arc<BTreeMap<bray_bound_tree::StorageIdentityId, bray_symbols::BorrowKind>>,
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) unaddressed_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) returned_inputs: BTreeMap<Place, References>,
     pub(super) values: BTreeMap<Target, References>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
-    pub(super) deferred_effects: BTreeMap<BoundExecutionSite, Option<BTreeSet<Effect>>>,
+    pub(super) deferred: super::references::DeferredTransitions,
     pub(super) contents: BTreeMap<Target, Contents>,
     // Consumed inline values remain available to the current operation's value transfers.
     // Proof queries read physical contents only. This snapshot never crosses an operation edge.
@@ -340,31 +384,7 @@ impl State {
             }
         }
 
-        for (call, effects) in &mut self.deferred_effects {
-            match (
-                effects.as_mut(),
-                incoming.deferred_effects.get(call).and_then(Option::as_ref),
-            ) {
-                (Some(effects), Some(incoming)) => {
-                    let before = effects.len();
-
-                    effects.extend(incoming.iter().cloned());
-                    changed |= effects.len() != before;
-                }
-                (Some(_), None) => {
-                    *effects = None;
-                    changed = true;
-                }
-                _ => {}
-            }
-        }
-
-        for call in incoming.deferred_effects.keys() {
-            if !self.deferred_effects.contains_key(call) {
-                self.deferred_effects.insert(*call, None);
-                changed = true;
-            }
-        }
+        changed |= super::references::merge_deferred(&mut self.deferred, &incoming.deferred);
 
         changed |= merge_contents(&mut self.contents, &incoming.contents);
 
@@ -451,11 +471,22 @@ fn merge_references<K: Clone + Ord>(
     changed
 }
 
+/// Whether a boundary origin is known independently of its exact cell identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::analysis::storage_flow) enum ReferenceBounds {
+    Known,
+    Displaced,
+    /// Possible call-input regions, without established borrow provenance.
+    InputRegions,
+    Unknown,
+}
+
 /// Reference values at a unit boundary, with the live-payload conditions used by the same join.
 #[derive(Clone, Debug, Default)]
 pub(in crate::analysis::storage_flow) struct ReferenceExit {
     pub(super) slots: BTreeMap<Place, References>,
     pub(super) absent: BTreeSet<Place>,
+    pub(super) input_regions: BTreeSet<Place>,
 }
 
 impl ReferenceExit {
@@ -466,6 +497,9 @@ impl ReferenceExit {
             |slot| self.absent.iter().any(|path| path.contains(slot)),
             |slot| incoming.absent.iter().any(|path| path.contains(slot)),
         );
+
+        self.input_regions
+            .extend(incoming.input_regions.iter().cloned());
 
         // Retain only absence established by both predecessors, including enclosing payloads.
         self.absent = self
@@ -482,14 +516,22 @@ impl ReferenceExit {
 
     pub(in crate::analysis::storage_flow) fn targets(
         &self,
-    ) -> impl Iterator<Item = (&Place, &Origin, bool, bool)> {
-        self.slots.iter().flat_map(|(slot, references)| {
+    ) -> impl Iterator<Item = (&Place, &Origin, bool, ReferenceBounds)> {
+        self.slots.iter().flat_map(move |(slot, references)| {
             references.targets.iter().map(move |target| {
                 (
                     slot,
                     &target.origin,
                     references.is_exact(),
-                    !references.unknown && !references.displaced,
+                    if references.unknown {
+                        ReferenceBounds::Unknown
+                    } else if self.input_regions.contains(slot) {
+                        ReferenceBounds::InputRegions
+                    } else if references.displaced {
+                        ReferenceBounds::Displaced
+                    } else {
+                        ReferenceBounds::Known
+                    },
                 )
             })
         })

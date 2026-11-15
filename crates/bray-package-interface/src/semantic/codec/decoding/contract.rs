@@ -1,8 +1,8 @@
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_KIND_SHIFT, SemanticDecodeContext,
-    map_wire_error, read_count, read_optional_u32, read_symbol_reference, read_symbol_references,
-    read_u32,
+    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
+    SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
+    read_symbol_references, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
@@ -111,7 +111,9 @@ pub(super) fn decode_dependency_contract(
         let independent = attributes & REFERENCE_INPUT_ABSENT != 0;
         let exact = attributes & REFERENCE_EXACT != 0;
 
-        if independent && exact {
+        let regions = attributes & REFERENCE_INPUT_REGIONS != 0;
+
+        if exact && (independent || regions) {
             return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Discriminant,
                 attributes,
@@ -119,12 +121,6 @@ pub(super) fn decode_dependency_contract(
         }
 
         let kind = decode_tag(attributes >> REFERENCE_KIND_SHIFT)?;
-
-        if independent && kind != bray_symbols::DependencyReferenceKind::Address {
-            return Err(crate::semantic::codec::invalid_value(
-                crate::InterfaceValidationField::Dependency,
-            ));
-        }
 
         let entry = if independent {
             None
@@ -134,8 +130,14 @@ pub(super) fn decode_dependency_contract(
 
         let exit = decode_dependency_subject(reader, limits, context)?;
 
-        let mut relation =
-            bray_symbols::DependencyBorrowRelation::new(entry, exit, kind).with_exactness(exact);
+        let mut relation = bray_symbols::DependencyBorrowRelation::new(entry, exit, kind)
+            .with_provenance(if regions {
+                bray_symbols::DependencyReferenceProvenance::InputRegions
+            } else if exact {
+                bray_symbols::DependencyReferenceProvenance::Exact
+            } else {
+                bray_symbols::DependencyReferenceProvenance::Alternatives
+            });
 
         if !independent {
             relation = relation
@@ -146,7 +148,8 @@ pub(super) fn decode_dependency_contract(
         borrows.push(relation);
     }
 
-    let returned_input = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+    let owned_result = super::super::ownership::decode_owned_result(reader, limits, context)?;
+
     let observed_result = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
@@ -204,7 +207,7 @@ pub(super) fn decode_dependency_contract(
     Ok(contract
         .with_borrows(borrows)
         .with_carriers(carriers)
-        .with_returned_input(returned_input)
+        .with_owned_result(owned_result)
         .with_observed_result(observed_result)
         .with_effects(effects)
         .with_synchronous_cleanup(synchronous_cleanup)
@@ -775,23 +778,41 @@ mod tests {
     #[test]
     fn independent_reference_origins_cannot_claim_exact_input_identity() {
         use crate::semantic::codec::common::{
-            REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_KIND_SHIFT,
+            REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
         };
 
         let attributes = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
-        let mut words = vec![0, 1, 0, 0, 0, 0, 1, attributes, 3, 0, 0, 0, 0, 0];
+        let mut words = vec![0, 1, 0, 0, 0, 0, 1, attributes, 3, 0, 1, 0, 0, 0, 0];
         let limits = InterfaceValidationLimits::default();
         let contract = decode_words(&words, limits).expect("fixture encoded words must decode");
 
         assert_eq!(contract.borrows.len(), 1);
         assert!(contract.borrows[0].entry().is_none());
         assert!(!contract.borrows[0].is_exact());
+        words[7] |= REFERENCE_INPUT_REGIONS;
+
+        let contract = decode_words(&words, limits).expect("region provenance must decode");
+
+        assert_eq!(
+            contract.borrows[0].provenance(),
+            bray_symbols::DependencyReferenceProvenance::InputRegions
+        );
+
         words[7] |= REFERENCE_EXACT;
         assert!(decode_words(&words, limits).is_err());
 
-        // A raw-address origin bound cannot supply an ordinary borrow lifetime.
+        // Physical input independence carries no ordinary borrow lifetime.
         words[7] = (1 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
-        assert!(decode_words(&words, limits).is_err());
+
+        let contract = decode_words(&words, limits).expect("independent borrow origin must decode");
+
+        assert_eq!(
+            contract.borrows[0].kind(),
+            bray_symbols::DependencyReferenceKind::Borrow
+        );
+
+        assert!(contract.borrows[0].entry().is_none());
+        assert!(contract.requirements.is_empty());
     }
 
     #[test]
@@ -851,7 +872,7 @@ mod tests {
     fn synchronous_cleanup_types_decode_with_bounded_counts() {
         let limits = InterfaceValidationLimits::default();
 
-        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5], limits)
+        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 5], limits)
             .expect("fixture encoded words must decode");
 
         assert_eq!(
@@ -875,7 +896,9 @@ mod tests {
     #[test]
     fn report_outputs_preserve_presence_and_separate_requirements() {
         let decoded = decode_words(
-            &[0, 1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 0, 2, 0, 5],
+            &[
+                0, 1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 1, 0, 0, 0, 2, 0, 5,
+            ],
             InterfaceValidationLimits::default(),
         )
         .expect("fixture encoded words must decode");
@@ -906,7 +929,7 @@ mod tests {
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
             0, 0, // No normal or abnormal report output.
-            0, 0, 0, 0, 2, 0,
+            0, 1, 0, 0, 0, 2, 0,
             5, // No reference relations, returned input, result observation or carriers. Unknown effects and input escapes.
         ];
 
@@ -980,7 +1003,7 @@ mod tests {
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
         let words = [
-            0, 1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5,
+            0, 1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 5,
         ];
 
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));

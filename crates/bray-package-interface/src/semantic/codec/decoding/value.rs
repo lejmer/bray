@@ -566,7 +566,7 @@ pub(super) fn decode_integer(
     Ok(integer)
 }
 
-pub(super) fn decode_constant_projection(
+pub(in crate::semantic::codec) fn decode_constant_projection(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceConstantProjection, InterfaceValidationError> {

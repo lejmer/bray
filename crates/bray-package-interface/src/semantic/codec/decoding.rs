@@ -11,7 +11,7 @@ mod surface;
 mod template;
 #[cfg(test)]
 mod test_support;
-mod value;
+pub(super) mod value;
 
 pub use bundle::decode_semantics;
 pub(crate) use bundle::{

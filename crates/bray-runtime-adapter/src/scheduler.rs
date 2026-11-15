@@ -19,8 +19,9 @@ native_adapter! {
     pub extern "C" fn bray_runtime_root_execution(
         frame: NativeInactiveFrameTransfer,
         configuration: NativeRuntimeConfiguration,
+        outcome: &mut NativeRunOutcome,
     ) -> NativeRootStart {
-        implementation::bray_runtime_root_execution(frame, configuration)
+        implementation::bray_runtime_root_execution(frame, configuration, outcome)
     }
 }
 
@@ -48,8 +49,9 @@ native_adapter! {
     pub extern "C" fn bray_runtime_task_start(
         task: NativeTaskHandle,
         frame: NativeInactiveFrame,
+        outcome: &mut NativeRunOutcome,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_task_start(task, frame)
+        implementation::bray_runtime_task_start(task, frame, outcome)
     }
 }
 

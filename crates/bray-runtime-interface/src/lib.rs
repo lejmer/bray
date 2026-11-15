@@ -49,6 +49,8 @@ pub use runtime::{RuntimeCompatibilityError, RuntimeContract, RuntimeContractBui
 
 pub use role_artifact::RuntimeRoleArtifact;
 
-pub use signature::{NATIVE_PANIC_REPORT_FIELDS, RuntimeAbiType, RuntimeNativeSignature};
+pub use signature::{
+    EXECUTION_ABI_VERSION, NATIVE_PANIC_REPORT_FIELDS, RuntimeAbiType, RuntimeNativeSignature,
+};
 
 pub use bray_runtime_abi::runtime_role_catalog;

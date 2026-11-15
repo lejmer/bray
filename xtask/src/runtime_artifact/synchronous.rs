@@ -228,6 +228,19 @@ fn audit_synchronous_product(
     directory: &Path,
     output: &Path,
 ) -> Result<(), String> {
+    let map = output.with_extension("map");
+    let symbols = fs::read_to_string(&map).map_err(|error| format!("could not read synchronous link map: {error}"))?;
+
+    super::smoke::audit_link_symbols(
+        &symbols,
+        &[],
+        &[
+            bray_runtime_abi::symbols::DEADLINE_CREATION_SYMBOL,
+            bray_runtime_abi::symbols::DEADLINE_DISPATCH_SYMBOL,
+            bray_runtime_interface::PlatformServiceRole::ClockMonotonicNow.native_symbol(),
+        ],
+    )?;
+
     let Some(host) = native.executable_host() else {
         return Err("synchronous executable must retain its entry contract".to_owned());
     };

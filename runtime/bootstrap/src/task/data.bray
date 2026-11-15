@@ -26,6 +26,7 @@ internal struct Control
     mut callback: usize;
     mut resumable: bool;
     mut execution: bray.runtime.bootstrap.activation.requirements.Execution;
+    mut failure_records: bray.runtime.bootstrap.ReportRecords;
     mut outcome: bray.runtime.bootstrap.ReportOutcome;
     mut dispatching: bool;
     mut retiring: bool;
@@ -42,7 +43,7 @@ internal func empty_outcome() -> bray.runtime.bootstrap.ReportOutcome
     };
 }
 
-internal func prepare() -> Control
+internal func prepare(pos records: bray.runtime.bootstrap.ReportRecords) -> Control
 {
     return
     {
@@ -64,6 +65,7 @@ internal func prepare() -> Control
             },
             origin = 0
         },
+        failure_records = records,
         outcome = empty_outcome(),
         dispatching = false,
         retiring = false,

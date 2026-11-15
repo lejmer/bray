@@ -192,6 +192,30 @@ impl MessageCatalog {
         }
     }
 
+    pub(crate) fn test_report_worker_failure(
+        self,
+        identity: &str,
+        report: &bray_test_protocol::TestPanicReport,
+    ) -> Option<String> {
+        match self.locale {
+            DiagnosticLocale::English => {
+                super::english::test_report_worker_failure(identity, report)
+            }
+        }
+    }
+
+    pub(crate) fn test_report_timeout_admission_failure(
+        self,
+        identity: &str,
+        failure: bray_test_protocol::TestInfrastructureFailure,
+    ) -> Option<String> {
+        match self.locale {
+            DiagnosticLocale::English => {
+                super::english::test_report_timeout_admission_failure(identity, failure)
+            }
+        }
+    }
+
     pub(crate) const fn diagnostic_template(self, kind: DiagnosticKind) -> MessageTemplate {
         match self.locale {
             DiagnosticLocale::English => english_diagnostic_template(kind),

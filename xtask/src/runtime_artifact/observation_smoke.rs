@@ -66,16 +66,14 @@ fn smoke_test_direct_hooks(
 
     let native_links = native_links(package).map_err(CommandError::ObservationSmoke)?;
 
-    let map = directory.join("runtime-observation-smoke.map");
-
-    let executable = compile_c_smoke(
+    let (executable, map) = compile_c_smoke(
         C_SMOKE_SOURCE,
         "runtime-observation-smoke",
         &archives,
         target,
         directory,
-        &map,
         &native_links,
+        &[],
     )?;
 
     let empty = directory.join("runtime-observation-empty.bin");

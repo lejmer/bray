@@ -10,13 +10,75 @@ impl ExecutionCondition {
         result: &Self,
         budget: &mut usize,
     ) -> Self {
+        self.substitute_values(
+            &|condition| match condition {
+                Self::Input(place) => Some(input(place)),
+                Self::Result => Some(result.clone()),
+                _ => None,
+            },
+            budget,
+        )
+    }
+
+    /// Inserts predecessor snapshots once. A snapshot can contain the same
+    /// surviving owner, so recursively resolving it as an equality would cycle.
+    pub(crate) fn with_snapshots(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
+        self.substitute_values(
+            &|condition| {
+                if let Some(value) = snapshots.get(condition) {
+                    return Some(value.clone());
+                }
+
+                let Self::Input(place) = condition else {
+                    return None;
+                };
+
+                for length in (0..place.projections.len()).rev() {
+                    let mut prefix = place.clone();
+
+                    prefix.projections = place.projections[..length].into();
+
+                    if let Some(value) = snapshots.get(&Self::Input(prefix)) {
+                        return Some(
+                            place.projections[length..]
+                                .iter()
+                                .fold(value.clone(), |value, field| value.component(*field)),
+                        );
+                    }
+                }
+
+                None
+            },
+            &mut { Self::WORK_LIMIT },
+        )
+    }
+
+    /// Discharges ordinary guards without substituting inside trusted atoms.
+    pub(crate) fn with_guard_facts(&self, facts: &BTreeMap<Self, Self>) -> Self {
+        self.substitute_values(
+            &|condition| match condition {
+                Self::Trusted(_) => Some(condition.clone()),
+                _ => facts.get(condition).cloned(),
+            },
+            &mut { Self::WORK_LIMIT },
+        )
+    }
+
+    fn substitute_values(
+        &self,
+        replace: &impl Fn(&Self) -> Option<Self>,
+        budget: &mut usize,
+    ) -> Self {
         let Some(next) = budget.checked_sub(1) else {
             return Self::Unknown;
         };
 
         *budget = next;
 
-        // Substitution retains immutable terms independently in the caller or exit environment.
+        if let Some(value) = replace(self) {
+            return value;
+        }
+
         match self {
             Self::Call(callable, implementation, witnesses, operands) => Self::call(
                 *callable,
@@ -24,7 +86,7 @@ impl ExecutionCondition {
                 witnesses.iter().copied(),
                 operands
                     .iter()
-                    .map(|operand| operand.substitute(input, result, budget))
+                    .map(|operand| operand.substitute_values(replace, budget))
                     .collect(),
             ),
             Self::Predicate(predicate, substitution, operands) => Self::predicate(
@@ -32,37 +94,44 @@ impl ExecutionCondition {
                 *substitution,
                 operands
                     .iter()
-                    .map(|operand| operand.substitute(input, result, budget))
+                    .map(|operand| operand.substitute_values(replace, budget))
                     .collect(),
             ),
-            Self::Input(reference) => input(reference),
-            Self::Result => result.clone(),
             Self::Trusted(value) => {
-                Self::Trusted(Arc::new(value.substitute(input, result, budget)))
+                Self::Trusted(Arc::new(value.substitute_values(replace, budget)))
             }
-            Self::Borrowed(value) => value.substitute(input, result, budget).borrowed(),
-            Self::Present(value) => value.substitute(input, result, budget).present(),
+            Self::Borrowed(value) => value.substitute_values(replace, budget).borrowed(),
+            Self::Present(value) => value.substitute_values(replace, budget).present(),
             Self::Tagged(variant, value) => {
-                Self::Tagged(*variant, Arc::new(value.substitute(input, result, budget)))
+                Self::Tagged(*variant, Arc::new(value.substitute_values(replace, budget)))
             }
             Self::VariantTest(variant, value) => value
-                .substitute(input, result, budget)
+                .substitute_values(replace, budget)
                 .matches_variant(*variant),
             Self::Entry {
                 condition,
                 captured: false,
             } => Self::Entry {
-                condition: Arc::new(condition.substitute(input, result, budget)),
+                condition: Arc::new(condition.substitute_values(replace, budget)),
                 captured: false,
             },
             Self::Projection(field, value) => {
-                value.substitute(input, result, budget).component(*field)
+                value.substitute_values(replace, budget).component(*field)
             }
+            Self::CapturedInput {
+                owner,
+                invocation,
+                ordinal,
+            } => Self::CapturedInput {
+                owner: Arc::new(owner.substitute_values(replace, budget)),
+                invocation: *invocation,
+                ordinal: *ordinal,
+            },
             Self::Constructed(base, fields) => Self::Constructed(
-                Arc::new(base.substitute(input, result, budget)),
+                Arc::new(base.substitute_values(replace, budget)),
                 fields
                     .iter()
-                    .map(|(field, value)| (*field, value.substitute(input, result, budget)))
+                    .map(|(field, value)| (*field, value.substitute_values(replace, budget)))
                     .collect::<Vec<_>>()
                     .into(),
             ),
@@ -70,7 +139,7 @@ impl ExecutionCondition {
                 *operator,
                 operands
                     .iter()
-                    .map(|operand| operand.substitute(input, result, budget))
+                    .map(|operand| operand.substitute_values(replace, budget))
                     .collect(),
             ),
             _ => self.clone(),
@@ -99,7 +168,7 @@ impl ExecutionCondition {
 
                 let condition = match condition.prove_trusted(trusted, ordinary) {
                     Some(value) => Self::Boolean(value),
-                    None if condition.observes_borrowed(None) => Self::Unknown,
+                    None if condition.observes_live(None) => Self::Unknown,
                     None => condition,
                 };
 
@@ -198,6 +267,10 @@ fn resolve_equality(
     let mut value = value.clone();
 
     while let Some(replacement) = replacements.get(&value) {
+        if replacement == &value {
+            break;
+        }
+
         let Some(next) = budget.checked_sub(1) else {
             return ExecutionCondition::Unknown;
         };
@@ -215,6 +288,11 @@ fn rewrite_equalities(
     identities: Option<&BTreeMap<ExecutionCondition, ExecutionCondition>>,
     budget: &mut usize,
 ) -> ExecutionCondition {
+    // An unchanged complete observation shields its components from ancestor renaming.
+    if replacements.get(value) == Some(value) {
+        return value.clone();
+    }
+
     let Some(next) = budget.checked_sub(1) else {
         return ExecutionCondition::Unknown;
     };
@@ -277,9 +355,50 @@ fn rewrite_equalities(
             )),
             captured,
         },
+        ExecutionCondition::Input(place) if identities.is_some() => {
+            let mut rewritten = None;
+
+            // Input paths compact projections into their place. An owned root
+            // rename must reach those fields just as it reaches Projection nodes.
+            for length in (0..place.projections.len()).rev() {
+                let mut prefix = place.clone();
+
+                prefix.projections = place.projections[..length].into();
+
+                let prefix = ExecutionCondition::Input(prefix);
+
+                if replacements.contains_key(&prefix) {
+                    let root = rewrite_equalities(&prefix, replacements, identities, budget);
+
+                    rewritten = Some(
+                        place.projections[length..]
+                            .iter()
+                            .fold(root, |value, field| value.component(*field)),
+                    );
+
+                    break;
+                }
+            }
+
+            rewritten.unwrap_or(ExecutionCondition::Input(place))
+        }
         ExecutionCondition::Projection(field, base) => {
             rewrite_equalities(&base, replacements, identities, budget).component(field)
         }
+        ExecutionCondition::CapturedInput {
+            owner,
+            invocation,
+            ordinal,
+        } if let Some(identities) = identities => ExecutionCondition::CapturedInput {
+            owner: Arc::new(rewrite_equalities(
+                &owner,
+                identities,
+                Some(identities),
+                budget,
+            )),
+            invocation,
+            ordinal,
+        },
         ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
             Arc::new(rewrite_equalities(&base, replacements, identities, budget)),
             fields

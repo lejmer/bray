@@ -46,6 +46,8 @@ pub struct TrustedCallContract {
     pub preserves_inputs: bool,
     /// Checked witness carriers paired with their conditional completion guarantee.
     pub witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
+    /// Typed raw-address subjects, their completion guarantee, and whether they carry owning authority.
+    pub address_subjects: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
     /// Conditions required before invocation.
     pub requirements: Vec<ExecutionCondition>,
     /// Compiler-only compound execution conditions that require ordinary caller evidence.
@@ -56,27 +58,4 @@ pub struct TrustedCallContract {
     pub guarantees: Vec<ExecutionCondition>,
     /// Ordinary completion predicates used for path and equality reasoning.
     pub postconditions: Vec<ExecutionCondition>,
-}
-
-impl TrustedCallContract {
-    pub(crate) fn result_guarantees_name_whole_owner(&self) -> bool {
-        let mut subjects = self
-            .witness_subjects
-            .iter()
-            .filter(|(_, subject)| subject.observes_completion_result())
-            .peekable();
-
-        subjects.peek().is_some()
-            && subjects.all(|(_, subject)| {
-                let mut subject = subject;
-
-                while let ExecutionCondition::Borrowed(value) | ExecutionCondition::Present(value) =
-                    subject
-                {
-                    subject = value;
-                }
-
-                matches!(subject, ExecutionCondition::Result)
-            })
-    }
 }

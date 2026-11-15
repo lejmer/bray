@@ -1,0 +1,54 @@
+module worker_continuations;
+
+using core.atomic;
+using std.task;
+
+static BODIES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+static FINALIZATIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct Guard
+{
+    async finalize()
+        requires(blocking_execution())
+    {
+        await std.task.yield_now();
+        await std.task.yield_now();
+
+        _ = core.atomic.fetch_add<usize, 0>(&FINALIZATIONS, value = 1);
+    }
+}
+
+async func blocking(pos guard: Guard)
+    requires(blocking_execution())
+{
+    _ = core.atomic.fetch_add<usize, 0>(&BODIES, value = 1);
+}
+
+async func compute()
+    requires(compute_execution())
+{
+    _ = core.atomic.fetch_add<usize, 0>(&BODIES, value = 1);
+}
+
+async func transitions()
+{
+    await std.task.yield_now();
+
+    await blocking(
+        Guard
+        {
+        }
+    );
+
+    await compute();
+}
+
+async func main()
+    requires(main_thread_execution())
+{
+    try await transitions().start().join();
+
+    assert(core.atomic.load<usize, 1>(&BODIES) == 2, "later workload did not execute");
+    assert(core.atomic.load<usize, 1>(&FINALIZATIONS) == 1, "task cleanup did not finish once");
+}

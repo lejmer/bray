@@ -5,6 +5,22 @@ use crate::test_support::source_function_body_key;
 
 #[test]
 #[ignore = "tier:proof"]
+fn production_buffer_views_keep_nested_allocations_bounded() {
+    let compilation = production_host_compilation("module probe;");
+
+    for name in ["slot_at", "record"] {
+        let key = source_function_body_key(&compilation, name);
+
+        let flow = compilation.storage_flow(key).expect("production getter retains its storage analysis");
+
+        assert!(!flow.diagnostics().has_errors(), "{name}: {:?}", flow.diagnostics());
+        assert!(!flow.value().is_recovered(), "{name}: {:?}", flow.value());
+        assert!(flow.value().dependencies().preserves_storage_on_normal_return(), "{name}: {:?}", flow.value().dependencies());
+    }
+}
+
+#[test]
+#[ignore = "tier:proof"]
 fn production_report_consumers_check_their_callback_protocol() {
     let compilation = production_host_compilation("module app;");
 
@@ -318,7 +334,7 @@ fn production_host_lease_cannot_claim_preservation_across_fallible_preparation()
             }
 
             let status = trusted initialize_host();
-            let pointer = trusted host_access_pointer(&lease);
+            let host = trusted host_value(&lease, &mut anchor);
 
             return status;
         }
@@ -386,8 +402,11 @@ fn production_host_statics_require_mutation_authority() {
         let key = source_function_body_key(&compilation, "production_probe");
         let source_id = key.source().syntax().source_id();
 
-        let diagnostics = compilation
-            .check_diagnostics()
+        let checked = compilation
+            .semantic_unit_diagnostics_with_cancellation(key, &compilation.state.cancellation)
+            .expect("the production caller retains its semantic diagnostics");
+
+        let diagnostics = checked
             .iter()
             .filter(|diagnostic| {
                 diagnostic
@@ -414,6 +433,9 @@ fn production_host_statics_require_mutation_authority() {
 #[test]
 #[ignore = "tier:proof"]
 fn production_raw_synchronization_pointer_does_not_grant_safe_atomic_access() {
+    use bray_binder::SymbolQueryProvider;
+    use bray_symbols::{CallableContractsQuery, CallableSymbolId, SymbolQueryRequest};
+
     for memory in ["core.memory", "std.memory"] {
         let source = r#"
         module app;
@@ -435,13 +457,25 @@ fn production_raw_synchronization_pointer_does_not_grant_safe_atomic_access() {
 
         let compilation = production_host_compilation(&source);
 
-        let source_id = source_function_body_key(&compilation, "production_probe")
-            .source()
-            .syntax()
-            .source_id();
+        let key = source_function_body_key(&compilation, "production_probe");
 
-        let diagnostics = compilation
-            .check_diagnostics()
+        let source_id = key.source().syntax().source_id();
+
+        let callable = compilation
+            .symbol_graph()
+            .expect("the fixture retains its symbols")
+            .symbol_for_key(key.declared_owner())
+            .and_then(CallableSymbolId::try_from_any)
+            .expect("the probe body has its declared callable");
+
+        let checked = compilation
+            .binding_context(&compilation.state.cancellation)
+            .expect("the fixture retains its binding context")
+            .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))
+            .expect("the production caller retains its capability contract");
+
+        let diagnostics = checked
+            .diagnostics()
             .iter()
             .filter(|diagnostic| {
                 diagnostic
@@ -834,13 +868,13 @@ func production_probe(pos pointer: FunctionPointer<Callback>) -> Callback
 #[ignore = "tier:proof"]
 fn production_host_authority_cannot_be_constructed_from_fields() {
     let cases = [
-        ("let pointer = trusted host_access_pointer(&lease);", None),
+        ("let host = trusted host_value(&lease, &mut anchor);", None),
         (
-            "let moved = lease; let pointer = trusted host_access_pointer(&moved);",
+            "let moved = lease; let host = trusted host_value(&moved, &mut anchor);",
             None,
         ),
         (
-            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = true }; let pointer = trusted host_access_pointer(&fake);",
+            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = true }; let host = trusted host_value(&fake, &mut anchor);",
             Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
         ),
         (
@@ -1374,6 +1408,8 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
     for (body, valid) in [
         ("", true),
         ("mutate(&mut completed);", false),
+        ("observe_completion(&completed);", true),
+        ("publish_completion(&completed);", false),
         ("let incidents = completed.incidents;", true),
         ("let value = observe();", true),
         ("let value = acquire();", true),
@@ -1391,6 +1427,11 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
         extern trusted func owner() -> Owner ensures(trusted live(owner = &result));
         extern func acquire() -> u64;
         extern func mutate(pos value: &mut Completed);
+        func observe_completion(pos value: &Completed) {
+            _ = acquire();
+            _ = value.incidents;
+        }
+        extern func publish_completion(pos value: &Completed);
         func observe() -> u64 executes(pure, total) { return 0; }
         trusted func complete(pos selected: Owner) -> Completed
             requires(trusted live(owner = &selected))

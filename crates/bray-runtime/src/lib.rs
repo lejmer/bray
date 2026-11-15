@@ -33,10 +33,6 @@ pub use context::{
     TaskExecutionContext, current_run_cancellation_observable, current_run_cancellation_requested,
     current_task_execution_context,
 };
-pub use event::{
-    RuntimeEvent, RuntimeEventError, RuntimeEventGeneration, RuntimeEventRegistration,
-    RuntimeEventWake,
-};
 pub use frame::{
     ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext, FrameExecutionState,
     FrameExit, FrameProgress, FrameSuspension, FrameSuspensionKind, ProtectedFrame, RuntimePanic,
@@ -66,4 +62,4 @@ pub use task::{
     JoinWaitRegistration, JoinWake, TaskAdmission, TaskControlBlock, TaskFailureKind, TaskId,
     TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskState,
 };
-pub use timeout::{RunCancellationTimer, RunTimeoutError, RunTimeoutScheduler};
+pub use timeout::{RunTimeoutError, register_run_timeout};

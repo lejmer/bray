@@ -230,9 +230,16 @@ fn encode_outcome(encoder: &mut Encoder, outcome: &TestOutcome) -> Result<(), Te
                 TestPanicCause::RuntimePanic => 3,
                 TestPanicCause::AllocationFailure => 4,
                 TestPanicCause::EntryFailure => 5,
+                TestPanicCause::WorkerFormationFailure(_) => 8,
                 TestPanicCause::MemoryLayoutSizeOverflow => 6,
                 TestPanicCause::MemoryLayoutUnsupportedAlignment => 7,
             });
+
+            if let TestPanicCause::WorkerFormationFailure(failure) = report.cause() {
+                encoder.u32(failure.stage);
+                encoder.u32(failure.category);
+                encoder.u64(u64::from_le_bytes(failure.native_code.to_le_bytes()));
+            }
 
             encode_optional_source(encoder, report.source())?;
 
@@ -304,6 +311,19 @@ fn decode_outcome(decoder: &mut Decoder<'_>) -> Result<TestOutcome, TestProtocol
                 5 => TestPanicCause::EntryFailure,
                 6 => TestPanicCause::MemoryLayoutSizeOverflow,
                 7 => TestPanicCause::MemoryLayoutUnsupportedAlignment,
+                8 => {
+                    let failure = bray_runtime_abi::NativeWorkerFailure {
+                        stage: decoder.u32()?,
+                        category: decoder.u32()?,
+                        native_code: i64::from_le_bytes(decoder.u64()?.to_le_bytes()),
+                    };
+
+                    if !(1..=4).contains(&failure.stage) {
+                        return Err(TestProtocolError::Malformed);
+                    }
+
+                    TestPanicCause::WorkerFormationFailure(failure)
+                }
                 _ => return Err(TestProtocolError::Malformed),
             };
 
@@ -493,7 +513,20 @@ fn encode_infrastructure_failure(encoder: &mut Encoder, failure: TestInfrastruct
         TestInfrastructureFailureKind::MissingOutcome => 4,
         TestInfrastructureFailureKind::Cleanup => 5,
         TestInfrastructureFailureKind::ForcedTermination => 6,
+        TestInfrastructureFailureKind::TimeoutRuntime => 7,
+        TestInfrastructureFailureKind::TimeoutCallbackResources => 8,
+        TestInfrastructureFailureKind::TimeoutDeadlineOverflow => 9,
+        TestInfrastructureFailureKind::TimeoutCapacity => 10,
+        TestInfrastructureFailureKind::TimeoutStorage => 11,
+        TestInfrastructureFailureKind::TimeoutIdentityExhausted => 12,
+        TestInfrastructureFailureKind::TimeoutClosed => 13,
+        TestInfrastructureFailureKind::TimeoutClock(_) => 14,
     });
+
+    if let TestInfrastructureFailureKind::TimeoutClock(status) = failure.kind() {
+        encoder.u32(status.category());
+        encoder.u64(status.native_code().cast_unsigned());
+    }
 
     match failure.detail_code() {
         Some(code) => {
@@ -527,6 +560,19 @@ fn decode_infrastructure_failure(
         4 => TestInfrastructureFailureKind::MissingOutcome,
         5 => TestInfrastructureFailureKind::Cleanup,
         6 => TestInfrastructureFailureKind::ForcedTermination,
+        7 => TestInfrastructureFailureKind::TimeoutRuntime,
+        8 => TestInfrastructureFailureKind::TimeoutCallbackResources,
+        9 => TestInfrastructureFailureKind::TimeoutDeadlineOverflow,
+        10 => TestInfrastructureFailureKind::TimeoutCapacity,
+        11 => TestInfrastructureFailureKind::TimeoutStorage,
+        12 => TestInfrastructureFailureKind::TimeoutIdentityExhausted,
+        13 => TestInfrastructureFailureKind::TimeoutClosed,
+        14 => TestInfrastructureFailureKind::TimeoutClock(
+            bray_runtime_abi::NativePlatformStatus::new(
+                decoder.u32()?,
+                decoder.u64()?.cast_signed(),
+            ),
+        ),
         _ => return Err(TestProtocolError::Malformed),
     };
 
@@ -557,40 +603,64 @@ mod tests {
     use crate::{
         CapturedStream, ExplicitTestFailure, TestCaptureLimits, TestCapturePolicy,
         TestCatalogDigest, TestCatalogEntryId, TestDuration, TestErrorTypeIdentity,
-        TestHostCommand, TestHostCommandId, TestHostControl, TestHostResult, TestOutcome,
-        TestPanicCause, TestPanicReport, TestSourceAnchor, TestTimeoutPolicy,
+        TestHostCommand, TestHostCommandId, TestHostControl, TestHostResult,
+        TestInfrastructureFailureKind, TestOutcome, TestPanicCause, TestPanicReport,
+        TestSourceAnchor, TestTimeoutPolicy,
     };
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
     #[test]
-    fn infrastructure_failures_preserve_typed_native_termination() {
-        for termination in [
-            crate::TestHostTermination::ExitCode { code: 0 },
-            crate::TestHostTermination::ExitCode { code: i32::MIN },
-            crate::TestHostTermination::Signal { signal: 6 },
-        ] {
-            let result = TestHostResult::after_cleanup(
-                TestHostCommandId::from_bytes([3; 32]),
-                TestCatalogDigest::from_bytes([4; 32]),
-                TestOutcome::InfrastructureFailed(
-                    crate::TestInfrastructureFailure::new(
-                        crate::TestInfrastructureFailureKind::Host,
-                        None,
-                    )
-                    .with_host_termination(termination),
+    fn infrastructure_failures_preserve_causes_and_native_termination() {
+        let failures = [
+            (TestInfrastructureFailureKind::Host, None),
+            (TestInfrastructureFailureKind::TimeoutRuntime, Some(5)),
+            (
+                TestInfrastructureFailureKind::TimeoutCallbackResources,
+                Some(3),
+            ),
+            (TestInfrastructureFailureKind::TimeoutDeadlineOverflow, None),
+            (TestInfrastructureFailureKind::TimeoutCapacity, None),
+            (TestInfrastructureFailureKind::TimeoutStorage, None),
+            (
+                TestInfrastructureFailureKind::TimeoutIdentityExhausted,
+                None,
+            ),
+            (TestInfrastructureFailureKind::TimeoutClosed, None),
+            (
+                TestInfrastructureFailureKind::TimeoutClock(
+                    bray_runtime_abi::NativePlatformStatus::new(12, i64::MIN),
                 ),
-                CapturedStream::captured(b"startup".iter().copied(), 9, None),
-                CapturedStream::discarded(),
-            );
+                None,
+            ),
+        ];
 
-            let mut bytes = Vec::new();
+        for (kind, detail) in failures {
+            for termination in [
+                crate::TestHostTermination::ExitCode { code: 0 },
+                crate::TestHostTermination::ExitCode { code: i32::MIN },
+                crate::TestHostTermination::Signal { signal: 6 },
+            ] {
+                let result = TestHostResult::after_cleanup(
+                    TestHostCommandId::from_bytes([3; 32]),
+                    TestCatalogDigest::from_bytes([4; 32]),
+                    TestOutcome::InfrastructureFailed(
+                        crate::TestInfrastructureFailure::new(kind, detail)
+                            .with_host_termination(termination),
+                    ),
+                    CapturedStream::captured(b"startup".iter().copied(), 9, None),
+                    CapturedStream::discarded(),
+                );
 
-            super::write_host_result(&mut bytes, &result).expect("encode native failure result");
+                let mut bytes = Vec::new();
 
-            let decoded = super::read_host_result(&mut bytes.as_slice())
-                .expect("decode native failure result");
+                super::write_host_result(&mut bytes, &result)
+                    .expect("encode native failure result");
 
-            assert_eq!(decoded, result);
+                let decoded = super::read_host_result(&mut bytes.as_slice())
+                    .expect("decode native failure result");
+
+                assert_eq!(decoded, result);
+            }
         }
     }
 
@@ -671,6 +741,16 @@ mod tests {
             TestPanicCause::EntryFailure,
             TestPanicCause::MemoryLayoutSizeOverflow,
             TestPanicCause::MemoryLayoutUnsupportedAlignment,
+            TestPanicCause::WorkerFormationFailure(bray_runtime_abi::NativeWorkerFailure {
+                stage: 2,
+                category: 12,
+                native_code: i64::MIN,
+            }),
+            TestPanicCause::WorkerFormationFailure(bray_runtime_abi::NativeWorkerFailure {
+                stage: 3,
+                category: 3,
+                native_code: i64::MAX,
+            }),
         ] {
             let result = TestHostResult::after_cleanup(
                 TestHostCommandId::from_bytes([3; 32]),

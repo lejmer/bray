@@ -5,6 +5,32 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[test]
+fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
+    let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+
+    let payload = identity
+        .clone()
+        .component(ConstantProjectionKind::NullableValue);
+
+    let snapshot = ExecutionCondition::Constructed(
+        Arc::new(identity.clone()),
+        [(
+            bray_bound_tree::StorageProjection::NullableValue,
+            payload.clone(),
+        )]
+        .into(),
+    );
+
+    let extraction = ExecutionCondition::Projection(
+        ConstantProjectionKind::NullableValue,
+        Arc::new(snapshot.clone()),
+    );
+
+    assert_eq!(snapshot.owner_identity(), &identity);
+    assert_eq!(extraction.owner_identity(), payload.owner_identity());
+}
+
+#[test]
 fn changed_contents_do_not_reuse_unlisted_components_from_carrier_identity() {
     let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
     let contents = ExecutionCondition::Result;
@@ -204,20 +230,38 @@ fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
 #[test]
 fn repeated_component_observation_keeps_the_original_snapshot() {
     let original = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-    let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
     let nested = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
-    let value = original.clone().component(first).component(nested);
 
-    assert_eq!(original.with_component(&[first, nested], value), original);
+    for first in [
+        ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)),
+        ConstantProjectionKind::NullableValue,
+    ] {
+        let path = [first, nested];
+        let value = original.clone().component(first).component(nested);
 
-    let changed = original.with_component(&[first, nested], ExecutionCondition::Boolean(true));
+        assert_eq!(original.with_component(&path, value), original);
 
-    assert_ne!(changed, original);
+        let changed = original.with_component(&path, ExecutionCondition::Boolean(true));
 
-    assert_eq!(
-        changed.clone().component(first).component(nested),
-        ExecutionCondition::Boolean(true)
-    );
+        assert_ne!(changed, original);
+
+        assert_eq!(
+            changed.clone().component(first).component(nested),
+            ExecutionCondition::Boolean(true)
+        );
+
+        let updated = changed.with_component(&path, ExecutionCondition::Boolean(false));
+        let expected = original.with_component(&path, ExecutionCondition::Boolean(false));
+
+        assert_eq!(updated, expected);
+
+        if first == ConstantProjectionKind::NullableValue {
+            let payload = changed.component(first);
+            let updated = payload.with_component(&[nested], ExecutionCondition::Boolean(false));
+
+            assert_eq!(updated.present(), expected);
+        }
+    }
 }
 
 #[test]
@@ -354,4 +398,81 @@ fn boolean_constants_normalize_symbolic_completion_implications() {
             );
         }
     }
+}
+
+#[test]
+fn owned_renaming_reaches_compact_input_fields_without_equating_borrows() {
+    let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+    let second = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
+    let replacement = ExecutionCondition::Result.component(first);
+    let specific = ExecutionCondition::Result.component(second);
+
+    let replacements = [
+        (root.clone(), replacement.clone()),
+        (root.clone().component(first), specific.clone()),
+    ]
+    .into();
+
+    for (subject, expected) in [
+        (
+            root.clone().component(second).borrowed(),
+            replacement.component(second).borrowed(),
+        ),
+        (
+            root.component(first).component(second).borrowed(),
+            specific.component(second).borrowed(),
+        ),
+    ] {
+        assert_eq!(
+            subject.with_joined_values(&replacements, &replacements),
+            expected
+        );
+
+        assert_eq!(subject.with_equalities(&replacements), subject);
+
+        let entry = ExecutionCondition::Entry {
+            condition: Arc::new(subject),
+            captured: true,
+        };
+
+        assert_eq!(
+            entry.with_joined_values(&replacements, &replacements),
+            entry
+        );
+    }
+}
+
+#[test]
+fn predecessor_snapshots_do_not_expand_their_surviving_owner_recursively() {
+    let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+    let second = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
+    let unchanged = owner.clone().component(second);
+
+    let snapshot = ExecutionCondition::Constructed(
+        Arc::new(owner.clone()),
+        [
+            (
+                bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)),
+                ExecutionCondition::Boolean(true),
+            ),
+            (
+                bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)),
+                unchanged.clone(),
+            ),
+        ]
+        .into(),
+    );
+
+    let snapshots = [(owner.clone(), snapshot.clone())].into();
+
+    assert_eq!(owner.clone().with_snapshots(&snapshots), snapshot);
+
+    assert_eq!(
+        owner.component(first).with_snapshots(&snapshots),
+        ExecutionCondition::Boolean(true)
+    );
+
+    assert_eq!(unchanged.with_snapshots(&snapshots), unchanged);
 }

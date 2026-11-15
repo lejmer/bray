@@ -2,11 +2,198 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use super::index::ManagedStore;
-use crate::test_support::{product_identity, target_identity};
+use super::record::{EntryKind, EntryState, StorageOwner};
+use crate::test_support::{product_identity, target_identity, wait_for_lease_release};
 use crate::{
     ManagedCache, ManagedOperation, StorageCategory, StoragePolicy, StorageSelection,
     inspect_storage,
 };
+
+#[test]
+fn failed_directory_formation_can_be_inspected_cleaned_and_retried() {
+    let states = [EntryState::Live, EntryState::Retiring, EntryState::RemovingFiles];
+
+    for (kind, state) in [EntryKind::Product, EntryKind::Cache, EntryKind::Operation]
+        .into_iter()
+        .flat_map(|kind| states.map(|state| (kind, state)))
+    {
+        let root = tempfile::tempdir().expect("fixture directory must be created");
+        let plan = managed_library_plan(root.path(), "example.interrupted");
+        let mut store = ManagedStore::open(root.path()).expect("fixture store must open");
+        let key = format!("{}/{}", kind.directory(), "a".repeat(64));
+        let blocker = store.metadata.join(kind.directory());
+
+        std::fs::write(&blocker, b"unmanaged file").expect("fixture blocker must be written");
+
+        let error = store
+            .register(
+                &key,
+                kind,
+                StorageOwner::product(&plan),
+                SystemTime::now(),
+                &|| false,
+            )
+            .expect_err("directory formation must fail");
+
+        assert_eq!(error.path(), blocker);
+        assert_eq!(error.kind(), &crate::StorageErrorKind::UnsafePath);
+
+        store
+            .index
+            .entries
+            .get_mut(&key)
+            .expect("failed formation must retain its ownership reservation")
+            .state = state;
+
+        store.save().expect("fixture retirement state must persist");
+        drop(store);
+
+        std::fs::remove_file(&blocker).expect("fixture blocker must be removed");
+
+        let selection = StorageSelection::default();
+
+        let rows = inspect_storage(root.path(), &selection, StoragePolicy::default(), &|| false)
+            .expect("an unformed reservation must remain inspectable");
+
+        assert_eq!(rows.len(), 1, "{kind:?}");
+        assert_eq!(rows[0].category, StorageCategory::Reclaimable);
+        assert_eq!(rows[0].bytes, Some(0));
+        assert!(!rows[0].active);
+
+        let preview = crate::clean_storage(root.path(), &selection, true, &|| false)
+            .expect("cleanup preview must accept an unformed reservation");
+
+        assert_eq!(preview, rows);
+
+        assert!(
+            ManagedStore::open(root.path())
+                .expect("fixture store must reopen")
+                .index
+                .entries
+                .contains_key(&key)
+        );
+
+        let cleaned = crate::clean_storage(root.path(), &selection, false, &|| false)
+            .expect("cleanup must retire an unformed reservation");
+
+        assert_eq!(cleaned.len(), 1);
+        assert!(cleaned[0].removed);
+
+        let mut store = ManagedStore::open(root.path()).expect("fixture store must reopen");
+
+        assert!(store.index.entries.is_empty());
+
+        let lease = store
+            .register(
+                &key,
+                kind,
+                StorageOwner::product(&plan),
+                SystemTime::now(),
+                &|| false,
+            )
+            .expect("admission must succeed after recovery");
+
+        assert!(store.metadata.join(&key).is_dir());
+        drop(lease);
+    }
+}
+
+#[test]
+fn missing_product_maintenance_releases_claims_and_preserves_unproven_public_files() {
+    for state in [EntryState::Live, EntryState::Retiring, EntryState::RemovingFiles] {
+        let root = tempfile::tempdir().expect("fixture directory must be created");
+        let plan = managed_library_plan(root.path(), "example.missing");
+        let key = format!("products/{}", "a".repeat(64));
+        let relative = Path::new(".bray").join(&key);
+        let mut store = ManagedStore::open(root.path()).expect("fixture store must open");
+
+        let lease = store
+            .register_product(&relative, &plan, &|| false)
+            .expect("fixture product must register");
+
+        let public = root.path().join("application.brayi");
+        let private = root.path().join(&relative);
+
+        std::fs::write(&public, b"unproven output").expect("fixture output must be written");
+
+        store
+            .record_content("b".repeat(64), &private.join("0000000000000001/body.o"))
+            .expect("fixture content reference must register");
+
+        drop(lease);
+        std::fs::remove_dir_all(&private).expect("fixture backing must be removed");
+
+        let error = store
+            .pin_product(&relative, StoragePolicy::default())
+            .expect_err("missing product backing must not be pinnable");
+
+        assert_eq!(error.path(), private);
+        assert_eq!(error.kind(), &crate::StorageErrorKind::Unavailable);
+
+        store
+            .index
+            .entries
+            .get_mut(&key)
+            .expect("fixture product must remain indexed")
+            .state = state;
+
+        store.save().expect("fixture retirement state must persist");
+
+        store
+            .maintain(StoragePolicy::default(), &|| false)
+            .expect("maintenance must retire missing backing and its claims");
+
+        drop(store);
+
+        let store = ManagedStore::open(root.path()).expect("recovered index must remain valid");
+
+        assert!(store.index.entries.is_empty());
+        assert!(store.index.public_paths.is_empty());
+        assert!(store.index.content.is_empty());
+        assert_eq!(std::fs::read(&public).expect("unproven output must remain"), b"unproven output");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_backing_rejects_unsafe_source_and_retired_directory_chains() {
+    for directory in ["products", "retired"] {
+        let root = tempfile::tempdir().expect("fixture directory must be created");
+        let outside = tempfile::tempdir().expect("fixture directory must be created");
+        let sentinel = outside.path().join("user-data");
+        let plan = managed_library_plan(root.path(), "example.unsafe");
+        let key = format!("products/{}", "a".repeat(64));
+        let relative = Path::new(".bray").join(&key);
+        let mut store = ManagedStore::open(root.path()).expect("fixture store must open");
+
+        let lease = store
+            .register_product(&relative, &plan, &|| false)
+            .expect("fixture product must register");
+
+        drop(lease);
+        std::fs::remove_dir_all(root.path().join(&relative)).expect("fixture backing must be removed");
+
+        let unsafe_path = store.metadata.join(directory);
+
+        if unsafe_path.exists() {
+            std::fs::remove_dir(&unsafe_path).expect("empty fixture directory must be removed");
+        }
+
+        std::fs::write(&sentinel, b"keep").expect("fixture sentinel must be written");
+        std::os::unix::fs::symlink(outside.path(), &unsafe_path).expect("fixture symlink must form");
+        drop(store);
+
+        for dry_run in [true, false] {
+            let error = crate::clean_storage(root.path(), &StorageSelection::default(), dry_run, &|| false)
+                .expect_err("unsafe owned directory chains must be rejected");
+
+            assert_eq!(error.path(), unsafe_path);
+            assert_eq!(error.kind(), &crate::StorageErrorKind::UnsafePath);
+        }
+
+        assert_eq!(std::fs::read(&sentinel).expect("outside data must remain"), b"keep");
+    }
+}
 
 #[test]
 fn cache_budget_evicts_the_least_recently_used_entry() {
@@ -25,6 +212,8 @@ fn cache_budget_evicts_the_least_recently_used_entry() {
     std::fs::write(new_path.join("cache"), b"new").expect("fixture contents must be written");
     drop(older);
     drop(newer);
+    wait_for_lease_release(&old_path.join("entry.lock"));
+    wait_for_lease_release(&new_path.join("entry.lock"));
 
     let now = SystemTime::now();
     let mut store = ManagedStore::open(root.path()).expect("fixture file must open");
@@ -73,8 +262,13 @@ fn storage_report_marks_the_least_recently_used_cache_over_budget() {
     std::fs::write(newer.directory().join("cache"), b"new")
         .expect("fixture contents must be written");
 
+    let old_lease = older.directory().join("entry.lock");
+    let new_lease = newer.directory().join("entry.lock");
+
     drop(older);
     drop(newer);
+    wait_for_lease_release(&old_lease);
+    wait_for_lease_release(&new_lease);
 
     let now = SystemTime::now();
     let mut store = ManagedStore::open(root.path()).expect("fixture file must open");
@@ -279,6 +473,13 @@ fn cache_age_and_budget_never_evict_an_active_linker() {
 
     drop(cache);
 
+    wait_for_lease_release(
+        &path
+            .parent()
+            .expect("fixture cache must have a directory")
+            .join("entry.lock"),
+    );
+
     store
         .maintain_at(policy, SystemTime::now(), 16, &|| false)
         .expect("fixture `maintain_at` call must succeed");
@@ -314,6 +515,11 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
 
         std::fs::write(operation.directory().join("temporary"), b"completed output")
             .expect("fixture contents must be written");
+
+        let lease = operation.directory().join("entry.lock");
+
+        drop(operation);
+        wait_for_lease_release(&lease);
     }
 
     let next = ManagedOperation::begin(
@@ -523,7 +729,10 @@ fn cleanup_rejects_symlinks_without_touching_their_target() {
     std::os::unix::fs::symlink(&file, cache.directory().join("link"))
         .expect("fixture `std::os::unix::fs::symlink` call must succeed");
 
+    let lease = cache.directory().join("entry.lock");
+
     drop(cache);
+    wait_for_lease_release(&lease);
 
     let error = crate::clean_storage(root.path(), &StorageSelection::default(), false, &|| false)
         .expect_err("symlink in managed storage must be rejected");

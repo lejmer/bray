@@ -135,13 +135,15 @@ pub extern "C" fn bray_runtime_activation_callback(
     let resumable = selected.is_resumable();
 
     let mut callback = || {
-        invoke(destination, &mut outgoing, |destination| match selected {
-            Operation::Resume => (descriptor.resume)(destination, context),
-            Operation::Cancel => (descriptor.cancel)(destination, context),
-            Operation::Broadcast => (descriptor.broadcast)(destination, context),
-            Operation::Resolve(exit) => (descriptor.resolve)(destination, context, exit),
-            Operation::Move(address) => (descriptor.move_completion)(context, address),
-            Operation::Destroy => (descriptor.destroy)(context),
+        invoke(destination, &mut outgoing, |destination| {
+            match selected {
+                Operation::Resume => (descriptor.resume)(destination, context),
+                Operation::Cancel => (descriptor.cancel)(destination, context),
+                Operation::Broadcast => (descriptor.broadcast)(destination, context),
+                Operation::Resolve(exit) => (descriptor.resolve)(destination, context, exit),
+                Operation::Move(address) => (descriptor.move_completion)(context, address),
+                Operation::Destroy => (descriptor.destroy)(context),
+            }
         });
     };
 

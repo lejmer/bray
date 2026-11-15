@@ -61,7 +61,7 @@ impl BoundCallReports {
     }
 }
 
-/// An exact input-to-output reference relation of a selected call.
+/// A checked input-to-output reference relation of a selected call.
 /// Address formation locates storage without equating a pointer with the borrowed value.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundCallReference {
@@ -89,7 +89,7 @@ impl BoundCallReference {
         &self.relation
     }
 
-    /// The source storage type when the result forms an address instead of forwarding a reference.
+    /// The reached storage type when forming an address or a bounded reference.
     pub const fn addressed_type(&self) -> Option<bray_symbols::TypeId> {
         self.addressed_type
     }
@@ -105,18 +105,23 @@ impl BoundCallReference {
 pub struct BoundCallDependencyContracts {
     synchronous_cleanup: Arc<[bray_symbols::DependencyRequirement]>,
     input_count: usize,
-    returned_input: Option<bray_symbols::ConstantTermId>,
-    returned_input_conditions: Arc<[bray_symbols::ConstantTermId]>,
+    owned_result: bray_symbols::DependencyOwnedResult,
+    returned_value_conditions:
+        BTreeMap<bray_symbols::DependencyOwnedTransfer, Arc<[bray_symbols::ConstantTermId]>>,
     carriers: Arc<[bray_symbols::DependencyWitnessCarrier]>,
     invocation: BoundDependencyContract,
     result: BoundDependencyContract,
+    deferred_result: Option<BoundDependencyContract>,
     deferred: Option<BoundDependencyContract>,
     reports: BoundCallReports,
     deferred_reports: Option<BoundCallReports>,
     references: Vec<BoundCallReference>,
     effects: Arc<[bray_symbols::DependencyStorageEffect]>,
     retained_inputs: Option<BTreeSet<crate::BoundExecutionSite>>,
-    reference_paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
+    reference_subjects: BTreeMap<
+        bray_symbols::DependencySubject,
+        (bray_symbols::TypeId, crate::StorageReferencePath),
+    >,
     normal_completion: bool,
     normal_storage_preserved: bool,
     deferred_effects: Option<Arc<[bray_symbols::DependencyStorageEffect]>>,
@@ -125,33 +130,39 @@ pub struct BoundCallDependencyContracts {
 }
 
 impl BoundCallDependencyContracts {
-    /// Records an unchanged owned input returned as the complete result on every normal exit.
-    /// Normal completion must have no observable storage mutation or cleanup effects.
-    /// The term contains only a formal input and owned projections, never an equality or dereference.
-    pub fn with_returned_input(mut self, input: Option<bray_symbols::ConstantTermId>) -> Self {
-        self.returned_input = input;
+    /// Records complete owning layouts retained inside the result.
+    pub fn with_owned_result(mut self, result: bray_symbols::DependencyOwnedResult) -> Self {
+        self.owned_result = result;
 
         self
     }
 
-    /// Returns the checked whole-value transport, without introducing trusted guarantees.
-    pub const fn returned_input(&self) -> Option<bray_symbols::ConstantTermId> {
-        self.returned_input
+    /// Returns the checked normal-result ownership contract.
+    pub const fn owned_result(&self) -> &bray_symbols::DependencyOwnedResult {
+        &self.owned_result
     }
 
     /// Retains presence facts implied by successfully returning the checked input projection.
-    pub fn with_returned_input_conditions(
+    pub fn with_returned_value_conditions(
         mut self,
-        conditions: impl IntoIterator<Item = bray_symbols::ConstantTermId>,
+        conditions: BTreeMap<
+            bray_symbols::DependencyOwnedTransfer,
+            Arc<[bray_symbols::ConstantTermId]>,
+        >,
     ) -> Self {
-        self.returned_input_conditions = conditions.into_iter().collect();
+        self.returned_value_conditions = conditions;
 
         self
     }
 
-    /// Returns ordinary presence facts prepared from the selected whole-value transport.
-    pub fn returned_input_conditions(&self) -> &[bray_symbols::ConstantTermId] {
-        &self.returned_input_conditions
+    /// Returns ordinary presence facts prepared from the selected input transfers.
+    pub fn returned_value_conditions(
+        &self,
+        transfer: &bray_symbols::DependencyOwnedTransfer,
+    ) -> &[bray_symbols::ConstantTermId] {
+        self.returned_value_conditions
+            .get(transfer)
+            .map_or(&[], AsRef::as_ref)
     }
 
     /// Creates the instantiated phase contracts for a selected call.
@@ -163,8 +174,9 @@ impl BoundCallDependencyContracts {
         Self {
             invocation,
             result,
-            returned_input: None,
-            returned_input_conditions: Arc::new([]),
+            deferred_result: None,
+            owned_result: bray_symbols::DependencyOwnedResult::default(),
+            returned_value_conditions: BTreeMap::new(),
             carriers: Arc::new([]),
             input_count: 0,
             synchronous_cleanup: Arc::new([]),
@@ -174,7 +186,7 @@ impl BoundCallDependencyContracts {
             references: Vec::new(),
             effects: Arc::new(bray_symbols::DependencyStorageEffect::opaque_call()),
             retained_inputs: None,
-            reference_paths: BTreeMap::new(),
+            reference_subjects: BTreeMap::new(),
             normal_completion: true,
             normal_storage_preserved: false,
             deferred_effects: None,
@@ -272,19 +284,22 @@ impl BoundCallDependencyContracts {
         self.deferred_completion
     }
 
-    /// Shares checked access paths between reference transfers and mutation effects.
-    pub fn with_reference_paths(
+    /// Shares checked reference types and paths between transfers and mutation effects.
+    pub fn with_reference_subjects(
         mut self,
-        paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
+        inputs: BTreeMap<
+            bray_symbols::DependencySubject,
+            (bray_symbols::TypeId, crate::StorageReferencePath),
+        >,
     ) -> Self {
-        self.reference_paths = paths;
+        self.reference_subjects = inputs;
 
         self
     }
 
-    /// Returns the input subjects whose reference paths were prepared by call analysis.
+    /// Returns the input and result subjects prepared by call analysis.
     pub fn reference_subjects(&self) -> impl Iterator<Item = &bray_symbols::DependencySubject> {
-        self.reference_paths.keys()
+        self.reference_subjects.keys()
     }
 
     /// Returns the selected input path prepared by type analysis.
@@ -292,7 +307,15 @@ impl BoundCallDependencyContracts {
         &self,
         subject: &bray_symbols::DependencySubject,
     ) -> Option<&crate::StorageReferencePath> {
-        self.reference_paths.get(subject)
+        self.reference_subjects.get(subject).map(|(_, path)| path)
+    }
+
+    /// Returns the checked value type at one selected reference subject.
+    pub fn reference_type(
+        &self,
+        subject: &bray_symbols::DependencySubject,
+    ) -> Option<bray_symbols::TypeId> {
+        self.reference_subjects.get(subject).map(|(ty, _)| *ty)
     }
 
     /// Records the dependencies carried by the returned value.
@@ -300,6 +323,18 @@ impl BoundCallDependencyContracts {
         self.result = result;
 
         self
+    }
+
+    /// Records dependencies of the value produced by normal completion of a lazy frame.
+    pub fn with_deferred_result(mut self, result: BoundDependencyContract) -> Self {
+        self.deferred_result = Some(result);
+
+        self
+    }
+
+    /// Returns the completed value's dependencies independently of the frame captures.
+    pub const fn deferred_result(&self) -> Option<&BoundDependencyContract> {
+        self.deferred_result.as_ref()
     }
 
     /// Attaches report ownership for argument evaluation and immediate execution.

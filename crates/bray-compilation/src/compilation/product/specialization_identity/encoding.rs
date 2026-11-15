@@ -588,6 +588,109 @@ mod tests {
     };
 
     #[test]
+    fn owned_transfer_identities_preserve_mapping_independently_of_interning() {
+        use bray_symbols::{
+            ConstantProjectionKind, ConstantTermData, DependencyContractTemplateData,
+            DependencyOwnedTransfer, SemanticValueStore, SymbolOrdinal,
+        };
+
+        let compilation = crate::test_support::compilation("module app;");
+
+        let context = compilation
+            .binding_context(&compilation.state.cancellation)
+            .expect("fixture binding context");
+
+        let mut by_order = Vec::new();
+
+        for order in [[0, 1], [1, 0]] {
+            let values = SemanticValueStore::try_new().expect("fixture semantic store");
+
+            let inputs = order
+                .into_iter()
+                .map(|ordinal| {
+                    let term = values
+                        .intern_constant_term(ConstantTermData::CallableArgument(
+                            SymbolOrdinal::new(ordinal),
+                        ))
+                        .expect("fixture input term");
+
+                    (ordinal, term)
+                })
+                .collect::<std::collections::BTreeMap<_, _>>();
+
+            let mut identities = Vec::new();
+
+            for (swapped, guard, layout) in [
+                (false, None, 0),
+                (true, None, 0),
+                (false, Some(0), 0),
+                (false, Some(1), 0),
+                (false, None, 1),
+                (false, None, 2),
+                (false, None, 3),
+                (false, None, 4),
+            ] {
+                let transfers = [0, 1].map(|ordinal| {
+                    DependencyOwnedTransfer::new(
+                        inputs[&ordinal],
+                        [ConstantProjectionKind::TupleElement(SymbolOrdinal::new(
+                            if swapped { 1 - ordinal } else { ordinal },
+                        ))],
+                    )
+                    .with_condition(guard.map(|ordinal| inputs[&ordinal]))
+                });
+
+                let leaves = transfers.map(bray_symbols::DependencyOwnedResult::Transfer);
+                let all = bray_symbols::DependencyOwnedResult::all(leaves.clone());
+
+                let ownership = match layout {
+                    0 => all,
+                    1 => bray_symbols::DependencyOwnedResult::choice(leaves),
+                    2 => bray_symbols::DependencyOwnedResult::choice([
+                        all,
+                        bray_symbols::DependencyOwnedResult::default(),
+                    ]),
+                    3 | 4 => bray_symbols::DependencyOwnedResult::case(inputs[&(layout - 3)], all),
+                    _ => unreachable!("fixture ownership layout is exhaustive"),
+                };
+
+                let contract = values
+                    .intern_dependency_contract_template(
+                        DependencyContractTemplateData::new([])
+                            .with_effects([])
+                            .with_owned_result(ownership),
+                    )
+                    .expect("fixture ownership contract");
+
+                let mut encoder = super::StructuralValueEncoder {
+                    values: &values,
+                    binding_context: &context,
+                    digest: bray_base::StableDigestHasher::new(),
+                    allow_static_address: false,
+                };
+
+                encoder
+                    .dependency_contract(contract)
+                    .expect("fixture ownership identity");
+
+                identities.push(encoder.digest.finalize());
+            }
+
+            assert_eq!(
+                identities
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len(),
+                8
+            );
+
+            by_order.push(identities);
+        }
+
+        assert_eq!(by_order[0], by_order[1]);
+    }
+
+    #[test]
     fn witness_dependencies_distinguish_specialization_identities() {
         use bray_binder::SymbolQueryProvider;
 

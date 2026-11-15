@@ -34,16 +34,15 @@ pub(super) fn smoke_test(
     archives.insert(0, &product);
 
     let native_links = native_links(package).map_err(CommandError::EntrySmoke)?;
-    let map = directory.join("runtime-entry-smoke.map");
 
-    let executable = compile_c_smoke(
+    let (executable, map) = compile_c_smoke(
         DRIVER_SOURCE,
         "runtime-entry-smoke",
         &archives,
         target,
         directory,
-        &map,
         &native_links,
+        &[],
     )?;
 
     let output = command_output(Exec::cmd(&executable), "generated entry")?;

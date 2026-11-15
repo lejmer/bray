@@ -153,15 +153,41 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
     }
 
     if matches!(
-        call.resolution().result(),
-        bray_bound_tree::BoundCallResult::LazyFuture(_)
+        call.implementation_hook(),
+        Some(
+            bray_compiler_known::ImplementationHook::TaskJoin
+                | bray_compiler_known::ImplementationHook::TaskCancel
+        )
     ) {
-        // Construction returns an owned frame, not the body's eventual result. The
-        // frame retains every captured value until execution or disposal releases it.
-        template = template.with_requirements(input_requirements(call));
+        // An opaque Task can return dependencies from any capture. Known body
+        // producers are narrowed independently by completion-source discovery.
+        let requirements = template
+            .requirements()
+            .iter()
+            .cloned()
+            .chain([value_requirement(DependencySubjectRoot::Receiver)])
+            .collect::<Vec<_>>();
+
+        template = template.with_requirements(requirements);
     }
 
     Ok(template)
+}
+
+/// Projects normal body dependencies onto the immediate value produced by invocation.
+/// An inactive future retains all inputs until execution or disposal, independently of its result.
+pub(crate) fn invocation_result_template(
+    call: &SelectedCall,
+    template: DependencyContractTemplateData,
+) -> DependencyContractTemplateData {
+    if matches!(
+        call.resolution().result(),
+        bray_bound_tree::BoundCallResult::LazyFuture(_)
+    ) {
+        template.with_requirements(input_requirements(call))
+    } else {
+        template
+    }
 }
 
 /// Applies the selected implementation, generic substitution and parameter defaults once.
@@ -179,7 +205,8 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         panic!("call static expansion retains its selected callable");
     };
 
-    let template = callee_result_template(request, call, declaration)?;
+    let template =
+        invocation_result_template(call, callee_result_template(request, call, declaration)?);
 
     super::defaults::expand_result_defaults(request, selection, &template)
 }
@@ -451,6 +478,9 @@ pub(crate) fn result_inputs(
         .borrows()
         .iter()
         .filter(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result)
+        .filter(|relation| {
+            relation.provenance() != bray_symbols::DependencyReferenceProvenance::InputRegions
+        })
         .filter_map(|relation| relation.entry())
         .filter_map(|entry| call.input_site(expression, entry.subject_root()))
         .collect::<std::collections::BTreeSet<_>>();

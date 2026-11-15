@@ -28,14 +28,24 @@ unsafe extern "C" {
         limit: usize,
         output: &mut NativeSchedulerReference,
     ) -> u32;
+    #[link_name = "bray_runtime_deadline_closure"]
+    safe fn bray_runtime_deadline_closure_native(reference: &NativeSchedulerReference);
     #[link_name = "bray_runtime_scheduler_destruction"]
     safe fn bray_runtime_scheduler_destruction_native(reference: &NativeSchedulerReference);
     #[link_name = "bray_runtime_scheduler_selection"]
     safe fn bray_runtime_scheduler_selection_native(
         reference: &NativeSchedulerReference,
+        registration: u64,
         requirements: &NativeSchedulerRequirements,
         output: &mut NativeSchedulerLane,
     ) -> u32;
+    #[link_name = "bray_runtime_scheduler_recovery"]
+    safe fn bray_runtime_scheduler_recovery_native(
+        reference: &NativeSchedulerReference,
+        registration: u64,
+        scope: &bray_runtime_abi::NativeWorkerScope,
+        cleanup: u32,
+    );
     #[link_name = "bray_runtime_scheduler_compatibility"]
     safe fn bray_runtime_scheduler_compatibility_native(
         current: &NativeSchedulerLane,
@@ -125,6 +135,10 @@ pub(super) fn bray_runtime_scheduler_creation(
     })
 }
 
+pub(super) fn close_deadlines(reference: &NativeSchedulerReference) {
+    crate::context::with_independent_execution_context(|| bray_runtime_deadline_closure_native(reference));
+}
+
 pub(super) fn bray_runtime_scheduler_destruction(reference: &NativeSchedulerReference) {
     crate::context::with_independent_execution_context(|| {
         bray_runtime_scheduler_destruction_native(reference)
@@ -133,12 +147,24 @@ pub(super) fn bray_runtime_scheduler_destruction(reference: &NativeSchedulerRefe
 
 pub(super) fn bray_runtime_scheduler_selection(
     reference: &NativeSchedulerReference,
+    registration: u64,
     requirements: &NativeSchedulerRequirements,
     output: &mut NativeSchedulerLane,
 ) -> u32 {
     crate::context::with_independent_execution_context(|| {
-        bray_runtime_scheduler_selection_native(reference, requirements, output)
+        bray_runtime_scheduler_selection_native(reference, registration, requirements, output)
     })
+}
+
+pub(super) fn bray_runtime_scheduler_recovery(
+    reference: &NativeSchedulerReference,
+    registration: u64,
+    scope: &bray_runtime_abi::NativeWorkerScope,
+    cleanup: bool,
+) {
+    crate::context::with_independent_execution_context(|| {
+        bray_runtime_scheduler_recovery_native(reference, registration, scope, u32::from(cleanup))
+    });
 }
 
 pub(crate) fn bray_runtime_scheduler_compatibility(
@@ -303,6 +329,7 @@ impl BrayScheduler {
 
     pub(super) fn select(
         &self,
+        registration: Option<(crate::TaskId, u64)>,
         descriptor: &ProtectedFrameStateDescriptor,
         origin: RuntimeThreadId,
     ) -> Result<ExecutionLane, SchedulerError> {
@@ -326,7 +353,7 @@ impl BrayScheduler {
         };
 
         let mut lane = NativeSchedulerLane::default();
-        let status = bray_runtime_scheduler_selection(&self.reference, &requirements, &mut lane);
+        let status = bray_runtime_scheduler_selection(&self.reference, registration.map_or(0, |(_, token)| token), &requirements, &mut lane);
 
         let capability = match status {
             0 => return Ok(from_native(lane)),
@@ -336,6 +363,7 @@ impl BrayScheduler {
             4 => RuntimeCapability::ComputeLanes,
             5 => RuntimeCapability::MainThreadLane,
             6 => return Err(ExecutionLaneSelectionError::ConflictingAffinity.into()),
+            7 => return Err(SchedulerError::UnknownTask(registration.expect("only a registered lane query can observe retirement").0)),
             _ => panic!("Bray lane selection returned unknown status {status}"),
         };
 

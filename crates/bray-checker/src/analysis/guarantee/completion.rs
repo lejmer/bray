@@ -331,7 +331,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
-            returned: Default::default(),
+            witness_inputs: Default::default(),
+            copy_sources: Default::default(),
+            owned_inputs: if self.storage.effective_purpose(plan)
+                == bray_bound_tree::StorageAccessPurpose::Move
+            {
+                [bray_symbols::SymbolOrdinal::new(0)].into()
+            } else {
+                Default::default()
+            },
+            addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution,
@@ -390,7 +399,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
-            returned: Default::default(),
+            witness_inputs: Default::default(),
+            copy_sources: Default::default(),
+            owned_inputs: Default::default(),
+            addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,
@@ -407,6 +419,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<crate::ExecutionCallEvidence> {
         let mut entry = self.invocation_entry(state, invocation)?;
 
+        entry.witness_inputs = state.owned_witnesses(entry.owned_arguments())
+            .filter(|(_, witness)| witness.available)
+            .map(|(owner, _)| owner.clone())
+            .collect();
+
         if let Some(contract) = self
             .request
             .trusted_contracts()
@@ -415,11 +432,59 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.preserve_integer_entry_conditions(state, &contract.preconditions, &mut entry);
         }
 
-        if !entry.pending_execution {
-            entry.returned = self.returned_value_evidence(state, invocation, &entry.arguments);
-        }
+        entry.addresses = entry
+            .arguments
+            .iter()
+            .filter(|(input, _)| {
+                matches!(
+                    input.root,
+                    crate::execution_guarantees::ExecutionInput::Argument(_)
+                )
+            })
+            .filter_map(|(input, value)| {
+                let addresses = state.address_dependencies(value);
+
+                (!addresses.is_empty()).then(|| (input.clone(), addresses))
+            })
+            .collect();
 
         Some(entry)
+    }
+
+    fn anonymous_call_target(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+        call: &bray_bound_tree::SelectedCall,
+    ) -> Option<bray_bound_tree::BoundUnitKey> {
+        if let Some((key, _)) = call.resolution().anonymous_body() {
+            return Some(key.clone());
+        }
+
+        if !matches!(
+            call.target(),
+            bray_bound_tree::BoundCallableTarget::Indirect(_)
+        ) {
+            return None;
+        }
+
+        let Some(bray_bound_tree::BoundExpression::Call(source)) =
+            self.request.view().expression(expression)
+        else {
+            return None;
+        };
+
+        let ExecutionCondition::Expression(origin) = self.value(state, source.callee()) else {
+            return None;
+        };
+
+        let Some(bray_bound_tree::BoundExpression::AnonymousCallable(callable)) =
+            self.request.view().expression(origin)
+        else {
+            return None;
+        };
+
+        Some(callable.unit().clone())
     }
 
     fn invocation_entry(
@@ -572,34 +637,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let trusted_assumptions =
             self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
 
+        let owned_inputs = self.owned_input_ordinals(selection);
+
         let mut evidence = crate::ExecutionCallEvidence {
             implementation_witnesses: call.resolution().implementation_witnesses().into(),
-            returned: Default::default(),
-            anonymous_target: call
-                .resolution()
-                .anonymous_body()
-                .map(|(key, _)| key.clone())
-                .or_else(|| match self.request.view().expression(expression) {
-                    Some(bray_bound_tree::BoundExpression::Call(source))
-                        if matches!(
-                            call.target(),
-                            bray_bound_tree::BoundCallableTarget::Indirect(_)
-                        ) =>
-                    {
-                        match self.value(state, source.callee()) {
-                            ExecutionCondition::Expression(origin) => {
-                                match self.request.view().expression(origin) {
-                                    Some(bray_bound_tree::BoundExpression::AnonymousCallable(
-                                        callable,
-                                    )) => Some(callable.unit().clone()),
-                                    _ => None,
-                                }
-                            }
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                }),
+            witness_inputs: Default::default(),
+            copy_sources: Default::default(),
+            owned_inputs,
+            addresses: Default::default(),
+            anonymous_target: self.anonymous_call_target(state, expression, call),
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: matches!(
                 call.resolution().result(),
@@ -684,7 +730,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let result = self.invocation_value(state, expression.into());
 
-        self.complete_trusted_call(state, expression.into(), result, observations);
+        let result = self.complete_trusted_call(state, expression.into(), result, observations);
+
+        state.expressions.insert(expression, result);
 
         let Some(entry) = state.entries.get(&expression.into()) else {
             return;

@@ -1,0 +1,177 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.scheduler;
+using internal std.thread;
+
+trusted internal func read_scope(pos pointer: DataPointer<DataPointer<Scope>>) -> ScopeReference
+    requires(trusted scope_slot(pointer = pointer))
+    ensures(trusted scope_live(owner = &result.marker))
+{
+    let read = trusted lambda(pos pointer: DataPointer<DataPointer<Scope>>) -> ScopeReference
+        requires(trusted scope_slot(pointer = pointer))
+        ensures(trusted scope_live(owner = &result.marker))
+        uses(raw_memory)
+    {
+        let permit = trusted lambda(pos pointer: DataPointer<DataPointer<Scope>>)
+            requires(trusted scope_slot(pointer = pointer))
+            ensures(
+                trusted core.memory.valid_read<DataPointer<Scope>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<DataPointer<Scope>>(pointer = pointer),
+                trusted core.memory.initialized_as<DataPointer<Scope>>(pointer = pointer)
+            )
+            executes(pure, total) {};
+
+        trusted permit(pointer);
+
+        return
+        {
+            marker = Marker
+            {
+            },
+            pointer = trusted std.memory.read<DataPointer<Scope>>(pointer)
+        };
+    };
+
+    return trusted read(pointer);
+}
+
+trusted internal func scope_value(pos owner: &ScopeReference) -> &Scope
+    requires(trusted scope_live(owner = &owner.marker))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = owner.pointer;
+
+    let authorize = trusted lambda(pos owner: &ScopeReference, pos pointer: DataPointer<Scope>)
+        requires(trusted scope_live(owner = &owner.marker))
+        ensures(
+            trusted core.memory.valid_read<Scope>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Scope>(pointer = pointer),
+            trusted core.memory.initialized_as<Scope>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Scope>(pointer = pointer),
+            trusted core.memory.epoch_current<Scope>(pointer = pointer),
+            trusted core.memory.synchronized_access<Scope>(pointer = pointer),
+            trusted core.memory.movement_stable<Scope>(pointer = pointer),
+            trusted core.memory.finalization_pending<Scope>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(owner, pointer);
+
+    return trusted std.memory.borrow_from<Scope, ScopeReference>(owner, pointer);
+}
+
+trusted internal func worker(pos owner: &ScopeReference) -> &Worker
+    requires(trusted scope_live(owner = &owner.marker))
+    ensures(trusted scope_live(owner = &owner.marker), trusted retained(owner = &result.pool.marker))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let value = trusted scope_value(owner);
+
+    let pointer = value.worker.reference.pointer;
+
+    let authorize = trusted lambda(pos owner: &ScopeReference, pos pointer: DataPointer<Worker>)
+        requires(trusted scope_live(owner = &owner.marker))
+        ensures(
+            trusted core.memory.valid_read<Worker>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Worker>(pointer = pointer),
+            trusted core.memory.initialized_as<Worker>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Worker>(pointer = pointer),
+            trusted core.memory.epoch_current<Worker>(pointer = pointer),
+            trusted core.memory.synchronized_access<Worker>(pointer = pointer),
+            trusted core.memory.movement_stable<Worker>(pointer = pointer),
+            trusted core.memory.finalization_pending<Worker>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(owner, pointer);
+
+    return trusted std.memory.borrow_from<Worker, ScopeReference>(owner, pointer);
+}
+
+// The OS entry owns the attachment and root until all exact-thread cleanup returns.
+// A nested foreign entry cannot derive this witness from its attachment identity.
+@abi(c)
+trusted internal func compatibility(
+    pos pointer: DataPointer<DataPointer<Scope>>,
+    pos required: DataPointer<bray.runtime.bootstrap.scheduler.Requirements>
+) -> u32
+    requires(
+        trusted scope_slot(pointer = pointer),
+        trusted bray.runtime.bootstrap.scheduler.requirements_slot(pointer = required)
+    )
+{
+    // The private slot already identifies this thread's admitted live OS-entry scope.
+    let reference = trusted read_compatibility_scope(pointer, required);
+
+    let value = trusted scope_value(&reference);
+
+    let lane: bray.runtime.bootstrap.scheduler.Lane =
+    {
+        placement = 1,
+        workload = 3,
+        thread = value.attachment
+    };
+
+    let lane_pointer = std.memory.address_of<bray.runtime.bootstrap.scheduler.Lane>(&lane);
+
+    let authorize = trusted lambda(
+        pos root: &ScopeReference,
+        pos lane_pointer: DataPointer<bray.runtime.bootstrap.scheduler.Lane>
+    )
+        requires(trusted scope_live(owner = &root.marker))
+        ensures(trusted bray.runtime.bootstrap.scheduler.lane_slot(pointer = lane_pointer))
+        executes(pure, total) {};
+
+    trusted authorize(&reference, lane_pointer);
+    return trusted bray.runtime.bootstrap.scheduler.compatibility(lane_pointer, required, value.attachment);
+}
+
+trusted internal func read_compatibility_scope(
+    pos pointer: DataPointer<DataPointer<Scope>>,
+    pos required: DataPointer<bray.runtime.bootstrap.scheduler.Requirements>
+) -> ScopeReference
+    requires(
+        trusted scope_slot(pointer = pointer),
+        trusted bray.runtime.bootstrap.scheduler.requirements_slot(pointer = required)
+    )
+    ensures(
+        trusted scope_live(owner = &result.marker),
+        trusted bray.runtime.bootstrap.scheduler.requirements_slot(pointer = required)
+    )
+{
+    return trusted read_scope(pointer);
+}
+
+// Only the native continuing-driver boundary supplies this optional live slot.
+// A present value is the actual Source-owned OS-entry scope, never an ID lookup.
+trusted internal func driver_scope(pos pointer: DataPointer<DataPointer<Scope>>) -> u64?
+    requires(trusted bray.runtime.bootstrap.scheduler.driver_entry(scope = pointer))
+    uses(intrinsic, raw_memory)
+{
+    let authorize = trusted lambda(pos pointer: DataPointer<DataPointer<Scope>>)
+        requires(trusted bray.runtime.bootstrap.scheduler.driver_entry(scope = pointer))
+        ensures(
+            trusted core.memory.valid_read<DataPointer<Scope>>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<DataPointer<Scope>>(pointer = pointer),
+            trusted core.memory.initialized_as<DataPointer<Scope>>(pointer = pointer),
+            trusted scope_slot(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(pointer);
+
+    if trusted core.target.expose_address<Scope>(trusted std.memory.read<DataPointer<Scope>>(pointer)) == 0
+    {
+        return none;
+    }
+
+    let scope = trusted read_scope(pointer);
+
+    return (trusted scope_value(&scope)).attachment;
+}

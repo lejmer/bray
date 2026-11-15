@@ -10,6 +10,7 @@ bray-diagnostics = { path = "../bray-diagnostics" }
 bray-profile = { path = "../bray-profile" }
 bray-source = { path = "../bray-source" }
 bray-syntax = { path = "../bray-syntax" }
+bray-test-protocol = { path = "../bray-test-protocol" }
 
 [lints]
 workspace = true

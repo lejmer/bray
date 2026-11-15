@@ -82,7 +82,6 @@ trusted internal func select_cleanup_slot(
         !result.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = result.slot.storage)
     )
     executes(total)
-    uses(raw_memory, unchecked_alias)
 {
     let rejected: AttachmentSelection =
     {
@@ -100,10 +99,7 @@ trusted internal func select_cleanup_slot(
         return rejected;
     }
 
-    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        lease.synchronization,
-        trusted lease_synchronization_pointer(lease)
-    );
+    let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
 
     if core.atomic.load<u64, 1>(&synchronization.lock) != native_thread
     {

@@ -4,6 +4,7 @@ pub(in crate::semantic) use common::{invalid_discriminant, invalid_value};
 mod decoding;
 mod encoding;
 mod index;
+mod ownership;
 mod record;
 
 pub(super) use common::{

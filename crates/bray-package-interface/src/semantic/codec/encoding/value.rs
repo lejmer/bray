@@ -401,7 +401,7 @@ pub(super) fn encode_integer(encoder: &mut WireEncoder, value: &IntegerConstant)
     encoder.write_bytes(value.magnitude());
 }
 
-pub(super) fn encode_constant_projection(
+pub(in crate::semantic::codec) fn encode_constant_projection(
     encoder: &mut WireEncoder,
     projection: &InterfaceConstantProjection,
 ) {

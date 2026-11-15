@@ -143,3 +143,10 @@ internal func request_bits(pos requested: bool, pos observable: bool) -> u32
         yield 0;
     };
 }
+
+trusted internal func cancellation_shielded(pos owner: &Reference) -> bool
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    return core.atomic.load<usize, 1>(&((trusted cell(owner)).cancellation)) >= CANCELLATION_SHIELD;
+}

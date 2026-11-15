@@ -110,6 +110,48 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.refine_edge(&mut next, edge).then_some(next)
     }
 
+    pub(in crate::analysis) fn normal_completion(
+        &self,
+        state: &ExecutionState,
+        invocation: bray_bound_tree::BoundExecutionSite,
+    ) -> bool {
+        let deferred = invocation
+            .expression()
+            .into_iter()
+            .flat_map(|expression| self.awaited_invocations(state, expression))
+            .collect::<Vec<_>>();
+
+        let result = self.invocation_value(state, invocation);
+
+        if invocation
+            .expression()
+            .is_some_and(|expression| self.awaited_unknown(state, expression))
+        {
+            true
+        } else if deferred.is_empty() {
+            self.dependencies
+                .calls()
+                .get(&invocation)
+                .is_none_or(|contract| {
+                    contract.normal_completion()
+                        && (contract.deferred_effects().is_some()
+                            || state.entries.get(&invocation).is_none_or(|entry| {
+                                self.owned_normal_completion(
+                                    &state.assumptions,
+                                    invocation,
+                                    entry,
+                                    &result,
+                                )
+                            }))
+                })
+        } else {
+            deferred.into_iter().any(|(source, entry)| {
+                self.dependencies.calls()[&source].deferred_completion()
+                    && self.owned_normal_completion(&state.assumptions, source, entry, &result)
+            })
+        }
+    }
+
     pub(in crate::analysis) fn condition_evidence(
         &self,
         state: &ExecutionState,
@@ -176,17 +218,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some(AnalysisRefinement::InvocationCompletion(invocation)) = edge.refinement() {
-            let possible = match invocation
-                .expression()
-                .and_then(|expression| self.awaited_invocation(state, expression))
-            {
-                Some(source) => self.dependencies.calls()[&source].deferred_completion(),
-                None => self
-                    .dependencies
-                    .calls()
-                    .get(&invocation)
-                    .is_none_or(|contract| contract.normal_completion()),
-            };
+            let possible = self.normal_completion(state, invocation);
 
             if !possible {
                 return false;
@@ -382,11 +414,16 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                         &mut { ExecutionCondition::WORK_LIMIT },
                     );
 
-                    let subject =
-                        super::super::trusted::static_carrier(self.dependencies, carrier.path())
-                            .substitute(&|_| ExecutionCondition::Unknown, &value, &mut {
-                                ExecutionCondition::WORK_LIMIT
-                            });
+                    let subject = super::super::trusted::static_carrier(
+                        self.request.semantic_values(),
+                        self.dependencies,
+                        carrier.path(),
+                    )
+                    .substitute(
+                        &|_| ExecutionCondition::Unknown,
+                        &value,
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    );
 
                     guarantee
                         .clone()

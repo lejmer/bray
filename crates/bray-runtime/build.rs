@@ -32,7 +32,7 @@ fn main() {
     );
 
     let native_links = xtask::build_bootstrap(&root, target, &output.join(archive))
-        .unwrap_or_else(|error| panic!("could not build the runtime report provider: {error}"));
+        .unwrap_or_else(|error| panic!("could not build the runtime bootstrap: {error}"));
 
     println!("cargo:rustc-link-search=native={}", output.display());
 

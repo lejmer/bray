@@ -308,7 +308,10 @@ pub enum InterfaceDependencyRequirementKind {
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
-    pub(crate) returned_input: Option<super::InterfaceConstantTermId>,
+    pub(crate) owned_result: bray_symbols::DependencyOwnedResult<
+        super::InterfaceConstantProjection,
+        super::InterfaceConstantTermId,
+    >,
     pub(crate) observed_result: Option<super::InterfaceConstantTermId>,
     pub(crate) carriers: Arc<
         [bray_symbols::DependencyWitnessCarrier<
@@ -345,10 +348,15 @@ impl InterfaceDependencyContract {
         self
     }
 
-    /// Records an unchanged owned input returned as the complete result on every normal exit.
-    /// The term contains only a formal input and owned projections, never an equality or dereference.
-    pub fn with_returned_input(mut self, input: Option<super::InterfaceConstantTermId>) -> Self {
-        self.returned_input = input;
+    /// Records exact input ownership preserved under each normal result condition.
+    pub fn with_owned_result(
+        mut self,
+        result: bray_symbols::DependencyOwnedResult<
+            super::InterfaceConstantProjection,
+            super::InterfaceConstantTermId,
+        >,
+    ) -> Self {
+        self.owned_result = result;
 
         self
     }
@@ -362,7 +370,7 @@ impl InterfaceDependencyContract {
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
             normal_storage_preserved: false,
-            returned_input: None,
+            owned_result: bray_symbols::DependencyOwnedResult::default(),
             observed_result: None,
             carriers: Arc::new([]),
             borrows: Arc::new([]),

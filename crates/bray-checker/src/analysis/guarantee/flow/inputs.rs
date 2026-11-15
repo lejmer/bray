@@ -250,6 +250,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         arguments
     }
 
+    pub(in crate::analysis::guarantee) fn owned_input_ordinals(
+        &self,
+        selection: &bray_bound_tree::SemanticSelection,
+    ) -> std::sync::Arc<[SymbolOrdinal]> {
+        bray_base::sorted_unique_shared_slice(
+            selection
+                .inputs()
+                .filter(|input| {
+                    if let bray_bound_tree::SelectedInput::Receiver(receiver) = input {
+                        return matches!(
+                            receiver.mode(),
+                            bray_symbols::ReceiverMode::Consuming
+                                | bray_symbols::ReceiverMode::ConsumingMutable
+                        );
+                    }
+
+                    let ty = input.ty(self.request.semantic_values());
+
+                    !matches!(
+                        self.request.semantic_values().type_data(ty).as_ref(),
+                        bray_symbols::TypeData::Borrow { .. }
+                    ) && !self.storage.copyable_types().contains(&ty)
+                })
+                .map(|input| {
+                    selection
+                        .input_ordinal(input.root())
+                        .expect("checked owned input retains its ordinal")
+                }),
+        )
+    }
+
     pub(in crate::analysis::guarantee) fn input_entry(
         &self,
         state: &ExecutionState,
@@ -297,7 +328,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
                 _ => Default::default(),
             },
-            returned: Default::default(),
+            witness_inputs: Default::default(),
+            copy_sources: Default::default(),
+            owned_inputs: Default::default(),
+            addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,

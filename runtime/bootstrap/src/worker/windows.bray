@@ -1,0 +1,57 @@
+@target(target.platform.native_threads && target.identity.SYSTEM == "windows")
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.memory;
+using std.memory;
+using std.memory.function;
+using internal std.os.windows;
+using internal std.thread;
+
+internal callable NativeEntry = @abi(system) trusted func(pos context: DataPointer<u8>) -> u32
+    requires(trusted native_entry(), blocking_execution(), compute_execution());
+
+trusted internal func start_native(pos descriptor: Descriptor) -> (std.platform.PlatformStatus, u64, i64)
+    requires(
+        trusted descriptor_owned(owner = &descriptor.marker),
+        trusted retained_worker(owner = &descriptor.reference.marker)
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let adapt = trusted lambda(pos descriptor: &Descriptor) -> FunctionPointer<std.os.windows.BeginThreadRoutine>
+        requires(trusted descriptor_owned(owner = &descriptor.marker))
+        ensures(trusted core.memory.callable_address_valid<std.os.windows.BeginThreadRoutine>(pointer = result))
+        uses(layout_reinterpret)
+    {
+        let entry: NativeEntry = word_entry;
+
+        return trusted std.memory.function.reinterpret<std.os.windows.BeginThreadRoutine, NativeEntry>(
+            trusted std.memory.function_address<NativeEntry>(entry)
+        );
+    };
+
+    let mut handle: u64 = 0;
+    let mut error: i64 = 0;
+
+    let status = trusted internal std.thread.platform_thread_create(
+        trusted adapt(&descriptor),
+        context = std.memory.byte_address<Worker>(descriptor.reference.pointer),
+        owner = std.memory.address_of_mut<u64>(&mut handle),
+        native_error = std.memory.address_of_mut<i64>(&mut error)
+    );
+
+    if status.category != 0
+    {
+        trusted release_descriptor(descriptor);
+    }
+
+    // A successful OS admission transfers this exact descriptor to native entry.
+    return (status, handle, error);
+}
+
+@abi(system)
+trusted internal func word_entry(pos context: DataPointer<u8>) -> u32
+    requires(trusted native_entry(), blocking_execution(), compute_execution())
+{
+    trusted run_entry(context);
+    return 0;
+}

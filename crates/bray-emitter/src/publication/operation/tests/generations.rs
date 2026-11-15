@@ -9,7 +9,7 @@ use super::plans::{
     required_dependency_metadata_spec,
 };
 
-use crate::test_support::product_identity;
+use crate::test_support::{product_identity, wait_for_lease_release};
 use crate::{ArtifactKind, ArtifactPublisher, EmissionPlan, EmissionStatus, ReplacementPolicy};
 
 #[test]
@@ -82,6 +82,13 @@ fn managed_generation_retention_keeps_current_and_preceding_unpinned_products() 
     drop(first);
     drop(second);
 
+    wait_for_lease_release(
+        &first_path
+            .parent()
+            .expect("fixture generation must have a directory")
+            .join("lease.lock"),
+    );
+
     let third = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"third", None)]);
 
@@ -135,6 +142,13 @@ fn pins_survive_replacement_and_repeated_content_preserves_distinct_history() {
     }
 
     drop(pin);
+
+    wait_for_lease_release(
+        &first_path
+            .parent()
+            .expect("fixture generation must have a directory")
+            .join("lease.lock"),
+    );
 
     let current = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"third", None)]);
@@ -202,7 +216,14 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
             .expect("fixture `file_id::get_file_id` call must succeed")
     );
 
+    let first_lease = first
+        .generation()
+        .expect("fixture generation must exist")
+        .store()
+        .join("entry.lock");
+
     drop(first);
+    wait_for_lease_release(&first_lease);
 
     let first_selection = crate::StorageSelection {
         product: Some(first_plan.request().product().clone()),
@@ -228,8 +249,16 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
             .expect("fixture `file_id::get_file_id` call must succeed")
     );
 
+    let second_lease = second
+        .generation()
+        .expect("fixture generation must exist")
+        .store()
+        .join("entry.lock");
+
     drop(first);
     drop(second);
+    wait_for_lease_release(&first_lease);
+    wait_for_lease_release(&second_lease);
 
     let rows = crate::inspect_storage(
         output.path(),
@@ -312,6 +341,12 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
             .identity()
     );
 
+    let entry_lease = first
+        .generation()
+        .expect("fixture generation must exist")
+        .store()
+        .join("entry.lock");
+
     drop(first);
 
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
@@ -344,6 +379,7 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
     );
 
     drop(retained);
+    wait_for_lease_release(&entry_lease);
 
     crate::clean_storage(
         output.path(),

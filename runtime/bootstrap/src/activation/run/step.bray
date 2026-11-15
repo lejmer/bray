@@ -19,6 +19,7 @@ trusted internal func step(
     pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
     pos ready: bray.runtime.bootstrap.activation.callback.Ready,
     pos cancellation: bool,
+    abandoning: bool = false,
 ) -> (
         bray.runtime.bootstrap.activation.Progress,
         bray.runtime.bootstrap.ReportRecords,
@@ -30,6 +31,7 @@ trusted internal func step(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
 {
     let root_state = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor, root = true);
 
@@ -54,6 +56,34 @@ trusted internal func step(
     {
         return trusted broadcast(&mut cursor, callback, ready);
     }
+
+    let abandon_input = if abandoning && header.phase == bray.runtime.bootstrap.activation.RUNNING
+    {
+        let incoming_kind =
+        {
+            let resident = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
+
+            yield resident.incoming.kind;
+        };
+
+        if incoming_kind != 1
+        {
+            _ = trusted abandon(&mut cursor);
+
+            return (
+                bray.runtime.bootstrap.activation.empty_progress(),
+                bray.runtime.bootstrap.empty_records(),
+                bray.runtime.bootstrap.empty_records(),
+                CONTINUE
+            );
+        }
+
+        yield true;
+    }
+    else
+    {
+        yield false;
+    };
 
     if header.phase == bray.runtime.bootstrap.activation.CLEANUP &&
         bray.runtime.bootstrap.activation.execution.broadcast_pending(&header)
@@ -90,6 +120,26 @@ trusted internal func step(
 
     if header.phase == bray.runtime.bootstrap.activation.TERMINAL
     {
+        if abandoning && header.parent == 0 && header.kind == 1 && header.disposition == 0
+        {
+            _ = trusted abandon(&mut cursor);
+
+            let abandoned = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
+
+            // The result is still owned by the frame. Its existing abandonment
+            // pass disposes it before the task publishes the operational panic.
+            abandoned.progress.kind = 2;
+
+            abandoned.progress.payload = 0;
+
+            return (
+                bray.runtime.bootstrap.activation.empty_progress(),
+                bray.runtime.bootstrap.empty_records(),
+                bray.runtime.bootstrap.empty_records(),
+                CONTINUE
+            );
+        }
+
         if header.kind == 1 && header.disposition == 0
         {
             let status = trusted transfer(&mut cursor, callback, ready);
@@ -175,7 +225,10 @@ trusted internal func step(
         return (progress, bray.runtime.bootstrap.empty_records(), incidents, FINISHED);
     }
 
-    let (operation, argument) = trusted entry(&header, cancellation);
+    // A committed child has initialized this continuation's result slot. Its
+    // checked cancellation entry consumes that value before abandoning the body.
+    let (operation, argument) = trusted entry(&header, cancellation || abandon_input);
+
     let (kind, state, payload, status) = trusted advance(&mut cursor, callback, ready, operation, argument);
 
     if status != 0

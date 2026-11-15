@@ -59,8 +59,11 @@ where
 
     result_context.set_result_values(values);
 
+    // The frame and completed value share immutable metadata, but retain different inputs.
+    let immediate = crate::dependency::invocation_result_template(call, template.clone());
+
     let concrete =
-        DependencyContractTemplateData::new(concrete_requirements(template.requirements()));
+        DependencyContractTemplateData::new(concrete_requirements(immediate.requirements()));
 
     let mut result = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)?;
 
@@ -83,14 +86,21 @@ where
         call.resolution().result(),
         bray_bound_tree::BoundCallResult::LazyFuture(_)
     ) {
-        instantiated.with_deferred_reports(reports)
+        let concrete =
+            DependencyContractTemplateData::new(concrete_requirements(template.requirements()));
+
+        let completed = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)?;
+
+        instantiated
+            .with_deferred_result(completed)
+            .with_deferred_reports(reports)
     } else {
         instantiated.with_reports(reports)
     };
 
     // Escape classification expands dependency roots, not effects or execution.
     let expanded =
-        crate::dependency::defaults::expand_result_defaults(request, selection, &template)
+        crate::dependency::defaults::expand_result_defaults(request, selection, &immediate)
             .map_err(DependencyContractInstantiationError::Resolution)?;
 
     Ok((

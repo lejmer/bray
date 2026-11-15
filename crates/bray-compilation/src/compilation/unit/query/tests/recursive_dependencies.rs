@@ -697,20 +697,25 @@ fn deferred_results_keep_exact_borrow_origins_and_defaults_execute_at_creation()
 
 #[test]
 fn awaiting_a_future_consumes_it_and_unawaited_frames_remain_owned() {
-    let invalid = compilation(
-        r#"
-        module app;
-        async func child() {}
-        async func caller() { let pending = child(); await pending; await pending; }
-    "#,
-    );
+    for body in [
+        "let pending = child(); await pending; await pending;",
+        "let task = child().start(); let pending = task.join(); _ = await pending; _ = await pending;",
+    ] {
+        let invalid = compilation(&format!(
+            r#"
+            module app;
+            async func child() {{}}
+            async func caller() {{ {body} }}
+        "#,
+        ));
 
-    let diagnostics = invalid.check_diagnostics();
+        let diagnostics = invalid.check_diagnostics();
 
-    bray_testing::assert_goal_state_diagnostic_kind(
-        diagnostics,
-        bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage,
-    );
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage,
+        );
+    }
 
     let valid = compilation(
         r#"

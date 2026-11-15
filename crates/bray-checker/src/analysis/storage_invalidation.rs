@@ -167,10 +167,10 @@ pub(in crate::analysis) fn call_preserves_storage(
 const fn access_invalidates_refinements(purpose: StorageAccessPurpose) -> bool {
     // Write checks the destination while evaluating its address. Assignment invalidates
     // the old value after the right-hand side and replacement cleanup have run.
+    // Initialization starts fresh storage and cannot invalidate its referents.
     matches!(
         purpose,
-        StorageAccessPurpose::Initialize
-            | StorageAccessPurpose::Move
+        StorageAccessPurpose::Move
             | StorageAccessPurpose::ValueTransfer
             | StorageAccessPurpose::Assignment
     )

@@ -295,6 +295,29 @@ compiled fixture language in the style check when introducing it.
   properties, analyses, records, contracts, or plans. Lazy evaluation alone does not make a domain value a fact.
 - Do not replace an imprecise `fact` name with another vague suffix such as `data` or `info`.
 
+## C source formatting
+
+- Wrap long conditions with one condition per line.
+- Wrap long argument and parameter lists with one item per line.
+- Start wrapped conditions and lists after the opening delimiter, leaving its line free of items.
+- Put the closing delimiter of a wrapped construct on its own line. Apply the same layout to multiline initializers.
+
+```c
+if (
+    first_condition ||
+    second_condition
+)
+    return status;
+
+register_callback(
+    target,
+    &(Callback) {
+        context,
+        wake
+    }
+);
+```
+
 ## Comments and structure
 
 - Comments should explain intent, structure, non-obvious constraints, invariants, or what the code does not clearly

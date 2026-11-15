@@ -1,0 +1,73 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.memory;
+using std.memory;
+using internal std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host.product;
+using internal bray.runtime.bootstrap.pool;
+
+trusted internal predicate failure_slot(pointer: DataPointer<Failure>);
+
+@abi(c)
+trusted internal func failure_reporting(
+    pos pointer: DataPointer<Failure>,
+    pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+)
+    requires(
+        trusted failure_slot(pointer = pointer),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos pointer: DataPointer<Failure>)
+        requires(trusted failure_slot(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Failure>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Failure>(pointer = pointer),
+            trusted core.memory.initialized_as<Failure>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer);
+
+    let failure = trusted std.memory.read<Failure>(pointer);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
+        output,
+        trusted failure_outcome(&failure)
+    );
+}
+
+// Preserve the complete failure value in the existing inline primary.
+trusted internal func failure_report(
+    pos failure: &Failure,
+    reservation: usize = 0
+) -> bray.runtime.bootstrap.PanicReportData
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result))
+{
+    let mut report = bray.runtime.bootstrap.empty_panic_report();
+
+    report.reserved = reservation;
+    report.cause = 8;
+    report.primary_present = 1;
+    report.worker_stage = failure.stage;
+    report.worker_category = failure.category;
+    report.worker_native_code = failure.native_code;
+    report.consumer = trusted bray.runtime.bootstrap.consume_address();
+
+    return report;
+}
+
+trusted internal func failure_outcome(pos failure: &Failure) -> bray.runtime.bootstrap.ReportOutcome
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+{
+    return
+    {
+        state = bray.runtime.bootstrap.RUN_PANICKED,
+        payload = 0,
+        report = trusted failure_report(failure)
+    };
+}

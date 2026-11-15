@@ -1,0 +1,247 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap.host.attachment;
+using internal bray.runtime.bootstrap.host.product;
+using internal bray.runtime.bootstrap.scheduler;
+using internal bray.runtime.bootstrap.pool;
+using internal std.thread;
+
+@abi(c)
+trusted internal func pointer_entry(pos context: DataPointer<u8>) -> DataPointer<u8>
+    requires(trusted native_entry(), blocking_execution(), compute_execution())
+{
+    trusted run_entry(context);
+    return std.memory.null<u8>();
+}
+
+trusted internal func run_entry(pos context: DataPointer<u8>)
+    requires(trusted native_entry(), blocking_execution(), compute_execution())
+    uses(intrinsic)
+{
+    // This projection is confined to the selected OS-entry role. Its creator
+    // has already transferred stable, fully initialized worker backing.
+    let acquire = trusted lambda(pos context: DataPointer<u8>) -> Descriptor
+        requires(trusted native_entry())
+        ensures(
+            trusted descriptor_owned(owner = &result.marker),
+            trusted retained_worker(owner = &result.reference.marker),
+            trusted bray.runtime.bootstrap.host.attachment.native_acquisition(),
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        uses(layout_reinterpret)
+    {
+        return
+        {
+            marker = Marker
+            {
+            },
+            reference =
+            {
+                marker = Marker
+                {
+                },
+                pointer = trusted std.memory.reinterpret<Worker, u8>(context)
+            }
+        };
+    };
+
+    let descriptor = trusted acquire(context);
+    let row = trusted retained_worker_value(&descriptor.reference);
+    let attachment = trusted bray.runtime.bootstrap.host.attachment.acquire();
+
+    let mut argument: u64 = 0;
+
+    if attachment.status != 0
+    {
+        core.atomic.store<u32, 0>(&row.failure_stage, 3);
+        core.atomic.store<u32, 0>(&row.failure_category, attachment.status);
+        core.atomic.store<u32, 2>(&row.startup, 2);
+        core.atomic.notify_all<u32>(&row.startup);
+        core.atomic.store<u32, 2>(&row.terminal, 1);
+        core.atomic.notify_all<u32>(&row.terminal);
+
+        trusted release_descriptor(descriptor);
+
+        return;
+    }
+
+    let establish = trusted lambda(
+        pos worker: &Descriptor,
+        pos attachment: &bray.runtime.bootstrap.host.attachment.Owner
+    ) -> Scope
+        requires(
+            trusted native_entry(),
+            trusted descriptor_owned(owner = &worker.marker),
+            trusted retained_worker(owner = &worker.reference.marker),
+            trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment),
+            attachment.status == 0
+        )
+        ensures(trusted scope_owned(owner = &result.marker))
+    {
+        return
+        {
+            marker = Marker
+            {
+            },
+            worker = worker,
+            attachment = attachment.identity,
+            native_thread = internal std.thread.current_platform_identity()
+        };
+    };
+
+    let local = trusted establish(&descriptor, &attachment);
+
+    let root = trusted lambda(pos local: &Scope) -> ScopeReference
+        requires(trusted scope_owned(owner = &local.marker))
+        ensures(trusted scope_live(owner = &result.marker))
+    {
+        return
+        {
+            marker = Marker
+            {
+            },
+            pointer = std.memory.address_of<Scope>(local)
+        };
+    };
+
+    let scope = trusted root(&local);
+
+    core.atomic.store<u64, 2>(&row.identity, local.native_thread);
+    argument = row.workload as u64;
+
+    let attached = trusted invoke(&scope, 2, &mut argument);
+
+    if attached != 0
+    {
+        trusted core.target.abort();
+    }
+
+    core.atomic.store<u32, 2>(&row.startup, 1);
+    core.atomic.notify_all<u32>(&row.startup);
+
+    let retired_attachment = trusted run(scope, attachment);
+
+    // Native context remains bound throughout product and attachment cleanup.
+    let status = trusted bray.runtime.bootstrap.host.attachment.finish(retired_attachment);
+
+    if status != 0
+    {
+        trusted core.target.abort();
+    }
+
+    trusted unbind(&descriptor);
+
+    core.atomic.store<u32, 2>(&row.terminal, 1);
+    core.atomic.notify_all<u32>(&row.terminal);
+
+    // This may drop the last native owner and free backing. Do not touch row,
+    // scope or pool after releasing the committed callback descriptor.
+    trusted release_descriptor(descriptor);
+}
+
+trusted internal func run(
+    pos scope: ScopeReference,
+    pos attachment: bray.runtime.bootstrap.host.attachment.Owner
+) -> bray.runtime.bootstrap.host.attachment.Owner
+    requires(
+        trusted scope_live(owner = &scope.marker),
+        trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &attachment),
+        attachment.status == 0,
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        blocking_execution(),
+        compute_execution()
+    )
+    ensures(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &result), result.status == 0)
+    uses(intrinsic)
+{
+    let row = trusted worker(&scope);
+    let pool = trusted reference_loan(&row.pool);
+    let mut argument: u64 = 0;
+    let scheduler = trusted scheduler_pointer(&pool);
+
+    let authorize_scheduler = trusted lambda(
+        pos owner: &Reference,
+        pos pointer: DataPointer<bray.runtime.bootstrap.scheduler.Reference>
+    )
+        requires(trusted retained(owner = &owner.marker))
+        ensures(trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = pointer))
+        executes(pure, total) {};
+
+    trusted authorize_scheduler(&pool, scheduler);
+
+    loop
+    {
+        trusted authorize_scheduler(&pool, scheduler);
+
+        let group = trusted bray.runtime.bootstrap.scheduler.parking_registration(scheduler);
+
+        if core.atomic.exchange<u32, 3>(&row.detach, 0) != 0
+        {
+            trusted bray.runtime.bootstrap.host.product.drain_detaching_domains(&attachment);
+        }
+
+        let stopping =
+        {
+            let mut guard = trusted lock(&pool);
+
+            yield trusted locked_state(&pool, &mut guard).stopping;
+        };
+
+        if stopping
+        {
+            trusted authorize_scheduler(&pool, scheduler);
+            trusted bray.runtime.bootstrap.scheduler.parking_withdrawal(scheduler, group);
+            return attachment;
+        }
+
+        let ready = trusted invoke(&scope, 3, &mut argument);
+
+        if ready == 1
+        {
+            trusted authorize_scheduler(&pool, scheduler);
+            trusted bray.runtime.bootstrap.scheduler.parking_withdrawal(scheduler, group);
+
+            if row.workload == 1
+            {
+                let failure = trusted ensure(trusted reference_loan(&pool), 1);
+
+                if failure.stage != 0
+                {
+                    trusted install_failure(&scope, &failure);
+                }
+            }
+
+            _ = trusted invoke(&scope, 4, &mut argument);
+
+            if row.workload == 1
+            {
+                let mut guard = trusted lock(&pool);
+                let state = trusted locked_state(&pool, &mut guard);
+
+                state.idle_blocking += 1;
+            }
+
+            continue;
+        }
+
+        if ready != 0
+        {
+            trusted core.target.abort();
+        }
+
+        _ = trusted invoke(&scope, 6, &mut argument);
+
+        trusted authorize_scheduler(&pool, scheduler);
+        trusted bray.runtime.bootstrap.scheduler.parking(scheduler, group, std.numeric.truncate_to<u32, u64>(argument));
+        trusted authorize_scheduler(&pool, scheduler);
+        trusted bray.runtime.bootstrap.scheduler.parking_withdrawal(scheduler, group);
+    }
+}

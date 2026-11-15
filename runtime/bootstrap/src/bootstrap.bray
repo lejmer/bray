@@ -37,6 +37,9 @@ internal struct PanicReportData
     mut source_namespace_word_3: u64;
     mut cause: u32;
     mut primary_present: u32;
+    mut worker_stage: u32;
+    mut worker_category: u32;
+    mut worker_native_code: i64;
     mut message: usize;
     mut message_length: usize;
     // Native callback addresses identify retained code, not writable byte storage.

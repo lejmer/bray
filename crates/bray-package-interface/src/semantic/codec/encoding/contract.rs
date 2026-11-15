@@ -2,8 +2,8 @@ use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
-    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_KIND_SHIFT, write_count, write_optional_u32,
-    write_symbol_reference, write_symbol_references,
+    REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
+    write_count, write_optional_u32, write_symbol_reference, write_symbol_references,
 };
 use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
@@ -60,6 +60,12 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                     attributes |= REFERENCE_EXACT;
                 }
 
+                if relation.provenance()
+                    == bray_symbols::DependencyReferenceProvenance::InputRegions
+                {
+                    attributes |= REFERENCE_INPUT_REGIONS;
+                }
+
                 if relation.entry().is_none() {
                     attributes |= REFERENCE_INPUT_ABSENT;
                 }
@@ -78,7 +84,8 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 }
             }
 
-            write_optional_u32(encoder, contract.returned_input.map(|input| input.raw()));
+            super::super::ownership::encode_owned_result(encoder, &contract.owned_result);
+
             write_optional_u32(encoder, contract.observed_result.map(|term| term.raw()));
             write_count(encoder, contract.carriers.len());
 

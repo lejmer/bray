@@ -3,6 +3,68 @@ use bray_diagnostics::DiagnosticKind;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn repeated_arrays_keep_nested_constructor_element_context() {
+    for count in [0, 2, 1288] {
+        for head in ["", "Buffer"] {
+            let source = format!(r#"
+                module app;
+
+                struct Buffer
+                {{
+                    values: [u32; {count}];
+                }}
+
+                struct Outer
+                {{
+                    buffer: Buffer;
+                }}
+
+                func make() -> Outer
+                {{
+                    return
+                    {{
+                        buffer = {head}
+                        {{
+                            values = [0; {count}],
+                        }},
+                    }};
+                }}
+            "#);
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert!(!diagnostics.has_errors(), "count={count}, head={head}: {diagnostics:#?}");
+        }
+    }
+}
+
+#[test]
+fn repeated_array_constructor_context_does_not_override_the_checked_extent() {
+    let compilation = compilation(r#"
+        module app;
+
+        struct Buffer
+        {
+            values: [u32; 2];
+        }
+
+        func make() -> Buffer
+        {
+            return
+            {
+                values = [0; 3],
+            };
+        }
+    "#);
+
+    assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        DiagnosticKind::CheckingIncompatibleExpressionType,
+    );
+}
+
+#[test]
 fn repeated_arrays_require_copyable_elements_at_every_extent() {
     for count in [0, 1, 3] {
         let source = format!(

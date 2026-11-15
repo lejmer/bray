@@ -154,10 +154,23 @@ static StaticEntry product_entry(size_t ordinal)
     ++product_visits;
 
     StaticEntry entry = {
-        2, 0, {{1}}, ordinal, 1, product_access,
+        2,
+        0,
+        {{1}},
+        ordinal,
+        1,
+        product_access,
         ordinal == 0 ? product_prepare_first : product_prepare_second,
-        {1, ordinal == 0 ? product_admit : product_admit_second, product_finalize, product_resolve},
-        product_destroy, product_detach, product_dependency, 0
+        {
+            1,
+            ordinal == 0 ? product_admit : product_admit_second,
+            product_finalize,
+            product_resolve
+        },
+        product_destroy,
+        product_detach,
+        product_dependency,
+        0
     };
 
     entry.identity.bytes[0] = (uint8_t)(ordinal + 1);
@@ -225,9 +238,23 @@ static StaticEntry interrupted_entry(size_t ordinal)
     ++product_visits;
 
     StaticEntry entry = {
-        2, 0, {{0}}, ordinal, 1, product_access, product_prepare_first,
-        {1, interrupted_admission, product_finalize, product_resolve},
-        product_destroy, product_detach, product_dependency, 0
+        2,
+        0,
+        {{0}},
+        ordinal,
+        1,
+        product_access,
+        product_prepare_first,
+        {
+            1,
+            interrupted_admission,
+            product_finalize,
+            product_resolve
+        },
+        product_destroy,
+        product_detach,
+        product_dependency,
+        0
     };
 
     uint32_t identity = (uint32_t)ordinal + 1;
@@ -237,7 +264,12 @@ static StaticEntry interrupted_entry(size_t ordinal)
 }
 
 static const HostDescriptor interrupted_product = {
-    2, 0, {4}, interrupted_entry, 4096, NULL
+    2,
+    0,
+    {4},
+    interrupted_entry,
+    4096,
+    NULL
 };
 
 static void check_interrupted_formation(void)
@@ -362,7 +394,14 @@ static void reject_thread_backing(uint32_t operation, RunOutcome* outcome)
 
 static void check_thread_product_teardown(void)
 {
-    static const HostDescriptor descriptor = {2, 0, {5}, thread_product_entry, 2, NULL};
+    static const HostDescriptor descriptor = {
+        2,
+        0,
+        {5},
+        thread_product_entry,
+        2,
+        NULL
+    };
     HostObservation result;
 
     product_failure = 0;

@@ -984,6 +984,9 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             _Alignas({report_align}) unsigned char source[{source_size}];
             uint32_t cause;
             uint32_t primary_present;
+            uint32_t worker_stage;
+            uint32_t worker_category;
+            int64_t worker_native_code;
             uintptr_t message;
             uintptr_t message_length;
             void* copy_message;
@@ -1404,6 +1407,9 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
             _Alignas({align}) unsigned char source[{source_size}];
             uint32_t cause;
             uint32_t primary_present;
+            uint32_t worker_stage;
+            uint32_t worker_category;
+            int64_t worker_native_code;
             uintptr_t message;
             uintptr_t message_length;
             void* copy_message;

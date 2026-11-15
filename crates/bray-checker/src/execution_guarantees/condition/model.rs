@@ -21,6 +21,12 @@ pub enum ExecutionCondition {
     Result,
     /// The value produced by one runtime expression, without inventing its contents.
     Expression(bray_bound_tree::BoundExpressionId),
+    /// An input captured by one deferred producer in the actual future owner.
+    CapturedInput {
+        owner: Arc<ExecutionCondition>,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        ordinal: bray_symbols::SymbolOrdinal,
+    },
     /// The capability produced by successful entry at one actual with occurrence.
     ScopedCapability(bray_bound_tree::BoundExpressionId),
     /// The present branch of a nullable value, retaining its contained owner.
@@ -92,7 +98,8 @@ impl ExecutionCondition {
                 | Self::VariantTest(_, value)
                 | Self::Entry {
                     condition: value, ..
-                } => condition = value,
+                }
+                | Self::CapturedInput { owner: value, .. } => condition = value,
                 _ => return false,
             }
         }
@@ -110,7 +117,8 @@ impl ExecutionCondition {
             | Self::Borrowed(value)
             | Self::Entry {
                 condition: value, ..
-            } => value.contains_trusted(),
+            }
+            | Self::CapturedInput { owner: value, .. } => value.contains_trusted(),
             Self::Constructed(base, fields) => {
                 base.contains_trusted() || fields.iter().any(|(_, value)| value.contains_trusted())
             }
@@ -137,7 +145,8 @@ impl ExecutionCondition {
             | Self::VariantTest(_, value)
             | Self::Entry {
                 condition: value, ..
-            } => value.contains_unknown(),
+            }
+            | Self::CapturedInput { owner: value, .. } => value.contains_unknown(),
             _ => self.is_unknown(),
         }
     }

@@ -1,6 +1,7 @@
 use super::fixtures::{assert_complete_artifact, contribution, file_bytes, never_cancelled};
 use super::plans::{filesystem_plan, test_generation_store};
 
+use crate::test_support::wait_for_lease_release;
 use crate::{ArtifactKind, ArtifactPublisher, EmissionPlan, ReplacementPolicy};
 
 #[test]
@@ -24,6 +25,7 @@ fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
     assert!(active.iter().all(|entry| !entry.removed));
     assert_eq!(file_bytes(&public), b"current");
     drop(current);
+    wait_for_lease_release(&test_generation_store(output.path()).join("entry.lock"));
 
     let index = output.path().join(".bray/storage-index.json");
     let before = file_bytes(&index);
@@ -34,7 +36,8 @@ fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
     assert!(
         preview
             .iter()
-            .any(|entry| entry.category == crate::StorageCategory::CurrentOutputs)
+            .any(|entry| entry.category == crate::StorageCategory::CurrentOutputs),
+        "released product preview must include current outputs: {preview:?}"
     );
 
     assert!(
@@ -132,6 +135,7 @@ fn maintenance_removes_uncommitted_first_publication_and_abandoned_staging() {
     .expect("fixture file must be removed");
 
     drop(current);
+    wait_for_lease_release(&store.join("entry.lock"));
 
     let operation = crate::ManagedOperation::begin(
         output.path(),
@@ -207,6 +211,7 @@ fn selective_clean_removes_previous_profile_and_staging_without_current_outputs(
     let staging = store.join("staging/abandoned");
 
     drop(current);
+    wait_for_lease_release(&store.join("entry.lock"));
     std::fs::write(&staging, b"temporary").expect("fixture contents must be written");
 
     let selection = crate::StorageSelection {
@@ -306,6 +311,7 @@ fn inactive_product_reclamation_removes_public_files_and_preserves_unmanaged_nei
     let unmanaged = output.path().join("notes.txt");
 
     drop(product);
+    wait_for_lease_release(&store.join("entry.lock"));
     std::fs::write(&unmanaged, b"user data").expect("fixture contents must be written");
 
     let mut managed =
@@ -349,6 +355,7 @@ fn interrupted_storage_clean_resumes_after_public_output_removal() {
     let public = output.path().join("application.brayd");
 
     drop(current);
+    wait_for_lease_release(&test_generation_store(output.path()).join("entry.lock"));
 
     let selection = crate::StorageSelection::default();
 

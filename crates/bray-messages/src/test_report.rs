@@ -141,6 +141,25 @@ impl TestReportMessageRenderer {
     pub fn host_signal(self, identity: &str, signal: i64) -> String {
         self.catalog.test_report_host_signal(identity, signal)
     }
+
+    /// Renders the typed worker formation failure, when the report contains one.
+    pub fn worker_failure(
+        self,
+        identity: &str,
+        report: &bray_test_protocol::TestPanicReport,
+    ) -> Option<String> {
+        self.catalog.test_report_worker_failure(identity, report)
+    }
+
+    /// Renders the specific cause of timeout admission failure, when applicable.
+    pub fn timeout_admission_failure(
+        self,
+        identity: &str,
+        failure: bray_test_protocol::TestInfrastructureFailure,
+    ) -> Option<String> {
+        self.catalog
+            .test_report_timeout_admission_failure(identity, failure)
+    }
 }
 
 #[cfg(test)]

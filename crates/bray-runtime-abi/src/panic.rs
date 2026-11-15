@@ -32,9 +32,12 @@ impl NativePanicCause {
     /// A requested memory layout requires unsupported alignment.
     pub const MEMORY_LAYOUT_UNSUPPORTED_ALIGNMENT: Self = Self(7);
 
+    /// A demanded worker could not establish its target thread or attachment.
+    pub const WORKER_FORMATION_FAILURE: Self = Self(8);
+
     /// Returns whether this cause is defined by the current native ABI.
     pub const fn is_known(&self) -> bool {
-        matches!(self.0, 0..=7)
+        matches!(self.0, 0..=8)
     }
 
     /// Returns the stable native ABI code.
@@ -237,6 +240,7 @@ pub struct NativePanicPrimary {
     source: NativeSourceAnchor,
     cause: NativePanicCause,
     present: u32,
+    worker_failure: crate::NativeWorkerFailure,
     message: NativePanicMessage,
     provider: crate::NativeProviderOwner,
 }
@@ -248,10 +252,20 @@ impl NativePanicPrimary {
         source: NativeSourceAnchor,
         message: NativePanicMessage,
     ) -> Self {
+        assert!(
+            cause.0 != NativePanicCause::WORKER_FORMATION_FAILURE.0,
+            "worker formation reports require their original typed failure context"
+        );
+
         Self {
             cause,
             source,
             present: 1,
+            worker_failure: crate::NativeWorkerFailure {
+                stage: 0,
+                category: 0,
+                native_code: 0,
+            },
             message,
             provider: crate::NativeProviderOwner::resident(),
         }
@@ -259,12 +273,34 @@ impl NativePanicPrimary {
 
     /// Creates an empty primary for an unpublished destination.
     pub const fn empty() -> Self {
-        Self {
-            cause: NativePanicCause::MESSAGE,
-            source: NativeSourceAnchor::unavailable(),
-            present: 0,
-            message: NativePanicMessage::empty(),
-            provider: crate::NativeProviderOwner::resident(),
+        let mut primary = Self::new(
+            NativePanicCause::MESSAGE,
+            NativeSourceAnchor::unavailable(),
+            NativePanicMessage::empty(),
+        );
+
+        primary.present = 0;
+
+        primary
+    }
+
+    /// Retains the original worker admission failure without allocating message backing.
+    pub const fn from_worker_failure(failure: crate::NativeWorkerFailure) -> Self {
+        let mut primary = Self::empty();
+
+        primary.cause = NativePanicCause::WORKER_FORMATION_FAILURE;
+        primary.present = 1;
+        primary.worker_failure = failure;
+
+        primary
+    }
+
+    /// Returns the typed context of a worker formation failure.
+    pub const fn worker_failure(&self) -> Option<crate::NativeWorkerFailure> {
+        if self.cause.0 == NativePanicCause::WORKER_FORMATION_FAILURE.0 {
+            Some(self.worker_failure)
+        } else {
+            None
         }
     }
 
@@ -462,12 +498,12 @@ mod tests {
             address: 0, length: 8, copy: 16, release: 24,
         });
 
-        assert_abi_layout!(NativePanicPrimary, size: 112, align: 8, fields: {
-            source: 0, cause: 56, present: 60, message: 64, provider: 96,
+        assert_abi_layout!(NativePanicPrimary, size: 128, align: 8, fields: {
+            source: 0, cause: 56, present: 60, worker_failure: 64, message: 80, provider: 112,
         });
 
-        assert_abi_layout!(NativePanicReport, size: 152, align: 8, fields: {
-            primary: 0, head: 112, tail: 120, count: 128, reserved: 136, consume: 144,
+        assert_abi_layout!(NativePanicReport, size: 168, align: 8, fields: {
+            primary: 0, head: 128, tail: 136, count: 144, reserved: 152, consume: 160,
         });
     }
 
