@@ -1759,6 +1759,16 @@ const BINDING_UNDECLARED_DEPENDENCY: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" has no matching using declaration"),
 ];
 
+const BINDING_UNUSED_USING: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("using declaration for "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" is unused"),
+];
+
+const NOTE_REMOVE_UNUSED_USING: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("remove this using declaration"),
+];
+
 const NOTE_MODULE_DEPENDENCY_REQUIRES_USING: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "declare the referenced package, module or declaration with using in this module",
 )];
@@ -2055,6 +2065,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::PanicRequiresOneMessage
         | DiagnosticNoteKind::PanicMessageRequiresPositionalArgument
         | DiagnosticNoteKind::ModuleDependencyRequiresUsing
+        | DiagnosticNoteKind::RemoveUnusedUsing
         | DiagnosticNoteKind::GenericArgumentRequiresType
         | DiagnosticNoteKind::GenericApplicationRequiresDeclaredName
         | DiagnosticNoteKind::ExplicitDiscardAcknowledgesResult
@@ -2377,6 +2388,7 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::BindingUndeclaredDependency => {
             MessageTemplate::new(BINDING_UNDECLARED_DEPENDENCY)
         }
+        DiagnosticKind::BindingUnusedUsing => MessageTemplate::new(BINDING_UNUSED_USING),
         DiagnosticKind::BindingWrongNameKind => MessageTemplate::new(BINDING_WRONG_NAME_KIND),
         DiagnosticKind::BindingMalformedName => MessageTemplate::new(BINDING_MALFORMED_NAME),
         DiagnosticKind::BindingNameAlreadyDefined => {
@@ -3148,6 +3160,7 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::ModuleDependencyRequiresUsing => {
             MessageTemplate::new(NOTE_MODULE_DEPENDENCY_REQUIRES_USING)
         }
+        DiagnosticNoteKind::RemoveUnusedUsing => MessageTemplate::new(NOTE_REMOVE_UNUSED_USING),
         DiagnosticNoteKind::GenericArgumentCountMustMatch => {
             MessageTemplate::new(NOTE_GENERIC_ARGUMENT_COUNT_MUST_MATCH)
         }

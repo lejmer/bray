@@ -2444,8 +2444,9 @@ fn standard_memory_api_fixture_checks() {
         include_str!("../../../../../../../standard-library/std/tests/api/memory.bray"),
     ]);
 
+    // Library checks leave the API's @test bodies inactive, so their imports may warn.
     assert!(
-        compilation.check_diagnostics().is_empty(),
+        !compilation.check_diagnostics().has_errors(),
         "standard memory API diagnostics: {:?}",
         compilation.check_diagnostics()
     );
@@ -2476,8 +2477,6 @@ fn standard_string_equality_satisfies_source_and_imported_generic_constraints() 
         include_str!("../../../../../../../standard-library/std/src/string.bray"),
         r#"
             module bray.standard_library_tests.string_operations;
-
-            using std.string.StringEquatable;
 
             func generic_equal<T>(pos left: T, pos right: T) -> bool
                 with(T: Equatable<T>)
@@ -2919,7 +2918,6 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
             using std.format.StringFormat;
             using std.format.I32Format;
             using std.format.U32Format;
-            using std.bytes;
             using std.io;
             using std.io.WriterFormattingSink;
             using std.memory;

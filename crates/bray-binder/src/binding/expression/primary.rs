@@ -355,32 +355,7 @@ impl ExpressionBinder {
     {
         let root_token = syntax.identifier_token().or_else(|| syntax.self_token());
 
-        let mut route_tokens = root_token.iter().cloned().collect::<Vec<_>>();
-        let mut collecting_route = root_token.is_some();
-
-        walk_direct_child_nodes(syntax, |operation| {
-            if !collecting_route || operation.kind() != SyntaxKind::MemberAccessOperation {
-                collecting_route = false;
-
-                return SyntaxWalkControl::Continue;
-            }
-
-            let Some(member) = operation.cast::<bray_syntax::MemberAccessOperationSyntax>() else {
-                collecting_route = false;
-
-                return SyntaxWalkControl::Continue;
-            };
-
-            let Some(token) = member.identifier_token() else {
-                collecting_route = false;
-
-                return SyntaxWalkControl::Continue;
-            };
-
-            route_tokens.push(token);
-
-            SyntaxWalkControl::Continue
-        });
+        let route_tokens = crate::lookup::access_path_tokens(syntax);
 
         let context = self.path_context_for(scope, access);
 

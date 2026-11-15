@@ -59,8 +59,6 @@ fn borrowed_trait_view_preserves_mutability_and_reborrows() {
         r#"
         module app;
 
-        using cell_counter;
-
         trait Counter
         {
             func read() -> i32
@@ -129,8 +127,6 @@ fn borrowed_trait_view_forms_at_argument_and_return_boundaries() {
     let compilation = compilation(
         r#"
         module app;
-
-        using cell_value;
 
         trait Value
         {
@@ -217,13 +213,9 @@ fn borrowed_trait_view_rejects_missing_and_mismatched_implementations() {
             ""
         };
 
-        let participation = if implemented { "using cell_value;" } else { "" };
-
         let source = format!(
             r#"
             module app;
-
-            {participation}
 
             trait Value<T>
             {{
@@ -290,9 +282,6 @@ fn borrowed_trait_view_rejects_members_outside_its_surface() {
         let source = format!(
             r#"
             module app;
-
-            using cell_other;
-            using cell_surface;
 
             trait Other
             {{
@@ -473,8 +462,6 @@ fn borrowed_trait_view_preserves_stored_borrows() {
         r#"
         module app;
 
-        using cell_value;
-
         trait Value
         {
             func read() -> i32
@@ -541,8 +528,6 @@ fn borrowed_trait_view_rejects_local_storage_escape() {
         r#"
         module app;
 
-        using cell_value;
-
         trait Value
         {
             func read() -> i32
@@ -586,8 +571,6 @@ fn borrowed_trait_view_rejects_mutation_while_shared() {
     let application = compilation(
         r#"
         module app;
-
-        using cell_value;
 
         trait Value
         {
@@ -636,8 +619,6 @@ fn borrowed_trait_view_lowers_async_methods() {
     let application = compilation(
         r#"
         module app;
-
-        using cell_value;
 
         trait Value
         {
@@ -700,8 +681,6 @@ fn borrowed_trait_view_preserves_parameter_preconditions() {
         r#"
         module app;
 
-        using cell_value;
-
         trait Value
         {
             func read(pos value: i32) -> i32
@@ -762,8 +741,6 @@ fn borrowed_trait_view_checks_cleanup_of_unused_default_providers() {
         let application = compilation(&format!(
             r#"
             module app;
-
-            using sink_value;
 
             async func pause()
             {{
@@ -846,8 +823,6 @@ fn borrowed_trait_view_requires_matching_trusted_evidence() {
             r#"
         trusted module app;
 
-        using cell_value;
-
         trusted predicate live(value: i32);
 
         trait Value
@@ -908,8 +883,6 @@ fn borrowed_trait_view_forms_inside_contextual_containers() {
             r#"
             module app;
 
-            using cell_value;
-
             trait Value
             {{
                 func read() -> i32
@@ -965,8 +938,6 @@ fn borrowed_trait_view_reports_missing_fulfillment() {
     let application = compilation(
         r#"
         module app;
-
-        using cell_value;
 
         trait Value
         {

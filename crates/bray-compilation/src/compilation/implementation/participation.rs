@@ -594,6 +594,12 @@ impl First
             declaration.path().full_text(),
             "example.dependency.templates.RecordContract"
         );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "activation of an imported implementation is meaningful usage: {:?}",
+            compilation.check_diagnostics()
+        );
     }
 
     #[test]

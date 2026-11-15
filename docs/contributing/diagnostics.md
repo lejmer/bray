@@ -69,3 +69,17 @@ cargo xtask readiness diagnostics
 
 The audit requires every registered kind to have quality-asserted executable producer coverage and requires the text,
 JSON, and LSP surfaces to retain the structured information.
+
+## Unused using declarations
+
+Unused `using` declarations are valid language constructs. The compiler reports `BindingUnusedUsing` (6022) as a
+warning when a validated declaration has no usage in the enabled contributions to its logical module. The diagnostic
+points to the declaration and includes a removal hint. This warning is compiler behavior, rather than a language
+validity rule.
+
+Named references to the declared path or its descendants count as usage in expressions, signatures, types, contracts,
+defaults, and exports. A `using` declaration's own target does not count. An internal member access also counts when
+`using internal` acknowledges its scope, including field selection, construction, and destructuring through values
+that do not spell the provider's namespace. An explicit import that activates a dependency's trait implementation
+counts even without a named reference. Syntax or semantic errors suppress the warning because incomplete reference
+data cannot establish that a dependency is unused.

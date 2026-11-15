@@ -11,6 +11,11 @@ impl Compilation {
         symbols: &'symbols SymbolGraph,
         declaration: &DeclarationRecord,
     ) -> Result<&'symbols ModuleSymbol, FactQueryError> {
+        if let Some(symbol) = symbols.symbol_for_declaration(declaration.id()) {
+            return Ok(symbols.containing_module(symbol)
+                .expect("source declaration symbol belongs to a logical module"));
+        }
+
         let container_id = declaration.owning_container();
 
         let container = self

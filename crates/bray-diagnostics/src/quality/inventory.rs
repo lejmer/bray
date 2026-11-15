@@ -662,6 +662,10 @@ impl DiagnosticKind {
                 &[InterfaceSymbolIdentity],
                 interface_components!(&[InterfaceSymbolIdentity]),
             ),
+            Self::BindingUnusedUsing => Self::quality_source(
+                &[ReferencedName],
+                note_components!(&[ReferencedName], DiagnosticNoteKind::RemoveUnusedUsing),
+            ),
             Self::BindingUnresolvedName
             | Self::BindingUndeclaredDependency
             | Self::BindingAmbiguousName

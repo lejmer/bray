@@ -200,7 +200,7 @@ where
     Ok(DiagnosticResult::new(result, diagnostics))
 }
 
-pub(super) fn surface_lookup(
+pub(crate) fn surface_lookup(
     result: NameLookupResult<ResolvedName>,
 ) -> MemberLookupResult<AnySymbolId> {
     match result {

@@ -1,7 +1,48 @@
-use bray_declarations::DeclarationTable;
+use bray_declarations::{DeclarationRecord, DeclarationTable};
 use bray_symbols::{AnySymbolId, MemberLookupResult, ModulePathKey, ModuleSymbolId, SymbolGraph};
+use bray_syntax::{AccessExpressionSyntax, SyntaxKind, SyntaxToken, SyntaxWalkControl, walk_direct_child_nodes};
 
 use super::super::category::ResolvedName;
+
+/// Returns the leading named path before an access switches to a value operation.
+pub fn access_path_tokens(syntax: &AccessExpressionSyntax) -> Vec<SyntaxToken> {
+    let root = syntax.identifier_token().or_else(|| syntax.self_token());
+    let mut tokens = root.iter().cloned().collect::<Vec<_>>();
+    let mut collecting = root.is_some();
+
+    walk_direct_child_nodes(syntax, |operation| {
+        if !collecting || operation.kind() != SyntaxKind::MemberAccessOperation {
+            collecting = false;
+
+            return SyntaxWalkControl::Continue;
+        }
+
+        let token = operation.cast::<bray_syntax::MemberAccessOperationSyntax>()
+            .and_then(|member| member.identifier_token());
+
+        if let Some(token) = token {
+            tokens.push(token);
+        } else {
+            collecting = false;
+        }
+
+        SyntaxWalkControl::Continue
+    });
+
+    tokens
+}
+
+/// Returns whether a using declaration covers this component-separated source path.
+pub fn using_covers_path(declaration: &DeclarationRecord, components: &[&str]) -> bool {
+    let Some(path) = declaration.name().and_then(|name| name.as_path()) else {
+        return false;
+    };
+
+    let path = path.segments();
+
+    !path.is_empty() && path.len() <= components.len()
+        && path.iter().map(String::as_str).eq(components[..path.len()].iter().copied())
+}
 
 /// Matches the recorded source path without loading checked module surfaces or reparsing syntax.
 pub(crate) fn module_using_access(
@@ -31,13 +72,7 @@ pub(crate) fn module_using_access(
 
             let path = path.segments();
 
-            if !path.is_empty()
-                && path.len() <= components.len()
-                && path
-                    .iter()
-                    .map(String::as_str)
-                    .eq(components[..path.len()].iter().copied())
-            {
+            if using_covers_path(declaration, components) {
                 let candidate = (
                     path.len(),
                     declaration.surface().acknowledges_internal_use(),

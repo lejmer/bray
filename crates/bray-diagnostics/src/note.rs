@@ -97,6 +97,8 @@ pub enum DiagnosticNoteKind {
     PanicMessageRequiresPositionalArgument,
     /// Declare the cross-module path with using in the referencing module.
     ModuleDependencyRequiresUsing,
+    /// Remove a dependency declaration that has no source references.
+    RemoveUnusedUsing,
     /// Supply type syntax to a generic type parameter.
     GenericArgumentRequiresType,
     /// Attach generic arguments directly to a declaration name.
@@ -219,6 +221,7 @@ impl DiagnosticNoteKind {
                 "panic_message_requires_positional_argument"
             }
             Self::ModuleDependencyRequiresUsing => "module_dependency_requires_using",
+            Self::RemoveUnusedUsing => "remove_unused_using",
             Self::GenericArgumentRequiresType => "generic_argument_requires_type",
             Self::GenericApplicationRequiresDeclaredName => {
                 "generic_application_requires_declared_name"

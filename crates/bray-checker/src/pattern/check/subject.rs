@@ -41,6 +41,10 @@ where
 
         self.diagnostics.extend(diagnostics);
 
+        if accessible {
+            self.member_references.push((reference, member));
+        }
+
         Ok(accessible)
     }
 

@@ -10,7 +10,7 @@ using geometry.shapes;
 using std.convert;
 ```
 
-The compiler checks references against the dependencies declared by `using` and the referenced declaration's visibility.
+A named cross-module reference requires a matching dependency declaration and appropriate access to its target.
 An internal path also requires acknowledgement under [accessibility and ambient names](#accessibility-and-ambient-names).
 Tooling can use the same explicit dependency information.
 

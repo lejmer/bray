@@ -1982,7 +1982,7 @@ mod tests {
             ControlCompletion::from_kinds(completion),
         );
 
-        let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
+        let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], [], []);
         let storage = fixture_value_storage(&unit, &types, &selections, &values, expressions);
 
         let exit_nodes = unit

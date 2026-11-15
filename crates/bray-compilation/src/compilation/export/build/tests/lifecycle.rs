@@ -2907,7 +2907,6 @@ fn imported_generic_cleanup_resolves_selected_associated_types() {
                 type Item = {item};
                 func item() -> {item} {{ return {value}; }}
             }}
-            using ProducerSource;
             async func main() {{ let producer = Producer {{ marker = 0 }}; producer.discard(); }}
         "#
             ),
@@ -3115,7 +3114,6 @@ fn imported_generic_cleanup_omits_only_certified_finalizer_bodies() {
             impl ProducerSource = Producer(example.package.api.Source<Owner>) {{
                 func make() -> Owner {{ return Owner {{}}; }}
             }}
-            using ProducerSource;
             async func main() {{
                 let retained = example.package.api.form<Producer, Owner, {ready}>(Producer {{}});
             }}
@@ -3237,7 +3235,6 @@ fn imported_runtime_defaults_resolve_selected_associated_cleanup_types() {
                 struct Owner {{ async finalize() {{ await pause(); }} }}
                 struct Producer {{ marker: i32; }}
                 impl ProducerSource = Producer(example.package.api.Source) {{ type Item = {item}; }}
-                using ProducerSource;
                 async func main() {{ let producer = Producer {{ marker = 0 }}; producer.outer(); }}
                 "#
             ),
