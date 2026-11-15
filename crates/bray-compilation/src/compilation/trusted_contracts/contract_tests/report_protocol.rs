@@ -1,11 +1,11 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation};
+use super::fixtures::{production_host_compilation, production_host_provider};
 
 #[test]
 #[ignore = "tier:proof"]
 fn production_report_consumers_check_their_callback_protocol() {
-    let compilation = production_host_compilation("module app;");
+    let compilation = production_host_provider();
 
     let names = [
         "dispose",
@@ -327,25 +327,31 @@ fn production_report_pool_mutation_requires_protocol_authority() {
 #[test]
 fn production_observer_keeps_authority_through_conditional_protocol_changes() {
     for target in [bray_target::NativeTarget::X86_64LinuxGnu, bray_target::NativeTarget::X86_64WindowsMsvc] {
-    let compilation = super::fixtures::production_host_compilation_for_target(
-        "module probe;", crate::SelectedTarget::for_native(target));
+        let compilation = super::fixtures::production_host_compilation_for_target(
+            "module probe;", crate::SelectedTarget::for_native(target));
 
-    let symbols = compilation.symbol_graph().expect("production symbols");
+        let symbols = compilation.symbol_graph().expect("production symbols");
 
-    let function = symbols.functions().iter().find(|function| {
-        if !symbols.member_name(function.id().into()).is_some_and(|name| name.as_str() == "poll") {
-            return false;
-        }
+        let function = symbols.functions().iter().find(|function| {
+            if !symbols.member_name(function.id().into()).is_some_and(|name| name.as_str() == "poll") {
+                return false;
+            }
 
-        let bray_symbols::SymbolKeyData::SourceDeclaration { owner, .. } = function.key().data() else { return false; };
+            let bray_symbols::SymbolKeyData::SourceDeclaration { owner, .. } = function.key().data() else { return false; };
 
-        matches!(owner.data(), bray_symbols::SymbolKeyData::Module { path, .. }
-            if path.segments().eq(["bray", "runtime", "bootstrap", "task", "observer"]))
-    }).expect("actual observer poll");
+            matches!(owner.data(), bray_symbols::SymbolKeyData::Module { path, .. }
+                if path.segments().eq(["bray", "runtime", "bootstrap", "task", "observer"]))
+        }).expect("actual observer poll");
 
-    let key = crate::test_support::source_symbol_body_key(&compilation, symbols, function.id().into());
-    let flow = compilation.storage_flow(key).expect("production poll storage flow");
+        let key = crate::test_support::source_symbol_body_key(&compilation, symbols, function.id().into());
+        let flow = compilation.storage_flow(key).expect("production poll storage flow");
 
-    assert!(!flow.diagnostics().has_errors(), "{target:?}: {:?}", flow.diagnostics());
+        assert!(!flow.diagnostics().has_errors(), "{target:?}: {:?}", flow.diagnostics());
+
+        let certification = compilation.execution_properties(
+            source_function_body_key(&compilation, "continue_observation"),
+        ).expect("observer callback certifies its transitive postconditions");
+
+        assert!(!certification.diagnostics().has_errors(), "{target:?}: {:?}", certification.diagnostics());
     }
 }

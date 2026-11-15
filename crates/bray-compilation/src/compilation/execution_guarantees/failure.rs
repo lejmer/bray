@@ -197,6 +197,7 @@ mod diagnostic_tests {
             }).unwrap();
 
             assert_eq!(propagated.condition.as_deref(), Some(condition));
+            assert_eq!(propagated.cause, FailureCause::Unproven);
 
             assert!(failure.labels().iter().any(|label| Some(label.span()) == propagated.source
                 && label.kind() == bray_diagnostics::DiagnosticLabelKind::UnprovenContractCondition));

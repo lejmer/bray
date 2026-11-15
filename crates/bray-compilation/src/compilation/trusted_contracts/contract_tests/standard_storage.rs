@@ -1,6 +1,6 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation};
+use super::fixtures::{production_host_compilation, production_host_provider};
 
 #[test]
 fn production_byte_copy_does_not_publish_its_input_addresses() {
@@ -356,7 +356,7 @@ fn production_buffer_views_keep_nested_allocations_bounded() {
 #[test]
 #[ignore = "tier:proof"]
 fn production_storage_boundaries_prove_their_declared_memory_effects() {
-    let compilation = production_host_compilation("module probe;");
+    let compilation = production_host_provider();
     let mut failures = Vec::new();
     let mut sources = std::collections::HashSet::new();
 

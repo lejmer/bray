@@ -36,7 +36,7 @@ pub use model::{
 };
 pub(crate) use normalize::{
     condition_literals, construction_condition, expression_condition, expression_place,
-    pattern_conditions, pattern_value, selected_call_condition,
+    pattern_conditions, pattern_value, selected_call_condition, storage_borrow_identity,
 };
 pub use normalize::{execution_conditions, predicate_conditions, predicate_conditions_with_inputs};
 pub(crate) use place::ExecutionInput;

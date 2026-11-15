@@ -7,24 +7,38 @@ Read this record and the work-on-bray-issues contract gate after compaction.
 
 ## Current evidence
 
-Checkpoint5f284f398 is pushed. The uncommitted lifetime batch now passes checker559 and
-1709/1715 combined fixed/matrix cases, with no reported diagnostic failures. Six full-provider
-checks exceeded420s and remain unverified. epoch-combined.json preserves every identity, outcome
-and source/binary hash. Owned505, deferred298, frozen30 and focused19 all pass. All eleven earlier
-panic regressions pass. Two previously passing slow checks are now unverified, not passes.
+Pushed checkpoint: aeb36316b. Current source is uncommitted.
+Checker: 559 passed. Fixed/matrix comparison: 1,714 passed, proof-reuse check running.
+validation-current.json preserves fixed 916 identities, owned 505, deferred 298, frozen 30,
+focused controls, binary/source hashes and exact outcomes. Session 71535 owns the remaining check.
+The three whole-provider gates pass, including report consumers. They share one CPU-parallel
+Compilation. Small caller fixtures remain serial. Peak private memory previously plateaued at 3.8 GB.
+No condition-node leak was demonstrated. Stale traces and superseded validation files were removed.
 
-The user observed7.5GB in the concurrent provider run. An isolated120s profiled provider run reached
-1.85GB peak RSS, then dropped to1.62GB. Still in checking at timeout. This does not establish a leak.
-provider-memory.json/log and provider-profile contain the bounded measurement. The profiling fixture
-used WorkerBudget::serial. Give that single full-provider probe available_parallelism, keep small
-shared fixtures serial, then trace condition creation/release and body progress. No full matrix rerun.
+Observer stage now lends the actual pointer slots to its permit and take_transfer/finish_transfer.
+transfer_entry borrows slots, so equal copied pointers cannot substitute for those slots.
+Borrow normalization and invalidation share storage_borrow_identity and retain checked StoragePath.
+Writes retire slot evidence, including equal-content writes, without retiring independent copied data.
+Descriptor-only retention and real transfers keep their existing rules. Constants retain scalar context.
+No new authority, cache or historical reconstruction. Production growth is 34 net lines.
+Existing tests cover direct/copied aggregate borrowing, distinct copies, equal overwrites, nested
+replacement and observer certification on Linux and Windows. slot-coupled.json: 32 passed.
+Trusted-obligation diagnostics now preserve the specific Unproven cause through dependency reporting.
 
-Preserve fixed916 identities and rejection locations. The deliberate oracle rename is
+Style and Bray formatting passed. Temporary instrumentation is removed.
+Native tool rebuilt from current source. Session 25347 runs the bounded native artifact smoke gates
+outside the sandbox, with native-current.json/log. Native Rust uses installed 1.98.1, matching LLVM
+22.1.8. Default Rust 1.99 produces incompatible LLVM 23 bitcode. No native completion claim yet.
+Timing controls pass under concurrent provider/native work: four cases 220–315 ms, loop 424 ms.
+Current counts remain the previous checkpoint's measurements, not new-source evidence.
+Remaining: proof reuse, native gates, full PR maintainability audit, checkpoint/push and independent review.
+
+Previously verified unaffected gates: symbols 221, interfaces 217, bound-tree 136, lowering 38,
+tooling 115, runtime interface 29, runtime ABI 35, test protocol 23 and backend identity 1.
+Preserve fixed identities and rejection sites. The deliberate oracle rename is
 production_host_lease_cannot_claim_preservation_across_fallible_preparation to
 production_host_lease_retains_authority_across_fallible_preparation. Other corrected host
-oracles follow contract-reasoning.md. Actual replacement and fabrication must reject.
-Previously verified: symbols221, interfaces217, bound-tree136, lowering38, tooling115,
-runtime interface29, runtime ABI35, test protocol23 and backend identity1. Native gates remain.
+oracles follow contract-reasoning.md. Replacement and fabrication must reject.
 
 ## Current contracts and unresolved causes
 
@@ -60,7 +74,6 @@ outer admission or public availability. Actual writes still revoke captured evid
 Inexact complete private-region views stay private. Unknown/displaced/escaped regions remain conservative,
 and no view acquires exact identity or initialized-memory authority. Existing controls cover these rules.
 
-Checkpoint5f284f398 is pushed. Current uncommitted lifetime batch:
 State.returned_inputs uses (place, previous), preserving one finite historical summary. Transfer owns
 only unproduced current bounds. Staging no longer publishes bounds in State. Completion retires the
 old origin before installing new bounds. Reads retire before publishing. Retirement updates referred
@@ -72,15 +85,10 @@ and pass unknown_reference_may_reach, so a symbolic external alternative cannot 
 Existing tests cover pending production, old surviving aliases, fresh locals, explicit and raw exposure.
 The two old unit fixtures now create retired epochs through actual completion instead of flipping a flag.
 
-Pending and completed references must retain their own bounds without early State publication.
-Result preparation merges independent and input alternatives before completion. Audit that merge
-alongside deferred cleanup capture, output relocation and old-epoch retirement. Existing independent
-pointer source/import, activation, storage and async controls expose the regression. Keep the loop
-and matrices fixed. nullable-loop.log retains the loop cause, epoch-capture.log the repaired representatives.
-All four representative panics identify expand_returned_regions. Its staged-output caller must read
-the pending producer, while ordinary inputs use committed epochs. The existing rewritten-return
-control now also completes bounded staged alternatives. Cleanup capture independently flattens pending
-result effects to physical regions. No new history map or reconstruction is permitted.
+Staged output expansion reads its pending producer. Ordinary inputs and historical aliases use
+committed epochs. Deferred result cleanup captures physical input regions before completion.
+The rewritten-return, independent-pointer source/import, activation, storage, async and loop controls
+pass. No early publication, new history map or reconstruction is permitted.
 
 ## Transition requirements
 
@@ -114,10 +122,11 @@ For bounded runs, write output directly to files and save each result even on ti
 Keep actual Bray formatting in inline fixtures. Run style at coherent batch finalization.
 Delete stale traces/caches when replaced. Never clean the entire shared target.
 
-Performance regression monitoring remains active. Fixed identities are in proof-indexed-current.json.
-Latest timing-current.json: all five pass at151-155ms, loop166ms, provider time separate.
-Latest counts-current.json on8dcca93cc: loop1,482,315 comparisons and38,038 nodes,
-versus previous1,482,433 and38,060. All five controls pass. Timing and counts use separate runs.
+Performance regression monitoring remains active. Fixed identities are in timing-current.json.
+timing-current.json records the latest five controls, including loop, with provider time separate.
+Latest counts-current.json on aeb36316b: loop1,482,598 comparisons and38,068 nodes,
+versus previous1,482,315 and38,038. All five controls pass and release every measured condition node.
+Timing and counts use separate runs.
 Counter patch retains four measured hooks.
 Preserve immutable conditions, scope-keyed ProofMemo, ordered BooleanGraph, role-sensitive snapshots,
 actual predecessor evidence, absence/unknown and owner/contents/capture distinctions.

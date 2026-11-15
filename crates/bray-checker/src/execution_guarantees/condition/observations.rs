@@ -9,7 +9,7 @@ impl ExecutionCondition {
         match self.kind() {
             crate::ExecutionConditionKind::ScalarValue(origin) => origin.selector_place(),
             crate::ExecutionConditionKind::Joined(_, _, place) => Some(place),
-            crate::ExecutionConditionKind::PostState(_, origin) => match (origin.as_ref()).kind() {
+            crate::ExecutionConditionKind::PostState(_, origin) => match origin.as_ref().kind() {
                 crate::ExecutionConditionKind::Input(place) => Some(place),
                 _ => None,
             },
@@ -32,7 +32,8 @@ impl ExecutionCondition {
         match kind {
             ObservationKind::Owned => selected,
             ObservationKind::Scalar => Self::scalar_observation(owner(), selected),
-            ObservationKind::Reference if selected.observation_kind() == Some(ObservationKind::Scalar) => {
+            ObservationKind::Reference if selected.observation_kind() == Some(ObservationKind::Scalar)
+                || matches!(selected.kind(), crate::ExecutionConditionKind::Boolean(_) | crate::ExecutionConditionKind::Literal(_)) => {
                 Self::scalar_observation(owner(), selected)
             }
             ObservationKind::Reference => Self::reference_value(owner().borrowed(), selected),

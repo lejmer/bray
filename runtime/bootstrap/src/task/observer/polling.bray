@@ -81,28 +81,31 @@ trusted internal func stage(
     let destination = trusted core.target.from_exposed_address<u8>(address = (trusted read_state(owner)).result);
     let layout = std.memory.address_of<bray.runtime.bootstrap.task.result.Layout>(&(trusted read_state(owner)).layout);
 
+    let mut pointers = (source, destination);
+
     let permit = trusted lambda(
         pos owner: &Invocation,
-        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-        pos destination: DataPointer<u8>,
+        pos pointers: &(DataPointer<bray.runtime.bootstrap.ReportOutcome>, DataPointer<u8>),
         pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
     )
         requires(
             trusted invoked(owner = &owner.acquisition.claim),
-            trusted bray.runtime.bootstrap.task.terminal_output(pointer = outcome)
+            trusted bray.runtime.bootstrap.task.terminal_output(pointer = pointers.0)
         )
         ensures(
             trusted bray.runtime.bootstrap.task.result.transfer_entry(
-                outcome = &outcome,
-                destination = &destination,
+                outcome = &pointers.0,
+                destination = &pointers.1,
                 layout = layout
             )
         )
         executes(pure, total) {};
 
-    trusted permit(owner, source, destination, layout);
+    trusted permit(owner, &pointers, layout);
 
-    return trusted bray.runtime.bootstrap.task.result.transfer(source, destination, layout);
+    return trusted bray.runtime.bootstrap.task.result.finish_transfer(
+        trusted bray.runtime.bootstrap.task.result.take_transfer(&mut pointers.0, &pointers.1, layout)
+    );
 }
 
 trusted internal func observe_into(

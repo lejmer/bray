@@ -1,5 +1,5 @@
 use bray_symbols::{PackageIdentity};
-use crate::{Compilation, CompilationRequest};
+use crate::{Compilation, CompilationRequest, WorkerBudget};
 use crate::test_support::{ProductionFixtureCache, production_fixture, production_native_link_inputs, production_source_inputs};
 use std::sync::{OnceLock};
 
@@ -66,7 +66,7 @@ fn build_production_sync(caller: &str, target: crate::SelectedTarget) -> Compila
         PackageIdentity::try_new("std").expect("fixture package identity must be valid"),
         sources,
         crate::CompilationOptions::new(
-            crate::WorkerBudget::serial(),
+            WorkerBudget::serial(),
             bray_symbols::ProductKind::Library,
             target,
         )
@@ -223,11 +223,22 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
 ) -> Compilation {
     static FIXTURES: ProductionFixtureCache = OnceLock::new();
 
-    production_fixture(&FIXTURES, caller, target, build_production_host)
+    production_fixture(&FIXTURES, caller, target, |caller, target| {
+        build_production_host(caller, target, WorkerBudget::serial())
+    })
 }
 
-fn build_production_host(caller: &str, target: crate::SelectedTarget) -> Compilation {
-    let compilation = Compilation::load(production_host_request(caller, target))
+/// Whole-provider checks share one compiler pool instead of blocking serial caller probes.
+pub(super) fn production_host_provider() -> Compilation {
+    static PROVIDER: OnceLock<Compilation> = OnceLock::new();
+
+    PROVIDER.get_or_init(|| build_production_host(
+        "module app;", crate::SelectedTarget::baseline(), WorkerBudget::available_parallelism(),
+    )).clone()
+}
+
+fn build_production_host(caller: &str, target: crate::SelectedTarget, workers: WorkerBudget) -> Compilation {
+    let compilation = Compilation::load(production_host_request(caller, target, workers))
         .expect("actual production host declarations must load");
 
     assert!(
@@ -239,7 +250,11 @@ fn build_production_host(caller: &str, target: crate::SelectedTarget) -> Compila
     compilation
 }
 
-fn production_host_request(caller: &str, target: crate::SelectedTarget) -> CompilationRequest {
+fn production_host_request(
+    caller: &str,
+    target: crate::SelectedTarget,
+    workers: WorkerBudget,
+) -> CompilationRequest {
     let sources = production_source_inputs(
         &["standard-library/std/src", "runtime/bootstrap/src"], caller,
     );
@@ -248,7 +263,7 @@ fn production_host_request(caller: &str, target: crate::SelectedTarget) -> Compi
         PackageIdentity::try_new("std").expect("standard library identity must be valid"),
         sources,
         crate::CompilationOptions::new(
-            crate::WorkerBudget::serial(),
+            workers,
             bray_symbols::ProductKind::Library,
             target,
         )
@@ -264,7 +279,7 @@ mod tests {
     use super::{production_host_compilation, production_host_request};
     use crate::test_support::source_function_body_key;
     use crate::{
-        Compilation, CompilationProfileConfiguration, CompilationProfileMode, SelectedTarget,
+        Compilation, CompilationProfileConfiguration, CompilationProfileMode, SelectedTarget, WorkerBudget,
     };
 
     #[test]
@@ -289,7 +304,7 @@ mod tests {
     #[test]
     #[ignore = "tier:proof"]
     fn production_fixture_phase_timings() {
-        let request = production_host_request("module app;", SelectedTarget::baseline())
+        let request = production_host_request("module app;", SelectedTarget::baseline(), WorkerBudget::available_parallelism())
             .with_profile(CompilationProfileConfiguration::new(
                 CompilationProfileMode::Summary,
             ));

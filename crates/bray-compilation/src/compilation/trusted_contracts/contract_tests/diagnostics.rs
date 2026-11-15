@@ -348,6 +348,10 @@ fn trusted_obligation_diagnostics_retain_the_condition_and_its_role() {
             .find(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven)
             .unwrap_or_else(|| panic!("{role:?}: {diagnostics:#?}"));
 
+        assert!(failure.args().iter().any(|argument| matches!(argument.value(),
+            DiagnosticArgValue::ExecutionProofFailure(bray_diagnostics::DiagnosticExecutionProofFailure::Unproven))),
+            "{role:?}: {failure:#?}");
+
         let obligation = failure.args().iter()
             .find(|argument| argument.name().as_str() == "contract_obligation")
             .unwrap_or_else(|| panic!("{role:?} must retain its failed condition: {failure:#?}"));

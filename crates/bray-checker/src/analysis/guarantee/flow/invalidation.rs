@@ -686,7 +686,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut scalar_places = BTreeSet::new();
 
-        let invalidated_values = if transfers {
+        let mut invalidated_values: Vec<_> = if transfers {
             Vec::new()
         } else {
             changed_places
@@ -710,6 +710,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 })
                 .collect()
         };
+
+        if !transfers {
+            invalidated_values.extend(changed_paths.iter()
+                .filter(|(place, _)| !descriptor_paths.contains_key(*place))
+                .filter_map(|(_, path)| crate::execution_guarantees::storage_borrow_identity(
+                    self.request.semantic_values(), self.request.available_compiler_known_symbols(),
+                    self.storage, &state.current, path))
+                .map(ExecutionCondition::borrowed));
+        }
 
         let no_predicates = BTreeSet::new();
 
@@ -741,7 +750,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let Some(source) = root.value_in(&state.current) else { continue; };
 
-            let path = changed_paths.get(&place).map_or(&[][..], |path| path.as_ref());
+            let path = changed_paths.get(&place).map_or(&[][..], |path| path.projections.as_ref());
             let mut empty = super::preservation::ValuePreservation::default();
             let mask = masks.get_mut(&root).unwrap_or(&mut empty);
 
@@ -765,7 +774,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invalidation: &StorageInvalidation,
     ) -> (
         BTreeSet<crate::ExecutionPlace>,
-        BTreeMap<crate::ExecutionPlace, std::sync::Arc<[bray_bound_tree::StorageProjection]>>,
+        BTreeMap<crate::ExecutionPlace, bray_bound_tree::StoragePath>,
     ) {
         let mut changed_places = BTreeSet::new();
 
@@ -780,7 +789,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         crate::ExecutionPlace::storage_observation(self.storage, path)
                     {
                         // An unresolved selector invalidates its observable enclosing value.
-                        changed_paths.insert(place.clone(), std::sync::Arc::clone(&path.projections));
+                        changed_paths.insert(place.clone(), path.clone());
                         changed_places.insert(place);
                     }
                 }
@@ -819,7 +828,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .project(&invalidated.projections)
                             .unwrap_or_else(|| place.clone());
 
-                        changed_paths.insert(changed.clone(), std::sync::Arc::clone(&invalidated.projections));
+                        changed_paths.insert(changed.clone(), invalidated.clone());
                         changed_places.insert(changed);
                     }
                 }
@@ -835,7 +844,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         invalidation: &StorageInvalidation,
         changed_places: &mut BTreeSet<crate::ExecutionPlace>,
-        changed_paths: &mut BTreeMap<crate::ExecutionPlace, std::sync::Arc<[bray_bound_tree::StorageProjection]>>,
+        changed_paths: &mut BTreeMap<crate::ExecutionPlace, bray_bound_tree::StoragePath>,
     ) {
         // Storage aliasing conservatively groups specializations by declaration. Revoke
         // each selected instance affected by that storage path, without merging identities.
@@ -851,7 +860,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }) {
                 let place = place.clone().project(&path.projections).unwrap_or_else(|| place.clone());
 
-                changed_paths.insert(place.clone(), std::sync::Arc::clone(&path.projections));
+                changed_paths.insert(place.clone(), path.clone());
                 changed_places.insert(place);
             }
         };

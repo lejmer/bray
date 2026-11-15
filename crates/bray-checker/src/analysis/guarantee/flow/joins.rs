@@ -335,7 +335,13 @@ mod tests {
                 let joined = join(&present, &absent);
                 let selected = joined.clone().project(payload);
 
-                assert_eq!(selected.clone().project(field).into_referent(), ExecutionCondition::boolean(true));
+                let expected = if borrowed {
+                    ExecutionCondition::scalar_observation(input(0).project(field), ExecutionCondition::boolean(true))
+                } else {
+                    ExecutionCondition::boolean(true)
+                };
+
+                assert_eq!(selected.clone().project(field).into_referent(), expected);
 
                 assert_eq!(selected.ownership_identity().map(|(kind, _)| kind), Some(if borrowed {
                     ExecutionObservationKind::Reference
@@ -351,7 +357,8 @@ mod tests {
 
         let joined = join(&reference(0), &reference(1));
 
-        assert_eq!(joined.clone().project(payload).project(field).into_referent(), ExecutionCondition::boolean(true));
+        assert_eq!(joined.clone().project(payload).project(field).into_referent(),
+            ExecutionCondition::scalar_observation(input(9).project(payload).project(field), ExecutionCondition::boolean(true)));
 
         assert_eq!(joined.project(payload).ownership_identity().map(|(kind, _)| kind),
             Some(ExecutionObservationKind::Reference), "joining nullable references cannot grant ownership");
@@ -500,8 +507,13 @@ mod tests {
         let refreshed = loan.with_referent(changed.clone());
 
         assert_eq!(refreshed.owner_identity(), loan.owner_identity());
-        assert_eq!(refreshed.clone().component(field).into_referent(), ExecutionCondition::boolean(false));
-        assert_eq!(loan.clone().component(field).into_referent(), ExecutionCondition::boolean(true));
+
+        assert_eq!(refreshed.clone().component(field).into_referent(),
+            ExecutionCondition::scalar_observation(owner.clone().component(field), ExecutionCondition::boolean(false)));
+
+        assert_eq!(loan.clone().component(field).into_referent(),
+            ExecutionCondition::scalar_observation(owner.clone().component(field), ExecutionCondition::boolean(true)));
+
         assert_eq!(refreshed.clone().borrowed(), refreshed);
         assert_eq!(refreshed.owned_components().count(), 0);
         assert_eq!(refreshed.clone().into_referent(), changed);
@@ -551,7 +563,7 @@ mod tests {
 
         assert_eq!(
             joined.clone().component(component).component(component).into_referent(),
-            marker
+            ExecutionCondition::scalar_observation(identity.clone().component(component).component(component), marker)
         );
 
         let different = owner(

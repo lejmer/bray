@@ -349,6 +349,55 @@ pub(super) fn conversion_condition(
     }
 }
 
+/// Resolve a loan's current slot identity from the checked access path.
+pub(crate) fn storage_borrow_identity(
+    values: &SemanticValueStore,
+    known: &bray_symbols::AvailableCompilerKnownSymbols,
+    storage: &bray_bound_tree::StoragePlan,
+    current: &(impl crate::execution_guarantees::ExecutionValues + ?Sized),
+    path: &bray_bound_tree::StoragePath,
+) -> Option<ExecutionCondition> {
+    let root = crate::ExecutionPlace::storage_identity(storage, path.root)?;
+
+    let mut identity = if matches!(storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::PostconditionResult(_))) {
+        ExecutionCondition::result()
+    } else {
+        let aggregate = !path.projections.is_empty() && storage.storage_type(path.root)
+            .is_some_and(|ty| !known.type_representation(values, ty)
+                .is_some_and(crate::representation::is_scalar_value));
+
+        if aggregate && let Some(value) = root.value_in(current)
+            .filter(|value| value.ownership_identity().is_some() || value.is_reference()) {
+            value.owner_identity().clone().into_referent().owner_identity().clone()
+        } else {
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone()))
+        }
+    };
+
+    // Follow the checked reference boundaries in this existing access path.
+    // A stored view observes its referent, not the slot storing the view.
+    for index in 0..path.projections.len() {
+        let ty = if index == 0 {
+            storage.storage_type(path.root)
+        } else {
+            storage.access_at(path.root, &path.projections[..index])
+                .and_then(|access| storage.access(access)).map(|access| access.reached_type())
+        };
+
+        if ty.is_some_and(|ty| matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })) {
+            let prefix = root.clone().project(&path.projections[..index])?;
+
+            if let Some(value) = prefix.value_in(current) {
+                identity = value.owner_identity().clone().into_referent().owner_identity().clone();
+            }
+        }
+
+        identity = identity.project(path.projections[index]);
+    }
+
+    Some(identity)
+}
+
 pub(super) fn borrowed_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
@@ -373,37 +422,7 @@ pub(super) fn borrowed_condition(
         let plan = storage.occurrence_plans(expression.into())
             .find(|plan| matches!(plan.purpose(), bray_bound_tree::StorageAccessPurpose::Borrow(_)))?;
 
-        let path = storage.logical_path(plan.access())?;
-        let root = crate::ExecutionPlace::storage_identity(storage, path.root)?;
-
-        let mut identity = if matches!(storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::PostconditionResult(_))) {
-            ExecutionCondition::result()
-        } else {
-            ExecutionCondition::new(crate::ExecutionConditionKind::Input(root.clone()))
-        };
-
-        // Follow the checked reference boundaries in this existing access path.
-        // A stored view observes its referent, not the slot storing the view.
-        for index in 0..path.projections.len() {
-            let ty = if index == 0 {
-                storage.storage_type(path.root)
-            } else {
-                storage.access_at(path.root, &path.projections[..index])
-                    .and_then(|access| storage.access(access)).map(|access| access.reached_type())
-            };
-
-            if ty.is_some_and(|ty| matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })) {
-                let prefix = root.clone().project(&path.projections[..index])?;
-
-                if let Some(value) = prefix.value_in(current) {
-                    identity = value.owner_identity().clone().into_referent().owner_identity().clone();
-                }
-            }
-
-            identity = identity.project(path.projections[index]);
-        }
-
-        Some(identity)
+        storage_borrow_identity(values, known, storage, current, storage.logical_path(plan.access())?)
     }).or_else(|| super::expression::expression_place(unit, semantics, values, operand).map(|place| {
         let result = matches!(place.reference(), Some(bray_bound_tree::BoundReferenceTarget::Local(
             bray_symbols::AnyLocalSymbolId::PostconditionResult(_))));

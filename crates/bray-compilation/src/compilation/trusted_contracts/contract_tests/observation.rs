@@ -111,6 +111,12 @@ fn equal_aggregate_elements_cannot_share_borrowed_authority() {
     for body in [
         "let first: [u8; 1] = [0]; let second: [u8; 1] = [0]; establish(&first[0]); observe(&second[0]);",
         "let value = (false, false); establish_bool(&value.0); observe_bool(&value.1);",
+        r#"
+            let original = (false, false);
+            let copied = original;
+            establish_bool(&original.0);
+            observe_bool(&copied.0);
+        "#,
     ] {
         let compilation = compilation(&format!(
             r#"
@@ -141,6 +147,23 @@ fn repeated_borrows_of_one_scalar_component_preserve_authority() {
         "let value = (false, false); establish_bool(&value.0); observe_bool(&value.0);",
         "let values: [[u8; 1]; 1] = [[0]]; establish(&values[0][0]); observe(&values[0][0]);",
         "let value = ((false, false), false); establish_bool(&(value.0).0); observe_bool(&(value.0).0);",
+        r#"
+            let original = (false, false);
+            let mut values = original;
+            let establish_component = trusted lambda(pos values: &(bool, bool))
+                ensures(trusted live_bool(&values.0))
+                executes(pure, total)
+            {
+            };
+
+            let observe_mutable = lambda(pos value: &mut bool)
+                requires(trusted live_bool(&value))
+            {
+            };
+
+            trusted establish_component(&values);
+            observe_mutable(&mut values.0);
+        "#,
     ] {
         let compilation = compilation(&format!(
             r#"
@@ -349,6 +372,15 @@ fn scalar_component_mutation_revokes_only_overlapping_authority() {
         ),
         (
             "let mut value = ((false, false), false); establish_bool(&(value.0).0); value.0 = (false, false); observe_bool(&(value.0).0);",
+            false,
+        ),
+        (
+            r#"
+                let mut values = (false, false);
+                establish_bool(&values.0);
+                values.0 = false;
+                observe_bool(&values.0);
+            "#,
             false,
         ),
     ] {

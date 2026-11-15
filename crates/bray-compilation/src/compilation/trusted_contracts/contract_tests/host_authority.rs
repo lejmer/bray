@@ -1,6 +1,6 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation};
+use super::fixtures::{production_host_compilation, production_host_provider};
 
 #[test]
 fn implicit_receiver_reborrows_do_not_escape_local_owners() {
@@ -41,7 +41,7 @@ fn implicit_receiver_reborrows_do_not_escape_local_owners() {
 #[test]
 #[ignore = "tier:proof"]
 fn production_host_nested_bodies_and_contracts_are_checked() {
-    let compilation = production_host_compilation("module app;");
+    let compilation = production_host_provider();
 
     // Platform calls in this fixture resolve to source bodies. Their imported foreign-call
     // capabilities are checked by the runtime artifact smoke, not this source-only fixture.
