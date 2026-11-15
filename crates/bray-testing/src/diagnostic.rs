@@ -141,3 +141,21 @@ pub fn assert_goal_state_diagnostic_kind(diagnostics: &DiagnosticBag, kind: Diag
         assert_goal_state_diagnostic(diagnostic);
     }
 }
+
+/// Asserts success or a required diagnostic kind, preserving source context on failure.
+#[track_caller]
+pub fn assert_goal_state_diagnostic_outcome(
+    diagnostics: &DiagnosticBag,
+    expected: Option<DiagnosticKind>,
+    source: &str,
+) {
+    assert_eq!(
+        diagnostics.has_errors(),
+        expected.is_some(),
+        "{source}: {diagnostics:#?}"
+    );
+
+    if let Some(kind) = expected {
+        assert_goal_state_diagnostic_kind(diagnostics, kind);
+    }
+}

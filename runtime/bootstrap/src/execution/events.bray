@@ -1,0 +1,82 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.target;
+using internal bray.runtime.bootstrap;
+
+// The compiler task operation and native directory entry have distinct closed
+// role boundaries. Both use the same resident name and delivery transition.
+@abi(c)
+trusted internal func task_event_signal(pos identity: usize) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    return trusted bray.runtime.bootstrap.event.signal(identity);
+}
+
+@abi(c)
+trusted internal func task_event_creation() -> usize
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let selected = trusted current();
+
+    if selected.status != 0 || !has_execution(&selected)
+    {
+        return 0;
+    }
+
+    let allocated = trusted bray.runtime.bootstrap.event.allocate_domain();
+
+    if allocated matches none
+    {
+        return 0;
+    }
+
+    let owner = trusted bray.runtime.bootstrap.event.take_optional_reference(allocated);
+
+    let identity = trusted bray.runtime.bootstrap.event.publish(
+        &owner,
+        (trusted domain(bound_execution(&selected))).identity
+    );
+
+    // The directory retains the event name. The call's independent storage
+    // owner ends here, including when directory publication rejects it.
+    trusted bray.runtime.bootstrap.event.release_event(owner);
+
+    return identity;
+}
+
+@abi(c)
+trusted internal func task_event_destruction(pos identity: usize) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    if !has_execution(&selected)
+    {
+        return 1;
+    }
+
+    return trusted bray.runtime.bootstrap.event.destruction(
+        (trusted domain(bound_execution(&selected))).identity,
+        identity
+    );
+}
+
+@abi(c)
+internal func suspension_registration(pos state: u32) -> bray.runtime.bootstrap.activation.Progress
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+    executes(pure, total)
+{
+    return
+    {
+        kind = 0,
+        state = state,
+        payload = 0,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
+}

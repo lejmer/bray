@@ -87,7 +87,9 @@ pub(crate) fn runtime_attributes(
         for kind in signature.parameters() {
             if matches!(
                 kind,
-                RuntimeAbiType::InactiveFrame | RuntimeAbiType::PanicReport
+                RuntimeAbiType::InactiveFrame
+                    | RuntimeAbiType::PanicReport
+                    | RuntimeAbiType::Configuration
             ) {
                 let value = runtime_value_type(context, target, *kind)
                     .expect("indirect aggregate parameter has a native layout");
@@ -157,14 +159,19 @@ fn parameter_type<'context>(
 fn parameter_is_indirect(target: &CodegenTarget, kind: RuntimeAbiType) -> bool {
     matches!(
         kind,
-        RuntimeAbiType::PanicReport | RuntimeAbiType::InactiveFrame
+        RuntimeAbiType::PanicReport | RuntimeAbiType::InactiveFrame | RuntimeAbiType::Configuration
     ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
 }
 
 fn expands_parameter(target: &CodegenTarget, kind: RuntimeAbiType) -> bool {
     target.machine().architecture() == TargetArchitecture::X86_64
         && !uses_microsoft_x64_abi(target)
-        && kind != RuntimeAbiType::InactiveFrame
+        && !matches!(
+            kind,
+            RuntimeAbiType::InactiveFrame
+                | RuntimeAbiType::PanicReport
+                | RuntimeAbiType::Configuration
+        )
         && aggregate_is_indirect(kind)
 }
 
@@ -173,7 +180,7 @@ fn register_type<'context>(
     target: &CodegenTarget,
     kind: RuntimeAbiType,
 ) -> Option<BasicTypeEnum<'context>> {
-    if matches!(kind, RuntimeAbiType::LaneResult | RuntimeAbiType::FrameState) {
+    if matches!(kind, RuntimeAbiType::FrameState) {
         return Some(context.i64_type().into());
     }
 
@@ -866,8 +873,8 @@ mod tests {
                 runtime_function_type(&context, &target, RuntimeAbiRole::SuspensionRegistration)
                     .expect("fixture `runtime_function_type` call must succeed");
 
-            let lane =
-                runtime_function_type(&context, &target, RuntimeAbiRole::CompatibleLaneSelection)
+            let state =
+                runtime_function_type(&context, &target, RuntimeAbiRole::TaskObservationQuery)
                     .expect("fixture `runtime_function_type` call must succeed");
 
             let root = runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution)
@@ -877,25 +884,21 @@ mod tests {
                 NativeTarget::X86_64WindowsMsvc => vec![
                     context.ptr_type(inkwell::AddressSpace::default()).into(),
                     context.i64_type().into(),
-                    context.ptr_type(inkwell::AddressSpace::default()).into(),
                 ],
-                NativeTarget::X86_64LinuxGnu | NativeTarget::X86_64MacOs => {
-                    vec![context.i64_type().into(); 3]
-                }
-                NativeTarget::Aarch64LinuxGnu
+                NativeTarget::X86_64LinuxGnu
+                | NativeTarget::X86_64MacOs
+                | NativeTarget::Aarch64LinuxGnu
                 | NativeTarget::Aarch64WindowsMsvc
-                | NativeTarget::Aarch64MacOs => vec![
-                    context.i64_type().into(),
-                    context.i64_type().array_type(2).into(),
-                ],
+                | NativeTarget::Aarch64MacOs => vec![context.i64_type().into()],
             };
 
-            expected_root_parameters.push(context.ptr_type(inkwell::AddressSpace::default()).into());
+            expected_root_parameters
+                .push(context.ptr_type(inkwell::AddressSpace::default()).into());
 
             assert_eq!(progress.get_return_type(), None, "{native:?}");
 
             assert_eq!(
-                lane.get_return_type(),
+                state.get_return_type(),
                 Some(context.i64_type().into()),
                 "{native:?}"
             );

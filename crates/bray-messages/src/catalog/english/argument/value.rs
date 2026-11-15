@@ -48,7 +48,7 @@ use super::semantics::{
 use super::source::{
     format_english_artifact_digest, format_english_artifact_kind, format_english_character,
     format_english_io_error_kind, format_english_module_trust, format_english_name_kind,
-    format_english_output_sink, format_english_path, format_english_quoted_text,
+    format_english_output_sink, format_english_path, format_english_quoted_code, format_english_quoted_text,
     format_english_source_input_kind, format_english_syntax_kind,
     format_english_syntax_kind_without_suffix, format_english_type, format_source_span,
 };
@@ -86,8 +86,8 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::CallableAbi(abi) => format_english_callable_abi(*abi).to_owned(),
         DiagnosticArgValue::AlignmentKind(kind) => format_english_alignment_kind(*kind).to_owned(),
         DiagnosticArgValue::Character(character) => format_english_character(*character),
-        DiagnosticArgValue::DeclarationName(name) => format_english_quoted_text(name),
-        DiagnosticArgValue::ReferencedName(name) => format_english_quoted_text(name),
+        DiagnosticArgValue::DeclarationName(name) => format_english_quoted_code(name),
+        DiagnosticArgValue::ReferencedName(name) => format_english_quoted_code(name),
         DiagnosticArgValue::CodegenBackendIdentity(identity) => {
             format_english_quoted_text(identity)
         }
@@ -210,7 +210,7 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::SourceInput(input) => format_english_source_input(input),
         DiagnosticArgValue::SyntaxKind(kind) => format_english_syntax_kind(*kind),
         DiagnosticArgValue::TextOffset(offset) => offset.bytes().to_string(),
-        DiagnosticArgValue::TokenText(text) => format_english_quoted_text(text),
+        DiagnosticArgValue::TokenText(text) => format_english_quoted_code(text),
         DiagnosticArgValue::Uri(uri) => uri.clone(),
         DiagnosticArgValue::SourceSpan(span) => format_source_span(*span),
         DiagnosticArgValue::WorkerCount(worker_count) => worker_count.to_string(),
@@ -221,6 +221,9 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::RuntimeArtifactProblem(problem) => {
             format_english_runtime_artifact_problem(problem)
         }
+        DiagnosticArgValue::ExecutionProofFailure(cause) => super::condition::format_proof_failure(*cause),
+        DiagnosticArgValue::ContractObligation(obligation) => super::condition::format_obligation(obligation),
+        DiagnosticArgValue::WitnessTransfer(failure) => super::condition::format_witness_transfer(failure),
         DiagnosticArgValue::Type(ty) => format_english_type(ty),
         DiagnosticArgValue::SelectionKind(kind) => format_english_selection_kind(*kind).to_owned(),
         DiagnosticArgValue::SelectionCandidates(candidates) => {

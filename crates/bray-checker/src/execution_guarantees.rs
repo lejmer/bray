@@ -1,34 +1,47 @@
+mod assumptions;
 mod clause;
+mod boolean;
 mod condition;
 mod declaration;
 mod implication;
+mod ordered_facts;
+mod evidence;
 mod model;
 mod normalize;
 mod place;
 mod portable;
+mod references;
+mod snapshot;
 mod trusted_implication;
 mod witness;
 
+pub(crate) use assumptions::ExecutionAssumptions;
+
+pub(crate) use snapshot::{common_components, owned_snapshot};
+
 pub use bray_symbols::ExecutionProperty;
-pub use condition::ExecutionCondition;
-pub(crate) use condition::ObservationSet;
+pub use condition::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionOperands, ExecutionObservationKind};
+pub(crate) use condition::{ ExecutionProof, ExecutionProofCache, ExecutionSubstitution, GuardSubstitution, SnapshotSubstitution, ObservationSet, RetainedSnapshots, memoize_condition, memoize_observations};
 pub use declaration::declared_execution_properties;
 pub use implication::{
     execution_condition_is_implied, map_execution_condition_references,
     remap_execution_condition_inputs, substitute_execution_condition,
 };
+pub use evidence::{ExecutionCallEvidence, UnprovenExecutionCondition};
 pub use model::{
-    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
+    DeclaredExecutionProperty, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionDeclaration, ExecutionDependency,
-    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation,
+    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionVerificationFailure,
 };
 pub(crate) use normalize::{
     condition_literals, construction_condition, expression_condition, expression_place,
-    pattern_conditions, pattern_value, selected_call_condition,
+    pattern_conditions, pattern_value, selected_call_condition, storage_borrow_identity,
 };
 pub use normalize::{execution_conditions, predicate_conditions, predicate_conditions_with_inputs};
 pub(crate) use place::ExecutionInput;
+pub(crate) use place::ExecutionValues;
+pub(crate) use place::ExecutionStorageSelection;
 pub use place::ExecutionPlace;
 
 pub use portable::{

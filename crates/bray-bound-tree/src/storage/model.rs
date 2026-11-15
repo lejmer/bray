@@ -71,6 +71,8 @@ pub enum StorageIdentity {
     Result(AnyBoundNodeId),
     /// Source-correlated temporary storage.
     Temporary(BoundExpressionId),
+    /// Materialized expression value, distinct from its aliased source storage.
+    Evaluated(BoundExpressionId),
     /// A value staged for one call, owned until callee admission transfers it.
     InvocationInput {
         /// The call whose evaluation owns this slot.
@@ -117,6 +119,7 @@ impl StorageIdentity {
                 | StorageIdentity::PostconditionResult(_)
                 | StorageIdentity::Result(_)
                 | StorageIdentity::Temporary(_)
+                | StorageIdentity::Evaluated(_)
                 | StorageIdentity::InvocationInput { .. }
                 | StorageIdentity::InvocationResult(_)
                 | StorageIdentity::ScopedCapability { .. }
@@ -177,6 +180,7 @@ impl StorageIdentity {
             Self::PostconditionResult(_) => "postcondition_result",
             Self::Result(_) => "result",
             Self::Temporary(_) => "temporary",
+            Self::Evaluated(_) => "evaluated",
             Self::InvocationInput { .. } => "invocation_input",
             Self::CustomIndexBorrow(_) => "custom_index_borrow",
             Self::InvocationResult(_) => "invocation_result",
@@ -229,6 +233,7 @@ impl StorageIdentity {
             Self::LocalOwned(node) | Self::Result(node) => Some(node),
             Self::InvocationResult(occurrence) => Some(occurrence.node()),
             Self::Temporary(expression)
+            | Self::Evaluated(expression)
             | Self::InvocationInput { expression, .. }
             | Self::CustomIndexBorrow(expression)
             | Self::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
@@ -252,6 +257,7 @@ impl StorageIdentity {
             Self::LocalOwned(node) | Self::Result(node) => node.unit() == unit,
             Self::InvocationResult(occurrence) => occurrence.node().unit() == unit,
             Self::Temporary(expression)
+            | Self::Evaluated(expression)
             | Self::InvocationInput { expression, .. }
             | Self::CustomIndexBorrow(expression)
             | Self::Allocation(expression) => expression.unit() == unit,
@@ -355,6 +361,10 @@ pub enum StorageProjection {
     },
     /// An array or slice element selected by a checked expression occurrence.
     Element(BoundExpressionId),
+    /// A conservative element region whose selector is not available in this unit.
+    AnyElement,
+    /// A raw-address load in an incoming reference route, without ownership or access authority.
+    AddressTarget,
     /// A slice range selected by checked optional bound expressions.
     SliceRange {
         /// The inclusive lower-bound expression, when supplied.
@@ -373,7 +383,7 @@ pub enum StorageProjection {
 impl StorageProjection {
     /// Whether this selector identifies one component independently of evaluation.
     pub const fn is_exact(self) -> bool {
-        !matches!(self, Self::Element(_) | Self::SliceRange { .. })
+        !matches!(self, Self::Element(_) | Self::AnyElement | Self::SliceRange { .. })
     }
 
     pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
@@ -387,6 +397,8 @@ impl StorageProjection {
             | Self::TupleElement(_)
             | Self::ElementFromStart(_)
             | Self::ElementFromEnd(_)
+            | Self::AnyElement
+            | Self::AddressTarget
             | Self::ActiveUnionPayloadField { .. }
             | Self::NullableValue
             | Self::OwnedTarget

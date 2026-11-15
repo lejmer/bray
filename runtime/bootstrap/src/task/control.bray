@@ -30,7 +30,8 @@ trusted internal func release(pos owner: &mut Control) -> bool
 
     owner.references -= 1;
 
-    if owner.references == 0 && (!(owner.phase matches Phase.Resolved) || !owner.retired)
+    if owner.references == 0 && (!(owner.phase matches Phase.Resolved) || !(owner.retirement matches
+        Retirement.Complete))
     {
         trusted core.target.abort();
     }
@@ -74,14 +75,15 @@ trusted internal func publish(
 
 trusted internal func begin_dispatch(pos owner: &mut Control) -> bool
 {
-    if owner.phase matches Phase.Admitted || owner.dispatching || owner.retired || !trusted retain(owner)
+    if owner.phase matches Phase.Admitted || owner.dispatching || (owner.retirement matches Retirement.Complete) ||
+        !trusted retain(owner)
     {
         return false;
     }
 
     owner.dispatching = true;
 
-    if !(owner.phase matches Phase.Terminal) && !(owner.phase matches Phase.Resolved)
+    if !(owner.phase matches Phase.Terminal(_)) && !(owner.phase matches Phase.Resolved)
     {
         owner.phase = Phase.Executing;
     }
@@ -114,18 +116,22 @@ trusted internal func complete(pos owner: &mut Control, pos outcome: bray.runtim
         trusted core.target.abort();
     }
 
-    owner.outcome = outcome;
-    owner.phase = Phase.Terminal;
+    owner.phase = Phase.Terminal(outcome);
 }
 
 trusted internal func observe(pos owner: &mut Control) -> bray.runtime.bootstrap.ReportOutcome
+    uses(intrinsic)
 {
-    if !(owner.phase matches Phase.Terminal)
+    if !(owner.phase matches Phase.Terminal(_))
     {
         return empty_outcome();
     }
 
-    owner.phase = Phase.Resolved;
+    let terminal = std.memory.replace_value<Phase>(&mut owner.phase, Phase.Resolved);
 
-    return trusted std.memory.replace_value<bray.runtime.bootstrap.ReportOutcome>(&mut owner.outcome, empty_outcome());
+    return match consume terminal
+    {
+        case Phase.Terminal(outcome) { yield outcome; }
+        case Phase.Admitted | Phase.Active | Phase.Executing | Phase.Resolved { yield trusted core.target.abort(); }
+    };
 }

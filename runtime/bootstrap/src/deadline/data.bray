@@ -8,15 +8,27 @@ using internal bray.runtime.bootstrap.event;
 using internal bray.runtime.bootstrap.scheduler;
 
 @layout(c)
+internal struct Marker
+{
+}
+
+@layout(c)
 internal struct Reference
 {
+    acquisition: Marker;
     pointer: DataPointer<Domain>;
 }
 
 internal struct Domain
 {
+    allocation: std.memory.RawAllocation;
     scheduler: bray.runtime.bootstrap.scheduler.Reference;
+    execution: bray.runtime.bootstrap.execution.Reference?;
     limit: usize;
+    poll_service: Poll;
+    wait_service: Wait;
+    retire_service: Retire;
+    destroy_service: Destroy;
     state: std.sync.SpinLock<State>;
 }
 
@@ -34,9 +46,13 @@ internal struct Entry
     callback: bray.runtime.bootstrap.event.Callback;
 }
 
-trusted internal predicate retained(owner: &Reference);
+trusted internal predicate storage_retained(owner: &Marker);
 
-trusted internal predicate retiring(owner: &Reference);
+internal predicate retained(owner: &Reference) = storage_retained(owner = &owner.acquisition);
+
+trusted internal predicate retirement_owned(owner: &Marker);
+
+internal predicate retiring(owner: &Reference) = retirement_owned(owner = &owner.acquisition);
 
 trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
 

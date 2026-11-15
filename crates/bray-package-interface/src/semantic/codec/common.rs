@@ -25,7 +25,9 @@ pub(in crate::semantic) const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 1;
 pub(in crate::semantic::codec) const REFERENCE_EXACT: u32 = 1;
 pub(in crate::semantic::codec) const REFERENCE_INPUT_ABSENT: u32 = 2;
 pub(in crate::semantic::codec) const REFERENCE_INPUT_REGIONS: u32 = 4;
-pub(in crate::semantic::codec) const REFERENCE_KIND_SHIFT: u32 = 3;
+pub(in crate::semantic::codec) const REFERENCE_ALLOCATION: u32 = 8;
+pub(in crate::semantic::codec) const REFERENCE_EMPTY: u32 = 16;
+pub(in crate::semantic::codec) const REFERENCE_KIND_SHIFT: u32 = 5;
 
 pub(crate) fn write_symbol_reference(
     encoder: &mut WireEncoder,

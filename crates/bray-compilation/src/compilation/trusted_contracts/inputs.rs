@@ -34,10 +34,11 @@ impl Compilation {
             inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
         }
 
-        // Runtime defaults preserve checked witness authority like explicit argument expressions.
-        // Predicate units check obligations without inferring returned authority.
-        inputs.infer_result_witnesses = !trusted
-            && (callable_body || key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault);
+        // Infer only authority already carried by actual returned owners. A trusted
+        // declaration may assert additional guarantees, but that does not discard
+        // checked transfers from its body. Predicate units introduce no owners.
+        inputs.infer_result_witnesses =
+            callable_body || key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault;
 
         if callable_body && key.kind() != bray_bound_tree::BoundUnitKind::ConstantTemplate {
             inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
@@ -85,21 +86,21 @@ impl Compilation {
                                 }
 
                                 for (guard, _, _) in guards.value() {
-                                    condition = ExecutionCondition::Operation(
+                                    condition = ExecutionCondition::new(bray_checker::ExecutionConditionKind::Operation(
                                         bray_bound_tree::BoundOperator::LogicalOr,
                                         vec![
-                                            ExecutionCondition::Operation(
+                                            ExecutionCondition::new(bray_checker::ExecutionConditionKind::Operation(
                                                 bray_bound_tree::BoundOperator::LogicalNot,
-                                                vec![ExecutionCondition::Entry {
+                                                vec![ExecutionCondition::new(bray_checker::ExecutionConditionKind::Entry {
                                                     condition: std::sync::Arc::new(guard.clone()),
                                                     captured: false,
-                                                }]
+                                                })]
                                                 .into(),
-                                            ),
+                                            )),
                                             condition,
                                         ]
                                         .into(),
-                                    );
+                                    ));
                                 }
 
                                 Some((condition, span))
@@ -176,7 +177,7 @@ impl Compilation {
                         bray_checker::execution_condition_from_type_term(values, term, count)
                     })
                     .transpose()?
-                    .unwrap_or(ExecutionCondition::Unknown);
+                    .unwrap_or_else(ExecutionCondition::unknown);
 
                 self.instantiate_execution_condition_calls(
                     &condition,

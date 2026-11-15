@@ -63,19 +63,7 @@ struct Sender<T>
 
         trusted internal retain_counter(&shared.owners);
 
-        let make_owner = trusted lambda(pos pointer: DataPointer<ChannelCore<T>>) -> std.channel.owner.Owner<T>
-            ensures(trusted std.channel.owner.live(&result.instance))
-        {
-            return
-            {
-                instance = std.channel.owner.Marker
-                {
-                },
-                core = pointer
-            };
-        };
-
-        let owner = make_owner(self.owner.core);
+        let owner = trusted internal std.channel.owner.from_core<T>(self.owner.core);
 
         trusted internal retain_counter(&shared.senders);
 

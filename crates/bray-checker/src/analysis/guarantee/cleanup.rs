@@ -1,6 +1,7 @@
 mod check;
 mod inputs;
 mod plan;
+mod selection;
 mod transition;
 
 pub(super) use check::{check_cleanup, check_scope_cleanup};

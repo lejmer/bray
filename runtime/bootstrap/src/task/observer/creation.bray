@@ -31,6 +31,9 @@ trusted internal func prepare(pos input: Input, pos shape: bray.runtime.bootstra
 
     return
     {
+        acquisition = PreparationMarker
+        {
+        },
         input = input,
         lease = lease,
         records = bray.runtime.bootstrap.empty_records(),
@@ -111,20 +114,37 @@ trusted internal func reserve_records(pos owner: &mut Prepared) -> bool
     requires(trusted prepared(owner = &owner), trusted bray.runtime.bootstrap.pool.protocol_access())
     ensures(trusted prepared(owner = &owner))
 {
-    return trusted bray.runtime.bootstrap.report_records_admit(
+    // Native output writes target a separate value, then commit through the
+    // ordinary owner. Its preparation acquisition is never a native output slot.
+    let mut records = owner.records;
+
+    let status = trusted bray.runtime.bootstrap.report_records_admit(
         4,
-        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut owner.records)
-    ) == 0;
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records)
+    );
+
+    owner.records = records;
+    return status == 0;
 }
 
 trusted internal func acquire_provider(pos owner: &mut Prepared) -> bool
     requires(trusted prepared(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
     ensures(trusted prepared(owner = &owner))
 {
-    return trusted bray.runtime.bootstrap.provider.acquire(
+    let mut provider = trusted bray.runtime.bootstrap.provider.resident_reference();
+
+    let status = trusted bray.runtime.bootstrap.provider.acquire(
         owner.input.glue.provider,
-        std.memory.address_of_mut<bray.runtime.bootstrap.provider.Reference>(&mut owner.provider)
-    ) == 0;
+        std.memory.address_of_mut<bray.runtime.bootstrap.provider.Reference>(&mut provider)
+    );
+
+    if status != 0
+    {
+        return false;
+    }
+
+    owner.provider = provider;
+    return true;
 }
 
 trusted internal func failure(pos input: Input) -> bray.runtime.bootstrap.activation.Inactive
@@ -177,6 +197,12 @@ trusted internal func create(
     )
 {
     let input = trusted read_input(task, layout, glue, outcome);
+    let driver = trusted bray.runtime.bootstrap.execution.current();
+
+    if driver.status != 0 || !bray.runtime.bootstrap.execution.has_execution(&driver)
+    {
+        return trusted failure(input);
+    }
 
     let (shape, header, result) = match consume storage_shape(&input.layout)
     {
@@ -192,76 +218,17 @@ trusted internal func create(
         return trusted reject(owner);
     }
 
-    let mut runtime: u64 = 0;
+    let execution = trusted bray.runtime.bootstrap.execution.bound_execution(&driver);
+    let (acquired, _) = trusted bray.runtime.bootstrap.execution.retain_task(execution, owner.input.task);
 
-    if trusted prepared_runtime(&owner, &mut runtime) != 0
+    if acquired matches none
     {
         return trusted reject(owner);
     }
 
-    let mut reference_destination: bray.runtime.bootstrap.task.Reference =
-    {
-        pointer = std.memory.null<bray.runtime.bootstrap.task.Slot>(),
-        runtime = 0,
-        handle = 0
-    };
-
-    let pointer = std.memory.address_of_mut<bray.runtime.bootstrap.task.Reference>(&mut reference_destination);
-
-    if trusted prepared_reference(&owner, runtime, pointer) != 0
-    {
-        return trusted reject(owner);
-    }
-
-    // Successful retention has acquired a counted reference to this actual cell.
-    // Reading the initialized destination consumes that acquired reference once.
-    let retained = trusted lambda(
-        pos owner: &Prepared,
-        pos pointer: DataPointer<bray.runtime.bootstrap.task.Reference>
-    ) -> bray.runtime.bootstrap.task.Reference
-        requires(trusted prepared(owner = owner))
-        ensures(
-            trusted bray.runtime.bootstrap.task.retained(owner = &result),
-            trusted bray.runtime.bootstrap.task.owned_reference(owner = &result)
-        )
-    {
-        let permit = trusted lambda(
-            pos owner: &Prepared,
-            pos pointer: DataPointer<bray.runtime.bootstrap.task.Reference>
-        )
-            requires(trusted prepared(owner = owner))
-            ensures(
-                trusted bray.runtime.bootstrap.task.reference_slot(pointer = pointer),
-                trusted bray.runtime.bootstrap.task.reference_disposal(pointer = pointer)
-            )
-            executes(pure, total) {};
-
-        trusted permit(owner, pointer);
-        return trusted bray.runtime.bootstrap.task.read_disposing_reference(pointer);
-    };
-
-    let reference = trusted retained(&owner, pointer);
+    let reference = trusted bray.runtime.bootstrap.task.take_retained(acquired);
 
     return trusted initialize(owner, reference, shape, header, result, cancellation != 0);
-}
-
-trusted internal func prepared_runtime(pos owner: &Prepared, pos output: &mut u64) -> u32
-    requires(trusted prepared(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
-    ensures(trusted prepared(owner = owner))
-    uses(foreign_call)
-{
-    return trusted native_service(owner.input.task, 0, std.memory.address_of_mut<u64>(output));
-}
-
-trusted internal func prepared_reference(
-    pos owner: &Prepared,
-    pos runtime: u64,
-    pos output: DataPointer<bray.runtime.bootstrap.task.Reference>
-) -> u32
-    requires(trusted prepared(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
-    ensures(trusted prepared(owner = owner))
-{
-    return trusted bray.runtime.bootstrap.task.retention(runtime, owner.input.task, output);
 }
 
 trusted internal func take_provider(pos owner: &mut Prepared) -> bray.runtime.bootstrap.provider.Reference

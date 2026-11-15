@@ -134,6 +134,16 @@ impl SemanticSelection {
             .any(|input| input.default_provider().is_some())
     }
 
+    /// Whether checked input values are captured before runtime admission.
+    /// Intrinsic constructions retain their established default-input staging.
+    pub fn stages_inputs(&self) -> bool {
+        match self {
+            Self::Call(call) => call.stages_inputs(),
+            Self::Operation(SelectedOperation::Construction(_)) => self.evaluates_defaults(),
+            _ => false,
+        }
+    }
+
     /// Returns borrowed formal referents in receiver-first order for one actual invocation.
     pub fn invocation_reference_inputs(
         &self,
@@ -209,6 +219,18 @@ impl SemanticSelection {
         occurrence: BoundExecutionSite,
         root: DependencySubjectRoot,
     ) -> Option<SymbolOrdinal> {
+        if let BoundExecutionSite::CallInput { ordinal, .. } = occurrence {
+            let input = self.input(ordinal)
+                .expect("input occurrence retains its selected input");
+
+            return if matches!(input.default_provider(), Some(DefaultValueProvider::CallableParameter(_))) {
+                self.input_ordinal(root).filter(|previous| *previous < ordinal)
+            } else {
+                (root == DependencySubjectRoot::Receiver && input.expression().is_some())
+                    .then_some(SymbolOrdinal::new(0))
+            };
+        }
+
         match (self, occurrence, root) {
             (
                 Self::Iteration(_),
@@ -236,6 +258,18 @@ impl SemanticSelection {
         occurrence: BoundExecutionSite,
         ordinal: SymbolOrdinal,
     ) -> Option<DependencySubjectRoot> {
+        if let BoundExecutionSite::CallInput { ordinal: evaluated, .. } = occurrence {
+            let input = self.input(evaluated)
+                .expect("input occurrence retains its selected input");
+
+            return if matches!(input.default_provider(), Some(DefaultValueProvider::CallableParameter(_))) {
+                (ordinal < evaluated).then(|| self.input(ordinal).map(SelectedInput::root)).flatten()
+            } else {
+                (ordinal.raw() == 0 && input.expression().is_some())
+                    .then_some(DependencySubjectRoot::Receiver)
+            };
+        }
+
         match (self, occurrence) {
             (Self::Iteration(_), BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_))
             | (Self::ScopedUse(_), BoundExecutionSite::ScopedEnter(_)) => {
@@ -261,7 +295,7 @@ impl SemanticSelection {
         let ordinal = self.input_ordinal(root)?;
         let input = self.input(ordinal)?;
 
-        if self.evaluates_defaults() {
+        if self.stages_inputs() {
             Some(BoundExecutionSite::CallInput {
                 expression,
                 ordinal,

@@ -311,6 +311,27 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
+    fn storage_member_type(
+        &self,
+        member: AnySymbolId,
+    ) -> CheckerQueryResult<
+        std::sync::Arc<bray_diagnostics::DiagnosticResult<bray_symbols::TypeExpressionTemplate>>,
+    > {
+        match member {
+            AnySymbolId::StructField(field) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::StructFieldTypeQuery,
+                >::new(field))
+            }
+            AnySymbolId::UnionPayloadField(field) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::UnionPayloadFieldTypeQuery,
+                >::new(field))
+            }
+            _ => panic!("storage member type requires a checked field: {member:?}"),
+        }
+    }
+
     fn declared_type_representation(
         &self,
         subject: bray_symbols::NamedTypeSymbolId,
@@ -627,16 +648,24 @@ pub(crate) fn expression_unit(
     (unit, expressions)
 }
 
+pub(crate) fn integer_expression_unit(
+    unit: BoundUnitId,
+    count: usize,
+) -> (BoundUnit, Vec<BoundExpressionId>) {
+    expression_unit(unit, |tree, origin| {
+        (0..count)
+            .map(|_| push_expression(tree, integer_literal_expression(origin, None)))
+            .collect()
+    })
+}
+
 pub(crate) fn completed_expression_check(
     unit: &BoundUnit,
     input: &ExpressionTypeInput,
 ) -> bray_diagnostics::DiagnosticResult<bray_bound_tree::CheckedExpressionTypes> {
     let entry = callable_entry(unit.key());
-
     let context = TestCheckerContext::new(false);
-
     let request = CheckerUnitView::new(unit, &entry, &context);
-
     let outcome = DefaultExpressionTypeChecker.check_expression_types(request, input);
 
     let CheckerOutcome::Complete(result) = outcome else {

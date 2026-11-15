@@ -37,26 +37,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         let edge = self.domain.graph.edge(edge)?;
         let state = self.output(edge.source())?;
 
-        self.domain.edge_state(&state, edge)
+        self.domain.edge_state(state, edge)
     }
 
     pub(in crate::analysis::guarantee) fn output(
         &self,
         block: AnalysisBlockId,
-    ) -> Option<ExecutionState> {
-        let state = self.states.state(block)?;
-
-        self.domain.transfer(self.domain.graph.block(block)?, state)
+    ) -> Option<&ExecutionState> {
+        self.states.output(block)?.as_ref()
     }
 }
 
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
+    pub(in crate::analysis::guarantee) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
     pub(super) values: &'a crate::analysis::liveness::ValueRetention,
     pub(in crate::analysis::guarantee) dependencies:
         &'a bray_bound_tree::CheckedDependencyContracts,
     pub(in crate::analysis::guarantee) has_bounds_checks: bool,
     pub(in crate::analysis::guarantee) sequence_length: Option<bray_symbols::AnySymbolId>,
-    pub(super) observed_types: &'a BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>,
+    pub(super) observed_types: &'a std::sync::Arc<BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
     pub(in crate::analysis::guarantee) scope_places: &'a BTreeMap<
         bray_bound_tree::StorageScope,
@@ -71,6 +70,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,
     pub(super) assumptions: &'a [ExecutionCondition],
     pub(super) input_invariants: &'a [ExecutionCondition],
+    pub(super) union_variants: &'a BTreeMap<bray_symbols::TypeId, std::sync::Arc<[bray_symbols::UnionVariantSymbolId]>>,
     pub(in crate::analysis::guarantee) literals:
         &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pattern_conditions: &'a BTreeMap<
@@ -84,11 +84,13 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) contracts:
         &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     pub(in crate::analysis) disposal: &'a super::super::cleanup::Cleanup<'a>,
-    pub(in crate::analysis::guarantee) refinements: &'a std::collections::BTreeMap<
+    pub(in crate::analysis::guarantee) refinements: &'a BTreeMap<
         bray_bound_tree::BoundExecutionSite,
         bray_bound_tree::StorageInvalidation,
     >,
-    pub(in crate::analysis::guarantee) spatial_predicates:
+    pub(in crate::analysis::guarantee) pointer_predicates:
+        BTreeMap<bray_symbols::PredicateDefinitionSymbolId, &'static [usize]>,
+    pub(in crate::analysis::guarantee) content_predicates:
         BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
     pub(in crate::analysis::guarantee) owned_allocation:
         Option<bray_symbols::PredicateDefinitionSymbolId>,
@@ -128,7 +130,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .is_some_and(|expression| self.awaited_unknown(state, expression))
         {
             true
-        } else if deferred.is_empty() {
+        } else if invocation.expression().is_none_or(|expression| !matches!(
+            self.request.view().expression(expression), Some(BoundExpression::Await(_))
+        )) {
             self.dependencies
                 .calls()
                 .get(&invocation)
@@ -160,22 +164,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let condition = state
             .expressions
             .get(&expression)
+            .or_else(|| state.pending_results.get(&expression))
             .cloned()
             .unwrap_or_else(|| {
-                if matches!(self.request.view().expression(expression),
+                match self.request.view().expression(expression) {
+                    // These CFG results have begun but do not exist until their
+                    // outcome edge publishes the completed Boolean.
                     Some(BoundExpression::Binary(binary)) if matches!(binary.operator(),
-                        bray_bound_tree::BoundOperator::LogicalAnd | bray_bound_tree::BoundOperator::LogicalOr)) {
-                    // An operand may have changed storage after this compound value was
-                    // captured. Its completed truth never licenses re-reading that storage.
-                    ExecutionCondition::Expression(expression)
-                } else {
-                    self.value(state, expression)
+                        bray_bound_tree::BoundOperator::LogicalAnd | bray_bound_tree::BoundOperator::LogicalOr) => {
+                        ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
+                    }
+                    Some(BoundExpression::Unary(unary))
+                        if unary.operator() == bray_bound_tree::BoundOperator::LogicalNot => {
+                        ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
+                    }
+                    Some(BoundExpression::Structured(condition))
+                        if condition.kind() == bray_bound_tree::BoundStructuredExpressionKind::Condition => {
+                        ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
+                    }
+                    _ => self.value(state, expression),
                 }
             });
 
         // Branches inspect Boolean truth, not ownership identity. Use checked
         // equalities to observe a call result through its immutable input snapshot.
-        let equalities = ExecutionCondition::equalities(&state.assumptions, Some(expression));
+        let equalities = state.proofs.equalities(&state.assumptions, Some(expression));
         let observed = condition.with_equalities(&equalities);
 
         let value = self
@@ -183,7 +196,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .map(bray_bound_tree::CheckedBodySemantics::storage_flow)
             .and_then(|flow| flow.condition_value(expression))
             .or_else(|| {
-                observed.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                observed.prove_ordinary(&state.assumptions, Some(&state.proofs))
             });
 
         // Preserve the evaluated condition across joins. Substitution can differ
@@ -206,12 +219,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .trusted_contracts()
                 .and_then(|contracts| contracts.calls.get(&invocation))
             && state.entries.get(&invocation).is_some_and(|entry| {
-                entry.proves(
+                entry.prove_requirements(
                     contract
                         .preconditions
                         .iter()
                         .map(|(condition, _)| condition),
-                )
+                ).is_ok()
             })
         {
             return false;
@@ -232,7 +245,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let Some(AnalysisRefinement::Condition { expression, value }) = edge.refinement() {
             let (condition, observed, known) = self.condition_evidence(state, expression);
 
-            if known.is_some_and(|known| known != value) {
+            if known.is_some_and(|known| known != value)
+                || known.is_none() && !state.proofs.ordinary_proof(&state.assumptions).can_assume(&condition, value)
+            {
                 return false;
             }
 
@@ -249,7 +264,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .and_then(bray_compiler_known::RepresentationRole::integer_representation)
                         .is_some()
                 })
-                && let ExecutionCondition::Operation(operator, operands) = &condition
+                && let crate::ExecutionConditionKind::Operation(operator, operands) = (&condition).kind()
                 && let Some(complement) = match operator {
                     bray_bound_tree::BoundOperator::Less => {
                         Some(bray_bound_tree::BoundOperator::GreaterEqual)
@@ -274,14 +289,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // Keep both the stable evaluated branch and its checked Boolean meaning.
             // The latter exposes conjunctions carried by completion observations.
             observed.assume(value, &mut state.assumptions);
+
+            let prospective = condition == ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
+
             condition.assume(value, &mut state.assumptions);
+
+            if !state.expressions.contains_key(&expression)
+                && !state.pending_results.contains_key(&expression)
+                && prospective
+            {
+                // A prospective Boolean has no owner or initialized storage.
+                // This outcome is its first actual value, published by Result Completion.
+                state.pending_results.insert(expression, ExecutionCondition::new(crate::ExecutionConditionKind::Boolean(value)));
+            }
         }
 
         if let Some((condition, value)) = self.branch_condition(state, edge) {
-            if condition
-                .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                .is_some_and(|known| known != value)
-            {
+            if !state.proofs.ordinary_proof(&state.assumptions).can_assume(&condition, value) {
                 return false;
             }
 
@@ -296,7 +320,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.propagate_result(state, expression);
         }
 
-        state.refine_witnesses();
+        if let Some(AnalysisRefinement::CaughtResult {
+            expression,
+            succeeded,
+        }) = edge.refinement()
+        {
+            self.complete_caught_result(state, expression, !succeeded);
+        }
+
+        self.refine_witnesses(state);
         self.retain_successor_values(state, edge);
 
         true
@@ -314,7 +346,13 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
     }
 
     fn boundary(&self) -> Self::State {
-        let mut state = ExecutionState::default();
+        let mut state = ExecutionState {
+            proofs: std::sync::Arc::clone(&self.proofs),
+            ..Default::default()
+        };
+
+        state.current = super::super::current::CurrentValues::with_observed_types(
+            std::sync::Arc::clone(self.observed_types));
 
         for place in self.observed_types.keys() {
             if place.is_callable_input()
@@ -325,9 +363,20 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 })
             {
                 // Entry places and their immutable snapshots retain the shared field path.
-                let input = ExecutionCondition::Input(place.clone());
+                let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
-                state.current.insert(place.clone(), input.clone());
+                state.current.observe_input(place);
+
+                // Only the formal value owns storage at entry. Observations of
+                // its components can cross loans and do not establish ownership.
+                if place.is_callable_input() && place.projections.is_empty()
+                    && !self.borrowed_inputs.iter().any(|borrow| borrow.contains(place))
+                {
+                    state.owned_results.insert(input.clone(), bray_symbols::DependencyOwnedResult::Transfer(
+                        bray_symbols::DependencyOwnedTransfer::new(input.clone(), [])
+                            .with_preservation(bray_symbols::DependencyValuePreservation::all()),
+                    ));
+                }
 
                 if self.unsigned_value(&input) {
                     let ty = self.observed_types[place]
@@ -348,13 +397,39 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                         bray_bound_tree::BoundOperator::GreaterEqual,
                         vec![
                             input,
-                            ExecutionCondition::Literal(
+                            ExecutionCondition::new(crate::ExecutionConditionKind::Literal(
                                 self.request.semantic_values().constant_value_data(zero),
-                            ),
+                            )),
                         ],
                     )
                     .assume(true, &mut state.assumptions);
                 }
+            }
+        }
+
+        for (identity, storage) in self.storage.identity_entries() {
+            if matches!(storage,
+                bray_bound_tree::StorageIdentity::LocalOwned(_)
+                    | bray_bound_tree::StorageIdentity::Result(_)
+                    | bray_bound_tree::StorageIdentity::Temporary(_)
+                    | bray_bound_tree::StorageIdentity::Evaluated(_)
+                    | bray_bound_tree::StorageIdentity::InvocationInput { .. }
+                    | bray_bound_tree::StorageIdentity::InvocationResult(_)
+                    | bray_bound_tree::StorageIdentity::ScopedCapability { .. }
+            ) {
+                if let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, identity) {
+                    state.current.set_slot(place, super::super::current::CurrentValue {
+                        value: ExecutionCondition::unknown(),
+                        availability: super::super::current::ValueAvailability::Absent,
+                    });
+                }
+            } else if matches!(storage, bray_bound_tree::StorageIdentity::PostconditionResult(_)) {
+                let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
+                    .expect("a postcondition result retains its formal storage identity");
+
+                // The caller's produced result is an input to this clause. Its
+                // symbolic contents exist at entry without creating an owner.
+                state.current.insert(place, ExecutionCondition::result());
             }
         }
 
@@ -365,27 +440,12 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                 .flat_map(|contracts| &contracts.requirements),
         ) {
             for place in assumption.inputs() {
-                // The state owns a key and immutable entry snapshot for each observed input field.
-                let mut root = place.clone();
-
-                root.projections = std::sync::Arc::new([]);
-
-                state
-                    .current
-                    .entry(root.clone())
-                    .or_insert_with(|| ExecutionCondition::Input(root));
-
-                state
-                    .current
-                    .entry(place.clone())
-                    .or_insert_with(|| ExecutionCondition::Input(place.clone()));
+                state.current.observe_input(place);
             }
         }
 
         for assumption in self.input_invariants.iter().chain(self.assumptions) {
-            if assumption.prove(&state.assumptions, &mut {
-                crate::ExecutionCondition::WORK_LIMIT
-            }) == Some(false)
+            if assumption.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(false)
             {
                 return None;
             }
@@ -397,7 +457,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         if let Some(contracts) = self.request.trusted_contracts() {
             for (selection, carriers) in self.dependencies.static_carriers() {
                 let place = crate::ExecutionPlace::static_instance(selection.clone());
-                let value = ExecutionCondition::Input(place.clone());
+                let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
                 state.current.insert(place.clone(), value.clone());
 
@@ -409,10 +469,10 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                     )
                     .expect("checked initializer condition belongs to the same semantic store")
                     .substitute(
-                        &|_| ExecutionCondition::Unknown,
+                        &|_| ExecutionCondition::unknown(),
                         &value,
                         &mut { ExecutionCondition::WORK_LIMIT },
-                    );
+                    ).pointer_observations(&self.pointer_predicates);
 
                     let subject = super::super::trusted::static_carrier(
                         self.request.semantic_values(),
@@ -420,7 +480,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                         carrier.path(),
                     )
                     .substitute(
-                        &|_| ExecutionCondition::Unknown,
+                        &|_| ExecutionCondition::unknown(),
                         &value,
                         &mut { ExecutionCondition::WORK_LIMIT },
                     );
@@ -445,37 +505,26 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
 
             for condition in &contracts.requirements {
+                let condition = condition.pointer_observations(&self.pointer_predicates);
+
                 if condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
                     == Some(false)
                 {
                     return None;
                 }
 
-                condition
-                    .clone()
-                    .assume(true, &mut state.trusted_assumptions);
+                condition.assume(true, &mut state.trusted_assumptions);
             }
 
-            for (condition, subject) in &contracts.required_witnesses {
-                let mut root = subject.clone();
-
-                root.projections = std::sync::Arc::new([]);
-
-                let subject = ExecutionCondition::Input(subject.clone());
-
-                let carrier = self
-                    .observed_types
-                    .get(&root)
-                    .copied()
-                    .flatten()
-                    .and_then(|ty| subject.witness_carrier(self.request.semantic_values(), ty))
-                    .map_or(subject, |(carrier, _)| carrier);
-
-                state.carry_guarantee(carrier, condition.clone());
+            for (condition, subject, containing_value) in &contracts.required_witnesses {
+                for subject in subject.carrier_inputs(self.request.semantic_values(), self.dependencies, *containing_value) {
+                    state.current.observe_input(&subject);
+                    state.carry_guarantee(ExecutionCondition::new(crate::ExecutionConditionKind::Input(subject)), condition.pointer_observations(&self.pointer_predicates));
+                }
             }
 
             for (condition, owner) in self.allocation_subjects(&contracts.requirements) {
-                let owner = ExecutionCondition::Input(owner);
+                let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner));
 
                 state
                     .allocation_owners
@@ -494,7 +543,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         target: &mut Self::State,
         boundary: &Self::State,
     ) -> bool {
-        merge(target, boundary, block)
+        merge(target, boundary, block.into())
     }
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {

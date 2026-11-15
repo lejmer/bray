@@ -1,3 +1,4 @@
+use bray_symbols::{DependencyOwnedResult, DependencyMutationKind, DependencyStorageEffect};
 use super::encoding::StructuralValueEncoder;
 use crate::fact::FactQueryError;
 use bray_base::StableDigestHasher;
@@ -164,6 +165,7 @@ impl StructuralValueEncoder<'_, '_> {
             self.constant_term(term)?;
         }
 
+        self.dependency_set(data.stored_values(), Self::dependency_stored_value)?;
         self.dependency_set(data.borrows(), Self::dependency_borrow)?;
         self.dependency_set(data.carriers(), Self::dependency_carrier)?;
 
@@ -176,7 +178,6 @@ impl StructuralValueEncoder<'_, '_> {
         &mut self,
         result: &bray_symbols::DependencyOwnedResult,
     ) -> Result<(), FactQueryError> {
-        use bray_symbols::DependencyOwnedResult;
 
         match result {
             DependencyOwnedResult::Case { condition, result } => {
@@ -202,13 +203,32 @@ impl StructuralValueEncoder<'_, '_> {
         }
     }
 
+    pub(in crate::compilation) fn dependency_stored_value(
+        &mut self, stored: &bray_symbols::DependencyStoredValue,
+    ) -> Result<(), FactQueryError> {
+        self.dependency_stored_value_path(stored.destination())?;
+        self.boolean(stored.is_complete());
+
+        self.dependency_set(stored.sources(), Self::dependency_stored_value_path)
+    }
+
+    pub(in crate::compilation) fn dependency_stored_value_path(
+        &mut self, path: &bray_symbols::DependencyStoredValuePath,
+    ) -> Result<(), FactQueryError> {
+        self.dependency_subject(path.subject())?;
+        self.digest.write_u32(path.dereferences());
+
+        Ok(())
+    }
+
     pub(in crate::compilation) fn dependency_borrow(
         &mut self,
         relation: &bray_symbols::DependencyBorrowRelation,
     ) -> Result<(), FactQueryError> {
         self.boolean(relation.entry().is_some());
+        self.boolean(relation.allocation().is_some());
 
-        if let Some(entry) = relation.entry() {
+        if let Some(entry) = relation.source_subject() {
             self.dependency_subject(entry)?;
         }
 
@@ -248,7 +268,23 @@ impl StructuralValueEncoder<'_, '_> {
             self.constant_projection_kind(*projection)?;
         }
 
-        Ok(())
+        self.dependency_value_preservation(transfer.preservation())
+    }
+
+    fn dependency_value_preservation(
+        &mut self,
+        preservation: &bray_symbols::DependencyValuePreservation<bray_symbols::ConstantProjectionKind>,
+    ) -> Result<(), FactQueryError> {
+        self.boolean(preservation.preserves_value());
+
+        // Selector symbols have structural identities independent of interning order.
+        let children = preservation.children().iter().collect::<Vec<_>>();
+
+        self.dependency_set(&children, |encoder, (projection, child)| {
+            encoder.constant_projection_kind(**projection)?;
+
+            encoder.dependency_value_preservation(child)
+        })
     }
 
     pub(in crate::compilation) fn dependency_carrier(
@@ -264,13 +300,13 @@ impl StructuralValueEncoder<'_, '_> {
         &mut self,
         effect: &bray_symbols::DependencyStorageEffect,
     ) -> Result<(), FactQueryError> {
-        use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 
-        let kind = match effect {
-            DependencyStorageEffect::Cleanup(ty) => {
-                self.tag(3);
+        let (kind, access_type) = match effect {
+            DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
+                self.tag(7);
+                self.tag(u8::from(*ambient));
 
-                return self.ty(*ty);
+                (kind, access_type)
             }
             DependencyStorageEffect::Atomic => {
                 self.tag(4);
@@ -292,24 +328,29 @@ impl StructuralValueEncoder<'_, '_> {
 
                 return Ok(());
             }
-            DependencyStorageEffect::Direct { subject, kind } => {
+            DependencyStorageEffect::Direct { subject, kind, access_type } => {
                 self.tag(1);
                 self.dependency_subject(subject)?;
 
-                kind
+                (kind, access_type)
             }
             DependencyStorageEffect::Indirect {
                 reference,
                 projections,
                 kind,
+                access_type,
             } => {
                 self.tag(2);
                 self.dependency_subject(reference)?;
                 self.dependency_projections(projections)?;
 
-                kind
+                (kind, access_type)
             }
         };
+
+        self.tag(u8::from(access_type.is_some()));
+
+        if let Some(ty) = access_type { self.ty(*ty)?; }
 
         self.tag(match kind {
             DependencyMutationKind::Write => 1,
@@ -319,9 +360,11 @@ impl StructuralValueEncoder<'_, '_> {
             DependencyMutationKind::Replace(_) => 5,
             DependencyMutationKind::Clear => 6,
             DependencyMutationKind::Escape => 7,
+            DependencyMutationKind::Cleanup(_) => 8,
+            DependencyMutationKind::Dispose(_) => 9,
         });
 
-        if let DependencyMutationKind::Replace(ty) = kind {
+        if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) = kind {
             self.ty(*ty)?;
         }
 
@@ -505,7 +548,7 @@ impl StructuralValueEncoder<'_, '_> {
         Ok(())
     }
 
-    fn dependency_subject(&mut self, subject: &DependencySubject) -> Result<(), FactQueryError> {
+    pub(in crate::compilation) fn dependency_subject(&mut self, subject: &DependencySubject) -> Result<(), FactQueryError> {
         match subject.subject_root() {
             DependencySubjectRoot::Receiver => self.tag(0),
             DependencySubjectRoot::Parameter(ordinal) => {
@@ -567,6 +610,8 @@ impl StructuralValueEncoder<'_, '_> {
                 }
                 DependencyProjection::OwnedTarget => self.tag(5),
                 DependencyProjection::UninitPayload => self.tag(6),
+                DependencyProjection::AnyElement => self.tag(7),
+                DependencyProjection::AddressTarget => self.tag(8),
             }
         }
 

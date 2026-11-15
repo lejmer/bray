@@ -76,7 +76,46 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         self.prepare_summary_demands(request, storage, selections, dependencies, &mut demands)?;
         Self::close_entry_demands(request, &mut demands, parents)?;
 
-        self.install_reference_paths(request, storage, &demands)
+        self.install_reference_paths(request, storage, &demands)?;
+
+        self.prepare_entry_pointee_fields(request, storage, &demands)
+    }
+
+    fn prepare_entry_pointee_fields<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: crate::CheckerUnitView<'_, C>,
+        storage: &bray_bound_tree::StoragePlan,
+        demands: &Demands,
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+        // Prepare demanded fields of the original incoming addresses, not an unbounded
+        // pointer-type closure. Writes retire these records through the ordinary value store.
+        let incoming = self.entry_references.iter().filter_map(|((slot, _), (path, pointee, kind))| {
+            (*kind == bray_symbols::DependencyReferenceKind::Address
+                && self.entry_buffer_pointer(path, *pointee).is_none())
+                .then(|| pointee.map(|pointee| (slot.clone(), pointee))).flatten()
+        }).collect::<Vec<_>>();
+
+        for (slot, pointee) in incoming {
+            let owner = request.semantic_values().unborrowed_type(pointee);
+
+            for (projections, reached) in demands.get(&owner).into_iter().flatten() {
+                if projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+                    || projections.iter().any(|projection| !projection.is_exact()) { continue; }
+
+                let projections = slot.projections.iter().copied()
+                    .chain([bray_bound_tree::StorageProjection::AddressTarget])
+                    .chain(projections.iter().copied()).collect::<Arc<[_]>>();
+
+                let root = storage.storage_type(slot.root).expect("incoming reference has its checked storage type");
+
+                let Some((reached, prepared)) = crate::storage::reference_path(request, root,
+                    Arc::clone(&projections), Some(*reached))? else { continue; };
+
+                self.prepare_entry_reference_path(request, storage, Place { root: slot.root, projections }, reached, &prepared);
+            }
+        }
+
+        Ok(())
     }
 
     fn close_entry_demands<C: CheckerRequestContext + ?Sized>(
@@ -146,13 +185,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         demands: &Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         for (identity, source) in storage.identity_entries() {
-            let entry = matches!(
-                source,
-                bray_bound_tree::StorageIdentity::Parameter(_)
-                    | bray_bound_tree::StorageIdentity::Receiver(_)
-                    | bray_bound_tree::StorageIdentity::ContractParameter(_)
-                    | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
-            );
+            let entry = source.is_initialized_at_entry();
 
             let Some(ty) = storage.storage_type(identity) else {
                 continue;
@@ -239,7 +272,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 let staged = site
                     .expression()
                     .and_then(|expression| selections.expression(expression))
-                    .filter(|selection| selection.evaluates_defaults())
+                    .filter(|selection| selection.stages_inputs())
                     .and_then(|selection| {
                         selection.invocation_input_site(*site, subject.subject_root())
                     })
@@ -312,15 +345,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         ty: bray_symbols::TypeId,
         prepared: &bray_bound_tree::StorageReferencePath,
     ) {
-        if !matches!(
-            storage.identity(path.root),
-            Some(
-                bray_bound_tree::StorageIdentity::Parameter(_)
-                    | bray_bound_tree::StorageIdentity::Receiver(_)
-                    | bray_bound_tree::StorageIdentity::ContractParameter(_)
-                    | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
-            )
-        ) {
+        if !storage.identity(path.root).is_some_and(bray_bound_tree::StorageIdentity::is_initialized_at_entry) {
             return;
         }
 
@@ -351,6 +376,9 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                             prepared.borrows()[..step].into(),
                         ),
                         Some(*target),
+                        if prepared.is_address_load(step) {
+                            bray_symbols::DependencyReferenceKind::Address
+                        } else { bray_symbols::DependencyReferenceKind::Borrow },
                     )
                 });
         }
@@ -362,26 +390,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             .take_while(|(index, _)| *index == path.projections.len())
             .count();
 
-        if is_entry_reference(request, ty, &path)
-            || layer > 1 && crate::representation::reference_kind(request, ty).is_some()
-        {
+        if let Some(kind) = crate::representation::reference_kind(request, ty)
+            && (kind == bray_symbols::DependencyReferenceKind::Address
+                || !path.projections.is_empty() || layer > 1) {
             let target = crate::representation::reference_target_type(request, ty);
 
             self.entry_references
-                .insert((path, layer), (prepared.clone(), target));
+                .insert((path, layer), (prepared.clone(), target, kind));
         }
     }
 }
 
-fn is_entry_reference<C: CheckerRequestContext + ?Sized>(
-    request: crate::CheckerUnitView<'_, C>,
-    ty: bray_symbols::TypeId,
-    path: &Place,
-) -> bool {
-    // Root borrow inputs already have their own entry capabilities.
-    match crate::representation::reference_kind(request, ty) {
-        Some(bray_symbols::DependencyReferenceKind::Address) => true,
-        Some(bray_symbols::DependencyReferenceKind::Borrow) => !path.projections.is_empty(),
-        None => false,
-    }
-}

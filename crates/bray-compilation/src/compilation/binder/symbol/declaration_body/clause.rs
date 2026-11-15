@@ -67,6 +67,7 @@ pub(in crate::compilation::binder::symbol) fn checked_bound_predicates(
         &semantics,
         &patterns,
         context.semantic_values(),
+        compilation.available_compiler_known_symbols(),
         &constants,
         None,
         Some(&predicate_definitions),

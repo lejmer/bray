@@ -291,6 +291,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         semantics.result().value(),
         patterns.result().value(),
         context.semantic_values(),
+        compilation.available_compiler_known_symbols(),
         &constants,
         Some((
             storage.result().value(),

@@ -74,14 +74,14 @@ trusted internal func admit_static(
             let mut frame: usize = 0;
             let destination = std.memory.address_of_mut<usize>(&mut frame);
 
-            let status = trusted service.admit(destination);
+            let status = trusted service.admit(std.memory.address_of<NativeExecution>(&service), destination);
 
             if status != 0
             {
                 return Error(admission_failure(status));
             }
 
-            owner.finalization = Finalization.Asynchronous(finalizer, frame, service.discard, service.run_finalizer);
+            owner.finalization = Finalization.Asynchronous(finalizer, frame, service);
         }
         else
         {

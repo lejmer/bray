@@ -1,0 +1,112 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.execution;
+
+trusted internal func attach_execution(
+    pos reference: &Reference,
+    pos execution: bray.runtime.bootstrap.execution.Reference
+)
+    requires(
+        trusted retained(owner = reference),
+        trusted resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.execution.retained(owner = &execution),
+        trusted bray.runtime.bootstrap.execution.pinned(owner = &execution)
+    )
+    ensures(trusted retained(owner = reference), trusted resolution_owner(owner = reference))
+    when(trusted owned_reference(owner = reference))
+    {
+        ensures(trusted owned_reference(owner = reference))
+    }
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let slot = trusted cell(reference);
+    let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.execution.Reference?)>(&slot.execution_owner);
+
+    let permit = trusted lambda(
+        pos owner: &Reference,
+        pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>
+    )
+        requires(trusted retained(owner = owner), trusted resolution_owner(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<(bray.runtime.bootstrap.execution.Reference?)>(
+                pointer = pointer,
+                count = 1
+            ),
+            trusted core.memory.initialized_as<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
+            trusted core.memory.aligned_for<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(reference, pointer);
+
+    let mut guard = trusted lock_cell(reference);
+    let control = trusted guard.get();
+
+    if !(control.phase matches Phase.Admitted) || control.registration != 0
+    {
+        trusted core.target.abort();
+    }
+
+    if trusted std.memory.read<(bray.runtime.bootstrap.execution.Reference?)>(pointer) matches ?_
+    {
+        trusted core.target.abort();
+    }
+
+    let owner: bray.runtime.bootstrap.execution.Reference? = execution;
+
+    trusted std.memory.write<(bray.runtime.bootstrap.execution.Reference?)>(pointer, owner);
+}
+
+// A retained cell prevents recycling and therefore retains this exact owner.
+// The field is immutable between admission and the last storage release.
+trusted internal func execution_reference(pos reference: &Reference) -> &bray.runtime.bootstrap.execution.Reference
+    requires(trusted retained(owner = reference))
+    ensures(trusted retained(owner = reference), trusted bray.runtime.bootstrap.execution.retained(owner = result))
+    when(trusted owned_reference(owner = reference))
+    {
+        ensures(trusted owned_reference(owner = reference))
+    }
+    when(trusted resolution_owner(owner = reference))
+    {
+        ensures(trusted resolution_owner(owner = reference))
+    }
+    uses(raw_memory, unchecked_alias, intrinsic)
+{
+    let slot = trusted cell(reference);
+    let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.execution.Reference?)>(&slot.execution_owner);
+
+    let permit = trusted lambda(
+        pos owner: &Reference,
+        pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>
+    )
+        requires(trusted retained(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
+            trusted core.memory.aligned_for<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
+            trusted core.memory.epoch_current<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
+            trusted core.memory.synchronized_access<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
+            trusted core.memory.movement_stable<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
+            trusted core.memory.finalization_pending<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(reference, pointer);
+
+    let owner = trusted std.memory.borrow_from<(bray.runtime.bootstrap.execution.Reference?), Reference>(
+        reference,
+        pointer
+    );
+
+    return match owner
+    {
+        case ?execution { yield &execution; }
+        case none { yield trusted core.target.abort(); }
+    };
+}

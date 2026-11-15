@@ -12,9 +12,14 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.product;
 
 @abi(c)
-trusted internal func retention(pos runtime: u64, pos handle: u64, pos output: DataPointer<Reference>) -> u32
-    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+trusted internal func retention(
+    pos input: DataPointer<ArenaReference>,
+    pos handle: u64,
+    pos output: DataPointer<Reference>
+) -> u32
+    requires(trusted arena_reference_slot(owner = &input), trusted bray.runtime.bootstrap.host.product.native_host())
 {
+    let directory = trusted borrow_arena_reference(&input);
     let lease = trusted bray.runtime.bootstrap.host.host_access();
 
     if !lease.active
@@ -22,8 +27,8 @@ trusted internal func retention(pos runtime: u64, pos handle: u64, pos output: D
         return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
     }
 
-    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-    let (acquired, status) = trusted retain_locked(&lease, &mut anchor, runtime, handle);
+    let mut anchor = trusted arena_anchor(directory, &lease);
+    let (acquired, status) = trusted retain_locked(&lease, &mut anchor, handle);
 
     if acquired matches none
     {
@@ -38,33 +43,31 @@ trusted internal func retention(pos runtime: u64, pos handle: u64, pos output: D
 
 trusted internal func retain_locked(
     pos lease: &bray.runtime.bootstrap.host.HostLease,
-    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
-    pos runtime: u64,
+    pos anchor: &mut ArenaAnchor,
     pos handle: u64
 ) -> (Reference?, u32)
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted arena_access(owner = &anchor)
     )
     ensures(
         trusted retained_option(owner = &result.0),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted arena_access(owner = &anchor)
     )
 {
-    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+    let runtime = (trusted arena(anchor.owner)).identity;
+    let entries = trusted arena_entries(anchor);
     let index = std.numeric.truncate_to<usize, u64>(handle & 0xffffffff);
     let generation = std.numeric.truncate_to<u32, u64>(handle >> 32);
 
-    if index == 0 || index > host.tasks.total || generation == 0
+    if index == 0 || index > entries.total || generation == 0
     {
         return (none, 7);
     }
 
-    let slot = trusted slot_at(&mut host.tasks, index);
+    let slot = trusted slot_at(entries, index);
 
     if slot.generation != generation || slot.runtime != runtime || slot.control matches none
     {
@@ -89,6 +92,9 @@ trusted internal func retain_locked(
     {
         return
         {
+            acquisition = bray.runtime.bootstrap.task.Marker
+            {
+            },
             pointer = std.memory.address_of<Slot>(slot),
             runtime = runtime,
             handle = handle
@@ -120,12 +126,15 @@ trusted internal func retain_locked(
 @layout(c)
 internal struct Reference
 {
+    acquisition: Marker;
     pointer: DataPointer<Slot>;
     runtime: u64;
     handle: u64;
 }
 
-trusted internal predicate retained(owner: &Reference);
+trusted internal predicate storage_retained(owner: &Marker);
+
+internal predicate retained(owner: &Reference) = storage_retained(owner = &owner.acquisition);
 
 // Presence carries one admitted storage reference. Its status is separate from
 // this noncopy owner, so consuming it never splits another witness carrier.
@@ -134,6 +143,10 @@ trusted internal predicate retained_option(owner: &(Reference?));
 trusted internal func take_retained(pos owner: Reference?) -> Reference
     requires(owner matches ?_, trusted retained_option(owner = &owner))
     ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    when(trusted resolution_owner_option(owner = &owner))
+    {
+        ensures(trusted resolution_owner(owner = &result))
+    }
     uses(intrinsic)
 {
     return match consume owner
@@ -143,26 +156,41 @@ trusted internal func take_retained(pos owner: Reference?) -> Reference
     };
 }
 
-// The native caller lends its retained reference for this whole callback. It
-// keeps the corresponding host/provider and cell allocation alive through return.
-trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
+// The native caller lends this exact input slot and retains the referenced
+// cell until the enclosing native call returns.
+trusted internal predicate reference_slot(owner: &DataPointer<Reference>);
 
-trusted internal func read_reference(pos pointer: DataPointer<Reference>) -> Reference
-    requires(trusted reference_slot(pointer = pointer))
-    ensures(trusted retained(owner = &result))
-    uses(raw_memory)
+trusted internal func native_pointer(pos owner: &Reference) -> DataPointer<Reference>
+    requires(trusted retained(owner = owner))
+    ensures(trusted reference_slot(owner = &result))
+    executes(pure, total)
 {
-    let permit = trusted lambda(pos pointer: DataPointer<Reference>)
-        requires(trusted reference_slot(pointer = pointer))
+    return std.memory.address_of<Reference>(owner);
+}
+
+trusted internal func borrow_reference(pos owner: &DataPointer<Reference>) -> &Reference
+    requires(trusted reference_slot(owner = owner))
+    ensures(trusted retained(owner = result))
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(owner));
+
+    let permit = trusted lambda(pos owner: &DataPointer<Reference>, pos pointer: DataPointer<Reference>)
+        requires(trusted reference_slot(owner = owner))
         ensures(
             trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
             trusted core.memory.aligned_for<Reference>(pointer = pointer),
-            trusted core.memory.initialized_as<Reference>(pointer = pointer)
+            trusted core.memory.initialized_as<Reference>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Reference>(pointer = pointer),
+            trusted core.memory.epoch_current<Reference>(pointer = pointer),
+            trusted core.memory.synchronized_access<Reference>(pointer = pointer),
+            trusted core.memory.movement_stable<Reference>(pointer = pointer),
+            trusted core.memory.finalization_pending<Reference>(pointer = pointer)
         )
         executes(pure, total) {};
 
-    trusted permit(pointer);
-    return trusted std.memory.read<Reference>(pointer);
+    trusted permit(owner, pointer);
+    return trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(owner, pointer);
 }
 
 trusted internal func cell(pos owner: &Reference) -> &Slot
@@ -235,50 +263,36 @@ trusted internal func lock_cell(pos owner: &Reference) -> std.sync.SpinLockGuard
 // from the already admitted slot, without another external runtime/handle check.
 trusted internal func duplicate_reference(pos owner: &Reference) -> Reference
     requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    ensures(
+        trusted retained(owner = owner),
+        trusted retained(owner = &result),
+        trusted owned_reference(owner = &result)
+    )
+    when(trusted owned_reference(owner = owner))
+    {
+        ensures(trusted owned_reference(owner = owner))
+    }
+    when(trusted resolution_owner(owner = owner))
+    {
+        ensures(trusted resolution_owner(owner = owner))
+    }
     uses(intrinsic)
 {
-    let runtime = owner.runtime;
-    let handle = owner.handle;
-    let lease = trusted registration_access(owner);
+    let mut guard = trusted lock_cell(owner);
+    let control = trusted guard.get();
 
-    if !lease.active
+    if !trusted retain(control)
     {
         trusted core.target.abort();
     }
 
-    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
-    let slot = trusted wait_slot(&mut host.tasks, handle);
-
-    let issue = trusted lambda(
-        pos lease: &bray.runtime.bootstrap.host.HostLease,
-        pos slot: &Slot,
-        pos runtime: u64,
-        pos handle: u64
-    ) -> Reference
-        requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
-        ensures(trusted retained(owner = &result))
-        executes(total)
+    return
     {
-        return
+        acquisition = Marker
         {
-            pointer = std.memory.address_of<Slot>(slot),
-            runtime = runtime,
-            handle = handle
-        };
+        },
+        pointer = owner.pointer,
+        runtime = owner.runtime,
+        handle = owner.handle
     };
-
-    let reference = trusted issue(&lease, &slot, runtime, handle);
-
-    {
-        let mut guard = trusted lock_cell(&reference);
-
-        if !trusted retain(trusted guard.get())
-        {
-            trusted core.target.abort();
-        }
-    }
-
-    return reference;
 }

@@ -224,6 +224,7 @@ dependencies = [
  "bray-syntax",
  "bray-target",
  "bray-testing",
+ "hashbrown 0.17.1",
  "num-bigint",
  "rustc_apfloat",
 ]

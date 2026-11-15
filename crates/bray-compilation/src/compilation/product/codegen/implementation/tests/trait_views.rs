@@ -267,10 +267,10 @@ fn borrowed_trait_view_preserves_imported_generic_witness_and_slot_order() {
                 .replace("PROMISE", promise),
                 0,
             )],
-            crate::CompilationOptions::new(
-                crate::WorkerBudget::serial(),
+            CompilationOptions::new(
+                WorkerBudget::serial(),
                 bray_symbols::ProductKind::Library,
-                crate::SelectedTarget::baseline(),
+                SelectedTarget::baseline(),
             ),
         )
         .with_dependency_interfaces([dependency.clone()]);

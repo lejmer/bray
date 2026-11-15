@@ -460,8 +460,7 @@ mod tests {
 
     use super::check_expression_semantics;
     use crate::test_support::{
-        TestCheckerContext, callable_entry, expression_unit, integer_literal_expression,
-        push_expression,
+        TestCheckerContext, callable_entry, integer_expression_unit,
     };
     use crate::{CheckerUnitView, ExpressionCandidateSet};
 
@@ -491,12 +490,7 @@ mod tests {
     }
 
     fn literal_unit(unit: BoundUnitId) -> (BoundUnit, BoundExpressionId) {
-        let (unit, expressions) = expression_unit(unit, |tree, origin| {
-            vec![push_expression(
-                tree,
-                integer_literal_expression(origin, None),
-            )]
-        });
+        let (unit, expressions) = integer_expression_unit(unit, 1);
 
         let [expression] = expressions.as_slice() else {
             panic!("literal unit must contain one expression");

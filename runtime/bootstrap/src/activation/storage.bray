@@ -88,19 +88,11 @@ trusted internal func resident_address(
 }
 
 // Inspect one exclusively retained token without consuming its registered lease.
-trusted internal func retained_address(pos token: &Inactive, pos descriptor: &Descriptor) -> usize
-    requires(
-        trusted producer(token = token),
-        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token),
-        trusted bray.runtime.bootstrap.pool.protocol_access(),
-    )
-    ensures(
-        trusted producer(token = token),
-        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token),
-        trusted bray.runtime.bootstrap.pool.protocol_access(),
-    )
+trusted internal func retained_address(pos token: &Producer, pos descriptor: &Descriptor) -> usize
+    requires(trusted producer_owned(owner = &token.acquisition), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted producer_owned(owner = &token.acquisition), trusted bray.runtime.bootstrap.pool.protocol_access())
 {
     let mut guard = trusted bray.runtime.bootstrap.pool.lock();
 
-    return trusted resident_address(guard.get(), token, descriptor, dispatch = false);
+    return trusted resident_address(guard.get(), &token.token, descriptor, dispatch = false);
 }

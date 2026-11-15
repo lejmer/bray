@@ -28,6 +28,7 @@ pub(super) fn run(
         .min(4)
         .min(batches.len());
 
+    let threads = std::thread::available_parallelism().map_or(1, usize::from)/ workers.max(1);
     let next = AtomicUsize::new(0);
 
     let results = std::thread::scope(|scope| {
@@ -51,6 +52,7 @@ pub(super) fn run(
                         root,
                         directory,
                         batch,
+                        threads,
                         timeout.saturating_sub(started.elapsed()),
                     );
 
@@ -84,13 +86,14 @@ fn execute_batch(
     root: &Path,
     directory: &Path,
     batch: &[SelectedTest],
+    threads: usize,
     remaining: Duration,
 ) -> Execution {
     let command = Exec::cmd(&batch[0].executable)
         .args(&[
             "--include-ignored",
             "--exact",
-            "--test-threads=1",
+            &format!("--test-threads={threads}"),
             "--color=never",
         ])
         .args(

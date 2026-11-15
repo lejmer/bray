@@ -65,7 +65,7 @@ pub enum NativeEntryKind {
     RuntimeStatus,
     /// Contain bootstrap identity lookup failures and return the unavailable identity zero.
     RuntimeIdentity,
-    /// Return the selected OS worker entry value without attaching recursively.
+    /// Return the runtime value without attaching or allowing an unexpected unwind.
     RuntimeValue,
     /// Preserve the body outcome and return entry cleanup status independently.
     EntryStatus,
@@ -75,17 +75,51 @@ impl NativeEntryKind {
     /// Selects the non-attaching entry boundary required by a bootstrap role.
     pub const fn for_runtime_role(role: RuntimeAbiRole) -> Option<Self> {
         match role {
-            RuntimeAbiRole::WorkerPointerEntry | RuntimeAbiRole::WorkerWordEntry => {
-                Some(Self::RuntimeValue)
-            }
-            RuntimeAbiRole::ThreadAttachmentIdentity => Some(Self::RuntimeIdentity),
+            RuntimeAbiRole::WorkerPointerEntry
+            | RuntimeAbiRole::WorkerWordEntry
+            | RuntimeAbiRole::RootExecution
+            | RuntimeAbiRole::RootTerminalObservation
+            | RuntimeAbiRole::TaskAllocation
+            | RuntimeAbiRole::AwaitedFrameComposition
+            | RuntimeAbiRole::ActivationCallback
+            | RuntimeAbiRole::ActivationActionReadiness
+            | RuntimeAbiRole::ExecutionOwnerClone
+            | RuntimeAbiRole::ExecutionOwnerRelease
+            | RuntimeAbiRole::ExecutionOwnerWorker
+            | RuntimeAbiRole::ExecutionOwnerDetach
+            | RuntimeAbiRole::ExecutionTimeoutWithdrawal
+            | RuntimeAbiRole::TaskEventCreation
+            | RuntimeAbiRole::SuspensionRegistration => Some(Self::RuntimeValue),
+            RuntimeAbiRole::ThreadAttachmentIdentity
+            | RuntimeAbiRole::ExecutionScopeEnter
+            | RuntimeAbiRole::ExecutionOwnerScopeEnter => Some(Self::RuntimeIdentity),
             RuntimeAbiRole::ThreadStorageExit
-            | RuntimeAbiRole::ControlStorageExit
+            | RuntimeAbiRole::ContextStorageExit
             | RuntimeAbiRole::WorkerStop => Some(Self::ThreadStorageExit),
             RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution
             | RuntimeAbiRole::EntryContinuation => Some(Self::EntryStatus),
             RuntimeAbiRole::EntryContextRegistration
+            | RuntimeAbiRole::ExecutionScopeFinish
+            | RuntimeAbiRole::ExecutionOwnerCurrent
+            | RuntimeAbiRole::ExecutionStartup
+            | RuntimeAbiRole::ExecutionTimeoutPreparation
+            | RuntimeAbiRole::ExecutionTimeoutRegistration
+            | RuntimeAbiRole::MainThreadLaneStartup
+            | RuntimeAbiRole::MainThreadLaneDrive
+            | RuntimeAbiRole::ExecutionWorkersStartup
+            | RuntimeAbiRole::ExecutionDeadlinesStartup
+            | RuntimeAbiRole::RootCompletionResolution
+            | RuntimeAbiRole::RootCancellationRequest
+            | RuntimeAbiRole::TaskStart
+            | RuntimeAbiRole::TaskDestruction
+            | RuntimeAbiRole::TaskResolution
+            | RuntimeAbiRole::TaskEventSignal
+            | RuntimeAbiRole::TaskEventDestruction
+            | RuntimeAbiRole::TaskCancellationRequest
+            | RuntimeAbiRole::Wake
+            | RuntimeAbiRole::CleanupIncidentReporting
+            | RuntimeAbiRole::ExecutionShutdown
             | RuntimeAbiRole::RuntimeInitialization
             | RuntimeAbiRole::WorkerDemand
             | RuntimeAbiRole::ThreadAttachmentEnter

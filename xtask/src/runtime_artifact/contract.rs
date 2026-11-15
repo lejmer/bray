@@ -18,11 +18,6 @@ pub(super) fn validate(root: &Path) -> Result<(), String> {
         .into_iter()
         .filter(|role| role.source_declaration().is_none())
         .filter_map(RuntimeAbiRole::native_symbol)
-        .chain(
-            super::command::RuntimeArchiveKind::ALL
-                .into_iter()
-                .flat_map(super::archive::support_exports),
-        )
         .collect::<BTreeSet<_>>();
 
     let mut implementations = BTreeMap::new();
@@ -175,7 +170,6 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
         Some("NativeTaskAllocation") => RuntimeAbiType::TaskAllocation,
         Some("NativeInactiveFrame") => RuntimeAbiType::InactiveFrame,
         Some("NativeFrameProgress") => RuntimeAbiType::FrameProgress,
-        Some("NativeExecutionLaneResult") => RuntimeAbiType::LaneResult,
         Some(
             "NativeWakeCallback"
             | "NativeRuntimeEventCallback"

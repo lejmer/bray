@@ -1,13 +1,13 @@
 use bray_bound_tree::{
     BoundExecutionSite, BoundExpression, BoundExpressionId, SelectedArgument, SelectedInput,
-    SemanticSelection, StorageAccessPurpose, StorageIdentity,
+    SemanticSelection, StorageAccessPurpose, StorageIdentity, StorageValueConsumptionPhase,
 };
 
 use super::super::plan::{PlanError, Planner};
 use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
-    pub(super) fn plan_default_inputs(
+    pub(super) fn plan_selected_inputs(
         &mut self,
         expression: BoundExpressionId,
         selection: &SemanticSelection,
@@ -67,6 +67,16 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 ordinal,
                 input.ty(self.request.semantic_values()),
             )?;
+
+            if let Some(source) = input.expression() {
+                let purpose = match input {
+                    SelectedInput::Receiver(receiver) => Self::call_receiver_purpose(receiver.mode()),
+                    SelectedInput::Argument(SelectedArgument::Explicit { reborrow: Some(kind), .. }) => StorageAccessPurpose::Borrow(*kind),
+                    _ => StorageAccessPurpose::ValueTransfer,
+                };
+
+                self.consume_expression_value(invocation, StorageValueConsumptionPhase::Completion, source, purpose);
+            }
         }
 
         Ok(())
@@ -133,6 +143,13 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 access,
             )
             .expect("selected callee consumes its exact staged input");
+
+        let phase = self.value_consumer_phase(expression);
+
+        self.builder_mut().consume_value(
+            expression.into(), phase,
+            bray_bound_tree::StoragePath::root(identity),
+        ).expect("callee admission consumes its actual private input handle");
 
         Ok(())
     }

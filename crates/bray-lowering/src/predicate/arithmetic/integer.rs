@@ -160,7 +160,9 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         let operator = match operation {
             ConstantUnaryOperation::Identity
             | ConstantUnaryOperation::BorrowObservation
-            | ConstantUnaryOperation::EntryCondition => return Ok(operand),
+            | ConstantUnaryOperation::DescriptorObservation
+            | ConstantUnaryOperation::ValueDescriptorObservation
+                | ConstantUnaryOperation::EntryCondition => return Ok(operand),
             ConstantUnaryOperation::LogicalNot => MirUnaryOperator::Not,
             ConstantUnaryOperation::Negate => MirUnaryOperator::Negate,
             ConstantUnaryOperation::BitwiseNot => MirUnaryOperator::BitwiseNot,
@@ -204,7 +206,9 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         let operator = match operation {
             ConstantUnaryOperation::Identity
             | ConstantUnaryOperation::BorrowObservation
-            | ConstantUnaryOperation::EntryCondition => return self.convert(block, operand, ty),
+            | ConstantUnaryOperation::DescriptorObservation
+            | ConstantUnaryOperation::ValueDescriptorObservation
+                | ConstantUnaryOperation::EntryCondition => return self.convert(block, operand, ty),
             ConstantUnaryOperation::LogicalNot => MirUnaryOperator::Not,
             ConstantUnaryOperation::Negate => MirUnaryOperator::Negate,
             ConstantUnaryOperation::BitwiseNot => MirUnaryOperator::BitwiseNot,

@@ -113,14 +113,17 @@ static int check_deadline_runtime(void)
     SchedulerReference scheduler = {0};
     DeadlineReference deadlines = {0};
     TaskReference target = {0};
-    uint64_t runtime = bray_runtime_task_control_creation();
-    uint64_t handle = bray_runtime_task_control_admission(runtime);
+    TaskArenaReference arena = {0};
+    uint64_t runtime = bray_runtime_task_control_creation(&arena);
+    uint64_t handle = bray_runtime_task_control_admission(&arena);
 
     if (
-        !handle ||
-        bray_runtime_task_control_retention(runtime, handle, &target) != 0
+        !runtime || !handle ||
+        bray_runtime_task_control_retention(&arena, handle, &target) != 0
     )
         return 248;
+
+    bray_runtime_task_control_arena_release(&arena);
 
     if (bray_runtime_scheduler_creation(1, 0, SIZE_MAX, &scheduler) != 0)
         return 230;
@@ -370,6 +373,26 @@ static int check_deadline_runtime(void)
         return 251;
 
     bray_runtime_scheduler_destruction(&scheduler);
+
+    if (
+        bray_runtime_scheduler_creation(1, 0, SIZE_MAX, &scheduler) != 0 ||
+        bray_runtime_deadline_creation(&scheduler, 1, &deadlines) != 0
+    )
+        return 252;
+
+    bray_runtime_scheduler_destruction(&scheduler);
+    DeadlineContext retained = { .deadlines = &deadlines };
+    uint64_t retained_id = 0;
+
+    if (
+        register_deadline(&deadlines, 1, 0, &retained, &retained_id) != 0 ||
+        bray_runtime_deadline_dispatch(&deadlines, 1) != 0 ||
+        retained.wakes != 1 ||
+        retained.releases != 1
+    )
+        return 253;
+
+    bray_runtime_deadline_destruction(&deadlines);
 
     if (
         bray_runtime_task_control_destruction(&target) != 0 ||

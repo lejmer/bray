@@ -2066,6 +2066,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::UnionTagDirectiveForms
         | DiagnosticNoteKind::CopyContractRequirements
         | DiagnosticNoteKind::ConstructArrayElementsIndividually
+        | DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper
         | DiagnosticNoteKind::TrustedObligationEvidenceRequired
         | DiagnosticNoteKind::ExecutionRequirementEvidenceRequired
         | DiagnosticNoteKind::ConstantCallArgumentsMustSatisfyRequirements
@@ -2577,7 +2578,7 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         ]),
         DiagnosticKind::CheckingCircularExecutionGuarantee => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
-                "this callable's total execution guarantee depends on a recursive call or cleanup cycle",
+                "this callable's execution guarantee depends on a recursive call or cleanup cycle",
             )])
         }
         DiagnosticKind::CheckingCallableAddressTypeUnsupported => {
@@ -2770,11 +2771,7 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplate::new(CHECKING_MISSING_TRUSTED_MEMORY_GUARANTEES)
         }
         DiagnosticKind::CheckingTrustedWitnessTransferNotProven => MessageTemplate::new(&[
-            MessageTemplatePart::Text("this "),
-            MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
-            MessageTemplatePart::Text(
-                " would copy or separate a value without preserving its trusted guarantees",
-            ),
+            MessageTemplatePart::Arg(DiagnosticArgName::WitnessTransfer),
         ]),
         DiagnosticKind::CheckingConstantCallRequirementNotProven => MessageTemplate::new(&[
             MessageTemplatePart::Text("this "),
@@ -2784,18 +2781,23 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             ),
         ]),
         DiagnosticKind::CheckingExecutionRequirementNotProven => MessageTemplate::new(&[
-            MessageTemplatePart::Text("this "),
-            MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
-            MessageTemplatePart::Text(
-                " requires an execution-context condition that does not follow from caller evidence",
-            ),
+            MessageTemplatePart::Text("cannot establish "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ContractObligation),
+        ]),
+        DiagnosticKind::CheckingPredicateBlockNotAllowed => MessageTemplate::new(&[
+            MessageTemplatePart::Text("predicate expressions cannot contain a "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
+        ]),
+        DiagnosticKind::CheckingContractConditionNotPortable => MessageTemplate::new(&[MessageTemplatePart::Text("cannot represent this contract condition in a package interface")]),
+        DiagnosticKind::CheckingPostconditionNotProven => MessageTemplate::new(&[MessageTemplatePart::Text("cannot verify this postcondition")]),
+        DiagnosticKind::CheckingCircularPostcondition => MessageTemplate::new(&[MessageTemplatePart::Text("this postcondition depends on its own unverified completion")]),
+        DiagnosticKind::CheckingExecutionProofDepthExceeded => MessageTemplate::new(&[
+            MessageTemplatePart::Text("cannot verify this contract: "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ExecutionProofFailure),
         ]),
         DiagnosticKind::CheckingTrustedObligationNotProven => MessageTemplate::new(&[
-            MessageTemplatePart::Text("this "),
-            MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
-            MessageTemplatePart::Text(
-                " requires a trusted condition that is not established by live evidence",
-            ),
+            MessageTemplatePart::Text("cannot establish "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ContractObligation),
         ]),
         DiagnosticKind::CheckingMemoryOperationAfterDeallocation => {
             MessageTemplate::new(CHECKING_MEMORY_OPERATION_AFTER_DEALLOCATION)
@@ -3187,6 +3189,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::UnionTagDirectiveForms => {
             MessageTemplate::new(NOTE_UNION_TAG_DIRECTIVE_FORMS)
         }
+        DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper => MessageTemplate::new(&[
+            MessageTemplatePart::Text("move this control flow into a const function and call it from the predicate"),
+        ]),
         DiagnosticNoteKind::ConstructArrayElementsIndividually => MessageTemplate::new(&[
             MessageTemplatePart::Text("use an element-list array or an array generator to construct each non-copyable element separately"),
         ]),
@@ -3210,7 +3215,7 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::TrustedWitnessTransferRequired => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
-                "move the complete value while preserving its dependencies, or provide an explicit copy contract that preserves its guarantees",
+                "borrow the value, or move its complete owner together with its dependencies",
             )])
         }
         DiagnosticNoteKind::StoredTypeRequiresIndirection => {

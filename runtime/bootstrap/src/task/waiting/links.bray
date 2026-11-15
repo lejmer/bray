@@ -1,0 +1,264 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.event;
+
+// Links identify stable membership slots. Copying a link grants no access.
+@copy
+@layout(c)
+internal struct WaitLink
+{
+    pointer: DataPointer<Slot>;
+
+    const func empty() -> bool
+    {
+        return std.memory.is_null<Slot>(self.pointer);
+    }
+}
+
+internal func no_wait_link() -> WaitLink
+    executes(pure, total)
+{
+    return
+    {
+        pointer = std.memory.null<Slot>()
+    };
+}
+
+trusted internal func wait_link(pos owner: &Reference) -> WaitLink
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+    executes(pure, total)
+{
+    return
+    {
+        pointer = owner.pointer
+    };
+}
+
+// The resident lease prevents recycling and final arena extraction. A producer
+// first establishes actual list membership from its complete retained owner.
+internal struct LinkAccess
+{
+    lease: &bray.runtime.bootstrap.host.HostLease;
+    pointer: DataPointer<Slot>;
+}
+
+trusted internal predicate link_access(owner: &LinkAccess);
+
+// Neighbor storage is retained only while this membership remains linked
+// under this actual resident lease. Owning resources alone does not prove it.
+trusted internal predicate live_wait_links(owner: &WaitRegistration, lease: &bray.runtime.bootstrap.host.HostLease);
+
+trusted internal func task_slot_access(
+    pos owner: &Reference,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> LinkAccess
+    requires(
+        trusted retained(owner = owner),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted retained(owner = owner), trusted link_access(owner = &result))
+    executes(pure, total)
+{
+    return
+    {
+        lease = lease,
+        pointer = owner.pointer
+    };
+}
+
+trusted internal func previous_link_access(
+    pos owner: &WaitRegistration,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> LinkAccess
+    requires(
+        trusted registration_owned(owner = &owner.resources),
+        trusted live_wait_links(owner = owner, lease = lease),
+        !owner.previous.empty(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result))
+    executes(pure, total)
+{
+    return
+    {
+        lease = lease,
+        pointer = owner.previous.pointer
+    };
+}
+
+trusted internal func next_link_access(
+    pos owner: &WaitRegistration,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> LinkAccess
+    requires(
+        trusted registration_owned(owner = &owner.resources),
+        trusted live_wait_links(owner = owner, lease = lease),
+        !owner.next.empty(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result))
+    executes(pure, total)
+{
+    return
+    {
+        lease = lease,
+        pointer = owner.next.pointer
+    };
+}
+
+trusted internal func delivery_link_access(
+    pos owner: &Delivery,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> LinkAccess
+    requires(
+        trusted delivery_owned(owner = owner),
+        !owner.next.empty(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted delivery_owned(owner = owner), trusted link_access(owner = &result))
+    executes(pure, total)
+{
+    return
+    {
+        lease = lease,
+        pointer = owner.next.pointer
+    };
+}
+
+trusted internal func event_tail_access(
+    pos owner: &bray.runtime.bootstrap.event.State,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> LinkAccess
+    requires(
+        trusted bray.runtime.bootstrap.event.collection_owned(owner = owner),
+        !owner.tail.empty(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted bray.runtime.bootstrap.event.collection_owned(owner = owner), trusted link_access(owner = &result))
+    executes(pure, total)
+{
+    return
+    {
+        lease = lease,
+        pointer = owner.tail.pointer
+    };
+}
+
+trusted internal func link_slot(pos anchor: &mut LinkAccess) -> &mut Slot
+    requires(trusted link_access(owner = &anchor))
+    ensures(trusted link_access(owner = &anchor))
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = anchor.pointer;
+
+    let permit = trusted lambda(pos owner: &LinkAccess, pos pointer: DataPointer<Slot>)
+        requires(trusted link_access(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Slot>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<Slot>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Slot>(pointer = pointer),
+            trusted core.memory.aligned_for<Slot>(pointer = pointer),
+            trusted core.memory.exclusive_alias_valid<Slot>(pointer = pointer),
+            trusted core.memory.epoch_current<Slot>(pointer = pointer),
+            trusted core.memory.synchronized_access<Slot>(pointer = pointer),
+            trusted core.memory.movement_stable<Slot>(pointer = pointer),
+            trusted core.memory.finalization_pending<Slot>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&anchor, pointer);
+    return trusted std.memory.borrow_mut_from<Slot, LinkAccess>(anchor, pointer);
+}
+
+// Derive a neighbor from the retained collection, never from caller-supplied
+// address bits. The shared lease freezes its linked membership while accessed.
+trusted internal func task_head_access(
+    pos owner: &Reference,
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos retirement: u8
+) -> LinkAccess
+    requires(
+        trusted retained(owner = owner),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted retained(owner = owner), trusted link_access(owner = &result))
+    uses(intrinsic)
+{
+    let mut access = trusted task_slot_access(owner, lease);
+    let slot = trusted link_slot(&mut access);
+
+    let head = if retirement == 0
+    {
+        yield slot.terminal_waiters;
+    }
+    else
+    {
+        yield slot.retirement_waiters;
+    };
+
+    if head.empty()
+    {
+        trusted core.target.abort();
+    }
+
+    return
+    {
+        lease = lease,
+        pointer = head.pointer
+    };
+}
+
+// End the borrow into the incoming owner before moving that owner into its
+// retained membership slot. The lease excludes both recycling and delivery.
+trusted internal func store_registration(pos owner: WaitRegistration, pos lease: &bray.runtime.bootstrap.host.HostLease)
+    requires(
+        trusted registration_owned(owner = &owner.resources),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
+    uses(raw_memory, intrinsic, unchecked_init)
+{
+    let pointer =
+    {
+        let mut access = trusted task_slot_access(trusted registration_waiter(&owner), lease);
+        let slot = trusted link_slot(&mut access);
+
+        if slot.registration matches ?_
+        {
+            trusted core.target.abort();
+        }
+
+        yield std.memory.address_of_mut<(WaitRegistration?)>(&mut slot.registration);
+    };
+
+    let permit = trusted lambda(
+        pos owner: &WaitRegistration,
+        pos lease: &bray.runtime.bootstrap.host.HostLease,
+        pos pointer: DataPointer<(WaitRegistration?)>
+    )
+        requires(
+            trusted registration_owned(owner = &owner.resources),
+            lease.active,
+            trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+        )
+        ensures(
+            trusted core.memory.valid_write<(WaitRegistration?)>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<(WaitRegistration?)>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&owner, lease, pointer);
+    trusted std.memory.write<(WaitRegistration?)>(pointer, owner);
+}

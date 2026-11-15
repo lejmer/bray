@@ -117,6 +117,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                 .expect("checked state root exists")
             {
                 bray_bound_tree::StorageIdentity::Temporary(expression)
+                | bray_bound_tree::StorageIdentity::Evaluated(expression)
                 | bray_bound_tree::StorageIdentity::Result(
                     bray_bound_tree::AnyBoundNodeId::Expression(expression),
                 ) => self.place_expression(expression)?,

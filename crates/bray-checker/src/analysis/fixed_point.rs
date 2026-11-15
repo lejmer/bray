@@ -52,9 +52,19 @@ pub(crate) trait FixedPointDomain {
 pub(crate) struct FixedPointResult<State> {
     unit: BoundUnitId,
     states: Box<[State]>,
+    outputs: Box<[Option<State>]>,
 }
 
 impl<State> FixedPointResult<State> {
+    /// Final transferred state, absent when the solver never visited this block.
+    pub(crate) fn output(&self, block: AnalysisBlockId) -> Option<&State> {
+        if block.unit() != self.unit {
+            return None;
+        }
+
+        block.to_index().and_then(|index| self.outputs.get(index))?.as_ref()
+    }
+
     pub(crate) fn state(&self, block: AnalysisBlockId) -> Option<&State> {
         if block.unit() != self.unit {
             return None;
@@ -159,6 +169,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
     FixedPointOutcome::Complete(FixedPointResult {
         unit: graph.unit(),
         states: states.into_boxed_slice(),
+        outputs: outputs.into_boxed_slice(),
     })
 }
 
@@ -322,6 +333,7 @@ mod tests {
         let foreign = AnalysisBlockId::from_slot(BoundUnitId::new(99), 0);
 
         assert_eq!(result.state(foreign), None);
+        assert_eq!(result.output(foreign), None);
     }
 
     #[test]
@@ -334,6 +346,7 @@ mod tests {
         };
 
         assert_eq!(result.state(graph.entry()), Some(&3));
+        assert_eq!(result.output(graph.entry()), Some(&3));
     }
 
     #[test]
@@ -440,7 +453,9 @@ mod tests {
             [AnalysisExit::new(
                 block(4),
                 AnalysisExitKind::NormalFallthrough,
-            )],
+            exit_source(unit).into(),
+        )],
+            Default::default(),
         );
 
         for direction in [FlowDirection::Forward, FlowDirection::Backward] {
@@ -466,6 +481,7 @@ mod tests {
             };
 
             assert_eq!(result.state(target), Some(&expected));
+            assert_eq!(result.output(target), Some(&BTreeSet::from([block(0), block(1), block(2), block(3), block(4)])));
             assert_eq!(domain.transfers.get(), 5);
         }
     }
@@ -548,8 +564,16 @@ mod tests {
             [AnalysisExit::new(
                 second,
                 AnalysisExitKind::NormalFallthrough,
-            )],
+            exit_source(unit).into(),
+        )],
+            Default::default(),
         )
+    }
+
+    fn exit_source(unit: BoundUnitId) -> bray_bound_tree::BoundExpressionId {
+        let (_, expressions) = crate::test_support::integer_expression_unit(unit, 1);
+
+        expressions[0]
     }
 
     fn cyclic_graph() -> ControlFlowGraph {
@@ -569,7 +593,10 @@ mod tests {
                 None,
             )],
             [],
-            [AnalysisExit::new(block, AnalysisExitKind::Divergence)],
+            [AnalysisExit::new(block, AnalysisExitKind::Divergence,
+            exit_source(unit).into(),
+        )],
+            [(block, exit_source(unit))].into(),
         )
     }
 }

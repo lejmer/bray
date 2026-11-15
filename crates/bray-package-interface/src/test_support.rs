@@ -303,6 +303,7 @@ pub(crate) fn identity_surface(
                 | SymbolKind::Constant
                 | SymbolKind::Predicate,
             ) => SymbolRelationshipKind::ModuleMember,
+            (SymbolKind::Struct, SymbolKind::StructField) => SymbolRelationshipKind::StructField,
             (SymbolKind::Struct | SymbolKind::Union, member)
                 if SymbolRelationshipKind::TypeMember.supports(owner.kind(), member) =>
             {
@@ -321,10 +322,11 @@ pub(crate) fn identity_surface(
             (SymbolKind::NamedTraitImplementation, SymbolKind::TraitPredicateFulfillment) => {
                 SymbolRelationshipKind::ImplementationFulfillment
             }
-            (
-                SymbolKind::Function,
-                SymbolKind::GenericTypeParameter | SymbolKind::GenericConstParameter,
-            ) => SymbolRelationshipKind::GenericParameter,
+            (declaration, parameter)
+                if SymbolRelationshipKind::GenericParameter.supports(declaration, parameter) =>
+            {
+                SymbolRelationshipKind::GenericParameter
+            }
             (SymbolKind::Function, SymbolKind::CallableParameter) => {
                 SymbolRelationshipKind::CallableParameter
             }

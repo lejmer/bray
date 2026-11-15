@@ -147,6 +147,7 @@ pub(super) struct LoopContext {
 
 #[derive(Clone, Copy)]
 pub(super) struct CatchContext {
+    pub(super) expression: BoundExpressionId,
     pub(super) target: AnalysisBlockId,
     pub(super) scope_depth: usize,
 }
@@ -351,7 +352,7 @@ where
         ) = self
             .selections()
             .and_then(|selections| selections.expression(id))
-            && selection.evaluates_defaults()
+            && selection.stages_inputs()
         {
             let current = self.build_selected_inputs(id, selection, current)?;
 
@@ -524,7 +525,8 @@ where
         {
             Some(SemanticSelection::Operation(operation)) => {
                 if let bray_bound_tree::SelectedOperation::Construction(construction) = operation
-                    && self.cleanup_free_operations.contains(&expression)
+                    && (self.request.unit().key().is_static_initializer()
+                        || self.cleanup_free_operations.contains(&expression))
                     && !matches!(
                         construction.target(),
                         bray_bound_tree::ConstructionTarget::TypeForm { .. }
@@ -536,12 +538,13 @@ where
                         )
                     })
                 {
-                    // Explicit inputs have their own failure edges. This owner adds
-                    // neither an implicit call nor any cleanup admission.
+                    // Explicit inputs retain their own failures. Static formation admits
+                    // the materialized owner separately from constant evaluation.
                     return false;
                 }
 
-                operation.may_propagate_synchronous_panic()
+                operation.may_propagate_synchronous_panic(self.request.view().expression(expression)
+                    .expect("checked operation retains its bound expression"))
             }
             Some(SemanticSelection::Iteration(selection)) => !matches!(
                 self.request
@@ -892,8 +895,8 @@ mod tests {
     use crate::CheckerUnitView;
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
-        AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
-        AnalysisSuspensionKind,
+        AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisResultPhase,
+        AnalysisScopeExitPhase, AnalysisSuspensionKind,
     };
     use crate::test_support::{
         TestCheckerContext, available_compiler_known_symbols, callable_entry, callable_key,
@@ -974,6 +977,32 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(predecessor_kinds, [AnalysisEdgeKind::ConditionalTrue]);
+
+        let result_phases = graph.operations().iter().filter_map(|operation| {
+            let AnalysisOperationKind::Result { expression, phase } = operation.kind() else {
+                return None;
+            };
+
+            (expression == binary).then_some(phase)
+        }).collect::<Vec<_>>();
+
+        assert_eq!(result_phases, [
+            AnalysisResultPhase::Begin,
+            AnalysisResultPhase::Production,
+            AnalysisResultPhase::Completion,
+        ]);
+
+        let publication = graph.blocks().iter().find(|block| block.operations().iter().any(|id| {
+            graph.operation(*id).is_some_and(|operation| matches!(operation.kind(),
+                AnalysisOperationKind::Result { expression, phase: AnalysisResultPhase::Completion } if expression == binary))
+        })).expect("the selected Boolean publishes after its paths rejoin");
+
+        assert_eq!(publication.predecessors().len(), 2);
+        assert_eq!(graph.operations().iter().filter(|operation| operation.kind().node() == left.into()).count(), 1);
+
+        assert!(!graph.operations().iter().any(|operation| matches!(
+            operation.kind(), AnalysisOperationKind::Bound(node) if node == binary.into()
+        )));
     }
 
     #[test]
@@ -1245,6 +1274,28 @@ mod tests {
                 kind: AnalysisSuspensionKind::Await,
             } if occurrence == await_expression.into()
         )));
+
+        let completion = graph.blocks().iter().find(|block| block.operations().iter().any(|id|
+            matches!(graph.operation(*id).expect("block retains its operation").kind(),
+                AnalysisOperationKind::Call { invocation, phase: super::super::model::AnalysisCallPhase::Completion }
+                    if invocation == await_expression.into())))
+            .expect("await publishes a normal completion");
+
+        assert!(graph.edges().iter().any(|edge| edge.source() == completion.id()
+            && edge.kind() == AnalysisEdgeKind::RunCancellation && edge.refinement().is_none()),
+            "post-completion cancellation retains the produced result instead of applying invocation failure");
+
+        assert!(matches!(completion.operations().last().and_then(|id| graph.operation(*id)).map(|operation| operation.kind()),
+            Some(AnalysisOperationKind::Call { phase: super::super::model::AnalysisCallPhase::Completion, .. })),
+            "source continuation cannot consume the completed value before the cancellation edge");
+
+        let suspension = graph.operations().iter().find(|operation| matches!(operation.kind(),
+            AnalysisOperationKind::Suspension { occurrence, kind: AnalysisSuspensionKind::Await }
+                if occurrence == await_expression.into())).expect("await has its admission boundary");
+
+        assert_eq!(suspension.kind().value_consumption_phase(),
+            Some(bray_bound_tree::StorageValueConsumptionPhase::Admission),
+            "suspending await transfers the operand before either outcome");
     }
 
     #[test]

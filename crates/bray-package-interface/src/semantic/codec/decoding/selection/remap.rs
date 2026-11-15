@@ -1,3 +1,4 @@
+use bray_symbols::DependencyStorageEffect;
 use std::sync::Arc;
 
 use super::mapping::RecordMaps;
@@ -213,6 +214,13 @@ pub(super) fn remap_selected_records(
 
     let runtime_requirements = records.runtime_requirements.into_values();
 
+    let type_representations = records.type_representations.into_values()
+        .map(|mut representation| {
+            representation.try_map_types(|ty| maps.type_id(ty))?;
+
+            Ok(representation)
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
     Ok(InterfaceSemantics::new()
         .with_applications(
             substitutions,
@@ -229,6 +237,7 @@ pub(super) fn remap_selected_records(
             [],
         )
         .with_declared_types(declared_types)
+        .with_type_representations(type_representations)
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, [])
         .with_runtime_requirements(runtime_requirements))
@@ -248,12 +257,30 @@ fn remap_dependency_contract(
         }
     }
 
+    let stored_values = contract.stored_values.iter().map(|stored| {
+        let mut subject = stored.destination().subject().clone();
+
+        remap_dependency_subject(&mut subject, maps)?;
+
+        let destination = bray_symbols::DependencyStoredValuePath::new(subject, stored.destination().dereferences());
+
+        let sources = stored.sources().iter().map(|source| {
+            let mut subject = source.subject().clone();
+
+            remap_dependency_subject(&mut subject, maps)?;
+
+            Ok(bray_symbols::DependencyStoredValuePath::new(subject, source.dereferences()))
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+        Ok(bray_symbols::DependencyStoredValue::new(destination, sources, stored.is_complete()))
+    }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
     let borrows = contract
         .borrows
         .iter()
         .map(|relation| {
             // The selected record owns remapped paths independently of the decoded table.
-            let mut entry = relation.entry().cloned();
+            let mut entry = relation.source_subject().cloned();
             let mut exit = relation.exit().clone();
 
             if let Some(entry) = &mut entry {
@@ -267,10 +294,7 @@ fn remap_dependency_contract(
             remap_dependency_projections(&mut projections, maps)?;
 
             Ok(
-                bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
-                    .with_dereferences(relation.dereferences())
-                    .with_provenance(relation.provenance())
-                    .with_target_projections(projections),
+                relation.remap(entry, exit, projections),
             )
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
@@ -287,6 +311,7 @@ fn remap_dependency_contract(
                     maps.constant_term_id(transfer.input())?,
                     transfer.output().iter().cloned(),
                 )
+                .with_preservation(transfer.preservation().clone())
                 .with_condition(
                     transfer
                         .condition()
@@ -315,22 +340,21 @@ fn remap_dependency_contract(
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
     for effect in Arc::make_mut(&mut contract.effects) {
-        use bray_symbols::DependencyStorageEffect;
 
-        if let DependencyStorageEffect::Direct { kind, .. }
-        | DependencyStorageEffect::Indirect { kind, .. } = effect
+        if let DependencyStorageEffect::Direct { kind, access_type, .. }
+        | DependencyStorageEffect::Indirect { kind, access_type, .. }
+        | DependencyStorageEffect::UnboundedMutation { kind, access_type, .. } = effect
         {
             *kind = kind.try_map_type(|ty| maps.type_id(ty))?;
+            *access_type = access_type.map(|ty| maps.type_id(ty)).transpose()?;
         }
 
         match effect {
-            DependencyStorageEffect::Atomic
+            DependencyStorageEffect::UnboundedMutation { .. }
+                | DependencyStorageEffect::Atomic
             | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}
-            DependencyStorageEffect::Cleanup(ty) => {
-                *ty = maps.type_id(*ty)?;
-            }
             DependencyStorageEffect::Direct { subject, .. } => {
                 remap_dependency_subject(subject, maps)?
             }
@@ -349,6 +373,7 @@ fn remap_dependency_contract(
 
     Ok(contract
         .with_borrows(borrows)
+        .with_stored_values(stored_values)
         .with_carriers(carriers)
         .with_effects(effects.iter().cloned()))
 }
@@ -650,7 +675,7 @@ fn remap_dependency_requirement(
         InterfaceDependencyRequirementValue::CleanupDependencies { ty, requirements } => {
             *ty = maps.type_id(*ty)?;
 
-            for nested in std::sync::Arc::make_mut(requirements) {
+            for nested in Arc::make_mut(requirements) {
                 remap_dependency_requirement(nested, maps)?;
             }
         }

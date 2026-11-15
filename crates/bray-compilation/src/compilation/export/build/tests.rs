@@ -11,6 +11,7 @@ mod generics;
 mod guarantees;
 mod indexing;
 mod layout;
+mod matrix;
 mod lifecycle;
 mod numeric;
 mod owned_transfers;

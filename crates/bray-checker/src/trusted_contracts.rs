@@ -8,7 +8,7 @@ use crate::ExecutionCondition;
 #[derive(Debug, Default)]
 pub struct TrustedContractInputs {
     /// Whether checked body evidence may refine returned authority beyond declared promises.
-    /// Trusted implementations expose only their declared boundary contract.
+    /// Trusted assertions remain separate from evidence established by the body.
     pub infer_result_witnesses: bool,
     /// Receiver-first formal inputs used by portable result summaries.
     pub inputs: Vec<bray_bound_tree::BoundReferenceTarget>,
@@ -22,7 +22,7 @@ pub struct TrustedContractInputs {
     /// Trusted conditions the caller must supply at entry.
     pub requirements: Vec<ExecutionCondition>,
     /// Borrowed or owning subjects whose established entry authority cannot be copied.
-    pub required_witnesses: Vec<(ExecutionCondition, crate::ExecutionPlace)>,
+    pub required_witnesses: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
     /// Ordinary entry conditions that guard the trusted guarantees.
     pub preconditions: Vec<ExecutionCondition>,
     /// Guarantees a safe body must establish on every normal completion.

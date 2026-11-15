@@ -6,7 +6,7 @@ use crate::semantic::model::{
     InterfaceConstantValue, InterfaceConstraint, InterfaceDeclaredType,
     InterfaceDependencyContract, InterfaceGenericDeclaration, InterfaceGenericSubstitution,
     InterfaceImplementationInstance, InterfaceImplementationRecord, InterfaceRuntimeRequirement,
-    InterfaceTargetPropertyDependency, InterfaceTraitApplication, InterfaceType,
+    InterfaceTargetPropertyDependency, InterfaceTraitApplication, InterfaceType, InterfaceTypeRepresentation,
 };
 
 pub(super) struct RecordSet<T> {
@@ -34,6 +34,7 @@ impl<T> RecordSet<T> {
 }
 
 pub(super) struct SelectedRecords {
+    pub(super) type_representations: RecordSet<InterfaceTypeRepresentation>,
     pub(super) substitutions: RecordSet<InterfaceGenericSubstitution>,
     pub(super) trait_applications: RecordSet<InterfaceTraitApplication>,
     pub(super) callable_instances: RecordSet<InterfaceCallableInstance>,
@@ -57,6 +58,7 @@ pub(super) struct SelectedRecords {
 impl SelectedRecords {
     pub(super) const fn new() -> Self {
         Self {
+            type_representations: RecordSet::new(),
             substitutions: RecordSet::new(),
             trait_applications: RecordSet::new(),
             callable_instances: RecordSet::new(),

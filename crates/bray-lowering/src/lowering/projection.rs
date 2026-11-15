@@ -63,6 +63,8 @@ pub(super) fn static_projection_kind(projection: StorageProjection) -> Option<Mi
         StorageProjection::UninitPayload
         | StorageProjection::OwnedTarget
         | StorageProjection::Element(_)
+        | StorageProjection::AnyElement
+        | StorageProjection::AddressTarget
         | StorageProjection::SliceRange { .. } => None,
     }
 }

@@ -12,6 +12,7 @@ pub(crate) struct Transfer<'a, 'state, C: CheckerRequestContext + ?Sized> {
     pub(super) selections: &'a CheckedSemanticSelections,
     pub(super) patterns: &'a CheckedPatterns,
     pub(super) inputs: &'a crate::dependency::ValueInputs,
+    pub(super) storage: &'a bray_bound_tree::StoragePlan,
     pub(super) state: &'state mut super::state::State,
 }
 
@@ -22,6 +23,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
         selections: &'a CheckedSemanticSelections,
         patterns: &'a CheckedPatterns,
         inputs: &'a crate::dependency::ValueInputs,
+        storage: &'a bray_bound_tree::StoragePlan,
         state: &'state mut super::state::State,
     ) -> Self {
         Self {
@@ -30,6 +32,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
             selections,
             patterns,
             inputs,
+            storage,
             state,
         }
     }
@@ -58,7 +61,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                 phase: AnalysisCallPhase::Input | AnalysisCallPhase::Attempt,
                 ..
             } | AnalysisOperationKind::Result {
-                phase: crate::analysis::AnalysisResultPhase::Begin,
+                phase: crate::analysis::AnalysisResultPhase::Begin | crate::analysis::AnalysisResultPhase::Production,
                 ..
             } | AnalysisOperationKind::ScopeExit { .. }
                 | AnalysisOperationKind::Suspension { .. }
@@ -163,7 +166,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                 if self.inputs.returned_errors.contains(&id) {
                     let (value, projection) = self.inputs.error_exits[&id];
 
-                    let requirements = self.projected_values(value, &[projection]);
+                    let requirements = self.copied_values(value, &[projection])?;
 
                     self.state.returned.extend(requirements);
                 }
@@ -244,26 +247,36 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     .get(&reference.binding())
                     .cloned()
                     .unwrap_or_default(),
-                BoundExpression::MemberAccess(member) => {
-                    self.member_values(id, expression, member.receiver())?
-                }
+                BoundExpression::MemberAccess(member) => self.member_values(id, member.receiver())?,
                 BoundExpression::TraitQualifiedMember(member) => {
-                    self.member_values(id, expression, member.receiver())?
+                    self.member_values(id, member.receiver())?
                 }
-                BoundExpression::Await(_) if completed.or_else(|| self.inputs.completion_sources(id)).is_some() => {
-                    let mut requirements = completed.or_else(|| self.inputs.completion_sources(id))
-                        .into_iter().flatten().filter_map(|source| self.state.completions.get(source))
-                        .flatten().cloned().collect::<BTreeSet<_>>();
+                BoundExpression::Await(_)
+                    if completed
+                        .or_else(|| self.inputs.completion_sources(id))
+                        .is_some() =>
+                {
+                    let mut requirements = completed
+                        .or_else(|| self.inputs.completion_sources(id))
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|source| self.state.completions.get(source))
+                        .flatten()
+                        .cloned()
+                        .collect::<BTreeSet<_>>();
 
                     // Opaque values retain their own captures, rather than every
                     // capture of the joined value's unrelated known producers.
                     if completed.is_none_or(BTreeSet::is_empty) {
-                        requirements.extend(self.inputs.operands(id).flat_map(|source| self.state
-                            .value_requirements(source).cloned()));
+                        requirements.extend(
+                            self.inputs
+                                .operands(id)
+                                .flat_map(|source| self.state.value_requirements(source).cloned()),
+                        );
                     }
 
                     requirements
-                },
+                }
                 BoundExpression::Call(_)
                     if matches!(
                         self.selections.expression(id),
@@ -349,7 +362,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         }
 
         for (value, path) in self.inputs.projected_operands(id) {
-            requirements.extend(self.projected_values(value, &path));
+            requirements.extend(self.copied_values(value, &path)?);
         }
 
         if call_result
@@ -375,29 +388,22 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
     fn member_values(
         &self,
         id: BoundExpressionId,
-        expression: &BoundExpression,
         receiver: BoundExpressionId,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-        let sources = self.expression_sources(id, expression);
-
-        if sources.is_empty() {
+        let Some(projection) = crate::dependency::assignment::member_projection(
+            self.request.unit(),
+            self.selections,
+            id,
+        ) else {
             return Ok(self
                 .state
                 .values
-                .get(&(receiver).into())
+                .get(&receiver.into())
                 .cloned()
                 .unwrap_or_default());
-        }
+        };
 
-        Ok(sources
-            .into_iter()
-            .map(|subject| {
-                DependencyRequirement::direct(
-                    super::sources::source_subject(&subject, []),
-                    DependencyRequirementKind::ValueDependencies,
-                )
-            })
-            .collect())
+        self.copied_values(receiver, &[projection])
     }
 }
 

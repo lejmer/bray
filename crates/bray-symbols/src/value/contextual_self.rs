@@ -178,10 +178,11 @@ mod tests {
                         nested,
                     )])
                     .with_effects([
-                        DependencyStorageEffect::Cleanup(contextual),
+                        DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Dispose(contextual), access_type: None, ambient: false },
                         DependencyStorageEffect::Direct {
                             subject: DependencySubject::root(DependencySubjectRoot::Receiver),
                             kind: DependencyMutationKind::Replace(contextual),
+                            access_type: Some(nested),
                         },
                     ]),
             )
@@ -206,11 +207,11 @@ mod tests {
 
         assert!(
             data.effects()
-                .contains(&DependencyStorageEffect::Cleanup(replacement))
+                .contains(&DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Dispose(replacement), access_type: None, ambient: false })
         );
 
         assert!(data.effects().iter().any(|effect| matches!(effect,
-            DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), .. }
-                if *ty == replacement)));
+            DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), access_type: Some(access), .. }
+                if *ty == replacement && store.type_data(*access) == store.type_data(expected))));
     }
 }

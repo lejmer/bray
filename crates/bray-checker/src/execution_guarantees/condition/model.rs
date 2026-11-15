@@ -1,10 +1,35 @@
 use bray_bound_tree::BoundOperator;
 use bray_symbols::ConstantValueData;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::collections::{HashMap, HashSet};
+use std::cmp::Ordering;
+
+use super::traversal::{NodeIdentity, visit_once};
+use super::operands::ExecutionOperands;
+
+/// How a current observation relates to the storage or value that retains it.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutionObservationKind {
+    /// Current contents belong to this complete owned value.
+    Owned,
+    /// Current reached data is observed through a retained reference value.
+    Reference,
+    /// Copied scalar data is observed at an independently identified storage place.
+    Scalar,
+}
+
+/// Whether a descriptor is supplied directly or read through a view of its storage.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutionDescriptorKind {
+    /// Retain a reference descriptor independently of its reached contents.
+    Reference,
+    /// Read the current value before selecting its descriptor.
+    Value,
+}
 
 /// A bounded, source-independent value used to compare entry and completion conditions.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ExecutionCondition {
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd)]
+pub enum ExecutionConditionKind {
     /// A checked Boolean value.
     Boolean(bool),
     /// An active union tag in a checked aggregate snapshot.
@@ -13,6 +38,10 @@ pub enum ExecutionCondition {
     Tagged(bray_symbols::UnionVariantSymbolId, Arc<ExecutionCondition>),
     /// A test of a union tag, independent of its payload.
     VariantTest(bray_symbols::UnionVariantSymbolId, Arc<ExecutionCondition>),
+    /// An immutable nullable presence or union tag, without payload data or authority.
+    Discriminant(Arc<ExecutionCondition>),
+    /// Immutable descriptor data, independently of current reached contents.
+    Descriptor(ExecutionDescriptorKind, Arc<ExecutionCondition>),
     /// A checked literal value.
     Literal(Arc<ConstantValueData>),
     /// The value of a supplied input before execution begins.
@@ -37,10 +66,18 @@ pub enum ExecutionCondition {
         Arc<ExecutionCondition>,
         Arc<[(bray_bound_tree::StorageProjection, ExecutionCondition)]>,
     ),
-    /// Fresh contents observed after a checked mutation. This establishes no guarantee.
+    /// Current data retains its identity independently of its observation role.
+    /// Reference contents never transfer ownership of the reached storage.
+    Observation {
+        owner: Arc<ExecutionCondition>,
+        contents: Arc<ExecutionCondition>,
+        kind: ExecutionObservationKind,
+    },
+    /// Fresh contents of one value identity after a checked mutation.
+    /// The identity carries no previous contents or new guarantee.
     PostState(
         bray_bound_tree::StorageMutation,
-        crate::execution_guarantees::ExecutionPlace,
+        Arc<ExecutionCondition>,
     ),
     /// The current value of storage where control-flow predecessors meet.
     Joined(
@@ -48,20 +85,34 @@ pub enum ExecutionCondition {
         u32,
         crate::execution_guarantees::ExecutionPlace,
     ),
+    /// A produced opaque scalar datum with an immutable execution identity and no owner authority.
+    ScalarValue(Arc<ExecutionCondition>),
+    /// A proof-only correspondence between the same immutable data observations.
+    /// This is not numeric equality and carries no ownership or trusted evidence.
+    ValueAlias(Arc<ExecutionCondition>, Arc<ExecutionCondition>),
+    /// Immutable initialized-state observation at an ownership join. The value
+    /// identity distinguishes incarnations without becoming access authority.
+    InitializedSnapshot(
+        crate::execution_guarantees::ExecutionPlace,
+        Arc<ExecutionCondition>,
+        Arc<ExecutionCondition>,
+    ),
     /// A selected built-in operation on other known values.
-    Operation(BoundOperator, Arc<[ExecutionCondition]>),
+    Operation(BoundOperator, ExecutionOperands),
     /// A checked predicate application, compared by declaration and selected arguments.
     Predicate(
         bray_symbols::PredicateDefinitionSymbolId,
         bray_symbols::GenericSubstitutionId,
-        Arc<[ExecutionCondition]>,
+        ExecutionOperands,
     ),
     /// A checked deterministic callable application with stable declaration and argument identity.
     Call(
         bray_symbols::CallableInstanceData,
         Option<bray_symbols::ImplementationInstanceData>,
         Arc<[bray_symbols::ImplementationInstanceData]>,
-        Arc<[ExecutionCondition]>,
+        ExecutionOperands,
+        // A checked borrowed result type identifies a reference computation without granting ownership.
+        Option<bray_symbols::TypeId>,
     ),
     /// One component of an observed immutable value.
     Projection(
@@ -81,73 +132,471 @@ pub enum ExecutionCondition {
     Unknown,
 }
 
+/// An immutable execution condition with shared structure and a cached structural hash.
+#[derive(Clone)]
+pub struct ExecutionCondition(Arc<ConditionNode>);
+
+type ComparisonForms = [[OnceLock<Box<PreparedCondition>>; 2]; 6];
+
+pub(in crate::execution_guarantees) struct ConditionNode {
+    kind: ExecutionConditionKind,
+    hash: u64,
+    comparisons: OnceLock<Box<ComparisonForms>>,
+}
+
+impl std::fmt::Debug for ConditionNode {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("ConditionNode").field("kind", &self.kind).field("hash", &self.hash).finish()
+    }
+}
+
+impl ConditionNode {
+    fn new(kind: ExecutionConditionKind) -> Self {
+        let hash = super::hashing::structural_hash(&kind);
+
+        Self { kind, hash, comparisons: OnceLock::new() }
+    }
+}
+
+/// A condition prepared for exact lookup without allocating its root handle.
+pub(in crate::execution_guarantees) enum PreparedCondition {
+    Retained(ExecutionCondition),
+    Unpublished(ConditionNode),
+}
+
+impl PreparedCondition {
+    pub(in crate::execution_guarantees) fn new(kind: ExecutionConditionKind) -> Self {
+        Self::Unpublished(ConditionNode::new(kind))
+    }
+
+    pub(in crate::execution_guarantees) fn finish(self) -> ExecutionCondition {
+        match self {
+            Self::Retained(value) => value,
+            Self::Unpublished(node) => ExecutionCondition(Arc::new(node)),
+        }
+    }
+
+    fn node(&self) -> &ConditionNode {
+        match self {
+            Self::Retained(value) => &value.0,
+            Self::Unpublished(node) => node,
+        }
+    }
+
+    pub(super) fn cached_hash(&self) -> u64 { self.node().hash }
+
+    #[cfg(test)]
+    pub(super) fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
+        Self::Unpublished(ConditionNode { kind, hash, comparisons: OnceLock::new() })
+    }
+}
+
+impl From<ExecutionCondition> for PreparedCondition {
+    fn from(value: ExecutionCondition) -> Self { Self::Retained(value) }
+}
+
+impl hashbrown::Equivalent<ExecutionCondition> for PreparedCondition {
+    fn equivalent(&self, key: &ExecutionCondition) -> bool {
+        compare_nodes(self.node(), &key.0, true, &mut ComparedPairs::new()).is_eq()
+    }
+}
+
+impl ExecutionCondition {
+    /// Creates a condition from its checked structural kind.
+    pub fn new(kind: ExecutionConditionKind) -> Self {
+        Self(Arc::new(ConditionNode::new(kind)))
+    }
+
+    /// Returns the condition's structural kind.
+    pub fn kind(&self) -> &ExecutionConditionKind { &self.0.kind }
+
+    /// Returns a shared Boolean condition.
+    pub fn boolean(value: bool) -> Self {
+        static TRUE: std::sync::LazyLock<ExecutionCondition> = std::sync::LazyLock::new(|| ExecutionCondition::new(ExecutionConditionKind::Boolean(true)));
+        static FALSE: std::sync::LazyLock<ExecutionCondition> = std::sync::LazyLock::new(|| ExecutionCondition::new(ExecutionConditionKind::Boolean(false)));
+
+        if value { TRUE.clone() } else { FALSE.clone() }
+    }
+
+    /// Returns the shared unknown condition.
+    pub fn unknown() -> Self {
+        static UNKNOWN: std::sync::LazyLock<ExecutionCondition> = std::sync::LazyLock::new(|| ExecutionCondition::new(ExecutionConditionKind::Unknown));
+
+        UNKNOWN.clone()
+    }
+
+    /// Returns the shared completion result condition.
+    pub fn result() -> Self {
+        static RESULT: std::sync::LazyLock<ExecutionCondition> = std::sync::LazyLock::new(|| ExecutionCondition::new(ExecutionConditionKind::Result));
+
+        RESULT.clone()
+    }
+
+    /// Derived syntax belongs to the immutable operands, while proof truth belongs to its evidence scope.
+    pub(in crate::execution_guarantees) fn comparison_form(&self, operator: BoundOperator, reversed: bool) -> &PreparedCondition {
+        let index = match operator {
+            BoundOperator::Equal => 0,
+            BoundOperator::NotEqual => 1,
+            BoundOperator::Less => 2,
+            BoundOperator::LessEqual => 3,
+            BoundOperator::Greater => 4,
+            BoundOperator::GreaterEqual => 5,
+            _ => panic!("comparison form requires a comparison operator, found {operator:?}"),
+        };
+
+        let ExecutionConditionKind::Operation(_, operands) = self.kind() else {
+            panic!("comparison form requires operation operands, found {:?}", self.kind());
+        };
+
+        let [left, right] = operands.as_ref() else {
+            panic!("comparison form requires two operands, found {}", operands.len());
+        };
+
+        let forms = self.0.comparisons.get_or_init(|| Box::new(Default::default()));
+
+        forms[index][usize::from(reversed)].get_or_init(|| {
+            let (left, right) = if reversed { (right, left) } else { (left, right) };
+
+            // Fresh operand storage keeps this derived form from retaining its owning table.
+            Box::new(Self::prepare_operation(operator, vec![left.clone(), right.clone()]))
+        })
+    }
+
+    pub(super) fn cached_hash(&self) -> u64 { self.0.hash }
+
+    #[cfg(test)]
+    pub(super) fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
+        Self(Arc::new(ConditionNode { kind, hash, comparisons: OnceLock::new() }))
+    }
+}
+
+fn compare_operands(left: &[ExecutionCondition], right: &[ExecutionCondition], child: &mut impl FnMut(&ExecutionCondition, &ExecutionCondition) -> Ordering) -> Ordering {
+    left.iter().zip(right).map(|(left, right)| child(left, right)).find(|order| !order.is_eq())
+        .unwrap_or_else(|| left.len().cmp(&right.len()))
+}
+
+impl ConditionNode {
+    /// Compare exact root fields in declaration order, delegating recursive identity to the caller.
+    fn cmp_parts(&self, other: &Self, child: &mut impl FnMut(&ExecutionCondition, &ExecutionCondition) -> Ordering) -> Ordering {
+        use ExecutionConditionKind as C;
+
+        match (&self.kind, &other.kind) {
+            (C::Boolean(a), C::Boolean(b)) => a.cmp(b),
+            (C::Variant(a), C::Variant(b)) => a.cmp(b),
+            (C::Literal(a), C::Literal(b)) => a.cmp(b),
+            (C::Input(a), C::Input(b)) => a.cmp(b),
+            (C::Expression(a), C::Expression(b)) | (C::ScopedCapability(a), C::ScopedCapability(b)) => a.cmp(b),
+            (C::Result, C::Result) | (C::Unknown, C::Unknown) => Ordering::Equal,
+            (C::Tagged(tag, a), C::Tagged(other_tag, b))
+            | (C::VariantTest(tag, a), C::VariantTest(other_tag, b)) => tag.cmp(other_tag).then_with(|| child(a, b)),
+            (C::Discriminant(a), C::Discriminant(b)) | (C::Present(a), C::Present(b))
+            | (C::ScalarValue(a), C::ScalarValue(b)) | (C::Trusted(a), C::Trusted(b))
+            | (C::Borrowed(a), C::Borrowed(b)) => child(a, b),
+            (C::Descriptor(kind, a), C::Descriptor(other_kind, b)) => kind.cmp(other_kind).then_with(|| child(a, b)),
+            (C::CapturedInput { owner, invocation, ordinal }, C::CapturedInput { owner: other_owner, invocation: other_invocation, ordinal: other_ordinal }) =>
+                child(owner, other_owner).then_with(|| (invocation, ordinal).cmp(&(other_invocation, other_ordinal))),
+            (C::Constructed(base, fields), C::Constructed(other_base, other_fields)) =>
+                child(base, other_base).then_with(|| fields.iter().zip(other_fields.iter())
+                    .map(|((field, value), (other_field, other_value))| field.cmp(other_field).then_with(|| child(value, other_value)))
+                    .find(|order| !order.is_eq()).unwrap_or_else(|| fields.len().cmp(&other_fields.len()))),
+            (C::Observation { owner, contents, kind }, C::Observation { owner: other_owner, contents: other_contents, kind: other_kind }) =>
+                child(owner, other_owner).then_with(|| child(contents, other_contents)).then_with(|| kind.cmp(other_kind)),
+            (C::PostState(mutation, owner), C::PostState(other_mutation, other_owner)) =>
+                mutation.cmp(other_mutation).then_with(|| child(owner, other_owner)),
+            (C::Joined(unit, block, place), C::Joined(other_unit, other_block, other_place)) =>
+                (unit, block, place).cmp(&(other_unit, other_block, other_place)),
+            (C::ValueAlias(left, right), C::ValueAlias(other_left, other_right)) =>
+                child(left, other_left).then_with(|| child(right, other_right)),
+            (C::InitializedSnapshot(place, join, value), C::InitializedSnapshot(other_place, other_join, other_value)) =>
+                place.cmp(other_place).then_with(|| child(join, other_join)).then_with(|| child(value, other_value)),
+            (C::Operation(operator, operands), C::Operation(other_operator, other_operands)) =>
+                operator.cmp(other_operator).then_with(|| compare_operands(operands, other_operands, child)),
+            (C::Predicate(predicate, substitution, operands), C::Predicate(other_predicate, other_substitution, other_operands)) =>
+                (predicate, substitution).cmp(&(other_predicate, other_substitution)).then_with(|| compare_operands(operands, other_operands, child)),
+            (C::Call(callable, implementation, witnesses, operands, reference_type), C::Call(other_callable, other_implementation, other_witnesses, other_operands, other_reference_type)) =>
+                (callable, implementation, witnesses).cmp(&(other_callable, other_implementation, other_witnesses))
+                    .then_with(|| compare_operands(operands, other_operands, child)).then_with(|| reference_type.cmp(other_reference_type)),
+            (C::Projection(field, value), C::Projection(other_field, other_value)) => field.cmp(other_field).then_with(|| child(value, other_value)),
+            (C::Entry { condition, captured }, C::Entry { condition: other_condition, captured: other_captured }) =>
+                child(condition, other_condition).then_with(|| captured.cmp(other_captured)),
+            // Different variants need only their derived declaration order, with no operand traversal.
+            (C::Boolean(_) | C::Variant(_) | C::Literal(_) | C::Input(_) | C::Expression(_) | C::ScopedCapability(_)
+                | C::Result | C::Unknown | C::Tagged(..) | C::VariantTest(..) | C::Discriminant(_) | C::Present(_)
+                | C::ScalarValue(_) | C::Trusted(_) | C::Borrowed(_) | C::Descriptor(..) | C::CapturedInput { .. }
+                | C::Constructed(..) | C::Observation { .. } | C::PostState(..) | C::Joined(..) | C::ValueAlias(..)
+                | C::InitializedSnapshot(..) | C::Operation(..) | C::Predicate(..) | C::Call(..) | C::Projection(..)
+                | C::Entry { .. }, _) => self.kind.partial_cmp(&other.kind).expect("execution condition variants retain their declaration order"),
+        }
+    }
+}
+
+// Input nodes and their children remain alive throughout one comparison.
+type ComparedPairs = HashMap<(*const ConditionNode, *const ConditionNode), Ordering>;
+
+fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: bool, pairs: &mut ComparedPairs) -> Ordering {
+    if std::ptr::eq(left, right) {
+        return Ordering::Equal;
+    }
+
+    if equality_only && left.hash != right.hash {
+        return Ordering::Less;
+    }
+
+    let pair = (left as *const ConditionNode, right as *const ConditionNode);
+
+    if let Some(result) = pairs.get(&pair) {
+        return *result;
+    }
+
+    let mut descended = false;
+
+    let result = left.cmp_parts(right, &mut |left, right| {
+        descended = true;
+
+        compare_nodes(&left.0, &right.0, equality_only, pairs)
+    });
+
+    // Leaf comparisons do no recursive work, so retain only recursive results.
+    if descended {
+        pairs.insert(pair, result);
+    }
+
+    result
+}
+
+impl Ord for ExecutionCondition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        compare_nodes(&self.0, &other.0, false, &mut ComparedPairs::new())
+    }
+}
+
+impl std::fmt::Debug for ExecutionCondition {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.kind(), formatter)
+    }
+}
+
+impl PartialEq for ExecutionCondition {
+    fn eq(&self, other: &Self) -> bool {
+        compare_nodes(&self.0, &other.0, true, &mut ComparedPairs::new()).is_eq()
+    }
+}
+
+impl Eq for ExecutionCondition {}
+
+impl PartialOrd for ExecutionCondition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+}
+
 impl ExecutionCondition {
     // Bound recursive normalization and implication work, including adversarial source depth.
     pub(crate) const WORK_LIMIT: usize = bray_symbols::EXECUTION_CONDITION_WORK_LIMIT;
 
-    pub(super) fn is_unknown(&self) -> bool {
+    pub(crate) fn is_unknown(&self) -> bool {
         let mut condition = self;
 
         loop {
-            match condition {
-                Self::Unknown => return true,
-                Self::Trusted(value)
-                | Self::Borrowed(value)
-                | Self::Present(value)
-                | Self::Projection(_, value)
-                | Self::VariantTest(_, value)
-                | Self::Entry {
+            match condition.kind() {
+                ExecutionConditionKind::Unknown => return true,
+                ExecutionConditionKind::Trusted(value)
+                | ExecutionConditionKind::Borrowed(value)
+                | ExecutionConditionKind::Discriminant(value)
+                | ExecutionConditionKind::Descriptor(_, value)
+                | ExecutionConditionKind::Present(value)
+                | ExecutionConditionKind::Projection(_, value)
+                | ExecutionConditionKind::VariantTest(_, value)
+                | ExecutionConditionKind::Entry {
                     condition: value, ..
                 }
-                | Self::CapturedInput { owner: value, .. } => condition = value,
+                | ExecutionConditionKind::CapturedInput { owner: value, .. } => condition = value,
                 _ => return false,
             }
         }
     }
     pub(crate) fn contains_trusted(&self) -> bool {
-        match self {
-            Self::Trusted(_) => true,
-            Self::Operation(_, operands)
-            | Self::Predicate(_, _, operands)
-            | Self::Call(_, _, _, operands) => operands.iter().any(Self::contains_trusted),
-            Self::Tagged(_, value)
-            | Self::VariantTest(_, value)
-            | Self::Present(value)
-            | Self::Projection(_, value)
-            | Self::Borrowed(value)
-            | Self::Entry {
+        if let ExecutionConditionKind::Operation(_, operands) | ExecutionConditionKind::Predicate(_, _, operands) | ExecutionConditionKind::Call(_, _, _, operands, _) = self.kind() {
+            return operands.contains_trusted();
+        }
+
+        self.contains_trusted_in(&mut HashSet::new(), false)
+    }
+
+    fn contains_trusted_in<'a>(&'a self, seen: &mut HashSet<NodeIdentity<'a>>, pending: bool) -> bool {
+        if !visit_once(seen, NodeIdentity(self), pending) { return false; }
+
+        match self.kind() {
+            ExecutionConditionKind::ValueAlias(left, right) => left.contains_trusted_in(seen, true) || right.contains_trusted_in(seen, pending),
+            ExecutionConditionKind::Trusted(_) => true,
+            ExecutionConditionKind::Operation(_, operands)
+            | ExecutionConditionKind::Predicate(_, _, operands)
+            | ExecutionConditionKind::Call(_, _, _, operands, _) => operands.contains_trusted(),
+            ExecutionConditionKind::Tagged(_, value)
+            | ExecutionConditionKind::VariantTest(_, value)
+            | ExecutionConditionKind::Discriminant(value)
+            | ExecutionConditionKind::Descriptor(_, value)
+            | ExecutionConditionKind::Present(value)
+            | ExecutionConditionKind::Projection(_, value)
+            | ExecutionConditionKind::Borrowed(value)
+            | ExecutionConditionKind::Entry {
                 condition: value, ..
             }
-            | Self::CapturedInput { owner: value, .. } => value.contains_trusted(),
-            Self::Constructed(base, fields) => {
-                base.contains_trusted() || fields.iter().any(|(_, value)| value.contains_trusted())
+            | ExecutionConditionKind::CapturedInput { owner: value, .. } => value.contains_trusted_in(seen, pending),
+            ExecutionConditionKind::Observation { owner, contents: value, .. } => owner.contains_trusted_in(seen, true) || value.contains_trusted_in(seen, pending),
+            ExecutionConditionKind::Constructed(base, fields) => {
+                base.contains_trusted_in(seen, pending || !fields.is_empty())
+                    || fields.iter().enumerate().any(|(index, (_, value))| value.contains_trusted_in(seen, pending || index + 1 < fields.len()))
             }
-            Self::Boolean(_)
-            | Self::Variant(_)
-            | Self::Literal(_)
-            | Self::Input(_)
-            | Self::Result
-            | Self::Expression(_)
-            | Self::ScopedCapability(_)
-            | Self::PostState(_, _)
-            | Self::Joined(_, _, _)
-            | Self::Unknown => false,
+            ExecutionConditionKind::Boolean(_)
+            | ExecutionConditionKind::Variant(_)
+            | ExecutionConditionKind::Literal(_)
+            | ExecutionConditionKind::Input(_)
+            | ExecutionConditionKind::Result
+            | ExecutionConditionKind::Expression(_)
+            | ExecutionConditionKind::ScopedCapability(_)
+            | ExecutionConditionKind::PostState(_, _)
+            | ExecutionConditionKind::Joined(_, _, _)
+            | ExecutionConditionKind::ScalarValue(_)
+            | ExecutionConditionKind::InitializedSnapshot(_, _, _)
+            | ExecutionConditionKind::Unknown => false,
         }
     }
 
-    pub(super) fn contains_unknown(&self) -> bool {
-        match self {
-            Self::Operation(_, operands) => operands.iter().any(Self::contains_unknown),
-            Self::Trusted(value)
-            | Self::Borrowed(value)
-            | Self::Present(value)
-            | Self::Projection(_, value)
-            | Self::VariantTest(_, value)
-            | Self::Entry {
+    pub(crate) fn contains_unknown(&self) -> bool {
+        if let ExecutionConditionKind::Operation(_, operands) = self.kind() { return operands.contains_unknown(); }
+
+        self.contains_unknown_in(&mut HashSet::new(), false)
+    }
+
+    fn contains_unknown_in<'a>(&'a self, seen: &mut HashSet<NodeIdentity<'a>>, pending: bool) -> bool {
+        if !visit_once(seen, NodeIdentity(self), pending) { return false; }
+
+        match self.kind() {
+            ExecutionConditionKind::ValueAlias(left, right) => left.contains_unknown_in(seen, true) || right.contains_unknown_in(seen, pending),
+            ExecutionConditionKind::Operation(_, operands) => operands.contains_unknown(),
+            ExecutionConditionKind::Observation { owner, contents: value, .. } => owner.contains_unknown_in(seen, true) || value.contains_unknown_in(seen, pending),
+            ExecutionConditionKind::Trusted(value)
+            | ExecutionConditionKind::Borrowed(value)
+            | ExecutionConditionKind::Discriminant(value)
+            | ExecutionConditionKind::Descriptor(_, value)
+            | ExecutionConditionKind::Present(value)
+            | ExecutionConditionKind::Projection(_, value)
+            | ExecutionConditionKind::VariantTest(_, value)
+            | ExecutionConditionKind::Entry {
                 condition: value, ..
             }
-            | Self::CapturedInput { owner: value, .. } => value.contains_unknown(),
+            | ExecutionConditionKind::CapturedInput { owner: value, .. } => value.contains_unknown_in(seen, pending),
             _ => self.is_unknown(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use bray_bound_tree::BoundOperator::LogicalOr;
+    use bray_symbols::{SymbolId, UnionVariantSymbolId};
+
+    use super::{ExecutionCondition as C, ExecutionConditionKind as K};
+
+    #[test]
+    fn property_queries_visit_shared_nodes_once_without_crossing_opaque_boundaries() {
+        let mut shared = C::boolean(false);
+
+        for _ in 0..20 {
+            shared = C::new(K::Operation(LogicalOr, vec![shared.clone(), shared].into()));
+        }
+
+        let mut seen = HashSet::new();
+
+        assert!(!shared.contains_trusted_in(&mut seen, false));
+        assert!(seen.len() <= 41, "qualification work follows the graph rather than its expanded tree");
+
+        seen.clear();
+
+        assert!(!shared.contains_unknown_in(&mut seen, false));
+        assert!(seen.len() <= 41, "unknown detection follows the graph rather than its expanded tree");
+
+        let qualified = C::new(K::Trusted(Arc::new(C::unknown())));
+        let tagged = C::new(K::Tagged(UnionVariantSymbolId::from_symbol_id(SymbolId::new(900)), Arc::new(qualified.clone())));
+
+        assert!(tagged.contains_trusted());
+        assert!(!tagged.contains_unknown(), "tagged payloads are opaque to unknown detection");
+
+        let scalar = C::new(K::ScalarValue(Arc::new(qualified.clone())));
+
+        assert!(!scalar.contains_trusted(), "scalar observations do not carry qualified authority");
+        assert!(!scalar.contains_unknown());
+
+        let later = C::new(K::Operation(LogicalOr, vec![shared, qualified].into()));
+
+        assert!(later.contains_trusted());
+        assert!(later.contains_unknown(), "an earlier false shared subtree cannot hide a later unknown");
+    }
+
+    #[test]
+    fn independent_shared_graphs_compare_with_bounded_node_pairs() {
+        let graph = || {
+            let mut value = C::boolean(false);
+
+            for _ in 0..20 {
+                value = C::new(K::Operation(LogicalOr, vec![value.clone(), value].into()));
+            }
+
+            value
+        };
+
+        let left = graph();
+        let right = graph();
+        let mut pairs = super::ComparedPairs::new();
+
+        assert!(super::compare_nodes(&left.0, &right.0, true, &mut pairs).is_eq());
+        assert!(pairs.len() <= 20, "equality must compare shared node pairs once");
+
+        pairs.clear();
+
+        assert!(super::compare_nodes(&left.0, &right.0, false, &mut pairs).is_eq());
+        assert!(pairs.len() <= 20, "ordering must compare shared node pairs once");
+        assert_eq!(left, right);
+        assert_eq!(left.cmp(&right), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn shared_ordering_preserves_derived_field_precedence() {
+        use bray_bound_tree::BoundOperator::LogicalAnd;
+        use super::ExecutionObservationKind::{Owned, Reference};
+
+        let mut shared = C::boolean(false);
+
+        for _ in 0..7 {
+            shared = C::new(K::Operation(LogicalOr, vec![shared.clone(), shared].into()));
+        }
+
+        let mut terms = vec![C::unknown(), C::result(), C::boolean(false), C::boolean(true), shared.clone()];
+
+        for value in [C::boolean(false), C::boolean(true), shared] {
+            let value = Arc::new(value);
+
+            for other in [Arc::new(C::boolean(false)), Arc::new(C::boolean(true)), Arc::clone(&value)] {
+                terms.extend([
+                    C::new(K::ValueAlias(Arc::clone(&value), Arc::clone(&other))),
+                    C::new(K::Observation { owner: Arc::clone(&value), contents: Arc::clone(&other), kind: Owned }),
+                    C::new(K::Observation { owner: Arc::clone(&other), contents: Arc::clone(&value), kind: Reference }),
+                    C::new(K::Entry { condition: Arc::clone(&value), captured: false }),
+                    C::new(K::Entry { condition: Arc::clone(&other), captured: true }),
+                    C::new(K::Constructed(Arc::clone(&value), vec![(bray_bound_tree::StorageProjection::NullableValue, (*other).clone())].into())),
+                    C::new(K::Operation(LogicalOr, vec![(*value).clone(), (*other).clone()].into())),
+                    C::new(K::Operation(LogicalAnd, vec![(*other).clone(), (*value).clone(), C::unknown()].into())),
+                ]);
+            }
+        }
+
+        for left in &terms {
+            for right in &terms {
+                assert_eq!(Some(left.cmp(right)), left.kind().partial_cmp(right.kind()));
+                assert_eq!(left == right, left.cmp(right).is_eq());
+            }
         }
     }
 }

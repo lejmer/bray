@@ -1848,8 +1848,7 @@ mod tests {
 
     use super::{borrow_receiver_capability, common_value, prepare_calls};
     use crate::test_support::{
-        TestCheckerContext, callable_entry, expression_unit, integer_literal_expression,
-        push_expression,
+        TestCheckerContext, callable_entry, integer_expression_unit,
     };
     use crate::{CheckerUnitView, ExpressionCandidateSet, ReceiverCapability};
 
@@ -1880,11 +1879,7 @@ mod tests {
 
     #[test]
     fn candidate_preparation_observes_cancellation_between_expression_sets() {
-        let (unit, expressions) = expression_unit(BoundUnitId::new(93), |tree, origin| {
-            (0..32)
-                .map(|_| push_expression(tree, integer_literal_expression(origin, None)))
-                .collect()
-        });
+        let (unit, expressions) = integer_expression_unit(BoundUnitId::new(93), 32);
 
         let candidates = expressions
             .iter()

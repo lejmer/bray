@@ -57,9 +57,9 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                             return Ok(requirements.to_vec());
                         }
 
-                        crate::dependency::witness::map_requirements(
+                        crate::dependency::witness::map_requirements::<std::convert::Infallible>(
                             requirements,
-                            &mut |subject, kind| {
+                            &mut |subject, kind, _| {
                                 // Array elements form one dependency summary. Retain the
                                 // aggregate instead of manufacturing an element identity.
                                 let subject = project_subject(subject, ordinal, shape.as_ref())
@@ -79,7 +79,32 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     .map(|effect| project_effect(effect, ordinal, shape.as_ref()))
                     .collect::<Vec<_>>();
 
-                let child = child.with_effects(effects);
+                let stored_values = child.stored_values().iter().map(|stored| {
+                    let project = |path: &bray_symbols::DependencyStoredValuePath| {
+                        let subject = path.subject();
+
+                        if !matches!(subject.subject_root(), DependencySubjectRoot::Receiver | DependencySubjectRoot::Result) {
+                            return path.clone();
+                        }
+
+                        match project_component(subject, ordinal, shape.as_ref()) {
+                            Some(subject) => bray_symbols::DependencyStoredValuePath::new(
+                                subject, path.dereferences(),
+                            ),
+                            None => bray_symbols::DependencyStoredValuePath::new(
+                                DependencySubject::root(subject.subject_root()), 0,
+                            ),
+                        }
+                    };
+
+                    bray_symbols::DependencyStoredValue::new(
+                        project(stored.destination()),
+                        stored.sources().iter().map(project),
+                        stored.is_complete() && !matches!(shape.as_ref(), TypeData::Array { .. }),
+                    )
+                }).collect::<Vec<_>>();
+
+                let child = child.with_effects(effects).with_stored_values(stored_values);
 
                 let child = if matches!(shape.as_ref(), TypeData::Nullable(_)) {
                     child
@@ -134,7 +159,8 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     .then_some(bray_symbols::ConstantProjectionKind::NullableValue);
 
                 result = result.with_owned_result(bray_symbols::DependencyOwnedResult::Transfer(
-                    bray_symbols::DependencyOwnedTransfer::new(input, output),
+                    bray_symbols::DependencyOwnedTransfer::new(input, output)
+                        .with_preservation(bray_symbols::DependencyValuePreservation::all()),
                 ));
             }
 
@@ -152,6 +178,14 @@ fn project_subject(
         return Some(subject.clone());
     }
 
+    project_component(subject, ordinal, shape)
+}
+
+fn project_component(
+    subject: &DependencySubject,
+    ordinal: usize,
+    shape: &TypeData,
+) -> Option<DependencySubject> {
     let prefix = match shape {
         TypeData::Tuple(_) => DependencyProjection::TupleElement(SymbolOrdinal::new(
             u32::try_from(ordinal).expect("tuple conversion has a finite component count"),
@@ -174,32 +208,35 @@ fn project_effect(
 ) -> DependencyStorageEffect {
     // Projection retains the callee's immutable reference suffix and mutation kind.
     match effect {
-        DependencyStorageEffect::Direct { subject, kind } => {
+        DependencyStorageEffect::Direct { subject, kind, access_type } => {
             project_subject(subject, ordinal, shape)
                 .map(|subject| DependencyStorageEffect::Direct {
                     subject,
                     kind: *kind,
+                    access_type: *access_type,
                 })
-                .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind))
+                .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind, *access_type))
         }
         DependencyStorageEffect::Indirect {
             reference,
             projections,
             kind,
+            access_type,
         } => project_subject(reference, ordinal, shape)
             .map(|reference| DependencyStorageEffect::Indirect {
                 reference,
                 projections: std::sync::Arc::clone(projections),
                 kind: *kind,
+                access_type: *access_type,
             })
             // A uniform array summary cannot select one runtime element. Use the
             // existing unresolved-alias meaning, never a path in the element type.
-            .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind)),
-        DependencyStorageEffect::Atomic
+            .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind, *access_type)),
+        DependencyStorageEffect::UnboundedMutation { .. }
+        | DependencyStorageEffect::Atomic
         | DependencyStorageEffect::Escape
         | DependencyStorageEffect::Ambient
-        | DependencyStorageEffect::Unknown
-        | DependencyStorageEffect::Cleanup(_) => effect.clone(),
+        | DependencyStorageEffect::Unknown => effect.clone(),
     }
 }
 
@@ -214,6 +251,7 @@ pub(super) fn sequence_dependencies(
         .cloned();
 
     let mut result = DependencyContractTemplateData::new(requirements)
+        .with_stored_values(first.stored_values().iter().chain(next.stored_values()).cloned())
         .with_effects(first.effects().iter().chain(next.effects()).cloned())
         .with_synchronous_cleanup(
             first

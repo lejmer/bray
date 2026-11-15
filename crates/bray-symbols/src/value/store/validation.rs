@@ -1,3 +1,4 @@
+use crate::DependencyStorageEffect;
 use super::{
     super::{
         CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
@@ -349,6 +350,23 @@ pub(super) fn validate_dependency_template_data(
         validate_dependency_projections(tables, store, carrier.path());
     }
 
+    for stored in data.stored_values() {
+        for (endpoint, destination) in std::iter::once((stored.destination(), true))
+            .chain(stored.sources().iter().map(|source| (source, false))) {
+            let root = endpoint.subject().subject_root();
+
+            assert!(matches!(root, crate::DependencySubjectRoot::Receiver | crate::DependencySubjectRoot::Parameter(_)
+                    | crate::DependencySubjectRoot::ProductStatic(_) | crate::DependencySubjectRoot::ExactThreadStatic(_))
+                || destination && matches!(root, crate::DependencySubjectRoot::Result),
+                "stored value {} has a nonphysical root: {root:?}", if destination { "destination" } else { "source" });
+
+            validate_dependency_subject(tables, store, endpoint.subject());
+
+            assert!(u64::from(endpoint.dereferences()) <= crate::EXECUTION_CONDITION_WORK_LIMIT as u64,
+                "stored value {} borrow depth exceeds the work limit: {root:?}", if destination { "destination" } else { "source" });
+        }
+    }
+
     for relation in data.borrows() {
         if let Some(entry) = relation.entry() {
             validate_dependency_subject(tables, store, entry);
@@ -359,28 +377,17 @@ pub(super) fn validate_dependency_template_data(
     }
 
     for effect in data.effects() {
-        use crate::DependencyStorageEffect;
 
-        if let DependencyStorageEffect::Direct {
-            kind: crate::DependencyMutationKind::Replace(ty),
-            ..
-        }
-        | DependencyStorageEffect::Indirect {
-            kind: crate::DependencyMutationKind::Replace(ty),
-            ..
-        } = effect
-        {
+        for ty in effect.referenced_types() {
             tables.types.get(store, *ty);
         }
 
         match effect {
-            DependencyStorageEffect::Atomic
+            DependencyStorageEffect::UnboundedMutation { .. }
+                | DependencyStorageEffect::Atomic
             | DependencyStorageEffect::Ambient
             | DependencyStorageEffect::Unknown
             | DependencyStorageEffect::Escape => {}
-            DependencyStorageEffect::Cleanup(ty) => {
-                tables.types.get(store, *ty);
-            }
             DependencyStorageEffect::Direct { subject, .. } => {
                 validate_dependency_subject(tables, store, subject)
             }

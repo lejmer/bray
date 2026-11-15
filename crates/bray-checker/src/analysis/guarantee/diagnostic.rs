@@ -1,0 +1,363 @@
+use bray_bound_tree::{BoundExpressionId, BoundReferenceTarget};
+use bray_diagnostics::{DiagnosticCondition as Condition, DiagnosticConditionProjection as Projection, DiagnosticTypeArgument};
+use bray_symbols::{AnyLocalSymbolId, AnySymbolId, ConstantProjectionKind, ConstantValueKind, GenericArgument, SelfTypeContext, TypeData};
+use bray_syntax::SyntaxKind;
+
+use crate::analysis::guarantee::flow::ExecutionFlowDomain;
+use crate::execution_guarantees::ExecutionInput;
+use crate::{CheckerQueryResult, CheckerRequestContext, ExecutionCondition, ExecutionPlace};
+
+type Outcome<C> = CheckerQueryResult<Condition, <C as CheckerRequestContext>::UpstreamError>;
+
+pub(super) fn witness_transfer<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, kind: bray_diagnostics::DiagnosticWitnessTransferKind,
+    carrier: &ExecutionCondition, guarantee: &ExecutionCondition,
+) -> CheckerQueryResult<bray_diagnostics::DiagnosticWitnessTransfer, C::UpstreamError> {
+    Ok(bray_diagnostics::DiagnosticWitnessTransfer {
+        kind,
+        carrier: condition(domain, carrier, &mut 128)?,
+        guarantee: condition(domain, guarantee, &mut 128)?,
+    })
+}
+
+pub(super) fn panic_requirement<C: CheckerRequestContext + ?Sized>(
+    flow: &super::flow::ExecutionFlow<'_, '_, C>, node: bray_bound_tree::AnyBoundNodeId,
+) -> CheckerQueryResult<Option<bray_diagnostics::DiagnosticContractObligation>, C::UpstreamError> {
+    for edge in flow.domain.graph.edges() {
+        let Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement() else {
+            continue;
+        };
+
+        if invocation.node() != node || flow.edge_output(edge.id()).is_none() {
+            continue;
+        }
+
+        let Some(contract) = flow.domain.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation)) else {
+            continue;
+        };
+
+        let state = flow.output(edge.source()).expect("reachable entry failure has a source state");
+        let entry = state.entries.get(&invocation).expect("entry failure retains its captured input values before retirement");
+
+        if let Err(failed) = entry.prove_requirements(contract.preconditions.iter().map(|(condition, _)| condition)) {
+            return obligation(&flow.domain, bray_diagnostics::DiagnosticContractObligationKind::CallRequirement, &failed).map(Some);
+        }
+    }
+
+    Ok(None)
+}
+
+pub(super) fn obligation<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, kind: bray_diagnostics::DiagnosticContractObligationKind,
+    failed: &crate::UnprovenExecutionCondition,
+) -> CheckerQueryResult<bray_diagnostics::DiagnosticContractObligation, C::UpstreamError> {
+    Ok(bray_diagnostics::DiagnosticContractObligation {
+        kind,
+        required: condition(domain, failed.required(), &mut 128)?,
+        actual: condition(domain, failed.actual(), &mut 128)?,
+    })
+}
+
+fn condition<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>,
+    value: &ExecutionCondition,
+    budget: &mut usize,
+) -> Outcome<C> {
+    let Some(remaining) = budget.checked_sub(1) else { return Ok(Condition::Elided); };
+
+    *budget = remaining;
+
+    Ok(match value.kind() {
+        crate::ExecutionConditionKind::Boolean(value) => Condition::Boolean(*value),
+        crate::ExecutionConditionKind::Literal(value) => literal(domain, value.kind(), budget)?,
+        crate::ExecutionConditionKind::Input(value)
+            | crate::ExecutionConditionKind::Joined(_, _, value) => place(domain, value, budget)?,
+        crate::ExecutionConditionKind::Result => Condition::Result,
+        crate::ExecutionConditionKind::Expression(value) | crate::ExecutionConditionKind::ScopedCapability(value) => expression(domain, *value, budget)?,
+        crate::ExecutionConditionKind::CapturedInput { owner, invocation, ordinal } =>
+            captured_input(domain, owner, *invocation, *ordinal, budget)?,
+        crate::ExecutionConditionKind::Present(value) => Condition::Present(Box::new(condition(domain, value, budget)?)),
+        crate::ExecutionConditionKind::Constructed(base, _) | crate::ExecutionConditionKind::ScalarValue(base) | crate::ExecutionConditionKind::PostState(_, base)
+            | crate::ExecutionConditionKind::Trusted(base) | crate::ExecutionConditionKind::Borrowed(base)
+            | crate::ExecutionConditionKind::Entry { condition: base, .. }
+            | crate::ExecutionConditionKind::InitializedSnapshot(_, base, _) => condition(domain, base, budget)?,
+        crate::ExecutionConditionKind::Observation { owner, .. } => condition(domain, owner, budget)?,
+        crate::ExecutionConditionKind::Predicate(predicate, substitution, arguments) => {
+            application(domain, predicate.into_any(), *substitution, arguments, budget)?
+        }
+        crate::ExecutionConditionKind::Call(callable, _, _, arguments, _) => {
+            application(domain, callable.definition().symbol(), callable.substitution(), arguments, budget)?
+        }
+        crate::ExecutionConditionKind::Operation(operation, operands) => Condition::Operation {
+            operation: crate::constant::diagnostic_operation(*operation),
+            operands: operands.iter().map(|value| condition(domain, value, budget)).collect::<Result<_, _>>()?,
+        },
+        crate::ExecutionConditionKind::Projection(projection, value) => Condition::Projection {
+            value: Box::new(condition(domain, value, budget)?),
+            projection: projection_value(domain, *projection, budget)?,
+        },
+        crate::ExecutionConditionKind::Variant(variant) => Condition::Source(symbol_path(domain, (*variant).into())?.join(".")),
+        crate::ExecutionConditionKind::Tagged(variant, value) => Condition::Application {
+            path: symbol_path(domain, (*variant).into())?, types: Vec::new(),
+            arguments: vec![condition(domain, value, budget)?],
+        },
+        crate::ExecutionConditionKind::VariantTest(variant, value) => Condition::VariantTest {
+            value: Box::new(condition(domain, value, budget)?),
+            variant: symbol_path(domain, (*variant).into())?.join("."),
+        },
+        crate::ExecutionConditionKind::Unknown => Condition::Unknown,
+        crate::ExecutionConditionKind::Discriminant(value) | crate::ExecutionConditionKind::Descriptor(_, value) => condition(domain, value, budget)?,
+        crate::ExecutionConditionKind::ValueAlias(_, _) => panic!("internal data alias reached source diagnostic rendering: {value:?}"),
+    })
+}
+
+fn captured_input<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, owner: &ExecutionCondition,
+    invocation: bray_bound_tree::BoundExecutionSite, ordinal: bray_symbols::SymbolOrdinal, budget: &mut usize,
+) -> Outcome<C> {
+    let source = invocation.expression()
+        .and_then(|expression| domain.semantics.selections().expression(expression))
+        .and_then(|selection| selection.input(ordinal))
+        .and_then(|input| input.expression());
+
+    match source {
+        Some(source) => expression(domain, source, budget),
+        None => Ok(Condition::CapturedInput { owner: Box::new(condition(domain, owner, budget)?), ordinal: ordinal.raw() }),
+    }
+}
+
+fn application<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, symbol: AnySymbolId,
+    substitution: bray_symbols::GenericSubstitutionId, arguments: &[ExecutionCondition], budget: &mut usize,
+) -> Outcome<C> {
+    let selected = domain.request.semantic_values().generic_substitution_data(substitution);
+
+    let types = selected.bindings().iter().map(|binding| match binding.argument() {
+        GenericArgument::Type(ty) => crate::diagnostic::diagnostic_type(domain.request.context(), ty).map(DiagnosticTypeArgument::Type),
+        GenericArgument::Constant(_) => Ok(DiagnosticTypeArgument::Constant),
+    }).collect::<Result<_, _>>()?;
+
+    Ok(Condition::Application {
+        path: symbol_path(domain, symbol)?, types,
+        arguments: arguments.iter().map(|value| condition(domain, value, budget)).collect::<Result<_, _>>()?,
+    })
+}
+
+fn symbol_path<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain<'_, '_, C>, symbol: AnySymbolId) -> CheckerQueryResult<Vec<String>, C::UpstreamError> {
+    let context = domain.request.context();
+
+    let lifecycle = match symbol {
+        AnySymbolId::Constructor(_) => Some(None),
+        AnySymbolId::Finalizer(_) | AnySymbolId::TraitFinalizerRequirement(_) => Some(Some(SyntaxKind::FinalizeKeyword)),
+        AnySymbolId::Destructor(_) | AnySymbolId::TraitDestructorRequirement(_) => Some(Some(SyntaxKind::DestructKeyword)),
+        AnySymbolId::ScopeEnter(_) | AnySymbolId::TraitScopeEnterRequirement(_) | AnySymbolId::TraitScopeEnterFulfillment(_) => Some(Some(SyntaxKind::EnterKeyword)),
+        AnySymbolId::ScopeExit(_) | AnySymbolId::TraitScopeExitRequirement(_) | AnySymbolId::TraitScopeExitFulfillment(_) => Some(Some(SyntaxKind::ExitKeyword)),
+        _ => None,
+    };
+
+    if let Some(keyword) = lifecycle {
+        let owner = context.enclosing_self_type_context(symbol)?
+            .unwrap_or_else(|| panic!("condition lifecycle {symbol:?} retains its source/imported Self context"));
+
+        let owner = match owner {
+            SelfTypeContext::Implementation(implementation) => {
+                let subject = context.implementation_subject_type(implementation)?;
+
+                assert!(!subject.diagnostics().has_errors(), "checked lifecycle belongs to valid implementation {implementation:?}");
+
+                let subject = context.semantic_values().unborrowed_type(*subject.value());
+
+                let TypeData::Named { definition, .. } = *context.semantic_values().type_data(subject) else {
+                    panic!("checked implementation {implementation:?} retains a named subject");
+                };
+
+                definition.into_any()
+            }
+            owner => owner.symbol(),
+        };
+
+        let mut path = symbol_path(domain, owner)?;
+
+        if let Some(keyword) = keyword {
+            path.push(keyword.fixed_text().expect("lifecycle keyword has source spelling").to_owned());
+        }
+
+        return Ok(path);
+    }
+
+    let name = context.member_name(symbol)?
+        .unwrap_or_else(|| panic!("checked named condition symbol {symbol:?} retains its name"));
+
+    let key = context.symbol_key(symbol)?.expect("checked named condition symbol retains its key");
+
+    Ok(crate::diagnostic::diagnostic_symbol_path(key, name.as_str()))
+}
+
+fn expression<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, value: BoundExpressionId, budget: &mut usize,
+) -> Outcome<C> {
+    if let Some(bray_bound_tree::BoundExpression::Name(name)) = domain.request.view().expression(value) {
+        return place(domain, &ExecutionPlace::from(name.target()), budget);
+    }
+
+    if let Some(selection @ bray_bound_tree::SemanticSelection::Call(call)) = domain.semantics.selections().expression(value)
+        && let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target()
+    {
+        let arguments = selection.inputs().filter_map(|input| input.expression())
+            .map(|expression| ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))).collect::<Vec<_>>();
+
+        return application(domain, callable.definition().symbol(), callable.substitution(), &arguments, budget);
+    }
+
+    Ok(Condition::Source(crate::diagnostic::expression_text(domain.request, value)))
+}
+
+fn place<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, value: &ExecutionPlace, budget: &mut usize,
+) -> Outcome<C> {
+    let mut result = match &value.root {
+        ExecutionInput::Reference(BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(_))) => Condition::Source("self".to_owned()),
+        ExecutionInput::Reference(BoundReferenceTarget::Surface(symbol)) => {
+            let context = domain.request.context();
+            let name = context.member_name(*symbol)?;
+
+            match (symbol, name) {
+                (AnySymbolId::CallableParameter(parameter), None) => {
+                    let parameter = context.callable_parameter(*parameter)?
+                        .expect("checked unnamed input retains its source/imported parameter record");
+
+                    Condition::Argument(parameter.ordinal())
+                }
+                (_, None) => panic!("checked condition input {value:?} has no source/imported name"),
+                (symbol, Some(name)) => match symbol {
+                AnySymbolId::CallableParameter(_) | AnySymbolId::GenericConstParameter(_) => Condition::Source(name.as_str().to_owned()),
+                AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_) => Condition::Source(format!("self.{}", name.as_str())),
+                _ => Condition::Source(symbol_path(domain, *symbol)?.join(".")),
+                },
+            }
+        }
+        ExecutionInput::Reference(BoundReferenceTarget::Local(local)) => {
+            let locals = domain.request.unit().local_symbols();
+
+            match local {
+                AnyLocalSymbolId::Binding(id) => Condition::Source(locals.binding(*id).expect("condition binding is installed").name().as_str().to_owned()),
+                AnyLocalSymbolId::AnonymousCallableParameter(id) => Condition::Source(locals.anonymous_parameter(*id).expect("condition parameter is installed").name().as_str().to_owned()),
+                AnyLocalSymbolId::Constant(id) => Condition::Source(locals.constant(*id).expect("condition constant is installed").name().as_str().to_owned()),
+                AnyLocalSymbolId::PostconditionResult(_) => Condition::Result,
+                AnyLocalSymbolId::AnonymousCallable(_) => {
+                    let anchor = locals.syntax_anchor(*local).expect("condition callable has its source anchor");
+
+                    Condition::Source(domain.request.source_syntax(anchor).text().trim().to_owned())
+                }
+            }
+        }
+        ExecutionInput::Argument(ordinal) => Condition::Argument(ordinal.raw()),
+        ExecutionInput::Constant(term) => term_value(domain, *term, budget)?,
+        ExecutionInput::Static(selection) => Condition::Source(symbol_path(domain, selection.template().declaration().into())?.join(".")),
+        ExecutionInput::Storage(storage) => {
+            let identity = domain.storage.identity(*storage).expect("condition storage is planned");
+
+            if let Some(rebound) = ExecutionPlace::storage_identity(domain.storage, *storage).filter(|other| other.root != value.root) {
+                place(domain, &rebound, budget)?
+            } else if let Some(producer) = identity.definition_occurrence() {
+                occurrence(domain, producer, budget)?
+            } else {
+                Condition::Unknown
+            }
+        }
+    };
+
+    for projection in value.projections.iter().copied() {
+        result = Condition::Projection { value: Box::new(result), projection: projection_value(domain, projection, budget)? };
+    }
+
+    Ok(result)
+}
+
+fn occurrence<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, site: bray_bound_tree::BoundExecutionSite, budget: &mut usize,
+) -> Outcome<C> {
+    let source = match site {
+        bray_bound_tree::BoundExecutionSite::CallInput { expression, ordinal } => {
+            let input = domain.semantics.selections().expression(expression)
+                .expect("diagnostic invocation retains its checked selection")
+                .input(ordinal).expect("diagnostic input retains its selected ordinal");
+
+            match input.expression() {
+                Some(source) => source,
+                None => {
+                    let bray_symbols::DependencySubjectRoot::Parameter(ordinal) = input.root() else {
+                        panic!("a declaration-owned default belongs to a formal parameter");
+                    };
+
+                    return Ok(Condition::Argument(ordinal.raw()));
+                }
+            }
+        }
+        _ => match site.expression() {
+            Some(source) => source,
+            None => return Ok(Condition::Unknown),
+        },
+    };
+
+    expression(domain, source, budget)
+}
+
+fn projection_value<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, value: ConstantProjectionKind, budget: &mut usize,
+) -> CheckerQueryResult<Projection, C::UpstreamError> {
+    Ok(match value {
+        ConstantProjectionKind::ProductField(field) => Projection::Field(domain.request.context().member_name(field.into())?.expect("checked field has a name").as_str().to_owned()),
+        ConstantProjectionKind::UnionPayloadField(field) => Projection::Field(domain.request.context().member_name(field.into())?.expect("checked union field has a name").as_str().to_owned()),
+        ConstantProjectionKind::TupleElement(index) => Projection::TupleElement(index.raw()),
+        ConstantProjectionKind::ArrayElementOrdinal(index) => Projection::ArrayElement(index.raw()),
+        ConstantProjectionKind::ArrayElement(index) => Projection::Index(Box::new(term_value(domain, index, budget)?)),
+        ConstantProjectionKind::ArraySlice { lower, upper } => Projection::Slice {
+            lower: lower.map(|term| term_value(domain, term, budget).map(Box::new)).transpose()?,
+            upper: upper.map(|term| term_value(domain, term, budget).map(Box::new)).transpose()?,
+        },
+        ConstantProjectionKind::NullableValue => Projection::NullableValue,
+    })
+}
+
+fn term_value<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, term: bray_symbols::ConstantTermId, budget: &mut usize,
+) -> Outcome<C> {
+    let inputs = domain.request.trusted_contracts().map_or(&[][..], |contracts| &contracts.inputs);
+
+    let value = crate::execution_condition_from_term(domain.request.semantic_values(), term, inputs)
+        .expect("diagnostic constant term belongs to the checked semantic store");
+
+    condition(domain, &value, budget)
+}
+
+fn literal<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, value: &ConstantValueKind, budget: &mut usize,
+) -> Outcome<C> {
+    let Some(remaining) = budget.checked_sub(1) else { return Ok(Condition::Elided); };
+
+    *budget = remaining;
+
+    Ok(match value {
+        ConstantValueKind::Unit => Condition::Literal("()".to_owned()),
+        ConstantValueKind::StaticAddress(selection) => Condition::StaticAddress(symbol_path(domain, selection.template().declaration().into())?),
+        ConstantValueKind::Borrowed(value) => {
+            let value = domain.request.semantic_values().constant_value_data(*value);
+
+            literal(domain, value.kind(), budget)?
+        }
+        ConstantValueKind::Boolean(value) => Condition::Boolean(*value),
+        ConstantValueKind::Integer(value) => Condition::Literal(crate::constant::to_big_integer(value).to_string()),
+        ConstantValueKind::Character(value) => Condition::Character(*value),
+        ConstantValueKind::String(value) => Condition::String(value.to_string()),
+        ConstantValueKind::NullableAbsent => Condition::Absent,
+        ConstantValueKind::NullablePresent(value) => {
+            let value = domain.request.semantic_values().constant_value_data(*value);
+
+            Condition::Present(Box::new(literal(domain, value.kind(), budget)?))
+        }
+        ConstantValueKind::Error => Condition::Unknown,
+        ConstantValueKind::Real(_) | ConstantValueKind::Complex { .. } | ConstantValueKind::Tuple(_)
+            | ConstantValueKind::Array(_) | ConstantValueKind::Product(_) | ConstantValueKind::Union { .. } => Condition::Elided,
+    })
+}

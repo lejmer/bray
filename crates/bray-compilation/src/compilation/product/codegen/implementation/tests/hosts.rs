@@ -38,6 +38,11 @@ fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
 
     assert_eq!(host.entries()[0].result(), ExecutableEntryResult::I32);
 
+    assert!(
+        host.role_binding(RuntimeAbiRole::ProductExecutionProvider)
+            .is_none()
+    );
+
     let frame_unit = plan
         .units()
         .iter()
@@ -65,6 +70,10 @@ fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
 
     for role in [
         RuntimeAbiRole::RootExecution,
+        RuntimeAbiRole::InactiveFrameBroadcast,
+        RuntimeAbiRole::InactiveFrameResolution,
+        RuntimeAbiRole::ActivationCallback,
+        RuntimeAbiRole::ActivationActionReadiness,
         RuntimeAbiRole::RootCancellationRequest,
         RuntimeAbiRole::RootTerminalObservation,
         RuntimeAbiRole::RootCompletionResolution,
@@ -995,14 +1004,25 @@ fn task_observation_resolves_returned_futures_through_cleanup_frames() {
         "#,
     );
 
-    assert!(plan.mappings().iter()
-        .flat_map(bray_codegen::CodegenMappings::operations)
-        .flat_map(|operation| operation.helpers())
-        .any(|helper| matches!(helper.reference(), MirHelperReference::LifecycleFrame {
-            role: bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution), ..
-        })));
+    assert!(
+        plan.mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::operations)
+            .flat_map(|operation| operation.helpers())
+            .any(|helper| matches!(
+                helper.reference(),
+                MirHelperReference::LifecycleFrame {
+                    role: bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                        bray_ir::MirCleanupPhase::LifecycleResolution
+                    ),
+                    ..
+                }
+            ))
+    );
 
-    assert!(!generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty());
+    assert!(
+        !generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty()
+    );
 }
 
 #[test]
@@ -1040,12 +1060,19 @@ fn task_observation_retained_finalizer_errors_use_cleanup_frames() {
         "#,
     );
 
-    assert!(plan.mappings().iter()
-        .flat_map(bray_codegen::CodegenMappings::symbols)
-        .any(|mapping| matches!(mapping.key(), bray_codegen::CodegenSymbolKey::Runtime(reference)
-            if reference.role() == RuntimeAbiRole::ProviderReferenceRelease)));
+    assert!(
+        plan.mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::symbols)
+            .any(
+                |mapping| matches!(mapping.key(), bray_codegen::CodegenSymbolKey::Runtime(reference)
+            if reference.role() == RuntimeAbiRole::ProviderReferenceRelease)
+            )
+    );
 
-    assert!(!generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty());
+    assert!(
+        !generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty()
+    );
 }
 
 #[test]
@@ -1080,5 +1107,7 @@ fn task_admission_failure_retains_cleanup_after_a_suspension() {
         "#,
     );
 
-    assert!(!generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty());
+    assert!(
+        !generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty()
+    );
 }

@@ -54,8 +54,8 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use dependency_table::{
-    BoundCallDependencyContracts, BoundCallReference, BoundCallReports, CallReportOutput,
-    CheckedDependencyContracts, DependencyContractsBuildError,
+    BoundCallDependencyContracts, BoundCallReference, BoundCallReports, BoundReturnedValue, CallReportOutput,
+    CheckedDependencyContracts, ConditionCallReferences, DependencyContractsBuildError,
 };
 pub use lifecycle::{CompletedFinalizer, LifecycleAction, LifecycleCallable, LifecyclePhase};
 pub use literal::{
@@ -121,13 +121,13 @@ pub use semantic::{
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
     Liveness, LivenessBuildError, OwnerRetention, PlannedBorrowCapability, StorageAccess,
-    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
+    StorageAccessId, StorageAccessPlan, StorageAccessPlanRole, StorageAccessPurpose, StorageAccessRoot,
     StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageCleanupType,
     StorageCompletion, StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
-    StorageIdentity, StorageIdentityId, StorageMutation, StorageOperationDecision,
+    StorageIdentity, StorageIdentityId, StorageMutation, StorageObservationKind, StorageOperationDecision,
     StorageOperationStatus, StorageOrigin, StoragePath, StoragePlan, StoragePlanBuildError,
-    StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath,
+    StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath, StorageValueConsumptionPhase,
     StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
     StorageReplacementState, StorageScope, StorageScopeBuildError, StorageScopeOwners,
     StorageStateTarget, StorageSuspensionState, StorageTarget, scoped_exit_completes_result,

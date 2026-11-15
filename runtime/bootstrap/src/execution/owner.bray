@@ -1,0 +1,184 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using std.memory.function;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.heap;
+
+trusted internal func origin_context(pos attachment: bray.runtime.bootstrap.host.attachment.Owner) -> Context
+    requires(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &attachment), attachment.status == 0)
+    ensures(trusted context_owned(owner = &result), result.allocation matches none)
+{
+    let thread = attachment.identity;
+    let acquired: bray.runtime.bootstrap.host.attachment.Owner? = attachment;
+
+    return
+    {
+        allocation = none,
+        binding = core.memory.uninit_from<(Binding?)>(none),
+        attachment = core.memory.uninit_from<(bray.runtime.bootstrap.host.attachment.Owner?)>(acquired),
+        previous = core.memory.uninit_from<(bray.runtime.bootstrap.host.ExecutionOwner?)>(none),
+        provider = core.memory.uninit_from<(NativeProviderScope?)>(none),
+        phase = core.atomic.initialize<u32>(1),
+        views = core.atomic.initialize<usize>(0),
+        thread = thread,
+        driver =
+        {
+            placement = 2,
+            workload = 3,
+            thread = thread
+        },
+        lanes = 0xff0,
+        worker = std.memory.null<u8>(),
+        task = core.atomic.initialize<usize>(0),
+        registration = core.atomic.initialize<u64>(0),
+        lane = core.atomic.initialize<u32>(0),
+        invocation = core.atomic.initialize<usize>(0),
+        pending = core.memory.uninit_from<(bray.runtime.bootstrap.scheduler.Observation?)>(none)
+    };
+}
+
+// Main authority is produced only by the generated Main entry after marking
+// its actual attachment. An ordinary origin root cannot request this constructor.
+trusted internal func root_context(pos attachment: bray.runtime.bootstrap.host.attachment.Owner) -> Context
+    requires(
+        trusted bray.runtime.bootstrap.host.native_main_entry(),
+        trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &attachment),
+        attachment.status == 0
+    )
+    ensures(trusted context_owned(owner = &result), result.allocation matches none)
+{
+    let mut value = trusted origin_context(attachment);
+
+    value.driver =
+    {
+        placement = 3,
+        workload = 3,
+        thread = value.thread
+    };
+
+    value.lanes = 0xfff0;
+    return value;
+}
+
+trusted internal func initialize_context(
+    pos allocation: std.memory.RawAllocation,
+    pos mut owner: Context
+) -> bray.runtime.bootstrap.host.ExecutionOwner
+    requires(
+        owner.allocation matches none,
+        allocation.bytes == std.memory.stride_of<Context>(),
+        allocation.align == std.memory.align_of<Context>(),
+        trusted core.memory.owned_allocation(
+            pointer = allocation.pointer,
+            bytes = std.memory.stride_of<Context>(),
+            align = std.memory.align_of<Context>()
+        ),
+        trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = std.memory.stride_of<Context>()),
+        trusted context_owned(owner = &owner)
+    )
+    ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = &result))
+    uses(raw_memory, unchecked_init)
+{
+    let typed = trusted lambda(pos allocation: &std.memory.RawAllocation) -> DataPointer<Context>
+        requires(
+            allocation.align == std.memory.align_of<Context>(),
+            trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = std.memory.stride_of<Context>())
+        )
+        ensures(
+            trusted core.memory.valid_write<Context>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Context>(pointer = result)
+        )
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.reinterpret<Context, u8>(allocation.pointer);
+    };
+
+    let pointer = trusted typed(&allocation);
+
+    owner.allocation = allocation;
+
+    trusted std.memory.write<Context>(pointer, owner);
+
+    let bind: bray.runtime.bootstrap.host.ExecutionEnter = enter_driver;
+    let retire: bray.runtime.bootstrap.host.ExecutionRetire = retire_driver;
+
+    return
+    {
+        acquisition = bray.runtime.bootstrap.host.ExecutionAcquisition
+        {
+        },
+        resource = std.memory.byte_address<Context>(pointer),
+        bind = bind,
+        retire = retire
+    };
+}
+
+trusted internal func borrow_execution(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> Current
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted view_owned(owner = &result.acquisition),
+        result.status == 0
+    )
+    uses(raw_memory, unchecked_alias, intrinsic)
+{
+    let address = trusted core.target.expose_address<u8>(owner.resource);
+    let pointer = trusted core.target.from_exposed_address<Context>(address = address);
+
+    let permit = trusted lambda(
+        pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
+        pos pointer: DataPointer<Context>
+    )
+        requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Context>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Context>(pointer = pointer),
+            trusted core.memory.aligned_for<Context>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Context>(pointer = pointer),
+            trusted core.memory.epoch_current<Context>(pointer = pointer),
+            trusted core.memory.synchronized_access<Context>(pointer = pointer),
+            trusted core.memory.movement_stable<Context>(pointer = pointer),
+            trusted core.memory.finalization_pending<Context>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+
+    let value = trusted std.memory.borrow_from<Context, bray.runtime.bootstrap.host.ExecutionOwner>(owner, pointer);
+
+    trusted acquire_view(value);
+
+    return
+    {
+        acquisition = ViewAcquisition
+        {
+        },
+        pointer = pointer,
+        status = 0
+    };
+}
+
+@abi(c)
+trusted internal func enter_driver(
+    pos owner: bray.runtime.bootstrap.host.ExecutionOwner
+) -> bray.runtime.bootstrap.host.ExecutionOwner
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner))
+    ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = &result))
+    uses(intrinsic)
+{
+    // Native key destructors may have cleared execution TLS before the host's
+    // attachment callback. The actual owner, rather than key order, binds it.
+    match consume trusted bray.runtime.bootstrap.host.execution_context(owner.resource)
+    {
+        case Ok(_) {}
+        case Error(_) { trusted core.target.abort(); }
+    }
+
+    return owner;
+}

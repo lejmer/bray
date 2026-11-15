@@ -1,3 +1,4 @@
+use bray_symbols::DependencyStorageEffect;
 use bray_symbols::{
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencySubject, DependencySubjectRoot, SemanticValueStore,
@@ -55,7 +56,7 @@ impl InternState {
             let mut borrows = Vec::with_capacity(input.borrows.len());
 
             for relation in input.borrows.iter() {
-                let entry = match relation.entry() {
+                let entry = match relation.source_subject() {
                     Some(entry) => {
                         let Some(entry) = self.convert_dependency_subject(entry, symbols)? else {
                             break;
@@ -77,14 +78,39 @@ impl InternState {
                 };
 
                 borrows.push(
-                    bray_symbols::DependencyBorrowRelation::new(entry, exit, relation.kind())
-                        .with_dereferences(relation.dereferences())
-                        .with_provenance(relation.provenance())
-                        .with_target_projections(projections),
+                    relation.remap(entry, exit, projections),
                 );
             }
 
             if borrows.len() != input.borrows.len() {
+                continue;
+            }
+
+            let mut stored_values = Vec::with_capacity(input.stored_values.len());
+
+            for stored in input.stored_values.iter() {
+                let Some(destination) = self.convert_dependency_subject(stored.destination().subject(), symbols)? else { break; };
+
+                let destination = bray_symbols::DependencyStoredValuePath::new(destination, stored.destination().dereferences());
+                let mut sources = Vec::with_capacity(stored.sources().len());
+
+                for source in stored.sources() {
+                    let Some(subject) = self.convert_dependency_subject(source.subject(), symbols)?
+                    else {
+                        break;
+                    };
+
+                    sources.push(bray_symbols::DependencyStoredValuePath::new(subject, source.dereferences()));
+                }
+
+                if sources.len() != stored.sources().len() {
+                    break;
+                }
+
+                stored_values.push(bray_symbols::DependencyStoredValue::new(destination, sources, stored.is_complete()));
+            }
+
+            if stored_values.len() != input.stored_values.len() {
                 continue;
             }
 
@@ -136,6 +162,11 @@ impl InternState {
 
                     Ok(bray_symbols::DependencyOwnedResult::Transfer(
                         bray_symbols::DependencyOwnedTransfer::new(term, output)
+                            .with_preservation(transfer.preservation().try_map_projections(&mut |projection| {
+                                self.convert_constant_projection(projection, symbols)
+                                    .map_err(Some)?
+                                    .ok_or(None)
+                            })?)
                             .with_condition(condition),
                     ))
                 },
@@ -162,6 +193,7 @@ impl InternState {
                 store.intern_dependency_contract_template(
                     contract
                         .with_borrows(borrows)
+                        .with_stored_values(stored_values)
                         .with_carriers(carriers)
                         .with_owned_result(owned_result)
                         .with_observed_result(observed_result)
@@ -445,6 +477,8 @@ impl InternState {
                 }
                 InterfaceDependencyProjection::OwnedTarget => DependencyProjection::OwnedTarget,
                 InterfaceDependencyProjection::UninitPayload => DependencyProjection::UninitPayload,
+                InterfaceDependencyProjection::AnyElement => DependencyProjection::AnyElement,
+                InterfaceDependencyProjection::AddressTarget => DependencyProjection::AddressTarget,
             };
 
             projections.push(projection);
@@ -463,24 +497,21 @@ impl InternState {
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Option<Vec<bray_symbols::DependencyStorageEffect>>, InterfaceSemanticInternError>
     {
-        use bray_symbols::DependencyStorageEffect;
 
         let mut effects = Vec::with_capacity(input.len());
 
         for effect in input {
             effects.push(match effect {
+                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
+                    kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) { Ok(kind) => kind, Err(()) => return Ok(None) },
+                    access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() { Ok(ty) => ty, Err(()) => return Ok(None) },
+                    ambient: *ambient,
+                },
                 DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                 DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                 DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                 DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                DependencyStorageEffect::Cleanup(ty) => {
-                    let Some(ty) = self.type_id(*ty) else {
-                        return Ok(None);
-                    };
-
-                    DependencyStorageEffect::Cleanup(ty)
-                }
-                DependencyStorageEffect::Direct { subject, kind } => {
+                DependencyStorageEffect::Direct { subject, kind, access_type } => {
                     let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
                         return Ok(None);
                     };
@@ -491,12 +522,17 @@ impl InternState {
                             Ok(kind) => kind,
                             Err(()) => return Ok(None),
                         },
+                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
+                            Ok(ty) => ty,
+                            Err(()) => return Ok(None),
+                        },
                     }
                 }
                 DependencyStorageEffect::Indirect {
                     reference,
                     projections,
                     kind,
+                    access_type,
                 } => {
                     let (Some(reference), Some(projections)) = (
                         self.convert_dependency_subject(reference, symbols)?,
@@ -510,6 +546,10 @@ impl InternState {
                         projections: projections.into(),
                         kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
                             Ok(kind) => kind,
+                            Err(()) => return Ok(None),
+                        },
+                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
+                            Ok(ty) => ty,
                             Err(()) => return Ok(None),
                         },
                     }

@@ -5,6 +5,7 @@ mod conformance;
 mod defaults;
 mod dependency;
 mod export;
+mod failure;
 mod imported;
 mod instantiation;
 mod predicate;

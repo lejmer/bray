@@ -133,6 +133,7 @@ impl RefinementUniverse {
     ) -> Result<Vec<Refinement>, RefinementUniverseError> {
         Ok(match refinement {
             AnalysisRefinement::CleanupRequired { .. }
+            | AnalysisRefinement::CaughtResult { .. }
             | AnalysisRefinement::GeneratorStorageFailure(_)
             | AnalysisRefinement::InvocationFailure(_)
             | AnalysisRefinement::InvocationCancellation(_)

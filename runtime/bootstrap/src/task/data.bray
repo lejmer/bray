@@ -5,6 +5,13 @@ using core.memory;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.activation;
 
+// Each noncopy owner carries its acquisition identity. Predicates distinguish
+// storage retention, dispatch reservation and wait-registration ownership.
+@layout(c)
+internal struct Marker
+{
+}
+
 // The cell owns publication, producer execution and terminal resolution. Queue
 // readiness and execution slots belong exclusively to the scheduler. Executing
 // covers only the protected producer interval inside an acquired dispatch.
@@ -13,8 +20,15 @@ internal union Phase
     Admitted;
     Active;
     Executing;
-    Terminal;
+    Terminal(pos outcome: bray.runtime.bootstrap.ReportOutcome);
     Resolved;
+}
+
+internal union Retirement
+{
+    Live;
+    Requested;
+    Complete;
 }
 
 internal struct Control
@@ -23,14 +37,15 @@ internal struct Control
     mut references: usize;
     mut source_owner: bool;
     mut root: usize;
+    mut registration: u64;
+    mut native_context: usize;
     mut callback: usize;
     mut resumable: bool;
     mut execution: bray.runtime.bootstrap.activation.requirements.Execution;
+    mut failure: bray.runtime.bootstrap.worker.Failure;
     mut failure_records: bray.runtime.bootstrap.ReportRecords;
-    mut outcome: bray.runtime.bootstrap.ReportOutcome;
     mut dispatching: bool;
-    mut retiring: bool;
-    mut retired: bool;
+    mut retirement: Retirement;
 }
 
 internal func empty_outcome() -> bray.runtime.bootstrap.ReportOutcome
@@ -48,9 +63,11 @@ internal func prepare(pos records: bray.runtime.bootstrap.ReportRecords) -> Cont
     return
     {
         phase = Phase.Admitted,
-        references = 1,
+        references = 2,
         source_owner = true,
         root = 0,
+        registration = 0,
+        native_context = 0,
         callback = 0,
         resumable = false,
         execution =
@@ -65,10 +82,9 @@ internal func prepare(pos records: bray.runtime.bootstrap.ReportRecords) -> Cont
             },
             origin = 0
         },
+        failure = bray.runtime.bootstrap.worker.no_failure(),
         failure_records = records,
-        outcome = empty_outcome(),
         dispatching = false,
-        retiring = false,
-        retired = false
+        retirement = Retirement.Live
     };
 }

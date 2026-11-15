@@ -14,40 +14,45 @@ use crate::{CheckerRequestContext, CheckerUnitView, ExecutionCondition};
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(in crate::analysis) enum ExpressionEligibility {
     Forbidden,
+    ForbiddenBlock(bray_syntax::SyntaxKind),
     Observation,
     Constant,
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis::guarantee) fn check_predicate_blocks(
+        &self,
+        flow: &bray_bound_tree::StorageFlow,
+        diagnostics: &mut bray_diagnostics::DiagnosticBag,
+    ) {
+        use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel,
+            DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind};
+
+        for (expression, bound) in self.request.unit().tree().expressions() {
+            if !matches!(bound, BoundExpression::Block(_) | BoundExpression::Match(_)) {
+                continue;
+            }
+
+            let ExpressionEligibility::ForbiddenBlock(kind) = self.expression_eligibility(expression, flow) else {
+                continue;
+            };
+
+            let span = crate::diagnostic::expression_span(self.request, expression);
+
+            diagnostics.add(Diagnostic::new(crate::diagnostic::diagnostic_id(diagnostics.len()),
+                DiagnosticKind::CheckingPredicateBlockNotAllowed, SeverityKind::Error)
+                .with_primary_span(span)
+                .with_arg(DiagnosticArg::actual_syntax_kind(kind))
+                .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::ForbiddenPredicateBlock, span))
+                .with_note(DiagnosticNote::new(DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper)));
+        }
+    }
+
     pub(in crate::analysis::guarantee) fn expression_eligibility(
         &self,
         expression: BoundExpressionId,
         flow: &bray_bound_tree::StorageFlow,
     ) -> ExpressionEligibility {
-        let semantics = self.semantics;
-
-        if !self.expression_is_observational(expression, flow) {
-            return ExpressionEligibility::Forbidden;
-        }
-
-        if let Some(SemanticSelection::Call(call)) = semantics.selections().expression(expression)
-            && !matches!(
-                call.target(),
-                bray_bound_tree::BoundCallableTarget::Predicate(_)
-            )
-            && call.constness() != bray_symbols::CallableConstness::Constant
-        {
-            return ExpressionEligibility::Observation;
-        }
-
-        ExpressionEligibility::Constant
-    }
-
-    fn expression_is_observational(
-        &self,
-        expression: BoundExpressionId,
-        flow: &bray_bound_tree::StorageFlow,
-    ) -> bool {
         let request = self.request;
         let semantics = self.semantics;
         let storage = self.storage;
@@ -61,7 +66,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .node_plans(expression.into())
                 .any(|plan| !static_storage_is_address_only(request, storage, flow, plan))
         {
-            return false;
+            return ExpressionEligibility::Forbidden;
         }
 
         if let Some(SemanticSelection::Call(call)) = selections.expression(expression)
@@ -73,7 +78,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 )
             )
         {
-            return false;
+            return ExpressionEligibility::Forbidden;
         }
 
         if matches!(
@@ -82,7 +87,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 bray_bound_tree::SelectedPropagation::CurrentRun { .. }
             ))
         ) {
-            return false;
+            return ExpressionEligibility::Forbidden;
         }
 
         let callable_body = matches!(
@@ -97,6 +102,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let owns_locals = callable_body
             || request.unit().key().is_static_initializer()
             || generators.contains(expression);
+
+        let block = match request.view().expression(expression) {
+            Some(BoundExpression::Block(_)) => Some(bray_syntax::SyntaxKind::BlockExpression),
+            Some(BoundExpression::Match(_)) => Some(bray_syntax::SyntaxKind::MatchExpression),
+            _ => None,
+        };
+
+        if !owns_locals && let Some(kind) = block {
+            return ExpressionEligibility::ForbiddenBlock(kind);
+        }
 
         let confined_assignment = flow.assignment_target(expression).is_some_and(|target| {
             target.mutation_scope(storage, request.semantic_values())
@@ -114,14 +129,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 _ => false,
             })
         {
-            return false;
+            return ExpressionEligibility::Forbidden;
         }
 
         if matches!(
             selections.expression(expression),
             Some(SemanticSelection::ScopedUse(_))
         ) {
-            return false;
+            return ExpressionEligibility::Forbidden;
         }
 
         if matches!(
@@ -129,10 +144,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Some(SemanticSelection::StaticReference(_))
         ) && !request.unit().key().is_static_initializer()
         {
-            return false;
+            return ExpressionEligibility::Forbidden;
         }
 
-        match request.view().expression(expression).expect("checked operation retains its expression") {
+        let observational = match request.view().expression(expression).expect("checked operation retains its expression") {
         BoundExpression::Literal(_)
         | BoundExpression::Name(_)
         | BoundExpression::PatternReference(_)
@@ -191,7 +206,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         | BoundExpression::Await(_)
         | BoundExpression::Error(_) => false,
         BoundExpression::For(_) | BoundExpression::Generator(_) => owns_locals,
-    }
+        };
+
+        if !observational {
+            return ExpressionEligibility::Forbidden;
+        }
+
+        if let Some(SemanticSelection::Call(call)) = semantics.selections().expression(expression)
+            && !matches!(call.target(), bray_bound_tree::BoundCallableTarget::Predicate(_))
+            && call.constness() != bray_symbols::CallableConstness::Constant
+        {
+            return ExpressionEligibility::Observation;
+        }
+
+        ExpressionEligibility::Constant
     }
 }
 
@@ -300,9 +328,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .or_else(|| {
                 // An opaque completed provider has its declared result type. Its
                 // normal completion is certified independently at the input site.
-                matches!(
-                    value,
-                    ExecutionCondition::Call(..) | ExecutionCondition::PostState(_, _)
+                matches!((
+                    value).kind(),
+                    crate::ExecutionConditionKind::Call(..) | crate::ExecutionConditionKind::PostState(_, _)
                 )
                 .then(|| self.integer_type_range(target))
                 .flatten()
@@ -383,7 +411,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         selection.inputs().all(|input| {
             let ty = input.ty(self.request.semantic_values());
 
-            if selection.evaluates_defaults() {
+            if selection.stages_inputs() {
                 let site = selection
                     .input_site(expression, input.root())
                     .expect("evaluated invocation retains every input slot");
@@ -521,7 +549,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     vec![different_left, different_right],
                 );
 
-                if safe.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                if safe.prove_ordinary(&state.assumptions, Some(&state.proofs))
                     == Some(true)
                 {
                     return true;
@@ -599,11 +627,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .intern_constant_value(bray_symbols::ConstantValueData::new(ty, kind))
             .expect("typed numeric zero belongs to this store");
 
-        let zero = ExecutionCondition::Literal(values.constant_value_data(zero));
+        let zero = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(values.constant_value_data(zero)));
         let value = self.value(state, expression);
 
         ExecutionCondition::operation(BoundOperator::NotEqual, vec![value, zero])
-            .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+            .prove_ordinary(&state.assumptions, Some(&state.proofs))
             == Some(true)
             || self
                 .integer_range(state, expression, ranges, &mut {

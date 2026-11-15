@@ -154,10 +154,7 @@ impl Compilation {
 
             let execution = requirements
                 .filter(|requirements| {
-                    requirements.roles().iter().any(|role| {
-                        role.service_class()
-                            == Some(bray_runtime_interface::RuntimeServiceClass::Execution)
-                    }) || requirements.requires_role(
+                    requirements.requires_role(
                         bray_runtime_interface::RuntimeAbiRole::ProductExecutionProvider,
                     )
                 })

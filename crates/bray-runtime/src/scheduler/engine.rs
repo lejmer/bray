@@ -41,19 +41,10 @@ pub(super) struct RegisteredTask {
     pub(super) registration: u64,
     pub(super) execution: FrameExecutionState,
     pub(super) origin: RuntimeThreadId,
-    pub(super) cancellation: Option<CancellationContext>,
-    pub(super) native: Option<Arc<crate::native::NativeTaskServices>>,
+    pub(super) cancellation: CancellationContext,
 }
 
 impl Scheduler {
-    pub(crate) fn source_reference(&self) -> &bray_runtime_abi::NativeSchedulerReference {
-        &self.data.source.reference
-    }
-
-    pub(crate) fn wake_waiters(&self) {
-        native::bray_runtime_scheduler_notification(&self.data.source.reference);
-    }
-
     /// Creates a scheduler without starting workers or optional services.
     /// Returns an error if scheduler backing cannot be admitted.
     pub fn new(
@@ -101,8 +92,7 @@ impl Scheduler {
         origin: RuntimeThreadId,
         cancellation: &CancellationContext,
     ) -> Result<TaskRegistration, SchedulerError> {
-        let mut registration =
-            self.register(task, execution, origin, Some(cancellation.clone()))?;
+        let mut registration = self.register(task, execution, origin, cancellation.clone())?;
 
         let wake = registration.wake_handle();
 
@@ -117,26 +107,18 @@ impl Scheduler {
         Ok(registration)
     }
 
-    pub(crate) fn register_native(
-        &self,
-        task: TaskId,
-        execution: FrameExecutionState,
-        origin: RuntimeThreadId,
-    ) -> Result<TaskRegistration, SchedulerError> {
-        self.register(task, execution, origin, None)
-    }
-
     fn register(
         &self,
         task: TaskId,
         execution: FrameExecutionState,
         origin: RuntimeThreadId,
-        cancellation: Option<CancellationContext>,
+        cancellation: CancellationContext,
     ) -> Result<TaskRegistration, SchedulerError> {
-        let lane = self
-            .data
-            .source
-            .select(None, execution.descriptor(), execution.origin().unwrap_or(origin))?;
+        let lane = self.data.source.select(
+            None,
+            execution.descriptor(),
+            execution.origin().unwrap_or(origin),
+        )?;
 
         let mut registration = 0;
 
@@ -181,7 +163,6 @@ impl Scheduler {
                         execution,
                         origin,
                         cancellation,
-                        native: None,
                     },
                 );
 
@@ -205,7 +186,6 @@ impl Scheduler {
                         execution,
                         origin,
                         cancellation,
-                        native: None,
                     },
                 );
 
@@ -235,24 +215,7 @@ impl Scheduler {
             .into_iter()
             .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
 
-        super::dispatch::pop_ready(&self.data, thread, lanes, None)
-    }
-
-    pub(crate) fn take_worker_ready(
-        &self,
-        thread: &RuntimeThread,
-        lanes: impl IntoIterator<Item = ExecutionLane>,
-        scope: &bray_runtime_abi::NativeWorkerScope,
-    ) -> Result<Option<super::dispatch::ReadyTask>, SchedulerError> {
-        self.promote_elapsed_timers()?;
-
-        let thread = thread.id();
-
-        let lanes = lanes
-            .into_iter()
-            .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
-
-        super::dispatch::pop_ready(&self.data, thread, lanes, Some(scope))
+        super::dispatch::pop_ready(&self.data, thread, lanes)
     }
 
     /// Returns the number of registered independent runs.
@@ -262,54 +225,6 @@ impl Scheduler {
 
     // Keep the creating attachment and any checked live frame origin through
     // registration retirement. This cold resource query owns no lane policy.
-    pub(crate) fn has_attachment_users(&self, thread: &RuntimeThread) -> bool {
-        let state = self
-            .lock_state()
-            .expect("worker retirement retains scheduler bindings");
-
-        state.tasks.values().any(|binding| {
-            binding.origin == thread.id() || binding.execution.origin() == Some(thread.id())
-        })
-    }
-
-    pub(crate) fn unregister_native_task(&self, task: TaskId) {
-        unregister_task(&self.data, task, None);
-    }
-
-    pub(crate) fn install_native_task(
-        &self,
-        task: Arc<crate::native::NativeTaskServices>,
-    ) -> Result<(), SchedulerError> {
-        let mut state = self.lock_state()?;
-
-        let registered = state
-            .tasks
-            .get_mut(&task.id())
-            .ok_or(SchedulerError::UnknownTask(task.id()))?;
-
-        assert!(
-            registered.native.is_none(),
-            "a registration accepts native resources once"
-        );
-
-        registered.cancellation = Some(task.cancellation.clone());
-        registered.native = Some(task);
-
-        Ok(())
-    }
-
-    pub(crate) fn native_task(
-        &self,
-        task: TaskId,
-    ) -> Result<Arc<crate::native::NativeTaskServices>, SchedulerError> {
-        self.lock_state()?
-            .tasks
-            .get(&task)
-            .and_then(|registered| registered.native.as_ref())
-            .map(Arc::clone)
-            .ok_or(SchedulerError::UnknownTask(task))
-    }
-
     /// Captures current task metadata in deterministic identity order.
     pub fn snapshot(&self) -> Result<SchedulerSnapshot, SchedulerError> {
         super::dispatch::scheduler_snapshot(&self.data)
@@ -374,9 +289,11 @@ impl TaskRegistration {
     /// Returns a transferable wake for this exact admitted registration.
     pub fn wake_handle(&self) -> TaskWakeHandle {
         TaskWakeHandle {
-            task: self.task,
-            registration: self.registration,
-            scheduler: self.scheduler.clone(),
+            owner: WakeOwner::Scheduler {
+                task: self.task,
+                registration: self.registration,
+                scheduler: self.scheduler.clone(),
+            },
         }
     }
 
@@ -416,17 +333,6 @@ impl TaskRegistration {
             execution.descriptor(),
             execution.origin().unwrap_or(self.origin),
         )
-    }
-
-    pub(crate) fn retain_driver(&self, scope: Option<&bray_runtime_abi::NativeWorkerScope>, cleanup: bool) {
-        let scheduler = self.scheduler.upgrade().expect("an exclusive dispatch retains its scheduler");
-
-        native::bray_runtime_scheduler_recovery(
-            &scheduler.source.reference,
-            self.registration,
-            scope.unwrap_or(&bray_runtime_abi::NativeWorkerScope::default()),
-            cleanup,
-        );
     }
 }
 
@@ -486,12 +392,37 @@ fn unregister_task(scheduler: &SchedulerData, task: TaskId, registration: Option
 /// Transferable wake for one generation-checked Bray registration.
 #[derive(Clone, Debug)]
 pub struct TaskWakeHandle {
-    pub(super) task: TaskId,
-    pub(super) registration: u64,
-    pub(super) scheduler: Weak<SchedulerData>,
+    pub(super) owner: WakeOwner,
+}
+
+// A generic registration borrows its scheduler. A native wake owns an actual
+// Source storage reference, which retains execution independently of TLS.
+#[derive(Clone, Debug)]
+pub(super) enum WakeOwner {
+    Scheduler {
+        task: TaskId,
+        registration: u64,
+        scheduler: Weak<SchedulerData>,
+    },
+    Native(CancellationContext),
 }
 
 impl TaskWakeHandle {
+    pub(crate) fn native(cancellation: CancellationContext) -> Self {
+        Self {
+            owner: WakeOwner::Native(cancellation),
+        }
+    }
+
+    pub(crate) fn native_cancellation(&self) -> &CancellationContext {
+        match &self.owner {
+            WakeOwner::Native(owner) => owner,
+            WakeOwner::Scheduler { .. } => {
+                panic!("Source task context retains its native wake owner")
+            }
+        }
+    }
+
     /// Coalesces a wake and reports whether it adds a new ready entry.
     pub fn wake(&self) -> Result<bool, SchedulerError> {
         self.wake_with_cause(TaskWakeCause::Explicit)
@@ -501,22 +432,36 @@ impl TaskWakeHandle {
     }
 
     pub(crate) fn wake_with_cause(&self, cause: TaskWakeCause) -> Result<bool, SchedulerError> {
-        let scheduler = self
-            .scheduler
-            .upgrade()
-            .ok_or(SchedulerError::UnknownTask(self.task))?;
+        let (task, status) = match &self.owner {
+            WakeOwner::Scheduler {
+                task,
+                registration,
+                scheduler,
+            } => {
+                let scheduler = scheduler
+                    .upgrade()
+                    .ok_or(SchedulerError::UnknownTask(*task))?;
 
-        let status = native::bray_runtime_scheduler_wake(
-            &scheduler.source.reference,
-            self.registration,
-            native::cause(cause),
-            scheduler.ticks(),
-        );
+                (
+                    *task,
+                    native::bray_runtime_scheduler_wake(
+                        &scheduler.source.reference,
+                        *registration,
+                        native::cause(cause),
+                        scheduler.ticks(),
+                    ),
+                )
+            }
+            WakeOwner::Native(owner) => (
+                TaskId::from_bray_handle(owner.native_reference().task()),
+                owner.wake_native(cause),
+            ),
+        };
 
         match status {
             0 => Ok(false),
             1 => Ok(true),
-            2 => Err(SchedulerError::UnknownTask(self.task)),
+            2 => Err(SchedulerError::UnknownTask(task)),
             _ => panic!("Bray wake returned unknown status {status}"),
         }
     }
@@ -557,7 +502,9 @@ mod tests {
 
         super::unregister_task(&scheduler.data, retired, None);
 
-        assert!(matches!(registration.execution_lane(&task.execution_state()), Err(SchedulerError::UnknownTask(task)) if task == retired));
+        assert!(
+            matches!(registration.execution_lane(&task.execution_state()), Err(SchedulerError::UnknownTask(task)) if task == retired)
+        );
 
         drop(registration);
         drop(task);

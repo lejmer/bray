@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundCallResult, BoundExpression, BoundExpressionId, BoundOperator,
-    BoundStructuredExpressionKind, SemanticSelection, StorageIdentity,
+    BoundStructuredExpressionKind, SemanticSelection,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{MirOperand, MirOperationKind, MirPlace, MirStorageKind, MirStoreKind};
@@ -60,7 +60,7 @@ impl Lowerer<'_> {
                 return true;
             }
 
-            let may_check = match self.input.semantic_selections().expression(expression) {
+            let may_change_block = match self.input.semantic_selections().expression(expression) {
                 Some(SemanticSelection::Call(selection)) => {
                     selection.evaluates_defaults()
                         || (selection.abi() == CallableAbi::Bray
@@ -71,7 +71,13 @@ impl Lowerer<'_> {
                             && selection.implementation_hook().is_none())
                 }
                 Some(SemanticSelection::Operation(operation)) => {
-                    operation.may_propagate_synchronous_panic()
+                    let constructs = matches!(operation, bray_bound_tree::SelectedOperation::Construction(_))
+                        || matches!(operation, bray_bound_tree::SelectedOperation::Member(member)
+                            if matches!(member.member(), bray_symbols::AnySymbolId::UnionVariant(_)));
+
+                    // Admission can split the block even when packing the value cannot panic.
+                    operation.may_propagate_synchronous_panic(bound)
+                        || constructs && self.requires_outgoing_admission(self.expression_type(expression))
                 }
                 Some(SemanticSelection::Iteration(selection)) => !matches!(
                     self.input
@@ -93,7 +99,7 @@ impl Lowerer<'_> {
                 | None => false,
             };
 
-            if may_check {
+            if may_change_block {
                 return true;
             }
 
@@ -103,7 +109,7 @@ impl Lowerer<'_> {
         false
     }
 
-    pub(super) fn materialize_temporary(
+    pub(in crate::lowering) fn materialize_temporary(
         &mut self,
         expression: BoundExpressionId,
         lowered: LoweredExpression,
@@ -147,22 +153,7 @@ impl Lowerer<'_> {
             return Ok(lowered);
         };
 
-        let storage = self.input.storage_plan();
-
-        let temporary = self.input.temporary_storage(expression, ty).or_else(|| {
-            // Transparent expressions retain their operand's checked storage identity.
-            self.input
-                .storage_plan()
-                .node_plans((expression).into())
-                .filter(|plan| storage.is_root_access(plan.access()))
-                .filter_map(|plan| storage.root_identity(plan.access()))
-                .find(|identity| {
-                    matches!(
-                        storage.identity(*identity),
-                        Some(StorageIdentity::Temporary(_))
-                    ) && storage.storage_type(*identity) == Some(ty)
-                })
-        });
+        let temporary = self.input.temporary_storage(expression, ty);
 
         let Some(temporary) = temporary else {
             if required {

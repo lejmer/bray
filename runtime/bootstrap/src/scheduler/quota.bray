@@ -8,10 +8,28 @@ using core.target;
 @abi(c)
 trusted internal func slot_release(pos pointer: DataPointer<Reference>, pos registration: u64) -> u32
     requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted borrow_reference(&pointer, pointer);
+
+    return trusted release_slot(&owner, registration);
+}
+
+@abi(c)
+trusted internal func slot_acquisition(pos pointer: DataPointer<Reference>, pos registration: u64) -> u32
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted borrow_reference(&pointer, pointer);
+
+    return trusted acquire_slot(&owner, registration);
+}
+
+trusted internal func release_slot(pos owner: &Reference, pos registration: u64) -> u32
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
     uses(intrinsic)
 {
-    let owner = trusted read_reference(pointer);
-    let value = trusted domain(&owner);
+
+    let value = trusted domain(owner);
 
     let notifications: u32 =
     {
@@ -45,13 +63,13 @@ trusted internal func slot_release(pos pointer: DataPointer<Reference>, pos regi
     return 1;
 }
 
-@abi(c)
-trusted internal func slot_acquisition(pos pointer: DataPointer<Reference>, pos registration: u64) -> u32
-    requires(trusted reference_slot(pointer = pointer))
+trusted internal func acquire_slot(pos owner: &Reference, pos registration: u64) -> u32
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
     uses(intrinsic)
 {
-    let owner = trusted read_reference(pointer);
-    let value = trusted domain(&owner);
+
+    let value = trusted domain(owner);
     let mut guard = trusted lock(value);
     let state = trusted guard.get();
     let index = trusted index_of(state, registration);

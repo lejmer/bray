@@ -1,7 +1,8 @@
 use crate::{
     NativeCleanupStorageShape, NativeFrameActionCallback, NativeFrameCancellationCallback,
-    NativeFrameCompletionMoveCallback, NativeFrameResolveCallback, NativeFrameResumeCallback,
-    NativeFrameState, NativeFrameStateCallback,
+    NativeFrameCompletionMoveCallback, NativeFrameExit, NativeFrameProgress,
+    NativeFrameResolveCallback, NativeFrameResumeCallback, NativeFrameState,
+    NativeFrameStateCallback, NativeReportRecords,
 };
 
 /// Immutable concrete frame description retained by its generated or native provider.
@@ -76,9 +77,77 @@ impl Default for NativeActivationExecution {
     }
 }
 
+/// The selected producer operation and its operation-specific input.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeActivationOperation {
+    /// Resume the current continuation.
+    Resume,
+    /// Enter checked cancellation.
+    Cancel,
+    /// Broadcast cancellation to initialized children.
+    Broadcast,
+    /// Advance mandatory cleanup for this exit.
+    Resolve(NativeFrameExit),
+    /// Move a successful completion into its admitted destination.
+    Move(usize),
+    /// Release the resolved frame context.
+    Destroy,
+}
+
+impl NativeActivationOperation {
+    /// Returns whether the callback can publish a retained continuation.
+    pub fn is_resumable(self) -> bool {
+        match self {
+            Self::Resume | Self::Cancel => true,
+            Self::Resolve(exit) => {
+                exit != NativeFrameExit::RETAINED_DESTRUCTION
+                    && exit != NativeFrameExit::SYNCHRONOUS_DISPOSAL
+            }
+            Self::Broadcast | Self::Move(_) | Self::Destroy => false,
+        }
+    }
+}
+
+/// One admitted producer call with a retained descriptor and exclusive outputs.
+///
+/// The caller retains the execution snapshot, descriptor provider and both
+/// output slots through return. Destruction may consume frame storage, while
+/// this call and its outputs remain live independently of that storage.
+#[repr(C)]
+#[derive(Debug)]
+pub struct NativeActivationInvocation<'a> {
+    /// Exact execution snapshot checked for this call.
+    pub execution: &'a NativeActivationExecution,
+    /// Immutable descriptor retained independently of consuming callbacks.
+    pub descriptor: &'a NativeActivationDescriptor,
+    /// Producer-owned frame context.
+    pub context: usize,
+    /// Checked operation and its input.
+    pub operation: NativeActivationOperation,
+    /// Initialized progress slot with an empty incoming report.
+    pub progress: &'a mut NativeFrameProgress,
+    /// Exclusively owned native callback report allowance.
+    pub records: &'a mut NativeReportRecords,
+    /// Lane admission result for this invocation, set before producer entry.
+    pub admission: u32,
+}
+
 #[cfg(all(test, target_pointer_width = "64"))]
 mod tests {
-    use super::{NativeActivationDescriptor, NativeActivationExecution};
+    use super::{
+        NativeActivationDescriptor, NativeActivationExecution, NativeActivationInvocation,
+        NativeActivationOperation,
+    };
+
+    #[test]
+    fn activation_invocation_matches_the_dispatcher_layout() {
+        assert_abi_layout!(NativeActivationOperation, size: 16, align: 8, fields: {});
+
+        assert_abi_layout!(NativeActivationInvocation<'_>, size: 64, align: 8, fields: {
+            execution: 0, descriptor: 8, context: 16, operation: 24, progress: 40, records: 48, admission: 56,
+        });
+    }
 
     #[test]
     fn activation_execution_matches_the_dispatcher_layout() {

@@ -1,24 +1,31 @@
 use std::collections::BTreeSet;
 
+use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
     BorrowCapabilityId, BoundDependencyRequirement, BoundDependencySubject, StorageAccessRoot,
     StoragePlan,
 };
 
-pub(in crate::analysis) fn dependency_subjects(
+pub(in crate::analysis) fn dependency_subjects<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     requirements: &[BoundDependencyRequirement],
     storage: &StoragePlan,
+    inputs: &crate::dependency::ValueInputs,
+    selections: &bray_bound_tree::CheckedSemanticSelections,
 ) -> BTreeSet<BoundDependencySubject> {
     let mut subjects = BTreeSet::new();
 
-    collect_dependency_subjects(requirements, storage, &mut subjects);
+    collect_dependency_subjects(request, requirements, storage, inputs, selections, &mut subjects);
 
     subjects
 }
 
-pub(super) fn collect_dependency_subjects(
+pub(super) fn collect_dependency_subjects<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     requirements: &[BoundDependencyRequirement],
     storage: &StoragePlan,
+    inputs: &crate::dependency::ValueInputs,
+    selections: &bray_bound_tree::CheckedSemanticSelections,
     subjects: &mut BTreeSet<BoundDependencySubject>,
 ) {
     for requirement in requirements {
@@ -26,11 +33,25 @@ pub(super) fn collect_dependency_subjects(
             BoundDependencyRequirement::Direct { subject, .. } => {
                 collect_subject(*subject, storage, subjects);
             }
+            BoundDependencyRequirement::Value { source, path, ty } => {
+                // A resolved component or address copy carries the source value's
+                // dependencies. The reading loan is an invocation use. Resolve
+                // carried loans in the ownership fixed point with the full requirement.
+                if !inputs.value_carries_no_borrows(*ty)
+                    && inputs.copied_value_source(request, storage, selections, *source, path, *ty).is_none()
+                {
+                    collect_subject(
+                        BoundDependencySubject::StorageAccess(*source),
+                        storage,
+                        subjects,
+                    );
+                }
+            }
             BoundDependencyRequirement::Guarded(requirement) => {
                 let guard = requirement.guard().subject();
 
                 collect_subject(guard, storage, subjects);
-                collect_dependency_subjects(requirement.requirements(), storage, subjects);
+                collect_dependency_subjects(request, requirement.requirements(), storage, inputs, selections, subjects);
             }
         }
     }

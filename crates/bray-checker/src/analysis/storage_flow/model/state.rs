@@ -276,7 +276,11 @@ impl StorageFlowState {
         });
     }
 
-    pub(super) fn entry(storage: &StoragePlan, input: &StorageFlowInput) -> Self {
+    pub(super) fn entry(
+        values: &bray_symbols::SemanticValueStore,
+        storage: &StoragePlan,
+        input: &StorageFlowInput,
+    ) -> Self {
         let initialized = storage
             .identity_entries()
             .filter_map(|(id, identity)| {
@@ -293,7 +297,7 @@ impl StorageFlowState {
         let mut memory = crate::analysis::storage_flow::memory::State::for_storage(
             storage,
             &input.cleanup_free_storage,
-            &input.complete_reference_types,
+            &input.footprint.complete_reference_types,
         );
 
         for capability in &active_borrows {
@@ -311,11 +315,49 @@ impl StorageFlowState {
             }
         }
 
-        for ((slot, layer), (path, ty)) in &input.entry_references {
+        for ((slot, layer), (path, ty, kind)) in &input.entry_references {
             if let Some(target) =
-                StorageFlowInput::reference_location(&memory, slot.root, path, None)
+                StorageFlowInput::reference_location(values, &memory, slot.root, path, None)
             {
-                memory.entry_reference_at(slot.clone(), *layer, target, *ty);
+                if let Some(fields) = input.entry_buffer_pointer(path, *ty) {
+                    let owner_path = bray_bound_tree::StorageReferencePath::new(
+                        path.projections()[..path.projections().len() - 1].into(),
+                        path.borrows().into(),
+                    );
+
+                    let owner = StorageFlowInput::reference_location(
+                        values,
+                        &memory,
+                        slot.root,
+                        &owner_path,
+                        None,
+                    )
+                    .expect("prepared buffer pointer entry retains its reached owner");
+
+                    memory.declare_owned_buffer(owner.clone(), target, fields.element);
+
+                    if input.footprint.complete_reference_types.get(&fields.element) != Some(&true)
+                        && let Some(regions) = memory.owned_regions(&owner, bray_bound_tree::StorageProjection::ProductField(fields.pointer))
+                    {
+                        for region in regions {
+                            let element = region.project(&[bray_bound_tree::StorageProjection::AnyElement]);
+
+                            memory.seed_whole_source(element.clone(), element);
+                        }
+                    }
+
+                    continue;
+                }
+
+                memory.entry_reference_at(slot.clone(), *layer, target, *ty, *kind);
+            }
+        }
+
+        for (root, path) in &input.entry_whole_sources {
+            if initialized.contains(root)
+                && let Some(target) = StorageFlowInput::reference_location(values, &memory, *root, path, None)
+            {
+                memory.seed_whole_source(target.clone(), target);
             }
         }
 
@@ -357,7 +399,7 @@ impl StorageFlowState {
         let execution_changed = crate::analysis::guarantee::merge_execution(
             &mut self.execution,
             &incoming.execution,
-            block,
+            crate::analysis::guarantee::ExecutionJoin::from(block),
         );
 
         let dependencies_changed = self

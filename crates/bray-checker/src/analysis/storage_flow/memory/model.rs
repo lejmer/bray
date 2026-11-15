@@ -14,24 +14,46 @@ pub(in crate::analysis::storage_flow) enum Effect {
     Ambient,
     Escape,
     Atomic,
-    Mutation(Target, bray_symbols::DependencyMutationKind),
-    Cleanup(TypeId),
+    // The original checked access type belongs to the mutation. An alias bound
+    // supplies its region, never a substitute raw access or transfer type.
+    Mutation(Target, bray_symbols::DependencyMutationKind, Option<TypeId>),
+    UnboundedMutation {
+        kind: bray_symbols::DependencyMutationKind,
+        access_type: Option<TypeId>,
+        ambient: bool,
+    },
 }
 
 impl Effect {
     pub(in crate::analysis::storage_flow) fn is_ambient(&self) -> bool {
-        matches!(self, Self::Ambient)
+        matches!(self, Self::Ambient | Self::UnboundedMutation { ambient: true, .. } | Self::Mutation(_, bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), _))
+    }
+
+    pub(in crate::analysis::storage_flow) fn may_reach_all_inputs(&self) -> bool {
+        matches!(self, Self::Unknown | Self::UnboundedMutation { ambient: false, .. })
+    }
+
+    pub(in crate::analysis::storage_flow) fn unbounded(
+        kind: bray_symbols::DependencyMutationKind,
+        access_type: Option<TypeId>,
+        ambient: bool,
+    ) -> Self {
+        match kind {
+            bray_symbols::DependencyMutationKind::Atomic => Self::Atomic,
+            bray_symbols::DependencyMutationKind::Escape => Self::Escape,
+            _ => Self::UnboundedMutation { kind, access_type, ambient },
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn is_atomic(&self) -> bool {
         matches!(
             self,
-            Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic)
+            Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic, _)
         )
     }
 
     pub(super) fn retire(&mut self, current: &Target) {
-        if let Self::Mutation(target, _) = self
+        if let Self::Mutation(target, _, _) = self
             && current.contains(target)
         {
             target.previous = true;
@@ -42,7 +64,7 @@ impl Effect {
         match self {
             // Writes confined to an invocation-local slot do not publish an address.
             // Stored reference relations still track later publication of that slot.
-            Self::Mutation(target, kind) => {
+            Self::Mutation(target, kind, _) => {
                 kind.is_write()
                     && *kind != bray_symbols::DependencyMutationKind::Clear
                     && target.storage_path().is_none_or(|path| {
@@ -56,7 +78,8 @@ impl Effect {
                                 .is_some_and(|contents| contents.escaped)
                     })
             }
-            Self::Unknown | Self::Escape | Self::Cleanup(_) => true,
+            Self::UnboundedMutation { kind, .. } => kind.is_write() && *kind != bray_symbols::DependencyMutationKind::Clear,
+            Self::Unknown | Self::Escape => true,
             Self::Ambient | Self::Atomic => false,
         }
     }
@@ -65,13 +88,9 @@ impl Effect {
         &self,
     ) -> Option<(&Target, bray_symbols::DependencyMutationKind)> {
         match self {
-            Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape) => None,
-            Self::Mutation(target, kind) => Some((target, *kind)),
-            Self::Unknown
-            | Self::Ambient
-            | Self::Escape
-            | Self::Atomic
-            | Self::Cleanup(_) => None,
+            Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape, _) => None,
+            Self::Mutation(target, kind, _) => Some((target, *kind)),
+            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::UnboundedMutation { .. } => None,
         }
     }
 }
@@ -82,6 +101,70 @@ pub(super) struct References {
     pub(super) unknown: bool,
     pub(super) displaced: bool,
     pub(super) inexact: bool,
+}
+
+/// One value slot can carry generic lineage without being a reference slot.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct StoredValue {
+    pub(super) references: Option<References>,
+    pub(super) sources: BTreeSet<Target>,
+    pub(super) tracked: bool,
+    pub(super) complete: bool,
+}
+
+impl StoredValue {
+    pub(super) fn merge_staged(&mut self, incoming: &Self) {
+        let exact = self.references.as_ref().filter(|references| references.is_exact()).cloned();
+        let whole = (self.tracked, self.complete);
+
+        self.merge(incoming);
+
+        self.complete = match (whole.0, incoming.tracked) {
+            (true, true) => whole.1 && incoming.complete,
+            (true, false) => whole.1,
+            (false, true) => incoming.complete,
+            (false, false) => false,
+        };
+
+        if let Some(exact) = exact { self.references = Some(exact); }
+    }
+
+    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
+        let previous = self.clone();
+
+        match (&mut self.references, &incoming.references) {
+            (Some(current), Some(incoming)) => { current.merge(incoming); }
+            (None, Some(incoming)) => {
+                let mut references = incoming.clone();
+
+                references.inexact |= self.tracked;
+
+                self.references = Some(references);
+            }
+            (Some(current), None) if incoming.tracked => current.inexact = true,
+            _ => {}
+        }
+
+        self.sources.extend(incoming.sources.iter().cloned());
+
+        if incoming.tracked {
+            self.complete = self.tracked && self.complete && incoming.complete;
+            self.tracked = true;
+        } else if self.tracked {
+            self.complete = false;
+        }
+
+        *self != previous
+    }
+}
+
+impl From<References> for StoredValue {
+    fn from(references: References) -> Self {
+        Self {
+            references: Some(references),
+            ..Self::default()
+        }
+    }
 }
 
 impl References {
@@ -158,7 +241,7 @@ pub(super) struct Contents {
 }
 
 impl Contents {
-    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
+    pub(super) fn merge(&mut self, incoming: &Self, target: &Target) -> bool {
         let previous_exposure = self.exposed;
         let previous_escape = self.escaped;
 
@@ -170,7 +253,7 @@ impl Contents {
         match (self.storage_type, incoming.storage_type) {
             (Some(left), Some(right)) => assert_eq!(
                 left, right,
-                "one physical storage path has one declared type"
+                "one physical storage path has one declared type: {target:?}"
             ),
             (None, Some(ty)) => self.storage_type = Some(ty),
             _ => {}
@@ -217,7 +300,7 @@ impl CapturedEffects {
     pub(super) fn references(&self, current: &Target) -> bool {
         self.escaped.iter().any(|target| current.contains(target))
             || self.mutations.iter().any(
-                |effect| matches!(effect, Effect::Mutation(target, _) if current.contains(target)),
+                |effect| matches!(effect, Effect::Mutation(target, _, _) if current.contains(target)),
             )
     }
 
@@ -255,17 +338,22 @@ impl CapturedEffects {
 /// A value captured before consumption, with inline protected payload state at its destination.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Transfer {
-    pub(super) values: BTreeMap<Target, References>,
+    /// Evaluated reference descriptors retained by this deferred frame, separate from published outputs.
+    pub(super) inputs: BTreeMap<Target, StoredValue>,
+    pub(super) values: BTreeMap<Target, StoredValue>,
     pub(super) payloads: BTreeMap<Target, Contents>,
     pub(super) failure_effects: Option<std::sync::Arc<CapturedEffects>>,
     pub(super) deferred_effects: Option<BTreeSet<Effect>>,
+    pub(super) captured_cleanup: Option<BTreeSet<Effect>>,
+    pub(super) result_cleanup: Option<BTreeSet<Effect>>,
     pub(super) deferred: super::references::DeferredTransitions,
     pub(super) returned_inputs: BTreeMap<Place, References>,
 }
 
 impl Transfer {
     pub(super) fn merge(&mut self, incoming: &Self) -> bool {
-        let changed = merge_references(&mut self.values, &incoming.values, |_| false, |_| false);
+        let changed = merge_stored(&mut self.inputs, &incoming.inputs, |_| false, |_| false);
+        let changed = merge_stored(&mut self.values, &incoming.values, |_| false, |_| false) || changed;
 
         let mut changed = merge_contents(&mut self.payloads, &incoming.payloads) || changed;
 
@@ -279,15 +367,21 @@ impl Transfer {
                 .merge(bounds);
         }
 
-        if let Some(effects) = &mut self.deferred_effects {
-            if let Some(incoming) = &incoming.deferred_effects {
-                let before = effects.len();
+        for (effects, incoming) in [
+            (&mut self.deferred_effects, &incoming.deferred_effects),
+            (&mut self.captured_cleanup, &incoming.captured_cleanup),
+            (&mut self.result_cleanup, &incoming.result_cleanup),
+        ] {
+            if let Some(current) = effects {
+                if let Some(incoming) = incoming {
+                    let before = current.len();
 
-                effects.extend(incoming.iter().cloned());
-                changed |= before != effects.len();
-            } else {
-                self.deferred_effects = None;
-                changed = true;
+                    current.extend(incoming.iter().cloned());
+                    changed |= before != current.len();
+                } else {
+                    *effects = None;
+                    changed = true;
+                }
             }
         }
 
@@ -320,8 +414,9 @@ pub(in crate::analysis::storage_flow) struct State {
         std::sync::Arc<BTreeMap<bray_bound_tree::StorageIdentityId, bray_symbols::BorrowKind>>,
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) unaddressed_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
-    pub(super) returned_inputs: BTreeMap<Place, References>,
-    pub(super) values: BTreeMap<Target, References>,
+    // Bounds retain the producing slot and whether its evaluation has retired.
+    pub(super) returned_inputs: BTreeMap<(Place, bool), References>,
+    pub(super) values: BTreeMap<Target, StoredValue>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
     pub(super) deferred: super::references::DeferredTransitions,
@@ -354,7 +449,7 @@ impl State {
         let left_absent = |slot: &Target| no_payload(absent, slot);
         let right_absent = |slot: &Target| no_payload(incoming_absent, slot);
 
-        let mut changed = merge_references(
+        let mut changed = merge_stored(
             &mut self.values,
             &incoming.values,
             left_absent,
@@ -400,7 +495,7 @@ fn merge_contents(
 
     for (key, contents) in target.iter_mut() {
         match incoming.get(key) {
-            Some(incoming) => changed |= contents.merge(incoming),
+            Some(incoming) => changed |= contents.merge(incoming, key),
             None => {
                 changed |= !contents.initialized.is_empty();
                 contents.initialized.clear();
@@ -415,6 +510,80 @@ fn merge_contents(
 
             contents.initialized.clear();
             target.insert(key.clone(), contents);
+            changed = true;
+        }
+    }
+
+    changed
+}
+
+fn merge_stored<K: Clone + Ord>(
+    target: &mut BTreeMap<K, StoredValue>,
+    incoming: &BTreeMap<K, StoredValue>,
+    target_absent: impl Fn(&K) -> bool,
+    incoming_absent: impl Fn(&K) -> bool,
+) -> bool {
+    let mut changed = false;
+
+    for (slot, value) in target.iter_mut() {
+        let previous = value.clone();
+
+        match incoming.get(slot) {
+            Some(other) if target_absent(slot) => *value = other.clone(),
+            Some(_) if incoming_absent(slot) => {},
+            Some(other) => {
+                match (&mut value.references, &other.references) {
+                    (Some(left), Some(right)) => {
+                        let nullable = left.targets.is_empty() != right.targets.is_empty();
+
+                        left.merge(right);
+                        left.inexact |= nullable;
+                    }
+                    (Some(left), None) => left.unknown = true,
+                    (None, Some(right)) => {
+                        let mut right = right.clone();
+
+                        right.unknown = true;
+                        value.references = Some(right);
+                    }
+                    (None, None) => {}
+                }
+
+                value.sources.extend(other.sources.iter().cloned());
+
+                if other.tracked {
+                    value.complete = value.tracked && value.complete && other.complete;
+                    value.tracked = true;
+                } else if value.tracked {
+                    value.complete = false;
+                }
+            }
+            None if !incoming_absent(slot) => {
+                if let Some(references) = &mut value.references {
+                    references.unknown = true;
+                }
+
+                value.complete = false;
+            }
+            None => {}
+        }
+
+        changed |= *value != previous;
+    }
+
+    for (slot, value) in incoming {
+        if !target.contains_key(slot) {
+            let mut value = value.clone();
+
+            if !target_absent(slot) {
+                if let Some(references) = &mut value.references {
+                    references.unknown = true;
+                }
+
+                value.complete = false;
+            }
+
+            target.insert(slot.clone(), value);
             changed = true;
         }
     }
@@ -484,14 +653,45 @@ pub(in crate::analysis::storage_flow) enum ReferenceBounds {
 /// Reference values at a unit boundary, with the live-payload conditions used by the same join.
 #[derive(Clone, Debug, Default)]
 pub(in crate::analysis::storage_flow) struct ReferenceExit {
-    pub(super) slots: BTreeMap<Place, References>,
+    pub(super) slots: BTreeMap<Place, StoredValue>,
+    pub(super) stored: BTreeMap<Target, StoredValue>,
     pub(super) absent: BTreeSet<Place>,
     pub(super) input_regions: BTreeSet<Place>,
 }
 
 impl ReferenceExit {
+    pub(in crate::analysis::storage_flow) fn whole_sources(&self) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {
+        self.stored.iter().filter(|(_, value)| value.tracked)
+            .map(|(target, value)| (target, &value.sources, value.complete))
+    }
+
+    pub(in crate::analysis::storage_flow) fn stored_references(&self) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool, ReferenceBounds)> {
+        self.stored.iter().filter_map(|(slot, value)| value.references.as_ref().map(|references| {
+            (slot, &references.targets, references.is_exact(), if references.unknown {
+                ReferenceBounds::Unknown
+            } else if references.displaced {
+                ReferenceBounds::Displaced
+            } else { ReferenceBounds::Known })
+        }))
+    }
+
+    pub(in crate::analysis::storage_flow) fn empty_slots(&self) -> impl Iterator<Item = &Place> {
+        self.slots.iter().filter_map(|(slot, value)| {
+            let references = value.references.as_ref()?;
+
+            (!references.unknown && !references.displaced && references.targets.is_empty()).then_some(slot)
+        })
+    }
+
     pub(in crate::analysis::storage_flow) fn merge(&mut self, incoming: &Self) {
-        merge_references(
+        merge_stored(
+            &mut self.stored,
+            &incoming.stored,
+            |target| target.storage_path().is_some_and(|slot| self.absent.iter().any(|path| path.contains(slot))),
+            |target| target.storage_path().is_some_and(|slot| incoming.absent.iter().any(|path| path.contains(slot))),
+        );
+
+        merge_stored(
             &mut self.slots,
             &incoming.slots,
             |slot| self.absent.iter().any(|path| path.contains(slot)),
@@ -517,7 +717,7 @@ impl ReferenceExit {
     pub(in crate::analysis::storage_flow) fn targets(
         &self,
     ) -> impl Iterator<Item = (&Place, &Origin, bool, ReferenceBounds)> {
-        self.slots.iter().flat_map(move |(slot, references)| {
+        self.slots.iter().filter_map(|(slot, value)| Some((slot, value.references.as_ref()?))).flat_map(move |(slot, references)| {
             references.targets.iter().map(move |target| {
                 (
                     slot,

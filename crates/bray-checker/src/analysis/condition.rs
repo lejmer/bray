@@ -6,7 +6,7 @@ use crate::CheckerRequestContext;
 
 use super::build::{ControlFlowGraphBuilder, ResultYieldContext};
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisEdgeKind, AnalysisRefinement};
+use super::model::{AnalysisEdgeKind, AnalysisRefinement, AnalysisResultPhase};
 
 impl<C> ControlFlowGraphBuilder<'_, C>
 where
@@ -105,9 +105,13 @@ where
         {
             let operand = *condition.operands().first()?;
 
-            self.push_bound(current, id.into());
+            self.push_result(current, id, AnalysisResultPhase::Begin);
 
-            return self.build_condition(operand, current, matched, unmatched);
+            let success = self.condition_result_outcome(id, true, matched);
+            let failure = self.condition_result_outcome(id, false, unmatched);
+
+            return self.build_condition(operand, current,
+                (success, matched.1), (failure, unmatched.1));
         }
 
         if let bray_bound_tree::BoundExpression::Unary(unary) = self.view().expression(id)?
@@ -115,64 +119,39 @@ where
         {
             let operand = *unary.operands().first()?;
 
-            self.push_bound(current, id.into());
+            self.push_result(current, id, AnalysisResultPhase::Begin);
 
-            return self.build_condition(operand, current, unmatched, matched);
+            let success = self.condition_result_outcome(id, true, matched);
+            let failure = self.condition_result_outcome(id, false, unmatched);
+
+            return self.build_condition(operand, current,
+                (failure, unmatched.1), (success, matched.1));
         }
 
         if let bray_bound_tree::BoundExpression::Binary(binary) = self.view().expression(id)?
-            && matches!(
-                binary.operator(),
-                BoundOperator::LogicalAnd | BoundOperator::LogicalOr
-            )
+            && matches!(binary.operator(), BoundOperator::LogicalAnd | BoundOperator::LogicalOr)
         {
-            let [left, right] = binary.operands() else {
-                return None;
-            };
+            let [left, right] = binary.operands() else { return None; };
 
             let (left, right) = (*left, *right);
 
-            let operator = binary.operator();
+            let conjunction = binary.operator() == BoundOperator::LogicalAnd;
 
+            self.push_result(current, id, AnalysisResultPhase::Begin);
+
+            let success = self.condition_result_outcome(id, true, matched);
+            let failure = self.condition_result_outcome(id, false, unmatched);
             let next = self.push_block();
-            let outcome = self.push_block();
-            let conjunction = operator == BoundOperator::LogicalAnd;
-            let destination = if conjunction { unmatched } else { matched };
 
-            // Both short-circuit paths establish the completed Boolean outcome.
-            // Keep it at their join instead of losing it with operand-only refinements.
-            self.push_edge(
-                outcome,
-                destination.0,
-                destination.1,
-                Some(AnalysisRefinement::Condition {
-                    expression: id,
-                    value: !conjunction,
-                }),
-            );
-
-            let (matched, unmatched) = if conjunction {
-                (matched, (outcome, unmatched.1))
-            } else {
-                ((outcome, matched.1), unmatched)
-            };
-
-            self.push_bound(current, id.into());
+            let matched = (success, matched.1);
+            let unmatched = (failure, unmatched.1);
 
             if conjunction {
-                self.build_condition(
-                    left,
-                    current,
-                    (next, AnalysisEdgeKind::ConditionalTrue),
-                    unmatched,
-                )?;
+                self.build_condition(left, current,
+                    (next, AnalysisEdgeKind::ConditionalTrue), unmatched)?;
             } else {
-                self.build_condition(
-                    left,
-                    current,
-                    matched,
-                    (next, AnalysisEdgeKind::ConditionalFalse),
-                )?;
+                self.build_condition(left, current,
+                    matched, (next, AnalysisEdgeKind::ConditionalFalse))?;
             }
 
             self.build_condition(right, next, matched, unmatched)?;
@@ -180,6 +159,16 @@ where
             return Some(());
         }
 
+        self.build_value_branch(id, current, matched, unmatched)
+    }
+
+    pub(super) fn build_value_branch(
+        &mut self,
+        id: BoundExpressionId,
+        current: AnalysisBlockId,
+        matched: (AnalysisBlockId, AnalysisEdgeKind),
+        unmatched: (AnalysisBlockId, AnalysisEdgeKind),
+    ) -> Option<()> {
         let pattern = match self.view().expression(id)? {
             bray_bound_tree::BoundExpression::Structured(expression)
                 if expression.kind() == BoundStructuredExpressionKind::PatternBinding =>
@@ -259,6 +248,25 @@ where
         }
 
         Some(())
+    }
+
+    /// Publish the completed Boolean after the selected operand path finishes.
+    fn condition_result_outcome(
+        &mut self,
+        expression: BoundExpressionId,
+        value: bool,
+        destination: (AnalysisBlockId, AnalysisEdgeKind),
+    ) -> AnalysisBlockId {
+        let outcome = self.push_block();
+        let completed = self.push_block();
+
+        self.push_edge(outcome, completed, destination.1,
+            Some(AnalysisRefinement::Condition { expression, value }));
+
+        self.push_result(completed, expression, AnalysisResultPhase::Completion);
+        self.push_edge(completed, destination.0, AnalysisEdgeKind::Sequential, None);
+
+        outcome
     }
 
     pub(super) fn build_result_branch(

@@ -32,6 +32,9 @@ pub struct StoragePlanBuilder {
     pub(super) unit: BoundUnitId,
     pub(super) kind: BoundUnitKind,
     pub(super) identities: Vec<StorageIdentity>,
+    pub(super) temporaries: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
+    pub(super) value_slots: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
+    pub(super) value_consumptions: BTreeMap<(crate::BoundExecutionSite, crate::StorageValueConsumptionPhase), BTreeSet<crate::StoragePath>>,
     pub(super) identity_types: BTreeMap<StorageIdentityId, TypeId>,
     pub(super) owned_borrows: BTreeMap<(TypeId, BorrowKind), crate::StorageProtocolCall>,
     pub(super) accesses: Vec<StorageAccess>,
@@ -54,6 +57,9 @@ impl StoragePlanBuilder {
             unit,
             kind,
             identities: Vec::new(),
+            temporaries: BTreeMap::new(),
+            value_slots: BTreeMap::new(),
+            value_consumptions: BTreeMap::new(),
             identity_types: BTreeMap::new(),
             owned_borrows: BTreeMap::new(),
             accesses: Vec::new(),
@@ -79,7 +85,77 @@ impl StoragePlanBuilder {
 
         self.identities.push(identity);
 
+        if let StorageIdentity::Temporary(expression) = identity {
+            self.temporaries.entry(expression).or_insert(id);
+        }
+
         Ok(id)
+    }
+
+    /// Registers the actual value slot produced by one runtime expression.
+    pub fn set_value_slot(
+        &mut self,
+        expression: crate::BoundExpressionId,
+        identity: StorageIdentityId,
+    ) -> Result<(), StoragePlanBuildError> {
+        if expression.unit() != self.unit {
+            return Err(StoragePlanBuildError::ForeignUnit);
+        }
+
+        let source = self.identity(identity).ok_or(StoragePlanBuildError::MissingIdentity)?;
+
+        if !matches!(source,
+            StorageIdentity::Evaluated(owner) | StorageIdentity::Temporary(owner)
+                | StorageIdentity::Result(crate::AnyBoundNodeId::Expression(owner)) if *owner == expression)
+        {
+            return Err(StoragePlanBuildError::BindingIdentityMismatch);
+        }
+
+        match self.value_slots.entry(expression) {
+            std::collections::btree_map::Entry::Vacant(slot) => { slot.insert(identity); }
+            std::collections::btree_map::Entry::Occupied(slot) if *slot.get() == identity => {}
+            std::collections::btree_map::Entry::Occupied(_) => return Err(StoragePlanBuildError::DuplicateBinding),
+        }
+
+        Ok(())
+    }
+
+    /// Returns the already planned materialized value slot.
+    pub fn value_slot(&self, expression: crate::BoundExpressionId) -> Option<StorageIdentityId> {
+        self.value_slots.get(&expression).copied()
+    }
+
+    /// Records the evaluated handle consumed after its destination is captured.
+    /// This never introduces another physical move or borrow of its source.
+    pub fn consume_value(
+        &mut self,
+        occurrence: crate::BoundExecutionSite,
+        phase: crate::StorageValueConsumptionPhase,
+        path: crate::StoragePath,
+    ) -> Result<(), StoragePlanBuildError> {
+        if occurrence.node().unit() != self.unit || !path.is_valid_for(self.unit) {
+            return Err(StoragePlanBuildError::ForeignUnit);
+        }
+
+        let identity = self.identity(path.root).ok_or(StoragePlanBuildError::MissingIdentity)?;
+
+        let produced = match identity {
+            StorageIdentity::Evaluated(expression) | StorageIdentity::Temporary(expression)
+            | StorageIdentity::Result(crate::AnyBoundNodeId::Expression(expression)) => {
+                self.value_slots.get(expression) == Some(&path.root)
+            }
+            StorageIdentity::InvocationInput { .. } | StorageIdentity::InvocationResult(_)
+            | StorageIdentity::ScopedCapability { .. } => true,
+            _ => false,
+        };
+
+        if !produced {
+            return Err(StoragePlanBuildError::BindingIdentityMismatch);
+        }
+
+        self.value_consumptions.entry((occurrence, phase)).or_default().insert(path);
+
+        Ok(())
     }
 
     /// Records the checked type stored by one persistent storage origin.
@@ -374,6 +450,14 @@ impl StoragePlanBuilder {
                 StorageBindingTarget::InvocationResult(expected),
                 Some(StorageIdentity::InvocationResult(actual)),
             ) => expected == actual,
+            (
+                StorageBindingTarget::InvocationResult(crate::BoundExecutionSite::Node(crate::AnyBoundNodeId::Expression(expected))),
+                Some(StorageIdentity::CustomIndexBorrow(actual)),
+            ) => expected == actual,
+            (
+                StorageBindingTarget::InvocationResult(crate::BoundExecutionSite::ScopedEnter(expected)),
+                Some(StorageIdentity::ScopedCapability { expression, .. }),
+            ) => expected == expression,
             (
                 StorageBindingTarget::InvocationInput {
                     expression,

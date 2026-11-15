@@ -1,3 +1,50 @@
+/// The state observed through one checked value, independently of access authority.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageObservationKind {
+    /// Contents can change through protected or unresolved reachable state.
+    Mutable,
+    /// An ordinary inline value with no mutable reachable contents.
+    Value,
+    /// Unchanged ordinary inline data of an unresolved shape, excluding protected or reached state.
+    InlineBits,
+    /// An address value whose reachable contents remain independent observations.
+    Address,
+    /// An identity whose protected contents can progress independently.
+    Identity,
+    /// An empty ownership marker of the exact checked type.
+    Marker(bray_symbols::TypeId),
+    /// A nullable presence bit or active union tag, separately from its payload.
+    Discriminant,
+    /// A reference boundary with its original checked type and borrow layers.
+    Reference(bray_symbols::TypeId),
+}
+
+impl StorageObservationKind {
+    /// Records descriptor survival separately from preserved contents or tags.
+    pub fn record_preservation(
+        self,
+        path: crate::StoragePath,
+        descriptors: &mut std::collections::BTreeSet<crate::StoragePath>,
+        observations: &mut std::collections::BTreeMap<crate::StoragePath, Self>,
+    ) {
+        if self == Self::Identity {
+            descriptors.insert(path);
+            return;
+        }
+
+        let retained = if matches!(self, Self::Discriminant | Self::Address | Self::InlineBits) { self } else { Self::Value };
+
+        observations.entry(path).and_modify(|previous| {
+            if *previous == Self::Discriminant || retained == Self::Value { *previous = retained; }
+        }).or_insert(retained);
+    }
+
+    /// Whether retaining this exact value preserves all of its observable contents.
+    pub const fn is_immutable_inline(self) -> bool {
+        matches!(self, Self::Value | Self::Marker(_))
+    }
+}
+
 /// Identity of a checked operation that creates a new contents observation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageMutation {
@@ -9,6 +56,8 @@ pub enum StorageMutation {
         occurrence: crate::BoundExecutionSite,
         /// Owner receiving cancellation.
         access: crate::StorageAccessId,
+        /// Prepared component within that owner.
+        part: usize,
     },
     /// One opaque represented component within an ordered cleanup.
     Cleanup {
@@ -48,7 +97,7 @@ impl StorageMutation {
 /// Value observations and required storage lifetimes are distinct relationships.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct StorageCompletion {
-    references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
+    references: std::collections::BTreeMap<crate::StoragePath, crate::StorageTarget>,
     borrow_origins: std::collections::BTreeMap<
         crate::BoundExecutionSite,
         std::collections::BTreeSet<crate::StoragePath>,
@@ -58,7 +107,7 @@ pub struct StorageCompletion {
 impl StorageCompletion {
     /// Creates a completion from exact value observations and all possible local borrowed owners.
     pub fn new(
-        references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
+        references: std::collections::BTreeMap<crate::StoragePath, crate::StorageTarget>,
         borrow_origins: std::collections::BTreeMap<
             crate::BoundExecutionSite,
             std::collections::BTreeSet<crate::StoragePath>,
@@ -70,10 +119,10 @@ impl StorageCompletion {
         }
     }
 
-    /// Returns exact current aliases used to observe mutated referents.
+    /// Returns established referents without discarding entry layers or returned origins.
     pub fn references(
         &self,
-    ) -> &std::collections::BTreeMap<crate::StoragePath, crate::StoragePath> {
+    ) -> &std::collections::BTreeMap<crate::StoragePath, crate::StorageTarget> {
         &self.references
     }
 
@@ -111,6 +160,7 @@ impl StorageCompletion {
 #[cfg(test)]
 mod tests {
     use super::StorageCompletion;
+    use crate::StorageTarget;
     use std::collections::{BTreeMap, BTreeSet};
     #[test]
     fn completion_merge_intersects_exact_aliases_and_unions_required_origins() {
@@ -123,12 +173,12 @@ mod tests {
         let argument = crate::BoundExpressionId::from_slot(unit, 0);
 
         let mut left = StorageCompletion::new(
-            BTreeMap::from([(path(0), path(1))]),
+            BTreeMap::from([(path(0), StorageTarget::storage(path(1)))]),
             BTreeMap::from([(argument.into(), BTreeSet::from([path(1)]))]),
         );
 
         let right = StorageCompletion::new(
-            BTreeMap::from([(path(0), path(2))]),
+            BTreeMap::from([(path(0), StorageTarget::storage(path(2)))]),
             BTreeMap::from([(argument.into(), BTreeSet::from([path(2)]))]),
         );
 

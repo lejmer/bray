@@ -186,6 +186,13 @@ impl InterfaceSemantics {
             ));
         }
 
+        let input_types = signature.receiver.iter().map(|receiver| receiver.ty)
+            .chain(parameters.iter().map(|parameter| parameter.ty)).collect::<Vec<_>>();
+
+        for transfer in result_dependencies.owned_result.transfers() {
+            self.validate_owned_preservation(transfer, &input_types, surface)?;
+        }
+
         if let Some(receiver) = &signature.receiver {
             validate_owned_parameter(
                 &signature.owner,

@@ -6,7 +6,6 @@
     feature = "callback",
     feature = "host",
     feature = "scheduler",
-    feature = "cancellation",
     feature = "event",
     feature = "test-host"
 ))]
@@ -14,8 +13,6 @@
 mod export;
 #[cfg(feature = "callback")]
 mod callback;
-#[cfg(feature = "cancellation")]
-mod cancellation;
 #[cfg(feature = "event")]
 mod event;
 #[cfg(feature = "host")]

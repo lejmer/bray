@@ -223,6 +223,7 @@ impl InspectionStorageProvenance {
                 node: node.ordinal(),
             }),
             StorageIdentity::Temporary(expression)
+            | StorageIdentity::Evaluated(expression)
             | StorageIdentity::CustomIndexBorrow(expression)
             | StorageIdentity::ScopedCapability { expression, .. }
             | StorageIdentity::Allocation(expression) => Ok(Self::Expression {
@@ -440,6 +441,8 @@ enum InspectionStorageProjection {
     Element {
         selector_expression: u32,
     },
+    AnyElement,
+    AddressTarget,
     SliceRange {
         start_expression: Option<u32>,
         end_expression: Option<u32>,
@@ -474,6 +477,8 @@ impl InspectionStorageProjection {
             StorageProjection::Element(selector) => Self::Element {
                 selector_expression: selector.ordinal(),
             },
+            StorageProjection::AnyElement => Self::AnyElement,
+            StorageProjection::AddressTarget => Self::AddressTarget,
             StorageProjection::SliceRange { start, end } => Self::SliceRange {
                 start_expression: start.map(|expression| expression.ordinal()),
                 end_expression: end.map(|expression| expression.ordinal()),
@@ -496,6 +501,8 @@ impl InspectionStorageProjection {
             Self::Element {
                 selector_expression,
             } => format!("element:{selector_expression}"),
+            Self::AnyElement => String::from("any_element"),
+            Self::AddressTarget => String::from("address_target"),
             Self::SliceRange {
                 start_expression,
                 end_expression,

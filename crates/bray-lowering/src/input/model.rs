@@ -15,7 +15,7 @@ use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
 
 use crate::result::requires_mir;
 
-use super::storage::{storage_operation_indices, temporary_storage_indices};
+use super::storage::temporary_storage_indices;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum ScopeExitCleanupStatus {
@@ -48,7 +48,6 @@ pub struct LoweringInput<'unit> {
     pub(super) storage: &'unit StoragePlan,
     liveness: &'unit Liveness,
     pub(super) storage_flow: &'unit StorageFlow,
-    pub(super) storage_operations: Arc<[usize]>,
     pub(super) temporary_storage: Arc<[(BoundExpressionId, StorageIdentityId)]>,
     dependencies: &'unit CheckedDependencyContracts,
     selections: &'unit CheckedSemanticSelections,
@@ -277,7 +276,6 @@ impl<'unit> LoweringInput<'unit> {
             storage,
             liveness,
             storage_flow,
-            storage_operations: storage_operation_indices(storage_flow),
             temporary_storage: temporary_storage_indices(storage),
             dependencies,
             selections,
@@ -687,7 +685,7 @@ mod tests {
     }
 
     #[test]
-    fn temporary_lookup_preserves_first_matching_type_and_shared_indices() {
+    fn temporary_lookup_uses_the_declared_value_slot_and_shared_indices() {
         let mut expression = None;
 
         let unit = test_runtime_default_unit(41, |tree, origin| {
@@ -714,9 +712,10 @@ mod tests {
         let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
         let mut identities = Vec::new();
 
-        for ty in [first_type, second_type, second_type] {
+        for (index, ty) in [first_type, second_type, second_type].into_iter().enumerate() {
             let identity = storage
-                .push_identity(StorageIdentity::Temporary(expression))
+                .push_identity(if index == 2 { StorageIdentity::Evaluated(expression) }
+                    else { StorageIdentity::Temporary(expression) })
                 .expect("fixture identity must fit its identity space");
 
             storage
@@ -725,6 +724,9 @@ mod tests {
 
             identities.push(identity);
         }
+
+        storage.set_value_slot(expression, identities[2])
+            .expect("fixture declares one actual evaluated result independently of source temporaries");
 
         analysis.storage = storage.finish();
 
@@ -735,12 +737,12 @@ mod tests {
 
         assert_eq!(
             input.temporary_storage(expression, first_type),
-            Some(identities[0])
+            None
         );
 
         assert_eq!(
             input.temporary_storage(expression, second_type),
-            Some(identities[1])
+            Some(identities[2])
         );
 
         assert!(std::sync::Arc::ptr_eq(
@@ -750,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn storage_lookup_preserves_evaluation_order_and_compatible_first_decision() {
+    fn storage_lookup_preserves_evaluation_order_and_exact_invocation() {
         let mut expressions = Vec::new();
 
         let unit = test_runtime_default_unit(42, |tree, origin| {
@@ -806,50 +808,26 @@ mod tests {
                 .expect("fixture `plan_access` call must succeed");
         }
 
-        let operations = [
-            StorageOperationDecision::new(
-                second.into(),
-                second,
-                StorageAccessPurpose::Read,
-                accesses[0],
-                None,
-                StorageOperationStatus::Valid,
-            ),
-            StorageOperationDecision::new(
-                first.into(),
-                first,
-                StorageAccessPurpose::Copy,
-                accesses[0],
-                None,
-                StorageOperationStatus::Valid,
-            ),
-            StorageOperationDecision::new(
-                first.into(),
-                first,
-                StorageAccessPurpose::Write,
-                accesses[1],
-                None,
-                StorageOperationStatus::Valid,
-            ),
-            StorageOperationDecision::new(
-                first.into(),
-                first,
-                StorageAccessPurpose::Copy,
-                accesses[1],
-                None,
-                StorageOperationStatus::Valid,
-            ),
-            StorageOperationDecision::new(
-                first.into(),
-                first,
-                StorageAccessPurpose::Move,
-                accesses[1],
-                None,
-                StorageOperationStatus::Moved,
-            ),
-        ];
+        storage.plan_occurrence_access(
+            bray_bound_tree::BoundExecutionSite::CallInput {
+                expression: first,
+                ordinal: bray_symbols::SymbolOrdinal::new(0),
+            },
+            first,
+            StorageAccessPurpose::ValueTransfer,
+            accesses[1],
+        ).expect("fixture invocation access must retain its distinct occurrence");
 
         analysis.storage = storage.finish();
+
+        let plans = analysis.storage.access_plans();
+
+        let operations = [
+            StorageOperationDecision::new(plans[0], StorageAccessPurpose::Read, None, StorageOperationStatus::Valid),
+            StorageOperationDecision::new(plans[1], StorageAccessPurpose::Write, None, StorageOperationStatus::Valid),
+            StorageOperationDecision::new(plans[2], StorageAccessPurpose::Copy, None, StorageOperationStatus::Valid),
+            StorageOperationDecision::new(plans[3], StorageAccessPurpose::Move, None, StorageOperationStatus::Moved),
+        ];
 
         analysis.storage_flow =
             StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], [], false)
@@ -862,25 +840,22 @@ mod tests {
         assert_eq!(
             input
                 .storage_plan()
-                .node_plans((first).into())
+                .node_plans(first.into())
                 .collect::<Vec<_>>(),
-            plans[1..]
+            plans[1..3]
         );
 
         assert_eq!(
             input
                 .storage_plan()
-                .node_plans((second).into())
+                .node_plans(second.into())
                 .collect::<Vec<_>>(),
             plans[..1]
         );
 
-        assert_eq!(input.storage_operation(plans[2]), Some(operations[3]));
+        assert_eq!(input.storage_flow().operation(plans[2]), Some(operations[2]));
+        assert_eq!(input.storage_flow().operation(plans[3]), Some(operations[3]));
 
-        assert!(std::sync::Arc::ptr_eq(
-            &input.storage_operations,
-            &input.clone().storage_operations
-        ));
     }
 
     #[test]
@@ -929,9 +904,9 @@ mod tests {
             [],
             [],
             [],
-            [StorageExitPoint::new((scope).into(), exit)],
+            [StorageExitPoint::new(scope.into(), exit)],
             [StorageExitDecision::new(
-                (scope).into(),
+                scope.into(),
                 exit,
                 [],
                 [],
@@ -959,7 +934,7 @@ mod tests {
             [],
             [],
             [AsyncScopeExitPlan::new(
-                (scope).into(),
+                scope.into(),
                 exit,
                 [],
                 [],
@@ -976,18 +951,18 @@ mod tests {
         let input = lowering_input(&unit, &control_flow, (&analysis).into());
 
         assert_eq!(
-            input.scope_cleanup_status((scope).into(), exit),
+            input.scope_cleanup_status(scope.into(), exit),
             ScopeExitCleanupStatus::NoCleanup
         );
 
-        assert_eq!(input.cleanup_plans(&[(scope).into()], 0, exit).len(), 1);
+        assert_eq!(input.cleanup_plans(&[scope.into()], 0, exit).len(), 1);
 
         assert_eq!(
-            input.scope_cleanup_status((scope).into(), unreachable_exit),
+            input.scope_cleanup_status(scope.into(), unreachable_exit),
             ScopeExitCleanupStatus::Unreachable
         );
 
-        input.cleanup_plans(&[(scope).into()], 0, unreachable_exit);
+        input.cleanup_plans(&[scope.into()], 0, unreachable_exit);
     }
 
     #[test]

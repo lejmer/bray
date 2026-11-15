@@ -2,7 +2,6 @@
 trusted internal module bray.runtime.bootstrap.host;
 
 using internal bray.runtime.bootstrap.domain;
-using internal bray.runtime.bootstrap.task;
 using internal bray.runtime.bootstrap.event;
 using std.numeric;
 using core.target;
@@ -18,6 +17,56 @@ using internal std.thread;
 
 internal callable AttachmentCleanup = @abi(c) func(pos identity: u64) -> u32;
 
+@layout(c)
+internal struct ExecutionAcquisition
+{
+}
+
+// The attachment owns this complete, thread-bound record independently of
+// native TLS key order. Binding borrows that owner, retirement consumes it.
+trusted internal predicate execution_acquired(owner: &ExecutionAcquisition);
+
+internal predicate execution_owned(owner: &ExecutionOwner) = execution_acquired(owner = &owner.acquisition);
+
+internal predicate execution_option_owned(owner: &(ExecutionOwner?)) = owner matches none || execution_owned(
+    owner = execution_option(owner)
+);
+
+// Borrow the actual contained owner. Presence and ownership remain separate
+// requirements, including for an empty attachment during entry exchange.
+internal const func execution_option(pos owner: &(ExecutionOwner?)) -> &ExecutionOwner
+    requires(owner matches ?_)
+    executes(pure, total)
+{
+    return match owner
+    {
+        case ?value { yield &value; }
+        case none { panic("missing execution owner"); }
+    };
+}
+
+// The selected attachment exit keeps this native callback scope live. A copied
+// attachment identity never establishes it.
+trusted internal predicate execution_exit();
+
+// Native attachment callbacks contain their incidents before returning the
+// complete owner to the attachment or consuming it during retirement.
+internal callable ExecutionEnter = @abi(c) trusted func(pos owner: ExecutionOwner) -> ExecutionOwner
+    requires(trusted execution_owned(owner = &owner))
+    ensures(trusted execution_owned(owner = &result));
+
+internal callable ExecutionRetire = @abi(c) trusted func(pos owner: ExecutionOwner, pos identity: u64) -> u32
+    requires(trusted execution_owned(owner = &owner), identity == 0 || trusted execution_exit());
+
+@layout(c)
+internal struct ExecutionOwner
+{
+    acquisition: ExecutionAcquisition;
+    resource: DataPointer<u8>;
+    bind: ExecutionEnter;
+    retire: ExecutionRetire;
+}
+
 internal struct Attachment
 {
     mut identity: u64;
@@ -25,6 +74,7 @@ internal struct Attachment
     mut depth: usize;
     mut closing: bool;
     mut cleanup: AttachmentExit?;
+    mut execution: ExecutionOwner?;
     mut context_bridge: bray.runtime.bootstrap.entry.bridge.Callback?;
     mut report_observer: bray.runtime.bootstrap.entry.bridge.Observer?;
     mut domains: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>?;
@@ -35,9 +85,9 @@ internal struct HostOwner
     mut storage: HostStorage?;
     mut products: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?;
     mut next_identity: u64;
+    mut executions: usize;
     mut transitioning: bool;
     mut callbacks_ready: bool;
-    mut tasks: bray.runtime.bootstrap.task.Entries;
     mut events: std.memory.RawBuffer<bray.runtime.bootstrap.event.DirectoryEntry>?;
 }
 
@@ -46,6 +96,7 @@ internal struct HostStorage
     key: u64;
     mut cleanup_key: u64;
     mut control_key: u64;
+    mut execution_key: u64?;
     mut released: bool;
     mut cleanup_released: bool;
     mut control_released: bool;
@@ -71,16 +122,10 @@ internal static HOST_OWNER: Uninit<HostOwner> = core.memory.uninit_from<HostOwne
         storage = none,
         products = none,
         next_identity = 1,
+        executions = 0,
         transitioning = false,
         callbacks_ready = false,
-        events = none,
-        tasks =
-        {
-            slabs = none,
-            free = 0,
-            total = 0,
-            active = 0
-        }
+        events = none
     }
 );
 
@@ -92,11 +137,10 @@ trusted internal func initialize_host() -> u32
     >
         requires(
             lease.active,
-            trusted host_access_idle(owner = lease),
             trusted host_access_live(owner = &lease.acquisition),
-            trusted host_anchor_matches(anchor = &anchor, lease = lease)
+            trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
         )
-        ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
+        ensures(trusted host_access_live(owner = &lease.acquisition))
         executes(total)
     {
         let host: &mut HostOwner = trusted host_value(lease, anchor);
@@ -153,6 +197,7 @@ trusted internal func initialize_host() -> u32
             key = key,
             cleanup_key = 0,
             control_key = 0,
+            execution_key = none,
             released = false,
             cleanup_released = true,
             control_released = true,
@@ -186,7 +231,7 @@ trusted internal func initialize_host() -> u32
         let mut control_key: u64 = 0;
 
         let control_status = trusted internal std.thread.platform_thread_storage_create(
-            trusted internal bray.runtime.bootstrap.thread.destruction.control_destructor_address(),
+            trusted internal bray.runtime.bootstrap.thread.destruction.context_destructor_address(),
             std.memory.address_of_mut<u64>(&mut control_key)
         );
 
@@ -217,11 +262,10 @@ trusted internal func initialize_host() -> u32
             requires(
                 trusted prepared_host_storage(owner = &prepared),
                 lease.active,
-                trusted host_access_idle(owner = lease),
                 trusted host_access_live(owner = &lease.acquisition),
-                trusted host_anchor_matches(anchor = &anchor, lease = lease)
+                trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
             )
-            ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
+            ensures(trusted host_access_live(owner = &lease.acquisition))
             executes(total)
             uses(raw_memory, unchecked_alias)
         {
@@ -326,12 +370,8 @@ trusted internal func current_native_thread_identity() -> u64
 }
 
 trusted internal func current_attachment_locked(pos lease: &HostLease) -> u64
-    requires(
-        lease.active,
-        trusted host_access_idle(owner = lease),
-        trusted host_access_live(owner = &lease.acquisition)
-    )
-    ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
+    requires(lease.active, trusted host_access_live(owner = &lease.acquisition))
+    ensures(trusted host_access_live(owner = &lease.acquisition))
     executes(total)
 {
     let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
@@ -449,12 +489,14 @@ trusted internal func insert_attachment(
 
         while index < count
         {
-            if entries[index].identity == 0
+            let entry = &mut entries[index];
+
+            if entry.identity == 0
             {
-                entries[index].identity = identity;
-                entries[index].native_thread = native_thread;
-                entries[index].depth = 1;
-                entries[index].closing = false;
+                entry.identity = identity;
+                entry.native_thread = native_thread;
+                entry.depth = 1;
+                entry.closing = false;
                 return Ok(true);
             }
 
@@ -492,7 +534,8 @@ trusted internal func insert_attachment(
             context_bridge = none,
             report_observer = none,
             domains = none,
-            cleanup = none
+            cleanup = none,
+            execution = none
         }
     );
 
@@ -522,14 +565,12 @@ trusted internal func shutdown_host() -> u32
             requires(
                 trusted prepared_host_storage(owner = &retired),
                 lease.active,
-                trusted host_access_idle(owner = lease),
                 trusted host_access_live(owner = &lease.acquisition),
-                trusted host_anchor_matches(anchor = &anchor, lease = lease)
+                trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
             )
             ensures(
                 trusted prepared_host_storage(owner = &retired),
                 trusted host_access_live(owner = &lease.acquisition),
-                trusted host_access_idle(owner = lease),
             )
             executes(total)
             uses(raw_memory, unchecked_alias)
@@ -538,8 +579,7 @@ trusted internal func shutdown_host() -> u32
 
             let host: &mut HostOwner = trusted host_value(lease, anchor);
 
-            if host.transitioning || retired matches ?_ || host.tasks.active != 0 ||
-                trusted bray.runtime.bootstrap.event.names_live(&host.events)
+            if host.transitioning || retired matches ?_ || trusted bray.runtime.bootstrap.event.names_live(&host.events)
             {
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
@@ -564,6 +604,11 @@ trusted internal func shutdown_host() -> u32
                 }
             }
 
+            if host.executions != 0
+            {
+                return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+            }
+
             if let ?storage = host.storage
             {
                 if storage.active != 0
@@ -575,15 +620,19 @@ trusted internal func shutdown_host() -> u32
                 // Unpublish before observing readers. retirement never waits for them.
                 let control_key = core.atomic.exchange<u64, 4>(&synchronization.control_key, 0);
 
+                let execution_key = core.atomic.exchange<u64, 4>(&synchronization.execution_key, 0);
+
                 if core.atomic.load<u64, 4>(&synchronization.control_readers) != 0
                 {
                     core.atomic.store<u64, 2>(&synchronization.control_key, control_key);
+                    core.atomic.store<u64, 2>(&synchronization.execution_key, execution_key);
 
                     return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
                 }
 
                 core.atomic.store<u64, 2>(&synchronization.key, 0);
                 core.atomic.store<u64, 2>(&synchronization.cleanup_key, 0);
+                core.atomic.store<u64, 2>(&synchronization.execution_key, 0);
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, retired);
             }
 
@@ -616,6 +665,16 @@ trusted internal func shutdown_host() -> u32
         {
             if let ?storage = retired
             {
+                if let ?execution_key = storage.execution_key
+                {
+                    let status = trusted internal std.thread.platform_thread_storage_destroy(execution_key);
+
+                    if status.category == 0
+                    {
+                        storage.execution_key = none;
+                    }
+                }
+
                 if !storage.control_released
                 {
                     let status = trusted internal std.thread.platform_thread_storage_destroy(storage.control_key);
@@ -649,19 +708,16 @@ trusted internal func shutdown_host() -> u32
         pos anchor: &mut HostAnchor,
         pos retired: &mut(HostStorage?),
         pos products: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?),
-        pos tasks: &mut bray.runtime.bootstrap.task.Entries,
         pos events: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.event.DirectoryEntry>?)
     ) -> u32
         requires(
             trusted prepared_host_storage(owner = &retired),
             lease.active,
-            trusted host_access_idle(owner = lease),
             trusted host_access_live(owner = &lease.acquisition),
-            trusted host_anchor_matches(anchor = &anchor, lease = lease)
+            trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
         )
         ensures(
             trusted host_access_live(owner = &lease.acquisition),
-            trusted host_access_idle(owner = lease),
             trusted bray.runtime.bootstrap.host.product.native_host(),
             trusted bray.runtime.bootstrap.pool.protocol_access(),
         )
@@ -674,11 +730,28 @@ trusted internal func shutdown_host() -> u32
 
         if let ?storage = retired
         {
-            if !storage.released || !storage.cleanup_released || !storage.control_released
+            if !storage.released || !storage.cleanup_released || !storage.control_released ||
+                storage.execution_key matches ?_
             {
                 let key = storage.key;
                 let cleanup_key = storage.cleanup_key;
                 let control_key = storage.control_key;
+
+                let execution_key = if let ?selected_key = storage.execution_key
+                {
+                    yield if selected_key == std.numeric.U64_MAX
+                    {
+                        yield 0;
+                    }
+                    else
+                    {
+                        yield selected_key + 1;
+                    };
+                }
+                else
+                {
+                    yield 0;
+                };
 
                 let usable = storage.usable();
 
@@ -689,6 +762,7 @@ trusted internal func shutdown_host() -> u32
                     core.atomic.store<u64, 2>(&synchronization.key, key + 1);
                     core.atomic.store<u64, 2>(&synchronization.cleanup_key, cleanup_key + 1);
                     core.atomic.store<u64, 2>(&synchronization.control_key, control_key + 1);
+                    core.atomic.store<u64, 2>(&synchronization.execution_key, execution_key);
                 }
 
                 host.transitioning = false;
@@ -700,10 +774,6 @@ trusted internal func shutdown_host() -> u32
             &mut host.products,
             products
         );
-
-        // Empty task slabs remain resident for reuse. Release their allocations
-        // outside the host acquisition after the directory has no live owners.
-        trusted internal std.memory.swap_values<bray.runtime.bootstrap.task.Entries>(&mut host.tasks, tasks);
 
         trusted internal std.memory.swap_values<(std.memory.RawBuffer<bray.runtime.bootstrap.event.DirectoryEntry>?)>(
             &mut host.events,
@@ -723,14 +793,6 @@ trusted internal func shutdown_host() -> u32
 
     let mut products: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>? = none;
 
-    let mut tasks: bray.runtime.bootstrap.task.Entries =
-    {
-        slabs = none,
-        free = 0,
-        total = 0,
-        active = 0
-    };
-
     let mut events: std.memory.RawBuffer<bray.runtime.bootstrap.event.DirectoryEntry>? = none;
 
     let status =
@@ -738,14 +800,7 @@ trusted internal func shutdown_host() -> u32
         let lease: HostLease = trusted access_prepared_host(&retired);
         let mut anchor: HostAnchor = trusted host_anchor(&lease);
 
-        yield trusted finish_host_shutdown_locked(
-            &lease,
-            &mut anchor,
-            &mut retired,
-            &mut products,
-            &mut tasks,
-            &mut events
-        );
+        yield trusted finish_host_shutdown_locked(&lease, &mut anchor, &mut retired, &mut products, &mut events);
     };
 
     // The caught report remains owned until the transition has been resolved.

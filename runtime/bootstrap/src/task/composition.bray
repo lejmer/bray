@@ -3,80 +3,39 @@ trusted internal module bray.runtime.bootstrap.task;
 
 using core.memory;
 using core.target;
+using std.memory;
 using internal bray.runtime.bootstrap.activation;
 using internal bray.runtime.bootstrap.activation.composition;
 
-// The current native invocation lends its complete task reference, inactive
-// token and admission callback. It retains their providers through composition.
-trusted internal predicate composition_entry(
-    reference: DataPointer<Reference>,
+// Native entry retains this exact active composition invocation, including its
+// parent, child, continuation, destination and admission callback.
+trusted internal predicate composition_slot(
+    owner: &DataPointer<Reference>,
     token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    state: u32,
+    origin: u64,
+    destination: usize,
+    disposition: u8,
     ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 );
 
-trusted internal predicate composition_input(
-    owner: &Reference,
+trusted internal predicate native_request(
+    owner: &Marker,
     token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    state: u32,
+    origin: u64,
+    destination: usize,
+    disposition: u8,
     ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 );
 
-// A selected parent keeps the authentic input owner and provider dependencies
-// with its ordinary address. Copying that address cannot copy this claim.
-internal struct CompositionParent
-{
-    owner: &Reference;
-    address: usize;
-    token: DataPointer<bray.runtime.bootstrap.activation.Inactive>;
-    ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>;
-}
-
-trusted internal predicate composition_parent(owner: &CompositionParent);
-
-trusted internal func read_composition_reference(
-    pos reference: DataPointer<Reference>,
-    pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
-    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
-) -> Reference
-    requires(
-        trusted reference_slot(pointer = reference),
-        trusted composition_entry(reference = reference, token = token, ready = ready)
-    )
-    ensures(trusted retained(owner = &result), trusted composition_input(owner = &result, token = token, ready = ready))
-{
-    return trusted read_reference(reference);
-}
-
-trusted internal func select_composition_parent(
-    pos owner: &Reference,
-    pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
-    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
-) -> CompositionParent
-    requires(trusted retained(owner = owner), trusted composition_input(owner = owner, token = token, ready = ready))
-    ensures(trusted composition_parent(owner = &result))
-{
-    let address =
-    {
-        let mut guard = trusted lock_cell(owner);
-        let control = trusted guard.get();
-
-        yield if control.dispatching && control.resumable
-        {
-            yield control.callback;
-        }
-        else
-        {
-            yield 0;
-        };
-    };
-
-    return
-    {
-        owner = owner,
-        address = address,
-        token = token,
-        ready = ready
-    };
-}
+// This relation retains the current invocation, not merely the task's storage.
+// Request ownership separately supplies the child, destination and callback.
+trusted internal predicate request_for_task(
+    request: &bray.runtime.bootstrap.activation.composition.RequestAcquisition,
+    parent: &Marker,
+    origin: u64
+);
 
 @abi(c)
 trusted internal func composition(
@@ -89,66 +48,200 @@ trusted internal func composition(
     pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 ) -> u32
     requires(
-        trusted reference_slot(pointer = pointer),
-        trusted composition_entry(reference = pointer, token = token, ready = ready),
+        trusted reference_slot(owner = &pointer),
+        trusted composition_slot(
+            owner = &pointer,
+            token = token,
+            state = state,
+            origin = origin,
+            destination = destination,
+            disposition = disposition,
+            ready = ready
+        ),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    uses(intrinsic)
 {
-    if disposition > 2
-    {
-        return 3;
-    }
-
-    let reference = trusted read_composition_reference(pointer, token, ready);
-    let selected = trusted select_composition_parent(&reference, token, ready);
-
-    if selected.address == 0
-    {
-        return 3;
-    }
-
-    let parent = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
-        address = selected.address
-    );
-
-    let permit = trusted lambda(
-        pos selected: &CompositionParent,
-        pos parent: DataPointer<bray.runtime.bootstrap.activation.Header>,
+    let borrow = trusted lambda(
+        pos pointer: &DataPointer<Reference>,
+        pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
         pos state: u32,
         pos origin: u64,
         pos destination: usize,
-        pos disposition: u8
-    )
-        requires(trusted composition_parent(owner = selected))
-        ensures(
-            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
-            trusted bray.runtime.bootstrap.activation.composition.authorized(
-                parent = parent,
-                token = selected.token,
+        pos disposition: u8,
+        pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
+    ) -> &Reference
+        requires(
+            trusted reference_slot(owner = pointer),
+            trusted composition_slot(
+                owner = pointer,
+                token = token,
                 state = state,
                 origin = origin,
                 destination = destination,
-                disposition = disposition
-            ),
-            trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(
-                pointer = selected.ready
+                disposition = disposition,
+                ready = ready
             )
         )
-        executes(pure, total) {};
+        ensures(
+            trusted retained(owner = result),
+            trusted native_request(
+                owner = &result.acquisition,
+                token = token,
+                state = state,
+                origin = origin,
+                destination = destination,
+                disposition = disposition,
+                ready = ready
+            )
+        )
+    {
+        return trusted borrow_reference(pointer);
+    };
 
-    trusted permit(&selected, parent, state, origin, destination, disposition);
+    let reference = trusted borrow(&pointer, token, state, origin, destination, disposition, ready);
 
-    let attached = trusted bray.runtime.bootstrap.activation.composition.compose(
-        parent,
-        selected.token,
-        state,
-        origin,
-        destination,
-        disposition,
-        selected.ready
-    );
+    let acquire = trusted lambda(
+        pos reference: &Reference,
+        pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos state: u32,
+        pos origin: u64,
+        pos destination: usize,
+        pos disposition: u8,
+        pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
+    ) -> bray.runtime.bootstrap.activation.composition.Request
+        requires(
+            trusted retained(owner = reference),
+            trusted native_request(
+                owner = &reference.acquisition,
+                token = token,
+                state = state,
+                origin = origin,
+                destination = destination,
+                disposition = disposition,
+                ready = ready
+            )
+        )
+        ensures(
+            trusted bray.runtime.bootstrap.activation.composition.request_pending(owner = &result),
+            trusted retained(owner = reference),
+            trusted request_for_task(request = &result.acquisition, parent = &reference.acquisition, origin = origin)
+        )
+        uses(raw_memory, layout_reinterpret)
+    {
+        let readable = trusted lambda(
+            pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+            pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
+        )
+            ensures(
+                trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = token, count = 1),
+                trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = token),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = token),
+                trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(
+                    pointer = ready
+                )
+            )
+            executes(pure, total) {};
+
+        trusted readable(token, ready);
+
+        return
+        {
+            acquisition = bray.runtime.bootstrap.activation.composition.RequestAcquisition
+            {
+            },
+            producer = bray.runtime.bootstrap.activation.Producer
+            {
+                acquisition = bray.runtime.bootstrap.activation.ProducerAcquisition
+                {
+                },
+                token = trusted std.memory.read<bray.runtime.bootstrap.activation.Inactive>(token)
+            },
+            state = state,
+            destination = destination,
+            disposition = disposition,
+            ready = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(ready)
+        };
+    };
+
+    let request = trusted acquire(reference, token, state, origin, destination, disposition, ready);
+
+    return trusted compose_reference(reference, request, origin);
+}
+
+trusted internal func compose_reference(
+    pos reference: &Reference,
+    pos request: bray.runtime.bootstrap.activation.composition.Request,
+    pos origin: u64
+) -> u32
+    requires(
+        trusted retained(owner = reference),
+        trusted bray.runtime.bootstrap.activation.composition.request_pending(owner = &request),
+        trusted request_for_task(request = &request.acquisition, parent = &reference.acquisition, origin = origin),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted retained(owner = reference))
+    when(trusted owned_reference(owner = reference))
+    {
+        ensures(trusted owned_reference(owner = reference))
+    }
+    when(trusted resolution_owner(owner = reference))
+    {
+        ensures(trusted resolution_owner(owner = reference))
+    }
+    uses(intrinsic)
+{
+    let address =
+    {
+        let mut guard = trusted lock_cell(reference);
+        let control = trusted guard.get();
+
+        yield if control.dispatching && control.resumable
+        {
+            yield control.callback;
+        }
+        else
+        {
+            yield 0;
+        };
+    };
+
+    if address == 0
+    {
+        return 3;
+    }
+
+    let parent = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(address = address);
+
+    let bind = trusted lambda(
+        pos reference: &Reference,
+        pos request: bray.runtime.bootstrap.activation.composition.Request,
+        pos parent: DataPointer<bray.runtime.bootstrap.activation.Header>,
+        pos origin: u64
+    ) -> bray.runtime.bootstrap.activation.composition.Composition
+        requires(
+            trusted retained(owner = reference),
+            trusted bray.runtime.bootstrap.activation.composition.request_pending(owner = &request),
+            trusted request_for_task(request = &request.acquisition, parent = &reference.acquisition, origin = origin)
+        )
+        ensures(trusted bray.runtime.bootstrap.activation.composition.composition_pending(owner = &result))
+        executes(pure, total)
+    {
+        return
+        {
+            request = request,
+            parent = bray.runtime.bootstrap.activation.run.Cursor
+            {
+                root = parent,
+                pointer = parent
+            },
+            origin = origin
+        };
+    };
+
+    let bound = trusted bind(reference, request, parent, origin);
+    let attached = trusted bray.runtime.bootstrap.activation.composition.compose_owned(bound);
 
     return if attached == 0
     {

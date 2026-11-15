@@ -13,6 +13,71 @@ using std.memory;
 // their declared ABI and context and retain the provider through return.
 trusted internal predicate producer(token: &Inactive);
 
+internal struct ProducerAcquisition
+{
+}
+
+// This exclusive permission ends before activation or destruction can release
+// the provider. The copied ABI token alone cannot recreate it.
+internal struct Producer
+{
+    acquisition: ProducerAcquisition;
+    token: Inactive;
+}
+
+trusted internal predicate producer_owned(owner: &ProducerAcquisition);
+
+impl Inactive
+{
+    trusted internal consume func into_producer() -> Producer
+        requires(
+            trusted producer(token = &self),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &self),
+        )
+        ensures(trusted producer_owned(owner = &result.acquisition))
+        uses(raw_memory)
+    {
+        return
+        {
+            acquisition = ProducerAcquisition
+            {
+            },
+            token = trusted std.memory.read<Inactive>(std.memory.address_of<Inactive>(&self))
+        };
+    }
+}
+
+internal const func producer_reference(pos owner: &(Producer?)) -> &Producer
+    requires(owner matches ?_)
+    executes(pure, total)
+{
+    return match owner
+    {
+        case ?value { yield &value; }
+        case none { panic("missing inactive producer"); }
+    };
+}
+
+trusted internal func producer_description(pos owner: &Producer) -> Descriptor
+    requires(trusted producer_owned(owner = &owner.acquisition))
+    ensures(trusted producer_owned(owner = &owner.acquisition))
+    uses(raw_memory)
+{
+    let authorize = trusted lambda(pos owner: &Producer) -> DataPointer<Descriptor>
+        requires(trusted producer_owned(owner = &owner.acquisition))
+        ensures(
+            trusted core.memory.valid_read<Descriptor>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Descriptor>(pointer = result),
+            trusted core.memory.initialized_as<Descriptor>(pointer = result),
+        )
+        executes(pure, total)
+    {
+        return owner.token.descriptor;
+    };
+
+    return trusted std.memory.read<Descriptor>(authorize(owner));
+}
+
 trusted internal func description(pos token: &Inactive) -> Descriptor
     requires(trusted producer(token = token))
     ensures(trusted producer(token = token))

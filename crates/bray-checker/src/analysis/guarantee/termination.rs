@@ -28,7 +28,7 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
 
             let ends = ends
                 .into_iter()
-                .map(|end| (end, ExecutionCondition::equalities(&end.assumptions, None)))
+                .map(|end| (end, end.proofs.equalities(&end.assumptions, None)))
                 .collect::<Vec<_>>();
 
             initial.current.keys().find_map(|place| {
@@ -36,7 +36,7 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
 
                 if !flow
                     .domain
-                    .unsigned_value(&ExecutionCondition::Input(place.clone()))
+                    .unsigned_value(&ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())))
                 {
                     return None;
                 }
@@ -87,19 +87,26 @@ fn displacement(
 
     *remaining -= 1;
 
+    let value = value.computed_value();
+    let base = base.computed_value();
+
     if value == base {
         return Some(num_bigint::BigInt::from(0));
     }
 
-    let ExecutionCondition::Operation(
+    let crate::ExecutionConditionKind::Operation(
         operator @ (BoundOperator::Add | BoundOperator::Subtract),
         operands,
-    ) = value
+    ) = value.kind()
     else {
         return None;
     };
 
-    let [subject, ExecutionCondition::Literal(amount)] = operands.as_ref() else {
+    let [subject, amount] = operands.as_ref() else {
+        return None;
+    };
+
+    let crate::ExecutionConditionKind::Literal(amount) = amount.kind() else {
         return None;
     };
 
@@ -129,7 +136,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
         .graph
         .completion_exits()
         .filter_map(|exit| flow.output(exit.block()))
-        .filter(|state| !absent(&state.result, state))
+        .filter(|state| !absent(&flow.domain.returned_value(state), state))
         .collect::<Vec<_>>();
 
     if exits.is_empty() {
@@ -147,7 +154,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
                 .any(|input| input.contains(place))
         })
         .any(|place| {
-            let base = ExecutionCondition::Input(place.clone());
+            let base = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
             if !flow.domain.unsigned_value(&base) {
                 return false;
@@ -160,7 +167,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
                     return false;
                 };
 
-                let equalities = ExecutionCondition::equalities(&state.assumptions, None);
+                let equalities = state.proofs.equalities(&state.assumptions, None);
 
                 let Some(step) = strict_step(&value, &base, &equalities) else {
                     return false;
@@ -271,7 +278,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
             }
 
             // The next receiver must still be the original input, not a replacement cursor.
-            let base = ExecutionCondition::Input(place.clone());
+            let base = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
             if ExecutionPlace::argument(input)
                 .value_in(&evidence.arguments)
@@ -293,12 +300,12 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
                 .expect("selected nullable result has its absence value");
 
                 let present = ExecutionCondition::pattern(result, BoundOperator::NotEqual, missing)
-                    .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                    .prove_ordinary(&state.assumptions, Some(&state.proofs))
                     == Some(true);
 
-                let after = ExecutionCondition::PostState(
+                let after = ExecutionCondition::post_state(
                     bray_bound_tree::StorageMutation::Operation(*occurrence),
-                    place.clone(),
+                    ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())),
                 );
 
                 present && place.value_in(&state.current).as_ref() == Some(&after)
@@ -319,18 +326,22 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
 }
 
 fn absent(value: &ExecutionCondition, state: &ExecutionState) -> bool {
-    if matches!(value, ExecutionCondition::Literal(value)
+    if matches!(value.kind(), crate::ExecutionConditionKind::Literal(value)
         if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
     {
         return true;
     }
 
     state.assumptions.iter().any(|(condition, holds)| {
-        let ExecutionCondition::Operation(operator, operands) = condition else {
+        let crate::ExecutionConditionKind::Operation(operator, operands) = condition.kind() else {
             return false;
         };
 
-        let [left, ExecutionCondition::Literal(missing)] = operands.as_ref() else {
+        let [left, missing] = operands.as_ref() else {
+            return false;
+        };
+
+        let crate::ExecutionConditionKind::Literal(missing) = missing.kind() else {
             return false;
         };
 
@@ -538,7 +549,7 @@ fn next_present<C: CheckerRequestContext + ?Sized>(
         BoundOperator::NotEqual,
         missing,
     )
-    .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+    .prove_ordinary(&state.assumptions, Some(&state.proofs))
         == Some(true)
 }
 
@@ -566,7 +577,7 @@ fn loop_members<C: CheckerRequestContext + ?Sized>(
 fn finite_prefix<C: CheckerRequestContext + ?Sized>(
     flow: &ExecutionFlow<'_, '_, C>,
     ranks: &BTreeMap<AnalysisBlockId, (ExecutionPlace, Ordering)>,
-    exits: &[ExecutionState],
+    exits: &[&ExecutionState],
     cursor: &bray_bound_tree::StoragePath,
     suffix: bray_bound_tree::BoundExecutionSite,
 ) -> bool {
@@ -593,7 +604,7 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
         .any(|(header, (phase, _))| {
             let ty = flow
                 .domain
-                .observation_type(&ExecutionCondition::Input(phase.clone()))
+                .observation_type(&ExecutionCondition::new(crate::ExecutionConditionKind::Input(phase.clone())))
                 .expect("bounded input rank retains its scalar type");
 
             let values = flow.domain.request.semantic_values();
@@ -607,12 +618,12 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
                 ))
                 .expect("zero belongs to the bounded unsigned rank");
 
-            let zero = ExecutionCondition::Literal(values.constant_value_data(zero));
+            let zero = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(values.constant_value_data(zero)));
 
             if exits.iter().any(|state| {
                 phase.value_in(&state.current).is_none_or(|current| {
                     ExecutionCondition::operation(BoundOperator::Equal, vec![current, zero.clone()])
-                        .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                        .prove_ordinary(&state.assumptions, Some(&state.proofs))
                         != Some(true)
                 })
             }) {

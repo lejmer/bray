@@ -68,20 +68,15 @@ impl State {
     ) -> DeferredTransitions {
         // Output slots retain producer coordinates until completion. Referents and
         // effects already name physical inputs, independently of those output slots.
-        self.deferred
-            .range(source.clone()..)
-            .take_while(|(slot, _)| source.contains(slot))
-            .map(|(slot, entries)| {
-                let target = destination.project(&slot.projections()[source.projections().len()..]);
+        let mut result = DeferredTransitions::new();
 
-                let entries = entries
-                    .iter()
-                    .map(|(producer, entry)| (*producer, Arc::clone(entry)))
-                    .collect();
+        for (slot, entries) in super::slots::selected_subtree(&self.deferred, source) {
+            let target = destination.project(&slot.projections()[source.projections().len()..]);
 
-                (target, entries)
-            })
-            .collect()
+            merge_producers(result.entry(target).or_default(), entries);
+        }
+
+        result
     }
 
     pub(in crate::analysis::storage_flow) fn stage_deferred_values(
@@ -104,7 +99,7 @@ impl State {
                 // A deferred frame's reference entry describes its captures. It is
                 // immutable with that frame, independently of mutable sibling fields.
                 if let Some(captures) = self.values.get(slot) {
-                    pending.values.entry(target.clone()).or_default().merge(captures);
+                    pending.values.entry(target.clone()).and_modify(|value| { value.merge(captures); }).or_insert_with(|| captures.clone());
                 }
 
                 let retained = pending.deferred.entry(target).or_default();
@@ -146,7 +141,8 @@ impl State {
         source: &Source,
         producers: &std::collections::BTreeSet<BoundExecutionSite>,
     ) -> Option<Vec<Effect>> {
-        let Source::Value(source) = source else {
+        let Source::Value(source) = source
+        else {
             return None;
         };
 
@@ -163,6 +159,70 @@ impl State {
         Some(effects.into_iter().collect())
     }
 
+    pub(in crate::analysis::storage_flow) fn capture_deferred_cleanup(
+        &mut self,
+        invocation: BoundExecutionSite,
+        captures: Vec<Effect>,
+        result: Vec<Effect>,
+    ) {
+        let transfer = self.pending.get_mut(&invocation)
+            .expect("deferred cleanup is captured with its prepared value transition");
+
+        let result = result.into_iter().flat_map(|effect| {
+            let Effect::Mutation(target, kind, access_type) = &effect
+            else {
+                return vec![effect];
+            };
+
+            let Origin::Returned { reference, .. } = &target.origin
+            else {
+                return vec![effect];
+            };
+
+            let Some(bounds) = transfer.returned_inputs.get(reference).filter(|_| !target.previous) else {
+                return vec![effect];
+            };
+
+            // A pending result has no current referent. Its possible cleanup
+            // effects retain physical inputs and independent ambient storage.
+            let (origins, unbounded) = Self::effect_origins_from(target, Some(bounds));
+
+            let mut effects = origins.cloned().map(|origin| Effect::Mutation(origin, *kind, *access_type))
+                .collect::<Vec<_>>();
+
+            if unbounded {
+                effects.push(Effect::unbounded(*kind, *access_type, true));
+            }
+
+            effects
+        }).collect();
+
+        transfer.captured_cleanup = Some(captures.into_iter().collect());
+        transfer.result_cleanup = Some(result);
+    }
+
+    pub(in crate::analysis::storage_flow) fn deferred_cleanup_effects(
+        &self,
+        source: &Source,
+        producers: &std::collections::BTreeSet<BoundExecutionSite>,
+        discard_result: bool,
+    ) -> Option<Vec<Effect>> {
+        let Source::Value(source) = source else { return None; };
+
+        let entries = self.deferred.get(source)?;
+        let mut effects = std::collections::BTreeSet::new();
+
+        for (_, entry) in entries.iter().filter(|(source, _)| producers.contains(source)) {
+            effects.extend(entry.captured_cleanup.as_ref()?.iter().cloned());
+
+            if discard_result {
+                effects.extend(entry.result_cleanup.as_ref()?.iter().cloned());
+            }
+        }
+
+        Some(effects.into_iter().collect())
+    }
+
     pub(in crate::analysis::storage_flow) fn prepare_deferred_completion(
         &mut self,
         invocation: BoundExecutionSite,
@@ -170,11 +230,13 @@ impl State {
         result: StoragePath,
         producers: impl IntoIterator<Item = (BoundExecutionSite, StoragePath)>,
     ) -> bool {
-        let Source::Value(source) = source else {
+        let Source::Value(source) = source
+        else {
             return false;
         };
 
-        let Some(entries) = self.deferred.get(source) else {
+        let Some(entries) = self.deferred.get(source)
+        else {
             return false;
         };
 
@@ -201,7 +263,8 @@ impl State {
             }
         }
 
-        let Some(completed) = completed else {
+        let Some(completed) = completed
+        else {
             return false;
         };
 
@@ -250,12 +313,18 @@ impl Transfer {
 
         self.values = std::mem::take(&mut self.values)
             .into_iter()
-            .map(|(slot, mut references)| {
-                references.targets = references.targets.into_iter().map(&relocate).collect();
+            .map(|(slot, mut value)| {
+                if let Some(references) = &mut value.references {
+                    references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate).collect();
+                }
 
-                (relocate(slot), references)
+                (relocate(slot), value)
             })
             .collect();
+
+        for references in self.inputs.values_mut().filter_map(|value| value.references.as_mut()).chain(self.returned_inputs.values_mut()) {
+            references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate).collect();
+        }
 
         self.payloads = std::mem::take(&mut self.payloads)
             .into_iter()
@@ -289,6 +358,8 @@ impl Transfer {
     pub(in crate::analysis::storage_flow::memory) fn references(&self, current: &Target) -> bool {
         self.values
             .values()
+            .chain(self.inputs.values())
+            .filter_map(|value| value.references.as_ref())
             .chain(self.returned_inputs.values())
             .any(|references| {
                 references
@@ -296,7 +367,7 @@ impl Transfer {
                     .iter()
                     .any(|target| current.contains(target))
             })
-            || self.deferred_effects.iter().flatten().any(|effect| {
+            || [&self.deferred_effects, &self.captured_cleanup, &self.result_cleanup].into_iter().flatten().flatten().any(|effect| {
                 effect
                     .mutation()
                     .is_some_and(|(target, _)| current.contains(target))
@@ -319,12 +390,14 @@ impl Transfer {
         for references in self
             .values
             .values_mut()
+            .chain(self.inputs.values_mut())
+            .filter_map(|value| value.references.as_mut())
             .chain(self.returned_inputs.values_mut())
         {
             references.retire(current);
         }
 
-        if let Some(effects) = &mut self.deferred_effects {
+        for effects in [&mut self.deferred_effects, &mut self.captured_cleanup, &mut self.result_cleanup].into_iter().flatten() {
             *effects = std::mem::take(effects)
                 .into_iter()
                 .map(|mut effect| {

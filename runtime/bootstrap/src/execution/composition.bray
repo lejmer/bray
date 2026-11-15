@@ -1,0 +1,181 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using core.atomic;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap.activation.callback;
+using internal bray.runtime.bootstrap.activation.composition;
+using internal bray.runtime.bootstrap.task;
+
+// The compiler lends the owned inactive token and its exact result destination
+// for this current producer call. A non-result disposition has destination zero.
+trusted internal predicate composition_frame_input(
+    owner: &bray.runtime.bootstrap.activation.Inactive,
+    state: u32,
+    destination: usize,
+    disposition: u8
+);
+
+impl bray.runtime.bootstrap.activation.Inactive
+{
+    trusted internal consume func into_composition(
+        pos state: u32,
+        pos destination: usize,
+        pos disposition: u8
+    ) -> bray.runtime.bootstrap.activation.composition.Request
+        requires(
+            trusted bray.runtime.bootstrap.activation.producer(token = &self),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &self),
+            trusted composition_frame_input(
+                owner = &self,
+                state = state,
+                destination = destination,
+                disposition = disposition
+            )
+        )
+        ensures(trusted bray.runtime.bootstrap.activation.composition.request_pending(owner = &result))
+    {
+        return
+        {
+            acquisition = bray.runtime.bootstrap.activation.composition.RequestAcquisition
+            {
+            },
+            producer = trusted self.into_producer(),
+            state = state,
+            destination = destination,
+            disposition = disposition,
+            ready = composition_readiness
+        };
+    }
+}
+
+@abi(c)
+trusted internal func awaited_composition(
+    pos token: bray.runtime.bootstrap.activation.Inactive,
+    pos state: u32,
+    pos destination: usize,
+    pos disposition: u8
+)
+    requires(
+        trusted bray.runtime.bootstrap.activation.producer(token = &token),
+        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &token),
+        trusted composition_frame_input(
+            owner = &token,
+            state = state,
+            destination = destination,
+            disposition = disposition
+        ),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    uses(intrinsic)
+{
+    let request = trusted token.into_composition(state, destination, disposition);
+    let selected = trusted current();
+
+    if selected.status != 0 || !has_execution(&selected)
+    {
+        trusted core.target.abort();
+    }
+
+    let origin = (trusted context(&selected)).thread;
+    let parent = trusted composition_parent(&selected, &request, origin);
+
+    let status = trusted bray.runtime.bootstrap.task.compose_reference(parent, request, origin);
+
+    if status != 0
+    {
+        trusted core.target.abort();
+    }
+}
+
+trusted internal func composition_parent(
+    pos selected: &Current,
+    pos request: &bray.runtime.bootstrap.activation.composition.Request,
+    pos origin: u64
+) -> &bray.runtime.bootstrap.task.Reference
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.activation.composition.request_pending(owner = request)
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained(owner = result),
+        trusted bray.runtime.bootstrap.task.request_for_task(
+            request = &request.acquisition,
+            parent = &result.acquisition,
+            origin = origin
+        )
+    )
+    uses(intrinsic)
+{
+    if origin != (trusted context(selected)).thread
+    {
+        trusted core.target.abort();
+    }
+
+    let task = trusted current_task(selected);
+
+    if task matches none
+    {
+        trusted core.target.abort();
+    }
+
+    return trusted take_task_view(&task);
+}
+
+// Admission checks proposed continuation requirements against the retained
+// execution domain. It does not replace or widen the producer's current lane.
+@abi(c)
+trusted internal func composition_readiness(
+    pos pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>
+)
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer)
+    )
+    ensures(trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer))
+{
+    let mut address = pointer;
+    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut address, pointer);
+
+    owner.admission = trusted composition_status(&owner);
+}
+
+trusted internal func composition_status(pos owner: &bray.runtime.bootstrap.activation.callback.Invocation) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)
+    )
+{
+    let execution = trusted bray.runtime.bootstrap.activation.callback.execution(owner);
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    if !has_execution(&selected)
+    {
+        return 1;
+    }
+
+    let (_, status) = trusted select_lane(
+        trusted bound_execution(&selected),
+        core.atomic.load<u64, 0>(&(trusted context(&selected)).registration),
+        execution,
+        none
+    );
+
+    return status;
+}

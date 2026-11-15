@@ -3,7 +3,7 @@ use crate::CheckerRequestContext;
 use bray_symbols::TypeData;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(super) fn prepare_returned_frames(
+    pub(super) fn prepare_returned_values(
         &self,
         state: &mut crate::analysis::storage_flow::model::StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
@@ -12,22 +12,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         use crate::analysis::storage_flow::memory::Target;
 
-        if matches!(occurrence, bray_bound_tree::BoundExecutionSite::CallInput { .. })
-            || contracts.owned_result().is_empty()
+        if matches!(
+            occurrence,
+            bray_bound_tree::BoundExecutionSite::CallInput { .. }
+        ) || contracts.owned_result().is_empty()
         {
             return;
         }
 
-        // Opaque frames carry producer state without ordinary reference fields.
-        // Follow the same checked owning-return paths as the execution domain.
-        let selection = self.execution.semantics.selections()
-            .expression(occurrence.expression().expect("owned return has its invocation"))
+        // Both reference descriptors and deferred frames use the checked value route.
+        let selection = self
+            .execution
+            .semantics
+            .selections()
+            .expression(
+                occurrence
+                    .expression()
+                    .expect("owned return has its invocation"),
+            )
             .expect("owned return retains its selected invocation");
 
         let transfers = contracts.owned_result().transfers().filter_map(|transfer| {
-            let crate::ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
-                self.request.semantic_values(), transfer.input(), contracts.input_count(),
-            ).expect("checked ownership source decodes in the same store") else {
+            let decoded = crate::execution_condition_from_type_term(
+                    self.request.semantic_values(),
+                    transfer.input(),
+                    contracts.input_count(),
+                )
+                .expect("checked ownership source decodes in the same store");
+
+            let crate::ExecutionConditionKind::Input(input) = decoded.kind()
+            else {
                 unreachable!("checked ownership source contains only input projections");
             };
 
@@ -35,37 +49,95 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 unreachable!("checked ownership source names a receiver-first input");
             };
 
-            let root = selection.invocation_input_root(occurrence, ordinal)
+            let root = selection
+                .invocation_input_root(occurrence, ordinal)
                 .expect("owned return retains its actual input");
 
             let source = self.invocation_place(occurrence, root)?;
-            let input = crate::storage::owned_storage_projections(self.dependencies, &input.projections);
-            let mut output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
-            // Default-call slots already contain adapted values. Other invocations
-            // name the actual source storage, before nullable wrapping.
-            let wrapping = if !selection.evaluates_defaults()
-                && let Some(selected) = selection.input(ordinal)
-                && let Some(expression) = selected.expression()
-            {
-                self.reference_wrapping(expression, selected.ty(self.request.semantic_values()))?
-            } else {
-                Vec::new()
-            };
+            let path = contracts.returned_value(transfer).input_path();
+            let input = path.projections();
 
-            let input = if let Some(path) = input.strip_prefix(wrapping.as_slice()) {
-                path
+            let mut output =
+                crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+
+            let wrapping = self.invocation_wrapping(occurrence, root);
+
+            let adaptation = if input.starts_with(wrapping.as_slice()) {
+                &[][..]
             } else {
                 // Returning the complete adapted owner also returns its wrapper.
-                output.extend_from_slice(wrapping.strip_prefix(input.as_slice())?);
+                let adaptation = wrapping.strip_prefix(input)?;
 
-                &[]
+                output.extend_from_slice(adaptation);
+
+                adaptation
             };
 
-            Some((Target::storage(source).project(input), Target::storage(destination.clone()).project(&output)))
-        });
+            let sources = if contracts.returned_value(transfer).is_borrowed() {
+                let input = input.strip_prefix(wrapping.as_slice()).unwrap_or_default();
 
-        state.memory.stage_deferred_values(occurrence, transfers);
+                vec![Target::storage(source).project(input)]
+            } else if adaptation.is_empty() {
+                self.invocation_path_locations(state, occurrence, &bray_symbols::DependencySubject::root(root), path)?
+            } else {
+                vec![Target::storage(source)]
+            };
+
+            Some((
+                transfer,
+                sources,
+                Target::storage(destination.clone()).project(&output),
+                adaptation.to_vec(),
+            ))
+        }).collect::<Vec<_>>();
+
+        let guaranteed = contracts.owned_result().guaranteed_transfers();
+
+        for (transfer, sources, output, adaptation) in &transfers {
+            let Some(common) = guaranteed.iter().find(|common| common.same_identity(transfer)) else { continue; };
+
+            self.stage_preserved_references(state, occurrence, common, contracts.returned_value(transfer), sources, output, adaptation);
+        }
+
+        state.memory.stage_deferred_values(occurrence,
+            transfers.into_iter().flat_map(|(_, sources, destination, _)| sources.into_iter().map(move |source| (source, destination.clone()))));
+    }
+
+    fn stage_preserved_references(
+        &self,
+        state: &mut crate::analysis::storage_flow::model::StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        transfer: &bray_symbols::DependencyOwnedTransfer,
+        returned: &bray_bound_tree::BoundReturnedValue,
+        sources: &[crate::analysis::storage_flow::memory::Target],
+        output: &crate::analysis::storage_flow::memory::Target,
+        adaptation: &[bray_bound_tree::StorageProjection],
+    ) {
+        let references = returned.is_borrowed().then_some(&[][..]).into_iter().chain(
+            returned.observations().iter().filter_map(|(path, kind)| {
+                (!returned.is_borrowed() && matches!(kind, bray_bound_tree::StorageObservationKind::Reference(_)))
+                    .then_some(path.as_ref())
+            }),
+        );
+
+        for suffix in references {
+            let Some(actual) = suffix.strip_prefix(adaptation) else { continue; };
+
+            let Some(preservation) = suffix.iter().try_fold(transfer.preservation().clone(), |mask, projection| {
+                Some(mask.projected(&crate::ExecutionPlace::projection_kind(*projection)?))
+            }) else { continue; };
+
+            let sources = sources.iter().map(|source| source.project(actual)).collect::<Vec<_>>();
+
+            if preservation.preserves_value() && !sources.is_empty() && sources.iter().all(|source| state.memory.has_value(source)) {
+                // Capture unchanged descriptors before consumption. Referent contents are
+                // refreshed from committed memory, never restored from this entry snapshot.
+                for source in sources {
+                    state.memory.stage_value(occurrence, &source, output.project(actual));
+                }
+            }
+        }
     }
 
     pub(super) fn owned_result(
@@ -80,15 +152,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyOwnedResult, C::UpstreamError> {
         use bray_symbols::ConstantTermData;
 
-        if candidates.is_empty() {
-            return Ok(bray_symbols::DependencyOwnedResult::default());
-        }
-
-        let inputs = self
-            .request
-            .trusted_contracts()
-            .expect("owned transfer inference retains formal inputs");
-
         let mut copyable = std::collections::BTreeMap::new();
 
         let result = candidates.try_map(
@@ -98,7 +161,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let transfer = bray_symbols::DependencyOwnedTransfer::new(
                     input,
                     candidate.output().iter().copied(),
-                );
+                ).with_preservation(candidate.preservation().clone());
 
                 use crate::analysis::guarantee::OwnedReturnCondition;
 
@@ -125,6 +188,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     }
                 };
 
+                let inputs = self.request.trusted_contracts()
+                    .expect("owned transfer inference retains formal inputs");
+
                 let input = inputs.inputs
                     [usize::try_from(ordinal).expect("formal input ordinal fits the target")];
 
@@ -146,6 +212,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .expect("formal ownership input retains its checked access")
                         .reached_type(),
                 };
+
+                // A checked extraction owns the referent, not the loan descriptor.
+                ty = self.request.semantic_values().unborrowed_type(ty);
 
                 for projection in projections.into_iter().rev() {
                     ty = self.owned_projection_type(ty, projection)?;
@@ -174,7 +243,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if !copies {
                     let condition = if conditional {
-                        self.owned_result_condition(transfer.output(), presence)?
+                        self.result_path_condition(transfer.output(), presence)?
                     } else {
                         None
                     };
@@ -205,7 +274,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                 .iter()
                                 .copied()
                                 .chain([bray_bound_tree::StorageProjection::NullableValue]),
-                        )
+                        ).with_preservation(transfer.preservation().projected(
+                            &bray_bound_tree::StorageProjection::NullableValue,
+                        ))
                     } else {
                         transfer
                     };
@@ -218,7 +289,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                     .expect("owned result retains a portable output projection")
                             }),
                         )
-                        .with_condition(condition),
+                        .with_condition(condition)
+                        .with_preservation(transfer.preservation().try_map_projections(&mut |projection| {
+                            Ok::<_, std::convert::Infallible>(crate::ExecutionPlace::projection_kind(*projection)
+                                .expect("owned retained data has a portable projection"))
+                        }).expect("checked owned data projection mapping is infallible")),
                     ));
                 }
 
@@ -227,11 +302,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             &mut |(condition, _)| Ok(Some(*condition)),
         )?;
 
-        Ok(if result.is_empty() {
-            bray_symbols::DependencyOwnedResult::default()
-        } else {
-            result
-        })
+        Ok(result)
     }
 
     fn owned_projection_type(
@@ -239,41 +310,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         ty: bray_symbols::TypeId,
         projection: bray_symbols::ConstantProjectionKind,
     ) -> crate::CheckerQueryResult<bray_symbols::TypeId, C::UpstreamError> {
-        use bray_symbols::{ConstantProjectionKind, DependencyProjection};
-
-        let projection = match projection {
-            ConstantProjectionKind::ProductField(field) => {
-                DependencyProjection::ProductField(field)
-            }
-            ConstantProjectionKind::UnionPayloadField(field) => {
-                DependencyProjection::UnionPayloadField(field)
-            }
-            ConstantProjectionKind::TupleElement(ordinal) => {
-                DependencyProjection::TupleElement(ordinal)
-            }
-            ConstantProjectionKind::NullableValue => DependencyProjection::NullableValue,
-            ConstantProjectionKind::ArrayElementOrdinal(_) => {
-                let data = self.request.semantic_values().type_data(ty);
-
-                let TypeData::Array { element, .. } = data.as_ref() else {
-                    panic!("checked owned array projection retains its array type: {ty:?}");
-                };
-
-                return Ok(*element);
-            }
-            _ => unreachable!("inferred ownership uses an owning projection"),
-        };
-
-        let projected = crate::storage::projected_value_type(self.request, ty, projection)?;
+        let projected = crate::storage::projected_owned_type(self.request, ty, projection)?;
 
         let (projected, diagnostics) = projected.into_parts();
 
         self.diagnostics.add_range(diagnostics);
 
-        Ok(projected.expect("checked owned path retains its projected type"))
+        Ok(projected.unwrap_or_else(|| panic!(
+            "checked owned path retains its projected type: unit {:?}, owner {ty:?} ({:?}), projection {projection:?}",
+            self.request.unit().key(), self.request.semantic_values().type_data(ty),
+        )))
     }
 
-    fn owned_result_condition(
+    pub(super) fn result_path_condition(
         &mut self,
         path: &[bray_bound_tree::StorageProjection],
         presence: bool,
@@ -302,7 +351,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .storage_type(result)
             .expect("checked normal result retains its type");
 
-        let mut subject = ExecutionCondition::Result;
+        let mut subject = ExecutionCondition::result();
         let mut guard = None;
 
         for projection in path
@@ -312,6 +361,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .chain(presence.then_some(None))
         {
             let condition = match projection {
+                None if !matches!(
+                    self.request.semantic_values().type_data(ty).as_ref(),
+                    TypeData::Nullable(_)
+                ) =>
+                {
+                    None
+                }
                 Some(StorageProjection::NullableValue) | None => {
                     assert!(
                         matches!(
@@ -325,9 +381,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         BoundOperator::NotEqual,
                         vec![
                             subject.clone(),
-                            ExecutionCondition::Literal(std::sync::Arc::new(
+                            ExecutionCondition::new(crate::ExecutionConditionKind::Literal(std::sync::Arc::new(
                                 ConstantValueData::new(ty, ConstantValueKind::NullableAbsent),
-                            )),
+                            ))),
                         ],
                     ))
                 }

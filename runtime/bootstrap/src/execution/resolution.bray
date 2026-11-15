@@ -1,0 +1,125 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+// The protected Task owner lends its source claim and concrete, disjoint
+// RunResult destination. Observation moves the outcome before retiring frames.
+trusted internal predicate task_result_destination(
+    task: &u64,
+    destination: &DataPointer<u8>,
+    layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
+);
+
+@abi(c)
+trusted internal func task_resolution(
+    pos handle: u64,
+    pos destination: DataPointer<u8>,
+    pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
+) -> u32
+    requires(
+        blocking_execution(),
+        trusted resolution_input(owner = &handle),
+        trusted task_result_destination(task = &handle, destination = &destination, layout = layout),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let output = trusted bray.runtime.bootstrap.task.result.acquire_resolution(&handle, &destination, layout);
+    let scope = trusted root_scope();
+    let mut ended: u32 = 0;
+
+    let result = with entered = EntryRestoration
+    {
+        scope = scope,
+        completion = &mut ended
+    }
+    {
+        let entered_scope = &entered.scope;
+
+        let status = entered_scope.status;
+
+        let result = if status == 0
+        {
+            yield trusted task_resolution_action(trusted entry_current(entered_scope), output);
+        }
+        else
+        {
+            yield status;
+        };
+
+        yield result;
+    };
+
+    return if result != 0
+    {
+        yield result;
+    }
+    else
+    {
+        yield ended;
+    };
+}
+
+trusted internal func task_resolution_action(
+    pos selected: &Current,
+    pos output: bray.runtime.bootstrap.task.result.Resolution
+) -> u32
+    requires(
+        blocking_execution(),
+        trusted view_owned(owner = &selected.acquisition),
+        trusted resolution_input(owner = output.task),
+        trusted bray.runtime.bootstrap.task.result.resolution_owned(owner = &output),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    let owner = trusted bray.runtime.bootstrap.task.retain_source_claim(output.task);
+    let result = trusted transfer_task_result(selected, &owner, output);
+
+    _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
+    return result;
+}
+
+trusted internal func transfer_task_result(
+    pos selected: &Current,
+    pos reference: &bray.runtime.bootstrap.task.Reference,
+    pos output: bray.runtime.bootstrap.task.result.Resolution
+) -> u32
+    requires(
+        blocking_execution(),
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.task.result.resolution_owned(owner = &output),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
+    )
+{
+    let mut outcome = trusted observe_reference(selected, reference);
+    let status = trusted bray.runtime.bootstrap.task.result.transfer_resolution(output, &mut outcome);
+
+    if status != 0
+    {
+        return status;
+    }
+
+    return trusted retire_reference(selected, reference);
+}

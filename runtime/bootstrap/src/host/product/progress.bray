@@ -40,7 +40,7 @@ internal struct CleanupBorrow
 internal union Progress
 {
     Idle;
-    Detach(pos resource: usize, pos callback: WorkerDetach);
+    Detach;
     Cleanup;
     ObserveProvider;
 }
@@ -55,15 +55,14 @@ trusted internal func select_progress_locked(
         trusted native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-    )
-    uses(intrinsic, raw_memory)
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
+    uses(intrinsic)
 {
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
 
@@ -93,22 +92,19 @@ trusted internal func select_progress_locked(
             {
                 if phase matches Detaching
                 {
-                    if let ?execution = product.execution
+                    if product.execution matches none
                     {
-                        let execution: NativeExecution = match execution.value
-                        {
-                            case ?value { yield value; }
-                            case none { yield trusted core.target.abort(); }
-                        };
-
-                        let callback = trusted std.memory.read<WorkerDetach>(
-                            std.memory.address_of<WorkerDetach>(&execution.detach_workers)
-                        );
-
-                        return Progress.Detach(execution.resource, callback);
+                        trusted core.target.abort();
                     }
 
-                    trusted core.target.abort();
+                    // The local progress owner retains the complete execution
+                    // resource across the callback and reentrant host access.
+                    trusted internal std.memory.swap_values<(Execution?)>(
+                        &mut product.execution,
+                        &mut cleanup.execution
+                    );
+
+                    return Progress.Detach;
                 }
 
                 trusted internal std.memory.swap_values<(std.memory.RawBuffer<StaticOwner>?)>(
@@ -138,14 +134,13 @@ trusted internal func finish_progress_locked(
         trusted native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     uses(intrinsic)
 {
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
@@ -203,6 +198,8 @@ trusted internal func finish_progress_locked(
                 {
                     trusted core.target.abort();
                 }
+
+                trusted internal std.memory.swap_values<(Execution?)>(&mut product.execution, &mut cleanup.execution);
 
                 product.state.phase = if product.state.workers == 0
                 {
@@ -345,9 +342,22 @@ trusted internal func progress(pos key: usize, pos mut observation: Observation,
 
                 continue;
             }
-            case Detach(resource, callback)
+            case Detach
             {
-                trusted callback(resource, key);
+                let execution: NativeExecution = match cleanup.execution
+                {
+                    case ?owner
+                    {
+                        yield match owner.value
+                        {
+                            case ?value { yield value; }
+                            case none { yield trusted core.target.abort(); }
+                        };
+                    }
+                    case none { yield trusted core.target.abort(); }
+                };
+
+                trusted execution.detach_workers(execution.resource, key);
                 detached = true;
             }
             case Cleanup

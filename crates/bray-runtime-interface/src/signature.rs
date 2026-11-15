@@ -20,7 +20,7 @@ pub enum RuntimeAbiType {
     Usize,
     /// Address of byte storage or a native callback.
     Pointer,
-    /// Worker and timer capacities.
+    /// Execution limits and optional native provider callbacks.
     Configuration,
     /// Root-start status and root handle.
     RootStart,
@@ -38,8 +38,6 @@ pub enum RuntimeAbiType {
     FrameProgress,
     /// Frame affinity and required execution lanes.
     FrameState,
-    /// Lane-selection status and lane identity.
-    LaneResult,
 }
 
 /// Native field order shared by panic report type realization and source binding checks.

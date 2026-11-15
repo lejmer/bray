@@ -4,7 +4,7 @@ use super::super::model::{
     InterfaceCallableContract, InterfaceCallableContractClause,
     InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceConstraint,
     InterfaceConstraintKind, InterfaceDeclarationTemplate, InterfacePredicateSummary,
-    InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceStorageMember, InterfaceStorageShape,
+    InterfaceSemanticRecordKind, InterfaceSemantics,
 };
 use super::model::{
     InterfaceSemanticCommitError, InterfaceSemanticIdRemap, InterfaceSemanticTableKind,
@@ -70,12 +70,7 @@ pub(super) fn commit_fragment(
     }
 
     for representation in Arc::make_mut(&mut fragment.type_representations) {
-        representation.union_tag_type = representation
-            .union_tag_type
-            .map(|ty| remap.ty(ty))
-            .transpose()?;
-
-        remap_storage(&mut representation.storage, remap)?;
+        representation.try_map_types(|ty| remap.ty(ty))?;
     }
 
     fragment.checked_templates = fragment
@@ -296,33 +291,6 @@ fn remap_predicate(
         .condition
         .map(|term| remap.constant_term(term))
         .transpose()?;
-
-    Ok(())
-}
-
-fn remap_storage(
-    storage: &mut InterfaceStorageShape,
-    remap: &InterfaceSemanticIdRemap,
-) -> Result<(), InterfaceSemanticCommitError> {
-    match storage {
-        InterfaceStorageShape::Structure(members) => remap_storage_members(members, remap),
-        InterfaceStorageShape::Union(variants) => {
-            for variant in Arc::make_mut(variants) {
-                remap_storage_members(&mut variant.members, remap)?;
-            }
-
-            Ok(())
-        }
-    }
-}
-
-fn remap_storage_members(
-    members: &mut Arc<[InterfaceStorageMember]>,
-    remap: &InterfaceSemanticIdRemap,
-) -> Result<(), InterfaceSemanticCommitError> {
-    for member in Arc::make_mut(members) {
-        member.ty = remap.ty(member.ty)?;
-    }
 
     Ok(())
 }

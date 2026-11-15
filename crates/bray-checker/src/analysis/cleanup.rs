@@ -99,7 +99,15 @@ where
         {
             let block = self.resolve_scopes(block, catch.scope_depth, exit, false);
 
-            self.push_edge(block, catch.target, AnalysisEdgeKind::Catch, None);
+            self.push_edge(
+                block,
+                catch.target,
+                AnalysisEdgeKind::Catch,
+                Some(super::model::AnalysisRefinement::CaughtResult {
+                    expression: catch.expression,
+                    succeeded: false,
+                }),
+            );
 
             return;
         }
@@ -109,7 +117,7 @@ where
             _ => self.resolve_scopes(block, 0, exit, preserves_exit_value),
         };
 
-        self.storage.push_exit(block, kind);
+        self.storage.push_exit(block, kind, exit);
     }
 
     pub(super) fn push_generator_storage_failure(
@@ -222,11 +230,19 @@ where
             if let Some(catch) = catch {
                 let failure = self.resolve_scopes(failure_entry, catch.scope_depth, exit, false);
 
-                self.push_edge(failure, catch.target, AnalysisEdgeKind::Catch, None);
+                self.push_edge(
+                    failure,
+                    catch.target,
+                    AnalysisEdgeKind::Catch,
+                    Some(super::model::AnalysisRefinement::CaughtResult {
+                        expression: catch.expression,
+                        succeeded: false,
+                    }),
+                );
             } else {
                 let failure = self.resolve_scopes(failure_entry, 0, exit, false);
 
-                self.storage.push_exit(failure, AnalysisExitKind::Panic);
+                self.storage.push_exit(failure, AnalysisExitKind::Panic, exit);
             }
 
             let target = *cancellation.get_or_insert_with(|| self.push_block());

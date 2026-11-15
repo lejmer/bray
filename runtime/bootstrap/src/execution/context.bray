@@ -1,0 +1,239 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using core.atomic;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.host.product;
+using internal bray.runtime.bootstrap.entry;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.activation.callback;
+
+// The driver owns its actual attachment and scoped execution authority. Async
+// consumers install the two lifetime operations for their execution domain.
+// A driver alone never references scheduler creation or task retirement code.
+internal callable BindingClose = @abi(c) trusted func(pos owner: Owner) -> Reference
+    requires(
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution),
+        trusted service_owner(owner = &owner)
+    )
+    ensures(trusted retained(owner = &result), trusted pinned(owner = &result));
+
+internal callable BindingRelease = @abi(c) trusted func(pos owner: Reference) -> u32
+    requires(trusted retained(owner = &owner), trusted pinned(owner = &owner));
+
+// These operations suspend and restore the enclosing dispatch's quota claim.
+// They borrow the complete driver and do not transfer execution ownership.
+internal callable BindingSuspend = @abi(c) trusted func(pos pointer: DataPointer<Context>) -> u32
+    requires(trusted driver_binding_entry(context = pointer));
+
+internal callable BindingResume = @abi(c) trusted func(pos pointer: DataPointer<Context>)
+    requires(trusted driver_binding_entry(context = pointer));
+
+trusted internal predicate driver_binding_entry(context: DataPointer<Context>);
+
+internal union BindingOwnership
+{
+    Open(pos owner: Owner, pos close: BindingClose);
+    Cleanup(pos execution: Reference);
+}
+
+internal struct Binding
+{
+    ownership: BindingOwnership;
+    release: BindingRelease;
+    suspend: BindingSuspend;
+    resume: BindingResume;
+}
+
+internal predicate kernel_binding(owner: &Binding) = retained(owner = binding_reference(&owner.ownership)) && pinned(
+    owner = binding_reference(&owner.ownership)
+) && ((owner.ownership matches BindingOwnership.Open(_, _) && service_owner(
+    owner = open_binding_owner(&owner.ownership)
+)) || owner.ownership matches BindingOwnership.Cleanup(_));
+
+internal const func binding_reference(pos owner: &BindingOwnership) -> &Reference
+    executes(pure, total)
+{
+    return match owner
+    {
+        case BindingOwnership.Open(value, _) { yield &value.execution; }
+        case BindingOwnership.Cleanup(execution_pin) { yield &execution_pin; }
+    };
+}
+
+internal const func open_binding_owner(pos owner: &BindingOwnership) -> &Owner
+    requires(owner matches BindingOwnership.Open(_, _))
+    executes(pure, total)
+{
+    return match owner
+    {
+        case BindingOwnership.Open(value, _) { yield &value; }
+        case BindingOwnership.Cleanup(_) { panic("cleanup binding has no admission owner"); }
+    };
+}
+
+// Only established root, worker and cleanup scopes install this context. The
+// task and invocation slots borrow their active dispatch stack, without owning
+// another task or copying its checked continuation metadata.
+internal struct Context
+{
+    mut allocation: std.memory.RawAllocation?;
+    mut binding: Uninit<(Binding?)>;
+    mut attachment: Uninit<(bray.runtime.bootstrap.host.attachment.Owner?)>;
+    mut previous: Uninit<(bray.runtime.bootstrap.host.ExecutionOwner?)>;
+    mut provider: Uninit<(NativeProviderScope?)>;
+    phase: core.atomic.Atomic<u32>;
+    views: core.atomic.Atomic<usize>;
+    thread: u64;
+    mut driver: bray.runtime.bootstrap.scheduler.Lane;
+    mut lanes: u32;
+    mut worker: DataPointer<u8>;
+    task: core.atomic.Atomic<usize>;
+    registration: core.atomic.Atomic<u64>;
+    lane: core.atomic.Atomic<u32>;
+    invocation: core.atomic.Atomic<usize>;
+    mut pending: Uninit<(bray.runtime.bootstrap.scheduler.Observation?)>;
+}
+
+// One acquisition belongs to the complete Current carrier. It is never lent
+// with a separately supplied pointer. Its factory counts a real view first.
+@layout(c)
+internal struct ViewAcquisition
+{
+}
+
+internal struct Current
+{
+    acquisition: ViewAcquisition;
+    pointer: DataPointer<Context>;
+    status: u32;
+
+    trusted destruct()
+        requires(trusted view_owned(owner = &self.acquisition))
+        executes(total)
+        when(std.memory.is_null<Context>(self.pointer))
+        {
+            executes(pure)
+        }
+    {
+        if !std.memory.is_null<Context>(self.pointer)
+        {
+            trusted release_view(&self);
+        }
+    }
+}
+
+trusted internal predicate view_owned(owner: &ViewAcquisition);
+
+trusted internal predicate context_owned(owner: &Context);
+
+internal predicate owned_binding_option(owner: &(Binding?)) = owner matches none || kernel_binding(
+    present_binding(owner)
+);
+
+trusted internal func current() -> Current
+    ensures(trusted view_owned(owner = &result.acquisition))
+    ensures(
+        result.status != 0 || trusted bray.runtime.bootstrap.entry.native_entry(),
+        result.status != 0 || trusted bray.runtime.bootstrap.host.product.native_host(),
+        result.status != 0 || trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    when(trusted bray.runtime.bootstrap.entry.native_entry())
+    {
+        ensures(trusted bray.runtime.bootstrap.entry.native_entry())
+    }
+    when(trusted bray.runtime.bootstrap.host.product.native_host())
+    {
+        ensures(trusted bray.runtime.bootstrap.host.product.native_host())
+    }
+    when(trusted bray.runtime.bootstrap.pool.protocol_access())
+    {
+        ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
+    }
+    uses(raw_memory, unchecked_alias, layout_reinterpret)
+{
+    let address = match consume trusted bray.runtime.bootstrap.host.execution_context(none)
+    {
+        case Ok(value) { yield value; }
+        case Error(status)
+        {
+            return
+            {
+                acquisition = ViewAcquisition
+                {
+                },
+                pointer = std.memory.null<Context>(),
+                status = status
+            };
+        }
+    };
+
+    if std.memory.is_null<u8>(address)
+    {
+        return
+        {
+            acquisition = ViewAcquisition
+            {
+            },
+            pointer = std.memory.null<Context>(),
+            status = 1
+        };
+    }
+
+    let pointer = trusted std.memory.reinterpret<Context, u8>(address);
+
+    // The resident TLS key borrows the actual attachment-owned context. Nothing
+    // can retire it or call user code between this lookup and counting the view.
+    let permit = trusted lambda(pos pointer: DataPointer<Context>)
+        ensures(
+            trusted core.memory.valid_read<Context>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Context>(pointer = pointer),
+            trusted core.memory.aligned_for<Context>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Context>(pointer = pointer),
+            trusted core.memory.epoch_current<Context>(pointer = pointer),
+            trusted core.memory.synchronized_access<Context>(pointer = pointer),
+            trusted core.memory.movement_stable<Context>(pointer = pointer),
+            trusted core.memory.finalization_pending<Context>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer);
+
+    let value = trusted std.memory.borrow_from<Context, DataPointer<Context>>(&pointer, pointer);
+
+    let entered = trusted lambda(pos value: &Context)
+        ensures(
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        executes(pure, total) {};
+
+    // Only an established Root, worker or cleanup owner publishes a Context in
+    // this native-thread slot. The counted view retains its actual entry epoch.
+    trusted acquire_view(value);
+
+    trusted entered(value);
+
+    return
+    {
+        acquisition = ViewAcquisition
+        {
+        },
+        pointer = pointer,
+        status = 0
+    };
+}
+
+trusted internal func context(pos owner: &Current) -> &Context
+    requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
+    ensures(trusted view_owned(owner = &owner.acquisition))
+    executes(pure, total)
+{
+    return trusted view_context(owner);
+}

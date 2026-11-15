@@ -48,7 +48,7 @@ pub use compiler_known::{
     CompilerKnownTargetProfile,
 };
 pub use diagnostic::{
-    diagnostic_callable_abi, diagnostic_callable_execution, diagnostic_external_symbol_identity,
+    diagnostic_callable_abi, diagnostic_callable_execution, diagnostic_callable_parameter, diagnostic_callable_constness, diagnostic_callable_trust, diagnostic_callable_position, diagnostic_callable_parameter_mode, diagnostic_external_symbol_identity,
     diagnostic_symbol_identity, diagnostic_symbol_kind, diagnostic_symbol_relationship_kind,
 };
 pub use error::SymbolGraphBuildError;
@@ -211,9 +211,9 @@ pub use value::{
     ConstantValueData, ConstantValueId, ConstantValueKind, DependencyBorrowRelation,
     DependencyCallInput, DependencyCallOutput, DependencyContractTemplateData,
     DependencyContractTemplateId, DependencyGuard, DependencyMutationKind, DependencyOwnedResult,
-    DependencyOwnedTransfer, DependencyProjection, DependencyReferenceKind,
+    DependencyOwnedTransfer, DependencyValuePreservation, DependencyProjection, DependencyReferenceKind,
     DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
-    DependencyStorageEffect, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
+    DependencyStorageEffect, DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
     GenericArgument, GenericArgumentKind, GenericBinding, GenericOwnerId, GenericSubstitutionData,
     GenericSubstitutionId, GenericSubstitutionShapeError, GuardedDependencyRequirement,
     ImplementationInstanceData, ImplementationInstanceId, IntegerConstant, IntegerSign,

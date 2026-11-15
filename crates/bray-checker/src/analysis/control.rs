@@ -320,38 +320,38 @@ where
         operator: BoundOperator,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        let Some(left) = operands.first().copied() else {
+        if operands.len() != 2 {
             self.push_recovery(current, id.into());
 
             return Some(Some(current));
-        };
-
-        self.push_bound(current, id.into());
-
-        let join = self.push_block();
-        let right_entry = self.push_block();
-
-        let (matched, unmatched) = match operator {
-            BoundOperator::LogicalAnd => (right_entry, join),
-            BoundOperator::LogicalOr => (join, right_entry),
-            _ => return Some(Some(current)),
-        };
-
-        self.build_condition(
-            left,
-            current,
-            (matched, AnalysisEdgeKind::ConditionalTrue),
-            (unmatched, AnalysisEdgeKind::ConditionalFalse),
-        )?;
-
-        if let Some(right) = operands.get(1).copied() {
-            if let Some(completion) = self.build_expression(right, right_entry)? {
-                self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
-            }
-        } else {
-            self.push_recovery(right_entry, id.into());
-            self.push_edge(right_entry, join, AnalysisEdgeKind::Recovery, None);
         }
+
+        if !matches!(operator, BoundOperator::LogicalAnd | BoundOperator::LogicalOr) {
+            return Some(Some(current));
+        }
+
+        use super::model::AnalysisResultPhase;
+
+        self.push_result(current, id, AnalysisResultPhase::Begin);
+
+        let shortcut = operator == BoundOperator::LogicalOr;
+        let right = self.push_block();
+        let skipped = self.push_block();
+        let join = self.push_block();
+
+        self.build_value_branch(operands[0], current,
+            (if shortcut { skipped } else { right }, AnalysisEdgeKind::ConditionalTrue),
+            (if shortcut { right } else { skipped }, AnalysisEdgeKind::ConditionalFalse))?;
+
+        self.push_edge(skipped, join, AnalysisEdgeKind::Sequential,
+            Some(AnalysisRefinement::Condition { expression: id, value: shortcut }));
+
+        if let Some(completed) = self.build_expression(operands[1], right)? {
+            self.push_result(completed, id, AnalysisResultPhase::Production);
+            self.push_edge(completed, join, AnalysisEdgeKind::Sequential, None);
+        }
+
+        self.push_result(join, id, AnalysisResultPhase::Completion);
 
         Some(Some(join))
     }
@@ -485,7 +485,7 @@ where
             current
         };
 
-        let header = self.push_block();
+        let header = self.storage.push_loop_header(id);
         let item = self.push_block();
         let exhausted = self.push_block();
 
@@ -526,6 +526,7 @@ where
         let join = self.push_block();
 
         self.catches.push(CatchContext {
+            expression: id,
             target: join,
             scope_depth: self.scope_depth(),
         });
@@ -545,7 +546,16 @@ where
 
         self.catches.pop();
         self.storage.replace_report_boundary(parent);
-        self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
+
+        self.push_edge(
+            completion,
+            join,
+            AnalysisEdgeKind::Sequential,
+            Some(AnalysisRefinement::CaughtResult {
+                expression: id,
+                succeeded: true,
+            }),
+        );
 
         Some(Some(join))
     }
@@ -661,7 +671,7 @@ where
         target: SyntaxAnchor,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        let header = self.push_block();
+        let header = self.storage.push_loop_header(id);
         let body_entry = self.push_block();
         let exhausted = self.push_block();
         let join = self.push_block();
@@ -730,7 +740,7 @@ where
         target: SyntaxAnchor,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        let header = self.push_block();
+        let header = self.storage.push_loop_header(id);
         let body_entry = self.push_block();
         let join = self.push_block();
 

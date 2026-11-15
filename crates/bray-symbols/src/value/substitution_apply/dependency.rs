@@ -1,3 +1,4 @@
+use super::super::DependencyStorageEffect;
 use super::context::Substitution;
 
 use super::super::{
@@ -197,17 +198,12 @@ impl SemanticValueStore {
             .borrows()
             .iter()
             .map(|relation| {
-                Ok(super::super::DependencyBorrowRelation::new(
+                Ok(relation.remap(
                     relation
-                        .entry()
+                        .source_subject()
                         .map(|entry| self.substitute_dependency_subject(entry, substitution))
                         .transpose()?,
                     self.substitute_dependency_subject(relation.exit(), substitution)?,
-                    relation.kind(),
-                )
-                .with_dereferences(relation.dereferences())
-                .with_provenance(relation.provenance())
-                .with_target_projections(
                     relation
                         .target_projections()
                         .iter()
@@ -240,27 +236,30 @@ impl SemanticValueStore {
             .effects()
             .iter()
             .map(|effect| {
-                use super::super::DependencyStorageEffect;
 
                 Ok(match effect {
+                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
+                        kind: kind.try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
+                        access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
+                        ambient: *ambient,
+                    },
                     DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
                     DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                     DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                    DependencyStorageEffect::Cleanup(ty) => DependencyStorageEffect::Cleanup(
-                        self.substitute_type_data(*ty, substitution)?,
-                    ),
-                    DependencyStorageEffect::Direct { subject, kind } => {
+                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
                         DependencyStorageEffect::Direct {
                             subject: self.substitute_dependency_subject(subject, substitution)?,
                             kind: kind
                                 .try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
+                            access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
                         }
                     }
                     DependencyStorageEffect::Indirect {
                         reference,
                         projections,
                         kind,
+                        access_type,
                     } => DependencyStorageEffect::Indirect {
                         reference: self.substitute_dependency_subject(reference, substitution)?,
                         projections: projections
@@ -271,6 +270,7 @@ impl SemanticValueStore {
                             .collect::<Result<_, SemanticValueStoreError>>()?,
                         kind: kind
                             .try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
+                        access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
                     },
                 })
             })
@@ -278,6 +278,13 @@ impl SemanticValueStore {
 
         self.intern_dependency_contract_template(
             substituted
+                .with_stored_values(template.stored_values().iter().map(|stored| {
+                    Ok(super::super::DependencyStoredValue::new(
+                        super::super::DependencyStoredValuePath::new(self.substitute_dependency_subject(stored.destination().subject(), substitution)?, stored.destination().dereferences()),
+                        stored.sources().iter().map(|source| Ok(super::super::DependencyStoredValuePath::new(self.substitute_dependency_subject(source.subject(), substitution)?, source.dereferences()))).collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
+                        stored.is_complete(),
+                    ))
+                }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?)
                 .with_borrows(borrows)
                 .with_carriers(carriers)
                 .with_observed_result(
@@ -297,6 +304,7 @@ impl SemanticValueStore {
                                     )?,
                                     transfer.output().iter().copied(),
                                 )
+                                .with_preservation(transfer.preservation().clone())
                                 .with_condition(
                                     transfer
                                         .condition()

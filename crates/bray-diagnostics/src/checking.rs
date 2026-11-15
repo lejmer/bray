@@ -1,4 +1,5 @@
 mod callable;
+mod contract;
 mod expression;
 mod memory;
 mod pattern;
@@ -13,7 +14,7 @@ pub use callable::{
     DiagnosticCallableExecution, DiagnosticCallableOverloadArm, DiagnosticCallableOverloadContext,
     DiagnosticCallableOverloadProblem, DiagnosticCallableParameterMode, DiagnosticCallablePosition,
     DiagnosticCallableTrust, DiagnosticConstraintCategory, DiagnosticGenericConstraintMismatch,
-    DiagnosticGenericParameterCategory, DiagnosticImplementationBorrowKind,
+    DiagnosticGenericParameterCategory, 
     DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
     DiagnosticImplementationOverloadProblem, DiagnosticReceiverMode,
     DiagnosticTraitFulfillmentMismatch,
@@ -42,3 +43,5 @@ pub use storage::{
     DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
     DiagnosticStorageRoot,
 };
+
+pub use contract::{DiagnosticCondition, DiagnosticConditionProjection, DiagnosticContractObligation, DiagnosticContractObligationKind, DiagnosticExecutionProofFailure, DiagnosticWitnessTransfer, DiagnosticWitnessTransferKind};

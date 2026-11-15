@@ -143,6 +143,53 @@ and retain an exact identity only when all normal outcomes agree. Recursive summ
 never publish a partial origin set as a complete bound. Substitution and package interfaces preserve these established
 results for downstream consumers.
 
+Storage observations retain their classified kind and borrow context through effect resolution. Physical preservation
+precedes projection into shared views, so aliases use the same established storage facts. Ownership guarantees and
+non-owning access bounds retain their distinct classifications when completion publishes them. Consumers use that
+classification instead of reconstructing it from paths. Checked projections retain their complete identity through
+publication and forwarding. Predicate contracts select their carrier using the checked subject type, retaining a complete
+child owner rather than promoting it to an enclosing aggregate. Completion borrows the checked storage context to identify
+current input owners. A newly returned loan retains its own value identity and dependency lifetime.
+Completion and transfer checks share that carrier selection. Invocation inputs bound observations without becoming the
+owners of child or result guarantees, and access through a loan does not give it ownership of the reached aggregate.
+
+The same indexed observation context governs contents writes,
+referent effects, and opaque cleanup. Invocation effects retain classified entry and result observations separately from
+unchanged current storage, so an ownership transfer does not restore an old value into its replaced source. Tags retain
+only presence or variant observations, while inline values retain their complete contents. Reachable mutable state
+remains a separate observation.
+
+A returned loan carries its completion promises for its own lifetime, including observations of reached children.
+Call completion forms that loan before publishing its promises. Joins retain a common loan owner independently of
+changes to its reached contents.
+Checked consuming transitions publish complete child snapshots with their existing identity, contents and ownership
+lineage, rather than leaving them represented as partial accesses through their former container.
+A contents update changes the observed snapshot without replacing a still-live owner's identity.
+The current-value context keeps a value's identity separate from its contents. A reference retains its own identity
+and access capability, while its borrowed contents observe the target without owning that storage. A scalar storage context identifies borrowed storage independently
+of its copied data. Neither context represents an owned backing projection. Joins combine
+a refreshed snapshot with an unchanged value through their contents while retaining their common owner. Ownership transitions
+carry the existing value into its destination, including values extracted through raw storage. Published storage targets
+retain the identity needed to interpret those moves.
+
+Reference refresh forwards the existing loan context with its current reached contents. A changed snapshot remains the
+same loan, including across merges, and never owns the storage it observes. Replacing the reference itself retires its
+old context. Checked consuming operations extract current contents separately from the loan's lifetime and permissions.
+Predicate arguments observe the owned referent and its current contents, independently of the loan that supplies
+access. Aliases of one referent agree, while equal data at different storage does not identify their subjects. Const
+calls compute from data independently of the storage context.
+
+Live trusted evidence belongs to its complete carrier and required dependencies in the composite flow state. Effect
+framing preserves established observations, while cleanup retains evidence only through surviving complete owners.
+Neither operation creates authority from an unchanged field. Entry values identify ownership transferred by a call,
+while current borrowed observations describe its completion state. Storage ownership and permission to access a resource
+remain separate because a resource protocol can revoke permission without destroying the value that holds its address.
+
+Deferred call entries retain immutable input identities separately from knowledge about their values. Refinement adds
+proof facts without replacing captured inputs. Joins can lose component knowledge while retaining a common complete
+carrier or loan. Resolved storage effects keep their access type and reached region through preservation decisions,
+using the same classifications for active loans and stored views.
+
 ## Dependencies, behavior and async plans
 
 Dependency analysis infers the requirements carried by values and accesses from established storage, capability,

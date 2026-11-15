@@ -1,0 +1,43 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.activation.composition;
+
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap.activation.callback;
+using internal bray.runtime.bootstrap.activation.run;
+
+internal struct RequestAcquisition
+{
+}
+
+// The pending request retains the exact child, continuation, destination and
+// callback before its caller discovers the currently executing parent.
+internal struct Request
+{
+    acquisition: RequestAcquisition;
+    mut producer: bray.runtime.bootstrap.activation.Producer?;
+    state: u32;
+    destination: usize;
+    disposition: u8;
+    ready: bray.runtime.bootstrap.activation.callback.Ready;
+}
+
+trusted internal predicate request_owned(owner: &RequestAcquisition);
+
+internal predicate request_pending(owner: &Request) = request_owned(owner = &owner.acquisition) &&
+    owner.producer matches ?_ && bray.runtime.bootstrap.activation.producer_owned(
+    owner = &bray.runtime.bootstrap.activation.producer_reference(&owner.producer).acquisition
+);
+
+// Binding retains the actual selected parent and the same complete request.
+// Taking the producer ends inactive authority while keeping connection authority.
+internal struct Composition
+{
+    mut request: Request;
+    mut parent: bray.runtime.bootstrap.activation.run.Cursor;
+    origin: u64;
+}
+
+trusted internal predicate composition_owned(owner: &RequestAcquisition);
+
+internal predicate composition_pending(owner: &Composition) = composition_owned(owner = &owner.request.acquisition) &&
+    request_pending(owner = &owner.request) && bray.runtime.bootstrap.activation.run.selected(cursor = &owner.parent);

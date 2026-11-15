@@ -39,7 +39,7 @@ trusted internal func store_control(
     pos selected: Control?
 ) -> u32
     executes(total)
-    uses(intrinsic)
+    uses(intrinsic, foreign_call)
 {
     let address = trusted bray.runtime.bootstrap.entry.bridge.address.control(selected);
     let key = core.atomic.load<u64, 1>(&synchronization.control_key);

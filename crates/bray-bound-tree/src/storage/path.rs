@@ -62,6 +62,7 @@ impl StoragePath {
                 StorageProjection::ProductField(_)
                     | StorageProjection::TupleElement(_)
                     | StorageProjection::Element(_)
+                    | StorageProjection::AnyElement
                     | StorageProjection::ElementFromStart(_)
                     | StorageProjection::ElementFromEnd(_)
                     | StorageProjection::ActiveUnionPayloadField { .. }
@@ -80,13 +81,19 @@ impl StoragePath {
 
 /// A checked reference access, retaining projections and the typed dereferences between them.
 /// It identifies an access route, not a physical storage identity or an authority grant.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageReferencePath {
     projections: Arc<[StorageProjection]>,
     borrows: Arc<[(usize, bray_symbols::TypeId)]>,
 }
 
 impl StorageReferencePath {
+    pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
+        self.projections
+            .iter()
+            .all(|projection| projection.is_valid_for(unit))
+    }
+
     /// Retains a path prepared by type analysis. Each dereference index precedes that
     /// projection, or follows the final projection when equal to the projection count.
     /// Indices are ordered and may repeat for nested borrow layers.
@@ -105,8 +112,28 @@ impl StorageReferencePath {
         &self.projections
     }
 
-    /// Ordered dereference positions and the type reached by each borrow layer.
+    /// Ordered reference-load positions and the type reached by each load.
     pub fn borrows(&self) -> &[(usize, bray_symbols::TypeId)] {
         &self.borrows
+    }
+
+    /// Appends checked terminal borrow loads while retaining the component route.
+    pub fn with_terminal_borrows(&self, targets: &[bray_symbols::TypeId]) -> Self {
+        if targets.is_empty() { return self.clone(); }
+
+        Self {
+            projections: Arc::clone(&self.projections),
+            borrows: self.borrows.iter().copied()
+                .chain(targets.iter().map(|ty| (self.projections.len(), *ty)))
+                .collect::<Vec<_>>().into(),
+        }
+    }
+
+    /// Whether this load follows an explicit raw address rather than a language borrow.
+    pub fn is_address_load(&self, step: usize) -> bool {
+        let (index, _) = self.borrows.get(step).expect("reference load belongs to its prepared route");
+
+        self.projections.get(*index) == Some(&StorageProjection::AddressTarget)
+            && self.borrows.get(step + 1).is_none_or(|(next, _)| next != index)
     }
 }

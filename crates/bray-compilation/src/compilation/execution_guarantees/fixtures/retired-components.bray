@@ -1,0 +1,70 @@
+trusted module app;
+
+struct Marker
+{
+}
+
+struct Reference
+{
+    marker: Marker;
+}
+
+trusted predicate live(marker: &Marker);
+
+predicate optional_live(owner: &(Reference?)) = owner matches none || live(marker = &present_reference(owner).marker);
+
+const func present_reference(pos owner: &(Reference?)) -> &Reference
+    requires(owner matches ?_)
+    executes(pure, total)
+{
+    return match owner
+    {
+        case ?value
+        {
+            yield &value;
+        }
+        case none
+        {
+            panic("missing reference");
+        }
+    };
+}
+
+struct Cell
+{
+    control: Reference;
+    execution: Reference?;
+    arena: Reference;
+}
+
+predicate acquired(owner: &Cell) = live(marker = &owner.control.marker) &&
+    optional_live(owner = &owner.execution) && live(marker = &owner.arena.marker);
+
+extern trusted func release_pin(pos owner: Reference?) -> u32
+    requires(trusted optional_live(owner = &owner));
+
+extern trusted func release_arena(pos owner: Reference)
+    requires(trusted live(marker = &owner.marker));
+
+func dispose(pos owner: Cell) -> u32
+    requires(trusted acquired(owner = &owner))
+{
+    _ = owner.control;
+    let status = release_pin(owner.execution);
+
+    release_arena(owner.arena);
+    return status;
+}
+
+extern trusted func create() -> Cell
+    ensures(trusted acquired(owner = &result));
+
+func produced() -> u32
+{
+    let owner = create();
+    _ = owner.control;
+    let status = release_pin(owner.execution);
+
+    release_arena(owner.arena);
+    return status;
+}

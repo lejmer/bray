@@ -263,6 +263,7 @@ fn optional_section<'bytes>(
 
 #[cfg(test)]
 mod tests {
+    use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
     use bray_bound_tree::CheckedTemplateKind;
     use bray_runtime_interface::{
         ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId,
@@ -829,8 +830,7 @@ mod tests {
     }
 
     #[test]
-    fn selective_decoding_retains_and_remaps_replacement_types() {
-        use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
+    fn selective_decoding_retains_and_remaps_mutation_types() {
 
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface();
@@ -848,31 +848,78 @@ mod tests {
             [InterfaceTypeId::new(0), InterfaceTypeId::new(0)].into(),
         ));
 
+        let access = InterfaceTypeId::new(u32::try_from(types.len()).expect("fixture type count fits u32"));
+
+        types.push(InterfaceType::Tuple([InterfaceTypeId::new(0); 3].into()));
+
         let subject = InterfaceDependencySubject::new(
             InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
             [],
         );
 
+        let mut terms = base.constant_terms().to_vec();
+
+        terms.push(crate::InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(142)));
+
+        let selected_term = crate::InterfaceConstantTermId::new(u32::try_from(terms.len()).expect("fixture term count fits"));
+
+        terms.push(crate::InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(143)));
+
+        let result_element = InterfaceDependencySubject::new(
+            InterfaceDependencySubjectRoot::Result,
+            [crate::InterfaceDependencyProjection::Element(selected_term)],
+        );
+
+        let source = |ordinal| InterfaceDependencySubject::new(
+            InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(ordinal)), [],
+        );
+
+        let empty = InterfaceDependencySubject::new(InterfaceDependencySubjectRoot::Receiver, []);
+
+        let incomplete = InterfaceDependencySubject::new(
+            InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(2)), [],
+        );
+
+        let path = bray_symbols::DependencyStoredValuePath::new;
+
+        let stored = [
+            bray_symbols::DependencyStoredValue::new(path(result_element.clone(), 1), [path(source(0), 1)], true),
+            bray_symbols::DependencyStoredValue::new(path(result_element, 1), [path(source(0), 0), path(source(0), 1)], true),
+            bray_symbols::DependencyStoredValue::new(path(empty.clone(), 0), [], true),
+            bray_symbols::DependencyStoredValue::new(path(incomplete.clone(), 0), [path(source(0), 0)], true),
+            bray_symbols::DependencyStoredValue::new(path(incomplete.clone(), 0), [], false),
+        ];
+
         let contract = InterfaceDependencyContract::new([]).with_effects([
+            DependencyStorageEffect::UnboundedMutation {
+                kind: DependencyMutationKind::Consume,
+                access_type: Some(access),
+                ambient: true,
+            },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(replacement),
+                access_type: Some(access),
             },
             DependencyStorageEffect::Indirect {
                 reference: subject,
                 projections: [].into(),
                 kind: DependencyMutationKind::Replace(replacement),
+                access_type: Some(access),
             },
-        ]);
+        ]).with_stored_values(stored);
 
         let semantics = base.clone().with_values(
             [contract],
             types,
             base.constant_values().iter().cloned(),
-            base.constant_terms().iter().cloned(),
+            terms,
         );
 
         let sections = semantic_sections(&semantics, surface);
+
+        assert_eq!(decode_semantics(&owned_section_views(&sections), surface, InterfaceValidationLimits::default()),
+            Ok(semantics.clone()));
 
         let InterfaceSymbolReference::Local(callable) =
             local_by_kind(surface, SymbolKind::Function)
@@ -889,18 +936,37 @@ mod tests {
         )
         .expect("fixture `decode_semantic_graph` call must succeed");
 
+        let stored = &decoded.dependency_contracts[0].stored_values;
+
+        assert_eq!(stored.len(), 3);
+        assert!(stored.iter().any(|value| value.destination() == &path(empty.clone(), 0) && value.is_complete() && value.sources().is_empty()));
+        assert!(stored.iter().any(|value| value.destination() == &path(incomplete.clone(), 0) && !value.is_complete() && value.sources() == [path(source(0), 0)]));
+
+        let value = stored.iter().find(|value| value.sources().len() == 2).expect("two possible sources survive selection");
+
+        assert!(value.is_complete());
+        assert_eq!(value.sources(), &[path(source(0), 0), path(source(0), 1)]);
+        assert_eq!(value.destination().dereferences(), 1);
+
+        let [crate::InterfaceDependencyProjection::Element(remapped)] = value.destination().subject().projections.as_ref() else {
+            panic!("stored destination keeps its element projection");
+        };
+
+        assert_ne!(*remapped, selected_term, "unused preceding term must not survive selection");
+        assert_eq!(decoded.constant_terms()[remapped.raw() as usize], crate::InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(143)));
+
         for effect in &*decoded.dependency_contracts[0].effects {
-            let (DependencyStorageEffect::Direct {
-                kind: DependencyMutationKind::Replace(ty),
-                ..
-            }
-            | DependencyStorageEffect::Indirect {
-                kind: DependencyMutationKind::Replace(ty),
-                ..
-            }) = effect
-            else {
-                panic!("test contract must retain both replacement effects");
+            let (ty, original) = match effect {
+                DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), access_type: Some(original), .. }
+                | DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Replace(ty), access_type: Some(original), .. } => (Some(ty), original),
+                DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Consume, access_type: Some(original), ambient: true } => (None, original),
+                _ => panic!("test contract must retain each known mutation"),
             };
+
+            assert_ne!(*original, access, "unselected intervening type must be removed");
+            assert!(matches!(&decoded.types()[original.raw() as usize], InterfaceType::Tuple(elements) if elements.len() == 3));
+
+            let Some(ty) = ty else { continue; };
 
             assert_ne!(
                 *ty, replacement,
@@ -992,10 +1058,10 @@ mod tests {
 
             let field = match tag {
                 InterfaceSectionTag::DeclarationSemantics => {
-                    crate::InterfaceValidationField::Declaration
+                    InterfaceValidationField::Declaration
                 }
                 InterfaceSectionTag::DeclarationTemplates => {
-                    crate::InterfaceValidationField::Template
+                    InterfaceValidationField::Template
                 }
                 _ => unreachable!(),
             };
@@ -1127,13 +1193,13 @@ mod tests {
 
         assert_eq!(
             first,
-            Err(crate::InterfaceValidationError::Malformed {
-                context: crate::InterfaceValidationContext::Record {
-                    section: crate::InterfaceSectionTag::Implementations,
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::Record {
+                    section: InterfaceSectionTag::Implementations,
                     index: 1,
                 },
-                cause: crate::InterfaceMalformedCause::InvalidDiscriminant {
-                    field: crate::InterfaceValidationField::Discriminant,
+                cause: InterfaceMalformedCause::InvalidDiscriminant {
+                    field: InterfaceValidationField::Discriminant,
                     actual: u64::from(u32::MAX),
                 },
             })
@@ -1167,13 +1233,13 @@ mod tests {
 
         assert_eq!(
             first,
-            Err(crate::InterfaceValidationError::Malformed {
-                context: crate::InterfaceValidationContext::Record {
-                    section: crate::InterfaceSectionTag::SemanticTypes,
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::Record {
+                    section: InterfaceSectionTag::SemanticTypes,
                     index: 1,
                 },
-                cause: crate::InterfaceMalformedCause::InvalidDiscriminant {
-                    field: crate::InterfaceValidationField::Type,
+                cause: InterfaceMalformedCause::InvalidDiscriminant {
+                    field: InterfaceValidationField::Type,
                     actual: u64::from(u32::MAX),
                 },
             })
@@ -1201,13 +1267,13 @@ mod tests {
                 InterfaceSemanticRecordKind::Implementation,
                 InterfaceValidationLimits::default(),
             ),
-            Err(crate::InterfaceValidationError::Malformed {
-                context: crate::InterfaceValidationContext::Record {
-                    section: crate::InterfaceSectionTag::SemanticTypes,
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::Record {
+                    section: InterfaceSectionTag::SemanticTypes,
                     index: 2,
                 },
-                cause: crate::InterfaceMalformedCause::OrderingViolation {
-                    field: crate::InterfaceValidationField::RecordOffset,
+                cause: InterfaceMalformedCause::OrderingViolation {
+                    field: InterfaceValidationField::RecordOffset,
                     previous: 28,
                     actual: u64::from(u32::MAX),
                 },

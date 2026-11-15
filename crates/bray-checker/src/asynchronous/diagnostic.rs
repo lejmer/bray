@@ -179,6 +179,7 @@ where
         | StorageIdentity::PostconditionResult(_)
         | StorageIdentity::Result(_)
         | StorageIdentity::Temporary(_)
+        | StorageIdentity::Evaluated(_)
         | StorageIdentity::InvocationInput { .. }
         | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::InvocationResult(_)

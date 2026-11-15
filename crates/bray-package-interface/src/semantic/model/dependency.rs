@@ -38,6 +38,10 @@ pub enum InterfaceDependencyProjection {
     TupleElement(SymbolOrdinal),
     /// Array or slice element selected by a checked term.
     Element(InterfaceConstantTermId),
+    /// A region in an unspecified array or slice element, without an exact address.
+    AnyElement,
+    /// The value reached through a raw data address, without access or ownership.
+    AddressTarget,
     /// Present nullable value.
     NullableValue,
     /// Named union payload field.
@@ -102,7 +106,7 @@ impl InterfaceDependencyRequirement {
         Self {
             value: InterfaceDependencyRequirementValue::CleanupDependencies {
                 ty,
-                requirements: bray_base::sorted_unique_shared_slice(requirements),
+                requirements: sorted_unique_shared_slice(requirements),
             },
         }
     }
@@ -313,10 +317,11 @@ pub struct InterfaceDependencyContract {
         super::InterfaceConstantTermId,
     >,
     pub(crate) observed_result: Option<super::InterfaceConstantTermId>,
+    pub(crate) stored_values: Arc<[bray_symbols::DependencyStoredValue<InterfaceDependencySubject>]>,
     pub(crate) carriers: Arc<
         [bray_symbols::DependencyWitnessCarrier<
             InterfaceDependencyProjection,
-            super::InterfaceConstantTermId,
+            InterfaceConstantTermId,
         >],
     >,
     pub(crate) synchronous_cleanup: Arc<[InterfaceDependencyRequirement]>,
@@ -341,6 +346,13 @@ pub struct InterfaceDependencyContract {
 }
 
 impl InterfaceDependencyContract {
+    /// Records possible values stored in normal-output subtrees.
+    pub fn with_stored_values(mut self, values: impl IntoIterator<Item = bray_symbols::DependencyStoredValue<InterfaceDependencySubject>>) -> Self {
+        self.stored_values = bray_symbols::DependencyStoredValue::normalize(values);
+
+        self
+    }
+
     /// Records the value observation without introducing storage identity or authority.
     pub fn with_observed_result(mut self, result: Option<super::InterfaceConstantTermId>) -> Self {
         self.observed_result = result;
@@ -372,6 +384,7 @@ impl InterfaceDependencyContract {
             normal_storage_preserved: false,
             owned_result: bray_symbols::DependencyOwnedResult::default(),
             observed_result: None,
+            stored_values: Arc::new([]),
             carriers: Arc::new([]),
             borrows: Arc::new([]),
             effects: Arc::new(bray_symbols::DependencyStorageEffect::opaque_call()),
@@ -421,7 +434,7 @@ impl InterfaceDependencyContract {
         carriers: impl IntoIterator<
             Item = bray_symbols::DependencyWitnessCarrier<
                 InterfaceDependencyProjection,
-                super::InterfaceConstantTermId,
+                InterfaceConstantTermId,
             >,
         >,
     ) -> Self {

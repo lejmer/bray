@@ -39,19 +39,6 @@ unsafe extern "C" {
         requirements: &NativeSchedulerRequirements,
         output: &mut NativeSchedulerLane,
     ) -> u32;
-    #[link_name = "bray_runtime_scheduler_recovery"]
-    safe fn bray_runtime_scheduler_recovery_native(
-        reference: &NativeSchedulerReference,
-        registration: u64,
-        scope: &bray_runtime_abi::NativeWorkerScope,
-        cleanup: u32,
-    );
-    #[link_name = "bray_runtime_scheduler_compatibility"]
-    safe fn bray_runtime_scheduler_compatibility_native(
-        current: &NativeSchedulerLane,
-        required: &NativeSchedulerRequirements,
-        thread: u64,
-    ) -> u32;
     #[link_name = "bray_runtime_scheduler_admission"]
     safe fn bray_runtime_scheduler_admission_native(
         reference: &NativeSchedulerReference,
@@ -107,8 +94,6 @@ unsafe extern "C" {
         group: u32,
         milliseconds: u32,
     );
-    #[link_name = "bray_runtime_scheduler_notification"]
-    safe fn bray_runtime_scheduler_notification_native(reference: &NativeSchedulerReference);
     #[link_name = "bray_runtime_scheduler_slot_release"]
     safe fn bray_runtime_scheduler_slot_release_native(
         reference: &NativeSchedulerReference,
@@ -136,7 +121,9 @@ pub(super) fn bray_runtime_scheduler_creation(
 }
 
 pub(super) fn close_deadlines(reference: &NativeSchedulerReference) {
-    crate::context::with_independent_execution_context(|| bray_runtime_deadline_closure_native(reference));
+    crate::context::with_independent_execution_context(|| {
+        bray_runtime_deadline_closure_native(reference)
+    });
 }
 
 pub(super) fn bray_runtime_scheduler_destruction(reference: &NativeSchedulerReference) {
@@ -153,27 +140,6 @@ pub(super) fn bray_runtime_scheduler_selection(
 ) -> u32 {
     crate::context::with_independent_execution_context(|| {
         bray_runtime_scheduler_selection_native(reference, registration, requirements, output)
-    })
-}
-
-pub(super) fn bray_runtime_scheduler_recovery(
-    reference: &NativeSchedulerReference,
-    registration: u64,
-    scope: &bray_runtime_abi::NativeWorkerScope,
-    cleanup: bool,
-) {
-    crate::context::with_independent_execution_context(|| {
-        bray_runtime_scheduler_recovery_native(reference, registration, scope, u32::from(cleanup))
-    });
-}
-
-pub(crate) fn bray_runtime_scheduler_compatibility(
-    current: &NativeSchedulerLane,
-    required: &NativeSchedulerRequirements,
-    thread: u64,
-) -> u32 {
-    crate::context::with_independent_execution_context(|| {
-        bray_runtime_scheduler_compatibility_native(current, required, thread)
     })
 }
 
@@ -268,12 +234,6 @@ pub(super) fn bray_runtime_scheduler_parking(
     })
 }
 
-pub(super) fn bray_runtime_scheduler_notification(reference: &NativeSchedulerReference) {
-    crate::context::with_independent_execution_context(|| {
-        bray_runtime_scheduler_notification_native(reference)
-    })
-}
-
 pub(super) fn bray_runtime_scheduler_slot_release(
     reference: &NativeSchedulerReference,
     registration: u64,
@@ -353,7 +313,13 @@ impl BrayScheduler {
         };
 
         let mut lane = NativeSchedulerLane::default();
-        let status = bray_runtime_scheduler_selection(&self.reference, registration.map_or(0, |(_, token)| token), &requirements, &mut lane);
+
+        let status = bray_runtime_scheduler_selection(
+            &self.reference,
+            registration.map_or(0, |(_, token)| token),
+            &requirements,
+            &mut lane,
+        );
 
         let capability = match status {
             0 => return Ok(from_native(lane)),
@@ -363,7 +329,13 @@ impl BrayScheduler {
             4 => RuntimeCapability::ComputeLanes,
             5 => RuntimeCapability::MainThreadLane,
             6 => return Err(ExecutionLaneSelectionError::ConflictingAffinity.into()),
-            7 => return Err(SchedulerError::UnknownTask(registration.expect("only a registered lane query can observe retirement").0)),
+            7 => {
+                return Err(SchedulerError::UnknownTask(
+                    registration
+                        .expect("only a registered lane query can observe retirement")
+                        .0,
+                ));
+            }
             _ => panic!("Bray lane selection returned unknown status {status}"),
         };
 
@@ -397,7 +369,7 @@ pub(crate) fn to_native(lane: ExecutionLane) -> NativeSchedulerLane {
     }
 }
 
-pub(super) fn from_native(lane: NativeSchedulerLane) -> ExecutionLane {
+pub(crate) fn from_native(lane: NativeSchedulerLane) -> ExecutionLane {
     let thread = || {
         RuntimeThread::from_native_identity(lane.thread)
             .expect("Bray selected a retained nonzero lane attachment")
@@ -423,7 +395,7 @@ pub(super) fn from_native(lane: NativeSchedulerLane) -> ExecutionLane {
     ExecutionLane::new(placement, workload)
 }
 
-pub(super) const fn cause(cause: TaskWakeCause) -> u32 {
+pub(crate) const fn cause(cause: TaskWakeCause) -> u32 {
     match cause {
         TaskWakeCause::Explicit => 1,
         TaskWakeCause::Timer => 2,

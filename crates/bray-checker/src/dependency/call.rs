@@ -9,7 +9,7 @@ pub(crate) use contract::{
 };
 pub(crate) use input::{selected_input_contracts, selected_input_template};
 
-pub(crate) use references::prepare_reference;
+pub(crate) use references::{prepare_references, prepare_stored_value_paths};
 
 pub(crate) use operation::{
     OperationInput, operation_inputs, operation_result_dependencies, selected_operation_contracts,

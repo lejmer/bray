@@ -57,7 +57,9 @@ impl Compilation {
                 requires_native_product_host(runtime.role())
                     && !executable_host
                         .and_then(|host| host.role_binding(runtime.role()))
-                        .is_some_and(|binding| binding.implementation() == RuntimeRoleImplementation::CompilerLowering)
+                        .is_some_and(|binding| {
+                            binding.implementation() == RuntimeRoleImplementation::CompilerLowering
+                        })
             });
 
         if entries.is_empty() && native_statics.is_empty() && !foreign_entry && !publishes_value {
@@ -317,8 +319,25 @@ impl Compilation {
         }
 
         if has_async_entries {
-            runtime_roles.insert(RuntimeAbiRole::RootExecution);
+            runtime_roles.extend([
+                RuntimeAbiRole::RootExecution,
+                RuntimeAbiRole::InactiveFrameBroadcast,
+                RuntimeAbiRole::InactiveFrameResolution,
+                RuntimeAbiRole::ActivationCallback,
+                RuntimeAbiRole::ActivationActionReadiness,
+            ]);
+
+            runtime_roles.insert(RuntimeAbiRole::MainThreadLaneStartup);
+            runtime_roles.insert(RuntimeAbiRole::MainThreadLaneDrive);
             runtime_roles.extend(RuntimeAbiRole::host_controls());
+
+            if runtime_roles.contains(&RuntimeAbiRole::TaskStart) {
+                runtime_roles.insert(RuntimeAbiRole::ExecutionWorkersStartup);
+            }
+
+            if runtime_roles.contains(&RuntimeAbiRole::DeadlineRegistration) {
+                runtime_roles.insert(RuntimeAbiRole::ExecutionDeadlinesStartup);
+            }
         }
 
         if kind == ProductKind::Test && !entries.is_empty() {
@@ -546,11 +565,14 @@ pub(super) fn publishes_native_report(role: RuntimeAbiRole) -> bool {
 }
 
 fn requires_native_product_host(role: RuntimeAbiRole) -> bool {
-    publishes_native_report(role) || role.contract().effects().iter().any(|effect| matches!(
-        effect,
-        bray_runtime_interface::RuntimeRoleContractEffect::ReportPanic
-            | bray_runtime_interface::RuntimeRoleContractEffect::ReportEntryFailure
-    ))
+    publishes_native_report(role)
+        || role.contract().effects().iter().any(|effect| {
+            matches!(
+                effect,
+                bray_runtime_interface::RuntimeRoleContractEffect::ReportPanic
+                    | bray_runtime_interface::RuntimeRoleContractEffect::ReportEntryFailure
+            )
+        })
 }
 
 pub(super) fn native_static_host_entries(
@@ -685,11 +707,10 @@ pub(super) fn native_host_runtime_roles(
         ]);
     }
 
-    if product_execution(statics, native_statics).is_some()
-        || roles
-            .iter()
-            .any(|role| role.service_class() == Some(RuntimeServiceClass::Execution))
-    {
+    // The executable driver already owns services through result and
+    // synchronous static cleanup. A separate product execution binding is
+    // needed for suspending cleanup or worker attachment cleanup only.
+    if product_execution(statics, native_statics).is_some() {
         roles.insert(RuntimeAbiRole::ProductExecutionProvider);
     }
 

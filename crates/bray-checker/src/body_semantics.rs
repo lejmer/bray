@@ -73,7 +73,7 @@ where
         prepare_refinements(request, patterns, expressions, storage, graph, memory)
     );
 
-    let value_inputs = match crate::dependency::ValueInputs::prepare(
+    let mut value_inputs = match crate::dependency::ValueInputs::prepare(
         request,
         expressions.types(),
         expressions.selections(),
@@ -81,10 +81,7 @@ where
         |callable| request.callable_result_dependencies(callable),
     ) {
         Ok(inputs) => inputs,
-        Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(crate::CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
+        Err(error) => return CheckerOutcome::from_query_error(error),
     };
 
     let dependencies = complete!(
@@ -98,7 +95,11 @@ where
         )
     );
 
-    let disposal = crate::analysis::guarantee::Cleanup::new(&prepared.cleanup, &dependencies);
+    if let Err(error) = value_inputs.collect_contract_copies(request, &dependencies) {
+        return CheckerOutcome::from_query_error(error);
+    }
+
+    let disposal = crate::analysis::guarantee::Cleanup::new(&prepared.cleanup, &dependencies, request.semantic_values());
 
     let completion_contracts = std::collections::BTreeMap::new();
 

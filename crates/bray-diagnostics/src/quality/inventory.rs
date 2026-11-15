@@ -130,7 +130,7 @@ impl DiagnosticKind {
             ExpectedByteCount, ExpectedCount, ExpectedNameKind, ExpectedPackageIdentity,
             ExpectedProductIdentity, ExpectedRevision, ExpectedRuntimeAbi, ExpectedSyntaxKind,
             ExpectedTargetIdentity, ExpectedTargetPredicateValueKind, ExpectedTargetTriple,
-            ExpectedType, ExpressionCategory, ExternalToolExit, ExternalToolFailureKind,
+            ExpectedType, ExpressionCategory, ContractObligation, ExternalToolExit, ExternalToolFailureKind,
             ExternalToolOperation, FilePath, ImplementationOverloadProblem, InputIndex,
             InterfaceLimit, InterfaceRecordIndex, InterfaceSemanticProblem,
             InterfaceSymbolGraphProblem, InterfaceSymbolIdentity, InterfaceValidationFailure,
@@ -160,6 +160,16 @@ impl DiagnosticKind {
         };
 
         match self {
+            Self::CheckingPredicateBlockNotAllowed => Self::quality_source(
+                &[ActualSyntaxKind], note_components!(&[ActualSyntaxKind], DiagnosticNoteKind::PredicateControlFlowRequiresConstHelper),
+            ),
+            Self::CheckingContractConditionNotPortable => Self::quality_source(&[], primary_components!(&[])),
+            Self::CheckingPostconditionNotProven | Self::CheckingCircularPostcondition => Self::quality_source(
+                &[DiagnosticArgName::ExecutionProofFailure], primary_components!(&[]),
+            ),
+            Self::CheckingExecutionProofDepthExceeded => Self::quality_source(
+                &[DiagnosticArgName::ExecutionProofFailure], primary_components!(&[DiagnosticArgName::ExecutionProofFailure]),
+            ),
             Self::SourceFileReadFailed => Self::quality_external(
                 &[SourceInput, IoErrorKind],
                 note_components!(&[SourceInput, IoErrorKind], SourceFileMustBeReadable),
@@ -1006,10 +1016,13 @@ impl DiagnosticKind {
             Self::CheckingMissingTrustedMemoryGuarantees => {
                 Self::quality_source(&[MemoryOperation], primary_components!(&[MemoryOperation]))
             }
-            Self::CheckingConstantCallRequirementNotProven
-            | Self::CheckingExecutionRequirementNotProven
-            | Self::CheckingTrustedObligationNotProven
-            | Self::CheckingTrustedWitnessTransferNotProven => Self::quality_source(
+            Self::CheckingExecutionRequirementNotProven | Self::CheckingTrustedObligationNotProven => Self::quality_source(
+                &[ContractObligation], primary_components!(&[ContractObligation]),
+            ),
+            Self::CheckingTrustedWitnessTransferNotProven => Self::quality_source(
+                &[DiagnosticArgName::WitnessTransfer], primary_components!(&[DiagnosticArgName::WitnessTransfer]),
+            ),
+            Self::CheckingConstantCallRequirementNotProven => Self::quality_source(
                 &[ExpressionCategory],
                 primary_components!(&[ExpressionCategory]),
             ),

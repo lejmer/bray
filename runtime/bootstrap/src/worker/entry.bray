@@ -39,12 +39,12 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
     {
         return
         {
-            marker = Marker
+            marker = FormationMarker
             {
             },
             reference =
             {
-                marker = Marker
+                marker = WorkerMarker
                 {
                 },
                 pointer = trusted std.memory.reinterpret<Worker, u8>(context)
@@ -53,13 +53,14 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
     };
 
     let descriptor = trusted acquire(context);
-    let row = trusted retained_worker_value(&descriptor.reference);
     let attachment = trusted bray.runtime.bootstrap.host.attachment.acquire();
 
     let mut argument: u64 = 0;
 
     if attachment.status != 0
     {
+        let row = trusted retained_worker_value(&descriptor.reference);
+
         core.atomic.store<u32, 0>(&row.failure_stage, 3);
         core.atomic.store<u32, 0>(&row.failure_category, attachment.status);
         core.atomic.store<u32, 2>(&row.startup, 2);
@@ -73,7 +74,7 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
     }
 
     let establish = trusted lambda(
-        pos worker: &Descriptor,
+        pos worker: Descriptor,
         pos attachment: &bray.runtime.bootstrap.host.attachment.Owner
     ) -> Scope
         requires(
@@ -87,46 +88,61 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
     {
         return
         {
-            marker = Marker
+            marker = ScopeMarker
             {
             },
             worker = worker,
+            execution = core.memory.uninit_from<(bray.runtime.bootstrap.host.ExecutionOwner?)>(none),
             attachment = attachment.identity,
             native_thread = internal std.thread.current_platform_identity()
         };
     };
 
-    let local = trusted establish(&descriptor, &attachment);
+    let mut local = trusted establish(descriptor, &attachment);
+    let (published, rejected) = trusted publish_scope(&mut local);
+    let row = trusted worker(&local);
 
-    let root = trusted lambda(pos local: &Scope) -> ScopeReference
-        requires(trusted scope_owned(owner = &local.marker))
-        ensures(trusted scope_live(owner = &result.marker))
+    if published != 0
     {
-        return
+        let failure: Failure =
         {
-            marker = Marker
-            {
-            },
-            pointer = std.memory.address_of<Scope>(local)
+            stage = 8,
+            category = published,
+            native_code = 0
         };
-    };
 
-    let scope = trusted root(&local);
+        trusted startup_failure(&local, &failure);
+        core.atomic.store<u32, 2>(&row.startup, 2);
+        core.atomic.notify_all<u32>(&row.startup);
+
+        _ = trusted bray.runtime.bootstrap.host.retire_execution(rejected, 0);
+        _ = trusted bray.runtime.bootstrap.host.attachment.finish(attachment);
+
+        return;
+    }
 
     core.atomic.store<u64, 2>(&row.identity, local.native_thread);
     argument = row.workload as u64;
 
-    let attached = trusted invoke(&scope, 2, &mut argument);
+    let attached = trusted invoke(&local, 2, argument);
 
     if attached != 0
     {
-        trusted core.target.abort();
+        // The provider records the leaf failure before returning rejection.
+        // The installed attachment owner retires every accepted resource once.
+        core.atomic.store<u32, 2>(&row.startup, 2);
+
+        core.atomic.notify_all<u32>(&row.startup);
+
+        _ = trusted bray.runtime.bootstrap.host.attachment.finish(attachment);
+
+        return;
     }
 
     core.atomic.store<u32, 2>(&row.startup, 1);
     core.atomic.notify_all<u32>(&row.startup);
 
-    let retired_attachment = trusted run(scope, attachment);
+    let retired_attachment = trusted run(&local, attachment);
 
     // Native context remains bound throughout product and attachment cleanup.
     let status = trusted bray.runtime.bootstrap.host.attachment.finish(retired_attachment);
@@ -134,20 +150,12 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
     if status != 0
     {
         trusted core.target.abort();
-    }
-
-    trusted unbind(&descriptor);
-
-    core.atomic.store<u32, 2>(&row.terminal, 1);
-    core.atomic.notify_all<u32>(&row.terminal);
-
-    // This may drop the last native owner and free backing. Do not touch row,
-    // scope or pool after releasing the committed callback descriptor.
-    trusted release_descriptor(descriptor);
+    } // Attachment exit has retired the scope, descriptor and optional context.
+    // No worker row, pool or scope access is valid after that boundary.
 }
 
 trusted internal func run(
-    pos scope: ScopeReference,
+    pos scope: &Scope,
     pos attachment: bray.runtime.bootstrap.host.attachment.Owner
 ) -> bray.runtime.bootstrap.host.attachment.Owner
     requires(
@@ -162,26 +170,13 @@ trusted internal func run(
     ensures(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &result), result.status == 0)
     uses(intrinsic)
 {
-    let row = trusted worker(&scope);
-    let pool = trusted reference_loan(&row.pool);
+    let row = trusted worker(scope);
+    let pool = &row.pool;
     let mut argument: u64 = 0;
-    let scheduler = trusted scheduler_pointer(&pool);
-
-    let authorize_scheduler = trusted lambda(
-        pos owner: &Reference,
-        pos pointer: DataPointer<bray.runtime.bootstrap.scheduler.Reference>
-    )
-        requires(trusted retained(owner = &owner.marker))
-        ensures(trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = pointer))
-        executes(pure, total) {};
-
-    trusted authorize_scheduler(&pool, scheduler);
 
     loop
     {
-        trusted authorize_scheduler(&pool, scheduler);
-
-        let group = trusted bray.runtime.bootstrap.scheduler.parking_registration(scheduler);
+        let group = trusted bray.runtime.bootstrap.scheduler.register_parking(trusted scheduler_reference(pool));
 
         if core.atomic.exchange<u32, 3>(&row.detach, 0) != 0
         {
@@ -190,41 +185,39 @@ trusted internal func run(
 
         let stopping =
         {
-            let mut guard = trusted lock(&pool);
+            let mut guard = trusted lock(pool);
 
-            yield trusted locked_state(&pool, &mut guard).stopping;
+            yield trusted locked_state(pool, &mut guard).stopping;
         };
 
         if stopping
         {
-            trusted authorize_scheduler(&pool, scheduler);
-            trusted bray.runtime.bootstrap.scheduler.parking_withdrawal(scheduler, group);
+            trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(pool), group);
             return attachment;
         }
 
-        let ready = trusted invoke(&scope, 3, &mut argument);
+        let ready = trusted invoke(scope, 3, argument);
 
         if ready == 1
         {
-            trusted authorize_scheduler(&pool, scheduler);
-            trusted bray.runtime.bootstrap.scheduler.parking_withdrawal(scheduler, group);
+            trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(pool), group);
 
             if row.workload == 1
             {
-                let failure = trusted ensure(trusted reference_loan(&pool), 1);
+                let failure = trusted ensure(pool, 1);
 
                 if failure.stage != 0
                 {
-                    trusted install_failure(&scope, &failure);
+                    trusted install_failure(scope, &failure);
                 }
             }
 
-            _ = trusted invoke(&scope, 4, &mut argument);
+            _ = trusted invoke(scope, 4, argument);
 
             if row.workload == 1
             {
-                let mut guard = trusted lock(&pool);
-                let state = trusted locked_state(&pool, &mut guard);
+                let mut guard = trusted lock(pool);
+                let state = trusted locked_state(pool, &mut guard);
 
                 state.idle_blocking += 1;
             }
@@ -237,11 +230,14 @@ trusted internal func run(
             trusted core.target.abort();
         }
 
-        _ = trusted invoke(&scope, 6, &mut argument);
+        argument = trusted invoke(scope, 6, argument) as u64;
 
-        trusted authorize_scheduler(&pool, scheduler);
-        trusted bray.runtime.bootstrap.scheduler.parking(scheduler, group, std.numeric.truncate_to<u32, u64>(argument));
-        trusted authorize_scheduler(&pool, scheduler);
-        trusted bray.runtime.bootstrap.scheduler.parking_withdrawal(scheduler, group);
+        trusted bray.runtime.bootstrap.scheduler.park_reference(
+            trusted scheduler_reference(pool),
+            group,
+            std.numeric.truncate_to<u32, u64>(argument)
+        );
+
+        trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(pool), group);
     }
 }

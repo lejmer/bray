@@ -38,14 +38,7 @@ pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
         TypeData::Borrow { .. }
     ) {
         Some(bray_symbols::DependencyReferenceKind::Borrow)
-    } else if matches!(
-        type_representation(request, ty),
-        Some(
-            RepresentationRole::RawPointer
-                | RepresentationRole::FunctionPointer
-                | RepresentationRole::DevicePointer
-        )
-    ) {
+    } else if type_representation(request, ty).is_some_and(is_address) {
         Some(bray_symbols::DependencyReferenceKind::Address)
     } else {
         None
@@ -86,22 +79,27 @@ pub(crate) fn raw_buffer_fields<C: CheckerRequestContext + ?Sized>(
         panic!("recognized raw buffer {ty:?} has a struct representation");
     };
 
-    let field = |name| {
-        let bray_symbols::MemberLookupResult::Found(bray_symbols::AnySymbolId::StructField(field)) =
-            request.lookup_member(structure.into(), name)?
-        else {
-            panic!("recognized buffer {structure:?} requires its {name} field");
-        };
-
-        Ok::<_, CheckerQueryError<C::UpstreamError>>(field)
-    };
-
     Ok(Some(RawBufferFields {
         element,
-        pointer: field("pointer")?,
-        capacity: field("capacity")?,
-        initialized: field("initialized")?,
+        pointer: struct_field(request.context(), structure, "pointer")?,
+        capacity: struct_field(request.context(), structure, "capacity")?,
+        initialized: struct_field(request.context(), structure, "initialized")?,
     }))
+}
+
+/// Resolve a field of an already recognized ordinary struct representation.
+pub(crate) fn struct_field<C: CheckerRequestContext + ?Sized>(
+    context: &C,
+    structure: StructSymbolId,
+    name: &str,
+) -> Result<bray_symbols::StructFieldSymbolId, CheckerQueryError<C::UpstreamError>> {
+    let bray_symbols::MemberLookupResult::Found(bray_symbols::AnySymbolId::StructField(field)) =
+        context.lookup_member(structure.into(), name)?
+    else {
+        panic!("recognized struct {structure:?} requires its {name} field");
+    };
+
+    Ok(field)
 }
 
 pub(crate) fn type_supports_complete_fixed_layout<C>(
@@ -213,6 +211,23 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     type_representation_for_context(request.context(), ty)
+}
+
+/// Whether a representation carries an immutable scalar value rather than storage identity.
+pub(crate) fn is_scalar(role: RepresentationRole) -> bool {
+    role.numeric_kind().is_some()
+        || matches!(role, RepresentationRole::ScalarBool | RepresentationRole::ScalarChar)
+}
+
+/// Whether the representation stores an address with independent reached storage.
+pub(crate) fn is_address(role: RepresentationRole) -> bool {
+    matches!(role, RepresentationRole::RawPointer | RepresentationRole::FunctionPointer
+        | RepresentationRole::DevicePointer)
+}
+
+/// Whether the stored datum is scalar data or copied address bits.
+pub(crate) fn is_scalar_value(role: RepresentationRole) -> bool {
+    is_scalar(role) || is_address(role)
 }
 
 pub(crate) fn type_representation_for_context<C>(

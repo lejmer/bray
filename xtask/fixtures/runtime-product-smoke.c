@@ -154,7 +154,7 @@ static StaticEntry product_entry(size_t ordinal)
     ++product_visits;
 
     StaticEntry entry = {
-        2,
+        1,
         0,
         {{1}},
         ordinal,
@@ -179,16 +179,16 @@ static StaticEntry product_entry(size_t ordinal)
 }
 
 static const HostDescriptor teardown_products[] = {
-    {2, 0, {1}, product_entry, 2, NULL},
-    {2, 0, {2}, product_entry, 2, NULL},
-    {2, 0, {3}, product_entry, 2, NULL},
+    {1, 0, {1}, product_entry, 2, NULL},
+    {1, 0, {2}, product_entry, 2, NULL},
+    {1, 0, {3}, product_entry, 2, NULL},
 };
 
 extern uint32_t bray_runtime_product_host_control(uintptr_t, uint32_t, HostObservation*);
 
 static void check_shutdown_during_product_admission(void)
 {
-    static const HostDescriptor descriptor = { .abi_version = 2, .identity = {7} };
+    static const HostDescriptor descriptor = { .abi_version = 1, .identity = {7} };
     HostObservation result = {0};
 
     assert(bray_runtime_thread_attachment_enter() == 0);
@@ -238,7 +238,7 @@ static StaticEntry interrupted_entry(size_t ordinal)
     ++product_visits;
 
     StaticEntry entry = {
-        2,
+        1,
         0,
         {{0}},
         ordinal,
@@ -264,7 +264,7 @@ static StaticEntry interrupted_entry(size_t ordinal)
 }
 
 static const HostDescriptor interrupted_product = {
-    2,
+    1,
     0,
     {4},
     interrupted_entry,
@@ -395,7 +395,7 @@ static void reject_thread_backing(uint32_t operation, RunOutcome* outcome)
 static void check_thread_product_teardown(void)
 {
     static const HostDescriptor descriptor = {
-        2,
+        1,
         0,
         {5},
         thread_product_entry,

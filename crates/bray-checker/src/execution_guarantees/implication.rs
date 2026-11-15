@@ -5,18 +5,31 @@ use bray_bound_tree::BoundReferenceTarget;
 use super::ExecutionCondition;
 
 pub(super) fn comparison_is_implied(
-    operator: bray_bound_tree::BoundOperator,
-    operands: &[ExecutionCondition],
+    comparison: &ExecutionCondition,
     assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
     budget: &mut usize,
+    memo: &super::condition::ProofMemo,
 ) -> Option<bool> {
     use bray_bound_tree::BoundOperator;
 
-    let [left, right] = operands else {
+    let crate::ExecutionConditionKind::Operation(operator, operands) = comparison.kind() else { return None; };
+
+    let operator = *operator;
+
+    if !matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual
+        | BoundOperator::Less | BoundOperator::LessEqual | BoundOperator::Greater | BoundOperator::GreaterEqual) {
+        return None;
+    }
+
+    let [left, right] = operands.as_ref() else {
         return None;
     };
 
-    if left == right && positively_ordered(left, assumptions, budget) {
+    if assumptions.is_empty() { return None; }
+
+    let ordered = || memo.ordered(assumptions);
+
+    if left == right && ordered().positively_ordered(left, budget) {
         return match operator {
             BoundOperator::Equal | BoundOperator::LessEqual | BoundOperator::GreaterEqual => {
                 Some(true)
@@ -26,33 +39,18 @@ pub(super) fn comparison_is_implied(
         };
     }
 
-    let known = |operator, left: &ExecutionCondition, right: &ExecutionCondition| {
-        // Lookup keys retain the immutable operand terms without scanning assumptions.
-        assumptions.contains(&(
-            ExecutionCondition::operation(operator, vec![left.clone(), right.clone()]),
-            true,
-        ))
+    let known = |operator, reversed, holds| {
+        memo.raw_contains(comparison.comparison_form(operator, reversed), holds, assumptions)
     };
-
-    let unequal = known(BoundOperator::NotEqual, left, right)
-        || known(BoundOperator::NotEqual, right, left)
-        || assumptions.contains(&(
-            ExecutionCondition::operation(BoundOperator::Equal, vec![left.clone(), right.clone()]),
-            false,
-        ))
-        || assumptions.contains(&(
-            ExecutionCondition::operation(BoundOperator::Equal, vec![right.clone(), left.clone()]),
-            false,
-        ));
 
     if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
         let strictly_ordered = [BoundOperator::Less, BoundOperator::Greater]
             .into_iter()
-            .any(|operator| known(operator, left, right) || known(operator, right, left));
+            .any(|operator| known(operator, false, true) || known(operator, true, true));
 
         return (strictly_ordered
-            || ordered_path(left, right, true, assumptions, budget)
-            || ordered_path(right, left, true, assumptions, budget))
+            || ordered().path(left, right, true, budget)
+            || ordered().path(right, left, true, budget))
         .then_some(operator == BoundOperator::NotEqual);
     }
 
@@ -76,18 +74,25 @@ pub(super) fn comparison_is_implied(
         BoundOperator::GreaterEqual
     };
 
-    if known(strict, left, right)
-        || known(reversed, right, left)
-        || unequal && (known(weak, left, right) || known(reversed_weak, right, left))
+    if known(strict, false, true) || known(reversed, true, true) {
+        return Some(true);
+    }
+
+    let unequal = known(BoundOperator::NotEqual, false, true)
+        || known(BoundOperator::NotEqual, true, true)
+        || known(BoundOperator::Equal, false, false)
+        || known(BoundOperator::Equal, true, false);
+
+    if unequal && (known(weak, false, true) || known(reversed_weak, true, true))
         || allows_equal
-            && (known(BoundOperator::Equal, left, right)
-                || known(BoundOperator::Equal, right, left))
+            && (known(BoundOperator::Equal, false, true)
+                || known(BoundOperator::Equal, true, true))
     {
         return Some(true);
     }
 
     // Only positive ordering evidence is used. A false comparison can include NaN.
-    if known(reversed, left, right) || known(strict, right, left) {
+    if known(reversed, false, true) || known(strict, true, true) {
         return Some(false);
     }
 
@@ -104,10 +109,10 @@ pub(super) fn comparison_is_implied(
             BoundOperator::GreaterEqual
         };
 
-        if known(weak, left, right)
-            || known(reversed_weak, right, left)
-            || known(BoundOperator::Equal, left, right)
-            || known(BoundOperator::Equal, right, left)
+        if known(weak, false, true)
+            || known(reversed_weak, true, true)
+            || known(BoundOperator::Equal, false, true)
+            || known(BoundOperator::Equal, true, true)
         {
             return Some(false);
         }
@@ -119,139 +124,11 @@ pub(super) fn comparison_is_implied(
         (right, left)
     };
 
-    if ordered_path(lower, upper, !allows_equal && !unequal, assumptions, budget) {
+    if ordered().path(lower, upper, !allows_equal && !unequal, budget) {
         return Some(true);
     }
 
-    ordered_path(upper, lower, allows_equal, assumptions, budget).then_some(false)
-}
-
-fn positively_ordered(
-    value: &ExecutionCondition,
-    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
-    budget: &mut usize,
-) -> bool {
-    let limit = *budget;
-
-    assumptions.iter().take(limit).any(|(condition, holds)| {
-        let Some(remaining) = budget.checked_sub(1) else {
-            return false;
-        };
-
-        *budget = remaining;
-
-        let ExecutionCondition::Operation(operator, operands) = condition else {
-            return false;
-        };
-
-        // A held ordering or equality excludes NaN. A false ordering and a true
-        // inequality do not. This uses value evidence, without assuming total order.
-        matches!(
-            (operator, holds),
-            (
-                bray_bound_tree::BoundOperator::Equal
-                    | bray_bound_tree::BoundOperator::Less
-                    | bray_bound_tree::BoundOperator::LessEqual
-                    | bray_bound_tree::BoundOperator::Greater
-                    | bray_bound_tree::BoundOperator::GreaterEqual,
-                true
-            ) | (bray_bound_tree::BoundOperator::NotEqual, false)
-        ) && operands.iter().any(|operand| operand == value)
-    })
-}
-
-fn ordered_path(
-    lower: &ExecutionCondition,
-    upper: &ExecutionCondition,
-    requires_strict: bool,
-    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
-    budget: &mut usize,
-) -> bool {
-    use bray_bound_tree::BoundOperator;
-
-    if assumptions.len() < 2 {
-        return false;
-    }
-
-    let mut pending = vec![(lower, false)];
-    let mut visited = std::collections::BTreeSet::new();
-
-    while let Some((current, strict)) = pending.pop() {
-        if let (ExecutionCondition::Literal(current), ExecutionCondition::Literal(upper)) =
-            (current, upper)
-            && matches!(
-                (current.kind(), upper.kind()),
-                (
-                    bray_symbols::ConstantValueKind::Integer(_),
-                    bray_symbols::ConstantValueKind::Integer(_)
-                )
-            )
-            && matches!(
-                crate::constant::fold_binary(
-                    if requires_strict && !strict {
-                        BoundOperator::Less
-                    } else {
-                        BoundOperator::LessEqual
-                    },
-                    current.kind(),
-                    upper.kind(),
-                    crate::ConstantEvaluationLimits::default().integer_bits(),
-                ),
-                Ok(bray_symbols::ConstantValueKind::Boolean(true))
-            )
-        {
-            return true;
-        }
-
-        if !visited.insert((current, strict)) {
-            continue;
-        }
-
-        for (condition, value) in assumptions {
-            let Some(remaining) = budget.checked_sub(1) else {
-                return false;
-            };
-
-            *budget = remaining;
-
-            let ExecutionCondition::Operation(operator, operands) = condition else {
-                continue;
-            };
-
-            let [left, right] = operands.as_ref() else {
-                continue;
-            };
-
-            // Negative comparisons cannot supply ordered edges because of NaN.
-            if !value {
-                continue;
-            }
-
-            let (from, to, edge_strict) = match operator {
-                BoundOperator::Less => (left, right, true),
-                BoundOperator::LessEqual => (left, right, false),
-                BoundOperator::Greater => (right, left, true),
-                BoundOperator::GreaterEqual => (right, left, false),
-                BoundOperator::Equal if right == current => (right, left, false),
-                BoundOperator::Equal => (left, right, false),
-                _ => continue,
-            };
-
-            if from != current {
-                continue;
-            }
-
-            let strict = strict || edge_strict;
-
-            if to == upper && (strict || !requires_strict) {
-                return true;
-            }
-
-            pending.push((to, strict));
-        }
-    }
-
-    false
+    ordered().path(upper, lower, allows_equal, budget).then_some(false)
 }
 
 /// Checks whether entry assumptions establish a condition after matching callable inputs.
@@ -284,7 +161,7 @@ pub fn remap_execution_condition_inputs(
                 .reference()
                 .and_then(|reference| inputs.get(&reference))
             else {
-                return ExecutionCondition::Unknown;
+                return ExecutionCondition::unknown();
             };
 
             let mut mapped = super::ExecutionPlace::from(*root);
@@ -293,9 +170,9 @@ pub fn remap_execution_condition_inputs(
                 mapped = mapped.component(*field);
             }
 
-            ExecutionCondition::Input(mapped)
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(mapped))
         },
-        &ExecutionCondition::Result,
+        &ExecutionCondition::result(),
         &mut { ExecutionCondition::WORK_LIMIT },
     )
 }
@@ -313,40 +190,49 @@ pub fn map_execution_condition_references<E>(
         Option<bray_symbols::ImplementationInstanceData>,
         Vec<bray_symbols::ImplementationInstanceData>,
         Vec<ExecutionCondition>,
+        Option<bray_symbols::TypeId>,
     ) -> Result<ExecutionCondition, E>,
 ) -> Result<ExecutionCondition, E> {
-    Ok(match condition {
-        ExecutionCondition::Input(place) => input(place)?,
-        ExecutionCondition::Literal(value) => ExecutionCondition::Literal(literal(value)?),
-        ExecutionCondition::Trusted(value) => ExecutionCondition::Trusted(std::sync::Arc::new(
+    Ok(match condition.kind() {
+        crate::ExecutionConditionKind::Discriminant(value) => map_execution_condition_references(value, map, input, literal, call)?.discriminant(),
+        crate::ExecutionConditionKind::Descriptor(kind, value) => map_execution_condition_references(value, map, input, literal, call)?.descriptor(*kind),
+        crate::ExecutionConditionKind::ValueAlias(left, right) => ExecutionCondition::value_alias(
+            map_execution_condition_references(left, map, input, literal, call)?,
+            map_execution_condition_references(right, map, input, literal, call)?,
+        ),
+        crate::ExecutionConditionKind::Input(place) => input(place)?,
+        crate::ExecutionConditionKind::Literal(value) => ExecutionCondition::new(crate::ExecutionConditionKind::Literal(literal(value)?)),
+        crate::ExecutionConditionKind::Trusted(value) => ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(
             map_execution_condition_references(value, map, input, literal, call)?,
-        )),
-        ExecutionCondition::VariantTest(variant, value) => {
+        ))),
+        crate::ExecutionConditionKind::VariantTest(variant, value) => {
             map_execution_condition_references(value, map, input, literal, call)?
                 .matches_variant(*variant)
         }
-        ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
+        crate::ExecutionConditionKind::Tagged(variant, value) => ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(
             *variant,
             std::sync::Arc::new(map_execution_condition_references(
                 value, map, input, literal, call,
             )?),
-        ),
-        ExecutionCondition::Present(value) => {
-            map_execution_condition_references(value, map, input, literal, call)?.present()
+        )),
+        crate::ExecutionConditionKind::Present(value) => {
+            ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(map_execution_condition_references(
+                value, map, input, literal, call,
+            )?)))
         }
-        ExecutionCondition::Borrowed(value) => {
+        crate::ExecutionConditionKind::Borrowed(value) => {
             map_execution_condition_references(value, map, input, literal, call)?.borrowed()
         }
-        ExecutionCondition::Entry {
+        crate::ExecutionConditionKind::Entry {
             condition,
             captured,
-        } => ExecutionCondition::Entry {
+        } => ExecutionCondition::new(crate::ExecutionConditionKind::Entry {
             condition: std::sync::Arc::new(map_execution_condition_references(
                 condition, map, input, literal, call,
             )?),
             captured: *captured,
-        },
-        ExecutionCondition::Predicate(predicate, substitution, operands) => {
+        }),
+        crate::ExecutionConditionKind::Predicate(predicate, substitution, operands) => {
             ExecutionCondition::predicate(
                 *predicate,
                 map(*substitution)?,
@@ -358,7 +244,7 @@ pub fn map_execution_condition_references<E>(
                     .collect::<Result<_, _>>()?,
             )
         }
-        ExecutionCondition::Operation(operator, operands) => ExecutionCondition::operation(
+        crate::ExecutionConditionKind::Operation(operator, operands) => ExecutionCondition::operation(
             *operator,
             operands
                 .iter()
@@ -367,7 +253,7 @@ pub fn map_execution_condition_references<E>(
                 })
                 .collect::<Result<_, _>>()?,
         ),
-        ExecutionCondition::Call(callable, implementation, witnesses, operands) => {
+        crate::ExecutionConditionKind::Call(callable, implementation, witnesses, operands, reference_type) => {
             let callable = bray_symbols::CallableInstanceData::new(
                 callable.definition(),
                 map(callable.substitution())?,
@@ -399,26 +285,30 @@ pub fn map_execution_condition_references<E>(
                 })
                 .collect::<Result<Vec<_>, E>>()?;
 
-            call(callable, implementation, witnesses, operands)?
+            call(callable, implementation, witnesses, operands, *reference_type)?
         }
-        ExecutionCondition::CapturedInput {
+        crate::ExecutionConditionKind::CapturedInput {
             owner,
             invocation,
             ordinal,
-        } => ExecutionCondition::CapturedInput {
+        } => ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
             owner: std::sync::Arc::new(map_execution_condition_references(
                 owner, map, input, literal, call,
             )?),
             invocation: *invocation,
             ordinal: *ordinal,
-        },
-        ExecutionCondition::Projection(field, value) => {
+        }),
+        crate::ExecutionConditionKind::Projection(field, value) => {
             map_execution_condition_references(value, map, input, literal, call)?.component(*field)
         }
-        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
-            std::sync::Arc::new(map_execution_condition_references(
+        crate::ExecutionConditionKind::Observation { owner, contents, kind } => ExecutionCondition::observation(
+            map_execution_condition_references(owner, map, input, literal, call)?,
+            map_execution_condition_references(contents, map, input, literal, call)?,
+            *kind,
+        ),
+        crate::ExecutionConditionKind::Constructed(base, fields) => ExecutionCondition::constructed(map_execution_condition_references(
                 base, map, input, literal, call,
-            )?),
+            )?,
             fields
                 .iter()
                 .map(|(field, value)| {
@@ -460,7 +350,7 @@ pub fn substitute_execution_condition(
             )) = place.reference()
             else {
                 // The instantiated condition retains the same immutable runtime input path.
-                return Ok(ExecutionCondition::Input(place.clone()));
+                return Ok(ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())));
             };
 
             let term = values
@@ -482,12 +372,13 @@ pub fn substitute_execution_condition(
 
             Ok(values.constant_value_data(value))
         },
-        &mut |callable, implementation, witnesses, operands| {
+        &mut |callable, implementation, witnesses, operands, reference_type| {
             Ok(ExecutionCondition::call(
                 callable,
                 implementation,
                 witnesses,
                 operands,
+                reference_type.map(|ty| values.substitute_type(ty, substitution)).transpose()?,
             ))
         },
     )
@@ -502,16 +393,16 @@ mod tests {
 
     #[test]
     fn mixed_boolean_proof_visits_each_clause_with_one_shared_budget() {
-        let mut condition = ExecutionCondition::Boolean(true);
+        let mut condition = ExecutionCondition::boolean(true);
         let mut ordinary = Default::default();
 
         for index in 1..33 {
-            let input = ExecutionCondition::Input(
+            let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
                 BoundReferenceTarget::Surface(
                     CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
                 )
                 .into(),
-            );
+            ));
 
             input.clone().assume(true, &mut ordinary);
 
@@ -536,23 +427,36 @@ mod tests {
             condition.prove_mixed(&Default::default(), &ordinary, &mut 62),
             None
         );
+
+        let empty = Default::default();
+        let proof = crate::execution_guarantees::ExecutionProof::new(&empty, &ordinary);
+
+        for _ in 0..2 {
+            let mut sufficient = 63;
+            let mut insufficient = 62;
+
+            assert_eq!(proof.prove_mixed(&condition, &mut sufficient), Some(true));
+            assert_eq!(sufficient, 0);
+            assert_eq!(proof.prove_mixed(&condition, &mut insufficient), None);
+            assert_eq!(insufficient, 0, "cached proof must replay its exact work budget");
+        }
     }
 
     #[test]
     fn comparison_implication_uses_positive_ordering_without_assuming_total_order() {
-        let left = ExecutionCondition::Input(
+        let left = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             BoundReferenceTarget::Surface(
                 CallableParameterSymbolId::from_symbol_id(SymbolId::new(1)).into(),
             )
             .into(),
-        );
+        ));
 
-        let right = ExecutionCondition::Input(
+        let right = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             BoundReferenceTarget::Surface(
                 CallableParameterSymbolId::from_symbol_id(SymbolId::new(2)).into(),
             )
             .into(),
-        );
+        ));
 
         let comparison =
             |operator| ExecutionCondition::operation(operator, vec![left.clone(), right.clone()]);
@@ -560,6 +464,14 @@ mod tests {
         let mut known = Default::default();
 
         comparison(BoundOperator::Greater).assume(true, &mut known);
+
+        let mut budget = 128;
+        let memo = crate::execution_guarantees::condition::ProofMemo::new();
+
+        assert_eq!(super::comparison_is_implied(&ExecutionCondition::new(crate::ExecutionConditionKind::Operation(
+            BoundOperator::LogicalOr, vec![left.clone(), left.clone()].into())), &known, &mut budget, &memo), None);
+
+        assert_eq!(budget, 128, "Boolean nodes must not spend comparison proof work");
 
         assert_eq!(
             comparison(BoundOperator::GreaterEqual).prove(&known, &mut 128),
@@ -573,10 +485,11 @@ mod tests {
 
         assert_eq!(
             super::comparison_is_implied(
-                BoundOperator::LessEqual,
-                &[right.clone(), left.clone()],
+                &ExecutionCondition::new(crate::ExecutionConditionKind::Operation(
+                    BoundOperator::LessEqual, vec![right.clone(), left.clone()].into())),
                 &known,
                 &mut 128,
+                &memo,
             ),
             Some(true)
         );
@@ -637,12 +550,12 @@ mod tests {
     #[test]
     fn positive_ordering_composes_strict_and_weak_edges_with_a_shared_budget() {
         let input = |index| {
-            ExecutionCondition::Input(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(
                 BoundReferenceTarget::Surface(
                     CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
                 )
                 .into(),
-            )
+            ))
         };
 
         let relation = |operator, left, right| {
@@ -700,16 +613,16 @@ mod tests {
             )
         };
 
-        let source = ExecutionCondition::Input(input(1).into());
-        let target = ExecutionCondition::Input(input(2).into());
+        let source = ExecutionCondition::new(crate::ExecutionConditionKind::Input(input(1).into()));
+        let target = ExecutionCondition::new(crate::ExecutionConditionKind::Input(input(2).into()));
         let mapping = [(input(1), input(2))].into();
 
         assert!(execution_condition_is_implied(&source, &[target], &mapping));
         assert!(!execution_condition_is_implied(&source, &[], &mapping));
 
         assert!(!execution_condition_is_implied(
-            &ExecutionCondition::Unknown,
-            &[ExecutionCondition::Unknown],
+            &ExecutionCondition::unknown(),
+            &[ExecutionCondition::unknown()],
             &mapping,
         ));
 
@@ -726,11 +639,11 @@ mod tests {
             CallableParameterSymbolId::from_symbol_id(SymbolId::new(1)).into(),
         );
 
-        let condition = ExecutionCondition::Input(input.into());
+        let condition = ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.into()));
 
         let conjunction = ExecutionCondition::operation(
             BoundOperator::LogicalAnd,
-            vec![condition.clone(), ExecutionCondition::Boolean(true)],
+            vec![condition.clone(), ExecutionCondition::boolean(true)],
         );
 
         assert!(execution_condition_is_implied(
@@ -743,12 +656,12 @@ mod tests {
     #[test]
     fn equality_complements_do_not_assume_ordered_operands() {
         let input = |index| {
-            ExecutionCondition::Input(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(
                 BoundReferenceTarget::Surface(
                     CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
                 )
                 .into(),
-            )
+            ))
         };
 
         for (operator, complement) in [
@@ -788,12 +701,12 @@ mod tests {
     #[test]
     fn failed_inequality_retains_scalar_equality_for_contract_matching() {
         let input = |index| {
-            ExecutionCondition::Input(
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(
                 BoundReferenceTarget::Surface(
                     CallableParameterSymbolId::from_symbol_id(SymbolId::new(index)).into(),
                 )
                 .into(),
-            )
+            ))
         };
 
         let mut assumptions = Default::default();

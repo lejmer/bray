@@ -196,6 +196,14 @@ where
 
         self.push_call(resume, id.into(), AnalysisCallPhase::Completion);
 
+        // A new cancellation request can arrive after the child's completed
+        // value has transferred. This path owns that value, unlike invocation
+        // failure, and must resolve it before leaving the current frame.
+        let completed_cancellation = self.push_block();
+
+        self.push_edge(resume, completed_cancellation, AnalysisEdgeKind::RunCancellation, None);
+        self.push_exit(completed_cancellation, AnalysisExitKind::Cancellation, id.into());
+
         self.push_edge(
             suspended,
             cancellation,
@@ -220,7 +228,12 @@ where
 
         self.push_exit(failure, AnalysisExitKind::Panic, id.into());
 
-        Some(Some(resume))
+        // Later source evaluation must not precede the cancellation check.
+        let continued = self.push_block();
+
+        self.push_edge(resume, continued, AnalysisEdgeKind::Sequential, None);
+
+        Some(Some(continued))
     }
 
     pub(super) fn build_call(
@@ -305,7 +318,7 @@ where
 
         let Some(selection) = selections
             .and_then(|selections| selections.expression(expression))
-            .filter(|selection| selection.evaluates_defaults())
+            .filter(|selection| selection.stages_inputs())
         else {
             return self.build_expressions(
                 call.arguments()
@@ -406,7 +419,8 @@ where
             }
             // Union construction has call syntax and declaration-owned defaults.
             Some(SemanticSelection::Operation(operation)) => {
-                hook_may_panic && operation.may_propagate_synchronous_panic()
+                hook_may_panic && operation.may_propagate_synchronous_panic(self.request().view().expression(expression)
+                    .expect("checked operation retains its bound expression"))
             }
             _ => false,
         }

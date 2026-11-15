@@ -48,10 +48,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 expected,
             );
 
-            if condition
-                .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                .is_some_and(|known| known != value)
-            {
+            if !state.proofs.ordinary_proof(&state.assumptions).can_assume(&condition, value) {
                 return false;
             }
 
@@ -61,10 +58,39 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if changed {
-            state.refine_witnesses();
+            self.refine_witnesses(state);
         }
 
         true
+    }
+
+    pub(in crate::analysis::guarantee) fn refine_witnesses(&self, state: &mut ExecutionState) {
+        state.refine_witnesses();
+
+        if self.dependencies.condition_references().is_empty() { return; }
+
+        for witness in state.witnesses.values_mut().filter(|witness| witness.available) {
+            let mut derived = Vec::new();
+            let proof = state.proofs.proof(&state.trusted_assumptions, &state.assumptions);
+
+            for (condition, guarantee) in &witness.conditions {
+                if proof.prove_trusted(condition) != Some(true) {
+                    continue;
+                }
+
+                let normalized = condition.with_reference_origins(
+                    self.request.semantic_values(), self.dependencies, &state.assumptions);
+
+                if normalized != *condition {
+                    derived.push((normalized, guarantee.witness, guarantee.addresses.clone()));
+                }
+            }
+
+            for (condition, owning, addresses) in derived {
+                witness.carry(&condition, owning, &addresses);
+                condition.assume(true, &mut state.trusted_assumptions);
+            }
+        }
     }
     pub(super) fn branch_condition(
         &self,
@@ -229,13 +255,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                     // A value-changing conversion owns a new result. Its selected tag is known,
                     // but the source payload's properties do not automatically hold afterward.
-                    _ => ExecutionCondition::Expression(expression).project(projection),
+                    _ => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)).project(projection),
                 };
 
-                ExecutionCondition::Constructed(
-                    Arc::new(ExecutionCondition::Tagged(
+                ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(
                         *variant,
-                        Arc::new(ExecutionCondition::Expression(expression)),
+                        Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))),
                     )),
                     vec![(projection, payload)].into(),
                 )
@@ -246,7 +271,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .boundary()
             .expect("ordinary propagation retains its result boundary")
         {
-            SelectedPropagationBoundary::Callable => state.result = value,
+            SelectedPropagationBoundary::Callable => self.publish_return(state, value),
             SelectedPropagationBoundary::YieldRegion(_) => {
                 let target = self
                     .yield_targets

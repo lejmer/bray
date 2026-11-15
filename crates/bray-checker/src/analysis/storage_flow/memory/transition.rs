@@ -6,14 +6,23 @@ use bray_bound_tree::{
 use bray_symbols::TypeId;
 
 impl State {
-    pub(in crate::analysis::storage_flow) fn observe_effect_types(&mut self, effects: &[super::Effect]) {
+    pub(in crate::analysis::storage_flow) fn observe_effect_types(
+        &mut self,
+        effects: &[super::Effect],
+    ) {
         for effect in effects {
-            if let super::Effect::Mutation(target, bray_symbols::DependencyMutationKind::Replace(ty)) = effect
-                && target.projections().contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+            if let super::Effect::Mutation(target, bray_symbols::DependencyMutationKind::Replace(ty), _) = effect
+                && target
+                    .projections()
+                    .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
             {
                 // A checked owning-region write retains its backing element type,
                 // without establishing initialized contents or retyping known storage.
-                self.contents.entry(target.clone()).or_default().storage_type.get_or_insert(*ty);
+                self.contents
+                    .entry(target.clone())
+                    .or_default()
+                    .storage_type
+                    .get_or_insert(*ty);
             }
         }
     }
@@ -106,10 +115,10 @@ impl State {
             // possible references instead of inventing a subtree at every possible address.
             let affected = self.affected_targets(references);
 
-            let mut incoming = References {
+            let mut incoming = super::model::StoredValue::from(References {
                 unknown: true,
                 ..References::default()
-            };
+            });
 
             if let (Some(source), Some(destination)) = (source.as_ref(), affected.first()) {
                 for value in self
@@ -124,7 +133,11 @@ impl State {
             self.write_targets(references, ty, origin, None);
 
             for target in affected {
-                self.values.entry(target).or_default().merge(&incoming);
+                let value = self.values.entry(target).or_default();
+
+                value.merge(&incoming);
+
+                value.complete = false;
             }
 
             return;
@@ -147,20 +160,29 @@ impl State {
                 self.commit_value(transfer);
             } else {
                 for (slot, mut value) in transfer.values {
-                    value.unknown = true;
-                    self.values.entry(slot).or_default().merge(&value);
+                    if let Some(references) = &mut value.references {
+                        references.unknown = true;
+                    }
+
+                    value.complete = false;
+
+                    self.values.entry(slot).and_modify(|previous| { previous.merge(&value); }).or_insert(value);
                 }
 
                 for (slot, mut contents) in transfer.payloads {
                     contents.initialized.clear();
-                    self.contents.entry(slot).or_default().merge(&contents);
+
+                    self.contents
+                        .entry(slot.clone())
+                        .or_default()
+                        .merge(&contents, &slot);
                 }
 
                 super::references::merge_deferred(&mut self.deferred, &transfer.deferred);
 
                 for (reference, bounds) in transfer.returned_inputs {
                     self.returned_inputs
-                        .entry(reference)
+                        .entry((reference, false))
                         .or_default()
                         .merge(&bounds);
                 }
@@ -190,7 +212,11 @@ impl State {
                 .is_some_and(|invalidation| Self::stable_reference_slot(&target, invalidation))
                 && let Some(stored) = self.values.get_mut(&target)
             {
-                stored.unknown = true;
+                if let Some(references) = &mut stored.references {
+                    references.unknown = true;
+                }
+
+                stored.complete = false;
             }
 
             contents.pending.entry(ty).or_default().insert(origin);
@@ -264,13 +290,9 @@ impl State {
 
             let mut transfer = transfer.unwrap_or_default();
 
-            transfer
-                .values
-                .entry(destination)
-                .or_insert_with(|| References {
-                    unknown: true,
-                    ..References::default()
-                });
+            // Reading a whole value does not turn its aggregate root into a pointer.
+            // Actual pointer slots retain their captured reference uncertainty below.
+            transfer.values.entry(destination).or_default();
 
             if references.unknown
                 || references.displaced
@@ -278,7 +300,11 @@ impl State {
                 || references.targets.iter().any(|target| !target.is_exact())
             {
                 for value in transfer.values.values_mut() {
-                    value.unknown = true;
+                    if let Some(references) = &mut value.references {
+                        references.unknown = true;
+                    }
+
+                    value.complete = false;
                 }
 
                 for contents in transfer.payloads.values_mut() {

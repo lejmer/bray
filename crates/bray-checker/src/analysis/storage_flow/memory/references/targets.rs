@@ -11,7 +11,7 @@ impl State {
         source: Place,
         ty: TypeId,
     ) {
-        self.borrow_target_storage(capability, Target::storage(source), ty);
+        self.borrow_target_storage(crate::test_support::semantic_values(), capability, Target::storage(source), ty);
     }
 
     pub(in crate::analysis::storage_flow) fn reborrow_value(
@@ -23,6 +23,7 @@ impl State {
         let references = self
             .values
             .get(source)
+            .and_then(|value| value.references.as_ref())
             .or_else(|| {
                 source
                     .storage_path()
@@ -48,7 +49,7 @@ impl State {
         if let Some(references) = self.borrows.get(&capability) {
             // The destination owns a reference value after the expression's capability expires.
             self.values
-                .insert(Target::storage(destination), references.clone());
+                .insert(Target::storage(destination), references.clone().into());
         }
     }
 
@@ -93,7 +94,7 @@ impl State {
         );
 
         self.values
-            .insert(Target::storage(destination.clone()), references);
+            .insert(Target::storage(destination.clone()), references.into());
 
         self.expose_address(&destination, ty, origin);
     }
@@ -127,13 +128,34 @@ impl State {
             contents.pending.entry(ty).or_default().insert(origin);
         }
     }
+
+    pub(in crate::analysis::storage_flow) fn borrow_view(&mut self, slot: &Place, ty: TypeId) {
+        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())).and_then(|value| value.references.as_mut()) else {
+            return;
+        };
+
+        if references.is_exact() {
+            let target = references
+                .targets
+                .first()
+                .expect("exact reference has one target");
+
+            // A checked borrow may interpret a differently typed region. Keep
+            // its provenance without making the view that region's declaration.
+            references.inexact = self
+                .contents
+                .get(target)
+                .and_then(|contents| contents.storage_type)
+                .is_some_and(|declared| declared != ty);
+        }
+    }
     pub(in crate::analysis::storage_flow::memory) fn references(
         &self,
         slot: &Target,
     ) -> References {
         // Transfers and mutations need an owned snapshot while changing their reached targets.
         let mut references = if slot.is_exact() {
-            self.values.get(slot).cloned().unwrap_or_default()
+            self.values.get(slot).and_then(|value| value.references.clone()).unwrap_or_default()
         } else {
             References::default()
         };
@@ -144,7 +166,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn invalidated(&self, slot: &Target) -> bool {
-        self.values.get(slot).is_some_and(|references| {
+        self.values.get(slot).and_then(|value| value.references.as_ref()).is_some_and(|references| {
             references.targets.iter().any(|target| {
                 self.contents
                     .get(target)
@@ -190,12 +212,20 @@ impl State {
             .chain(self.values.keys())
             .chain(references.targets.iter())
             .filter(|candidate| {
-                regions.as_ref().is_none_or(|regions| {
-                    regions.iter().any(|target| {
-                        self.target_relationship(target, candidate)
-                            != bray_bound_tree::StorageRelationship::Disjoint
-                    })
-                })
+                let reaches = |target: &Target| {
+                    self.target_relationship(target, candidate)
+                        != bray_bound_tree::StorageRelationship::Disjoint
+                };
+
+                match &regions {
+                    Some(regions) => regions.iter().any(reaches),
+                    // An unresolved pointer can still retain explicit possible
+                    // targets. Its unknown part cannot address private inline slots.
+                    None => {
+                        self.unknown_reference_may_reach(candidate)
+                            || references.targets.iter().any(reaches)
+                    }
+                }
             })
             // Targets share immutable paths while each transition owns its affected set.
             .cloned()

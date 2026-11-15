@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, StorageAccessId};
+use bray_bound_tree::{BoundExpressionId, BoundReferenceTarget, StorageAccessId};
 use bray_symbols::TypeData;
 
 use super::flow::{ExecutionFlow, ExecutionFlowDomain};
@@ -90,7 +90,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                 .cleanup
                                 .entry((node, access, part, slot, normal))
                                 .and_modify(|previous| {
-                                    previous.evidence.intersect(evidence);
+                                    previous.evidence.intersect(evidence, &self.domain.proofs);
                                 })
                                 // Different control-flow exits own independently mutable premises.
                                 .or_insert_with(|| crate::ExecutionCleanup {
@@ -123,7 +123,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                             .disposal
                             .entry((node.into(), lifecycle.call.callable))
                             .and_modify(|previous| {
-                                previous.intersect(evidence);
+                                previous.intersect(evidence, &self.domain.proofs);
                             })
                             .or_insert_with(|| evidence.clone());
                     };
@@ -173,16 +173,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                                     crate::ExecutionProperty::Pure,
                                 )
                             })
-                        && evidence.proves(
+                        && evidence.prove_requirements(
                             contract
                                 .preconditions
                                 .iter()
                                 .map(|(condition, _)| condition),
-                        )
+                        ).is_ok()
                         && (evidence.trusted_boundary
                             || self
                                 .domain
-                                .trusted_requirements_proven(&evidence, &contract.requirements))
+                                .prove_trusted_requirements(&evidence, &contract.requirements).is_ok())
                     {
                         super::operation::collect_invocation_dependency(
                             self.domain.semantics.selections(),
@@ -196,20 +196,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 }
             }
 
-            dependencies.extend(state.completion_dependencies);
-
             if normal_exit_blocks.contains(&block.id()) {
-                let mut result = &state.result;
-
-                while let ExecutionCondition::Constructed(base, _) = result {
-                    result = base;
-                }
-
-                results.insert(match result {
-                    ExecutionCondition::Tagged(variant, _) => Some(*variant),
-                    _ => None,
-                });
+                results.insert(self.domain.returned_value(&state).known_variant());
             }
+
+            dependencies.extend(state.completion_dependencies);
         }
 
         candidate.completion_dependencies = dependencies.into_iter().collect();
@@ -236,31 +227,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expect("cleanup retains its checked storage access")
             .reached_type();
 
-        let value = ExecutionPlace::storage(self.storage, access)
-            .and_then(|place| place.value_in(&state.current))
-            .or_else(|| {
-                let node = self
-                    .storage
-                    .identity(self.storage.root_identity(access)?)?
-                    .definition_node()?;
+        let place = ExecutionPlace::storage(self.storage, access);
 
-                let AnyBoundNodeId::Expression(expression) = node else {
-                    return None;
-                };
+        if place.as_ref().is_some_and(|place| state.current.availability(place)
+            == super::current::ValueAvailability::Absent) {
+            return true;
+        }
 
-                Some(self.value(state, expression))
-            });
+        let value = place.and_then(|place| place.value_in(&state.current));
 
         match crate::representation::type_representation(self.request, ty) {
             Some(bray_compiler_known::RepresentationRole::Future) => {
                 // Await and start consume a source future before driving it. An
                 // inactive frame with inert captures cannot execute user cleanup.
-                matches!(value, Some(ExecutionCondition::Expression(source))
-                    if self.disposal.plan.future_cleanup.get(&source).is_some_and(|(captures, _)| captures.is_empty()))
+                matches!(value.as_ref().map(ExecutionCondition::kind), Some(crate::ExecutionConditionKind::Expression(source))
+                    if self.disposal.plan.future_capture_cleanup.get(source).is_some_and(|captures| captures.is_empty()))
             }
             Some(bray_compiler_known::RepresentationRole::String) => {
                 // Materialized string constants have static backing and no reference-counted owner.
-                matches!(value, Some(ExecutionCondition::Literal(value))
+                matches!(value.as_ref().map(ExecutionCondition::kind), Some(crate::ExecutionConditionKind::Literal(value))
                     if matches!(value.kind(), bray_symbols::ConstantValueKind::String(_)))
             }
             _ => false,
@@ -279,7 +264,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .cloned()
             .unwrap_or_else(|| self.value(state, expression));
 
-        converted_argument(value, conversion)
+        converted_argument(self.request.semantic_values(), value, conversion)
     }
 
     fn implicit_call_entry(
@@ -314,6 +299,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let ordinal = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
             let value = self.current_input(state, *source);
 
+            let value = self.copied_access_value(ExecutionCondition::post_state(
+                bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::new(crate::ExecutionConditionKind::Input(ordinal.clone())),
+            ), value, plan);
+
             if consumes {
                 transferred.extend([input.clone(), ordinal.clone()]);
             }
@@ -332,6 +321,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),
+            extracted_values: Default::default(),
             copy_sources: Default::default(),
             owned_inputs: if self.storage.effective_purpose(plan)
                 == bray_bound_tree::StorageAccessPurpose::Move
@@ -387,7 +377,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     let place = BoundReferenceTarget::Surface(input.symbol()).into();
 
                     if let Some(value) = arguments.get_mut(&place) {
-                        *value = std::mem::replace(value, ExecutionCondition::Unknown).coerce(
+                        *value = std::mem::replace(value, ExecutionCondition::unknown()).coerce(
                             self.request.semantic_values(),
                             conversion.source_type(),
                             conversion.target_type(),
@@ -400,6 +390,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),
+            extracted_values: Default::default(),
             copy_sources: Default::default(),
             owned_inputs: Default::default(),
             addresses: Default::default(),
@@ -417,9 +408,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
     ) -> Option<crate::ExecutionCallEvidence> {
-        let mut entry = self.invocation_entry(state, invocation)?;
+        let mut entry = self.awaited_entry(state, invocation)
+            .or_else(|| self.invocation_entry(state, invocation))?;
 
-        entry.witness_inputs = state.owned_witnesses(entry.owned_arguments())
+        entry.extracted_values.extend(self.extracted_input_values(invocation, &entry.arguments, &entry.assumptions));
+
+        let captured_extractions = entry.owned_arguments()
+            .flat_map(|value| state.owned_values(&value))
+            .filter_map(|value| state.deferred_entries(&value))
+            .flat_map(|deferred| deferred.producers.values())
+            .filter(|producer| super::deferred::possible(&producer.selection, &state.proofs.ordinary_proof(&entry.assumptions)))
+            .flat_map(|producer| producer.entry.extracted_values.iter().cloned())
+            .collect::<BTreeSet<_>>();
+
+        entry.extracted_values.extend(captured_extractions);
+
+        entry.witness_inputs = state
+            .owned_witnesses(entry.witness_sources())
             .filter(|(_, witness)| witness.available)
             .map(|(owner, _)| owner.clone())
             .collect();
@@ -474,12 +479,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         };
 
-        let ExecutionCondition::Expression(origin) = self.value(state, source.callee()) else {
+        let value = self.value(state, source.callee());
+
+        let crate::ExecutionConditionKind::Expression(origin) = value.kind() else {
             return None;
         };
 
         let Some(bray_bound_tree::BoundExpression::AnonymousCallable(callable)) =
-            self.request.view().expression(origin)
+            self.request.view().expression(*origin)
         else {
             return None;
         };
@@ -517,7 +524,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return self.operation_call_entry(state, expression, selection);
         };
 
-        let staged = call.evaluates_defaults();
+        let staged = call.stages_inputs();
 
         let mut arguments = if staged {
             self.staged_arguments(state, expression, selection, None)
@@ -642,6 +649,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut evidence = crate::ExecutionCallEvidence {
             implementation_witnesses: call.resolution().implementation_witnesses().into(),
             witness_inputs: Default::default(),
+            extracted_values: Default::default(),
             copy_sources: Default::default(),
             owned_inputs,
             addresses: Default::default(),
@@ -697,18 +705,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // Separate exclusive accesses to protected buffers retain separate allocation ownership.
                 // The selected intrinsic contract supplies the initialized ranges within those owners.
                 for requirement in &contract.requirements {
-                    if matches!(requirement, ExecutionCondition::Trusted(condition)
-                        if matches!(condition.as_ref(), ExecutionCondition::Predicate(identity, _, _) if Some(*identity) == predicate))
+                    if matches!(requirement.kind(), crate::ExecutionConditionKind::Trusted(condition)
+                        if matches!(condition.as_ref().kind(), crate::ExecutionConditionKind::Predicate(identity, _, _) if Some(*identity) == predicate))
                     {
                         let condition = requirement.substitute(
                             &|place| {
                                 place
                                     .value_in(&evidence.arguments)
-                                    .unwrap_or(ExecutionCondition::Unknown)
+                                    .unwrap_or_else(ExecutionCondition::unknown)
                             },
-                            &ExecutionCondition::Unknown,
+                            &ExecutionCondition::unknown(),
                             &mut { ExecutionCondition::WORK_LIMIT },
-                        );
+                        ).pointer_observations(&self.pointer_predicates);
 
                         condition.assume(true, &mut evidence.trusted_assumptions);
                     }
@@ -723,16 +731,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
-        observations: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
+        observations: &bray_bound_tree::StorageCompletion,
     ) {
         let result = self.invocation_value(state, expression.into());
 
-        let result = self.complete_trusted_call(state, expression.into(), result, observations);
+        let (result, post_state) = self.complete_trusted_call(state, expression.into(), self.invocation_result_place(expression.into()).as_ref(), result, observations);
 
         state.expressions.insert(expression, result);
+
+        let Some(post_state) = post_state else { return; };
 
         let Some(entry) = state.entries.get(&expression.into()) else {
             return;
@@ -761,14 +768,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&expression)
             .into_iter()
             .flatten()
-            .filter(|contract| entry.proves(&contract.entry))
+            .filter(|contract| entry.prove_requirements(&contract.entry).is_ok())
             .collect::<Vec<_>>();
 
         if contracts.is_empty() {
             return;
         }
-
-        let post_state = self.call_post_state(state, expression, call);
 
         for contract in contracts {
             for (postcondition, source) in &contract.postconditions {
@@ -776,13 +781,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &|input| {
                         input
                             .value_in(&post_state)
-                            .unwrap_or(ExecutionCondition::Unknown)
+                            .unwrap_or_else(ExecutionCondition::unknown)
                     },
                     &result,
                     &mut { ExecutionCondition::WORK_LIMIT },
                 );
 
-                if condition == ExecutionCondition::Unknown {
+                if condition == ExecutionCondition::unknown() {
                     continue;
                 }
 
@@ -803,13 +808,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 }
 
 pub(super) fn converted_argument(
+    values: &bray_symbols::SemanticValueStore,
     value: ExecutionCondition,
     conversion: &bray_bound_tree::SelectedConversion,
 ) -> ExecutionCondition {
-    match conversion.target() {
-        bray_bound_tree::ConversionTarget::Identity
-        | bray_bound_tree::ConversionTarget::CallableContract => value,
-        bray_bound_tree::ConversionTarget::NullablePresent => value.present(),
-        _ => ExecutionCondition::Unknown,
+    if conversion_transports_value(conversion) {
+        value.coerce(values, conversion.source_type(), conversion.target_type())
+    } else {
+        ExecutionCondition::unknown()
     }
+}
+
+pub(super) fn conversion_transports_value(conversion: &bray_bound_tree::SelectedConversion) -> bool {
+    matches!(conversion.target(), bray_bound_tree::ConversionTarget::Identity
+        | bray_bound_tree::ConversionTarget::CallableContract
+        | bray_bound_tree::ConversionTarget::NullablePresent)
 }

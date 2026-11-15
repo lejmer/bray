@@ -1,4 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet};
+use crate::execution_guarantees::ExecutionAssumptions;
+use std::collections::BTreeMap;
 
 use super::super::{flow::ExecutionFlowDomain, state::ExecutionState};
 use crate::{CheckerRequestContext, ExecutionCondition};
@@ -17,8 +18,14 @@ pub(in crate::analysis) enum OwnedReturnCondition {
 #[derive(Eq, PartialEq)]
 pub(super) struct OwnedReturn {
     value: ExecutionCondition,
-    assumptions: BTreeSet<(ExecutionCondition, bool)>,
+    assumptions: ExecutionAssumptions,
     transfers: DependencyOwnedResult<StorageProjection>,
+}
+
+impl OwnedReturn {
+    pub(super) fn excludes(&self, path: &[StorageProjection], cache: &crate::execution_guarantees::ExecutionProofCache) -> bool {
+        activity(&self.value, path, &self.assumptions, cache).0 == Some(false)
+    }
 }
 
 impl super::check::TrustedChecks {
@@ -36,37 +43,43 @@ impl super::check::TrustedChecks {
             return;
         }
 
+        let result_type = domain.semantics.types().callable_result_type().unwrap_or_else(|| {
+            let crate::CheckerUnitRoot::Expression(root) = domain.request.root() else {
+                unreachable!("a non-callable value producer retains its expression root");
+            };
+
+            domain.semantics.types().expression(root)
+                .expect("checked default or constant producer retains its result type").ty()
+        });
+
+        let result = result.clone().coerce(domain.request.semantic_values(), result_type, result_type);
+        let result = &result;
+        let return_substitution = super::super::flow::return_substitution(result);
+
         let mut returned = OwnedReturn {
             value: result.clone(),
-            assumptions: state
-                .assumptions
-                .iter()
+            assumptions: state.proofs.ordinary_proof(&state.assumptions)
+                .ordinary_facts()
                 .filter(|(condition, holds)| {
                     condition.nullable_absence(*holds).is_some()
                         || condition.nullable_absence(!*holds).is_some()
-                        || matches!(condition, ExecutionCondition::VariantTest(_, _))
+                        || matches!(condition.kind(), crate::ExecutionConditionKind::VariantTest(_, _))
                 })
                 .cloned()
                 .collect(),
             transfers: super::super::flow::owned_alternatives(
                 (state, result),
                 (state, result),
-                &ExecutionCondition::Result,
+                &ExecutionCondition::result(),
             )
             .try_map(
                 &mut |transfer| {
-                    let ExecutionCondition::Input(place) = transfer.input() else {
-                        unreachable!("owned input lineage retains its formal place");
-                    };
+                    let source = transfer.input();
 
-                    let input = (!domain
-                        .borrowed_inputs
-                        .iter()
-                        .any(|borrow| borrow.contains(&place)))
-                    .then(|| {
-                        super::carriers::portable(domain.request, &ExecutionCondition::Input(place))
-                    })
-                    .flatten();
+                    assert!(matches!(source.kind(), crate::ExecutionConditionKind::Input(_)),
+                        "owned input lineage retains its formal place");
+
+                    let input = super::carriers::portable(domain.request, &source);
 
                     Ok::<_, std::convert::Infallible>(
                         input
@@ -74,19 +87,17 @@ impl super::check::TrustedChecks {
                                 DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
                                     input,
                                     transfer.output().iter().copied(),
-                                ))
+                                ).with_preservation(transfer.preservation().clone()))
                             })
                             .unwrap_or_default(),
                     )
                 },
                 &mut |condition| {
-                    if condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                        == Some(true)
-                    {
+                    if *condition == ExecutionCondition::boolean(true) {
                         return Ok(None);
                     }
 
-                    let mapped = super::super::flow::returned_condition(condition, result);
+                    let mapped = return_substitution(condition);
 
                     Ok(super::carriers::portable(domain.request, &mapped))
                 },
@@ -95,21 +106,43 @@ impl super::check::TrustedChecks {
         };
 
         for (condition, holds) in state.assumptions.difference(&self.owned_entry_conditions) {
-            if !matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input()) {
-                continue;
-            }
+            let formal = matches!(condition.kind(), crate::ExecutionConditionKind::Input(place) if place.is_callable_input());
 
-            let condition = if *holds {
-                condition.clone()
+            let condition = if formal { condition.clone() } else {
+                if condition.contains_trusted() { continue; }
+
+                let mapped = condition.boolean_consequence(*holds, &mut |atom| {
+                    let mapped = return_substitution(atom);
+
+                    super::carriers::portable(domain.request, &mapped)?;
+
+                    // Mapping each atom keeps one clause's unrelated local terms
+                    // from consuming the current-snapshot rewrite budget.
+                    let actual = mapped.substitute(&|place| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())), result,
+                        &mut { ExecutionCondition::WORK_LIMIT });
+
+                    (actual == *atom).then_some(mapped)
+                }, &mut { ExecutionCondition::WORK_LIMIT });
+
+                if !mapped.observes_completion_result() { continue; }
+
+                mapped
+            };
+
+            let condition = if !formal || *holds {
+                condition
             } else {
                 ExecutionCondition::operation(
                     bray_bound_tree::BoundOperator::LogicalNot,
-                    vec![condition.clone()],
+                    vec![condition],
                 )
             };
 
-            let condition = super::carriers::portable(domain.request, &condition)
-                .expect("formal Boolean exit condition is portable");
+            let condition = match super::carriers::portable(domain.request, &condition) {
+                Some(condition) => condition,
+                None if formal => unreachable!("formal Boolean exit condition is portable"),
+                None => continue,
+            };
 
             returned.transfers = DependencyOwnedResult::case(condition, returned.transfers);
         }
@@ -126,12 +159,17 @@ impl super::check::TrustedChecks {
         StorageProjection,
         (bray_symbols::ConstantTermId, OwnedReturnCondition),
     > {
-        let candidates = self
-            .owned_returns
-            .iter()
-            .flat_map(|returned| returned.transfers.transfers())
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let mut candidates: Vec<DependencyOwnedTransfer<StorageProjection>> = Vec::new();
+
+        for transfer in self.owned_returns.iter().flat_map(|returned| returned.transfers.transfers()) {
+            if let Some(previous) = candidates.iter_mut().find(|previous| previous.same_identity(transfer)) {
+                *previous = previous.clone().with_preservation(
+                    previous.preservation().intersection(transfer.preservation()),
+                );
+            } else {
+                candidates.push(transfer.clone());
+            }
+        }
 
         let mut shared = BTreeMap::new();
         let mut shapes = BTreeMap::new();
@@ -144,12 +182,12 @@ impl super::check::TrustedChecks {
 
             for returned in &self.owned_returns {
                 let (active, leaf_absent) =
-                    activity(&returned.value, transfer.output(), &returned.assumptions);
+                    activity(&returned.value, transfer.output(), &returned.assumptions, &domain.proofs);
 
                 let contains = returned
                     .transfers
                     .transfers()
-                    .any(|candidate| candidate == &transfer);
+                    .any(|candidate| candidate.same_identity(&transfer));
 
                 if active == Some(false) {
                     conditional = true;
@@ -161,7 +199,7 @@ impl super::check::TrustedChecks {
                         domain,
                         &returned.transfers,
                         &transfer,
-                        &BTreeSet::new(),
+                        &Default::default(),
                     );
                 }
             }
@@ -176,7 +214,12 @@ impl super::check::TrustedChecks {
 
             shapes.insert(transfer.clone(), shape);
 
-            if valid {
+            let uniform = self.owned_returns.iter()
+                .flat_map(|returned| returned.transfers.transfers())
+                .filter(|candidate| candidate.same_identity(&transfer))
+                .all(|candidate| candidate.preservation() == transfer.preservation());
+
+            if valid && uniform {
                 shared.insert(transfer, shape);
             }
         }
@@ -188,17 +231,21 @@ impl super::check::TrustedChecks {
                 .transfers
                 .try_map(
                     &mut |transfer| {
-                        if shared.contains_key(transfer) {
+                        if shared.keys().any(|candidate| candidate.same_identity(transfer)) {
                             return Ok(DependencyOwnedResult::default());
                         }
 
-                        let shape = shapes[transfer];
+                        let (_, shape) = shapes.iter()
+                            .find(|(candidate, _)| candidate.same_identity(transfer))
+                            .expect("normal ownership layout retains its inferred shape");
+
+                        let shape = *shape;
 
                         Ok::<_, std::convert::Infallible>(DependencyOwnedResult::Transfer(
                             DependencyOwnedTransfer::new(
                                 (transfer.input(), shape),
                                 transfer.output().iter().copied(),
-                            ),
+                            ).with_preservation(transfer.preservation().clone()),
                         ))
                     },
                     &mut |condition| Ok(Some((*condition, OwnedReturnCondition::Unconditional))),
@@ -210,7 +257,7 @@ impl super::check::TrustedChecks {
                     DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
                         (transfer.input(), *shape),
                         transfer.output().iter().copied(),
-                    ))
+                    ).with_preservation(transfer.preservation().clone()))
                 },
             )))
         }))
@@ -218,24 +265,23 @@ impl super::check::TrustedChecks {
 }
 
 /// An inactive alternative owns no payload and imposes no input-identity requirement.
-fn activity(
+pub(super) fn activity(
     result: &ExecutionCondition,
     path: &[StorageProjection],
-    assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+    assumptions: &ExecutionAssumptions,
+    cache: &crate::execution_guarantees::ExecutionProofCache,
 ) -> (Option<bool>, bool) {
+    let proof = cache.ordinary_proof(assumptions);
     let mut value = result.clone();
     let mut active = Some(true);
 
     for projection in path {
         let known = match projection {
             StorageProjection::NullableValue => {
-                if matches!(value, ExecutionCondition::Present(_)) {
-                    Some(true)
-                } else if matches!(&value, ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
-                {
-                    Some(false)
+                if let Some(present) = value.known_presence() {
+                    Some(present)
                 } else {
-                    assumptions.iter().find_map(|(condition, holds)| {
+                    proof.ordinary_facts().find_map(|(condition, holds)| {
                         condition
                             .nullable_absence(*holds)
                             .map(|(subject, _)| (subject, false))
@@ -254,7 +300,7 @@ fn activity(
             StorageProjection::ActiveUnionPayloadField { variant, .. } => value
                 .clone()
                 .matches_variant(*variant)
-                .prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }),
+                .prove_ordinary(assumptions, Some(cache)),
             _ => Some(true),
         };
 
@@ -269,8 +315,8 @@ fn activity(
         value = value.project(*projection);
     }
 
-    if matches!(&value, ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
-        || assumptions.iter().any(|(condition, holds)| {
+    if value.known_presence() == Some(false)
+        || proof.ordinary_facts().any(|(condition, holds)| {
             condition
                 .nullable_absence(*holds)
                 .is_some_and(|(subject, _)| subject == &value || subject == value.owner_identity())
@@ -286,14 +332,14 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
     result: &DependencyOwnedResult<StorageProjection>,
     transfer: &DependencyOwnedTransfer<StorageProjection>,
-    assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+    assumptions: &ExecutionAssumptions,
 ) -> bool {
-    if activity(&ExecutionCondition::Result, transfer.output(), assumptions).0 == Some(false) {
+    if activity(&ExecutionCondition::result(), transfer.output(), assumptions, &domain.proofs).0 == Some(false) {
         return true;
     }
 
     match result {
-        DependencyOwnedResult::Transfer(candidate) => candidate == transfer,
+        DependencyOwnedResult::Transfer(candidate) => candidate.same_identity(transfer),
         DependencyOwnedResult::All(values) => values
             .iter()
             .any(|value| every_active_layout_transfers(domain, value, transfer, assumptions)),
@@ -325,7 +371,7 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn owned_normal_completion(
         &self,
-        assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+        assumptions: &ExecutionAssumptions,
         invocation: bray_bound_tree::BoundExecutionSite,
         entry: &crate::ExecutionCallEvidence,
         result: &ExecutionCondition,
@@ -345,20 +391,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &|place| {
                     place
                         .value_in(&entry.arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
+                        .unwrap_or_else(ExecutionCondition::unknown)
                 },
                 result,
                 &mut { ExecutionCondition::WORK_LIMIT },
             )
         };
 
-        feasible_layout(contract.owned_result(), assumptions, &instantiate)
+        let mut assumptions = assumptions.clone();
+
+        assumptions.extend(entry.assumptions.iter().cloned());
+
+        feasible_layout(contract.owned_result(), &assumptions, &instantiate)
     }
 }
 
 fn feasible_layout(
     result: &DependencyOwnedResult,
-    assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+    assumptions: &ExecutionAssumptions,
     instantiate: &impl Fn(bray_symbols::ConstantTermId) -> ExecutionCondition,
 ) -> bool {
     match result {
@@ -372,7 +422,7 @@ fn feasible_layout(
         DependencyOwnedResult::Case { condition, result } => {
             let condition = instantiate(*condition);
 
-            if condition.prove_trusted(&BTreeSet::new(), assumptions) == Some(false) {
+            if condition.prove_ordinary(assumptions, None) == Some(false) {
                 return false;
             }
 

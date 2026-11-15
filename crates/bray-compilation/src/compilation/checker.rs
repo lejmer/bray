@@ -564,6 +564,13 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_binder_error)
     }
 
+    fn callable_parameter(
+        &self,
+        parameter: bray_symbols::CallableParameterSymbolId,
+    ) -> CheckerQueryResult<Option<&bray_symbols::CallableParameterSymbol>> {
+        self.binding_context.callable_parameter(parameter).map_err(checker_binder_error)
+    }
+
     fn structure(&self, id: StructSymbolId) -> CheckerQueryResult<Option<&StructSymbol>> {
         self.binding_context
             .structure(id)
@@ -931,6 +938,25 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         };
 
         Ok(DiagnosticResult::new(ty, diagnostics))
+    }
+
+    fn storage_member_type(
+        &self,
+        member: AnySymbolId,
+    ) -> CheckerQueryResult<Arc<DiagnosticResult<bray_symbols::TypeExpressionTemplate>>> {
+        match member {
+            AnySymbolId::StructField(field) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::StructFieldTypeQuery,
+                >::new(field))
+            }
+            AnySymbolId::UnionPayloadField(field) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::UnionPayloadFieldTypeQuery,
+                >::new(field))
+            }
+            _ => panic!("storage member type requires a checked field: {member:?}"),
+        }
     }
 
     fn declared_type_representation(

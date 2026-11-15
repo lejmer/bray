@@ -67,6 +67,8 @@ pub(crate) fn unary_operator(operation: ConstantUnaryOperation) -> bray_bound_tr
         ConstantUnaryOperation::BitwiseNot => bray_bound_tree::BoundOperator::BitwiseNot,
         ConstantUnaryOperation::PredicateTrust
         | ConstantUnaryOperation::BorrowObservation
+        | ConstantUnaryOperation::DescriptorObservation
+        | ConstantUnaryOperation::ValueDescriptorObservation
         | ConstantUnaryOperation::EntryCondition => {
             panic!(
                 "execution condition qualifiers must be handled before numeric operator evaluation"
