@@ -96,16 +96,33 @@ fn infer_reachable_results(
         return Ok(result);
     }
 
+    let references = if crate::compilation::standard_library::recognized_declaration(
+        context,
+        root.into_any(),
+        "StandardPlatformHeapAlignedAllocate",
+    ).map_err(binder_error)? {
+        // The fallible allocator establishes only origin separation, not a live
+        // allocation or any access condition. Null remains an ordinary result.
+        vec![bray_symbols::DependencyBorrowRelation::new_allocation(
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
+            bray_symbols::DependencyReferenceKind::Address,
+        )]
+    } else {
+        Vec::new()
+    };
+
     // A declaration without a body has explicit arguments and an explicit receiver.
-    let empty = context
+    let template = context
         .semantic_values()
         .intern_dependency_contract_template(
             bray_symbols::DependencyContractTemplateData::new([])
+                .with_borrows(references)
                 .with_effects(bray_symbols::DependencyStorageEffect::capture_free_call()),
         )
         .expect("declared result dependency template satisfies the semantic store contract");
 
-    Ok(DiagnosticResult::new(empty, DiagnosticBag::new()))
+    Ok(DiagnosticResult::new(template, DiagnosticBag::new()))
 }
 
 fn source_component(

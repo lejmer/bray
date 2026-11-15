@@ -782,6 +782,7 @@ mod tests {
             "StandardNativeThreadExecution",
             "StandardNativeThreadStart",
             "StandardNativeThreadPanicReporting",
+            "StandardPlatformHeapAlignedAllocate",
             "StandardNumericUsizeMaximum",
             "StandardRawAllocation",
             "StandardRawAllocationAlign",

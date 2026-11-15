@@ -53,7 +53,9 @@ impl ExecutionState {
 
         let pending = values.into_iter().collect::<Vec<_>>();
 
-        if pending.is_empty() && places.is_empty() { return; }
+        if pending.is_empty() && places.is_empty() {
+            return;
+        }
 
         let private = self.private_witness_inputs(admitted);
         let private_allocations = self.private_allocation_conditions(admitted, &private);
@@ -266,6 +268,7 @@ impl ExecutionState {
                     .values()
                     .any(|candidate| !candidate.entry.pending_execution)
         });
+
     }
 
     fn retired_owners(
@@ -698,6 +701,7 @@ fn retain_ordinary_facts(
 
     if known.is_empty() {
         facts.retain(|(condition, _)| !expired(condition) && retained(condition));
+
         return;
     }
 
@@ -707,7 +711,9 @@ fn retain_ordinary_facts(
     for (condition, holds) in facts.iter().filter(|(condition, _)| !condition.contains_trusted() && expired(condition)) {
         let condition = substitution.apply(condition);
 
-        if !expired(&condition) && retained(&condition) { condition.assume(*holds, &mut consequences); }
+        if !expired(&condition) && retained(&condition) {
+            condition.assume(*holds, &mut consequences);
+        }
     }
 
     facts.retain(|(condition, _)| !expired(condition) && retained(condition));
@@ -832,7 +838,11 @@ mod tests {
                 vec![not(initialized.clone()), trusted.clone()]), true));
 
             relation.clone().assume(true, &mut state.assumptions);
-            if let Some(known) = known { initialized.clone().assume(known, &mut state.assumptions); }
+
+            if let Some(known) = known {
+                initialized.clone().assume(known, &mut state.assumptions);
+            }
+
             state.invalidate_trusted_values([owner.clone()]);
 
             assert_eq!(tag.prove_ordinary(&state.assumptions, Some(&state.proofs)), known);
@@ -931,6 +941,7 @@ mod tests {
             let loan = owner.clone().borrowed();
 
             state.carry_guarantee(loan.clone(), condition.clone());
+
             assert!(state.owns_witness(&owner));
             assert!(!state.owns_witness(&copied));
             assert!(!state.owns_witness(&loan));
@@ -954,6 +965,7 @@ mod tests {
             only_view.witnesses.insert(loan.clone(), state.witnesses[&loan].clone());
             only_view.trusted_assumptions.insert((condition.clone(), true));
             only_view.invalidate_trusted_roots(&BTreeSet::from([scope.root.clone()]));
+
             assert!(!only_view.trusted_assumptions.contains(&(condition.clone(), true)), "an expired sole view cannot retain evidence");
 
             state.invalidate_trusted_roots(&BTreeSet::from([scope.root]));
@@ -961,7 +973,9 @@ mod tests {
             assert!(!state.witnesses.contains_key(&loan));
             assert!(state.owns_witness(&owner), "view expiry preserves independent authority");
             assert!(state.trusted_assumptions.contains(&(condition.clone(), true)));
+
             state.invalidate_trusted(&owner);
+
             assert!(!state.trusted_assumptions.contains(&(condition, true)), "retiring the actual owner revokes its evidence");
         }
     }
@@ -1059,6 +1073,7 @@ mod tests {
 
         prior.insert(root.clone());
         prior.insert(after.clone());
+
         assert!(prior.retains_owner(&root));
         assert!(prior.retains_contents(&after));
 
@@ -1070,12 +1085,15 @@ mod tests {
         }
 
         stable.insert(before.clone());
+
         assert!(stable.preserves(&before), "a newly retained snapshot invalidates the earlier negative query");
 
         let borrowed = root.borrowed();
 
         assert!(!stable.contains(&borrowed));
+
         stable.insert(borrowed.clone());
+
         assert!(stable.contains(&borrowed));
     }
 }

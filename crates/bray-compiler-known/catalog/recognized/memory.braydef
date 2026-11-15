@@ -1,5 +1,17 @@
 catalog recognized_standard_library revision 1;
 
+scope StandardPlatformHeap at std.platform.heap {
+    declaration StandardPlatformHeapAlignedAllocate {
+        identity name aligned_allocate;
+        availability Allocation;
+
+        surface {
+            trusted func aligned_allocate(pos bytes: usize, pos alignment: usize) -> DataPointer<u8>
+                uses(foreign_call);
+        }
+    }
+}
+
 scope StandardMemory at std.memory {
     declaration StandardMemoryAddressOf {
         identity name address_of;

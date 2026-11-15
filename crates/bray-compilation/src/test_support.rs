@@ -1058,6 +1058,21 @@ pub(crate) fn finite_iterator_source(step: &str) -> String {
     )
 }
 
+pub(crate) fn diagnostic_at_call(
+    diagnostic: &bray_diagnostics::Diagnostic,
+    source: bray_source::SourceId,
+    caller: &str,
+    call: &str,
+) -> bool {
+    let start = caller.rfind(call).expect("fixture contains the checked call");
+    let end = start + caller[start..].find(';').expect("checked call ends in a semicolon");
+
+    diagnostic.primary_span().is_some_and(|span| {
+        span.source_id() == source && (span.start().bytes() as usize) < end
+            && (span.end().bytes() as usize) > start
+    })
+}
+
 pub(crate) fn diagnostic_source_fragments(
     compilation: &Compilation,
     diagnostics: &bray_diagnostics::DiagnosticBag,

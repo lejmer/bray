@@ -105,6 +105,7 @@ impl BoundCallReference {
 pub struct BoundReturnedValue {
     borrowed: bool,
     input_path: crate::StorageReferencePath,
+    preservation: bray_symbols::DependencyValuePreservation<crate::StorageProjection>,
     conditions: Arc<[bray_symbols::ConstantTermId]>,
     observations: Arc<[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)]>,
 }
@@ -114,10 +115,11 @@ impl BoundReturnedValue {
     pub fn new(
         borrowed: bool,
         input_path: crate::StorageReferencePath,
+        preservation: bray_symbols::DependencyValuePreservation<crate::StorageProjection>,
         conditions: impl Into<Arc<[bray_symbols::ConstantTermId]>>,
         observations: impl Into<Arc<[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)]>>,
     ) -> Self {
-        Self { borrowed, input_path, conditions: conditions.into(), observations: observations.into() }
+        Self { borrowed, input_path, preservation, conditions: conditions.into(), observations: observations.into() }
     }
 
     /// Whether the instantiated output is a borrow rather than an extracted owner.
@@ -125,6 +127,11 @@ impl BoundReturnedValue {
 
     /// The current physical source, including borrowed layers crossed by extraction.
     pub fn input_path(&self) -> &crate::StorageReferencePath { &self.input_path }
+
+    /// Complete inline preservation, resolved before storage and guarantee flow.
+    pub fn preservation(&self) -> &bray_symbols::DependencyValuePreservation<crate::StorageProjection> {
+        &self.preservation
+    }
 
     /// Ordinary presence facts implied by the transferred projection.
     pub fn conditions(&self) -> &[bray_symbols::ConstantTermId] { &self.conditions }

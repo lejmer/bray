@@ -143,20 +143,7 @@ pub(super) fn assert_production_probe(caller: &str, valid: bool) {
     );
 }
 
-pub(super) fn diagnostic_at_call(
-    diagnostic: &bray_diagnostics::Diagnostic,
-    source: bray_source::SourceId,
-    caller: &str,
-    call: &str,
-) -> bool {
-    let start = caller.rfind(call).expect("fixture contains the checked call");
-    let end = start + caller[start..].find(';').expect("checked call ends in a semicolon");
-
-    diagnostic.primary_span().is_some_and(|span| {
-        span.source_id() == source && (span.start().bytes() as usize) < end
-            && (span.end().bytes() as usize) > start
-    })
-}
+pub(super) use crate::test_support::diagnostic_at_call;
 
 fn condition_contains_predicate(condition: &bray_diagnostics::DiagnosticCondition, predicate: &str) -> bool {
     use bray_diagnostics::DiagnosticCondition;

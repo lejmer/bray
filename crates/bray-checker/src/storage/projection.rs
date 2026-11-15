@@ -290,24 +290,31 @@ pub(crate) fn owned_storage_projections(
     projections.iter().map(|projection| owned_storage_projection(dependencies, *projection)).collect()
 }
 
-/// Resolves a retained-value mask against the checked ownership projection table.
-pub(crate) fn owned_storage_preservation(
-    dependencies: &bray_bound_tree::CheckedDependencyContracts,
+/// Resolves the complete retained-value mask at dependency preparation.
+pub(crate) fn resolve_owned_storage_preservation<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     preservation: &bray_symbols::DependencyValuePreservation<bray_symbols::ConstantProjectionKind>,
-) -> bray_symbols::DependencyValuePreservation<StorageProjection> {
+) -> crate::CheckerQueryResult<bray_symbols::DependencyValuePreservation<StorageProjection>, C::UpstreamError> {
     preservation.try_map_projections(&mut |projection| {
-        Ok::<_, std::convert::Infallible>(owned_storage_projection(dependencies, *projection))
-    }).unwrap_or_else(|error| match error {})
+        resolve_owned_storage_projection(request, *projection)
+    })
 }
 
 pub(crate) fn resolve_owned_storage_projections<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     projections: &[bray_symbols::ConstantProjectionKind],
 ) -> crate::CheckerQueryResult<Vec<StorageProjection>, C::UpstreamError> {
-    projections.iter().map(|projection| map_owned_storage_projection(*projection, &mut |field| {
+    projections.iter().map(|projection| resolve_owned_storage_projection(request, *projection)).collect()
+}
+
+fn resolve_owned_storage_projection<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    projection: bray_symbols::ConstantProjectionKind,
+) -> crate::CheckerQueryResult<StorageProjection, C::UpstreamError> {
+    map_owned_storage_projection(projection, &mut |field| {
         Ok(request.union_payload_field(field)?
             .expect("checked owning field retains its variant").variant())
-    })).collect()
+    })
 }
 
 fn owned_storage_projection(

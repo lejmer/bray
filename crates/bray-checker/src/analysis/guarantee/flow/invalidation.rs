@@ -591,6 +591,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         {
             self.invalidate_all_observations(state, mutation, descriptors, stable_values, normal_snapshots);
 
+
             return;
         }
 
@@ -742,7 +743,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut updates = BTreeMap::new();
 
         for place in changed_places {
-            if value_for_invalidation(state, &place).is_none() { continue; }
+            if value_for_invalidation(state, &place).is_none() {
+                continue;
+            }
 
             let mut root = place.clone();
 
@@ -763,12 +766,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             *updated = updated.with_storage_component(path, next);
         }
 
-        for (place, value) in updates { state.observe(place, value, None); }
+        for (place, value) in updates {
+            state.observe(place, value, None);
+        }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
             self.observe_references(state, snapshots);
         }
+
     }
+
     fn invalidated_places(
         &self,
         invalidation: &StorageInvalidation,
@@ -958,7 +965,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 fn value_for_invalidation(state: &ExecutionState, place: &crate::ExecutionPlace) -> Option<ExecutionCondition> {
     if super::merge::resolved_availability(state, place) == super::super::current::ValueAvailability::Absent {
         None
-    } else { place.value_in(&state.current) }
+    } else {
+        place.value_in(&state.current)
+    }
 }
 
 #[cfg(test)]

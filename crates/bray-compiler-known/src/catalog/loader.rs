@@ -531,11 +531,11 @@ mod tests {
         assert_eq!(catalog.compiler_known_scopes().len(), 15);
         assert_eq!(catalog.compiler_known_declarations().len(), 383);
         assert_eq!(catalog.compiler_known_values().len(), 4);
-        assert_eq!(catalog.recognized_standard_library_scopes().len(), 13);
+        assert_eq!(catalog.recognized_standard_library_scopes().len(), 14);
 
         assert_eq!(
             catalog.recognized_standard_library_declarations().len(),
-            155
+            156
         );
 
         let raw_pointer = declaration(&catalog, "DataPointer");

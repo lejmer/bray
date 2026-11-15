@@ -31,6 +31,95 @@ use super::fixtures::{
 };
 
 #[test]
+fn platform_allocation_origins_survive_nullable_forwarding_without_access_authority() {
+    let declarations = r#"
+        trusted module std.platform.heap;
+
+        extern trusted func aligned_allocate(pos bytes: usize, pos alignment: usize) -> DataPointer<u8>
+            uses(foreign_call);
+    "#;
+    let wrapper = r#"
+        trusted module std.allocation_fixture;
+
+        using core.memory;
+        using std.platform.heap;
+
+        trusted func forward(pos overflow: bool) -> DataPointer<u8>
+        {
+            if overflow
+            {
+                return core.memory.null<u8>();
+            }
+
+            return trusted std.platform.heap.aligned_allocate(8, 8);
+        }
+    "#;
+    let caller = r#"
+        trusted module app;
+
+        using core.memory;
+        using std.allocation_fixture;
+
+        trusted func relay(pos overflow: bool) -> DataPointer<u8>
+        {
+            return trusted std.allocation_fixture.forward(overflow);
+        }
+    "#;
+    let provider = standard_library_compilation([declarations, wrapper]);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    for imported in [false, true] {
+        let application = if imported {
+            super::fixtures::execution_consumer(&provider, caller)
+        } else {
+            standard_library_compilation([declarations, wrapper, caller])
+        };
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:#?}");
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&application, "relay");
+
+        assert!(summary.borrows().iter().any(|relation| relation.allocation().is_some()),
+            "imported={imported}: nullable forwarding retains the actual allocation origin: {summary:#?}");
+        assert!(summary.requirements().is_empty() && summary.carriers().is_empty(),
+            "origin separation grants no trusted access authority: {summary:#?}");
+
+        let invalid = caller.replace("-> DataPointer<u8>", "-> u8\n            uses(raw_memory)").replace(
+            "return trusted std.allocation_fixture.forward(overflow);",
+            "let pointer = trusted std.allocation_fixture.forward(overflow);\n            return trusted core.memory.read<u8>(pointer);",
+        );
+        let application = if imported {
+            super::fixtures::execution_consumer(&provider, &invalid)
+        } else {
+            standard_library_compilation([declarations, wrapper, invalid.as_str()])
+        };
+
+        let diagnostics = application.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+
+        let source = source_function_body_key(&application, "relay").source().syntax().source_id();
+
+        assert!(diagnostics.iter().any(|diagnostic| crate::test_support::diagnostic_at_call(
+            diagnostic, source, &invalid, "core.memory.read<u8>(pointer)",
+        )), "origin separation cannot authorize the raw read: {diagnostics:#?}");
+
+        let invalid = caller.replace("-> DataPointer<u8>\n", "-> DataPointer<u8>\n            ensures(!core.memory.is_null<u8>(result))\n");
+        let application = if imported {
+            super::fixtures::execution_consumer(&provider, &invalid)
+        } else {
+            standard_library_compilation([declarations, wrapper, invalid.as_str()])
+        };
+
+        bray_testing::assert_goal_state_diagnostic_kind(application.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven);
+    }
+}
+
+#[test]
 fn platform_service_implementations_publish_their_role_with_the_root_template() {
     let Some(binding) =
         PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "app.flush")

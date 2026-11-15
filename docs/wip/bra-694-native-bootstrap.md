@@ -2,47 +2,71 @@
 
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Branch: `feature/bra-694-native-bootstrap-contracts`, based on develop c1d01eb34.
-PR #710 and its seven prerequisites are merged. Native execution and teardown remain BRA-695 and BRA-696.
+Draft PR: https://github.com/lejmer/bray/pull/717. Initial regression checkpoint: 818499c39.
+Reviewer: `/root/bra694_review`, reviewed 818499c39 at https://github.com/lejmer/bray/pull/717#pullrequestreview-5911736252.
+PR #710 and its seven prerequisites are merged. Execution and teardown remain BRA-695 and BRA-696.
 
-## Contract and baseline
+## Contract and verification
 
-Make actual Linux and Windows bootstrap products check and lower without widening authority.
-Preserve disjoint owners and fields. Reject fabricated owners, replaced contents, prior epochs and real raw retirement.
-Source/imported composition and negative rejection locations stay fixed. Internal invariant failures panic.
+Make actual supported Linux and Windows bootstrap products check and lower without widening authority.
+Preserve disjoint owners and fields. Reject fabricated owners, replaced contents, old epochs and real raw retirement.
+Preserve source/import composition and negative rejection locations. Internal invariant defects panic.
+Assignment of registration must precede demand_lane so panic rollback can withdraw it exactly once.
 
-The inherited compiler baseline passed 1,718 comparison identities, 561 checker tests and 24 focused controls.
-The integration tree passes mutating style and format. Actual native product closure remains unverified.
+The inherited baseline passed 1,718 fixed identities, 561 checker tests and 24 controls. Base style and format passed.
+Current source checks and lowering pass owner_entry_scope on Linux and Windows. dispatch_ready still loses view_owned,
+and reserve_start still loses registration presence. Six existing controls and the new source/import allocator control
+pass in the latest bounded run. The nested-union and mutable-entry fixtures have corrections awaiting validation.
+Physical-reference inventory and shared owned-path resolution are newer, unvalidated work. Style is deferred until the end.
 
-## Current investigation
+Actual Windows product baseline has nine call failures, one registration postcondition and sixteen propagated errors.
+Other leaf sites are create_execution, root_scope, create_worker_context, observer create and unlink_registration.
+Both imported-product verification and the four Linux/Windows target gates remain outstanding.
+Temporary tracing has been removed. Keep only current evidence and overwrite investigation outputs.
 
-Current source-body lowering reproduces `owner_entry_scope` and `dispatch_ready` on both platforms, 61 seconds total.
-The former loses `reference_retained` at `origin_driver_startup`. The latter fails `view_owned` at the recovery `context`
-call after `demand_lane` and `record_task_failure`. Exact first loss in the latter remains unresolved.
+## Producer repairs
 
-The actual Windows product, with current imported standard-library contracts, reports nine call failures and one ordinary
-registration postcondition failure. Sixteen further diagnostics propagate those failures. Additional leaf sites are
-`create_execution`, `root_scope`, `create_worker_context`, observer `create` and `unlink_registration`.
-Group these by shared-marker retirement, allocation/nullable owner transport and mutable registration presence.
-These are investigation categories, not established independent causes. Linux imported products remain unverified.
+Recognize only the standard-library platform aligned allocator and publish the existing Allocation result relation.
+This gives origin separation, never non-nullness, initialization, ownership or access authority. Keep foreign effects
+and ABI lowering unchanged. Normal staging commits once, wrappers/imports retain alias groups, null grants no authority,
+and replay leaves old epochs retired. Ordinary extern owned_allocation results remain nonfresh.
 
-`origin_driver_startup` exports unbounded write/retirement effects. Its call invalidation has no retained parameter marker.
-`demand_lane` exports ambient effects plus escaped domain/worker pointers. Its call preserves the Current acquisition
-marker, as does `record_task_failure`. That narrows dispatch loss to subsequent framing, witness retirement or cleanup.
-`reserve_start` does not publish registration presence across that call. These observations do not establish a repair yet.
+Event Reference stores its actual DataPointer<Domain>. Initialization publishes it, retain copies it after count commit,
+directory/wait records move the complete owner, and final release uses byte_address under final_reference.
+Remove its integer roundtrips. Callback context and directory identities retain their integer ABI. The C record remains
+one pointer-width field, but actual Bray/native layout validation is still required.
 
-Trace effect inference and export/import, argument staging, current storage framing, witness retirement, normal return,
-conditional extraction, cleanup and postcondition checking. Preserve actual produced values through every consumer.
-No production semantics changed. Focused checks request execution certification and lowering. Temporary checker tracing
-must be removed before committing a repair. Style remains deferred to batch finalization.
+Resolve complete ownership masks once in BoundReturnedValue preparation, alongside source paths and observations.
+Direct, deferred, hidden, protocol and conversion calls share that producer. Completion consumes the immutable mask.
+Lifecycle cleanup has no owned-return mask consumer. Storage flow still intersects masks across alternatives.
+This removes late conversion through an incomplete union-selector inventory. No guards or authority rules change.
 
-An unresolved transition blocks production edits. Record its inputs, outputs, preservation and invalidation here
-after tracing executable producers and consumers. Derive both positive and overpreservation controls before repair.
-Prefer existing storage/effect representations. No historical authority reconstruction or consumer exceptions.
-Remove superseded machinery rather than layering a second mechanism. Reconsider if a repair needs broad new APIs.
+## Ordinary observations
 
-Yielded values remain pending until ordinary result completion. Failure cleanup admits the exact produced result once
-before conditional snapshots. Do not move normal publication earlier. RawAllocation backing follows its pointer field.
-Aggregate stored roots are replacement markers. Borrow retention never grants ownership or preserves overwritten data.
+Mutable-loan framing omitted ordinary values and tags before consulting effects. Consider ordinary inline observations
+per exact physical target. Keep Reference boundaries and protected/reached Mutable observations on dedicated paths.
+Nonraw Ambient work preserves exclusive inline state only when actual publication is disjoint. Normal and failure
+publication precede their respective framing. Keep conservative Entry reachability and real raw effects unchanged.
+Controls cover a nested shared argument, opaque mutable argument, raw tag/owner publication and actual replacement.
 
-Next: finish the bounded transition trace and establish the owning defects and overpreservation controls.
-Keep this single record current. Replace stale logs, preserve readable fixtures and run style at batch finalization.
+## Protected references and nested cleanup
+
+Confirmed: take_retired_arena publishes allocation.pointer only, with no stored records. release_arena has no
+UninitPayload reference paths. Shape mixed physical reference inventory with ordinary observations that Uninit hides.
+Separate canonical physical paths and use them for entry demands, reference-free checks and assignment transport.
+Compose all inline shapes and bounded arrays, including UninitPayload. Atomic and recursive/unknown shapes stay opaque.
+Ordinary return snapshots still exclude protected payloads. Raw reads and extraction transport current stored records.
+
+Nested buffer cleanup also loses the typed descriptor route. Dispose elements at owner.OwnedTarget.AnyElement and
+retire backing separately through owner.pointer. Prepare finite cleanup subjects with the existing guarded expansion.
+Reuse segmented stored_locations for call effects, lifecycle effects and entry seeding. Follow actual current pointers,
+retain AnyElement inexactness, seed prerequisites first, and preserve existing pointer records. Do not add unrestricted
+owning-element parent edges or project value layout onto inexact bounds. Cleanup regions stay conservative.
+
+Equivalent paths include lock destructors, worker nested buffers, scheduler/deadline retirement and channel extraction.
+Validate raw read, protected extraction, imported publication, nested disposal, overwrite and saved-alias retirement.
+Reuse existing paths, demands and stored-value graph. Remove superseded observation-derived physical queries and
+parallel backing lookup. Growth must buy those current contracts, without new authority or a new graph representation.
+
+Next: finish entry/cleanup consumers and demand closure before validating this complete batch. Then run fixed regression,
+owned/deferred, projection/cleanup, native product and fixed-five/loop gates. Re-review the committed repair on the PR.

@@ -403,7 +403,8 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
         conditions.dedup();
 
         result.insert(transfer.clone(), bray_bound_tree::BoundReturnedValue::new(
-            borrowed, input_path, conditions, crate::storage::observation::returned_observations(request, ty)?,
+            borrowed, input_path, crate::storage::resolve_owned_storage_preservation(request, transfer.preservation())?,
+            conditions, crate::storage::observation::returned_observations(request, ty)?,
         ));
     }
 

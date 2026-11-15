@@ -80,7 +80,7 @@ trusted internal func initialize_domain(pos allocation: DataPointer<u8>) -> Refe
 
     return
     {
-        address = trusted core.target.expose_address<Domain>(pointer)
+        pointer = pointer
     };
 }
 
@@ -109,7 +109,7 @@ trusted internal func retain_event(pos owner: &Reference) -> Reference
         {
             return
             {
-                address = owner.address
+                pointer = owner.pointer
             };
         }
 
@@ -149,9 +149,7 @@ trusted internal func retired_allocation(pos owner: Reference) -> std.memory.Raw
         )
         executes(pure, total) {};
 
-    let pointer = std.memory.byte_address<Domain>(
-        trusted core.target.from_exposed_address<Domain>(address = owner.address)
-    );
+    let pointer = std.memory.byte_address<Domain>(owner.pointer);
 
     trusted claim(&owner, pointer);
 

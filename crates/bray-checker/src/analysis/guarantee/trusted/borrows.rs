@@ -163,7 +163,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     && dependencies.preserves_storage_on_normal_return()
                     && transfer.preservation() == &bray_symbols::DependencyValuePreservation::all());
 
-            let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
+            let preservation = dependencies.returned_value(transfer).preservation();
 
             let value = if borrowed_result || source.is_reference() {
                 ExecutionCondition::reference_value(source.owner_identity().clone(), ExecutionCondition::unknown())
@@ -172,7 +172,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 source.clone()
             } else {
                 super::super::flow::ValuePreservation::returned(
-                    &preservation, dependencies.returned_value(transfer).observations(),
+                    preservation, dependencies.returned_value(transfer).observations(),
                 ).returned_snapshot(&source, &input, bray_bound_tree::StorageMutation::Operation(invocation))
             };
 
