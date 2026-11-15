@@ -17,8 +17,8 @@ use bray_symbols::{
 };
 use bray_syntax::{AccessExpressionSyntax, PathSyntax, SourceSyntaxNode, SyntaxKind};
 
-use super::Compilation;
-use super::tooling::declaration_for_syntax;
+use crate::compilation::Compilation;
+use crate::compilation::tooling::declaration_for_syntax;
 use crate::fact::{CancellationToken, FactQueryError, QueryPriority};
 
 impl Compilation {
@@ -112,7 +112,7 @@ impl Compilation {
 
             let surface = binder
                 .resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(module.id()))
-                .map_err(super::binder::binding_query_error)?;
+                .map_err(crate::compilation::binder::binding_query_error)?;
 
             for using in surface.value().usings() {
                 let declaration = declarations
@@ -132,32 +132,34 @@ impl Compilation {
                 let imported = if internal_scope {
                     binder
                         .imported_symbols()
-                        .map_err(super::binder::binding_query_error)?
+                        .map_err(crate::compilation::binder::binding_query_error)?
                 } else {
                     None
                 };
 
-                let used = references_by_module.get(&module.id()).is_some_and(|references| {
-                    references.iter().any(|(target, path)| {
-                        if internal_scope
-                            && !can_access_symbol(
-                                Some(symbols),
-                                imported,
-                                *target,
-                                NameAccess::Local,
-                            )
-                            && using_scope_contains(symbols, imported, using.target(), *target)
-                        {
-                            return true;
-                        }
+                let used = references_by_module
+                    .get(&module.id())
+                    .is_some_and(|references| {
+                        references.iter().any(|(target, path)| {
+                            if internal_scope
+                                && !can_access_symbol(
+                                    Some(symbols),
+                                    imported,
+                                    *target,
+                                    NameAccess::Local,
+                                )
+                                && using_scope_contains(symbols, imported, using.target(), *target)
+                            {
+                                return true;
+                            }
 
-                        let components = path.iter().map(String::as_str).collect::<Vec<_>>();
+                            let components = path.iter().map(String::as_str).collect::<Vec<_>>();
 
-                        (matches!(target, AnySymbolId::Module(_) | AnySymbolId::Package(_))
-                            || *target == using.target())
-                            && using_covers_path(declaration, &components)
-                    })
-                });
+                            (matches!(target, AnySymbolId::Module(_) | AnySymbolId::Package(_))
+                                || *target == using.target())
+                                && using_covers_path(declaration, &components)
+                        })
+                    });
 
                 if used {
                     continue;
