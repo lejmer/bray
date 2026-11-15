@@ -192,9 +192,7 @@ fn observed_storage_bindings_read_the_same_current_value_as_their_producer() {
     use bray_bound_tree::{BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity, StoragePlanBuilder};
     use bray_symbols::{LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, SymbolName};
 
-    let (unit, expressions) = crate::test_support::expression_unit(BoundUnitId::new(0), |tree, origin| {
-        vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
-    });
+    let (unit, expressions) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
     let syntax = unit.key().source().syntax();
     let key = LocalSymbolRegionKey::try_new(unit.key().declared_owner().clone(), LocalSymbolRegionRole::CallableBody, [syntax], None).expect("local region key");
@@ -1452,4 +1450,34 @@ fn boolean_publication_bounds_unique_terms_instead_of_repeated_occurrences() {
 
     assert!(budget > 0, "repeated subformulas cannot exhaust the unique-term bound");
     assert_eq!(projected, atom, "forgetting the local conjunct retains the portable consequence");
+}
+
+#[test]
+fn mutated_fields_share_their_owner_epoch_without_equating_other_fields_or_epochs() {
+    let (_, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
+
+    let owners = [
+        ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)))),
+        ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0])),
+    ];
+
+    let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+    let second = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
+    let mutation = bray_bound_tree::StorageMutation::Operation(expressions[0].into());
+    let later = bray_bound_tree::StorageMutation::Operation(expressions[1].into());
+
+    for owner in owners {
+        let field = owner.clone().component(first);
+        let changed = ExecutionCondition::post_state(mutation, field.clone());
+
+        assert_eq!(changed, ExecutionCondition::post_state(mutation, owner.clone()).component(first));
+        assert_eq!(changed, ExecutionCondition::post_state(mutation, changed.clone()));
+        assert_eq!(changed.clone().component(second), ExecutionCondition::post_state(mutation, field.clone().component(second)));
+        assert_ne!(changed, field);
+        assert_ne!(changed, ExecutionCondition::post_state(later, owner.clone()).component(first));
+        assert_ne!(changed, ExecutionCondition::post_state(mutation, owner.clone()).component(second));
+
+        assert_ne!(ExecutionCondition::post_state(mutation, owner.clone().borrowed()).component(first),
+            ExecutionCondition::post_state(mutation, owner.component(first).borrowed()));
+    }
 }

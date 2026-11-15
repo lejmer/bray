@@ -15,6 +15,19 @@ impl ExecutionCondition {
     pub(crate) fn post_state(mutation: bray_bound_tree::StorageMutation, identity: Self) -> Self {
         match identity.owner_identity().kind() {
             K::Unknown => ExecutionCondition::unknown(),
+            K::Projection(projection, owner) => {
+                Self::post_state(mutation, owner.as_ref().clone()).component(*projection)
+            }
+            K::Input(place) if !place.projections.is_empty() => {
+                let root = ExecutionCondition::new(K::Input(crate::ExecutionPlace {
+                    root: place.root.clone(),
+                    projections: Arc::new([]),
+                }));
+
+                place.projections.iter().fold(Self::post_state(mutation, root), |owner, projection| {
+                    owner.component(*projection)
+                })
+            }
             K::PostState(_, identity) => ExecutionCondition::new(K::PostState(mutation, Arc::clone(identity))),
             _ => ExecutionCondition::new(K::PostState(mutation, Arc::new(identity.owner_identity().clone()))),
         }
@@ -29,7 +42,9 @@ impl ExecutionCondition {
 
         let identity = source.descriptor_identity();
 
-        if identity.contains_unknown() { return ExecutionCondition::unknown(); }
+        if identity.contains_unknown() {
+            return ExecutionCondition::unknown();
+        }
 
         let identity = identity.clone().into_referent();
 
@@ -361,15 +376,23 @@ impl ExecutionCondition {
         let left = left.copied_value().clone();
         let right = right.copied_value().clone();
 
-        if left.contains_unknown() || right.contains_unknown() { return ExecutionCondition::unknown(); }
+        if left.contains_unknown() || right.contains_unknown() {
+            return ExecutionCondition::unknown();
+        }
 
         assert!(!left.contains_trusted() && !right.contains_trusted()
             && !left.is_reference() && !right.is_reference(),
             "data aliases require ordinary copied observations: left={left:?}, right={right:?}");
 
-        if left == right { return ExecutionCondition::boolean(true); }
+        if left == right {
+            return ExecutionCondition::boolean(true);
+        }
 
-        let (left, right) = if left < right { (left, right) } else { (right, left) };
+        let (left, right) = if left < right {
+            (left, right)
+        } else {
+            (right, left)
+        };
 
         ExecutionCondition::new(K::ValueAlias(Arc::new(left), Arc::new(right)))
     }
@@ -458,7 +481,9 @@ impl ExecutionCondition {
 
     /// A typed argument either retains its loan or reads the reached value.
     pub(crate) fn argument_value(self, borrowed: bool) -> Self {
-        if borrowed { return self.borrowed(); }
+        if borrowed {
+            return self.borrowed();
+        }
 
         let mut value = self;
 
@@ -550,7 +575,9 @@ impl ExecutionCondition {
     pub(crate) fn project(self, projection: bray_bound_tree::StorageProjection) -> Self {
         use bray_bound_tree::StorageProjection;
 
-        if projection == StorageProjection::AddressTarget { return self.into_referent(); }
+        if projection == StorageProjection::AddressTarget {
+            return self.into_referent();
+        }
 
         if let (K::Constructed(_, fields), StorageProjection::ElementFromEnd(index)) =
             (self.kind(), projection)

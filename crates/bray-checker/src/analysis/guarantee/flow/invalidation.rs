@@ -972,9 +972,7 @@ mod tests {
 
     #[test]
     fn absent_sources_cannot_overwrite_live_return_ownership_during_invalidation() {
-        let (_, expressions) = crate::test_support::expression_unit(BoundUnitId::new(0), |tree, origin| {
-            (0..2).map(|_| crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))).collect()
-        });
+        let (_, expressions) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 2);
 
         let place = |ordinal| ExecutionPlace::argument(SymbolOrdinal::new(ordinal));
         let left = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place(3)));

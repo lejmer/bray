@@ -314,7 +314,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let allocation = state.memory.fresh(result.clone(), operation.expression());
+                let pointer = if matches!(operation.kind(), CheckedMemoryOperationKind::Allocate) {
+                    let (field, _) = self.input.allocation_pointer.expect("allocation field is prepared");
+
+                    let mut pointer = result.clone();
+
+                    pointer.projections = result.projections.iter().copied()
+                        .chain([bray_bound_tree::StorageProjection::ProductField(field)]).collect();
+
+                    pointer
+                } else {
+                    result.clone()
+                };
+
+                let allocation = state.memory.fresh(pointer, operation.expression());
 
                 if matches!(
                     operation.kind(),
@@ -324,7 +337,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             }
             CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
-                let Some(pointer) = argument(0) else {
+                let Some(pointer) = self.deallocation_pointer(state, operation) else {
                     return MemoryOperationStatus::Recovered;
                 };
 

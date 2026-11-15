@@ -123,7 +123,7 @@ impl DeferredValue {
     ) {
         let current_fact = |condition: &ExecutionCondition| {
             !condition.observations().any(|observed| matches!(observed.kind(), crate::ExecutionConditionKind::ScalarValue(_))
-                && observed.selector_place().is_some_and(|place| current.live_value(place)
+                && observed.selector_place().is_some_and(|place| current.live_value(&place)
                     .is_none_or(|value| value.copied_value() != observed)))
         };
 

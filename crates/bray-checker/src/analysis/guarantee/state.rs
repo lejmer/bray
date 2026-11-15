@@ -2255,6 +2255,44 @@ mod tests {
             }
         }
 
+        let (_, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
+
+        let epoch = |expression: bray_bound_tree::BoundExpressionId| ExecutionCondition::post_state(
+            bray_bound_tree::StorageMutation::Operation(expression.into()), owner.clone());
+
+        let previous = epoch(expressions[0]);
+        let marker = previous.clone().project(field);
+
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(
+            ExecutionCondition::predicate(symbol.into(), crate::test_support::empty_substitution(symbol.into()),
+                vec![marker.clone().borrowed()]))));
+
+        for unchanged in [true, false] {
+            let current = epoch(expressions[1]);
+
+            let contents = if unchanged {
+                marker.clone()
+            } else {
+                current.clone().project(field)
+            };
+
+            let current = ExecutionCondition::owned_value(owner.clone(),
+                ExecutionCondition::constructed(current, [(field, contents)].into()));
+
+            let retained = BTreeSet::from([current.clone()]);
+            let snapshots = crate::execution_guarantees::RetainedSnapshots::from(&retained);
+            let mut state = ExecutionState::default();
+
+            assert_eq!(snapshots.retains_contents(&marker.clone().borrowed()), unchanged);
+            assert!(!snapshots.retains_owner(&marker.clone().borrowed()));
+            state.carry_guarantee(marker.clone(), claim.clone());
+            state.trusted_assumptions.insert((claim.clone(), true));
+            state.retire_trusted_values([previous.clone().borrowed()], &retained);
+            assert_eq!(state.trusted_assumptions.contains(&(claim.clone(), true)), unchanged);
+            state.invalidate_trusted(&current);
+            assert!(!state.trusted_assumptions.contains(&(claim.clone(), true)));
+        }
+
         let before = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::boolean(false));
         let current = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::boolean(true));
         let other = ExecutionCondition::owned_value(input(4), ExecutionCondition::boolean(true));

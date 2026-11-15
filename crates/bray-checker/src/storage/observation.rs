@@ -180,6 +180,26 @@ pub(crate) struct Footprint {
 }
 
 impl Footprint {
+    pub(crate) fn reference_shape(&self, ty: TypeId) -> (bool, Vec<&[StorageProjection]>) {
+        let shape = self.shapes.get(&ty).expect("assignment target shape is prepared");
+
+        let candidates = shape.observations.iter().filter_map(|(path, observation)| {
+            matches!(observation, Observation::Reference(_) | Observation::Address)
+                .then_some(path.as_slice())
+        }).collect::<BTreeSet<_>>();
+
+        let mut slots = Vec::<&[StorageProjection]>::new();
+
+        for path in candidates {
+            // A stored descriptor is inline. Its reached fields belong to another value.
+            if slots.last().is_none_or(|parent| !path.starts_with(parent)) {
+                slots.push(path);
+            }
+        }
+
+        (shape.complete_references, slots)
+    }
+
     fn observe_accesses<C: CheckerRequestContext + ?Sized>(
         &mut self,
         request: CheckerUnitView<'_, C>,

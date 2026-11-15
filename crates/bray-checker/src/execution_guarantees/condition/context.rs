@@ -556,10 +556,7 @@ mod tests {
 
     #[test]
     fn equality_results_retain_exact_ordinary_scope_and_expiry_preference() {
-        let (_, expressions) = crate::test_support::expression_unit(bray_bound_tree::BoundUnitId::new(0), |tree, origin| {
-            (0..2).map(|_| crate::test_support::push_expression(tree,
-                crate::test_support::integer_literal_expression(origin, None))).collect()
-        });
+        let (_, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
 
         let left = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0]));
         let right = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[1]));
@@ -575,6 +572,7 @@ mod tests {
         let inactive = cache.equalities(&ordinary, None);
 
         assert!(inactive.is_empty());
+
         guard.assume(true, &mut ordinary);
 
         let active = cache.equalities(&ordinary, None);
@@ -594,6 +592,7 @@ mod tests {
         }
 
         ordinary.retain(|(condition, _)| matches!(condition.kind(), crate::ExecutionConditionKind::Operation(LogicalOr, _)));
+
         assert!(cache.equalities(&ordinary, None).is_empty(), "removed guard truth cannot reuse active bindings");
     }
 

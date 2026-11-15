@@ -648,16 +648,24 @@ pub(crate) fn expression_unit(
     (unit, expressions)
 }
 
+pub(crate) fn integer_expression_unit(
+    unit: BoundUnitId,
+    count: usize,
+) -> (BoundUnit, Vec<BoundExpressionId>) {
+    expression_unit(unit, |tree, origin| {
+        (0..count)
+            .map(|_| push_expression(tree, integer_literal_expression(origin, None)))
+            .collect()
+    })
+}
+
 pub(crate) fn completed_expression_check(
     unit: &BoundUnit,
     input: &ExpressionTypeInput,
 ) -> bray_diagnostics::DiagnosticResult<bray_bound_tree::CheckedExpressionTypes> {
     let entry = callable_entry(unit.key());
-
     let context = TestCheckerContext::new(false);
-
     let request = CheckerUnitView::new(unit, &entry, &context);
-
     let outcome = DefaultExpressionTypeChecker.check_expression_types(request, input);
 
     let CheckerOutcome::Complete(result) = outcome else {

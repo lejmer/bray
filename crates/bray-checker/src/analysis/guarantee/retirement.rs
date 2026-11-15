@@ -113,15 +113,19 @@ impl ExecutionState {
         }, &retained_data);
 
         let borrowed_slot_changed = memoize_observations(|observed| {
-            let crate::ExecutionConditionKind::Borrowed(value) = observed.kind() else { return false; };
+            let crate::ExecutionConditionKind::Borrowed(value) = observed.kind() else {
+                return false;
+            };
 
-            if retained_data(value) { return false; }
+            if retained_data(value) {
+                return false;
+            }
 
-            match (value.owner_identity()).kind() {
-                crate::ExecutionConditionKind::Input(place) | crate::ExecutionConditionKind::Joined(_, _, place) => place.overlaps_any(places),
-                crate::ExecutionConditionKind::PostState(_, identity) => matches!((identity.as_ref()).kind(),
-                    crate::ExecutionConditionKind::Input(place) if place.overlaps_any(places)),
-                _ => false,
+            let owner = value.owner_identity();
+
+            match owner.kind() {
+                crate::ExecutionConditionKind::Input(place) => place.overlaps_any(places),
+                _ => owner.selector_place().is_some_and(|place| place.overlaps_any(places)),
             }
         }, &retained_data);
 
@@ -754,6 +758,28 @@ mod tests {
                 selection: [(selector.clone(), true), (unrelated.clone(), false), (captured.clone(), true)].into(),
             }), ..Default::default()
         });
+
+        let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let sibling = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
+
+        let root = ExecutionCondition::post_state(bray_bound_tree::StorageMutation::Operation(expressions[0].into()),
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())));
+
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+
+        let claim = |projection| ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(
+            ExecutionCondition::predicate(symbol.into(), crate::test_support::empty_substitution(symbol.into()),
+                vec![root.clone().component(projection).borrowed()]))));
+
+        let field_claim = claim(field);
+        let sibling_claim = claim(sibling);
+
+        field_claim.clone().assume(true, &mut state.trusted_assumptions);
+        sibling_claim.clone().assume(true, &mut state.trusted_assumptions);
+        state.invalidate_contents(&[place.clone().component(field)].into(), [], &Default::default(), &Default::default(), None);
+
+        assert_ne!(field_claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
+        assert_eq!(sibling_claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
 
         state.invalidate_contents(&[place].into(), [], &Default::default(), &Default::default(), None);
 

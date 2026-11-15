@@ -64,13 +64,9 @@ impl State {
     ) {
         let mut staged = self.capture_value(source, &destination);
 
-        staged
-            .values
-            .entry(destination.clone())
-            .or_insert_with(|| References {
-                unknown: true,
-                ..References::default()
-            }.into());
+        // The root marks replacement of the whole value. Only actual reference
+        // slots carry reference uncertainty, including fields of an aggregate.
+        staged.values.entry(destination.clone()).or_default();
 
         let pending = self.pending.entry(call).or_default();
 
@@ -396,6 +392,25 @@ impl State {
         take_subtree(&mut pending.payloads, &destination).for_each(drop);
         take_subtree(&mut pending.deferred, &destination).for_each(drop);
         pending.values.insert(destination, References::default().into());
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_unresolved_value<'a>(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+        complete: bool,
+        references: impl IntoIterator<Item = &'a [bray_bound_tree::StorageProjection]>,
+    ) {
+        // Unknown replacement carries no previous contents or reference bounds.
+        // Incomplete generic layouts retain whole-value uncertainty separately.
+        let root = self.pending.entry(call).or_default().values.entry(destination.clone()).or_default();
+
+        root.tracked = !complete;
+        root.complete = false;
+
+        for path in references {
+            self.stage_unknown(call, destination.project(path));
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn stage_unknown(

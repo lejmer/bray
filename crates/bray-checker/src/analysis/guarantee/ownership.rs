@@ -578,9 +578,7 @@ mod tests {
         assert!(changed.transfers().all(|transfer| transfer.preservation().children().get(&field)
             .is_some_and(|child| !child.preserves_value())), "retained identity cannot restore overwritten contents");
 
-        let (_, sites) = crate::test_support::expression_unit(bray_bound_tree::BoundUnitId::new(0), |tree, origin| {
-            vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 1);
 
         let opaque = ExecutionCondition::post_state(bray_bound_tree::StorageMutation::Operation(sites[0].into()), original);
 

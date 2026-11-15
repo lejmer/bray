@@ -258,6 +258,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                     _ => None,
                 }),
+            crate::ExecutionConditionKind::Projection(_, _) => value.selector_place()
+                .and_then(|place| self.observed_types.get(&place).copied().flatten()),
             crate::ExecutionConditionKind::Call(instance, _, _, _, _)
                 if Some(instance.definition().symbol()) == self.sequence_length =>
             {

@@ -1451,6 +1451,34 @@ fn a_call_snapshot_present_on_only_one_path_has_no_must_target() {
 }
 
 #[test]
+fn unresolved_replacement_discards_previous_reference_bounds_without_inventing_root_aliases() {
+    let ([owner, destination, ..], expressions) = places();
+
+    let root = Target::storage(destination.clone());
+    let field_path = [BUFFER_POINTER];
+    let field = Place { root: destination.root, projections: field_path.into() };
+    let call = expressions[0].into();
+
+    for (complete, references) in [(true, vec![field_path.as_slice()]), (true, Vec::new()), (false, Vec::new())] {
+        let mut state = State::default();
+
+        state.address(owner.clone(), field.clone(), error_type(), expressions[0]);
+        state.begin_transition(call);
+        state.stage_unresolved_value(call, root.clone(), complete, references.iter().copied());
+        state.complete_transition(call);
+
+        assert!(state.referenced_regions(&Target::storage(field.clone())).is_none(),
+            "arbitrary replacement cannot keep the previous field's region bound");
+
+        assert!(state.observed_references().all(|(slot, _, _)| slot != &root),
+            "aggregate and scalar roots are not pointer slots");
+
+        assert_eq!(state.transitive_regions([root.clone()], |_, _| true).1,
+            !complete || !references.is_empty(), "unknown fields and opaque contents retain uncertainty");
+    }
+}
+
+#[test]
 fn original_entry_references_survive_slot_reassignment_without_proving_disjointness() {
     let ([first, second, captured, _], origins) = places();
 
@@ -2388,35 +2416,36 @@ fn replacing_inline_storage_does_not_revalidate_a_pointer_to_its_old_contents() 
 fn memory_writes_capture_formed_borrows_and_reads_transfer_the_whole_value() {
     let ([referent, owner, pointer, result], origins, capability) = borrowed_places();
 
-    let mut state = State::default();
-    let payload = super::Target::storage(owner).project(&[StorageProjection::UninitPayload]);
+    let field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
-    state.begin_borrow(capability, referent.clone(), error_type());
-    state.uninit(payload.clone(), error_type());
+    for projections in [Vec::new(), vec![field]] {
+        let mut state = State::default();
+        let payload = Target::storage(owner.clone()).project(&[StorageProjection::UninitPayload]);
 
-    state.write_value(
-        payload.clone(),
-        error_type(),
-        origins[0],
-        Some(super::Source::Borrow(capability)),
-    );
+        state.begin_borrow(capability, referent.clone(), error_type());
+        state.uninit(payload.clone(), error_type());
+        state.write_value(payload.clone(), error_type(), origins[0], None);
 
-    state.point_at(
-        payload,
-        pointer.clone(),
-        error_type(),
-        bray_symbols::DependencyReferenceKind::Address,
-    );
+        state.write_value(payload.project(&projections), error_type(), origins[0],
+            Some(super::Source::Borrow(capability)));
 
-    state.read(
-        &Target::storage(pointer.clone()),
-        error_type(),
-        MemoryReadKind::Move,
-        None,
-        Some(result.clone()),
-    );
+        state.point_at(payload, pointer.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
 
-    assert_eq!(state.referent(&result, error_type()), Some(referent));
+        // The opaque aggregate type needs checked whole-value initialization evidence.
+        let proven = (!projections.is_empty()).then_some(origins[1]);
+
+        assert_eq!(state.read(&Target::storage(pointer.clone()), error_type(), MemoryReadKind::Move, proven, Some(result.clone())),
+            MemoryOperationStatus::Valid);
+
+        let copied = Place { root: result.root, projections: projections.clone().into() };
+
+        assert_eq!(state.referent(&copied, error_type()), Some(referent.clone()));
+
+        if !projections.is_empty() {
+            assert!(state.observed_references().all(|(slot, _, _)| slot != &Target::storage(result.clone())),
+                "the copied aggregate retains its field's loan without inventing a root alias");
+        }
+    }
 }
 
 #[test]

@@ -263,7 +263,6 @@ mod tests {
     use bray_symbols::{ConstantValueData, ConstantValueKind, DependencyOwnedResult, DependencyOwnedTransfer};
     use bray_symbols::{DependencyOwnedResult as Layout, DependencyOwnedTransfer as Transfer, DependencyValuePreservation as Mask};
     use std::sync::Arc;
-    use crate::test_support::{expression_unit, integer_literal_expression, push_expression};
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::{BoundExecutionSite, BoundUnitId, StorageMutation, StorageProjection};
     use bray_symbols::SymbolOrdinal;
@@ -278,9 +277,7 @@ mod tests {
 
         state.owned_results.insert(input.clone(), layout.clone());
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![push_expression(tree, integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
         let observations: [(Arc<[StorageProjection]>, Kind); 3] = [
             (Arc::from([]), Kind::Discriminant),
@@ -332,9 +329,7 @@ mod tests {
             (changed, ExecutionCondition::boolean(false)),
         ].into());
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 2);
 
         let changed_mask = Mask::new(true, [(changed, Mask::none())].into());
 
@@ -372,9 +367,7 @@ mod tests {
             (fields[3], ExecutionCondition::boolean(true)),
         ].into());
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![push_expression(tree, integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let mut complete = ValuePreservation::default();
@@ -442,9 +435,7 @@ mod tests {
         let source = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::constructed(owner,
             [(field, reference.clone()), (data, ExecutionCondition::boolean(true))].into()));
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![push_expression(tree, integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let mut mask = ValuePreservation { descriptor: true, ..Default::default() };
@@ -484,9 +475,7 @@ mod tests {
 
     #[test]
     fn nested_owner_and_shared_alias_join_one_contents_snapshot() {
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            (0..3).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 3);
 
         let scope = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let marker = StorageProjection::TupleElement(SymbolOrdinal::new(1));
@@ -584,9 +573,7 @@ mod tests {
 
     #[test]
     fn selected_empty_ownership_survives_framing_and_both_join_boundaries() {
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            (0..3).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 3);
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(2));
         let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
@@ -680,9 +667,7 @@ mod tests {
 
         mask.at_mut(&[kept]).value = true;
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![push_expression(tree, integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let place = ExecutionPlace::argument(SymbolOrdinal::new(3));
@@ -716,9 +701,7 @@ mod tests {
         let absent = ExecutionCondition::new(crate::ExecutionConditionKind::Literal(Arc::new(ConstantValueData::new(crate::test_support::error_type(), ConstantValueKind::NullableAbsent))));
         let payload = StorageProjection::NullableValue;
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![push_expression(tree, integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let mask = ValuePreservation { discriminant: true, ..Default::default() };
@@ -836,9 +819,7 @@ mod tests {
             DependencyOwnedTransfer::new(input.clone(), []),
         ));
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![push_expression(tree, integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let mut mask = ValuePreservation { descriptor: true, discriminant: true, ..Default::default() };
@@ -865,9 +846,7 @@ mod tests {
         let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let previous = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(0), 1, place.clone()));
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 2);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let mut mask = ValuePreservation::default();
@@ -967,9 +946,7 @@ mod tests {
         let source = owner.clone().borrowed();
         let aliases = [1, 2].map(|ordinal| ExecutionPlace::argument(SymbolOrdinal::new(ordinal)));
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 2);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let mask = ValuePreservation { descriptor: true, ..Default::default() };
@@ -1000,9 +977,7 @@ mod tests {
         let context = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let copied = ExecutionCondition::scalar_observation(context.clone(), origin.clone());
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![push_expression(tree, integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let mask = ValuePreservation { descriptor: true, ..Default::default() };
@@ -1036,9 +1011,7 @@ mod tests {
         mask.at_mut(&[child]).descriptor = true;
         mask.at_mut(&[child, child]).value = true;
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            (0..2).map(|_| push_expression(tree, integer_literal_expression(origin, None))).collect()
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 2);
 
         for site in sites {
             value = mask.apply(&value, Some(&root), StorageMutation::Operation(BoundExecutionSite::from(site)));
@@ -1060,9 +1033,7 @@ mod tests {
 
         mask.at_mut(&[field]).value = true;
 
-        let (_, sites) = expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![push_expression(tree, integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
         let updated = mask.apply(&source, Some(&root), StorageMutation::Operation(sites[0].into()));
         let data = updated.clone().into_referent().project(field);

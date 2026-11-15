@@ -39,7 +39,6 @@ impl Set {
     fn preserves_uncached(&self, value: &ExecutionCondition) -> bool {
         if self.copies.contains(value)
             || self.values.retains_contents(value)
-            || matches!(value.kind(), crate::ExecutionConditionKind::Borrowed(referent) if self.values.retains_contents(referent))
             || self.copies.retains_inline_contents(value)
         {
             return true;

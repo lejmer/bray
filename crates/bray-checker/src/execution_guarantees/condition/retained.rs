@@ -58,6 +58,14 @@ impl RetainedSnapshots {
         if self.roots.is_empty() { return false; }
 
         cached_condition(&self.index().preserved, value, || {
+            // A retained field also retains its unchanged borrowed view. This
+            // compares current contents and does not transfer referent ownership.
+            if let crate::ExecutionConditionKind::Borrowed(referent) = value.kind()
+                && self.matching(referent, true, |selected| Self::same_contents(selected, referent))
+            {
+                return true;
+            }
+
             if let crate::ExecutionConditionKind::Observation { owner, contents, kind: ObservationKind::Reference } = value.kind()
                 && contents.ownership_identity().is_some_and(|(kind, _)| kind == ObservationKind::Owned)
                 && **owner == contents.owner_identity().clone().borrowed()

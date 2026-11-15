@@ -1,11 +1,10 @@
 use bray_diagnostics::{DiagnosticKind};
+use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 use crate::test_support::{source_function_body_key};
 use super::fixtures::{production_host_compilation, production_host_provider};
 
 #[test]
 fn production_byte_copy_does_not_publish_its_input_addresses() {
-    use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
-
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");
 
@@ -506,6 +505,66 @@ fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
                 lowered.diagnostics(),
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
+        }
+    }
+}
+
+#[test]
+fn allocation_disposal_retires_its_backing_without_reaching_another_owner() {
+    for (selected, valid) in [("retained.pointer", true), ("retired", false)] {
+        let source = format!(r#"
+            trusted module app;
+
+            using core.memory;
+            using std.memory;
+
+            extern func observe(pos pointer: DataPointer<u8>)
+                requires(trusted core.memory.valid_write<u8>(pointer = pointer, count = 1))
+                executes(pure, total);
+
+            trusted func caller()
+                uses(manual_alloc)
+            {{
+                let retained = trusted std.memory.allocate(
+                    {{
+                        bytes = 1,
+                        align = 1,
+                    }}
+                );
+                observe(retained.pointer);
+
+                let retired: DataPointer<u8> =
+                {{
+                    let victim = trusted std.memory.allocate(
+                        {{
+                            bytes = 1,
+                            align = 1,
+                        }}
+                    );
+
+                    yield victim.pointer;
+                }};
+
+                observe({selected});
+            }}
+        "#);
+
+        let compilation = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::baseline(), &source);
+
+        let checked = compilation.lowered_unit(source_function_body_key(&compilation, "caller"))
+            .expect("allocation disposal retains its checked transition");
+
+        bray_testing::assert_goal_state_diagnostic_outcome(checked.diagnostics(),
+            (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven), &source);
+
+        if !valid {
+            let source_id = source_function_body_key(&compilation, "caller").source().syntax().source_id();
+
+            assert!(checked.diagnostics().iter()
+                .filter(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven)
+                .all(|diagnostic| super::fixtures::diagnostic_at_call(diagnostic, source_id, &source, "observe(")),
+                "retired allocation must fail at its observation: {:?}", checked.diagnostics());
         }
     }
 }

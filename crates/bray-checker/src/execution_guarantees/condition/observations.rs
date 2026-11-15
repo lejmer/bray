@@ -5,16 +5,34 @@ use super::retention::Set;
 use std::collections::HashSet;
 
 impl ExecutionCondition {
-    pub(crate) fn selector_place(&self) -> Option<&crate::ExecutionPlace> {
+    pub(crate) fn selector_place(&self) -> Option<crate::ExecutionPlace> {
         match self.kind() {
-            crate::ExecutionConditionKind::ScalarValue(origin) => origin.selector_place(),
-            crate::ExecutionConditionKind::Joined(_, _, place) => Some(place),
-            crate::ExecutionConditionKind::PostState(_, origin) => match origin.as_ref().kind() {
-                crate::ExecutionConditionKind::Input(place) => Some(place),
-                _ => None,
-            },
-            _ => None,
+            crate::ExecutionConditionKind::ScalarValue(origin) => return origin.selector_place(),
+            crate::ExecutionConditionKind::Joined(..)
+            | crate::ExecutionConditionKind::PostState(..)
+            | crate::ExecutionConditionKind::Projection(..) => {}
+            _ => return None,
         }
+
+        let (root, projections) = self.observation_path()?;
+
+        let place = match root.kind() {
+            crate::ExecutionConditionKind::Joined(_, _, place) => place,
+            crate::ExecutionConditionKind::PostState(_, origin) => match origin.kind() {
+                crate::ExecutionConditionKind::Input(place) => place,
+                _ => return None,
+            },
+            _ => return None,
+        };
+
+        // The selector owns its combined path, while the underlying root stays immutable.
+        let mut place = place.clone();
+
+        if !projections.is_empty() {
+            place.projections = place.projections.iter().chain(&projections).copied().collect();
+        }
+
+        Some(place)
     }
 
     /// Reading a stored reference preserves its own referent instead of rebasing it on the container.

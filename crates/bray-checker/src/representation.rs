@@ -79,22 +79,27 @@ pub(crate) fn raw_buffer_fields<C: CheckerRequestContext + ?Sized>(
         panic!("recognized raw buffer {ty:?} has a struct representation");
     };
 
-    let field = |name| {
-        let bray_symbols::MemberLookupResult::Found(bray_symbols::AnySymbolId::StructField(field)) =
-            request.lookup_member(structure.into(), name)?
-        else {
-            panic!("recognized buffer {structure:?} requires its {name} field");
-        };
-
-        Ok::<_, CheckerQueryError<C::UpstreamError>>(field)
-    };
-
     Ok(Some(RawBufferFields {
         element,
-        pointer: field("pointer")?,
-        capacity: field("capacity")?,
-        initialized: field("initialized")?,
+        pointer: struct_field(request.context(), structure, "pointer")?,
+        capacity: struct_field(request.context(), structure, "capacity")?,
+        initialized: struct_field(request.context(), structure, "initialized")?,
     }))
+}
+
+/// Resolve a field of an already recognized ordinary struct representation.
+pub(crate) fn struct_field<C: CheckerRequestContext + ?Sized>(
+    context: &C,
+    structure: StructSymbolId,
+    name: &str,
+) -> Result<bray_symbols::StructFieldSymbolId, CheckerQueryError<C::UpstreamError>> {
+    let bray_symbols::MemberLookupResult::Found(bray_symbols::AnySymbolId::StructField(field)) =
+        context.lookup_member(structure.into(), name)?
+    else {
+        panic!("recognized struct {structure:?} requires its {name} field");
+    };
+
+    Ok(field)
 }
 
 pub(crate) fn type_supports_complete_fixed_layout<C>(

@@ -217,7 +217,7 @@ mod tests {
 
     use super::{GuardConstantEvidence, PatternCheckInput};
     use crate::test_support::{
-        error_type, expression_unit, integer_literal_expression, push_expression, semantic_values,
+        error_type, integer_expression_unit, semantic_values,
     };
 
     #[test]
@@ -226,12 +226,7 @@ mod tests {
         let values = semantic_values();
         let ty = error_type();
 
-        let (_, expressions) = expression_unit(BoundUnitId::new(1), |tree, origin| {
-            vec![push_expression(
-                tree,
-                integer_literal_expression(origin, None),
-            )]
-        });
+        let (_, expressions) = integer_expression_unit(BoundUnitId::new(1), 1);
 
         let [guard] = expressions.as_slice() else {
             panic!("test unit must contain one expression");

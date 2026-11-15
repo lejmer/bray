@@ -290,13 +290,9 @@ impl State {
 
             let mut transfer = transfer.unwrap_or_default();
 
-            transfer
-                .values
-                .entry(destination)
-                .or_insert_with(|| References {
-                    unknown: true,
-                    ..References::default()
-                }.into());
+            // Reading a whole value does not turn its aggregate root into a pointer.
+            // Actual pointer slots retain their captured reference uncertainty below.
+            transfer.values.entry(destination).or_default();
 
             if references.unknown
                 || references.displaced

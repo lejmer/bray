@@ -109,13 +109,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return self.buffer_release_effects(state, operation);
             }
             CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
-                let argument = operation.arguments()[0];
-
-                let ty = self.execution.semantics.types().expression(argument)
-                    .expect("checked deallocation retains its pointer type").ty();
+                let ty = if matches!(operation.kind(), CheckedMemoryOperationKind::Deallocate) {
+                    self.input.allocation_pointer.expect("allocation field is prepared").1
+                } else {
+                    self.execution.semantics.types().expression(operation.arguments()[0])
+                        .expect("checked deallocation retains its pointer type").ty()
+                };
 
                 let kind = bray_symbols::DependencyMutationKind::Retire;
-                let targets = self.memory_argument_reference(state, operation, argument).and_then(|source| source.regions(&state.memory));
+                let targets = self.deallocation_source(state, operation).and_then(|source| source.regions(&state.memory));
 
                 return Some(match targets {
                     Some(targets) => targets.into_iter().map(|target| Effect::Mutation(target, kind, Some(ty))).collect(),

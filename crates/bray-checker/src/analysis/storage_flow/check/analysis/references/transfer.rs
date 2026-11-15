@@ -541,19 +541,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        let [target, source] = assignment.operands() else {
+        let [_, source] = assignment.operands() else {
             return;
         };
 
-        if assignment.operator() == bray_bound_tree::BoundAssignmentOperator::Assign {
-            let ty = self
-                .execution
-                .semantics
-                .types()
-                .expression(*target)
-                .expect("assignment target has a checked type")
-                .ty();
+        let access = self.assignment_access(expression.into()).expect("resolved assignment retains its destination access");
+        let ty = self.storage.access(access).expect("assignment destination is planned").reached_type();
 
+        if assignment.operator() == bray_bound_tree::BoundAssignmentOperator::Assign {
             // Pending output owns this path until the assignment completes.
             if let Some(projections) = self.reference_wrapping(*source, ty)
                 && let Some(source) = self.expression_reference(state, *source)
@@ -568,9 +563,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        state
-            .memory
-            .stage_unknown(operation.occurrence(), destination.clone());
+        let (complete, references) = self.input.footprint.reference_shape(ty);
+
+        state.memory.stage_unresolved_value(operation.occurrence(), destination.clone(), complete, references);
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn prepare_call_references(

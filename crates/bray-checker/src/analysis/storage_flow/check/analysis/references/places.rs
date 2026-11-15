@@ -99,14 +99,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &StorageFlowState,
         node: AnyBoundNodeId,
     ) -> Option<Target> {
-        let access = self
-            .storage
-            .node_plans(node)
-            .find(|plan| plan.purpose() == StorageAccessPurpose::Assignment)?
-            .access();
+        let access = self.assignment_access(node)?;
 
         self.input
             .reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
+    }
+
+    pub(super) fn assignment_access(&self, node: AnyBoundNodeId) -> Option<bray_bound_tree::StorageAccessId> {
+        self.storage
+            .node_plans(node)
+            .find(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
+            .map(|plan| plan.access())
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn expression_is_borrowed(

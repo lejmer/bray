@@ -46,6 +46,8 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
         bray_symbols::CallableInstanceData,
         BTreeMap<bray_symbols::DependencyStoredValuePath, (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
     >,
+    pub(in crate::analysis::storage_flow) allocation_pointer:
+        Option<(bray_symbols::StructFieldSymbolId, bray_symbols::TypeId)>,
     pub(in crate::analysis::storage_flow) raw_buffers:
         BTreeMap<bray_symbols::TypeId, (crate::representation::RawBufferFields, bool)>,
     pub(in crate::analysis::storage_flow) reference_paths:
@@ -242,6 +244,7 @@ impl StorageFlowInput {
             );
 
         input.prepare_buffer_fields(request, cleanup_shapes, buffer_types, &mut demands)?;
+        input.prepare_allocation_pointer(request, memory, types)?;
 
         input.prepare_entry_references(request, storage, selections, dependencies, demands)?;
 

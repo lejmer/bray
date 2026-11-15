@@ -952,9 +952,7 @@ mod tests {
         let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let updated = StorageProjection::TupleElement(SymbolOrdinal::new(1));
 
-        let (_, sites) = crate::test_support::expression_unit(BoundUnitId::new(0), |tree, origin| {
-            vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
-        });
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let loan = origin.clone().borrowed();
@@ -1079,9 +1077,7 @@ mod tests {
     }
     #[test]
     fn reference_data_join_preserves_unchanged_nested_data() {
-        let (_, expressions) = crate::test_support::expression_unit(bray_bound_tree::BoundUnitId::new(0), |tree, origin| {
-            vec![crate::test_support::push_expression(tree, crate::test_support::integer_literal_expression(origin, None))]
-        });
+        let (_, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 1);
 
         let source = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0]));
         let field = bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));

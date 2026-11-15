@@ -13,12 +13,28 @@ use crate::analysis::storage_flow::{
 };
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    fn cleanup_mutation_receiver(&self, memory: &State, mutation: &CleanupMutation<'_>) -> Option<Target> {
-        match mutation {
-            CleanupMutation::Opaque { access, path, .. } => self.cleanup_receiver(memory, *access, *path),
-            CleanupMutation::Lifecycle(call) => self.cleanup_receiver(memory, call.access, call.path),
-            CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
+    fn prepare_cleanup_receiver(&self, memory: &mut State, mutation: &CleanupMutation<'_>) -> Option<Target> {
+        let (access, path) = match mutation {
+            CleanupMutation::Opaque { access, path, .. } => (*access, *path),
+            CleanupMutation::Lifecycle(call) => (call.access, call.path),
+            CleanupMutation::Unchanged | CleanupMutation::Recovery => return None,
+        };
+
+        let path = path?;
+
+        let producer = self.storage.identity(path.root).expect("cleanup path retains its planned root")
+            .definition_occurrence().and_then(bray_bound_tree::BoundExecutionSite::expression);
+
+        if let Some(producer) = producer
+            && self.storage.value_slot(producer) == Some(path.root)
+            && self.request.view().expression(producer).is_some_and(bray_bound_tree::BoundExpression::has_result_region)
+        {
+            // Cleanup takes the produced private value before normal publication.
+            // Consuming its transfer once gives every cleanup part the same current contents.
+            memory.complete_transition(producer.into());
         }
+
+        self.cleanup_receiver(memory, access, Some(path))
     }
 
     pub(super) fn apply_cleanup(
@@ -56,6 +72,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
              mutation: crate::analysis::guarantee::CleanupMutation<'_>,
              conditional: bool| {
 
+                let receiver = self.prepare_cleanup_receiver(&mut memory, &mutation);
                 let skipped = conditional.then(|| memory.clone());
 
                 if let CleanupMutation::Lifecycle(call) = &mutation {
@@ -66,8 +83,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     CleanupMutation::Lifecycle(call) => Some(call),
                     _ => None,
                 };
-
-                let receiver = self.cleanup_mutation_receiver(&memory, &mutation);
 
                 let task_path = match &mutation {
                     CleanupMutation::Opaque { path, .. } => *path,

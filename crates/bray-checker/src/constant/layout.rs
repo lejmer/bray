@@ -2,8 +2,8 @@ use bray_bound_tree::MemoryLayoutQueryKind;
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticId, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, CallableInstanceData, ConstantField, ConstantValueData, ConstantValueId,
-    ConstantValueKind, GenericArgument, IntegerConstant, MemberLookupResult, NamedTypeSymbolId,
+    CallableInstanceData, ConstantField, ConstantValueData, ConstantValueId,
+    ConstantValueKind, GenericArgument, IntegerConstant, NamedTypeSymbolId,
     SemanticValueStoreError, TypeData, TypeId,
 };
 use bray_target::TargetValueLayout;
@@ -271,11 +271,7 @@ where
             let mut fields = Vec::with_capacity(2);
 
             for (name, value) in [("bytes", bytes), ("align", alignment)] {
-                let MemberLookupResult::Found(AnySymbolId::StructField(field)) =
-                    context.lookup_member(definition.into(), name)?
-                else {
-                    panic!("recognized MemoryLayout requires its {name} field");
-                };
+                let field = crate::representation::struct_field(context, definition, name)?;
 
                 fields.push(ConstantField::new(
                     field,
