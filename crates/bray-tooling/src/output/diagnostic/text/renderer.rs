@@ -595,13 +595,19 @@ mod tests {
             .expect("test source length fits in TextSize");
 
         let whitespace_prefix_source = format!(
-            "{}\n{}{}target",
+            "{}\n{}target{}",
             " ".repeat(300),
             " ".repeat(20),
             "b".repeat(120)
         );
 
         let whitespace_prefix_len = TextSize::try_from(whitespace_prefix_source.len())
+            .expect("test source length fits in TextSize");
+
+        let separated_markers_source =
+            format!("{}\ntarget\n{}target", " ".repeat(300), " ".repeat(400));
+
+        let separated_markers_len = TextSize::try_from(separated_markers_source.len())
             .expect("test source length fits in TextSize");
 
         for (source, range) in [
@@ -621,13 +627,17 @@ mod tests {
                 whitespace_prefix_source,
                 TextRange::new(TextSize::new(200), whitespace_prefix_len),
             ),
+            (
+                separated_markers_source,
+                TextRange::new(TextSize::new(200), separated_markers_len),
+            ),
         ] {
             let sources = file_source_store(&source);
             let span = SourceSpan::new(SourceId::new(0), range);
 
             let diagnostic = Diagnostic::new(
                 DiagnosticId::new(0),
-                DiagnosticKind::LexicalInvalidCharacter,
+                DiagnosticKind::LexicalInvalidIdentifier,
                 SeverityKind::Error,
             )
             .with_primary_span(span);

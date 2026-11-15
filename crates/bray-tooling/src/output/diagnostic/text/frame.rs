@@ -421,13 +421,22 @@ impl TextFrameViewport {
             return Self { start_column: 0 };
         }
 
-        let marker_range = marker_column_range(lines, location);
+        let mut marker_ranges = lines
+            .iter()
+            .filter_map(FrameLine::source)
+            .filter_map(|line| marker_range(line, location));
 
-        let start_column = viewport_start_column(
-            max_line_len,
-            marker_range,
-            zero_based_column(location.start()),
-        );
+        let Some(first_range) = marker_ranges.next() else {
+            return Self { start_column: 0 };
+        };
+
+        let focus_column = first_range.start;
+
+        let marker_range = marker_ranges.fold(first_range, |bounds, range| {
+            bounds.start.min(range.start)..bounds.end.max(range.end)
+        });
+
+        let start_column = viewport_start_column(max_line_len, marker_range, focus_column);
 
         Self { start_column }
     }
@@ -446,26 +455,6 @@ impl<'source> FrameLine<'source> {
     }
 }
 
-fn marker_column_range(lines: &[FrameLine<'_>], location: SourceLocation<'_>) -> Range<usize> {
-    let mut start = usize::MAX;
-    let mut end = 0;
-
-    for range in lines
-        .iter()
-        .filter_map(FrameLine::source)
-        .filter_map(|line| marker_range(line, location))
-    {
-        start = start.min(range.start);
-        end = end.max(range.end);
-    }
-
-    if start == usize::MAX {
-        return 0..0;
-    }
-
-    start..end
-}
-
 fn viewport_start_column(
     max_line_len: usize,
     marker_range: Range<usize>,
@@ -479,7 +468,6 @@ fn viewport_start_column(
     }
 
     focus_column
-        .clamp(marker_range.start, marker_range.end.saturating_sub(1))
         .saturating_sub(SOURCE_FRAME_MAX_COLUMNS / 3)
         .min(max_start)
 }
