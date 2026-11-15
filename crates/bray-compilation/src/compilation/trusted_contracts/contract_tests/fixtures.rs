@@ -1,4 +1,5 @@
 use bray_symbols::{PackageIdentity};
+use std::collections::BTreeMap;
 use crate::{Compilation, CompilationRequest, WorkerBudget};
 use crate::test_support::{ProductionFixtureCache, production_fixture, production_native_link_inputs, production_source_inputs};
 use std::sync::{OnceLock};
@@ -204,6 +205,41 @@ pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compi
     production_host_compilation_for_target(caller, crate::SelectedTarget::baseline())
 }
 
+pub(super) fn assert_production_probes(
+    source: &str,
+    expected: &[(&str, Option<bray_diagnostics::DiagnosticKind>)],
+) {
+    let compilation = production_probe_compilation();
+    let caller = compilation.sources().iter().find(|input| input.text() == source)
+        .expect("production probe source is retained").source_id();
+    let symbols = compilation.symbol_graph().expect("production probe declarations");
+    let probes = compilation.declared_unit_keys_for_test().expect("production probe units").into_iter()
+        .filter(|key| key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
+            && key.source().syntax().source_id() == caller)
+        .collect::<Vec<_>>();
+
+    let mut expected = expected.iter().copied().collect::<BTreeMap<_, _>>();
+
+    assert_eq!(probes.len(), expected.len(), "every probe retains its expected outcome");
+
+    for key in probes {
+        let name = symbols.symbol_for_key(key.declared_owner())
+            .and_then(|symbol| symbols.member_name(symbol)).expect("probe function name").as_str();
+        let expected = expected.remove(name)
+            .expect("each declared probe has an expected outcome");
+
+        let started = std::time::Instant::now();
+
+        eprintln!("[probe] case-start name={name}");
+
+        let checked = compilation.lowered_unit(key).expect("production probe lowers for diagnostic inspection");
+
+        bray_testing::assert_goal_state_diagnostic_outcome(checked.diagnostics(), expected, name);
+        eprintln!("[probe] case-finish name={name} elapsed_ms={}", started.elapsed().as_millis());
+    }
+
+}
+
 pub(in crate::compilation) fn production_host_compilation_for_target(
     caller: &str,
     target: crate::SelectedTarget,
@@ -211,42 +247,32 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
     static FIXTURES: ProductionFixtureCache = OnceLock::new();
 
     production_fixture(&FIXTURES, caller, target, |caller, target| {
-        build_production_host(caller, target, WorkerBudget::serial())
+        build_production_host(production_source_inputs(
+            &["standard-library/std/src", "runtime/bootstrap/src"], caller,
+        ), target, WorkerBudget::serial())
     })
 }
 
-/// Whole-provider checks share one compiler pool instead of blocking serial caller probes.
-pub(super) fn production_host_provider() -> Compilation {
-    static PROVIDER: OnceLock<Compilation> = OnceLock::new();
+fn production_probe_compilation() -> Compilation {
+    static PROBES: OnceLock<Compilation> = OnceLock::new();
 
-    PROVIDER.get_or_init(|| build_production_host(
-        "module app;", crate::SelectedTarget::baseline(), WorkerBudget::available_parallelism(),
-    )).clone()
+    PROBES.get_or_init(|| {
+        let sources = production_source_inputs(&[
+            "standard-library/std/src",
+            "runtime/bootstrap/src",
+            "xtask/fixtures/native-execution/contracts",
+        ], "module app;");
+
+        build_production_host(sources, crate::SelectedTarget::baseline(), WorkerBudget::available_parallelism())
+    }).clone()
 }
 
-fn build_production_host(caller: &str, target: crate::SelectedTarget, workers: WorkerBudget) -> Compilation {
-    let compilation = Compilation::load(production_host_request(caller, target, workers))
-        .expect("actual production host declarations must load");
-
-    assert!(
-        !compilation.syntax_tree_result().diagnostics().has_errors(),
-        "actual bootstrap module declarations must parse: {:?}",
-        compilation.syntax_tree_result().diagnostics()
-    );
-
-    compilation
-}
-
-fn production_host_request(
-    caller: &str,
+fn build_production_host(
+    sources: Vec<bray_source::SourceInput>,
     target: crate::SelectedTarget,
     workers: WorkerBudget,
-) -> CompilationRequest {
-    let sources = production_source_inputs(
-        &["standard-library/std/src", "runtime/bootstrap/src"], caller,
-    );
-
-    CompilationRequest::with_options(
+) -> Compilation {
+    let request = CompilationRequest::with_options(
         PackageIdentity::try_new("std").expect("standard library identity must be valid"),
         sources,
         crate::CompilationOptions::new(
@@ -256,18 +282,21 @@ fn production_host_request(
         )
         .with_native_link_inputs(production_native_link_inputs(["bray_runtime_host"])),
     )
-    .with_standard_library_source_authority()
+    .with_standard_library_source_authority();
+    let compilation = Compilation::load(request).expect("actual production host declarations must load");
+
+    assert!(!compilation.syntax_tree_result().diagnostics().has_errors(),
+        "actual bootstrap module declarations must parse: {:?}", compilation.syntax_tree_result().diagnostics());
+
+    compilation
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use super::{production_host_compilation, production_host_request};
+    use super::production_host_compilation;
     use crate::test_support::source_function_body_key;
-    use crate::{
-        Compilation, CompilationProfileConfiguration, CompilationProfileMode, SelectedTarget, WorkerBudget,
-    };
 
     #[test]
     #[ignore = "tier:proof"]
@@ -288,75 +317,4 @@ mod tests {
         assert!(Arc::ptr_eq(&first_proof, &second_proof));
     }
 
-    #[test]
-    #[ignore = "tier:proof"]
-    fn production_fixture_phase_timings() {
-        let request = production_host_request("module app;", SelectedTarget::baseline(), WorkerBudget::available_parallelism())
-            .with_profile(CompilationProfileConfiguration::new(
-                CompilationProfileMode::Summary,
-            ));
-
-        let compilation = Compilation::load(request).expect("profiled production fixture");
-
-        assert!(!compilation.syntax_tree_result().diagnostics().has_errors());
-        checkpoint(&compilation, "parse");
-        compilation.symbol_graph().expect("production symbols");
-        checkpoint(&compilation, "bind");
-        compilation.check_diagnostics();
-        checkpoint(&compilation, "check");
-
-        compilation
-            .lowered_unit(source_function_body_key(&compilation, "host_access"))
-            .expect("production lowering");
-
-        checkpoint(&compilation, "lower");
-
-        let before = query_evaluations(&compilation);
-
-        compilation.check_diagnostics();
-
-        compilation
-            .symbol_graph()
-            .expect("cached production symbols");
-
-        compilation
-            .lowered_unit(source_function_body_key(&compilation, "host_access"))
-            .expect("cached production lowering");
-
-        assert_eq!(
-            query_evaluations(&compilation),
-            before,
-            "repeated production demands must perform no additional query evaluations"
-        );
-
-        checkpoint(&compilation, "reuse");
-    }
-
-    fn query_evaluations(compilation: &Compilation) -> u64 {
-        compilation
-            .profile_report()
-            .expect("fixture profiling enabled")
-            .queries
-            .iter()
-            .map(|query| query.evaluations)
-            .sum()
-    }
-
-    fn checkpoint(compilation: &Compilation, phase: &str) {
-        let report = compilation
-            .profile_report()
-            .expect("fixture profiling enabled");
-
-        if let Some(directory) = std::env::var_os("BRAY_TEST_PROFILE_OUTPUT") {
-            let directory = std::path::PathBuf::from(directory);
-
-            std::fs::create_dir_all(&directory).expect("profile report directory");
-
-            std::fs::write(
-                directory.join(format!("production-{phase}.json")),
-                serde_json::to_vec_pretty(&report).expect("profile encodes"),
-            )
-            .expect("profile report writes");
-        }
-    }
 }

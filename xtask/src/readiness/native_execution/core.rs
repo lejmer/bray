@@ -32,66 +32,53 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
 
     crate::native_toolchain::build_compiler(root)?;
 
-    crate::progress::run("Preparing native readiness standard library", || {
-        crate::standard_library::build_target_bundle(
-            &root.join("standard-library"),
-            &standard_library_root(root),
-            target,
-        )
-        .map(|_| ())
-    })?;
+    let (runtime, standard_library) = crate::native_toolchain::prepare_bundles(root, target)?;
 
     crate::progress::run("Checking native semantic rejections", || {
-        audit_rejections(root, target, &standard_library_root(root))
-    })?;
-
-    let runtime = native_output("bray-native-runtime-")?;
-
-    let runtime = crate::progress::run("Building native readiness runtime artifacts", || {
-        crate::runtime_artifact::build_for_readiness(target, runtime.path())
+        audit_rejections(root, target, &standard_library)
     })?;
 
     crate::progress::run("Checking native static storage", || {
-        audit_static_storage(root, target, &runtime)
+        audit_static_storage(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking transitive native libraries through Tack", || {
-        audit_native_libraries(root, target, &runtime)
+        audit_native_libraries(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking standard-library hello world execution", || {
-        audit_standard_hello_world(root, target, &runtime)
+        audit_standard_hello_world(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking standard formatting execution", || {
-        audit_standard_format(root, target, &runtime)
+        audit_standard_format(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking standard buffer execution", || {
-        audit_standard_buffer(root, target, &runtime)
+        audit_standard_buffer(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking text cursor execution", || {
-        audit_text_cursor(root, target, &runtime)
+        audit_text_cursor(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking native startup", || {
-        audit_startup(root, target, &runtime)
+        audit_startup(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking half-open range execution", || {
-        audit_half_open_ranges(root, target, &runtime)
+        audit_half_open_ranges(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking nullable state queries", || {
-        audit_nullable_state_queries(root, target, &runtime)
+        audit_nullable_state_queries(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking guarded root cleanup", || {
         audit_repeatable_fixture(
             root,
             target,
-            &runtime,
+            &runtime.metadata,
             "bray-native-guarded-root-",
             GUARDED_ROOT_CLEANUP_FIXTURE,
             0,
@@ -104,7 +91,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
         audit_repeatable_fixture(
             root,
             target,
-            &runtime,
+            &runtime.metadata,
             "bray-native-guarded-part-",
             GUARDED_PART_CLEANUP_FIXTURE,
             0,
@@ -117,7 +104,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
         audit_repeatable_fixture(
             root,
             target,
-            &runtime,
+            &runtime.metadata,
             "bray-native-heap-storage-",
             HEAP_STORAGE_FIXTURE,
             0,
@@ -144,7 +131,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
         ),
     ] {
         crate::progress::run(&format!("Checking {name}"), || {
-            audit_repeatable_fixture(root, target, &runtime, prefix, fixture, 0, name, &[])
+            audit_repeatable_fixture(root, target, &runtime.metadata, prefix, fixture, 0, name, &[])
         })?;
     }
 
@@ -152,7 +139,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
         audit_repeatable_fixture(
             root,
             target,
-            &runtime,
+            &runtime.metadata,
             "bray-native-pattern-",
             PATTERN_CONDITIONS_FIXTURE,
             0,
@@ -162,27 +149,27 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     })?;
 
     crate::progress::run("Checking native entry results", || {
-        audit_entry_result(root, target, &runtime)
+        audit_entry_result(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking native memory operations", || {
-        audit_memory_operations(root, target, &runtime)
+        audit_memory_operations(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking native atomic operations", || {
-        audit_atomic_operations(root, target, &runtime)
+        audit_atomic_operations(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking native memory layout", || {
-        audit_memory_layout(root, target, &runtime)
+        audit_memory_layout(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking native host behavior", || {
-        audit_host_behavior(root, target, &runtime)
+        audit_host_behavior(root, target, &runtime.metadata)
     })?;
 
     crate::progress::run("Checking runtime artifact integration", || {
-        crate::runtime_artifact::smoke_test_host()
+        crate::runtime_artifact::smoke_test_host(runtime)
     })
 }
 
@@ -522,7 +509,7 @@ pub(super) fn build_fixtures(
 
     command
         .arg("--standard-library-root")
-        .arg(standard_library_root(root));
+        .arg(crate::runtime_artifact::standard_library_directory(root, target));
 
     if let Some(package) = package {
         command.args(["--package", package]);
@@ -535,14 +522,6 @@ pub(super) fn build_fixtures(
     let operation = format!("building native execution fixtures {fixtures:?}");
 
     crate::command::require_success(command, &operation).map(|_| ())
-}
-
-pub(super) fn standard_library_root(root: &Path) -> PathBuf {
-    crate::workspace::cargo_target(root)
-        .join("release")
-        .join("lib")
-        .join("bray")
-        .join("standard-library")
 }
 
 pub(super) fn require_equal_files(left: &Path, right: &Path, artifact: &str) -> Result<(), String> {

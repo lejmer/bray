@@ -12,5 +12,5 @@ mod test_catalog;
 mod unicode;
 mod unicode_data;
 
-pub(crate) use command::{build_target_bundle, current_target_bundle, run};
+pub(crate) use command::{build_target_bundle, run};
 pub(crate) use os_bindings::native_links;

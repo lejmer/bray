@@ -23,42 +23,56 @@ Style is deferred until errors are resolved. Commit/push checkpoints, then publi
 
 ## Current evidence
 
-The current production batch builds with the optimized tooling profile. Temporary tracing is removed.
-All 136 bound-tree and 562 checker tests pass. The bounded 25-case integration selection passes 23.
-The protected real program passes raw read, Uninit extraction and nested buffer disposal in source and imported modes.
-It preserves an unrelated marker and rejects repeated raw reads, overwritten/fabricated initialization and saved retired
-backing at the intended boundaries. Same-site deferred loops, independent-owner negatives, static-owner controls,
-nested-union mutation, exclusive-entry tags and the earlier allocator/reference/retirement controls also pass.
+Head 1440b142a is pushed. All 563 checker tests pass. Protected address/raw-read/Uninit/nested-buffer composition passes
+source/import, including exact retirement and fabrication rejection locations. Conditional-future active, inactive and
+dropped controls pass both modes. The frozen opaque-execution negative is restored. No atomic-frame panic appeared
+after completing the effect inventory, but whole-provider completion is unverified.
 
-Both native probes still fail at dispatch_ready's context/view_owned call and reserve_start's registration presence
-postcondition. owner_entry_scope passes. These are failing tests, not a verified count of remaining compiler defects.
-The actual Windows product's older baseline had nine leaf call failures, one registration postcondition and sixteen
-propagated errors. That whole-product result is not current-tree evidence.
+The frozen 1,718-identity comparison on 1ceb765eb had three regressions and seven panic timeouts. The three regressions
+now pass focused checks. A subsequent 39-case run completed 20 passes and stopped at 300 seconds with 16 unfinished.
+Both native probes still fail at dispatch_ready/context(view_owned) and reserve_start/registration presence.
+The corrected source/import tag fixture passes with its API import and conditional memory import.
 
-The fixed comparison on 1ceb765eb passed 1,708 of 1,718 identities. Three regressed: opaque-execution terminal state
-was accepted, and source/import conditional_future_active lost permission. Seven production-provider cases timed out
-after the atomic-frame invariant panicked. The bounded run finished in 326 seconds and stopped all owned children.
-Those seven remain unverified. Broad matrices, actual four-target product gates, Bray/native event layout,
-fixed-five/loop measurements, style and format remain open. Rebase replay was identical, incoming compiler changes
-still require validation with the repair batch.
-Use shared Cargo/LLVM storage. Native LLVM/archive/link/executable workflows run outside the sandbox.
+The uncommitted setup batch removes four duplicate provider tests and their separate cache and shares native dependency
+preparation across readiness/composition/std tests/performance/smoke. Five artifact reuse/pinned-input controls pass.
+All 13 remaining boundary/totality/cache controls pass in 19.1 seconds. No fixture-cache semantic change remains.
+Do not bypass the existing identity-namespace invalidation contract.
 
-The rebased repair batch builds. All 563 checker tests pass. A 39-case selection completed 20 passes, repaired all
-three frozen regressions and preserved conditional-future inactive/dropped negatives. Both native probes still fail.
-This PR's new tag fixture stopped on newly introduced unused-import warnings, now removed but awaiting rebuild.
-The run stopped at 300 seconds with 16 cases unfinished. No atomic-frame panic occurred. It included two whole-provider
-compilations and a third test's 15 caller variants. Together they reached 8.3 GB and 1,850 CPU-seconds. The native
-compiler/tooling build also completed. No tests remain running.
+Native-exit, retirement and shutdown now retain all 15/5/7 cases as named functions under native-execution/contracts.
+One immutable Compilation discovers all three files and shares one CPU-sized worker pool across all groups, without
+source revisions. Their helper matches the actual source-unit inventory bijectively to expected outcomes and reports
+each case. All 27 pass in 16.8 seconds total under a 60-second bound. First probe checks cold dependencies in 10.26 seconds,
+the other 26 total about two seconds, mostly 2–50 ms. The former 15-source-revision run exceeded 120 seconds. A single
+cold probe demanded 479 body units, 501 preparations, 293 certificates and 192 components through attachment cleanup
+and provider callbacks. Remaining cold compiler cost is separate performance work. Temporary query tracing and selection
+are removed. No test is running. Actual native products replace the four removed positive gates and remain mandatory.
+Do not count those removed identities as passes.
 
-User directed removal of duplicated provider compilation. Canonical native product gates must own one standard-library
-and bootstrap build per compiler/source/target configuration and reuse its artifacts. Several source tests currently
-check the whole provider and discard diagnostics outside selected regions. Their work is redundant with the product
-gate. The phase-timing test creates another full provider. Consumer fixtures fork a parse-only baseline, so their later
-dependency computations are not automatically shared back into that baseline. Audit source/private-body consumers
-against artifact-interface consumers before editing the setup. Preserve negative outcomes and rejection locations,
-nested-body and clause coverage, and actual product acceptance. Do not add a parallel compilation or traversal pipeline.
-Temporary query-start instrumentation in the phase-timing fixture is uncommitted. Its test-only build is running.
-Use it for one bounded diagnosis only, then remove it. Do not run the full matrices or whole-provider group again.
+Actual four-target products, event layout, final matrices/comparison, fixed-five/loop, mutating style/format and
+maintainability gates remain open. Use shared Cargo/LLVM storage. Native toolchain workflows run outside the sandbox.
+Do not rerun full matrices or the redundant whole-provider group during this setup repair.
+
+## Provider reuse contract
+
+Canonical native builds already check whole packages, nested units and executable-template families, and publish
+validated interfaces, implementations and archives. Remove the three filtered host/report/storage positive gates,
+their independent provider cache and the full-provider timing test. Native Linux/Windows product gates replace that
+coverage and remain mandatory, currently failing. Keep metadata-specific assertions, private-owner source probes,
+negative outcomes and exact failure locations. Do not pretend removed test identities passed the frozen comparison.
+
+Readiness, native std tests, composition, smoke and default performance preparation must share the existing release
+runtime destination and runtime-bootstrap-standard-library per-target bundle. Prepare once per orchestration and use
+assemble_from_bundles. Delete assemble's implicit second std build. Explicit outputs and pinned inputs remain exact.
+Carry the builder's existing Package inventory through readiness to smoke, instead of reconstructing it from a path.
+Keep executable/work directories isolated. Existing publication locks reject concurrent writers, but do not promise
+single-flight waiting or pin readers across replacement. Do not start competing configurations while consuming a pair.
+
+Private source-owner probes cannot all become imported consumers without changing their visibility/authority contract.
+Share one immutable source program across independent probe bodies. Any source edit invalidates the compiler's local
+identity namespace, including semantic results for unchanged sources, as existing snapshot tests require. Reusing a
+certificate across such edits is not promised and would require a separate compiler-owned incremental design.
+Keep existing identical-input/syntax/isolation controls. Use ordinary tiny fixtures for self-contained totality/payload
+borrow cases. Do not add a fixture framework or locally bypass the dependency graph.
 
 ## Current contracts and their owners
 
@@ -113,35 +127,23 @@ current pointer records. Direct/hidden calls, lifecycle, nested-buffer and defer
 Unresolved paths remain conservative. Standalone static reference exits remain outside the verified composition, with no
 native consumer identified. Do not invent reference anchors to expand that scope.
 
-## Reopened contracts
+## Remaining source contract
 
-- Conditional result publication must install admitted common ownership in every complete alternative before
-  retire_owned_alternative and merge_returned process deferred captures. Case guards remain feasible constraints.
-  Existing per-arm contents masks must survive. Fill only missing inactive mappings, with the candidate's conservative
-  mask, excluding identities already guaranteed by simultaneous siblings. Use the existing guaranteed_transfers and
-  same_identity operations, without enumerating Cartesian layouts. Source/import conditional_future_active and
-  inactive/dropped controls, plus nested-union masks, are fixed oracles.
-- Atomic observation preparation must cover every executable effect inventory before discarding its closed frame:
-  direct calls, deferred bodies, capture/result cleanup, lifecycle cleanup and guarded buffer cleanup. Reuse each
-  inventory's current prepared subject types, including static roots. Unbounded Atomic normalizes to Atomic and must
-  count. Cache typed transfer shapes through the same preparation. Never replace the invariant with a fallback.
-  The seven stalled provider controls and existing atomic mutation negatives are the oracles.
-- Incoming mutable Entry storage is not proven private. Both the frozen opaque-execution negative and this PR's
-  extern sibling-call positive have Ambient/Escape. Remove the mutable Ambient exemption and use the existing
-  unknown_reference_may_reach and actual disjoint-effect rules. Retain the frozen negative. The positive now uses a
-  checked source observer, while the opaque extern sibling becomes negative. Private local framing remains covered
-  by the existing memory-origin and publication rules. Mutable ancestor tags additionally require a surviving actual
-  enclosing descriptor resolved through reference_target. An unresolved descriptor grants no extra preservation.
-  Shared descendant tags also consult each resolved target's actual effects, including raw replacement and retirement.
-
-Hypothesis: complete existing layout and effect inventories, rather than adding identity or authority machinery.
-Remove whole-return appearance checks that miss nested alternatives and premature atomic-frame elision.
-Keep production growth below 150 lines for these repairs. Reconsider if a new representation or Cartesian traversal
-is required, if masks widen, or if the fixed comparison regresses.
+Incoming mutable Entry storage is not proven private. reserve_start takes &mut PreparedStart, calls opaque demand_lane,
+then promises its registration tag. Its sole caller already owns PreparedStart in a with body. Inline reservation there
+and remove reserve_start, preserving the actual private local storage rather than adding an authority exception.
+Keep select/register failures as function returns, store the successful reservation before demand, and borrow the scoped
+owner for commit. Every return, panic and cancellation runs PreparedStart.exit. Failed admission withdraws the stored
+registration once before releasing services. Commit transfers it under the task lock, clears the preparation field before
+waking, and scope exit releases only the preparation's independent services. The intervening guard destructor is total.
+Never move the scoped capability into a helper, duplicate withdrawal, postpone the store or reassert predicates.
+Update the native bootstrap named-body control to start_frame. Expected production growth is negative. Reconsider on
+any loss of cleanup authority, changed failure outcome or regression in frozen opaque/raw-mutation controls.
+This source change remains unimplemented. dispatch_ready's first view-owned invalidation remains unresolved.
 
 ## Next work
 
-Repair the reopened contracts above before expanding product validation. Then inspect remaining native failures across
+Complete the source contract above, then inspect remaining native failures across
 actual products, including current summaries and every affected consumer. Preserve the fixed oracles.
 Run fixed comparison, owned/deferred and projection/cleanup gates, actual four-target product checks/lowering and
 layout checks, plus fixed-five/loop controls. Finish maintainability/DRY audit and mutating style/format commands.

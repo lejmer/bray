@@ -18,4 +18,5 @@ mod synchronous;
 
 pub use bootstrap::build as build_bootstrap;
 
-pub(crate) use command::{build_for_readiness, run, smoke_test_host};
+pub(crate) use bootstrap::standard_library_directory;
+pub(crate) use command::{Package, build_for_readiness, readiness_directory, run, smoke_test_host};

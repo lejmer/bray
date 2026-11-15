@@ -1,6 +1,5 @@
 use bray_diagnostics::{DiagnosticKind};
-use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation};
+use crate::test_support::{compilation, source_function_body_key};
 
 #[test]
 #[ignore = "tier:proof"]
@@ -54,7 +53,7 @@ fn total_indexing_requires_a_live_bound_on_the_selected_sequence() {
             "#
         );
 
-        let compilation = production_host_compilation(&caller);
+        let compilation = compilation(&caller);
 
         let checked = compilation
             .execution_properties(source_function_body_key(&compilation, "production_probe"))
@@ -103,7 +102,7 @@ fn total_indexing_preserves_bounds_across_optional_borrow_initialization() {
             "#
         );
 
-        let compilation = production_host_compilation(&caller);
+        let compilation = compilation(&caller);
 
         let checked = compilation
             .execution_properties(source_function_body_key(&compilation, "production_probe"))
@@ -116,7 +115,7 @@ fn total_indexing_preserves_bounds_across_optional_borrow_initialization() {
 #[test]
 #[ignore = "tier:proof"]
 fn total_loop_bounds_keep_the_evaluated_condition_across_iterations() {
-    let compilation = production_host_compilation(
+    let compilation = compilation(
         r#"
         module app;
 
@@ -194,7 +193,7 @@ fn total_record_scans_require_a_bounded_unaliased_counter() {
 }}"#
         );
 
-        let compilation = production_host_compilation(&caller);
+        let compilation = compilation(&caller);
 
         let checked = compilation
             .execution_properties(source_function_body_key(&compilation, "production_probe"))

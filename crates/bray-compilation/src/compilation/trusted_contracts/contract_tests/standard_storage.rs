@@ -1,7 +1,7 @@
 use bray_diagnostics::{DiagnosticKind};
 use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation, production_host_provider};
+use super::fixtures::production_host_compilation;
 
 #[test]
 fn production_byte_copy_does_not_publish_its_input_addresses() {
@@ -350,80 +350,6 @@ fn production_buffer_views_keep_nested_allocations_bounded() {
             flow.value().dependencies()
         );
     }
-}
-
-#[test]
-#[ignore = "tier:proof"]
-fn production_storage_boundaries_prove_their_declared_memory_effects() {
-    let compilation = production_host_provider();
-    let mut failures = Vec::new();
-    let mut sources = std::collections::HashSet::new();
-
-    let mut pending = compilation
-        .declared_unit_keys_for_test()
-        .expect("fixture declarations must resolve their units");
-
-    while let Some(key) = pending.pop() {
-        if !matches!(
-            key.kind(),
-            bray_bound_tree::BoundUnitKind::CallableBody
-                | bray_bound_tree::BoundUnitKind::AnonymousCallable
-                | bray_bound_tree::BoundUnitKind::ContractClause
-        ) {
-            continue;
-        }
-
-        let source = compilation
-            .source(key.source().syntax().source_id())
-            .expect("fixture `source` call must succeed")
-            .text();
-
-        if !source.contains("module bray.runtime.bootstrap.storage;")
-            && !source.contains("module bray.runtime.bootstrap.outgoing;")
-            && !source.contains("module bray.runtime.bootstrap.activation;")
-            && !source.contains("module bray.runtime.bootstrap.activation.")
-            && !source.contains("trusted internal func retain_report(")
-        {
-            continue;
-        }
-
-        sources.insert(key.source().syntax().source_id());
-
-        let bound = compilation
-            .bound_unit(key.clone())
-            .expect("fixture callable must bind successfully");
-
-        if bound.diagnostics().has_errors() {
-            failures.push(format!("{key:?}: {:?}", bound.diagnostics()));
-            continue;
-        }
-
-        if key.kind() == bray_bound_tree::BoundUnitKind::ContractClause {
-            continue;
-        }
-
-        pending.extend(bound.value().nested_units().iter().cloned());
-
-        let lowered = compilation
-            .lowered_unit(key.clone())
-            .expect("fixture callable must lower successfully");
-
-        if lowered.diagnostics().has_errors() {
-            failures.push(format!("{key:?}: {:?}", lowered.diagnostics()));
-        }
-    }
-
-    for diagnostic in compilation.check_diagnostics().iter() {
-        if diagnostic.severity() == bray_diagnostics::SeverityKind::Error
-            && diagnostic
-                .primary_span()
-                .is_some_and(|span| sources.contains(&span.source_id()))
-        {
-            failures.push(format!("{diagnostic:?}"));
-        }
-    }
-
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

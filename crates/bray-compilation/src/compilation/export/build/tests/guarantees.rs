@@ -60,8 +60,16 @@ fn exclusive_entry_tags_require_bounded_effects_or_private_storage() {
     ] {
         for imported in [false, true] {
             let prefix = if imported { "example.package.api" } else { "api" };
+            let memory_import = if operation.contains("core.memory.") {
+                "using core.memory;"
+            } else {
+                ""
+            };
             let caller = format!(r#"
                 trusted module app;
+
+                {memory_import}
+                using API;
 
                 trusted func caller(pos owner: &mut API.Owner)
                     ensures(owner.registration matches ?_)

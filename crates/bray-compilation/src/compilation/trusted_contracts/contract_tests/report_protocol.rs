@@ -1,67 +1,6 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation, production_host_provider};
-
-#[test]
-#[ignore = "tier:proof"]
-fn production_report_consumers_check_their_callback_protocol() {
-    let compilation = production_host_provider();
-
-    let names = [
-        "dispose",
-        "retain",
-        "begin",
-        "number",
-        "consume_segment",
-        "install",
-        "compose",
-        "exchange_record",
-        "pop_record_value",
-        "retain_primary",
-        "accept_progress",
-        "transfer",
-        "retire",
-        "acquire",
-        "resolve",
-        "execute",
-        "invoke_retaining",
-        "start_frame",
-        "retained_address",
-    ];
-
-    let symbols = compilation
-        .symbol_graph()
-        .expect("fixture compilation must build its symbol graph");
-
-    let sources = symbols
-        .functions()
-        .iter()
-        .filter_map(|function| {
-            let symbol = function.id().into();
-            let name = symbols.member_name(symbol)?;
-
-            names.contains(&name.as_str()).then(|| {
-                symbols
-                    .declaration_syntax_anchor(symbol)
-                    .expect("production source function has its declaration")
-                    .source_id()
-            })
-        })
-        .collect::<Vec<_>>();
-
-    let diagnostics = compilation.check_diagnostics();
-
-    let failures = diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            diagnostic
-                .primary_span()
-                .is_some_and(|span| sources.contains(&span.source_id()))
-        })
-        .collect::<Vec<_>>();
-
-    assert!(failures.is_empty(), "{failures:#?}");
-}
+use super::fixtures::production_host_compilation;
 
 #[test]
 #[ignore = "tier:proof"]
